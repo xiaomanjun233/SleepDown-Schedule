@@ -6,7 +6,7 @@ SleepDown 课程表是一款注重视觉体验和日常效率的本地课程表�
 
 ## 特色功能
 
-- **液态玻璃界面** — 应用内 Dock、按钮、弹窗、课程卡片等元素采用 LiquidGlass 风格设计，支持浅色、深色和壁纸环境下的自适应玻璃效果（液态玻璃来自 [@kyant](https://github.com/kyant) 的开源项目）
+- **液态玻璃界面** — 应用内 Dock、按钮、弹窗、课程卡片等元素采用 LiquidGlass 风格设计，支持浅色、深色和壁纸环境下的自适应玻璃效果（液态玻璃来自 [@Kyant0](https://github.com/Kyant0) 的开源项目）
 - **喊你上课岛** — 在支持安卓实时活动 API 的系统上（原生 Android 16、Xiaomi HyperOS 3.0.300 以上、ColorOS 16），可将即将上课的信息上岛提醒，并支持取消本次提醒、开启或关闭勿扰模式
 - **自定义岛上缩略态** — 实时活动缩略态可选择显示上课地点、剩余时间、短标或自动模式
 - **AI 手动导入** — 可将课表 PDF 交给任意 AI 整理，再把返回文本复制进应用解析导入
@@ -99,7 +99,7 @@ CourseSchedule/
 
 ## 引用与修改说明
 
-### [kyant/backdrop](https://github.com/kyant/backdrop) — 液态玻璃渲染引擎
+### [kyant/backdrop](https://github.com/Kyant0/backdrop) — 液态玻璃渲染引擎
 
 - `io.github.kyant0:backdrop:2.0.0-alpha03` 提供 `Backdrop` 和 `drawBackdrop` 渲染管线
 - `com.kyant.backdrop.catalog.*` 内嵌了上游 UI 组件（LiquidButton、LiquidPanel、LiquidSlider、LiquidToggle、LiquidBottomTab/Tabs）及交互工具类
@@ -127,7 +127,7 @@ CourseSchedule/
 
 | 项目 | 作者 | 协议 | 用途 |
 |------|------|------|------|
-| [backdrop](https://github.com/kyant/backdrop) | Kyant | Apache 2.0 | 液态玻璃渲染引擎 |
+| [backdrop](https://github.com/Kyant0/backdrop) | Kyant0 | Apache 2.0 | 液态玻璃渲染引擎 |
 | [shiguang_warehouse](https://github.com/xingheyuzhuan/shiguang_warehouse) | 星河欲转 / 拾光开发者 | MIT | 教务系统适配资源 |
 | [AndroidX / Jetpack](https://developer.android.com/jetpack) | Google | Apache 2.0 | UI 框架、数据库、生命周期 |
 | [Kotlin Serialization](https://github.com/Kotlin/kotlinx.serialization) | JetBrains | Apache 2.0 | JSON 序列化 |
