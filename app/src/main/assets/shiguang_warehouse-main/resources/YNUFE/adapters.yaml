@@ -1,0 +1,9 @@
+# resources/YNUFE/adapters.yaml
+adapters:
+  - adapter_id: "YNUFE_01" # 采用数字编号规范
+    adapter_name: "云南财经大学本科教务系统"
+    category: "BACHELOR_AND_ASSOCIATE"
+    asset_js_path: "ynufe.js"
+    import_url: "https://xjwis.ynufe.edu.cn/jsxsd/"
+    maintainer: "AxelPLN"
+    description: "云南财经大学强智教务适配，登录教务系统账号后直接导入即可。"

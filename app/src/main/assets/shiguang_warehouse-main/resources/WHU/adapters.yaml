@@ -1,0 +1,9 @@
+# resources/WHU/adapters.yaml
+adapters:
+  - adapter_id: "WHU_CAS_ZHLJ"
+    adapter_name: "武汉大学智慧珞珈课表"
+    category: "BACHELOR_AND_ASSOCIATE"
+    asset_js_path: "whu.js"
+    import_url: "https://cas.whu.edu.cn/authserver/login?service=https%3A%2F%2Fzhlj.whu.edu.cn%2FcasLogin"
+    maintainer: "小漫君"
+    description: "适配武汉大学统一身份认证入口。登录后请进入智慧珞珈课表页面，再执行导入脚本。"

@@ -1,0 +1,9 @@
+# resources/SWU/adapters.yaml
+adapters:
+  - adapter_id: "SWU_UAAAP"
+    adapter_name: "西南大学正方教务"
+    category: "BACHELOR_AND_ASSOCIATE"
+    asset_js_path: "zhengfang_jiaowu/zhengfang_01.js"
+    import_url: "https://i.swu.edu.cn/"
+    maintainer: "小漫君"
+    description: "使用正方教务通用脚本，并由 SleepDown 强制套用西南大学节次时间。登录后请进入教务课表页面，再执行导入脚本。"

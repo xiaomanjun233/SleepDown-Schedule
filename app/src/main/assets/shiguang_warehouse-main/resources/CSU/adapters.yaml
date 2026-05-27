@@ -1,0 +1,9 @@
+# resources/CSU/adapters.yaml
+adapters:
+  - adapter_id: "CSU_CAS"
+    adapter_name: "中南大学统一认证课表"
+    category: "BACHELOR_AND_ASSOCIATE"
+    asset_js_path: "csu.js"
+    import_url: "http://csujwc.its.csu.edu.cn"
+    maintainer: "小漫君"
+    description: "适配中南大学统一身份认证入口。登录后请进入课表页面，再执行导入脚本。"

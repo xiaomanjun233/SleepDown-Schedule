@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SleepDown 教务导入测试页</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        body {
+            margin: 0;
+            padding: 24px;
+            background: Canvas;
+            color: CanvasText;
+            line-height: 1.6;
+        }
+        main {
+            max-width: 720px;
+            margin: 0 auto;
+        }
+        h1 {
+            margin: 0 0 10px;
+            font-size: 22px;
+        }
+        p {
+            margin: 8px 0;
+            color: color-mix(in srgb, CanvasText 72%, transparent);
+        }
+        .card {
+            margin-top: 18px;
+            padding: 16px;
+            border-radius: 18px;
+            background: color-mix(in srgb, CanvasText 8%, transparent);
+        }
+        code {
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>教务导入桥接测试页</h1>
+    <p>这个页面不访问校园网，用来运行仓库里的组件测试脚本。</p>
+    <div class="card">
+        <p>点击右下角导入按钮后，会依次测试弹窗、输入、单选、课程数据、时间段和配置保存。</p>
+        <p>脚本路径：<code>GLOBAL_TOOLS/school.js</code></p>
+    </div>
+</main>
+</body>
+</html>

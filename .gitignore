@@ -1,0 +1,14 @@
+*.iml
+.gradle
+**/build
+/.idea
+.DS_Store
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.log
+*probe*.txt
+deps-output.txt
+hs_err_pid*.log
+replay_pid*.log

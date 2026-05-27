@@ -1,0 +1,411 @@
+// 课表以空 HTML 表格返回，课程数据通过 JavaScript 脚本动态注入
+// 脚本中包含 `new TaskActivity(...)` 构造函数调用来定义课程
+// 需要从脚本文本中直接提取课程信息，而不是解析 DOM
+
+(function () {
+    const BASE = "https://jwc3-yangtzeu-edu-cn-s.atrust.yangtzeu.edu.cn";
+    function extractCourseHtmlDebugInfo(courseHtml) {
+        const text = String(courseHtml || "");
+        const hasTaskActivity = /new\s+TaskActivity\s*\(/i.test(text);
+        return {
+            responseLength: text.length,
+            hasTaskActivity
+        };
+    }
+    async function requestText(url, options) {
+        const requestOptions = {
+            credentials: "include",
+            ...options
+        };
+        const res = await fetch(url, requestOptions);
+        const text = await res.text();
+        if (!res.ok) {
+            throw new Error(`网络请求失败: ${res.status}`);
+        }
+        return text;
+    }
+
+    // 从入口页提取学生 ID 和学期组件 tagId
+    function parseEntryParams(entryHtml) {
+        const idsMatch = entryHtml.match(/bg\.form\.addInput\(form,"ids","(\d+)"\)/);
+        const tagIdMatch = entryHtml.match(/id="(semesterBar\d+Semester)"/);
+        return {
+            studentId: idsMatch ? idsMatch[1] : "",
+            tagId: tagIdMatch ? tagIdMatch[1] : ""
+        };
+    }
+
+    // 学期接口返回对象字面量，这里按脚本文本解析
+    function parseSemesterResponse(rawText) {
+        let data;
+        try {
+            data = Function(`return (${String(rawText || "").trim()});`)();
+        } catch (_) {
+            throw new Error("学期数据解析失败");
+        }
+        const semesters = [];
+        if (!data || !data.semesters || typeof data.semesters !== "object") {
+            return semesters;
+        }
+        Object.keys(data.semesters).forEach((k) => {
+            const arr = data.semesters[k];
+            if (!Array.isArray(arr)) return;
+            arr.forEach((s) => {
+                if (!s || !s.id) return;
+                semesters.push({
+                    id: String(s.id),
+                    name: `${s.schoolYear || ""} 第${s.name || ""}学期`.trim()
+                });
+            });
+        });
+        return semesters;
+    }
+
+    // 清除课程名后面的课程序号
+    function cleanCourseName(name) {
+        return String(name || "").replace(/\(\d+\)\s*$/, "").trim();
+    }
+
+    // 解析周次位图字符串
+    function parseValidWeeksBitmap(bitmap) {
+        if (!bitmap || typeof bitmap !== "string") return [];
+        const weeks = [];
+        for (let i = 0; i < bitmap.length; i++) {
+            if (bitmap[i] === "1" && i >= 1) weeks.push(i);
+        }
+        return weeks;
+    }
+    function normalizeWeeks(weeks) {
+        const list = Array.from(new Set((weeks || []).filter((w) => Number.isInteger(w) && w > 0)));
+        list.sort((a, b) => a - b);
+        return list;
+    }
+
+    // 节次编号与 TimeSlots 编号映射
+    function mapSectionToTimeSlotNumber(section) {
+        const mapping = {
+            1: 1,
+            2: 2,
+            3: 4,
+            4: 5,
+            5: 7,
+            6: 8,
+            7: 3,
+            8: 6
+        };
+        return mapping[section] || section;
+    }
+
+    // 反引号化 JavaScript 字面量字符串，处理转义字符
+    function unquoteJsLiteral(token) {
+        const text = String(token || "").trim();
+        if (!text) return "";
+        if (text === "null" || text === "undefined") return "";
+        if ((text.startsWith("\"") && text.endsWith("\"")) || (text.startsWith("'") && text.endsWith("'"))) {
+            const quote = text[0];
+            let inner = text.slice(1, -1);
+            inner = inner
+                .replace(/\\\\/g, "\\")
+                .replace(new RegExp(`\\\\${quote}`, "g"), quote)
+                .replace(/\\n/g, "\n")
+                .replace(/\\r/g, "\r")
+                .replace(/\\t/g, "\t");
+            return inner;
+        }
+        return text;
+    }
+
+    // 分割 JavaScript 函数参数字符串，正确处理引号和转义
+    function splitJsArgs(argsText) {
+        const args = [];
+        let curr = "";
+        let inQuote = "";
+        let escaped = false;
+        for (let i = 0; i < argsText.length; i++) {
+            const ch = argsText[i];
+            if (escaped) {
+                curr += ch;
+                escaped = false;
+                continue;
+            }
+            if (ch === "\\") {
+                curr += ch;
+                escaped = true;
+                continue;
+            }
+            if (inQuote) {
+                curr += ch;
+                if (ch === inQuote) inQuote = "";
+                continue;
+            }
+            if (ch === "\"" || ch === "'") {
+                curr += ch;
+                inQuote = ch;
+                continue;
+            }
+            if (ch === ",") {
+                args.push(curr.trim());
+                curr = "";
+                continue;
+            }
+            curr += ch;
+        }
+        if (curr.trim() || argsText.endsWith(",")) {
+            args.push(curr.trim());
+        }
+        return args;
+    }
+
+    // 从脚本文本中的 TaskActivity 还原课程
+    function parseCoursesFromTaskActivityScript(htmlText) {
+        const text = String(htmlText || "");
+        if (!text) return [];
+        const unitCountMatch = text.match(/\bvar\s+unitCount\s*=\s*(\d+)\s*;/);
+        const unitCount = unitCountMatch ? parseInt(unitCountMatch[1], 10) : 0;
+        if (!Number.isInteger(unitCount) || unitCount <= 0) return [];
+        const courses = [];
+        const stats = {
+            blocks: 0,
+            teacherRecovered: 0,
+            teacherUnresolvedExpression: 0
+        };
+        const blockRe = /activity\s*=\s*new\s+TaskActivity\(([^]*?)\)\s*;\s*index\s*=\s*(?:(\d+)\s*\*\s*unitCount\s*\+\s*(\d+)|(\d+))\s*;\s*table\d+\.activities\[index\]/g;
+        let match;
+        while ((match = blockRe.exec(text)) !== null) {
+            stats.blocks += 1;
+            const argsText = match[1] || "";
+            const args = splitJsArgs(argsText);
+            if (args.length < 7) continue;
+            const dayPart = match[2];
+            const sectionPart = match[3];
+            const directIndexPart = match[4];
+            let indexValue = -1;
+            if (dayPart != null && sectionPart != null) {
+                indexValue = parseInt(dayPart, 10) * unitCount + parseInt(sectionPart, 10);
+            } else if (directIndexPart != null) {
+                indexValue = parseInt(directIndexPart, 10);
+            }
+            if (!Number.isInteger(indexValue) || indexValue < 0) continue;
+            const day = Math.floor(indexValue / unitCount) + 1;
+            let section = (indexValue % unitCount) + 1;
+            section = mapSectionToTimeSlotNumber(section);
+            if (day < 1 || day > 7 || section < 1 || section > 16) continue;
+            let teacher = unquoteJsLiteral(args[1]);
+            if (teacher && !/^['"]/.test(String(args[1]).trim()) && /join\s*\(/.test(String(args[1]))) {
+                const resolved = resolveTeachersForTaskActivityBlock(text, match.index);
+                if (resolved) {
+                    teacher = resolved;
+                    stats.teacherRecovered += 1;
+                } else {
+                    stats.teacherUnresolvedExpression += 1;
+                }
+            }
+            const name = cleanCourseName(unquoteJsLiteral(args[3]));
+            const position = unquoteJsLiteral(args[5]);
+            const weekBitmap = unquoteJsLiteral(args[6]);
+            const weeks = normalizeWeeks(parseValidWeeksBitmap(weekBitmap));
+            if (!name) continue;
+            courses.push({
+                name,
+                teacher,
+                position,
+                day,
+                startSection: section,
+                endSection: section,
+                weeks
+            });
+        }
+        console.info("[课程解析 TaskActivity]", {
+            blocks: stats.blocks,
+            parsedCourses: courses.length,
+            teacherRecovered: stats.teacherRecovered,
+            teacherUnresolvedExpression: stats.teacherUnresolvedExpression
+        });
+        return mergeContiguousSections(courses);
+    }
+
+    // 当教师名为表达式时，尝试在附近代码中回溯真实教师名
+    function resolveTeachersForTaskActivityBlock(fullText, blockStartIndex) {
+        const start = Math.max(0, blockStartIndex - 2200);
+        const segment = fullText.slice(start, blockStartIndex);
+        const re = /var\s+actTeachers\s*=\s*\[([^]*?)\]\s*;/g;
+        let m;
+        let last = null;
+        while ((m = re.exec(segment)) !== null) {
+            last = m[1];
+        }
+        if (!last) return "";
+        const names = [];
+        const nameRe = /name\s*:\s*(?:"([^"]*)"|'([^']*)')/g;
+        let nm;
+        while ((nm = nameRe.exec(last)) !== null) {
+            const name = (nm[1] || nm[2] || "").trim();
+            if (name) names.push(name);
+        }
+        if (names.length === 0) return "";
+        return Array.from(new Set(names)).join(",");
+    }
+
+    // 合并同一课程的连续节次
+    function mergeContiguousSections(courses) {
+        const list = (courses || [])
+            .filter((c) => c && c.name && Number.isInteger(c.day) && Number.isInteger(c.startSection) && Number.isInteger(c.endSection))
+            .map((c) => ({
+                ...c,
+                weeks: normalizeWeeks(c.weeks)
+            }));
+        list.sort((a, b) => {
+            const ak = `${a.name}|${a.teacher}|${a.position}|${a.day}|${a.weeks.join(",")}`;
+            const bk = `${b.name}|${b.teacher}|${b.position}|${b.day}|${b.weeks.join(",")}`;
+            if (ak < bk) return -1;
+            if (ak > bk) return 1;
+            return a.startSection - b.startSection;
+        });
+        const merged = [];
+        for (const item of list) {
+            const prev = merged[merged.length - 1];
+            const canMerge = prev
+                && prev.name === item.name
+                && prev.teacher === item.teacher
+                && prev.position === item.position
+                && prev.day === item.day
+                && prev.weeks.join(",") === item.weeks.join(",")
+                && prev.endSection + 1 >= item.startSection;
+
+            if (canMerge) {
+                prev.endSection = Math.max(prev.endSection, item.endSection);
+            } else {
+                merged.push({ ...item });
+            }
+        }
+        return merged;
+    }
+    function getPresetTimeSlots() {
+        return [
+            { number: 1, startTime: "08:00", endTime: "09:35" },
+            { number: 2, startTime: "10:05", endTime: "11:40" },
+            { number: 3, startTime: "12:00", endTime: "13:35" }, // 午间课
+            { number: 4, startTime: "14:00", endTime: "15:35" },
+            { number: 5, startTime: "16:05", endTime: "17:40" },
+            { number: 6, startTime: "17:45", endTime: "18:30" }, // 晚间课，部分课程为 18:00-18:45
+            { number: 7, startTime: "19:00", endTime: "20:35" },
+            { number: 8, startTime: "20:45", endTime: "22:20" }
+        ];
+    }
+
+    function validateSemesterStartDateInput(input) {
+        const value = String(input || "").trim();
+        if (!value) return "请输入开学日期";
+        if (!/^\d{4}[-/.]\d{2}[-/.]\d{2}$/.test(value)) return "请输入 YYYY-MM-DD";
+        const normalized = value.replace(/[/.]/g, "-");
+        const parts = normalized.split("-");
+        const year = Number(parts[0]);
+        const month = Number(parts[1]);
+        const day = Number(parts[2]);
+        if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return "请输入有效日期";
+        const date = new Date(year, month - 1, day);
+        const isValidDate = date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+        return isValidDate ? false : "请输入有效日期";
+    }
+
+    window.validateSemesterStartDateInput = validateSemesterStartDateInput;
+
+    async function selectSemesterStartDate() {
+        const picked = await window.AndroidBridgePromise.showPrompt(
+            "选择开学日期",
+            "请输入开学日期（YYYY-MM-DD）",
+            "",
+            "validateSemesterStartDateInput"
+        );
+        if (picked === null) return null;
+        const value = String(picked || "").trim().replace(/[/.]/g, "-");
+        return value || null;
+    }
+    async function runImportFlow() {
+        if (!window.AndroidBridgePromise) {
+            throw new Error("AndroidBridgePromise 不可用，无法进行导入交互。");
+        }
+        AndroidBridge.showToast("开始自动探测长江大学教务参数...");
+
+        // 探测学生 ID 和学期组件
+        const entryUrl = `${BASE}/eams/courseTableForStd.action?&sf_request_type=ajax`;
+        const entryHtml = await requestText(entryUrl, {
+            method: "GET",
+            headers: { "x-requested-with": "XMLHttpRequest" }
+        });
+        const params = parseEntryParams(entryHtml);
+        if (!params.studentId || !params.tagId) {
+            await window.AndroidBridgePromise.showAlert(
+                "参数探测失败",
+                "未能识别学生 ID 或学期组件 tagId，请确认已登录后重试。",
+                "确定"
+            );
+            return;
+        }
+
+        // 学期选择
+        const semesterRaw = await requestText(`${BASE}/eams/dataQuery.action?sf_request_type=ajax`, {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
+            body: `tagId=${encodeURIComponent(params.tagId)}&dataType=semesterCalendar`
+        });
+        const allSemesters = parseSemesterResponse(semesterRaw);
+        if (allSemesters.length === 0) {
+            throw new Error("学期列表为空，无法继续导入。");
+        }
+        const recentSemesters = allSemesters.slice(-8);
+        const selectIndex = await window.AndroidBridgePromise.showSingleSelection(
+            "请选择导入学期",
+            JSON.stringify(recentSemesters.map((s) => s.name || s.id)),
+            recentSemesters.length - 1
+        );
+        if (selectIndex === null) {
+            AndroidBridge.showToast("已取消导入");
+            return;
+        }
+        const index = Number.isInteger(Number(selectIndex)) ? Number(selectIndex) : recentSemesters.length - 1;
+        const selectedSemester = recentSemesters[index >= 0 && index < recentSemesters.length ? index : recentSemesters.length - 1];
+        const semesterStartDate = await selectSemesterStartDate();
+        if (semesterStartDate === null) {
+            AndroidBridge.showToast("已取消导入");
+            return;
+        }
+        AndroidBridge.showToast("正在获取课表数据...");
+
+        // 拉取并解析课表
+        const courseHtml = await requestText(`${BASE}/eams/courseTableForStd!courseTable.action?sf_request_type=ajax`, {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
+            body: [
+                "ignoreHead=1",
+                "setting.kind=std",
+                "startWeek=",
+                `semester.id=${encodeURIComponent(selectedSemester.id)}`,
+                `ids=${encodeURIComponent(params.studentId)}`
+            ].join("&")
+        });
+        const courses = parseCoursesFromTaskActivityScript(courseHtml);
+        if (courses.length === 0) {
+            const debugInfo = extractCourseHtmlDebugInfo(courseHtml);
+            await window.AndroidBridgePromise.showAlert(
+                "解析失败",
+                `未能从课表响应中识别到课程。\n响应长度: ${debugInfo.responseLength}\n包含 TaskActivity: ${debugInfo.hasTaskActivity}`,
+                "确定"
+            );
+            return;
+        }
+        await window.AndroidBridgePromise.saveImportedCourses(JSON.stringify(courses));
+        await window.AndroidBridgePromise.savePresetTimeSlots(JSON.stringify(getPresetTimeSlots()));
+        await window.AndroidBridgePromise.saveCourseConfig(JSON.stringify({ semesterStartDate }));
+        AndroidBridge.showToast(`导入成功，共 ${courses.length} 条课程`);
+        AndroidBridge.notifyTaskCompletion();
+    }
+    (async function bootstrap() {
+        try {
+            await runImportFlow();
+        } catch (error) {
+            console.error("导入流程失败:", error);
+            AndroidBridge.showToast(`导入失败：${error && error.message ? error.message : "请检查教务连接"}`);
+        }
+    })();
+})();
