@@ -12,3 +12,4 @@ local.properties
 deps-output.txt
 hs_err_pid*.log
 replay_pid*.log
+sleepdown_log_*.txt
