@@ -2,6 +2,7 @@ package com.example.courseschedule
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.app.DatePickerDialog
 import android.app.Application
 import android.app.NotificationManager
@@ -111,6 +112,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -268,6 +270,22 @@ class MainActivity : ComponentActivity() {
             CourseScheduleTheme(config = state.config) {
                 CourseScheduleAppUi(viewModel)
             }
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (hideFromRecentsEnabled) {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            am.appTasks.forEach { it.setExcludeFromRecents(true) }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (hideFromRecentsEnabled) {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            am.appTasks.forEach { it.setExcludeFromRecents(false) }
         }
     }
 }
@@ -466,6 +484,9 @@ sealed interface HomeDialog {
     data class ApplyCourseDelete(val course: CourseEntity, val targetWeek: Int) : HomeDialog
 }
 
+private var splashEntranceDone = false
+internal var hideFromRecentsEnabled = false
+
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
@@ -525,13 +546,41 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var screenDiagonal by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(state.loaded) {
         if (state.loaded && splashActive) {
-            delay(50)
+            delay(30)
             revealRadius.snapTo(0f)
             revealRadius.animateTo(
                 screenDiagonal * 1.2f,
-                animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
             )
             splashActive = false
+        }
+    }
+
+    // Entrance animations after splash reveal (first launch only, tuned for 120fps)
+    val topBarEntranceY = remember { Animatable(-200f) }
+    val contentEntranceY = remember { Animatable(80f) }
+    val dockEntranceY = remember { Animatable(200f) }
+    var entranceTriggered by remember { mutableStateOf(false) }
+    LaunchedEffect(state.loaded) {
+        if (state.loaded && !entranceTriggered) {
+            entranceTriggered = true
+            splashEntranceDone = false
+            launch {
+                delay(60)
+                topBarEntranceY.animateTo(0f, spring(dampingRatio = 0.68f, stiffness = 520f))
+            }
+            launch {
+                delay(130)
+                contentEntranceY.animateTo(0f, spring(dampingRatio = 0.62f, stiffness = 430f))
+            }
+            launch {
+                delay(200)
+                dockEntranceY.animateTo(0f, spring(dampingRatio = 0.70f, stiffness = 500f))
+            }
+            launch {
+                delay(900)
+                splashEntranceDone = true
+            }
         }
     }
 
@@ -540,6 +589,10 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         if (uri != null) {
             homeDialog = HomeDialog.CropWallpaper(uri)
         }
+    }
+
+    LaunchedEffect(state.config.hideFromRecents) {
+        hideFromRecentsEnabled = state.config.hideFromRecents
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -594,6 +647,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(if (screen is Screen.Home) HomeTopOverlayHeight else HomeInitialTopInset)
+                        .graphicsLayer { translationY = topBarEntranceY.value }
                 ) {
                     if (screen is Screen.Home) {
                         AnimatedVisibility(
@@ -673,7 +727,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 }
                 Column(modifier = contentModifier) {
                     message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                    Box(modifier = Modifier.weight(1f)) {
+                    Box(modifier = Modifier.weight(1f).graphicsLayer { translationY = contentEntranceY.value }) {
                         when (val current = screen) {
                             Screen.Home -> {
                                 HomeScreen(
@@ -772,7 +826,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     selected = screen,
                     backdrop = chromeBackdrop,
                     config = state.config,
-                    modifier = Modifier.align(Alignment.BottomStart),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .graphicsLayer { translationY = dockEntranceY.value },
                     onHome = { screen = Screen.Home },
                     onConfig = {
                         screen = Screen.Config
@@ -3286,7 +3342,11 @@ fun saveCroppedWallpaper(context: Context, source: Bitmap, cropSize: IntSize, sc
     canvas.translate(outputWidth / 2f + offset.x * outputScale, outputHeight / 2f + offset.y * outputScale)
     canvas.scale(previewScale * outputScale, previewScale * outputScale)
     canvas.drawBitmap(source, -source.width / 2f, -source.height / 2f, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
-    val file = File(context.cacheDir, "wallpaper_crop_${System.currentTimeMillis()}.jpg")
+    val wallpaperDir = File(context.filesDir, "wallpaper")
+    if (!wallpaperDir.exists()) wallpaperDir.mkdirs()
+    // Clean up old wallpaper files
+    wallpaperDir.listFiles()?.forEach { it.delete() }
+    val file = File(wallpaperDir, "custom_wallpaper.jpg")
     file.outputStream().use { output.compress(Bitmap.CompressFormat.JPEG, 94, it) }
     output.recycle()
     return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
@@ -3370,14 +3430,14 @@ fun DayScheduleScreen(
     ) {
         item { Text("今天 周" + weekdayLabel(todayWeekday) + " · 第 " + currentWeek + " 周", style = MaterialTheme.typography.titleMedium, color = textColor) }
         if (todayCourses.isEmpty()) item { Text("今天没有课程", color = textColor) }
-        items(todayCourses, key = { it.id }) { course ->
-            DayTimelineCourse(course, currentWeek, state.periods, cardColor, backdrop, state.config, onCourseClick)
+        itemsIndexed(todayCourses, key = { _, it -> it.id }) { index, course ->
+            DayTimelineCourse(course, currentWeek, state.periods, cardColor, backdrop, state.config, onCourseClick, entranceIndex = index)
         }
     }
 }
 
 @Composable
-fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit) {
+fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, entranceIndex: Int = 0) {
     val timePillColor = deepenColor(ComposeColor(config.cardColorArgb.toInt()), 0.16f)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         GlassSurface(
@@ -3396,7 +3456,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                 )
             }
         }
-        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config, onClick = { sourceBounds -> onCourseClick(course, currentWeek, sourceBounds) })
+        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config, onClick = { sourceBounds -> onCourseClick(course, currentWeek, sourceBounds) }, entranceIndex = entranceIndex)
     }
 }
 
@@ -4216,6 +4276,19 @@ fun WeekCourseBlock(
     val density = LocalDensity.current
     val tailDirection = if (weekMotionOutgoing) -weekMotionDirection else weekMotionDirection
     val tailBase = with(density) { (32.dp + ((periodIndex - 1).coerceAtLeast(0).coerceAtMost(9) * 9f).dp + (stackIndex * 16f).dp).toPx() }
+    // Card entrance — fly in from edge based on grid position (first launch only)
+    val leftSide = dayIndex <= 4
+    val entranceOffsetX = remember { Animatable(if (!splashEntranceDone && leftSide) -260f else if (!splashEntranceDone) 260f else 0f) }
+    val entranceOffsetY = remember { Animatable(if (!splashEntranceDone) (periodIndex - 5) * 22f else 0f) }
+    val entranceAlpha = remember { Animatable(if (!splashEntranceDone) 0f else 1f) }
+    LaunchedEffect(Unit) {
+        if (!splashEntranceDone) {
+            delay(140 + (dayIndex * 28L) + (periodIndex * 18L))
+            launch { entranceOffsetX.animateTo(0f, spring(dampingRatio = 0.60f, stiffness = 420f)) }
+            launch { entranceOffsetY.animateTo(0f, spring(dampingRatio = 0.62f, stiffness = 450f)) }
+            entranceAlpha.animateTo(1f, spring(dampingRatio = 0.74f, stiffness = 560f))
+        }
+    }
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
     val cardView = LocalView.current
     CourseGlassCard(
@@ -4225,10 +4298,13 @@ fun WeekCourseBlock(
             .fillMaxWidth()
             .height(height)
             .graphicsLayer {
-                translationX = layerOffset?.let { offset ->
+                val tailX = layerOffset?.let { offset ->
                     val progress = (kotlin.math.abs(offset.value) / layerTravel.coerceAtLeast(1f)).coerceIn(0f, 1f)
                     tailBase * progress * tailDirection
                 } ?: 0f
+                translationX = entranceOffsetX.value + tailX
+                translationY = entranceOffsetY.value
+                alpha = entranceAlpha.value
             }
             .onGloballyPositioned { coordinates ->
                 val wb = coordinates.boundsInWindow()
@@ -4361,15 +4437,33 @@ private fun scaledWeekText(value: TextUnit, fontScale: Float): TextUnit {
 }
 
 @Composable
-fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null) {
+fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null) {
     val textColor = readableOn(cardColor)
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
     val cardView = LocalView.current
+    val enableEntrance = entranceIndex != null && !splashEntranceDone
+    val startIndex = entranceIndex ?: 0
+    val entranceOffsetX = remember { Animatable(if (enableEntrance) 220f else 0f) }
+    val entranceOffsetY = remember { Animatable(if (enableEntrance) (startIndex - 2) * 14f else 0f) }
+    val entranceAlpha = remember { Animatable(if (enableEntrance) 0f else 1f) }
+    LaunchedEffect(entranceIndex) {
+        if (enableEntrance) {
+            delay(160 + startIndex * 38L)
+            launch { entranceOffsetX.animateTo(0f, spring(dampingRatio = 0.60f, stiffness = 420f)) }
+            launch { entranceOffsetY.animateTo(0f, spring(dampingRatio = 0.62f, stiffness = 450f)) }
+            entranceAlpha.animateTo(1f, spring(dampingRatio = 0.74f, stiffness = 560f))
+        }
+    }
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                translationX = entranceOffsetX.value
+                translationY = entranceOffsetY.value
+                alpha = entranceAlpha.value
+            }
             .onGloballyPositioned { coordinates ->
                 val wb = coordinates.boundsInWindow()
                 val loc = IntArray(2)
@@ -6177,7 +6271,8 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
         draft.dockAlignment != state.config.dockAlignment ||
         draft.defaultWallpaperStyle != state.config.defaultWallpaperStyle ||
         draft.defaultHomeMode != state.config.defaultHomeMode ||
-        draft.liveUpdateActionsEnabled != state.config.liveUpdateActionsEnabled
+        draft.liveUpdateActionsEnabled != state.config.liveUpdateActionsEnabled ||
+        draft.hideFromRecents != state.config.hideFromRecents
     val visualConfig = settingsVisualConfig(draft)
     fun resetDraft() {
         draft = state.config
@@ -6190,7 +6285,8 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
             dockAlignment = draft.dockAlignment,
             defaultWallpaperStyle = draft.defaultWallpaperStyle,
             defaultHomeMode = draft.defaultHomeMode,
-            liveUpdateActionsEnabled = draft.liveUpdateActionsEnabled
+            liveUpdateActionsEnabled = draft.liveUpdateActionsEnabled,
+            hideFromRecents = draft.hideFromRecents
         )
         draft = next
         lastSaved = next
@@ -6258,6 +6354,14 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                     checked = draft.liveUpdateActionsEnabled,
                     backdrop = backdrop,
                     onCheckedChange = { draft = draft.copy(liveUpdateActionsEnabled = it) }
+                )
+                SettingsDivider()
+                SettingsToggleRow(
+                    title = "隐藏后台卡片",
+                    subtitle = "返回桌面后，从最近任务列表中移除本应用，更无感。",
+                    checked = draft.hideFromRecents,
+                    backdrop = backdrop,
+                    onCheckedChange = { draft = draft.copy(hideFromRecents = it) }
                 )
             }
         }

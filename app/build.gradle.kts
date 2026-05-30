@@ -16,8 +16,8 @@ android {
         applicationId = "com.example.courseschedule"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.03 beta"
+        versionCode = 2
+        versionName = "1.04 beta"
     }
 
     compileOptions {
