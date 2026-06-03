@@ -25,9 +25,11 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.PerformanceHintManager
 import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
+import android.view.Choreographer
 import android.view.WindowInsetsController
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -464,7 +466,7 @@ class ScheduleViewModel(private val app: Application, private val repository: Sc
         rescheduleToday()
     }
 
-    private suspend fun rescheduleToday() {
+    private suspend fun rescheduleToday() = withContext(Dispatchers.IO) {
         val snapshot = repository.snapshot()
         NotificationScheduler.refreshToday(app, snapshot.courses, snapshot.config, snapshot.periods)
         TodayCoursesWidgetProvider.refreshAll(app)
@@ -526,6 +528,47 @@ private val LocalEditingCourseId = compositionLocalOf<Long?> { null }
 private val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope> { error("SharedTransitionScope not provided") }
 internal var hideFromRecentsEnabled = false
 
+@Composable
+private fun StartupPerformanceHint(active: Boolean) {
+    val view = LocalView.current
+    DisposableEffect(active, view) {
+        if (!active || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            onDispose {}
+        } else {
+            val manager = view.context.getSystemService(PerformanceHintManager::class.java)
+            val refreshRate = view.display?.refreshRate?.takeIf { it > 0f } ?: 60f
+            val targetDurationNanos = (1_000_000_000f / refreshRate).toLong().coerceAtLeast(4_000_000L)
+            val session = runCatching {
+                manager?.createHintSession(intArrayOf(android.os.Process.myTid()), targetDurationNanos)
+            }.getOrNull()
+            if (session == null) {
+                onDispose {}
+            } else {
+                runCatching { session.updateTargetWorkDuration(targetDurationNanos) }
+                val choreographer = Choreographer.getInstance()
+                var lastFrameNanos = 0L
+                val frameCallback = object : Choreographer.FrameCallback {
+                    override fun doFrame(frameTimeNanos: Long) {
+                        if (lastFrameNanos != 0L) {
+                            val actualDuration = (frameTimeNanos - lastFrameNanos).coerceAtLeast(1L)
+                            runCatching {
+                                session.reportActualWorkDuration(actualDuration)
+                            }
+                        }
+                        lastFrameNanos = frameTimeNanos
+                        choreographer.postFrameCallback(this)
+                    }
+                }
+                choreographer.postFrameCallback(frameCallback)
+                onDispose {
+                    choreographer.removeFrameCallback(frameCallback)
+                    runCatching { session.close() }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
@@ -578,6 +621,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
     val logRecording by DiagnosticLogCapture.recording.collectAsState()
     val wallpaperBitmap by rememberHomeWallpaperBitmap(state.config)
+    var startupPerformanceHintActive by remember { mutableStateOf(false) }
+    StartupPerformanceHint(startupPerformanceHintActive)
 
     // Startup splash with circular reveal
     val systemDark = isSystemInDarkTheme()
@@ -606,6 +651,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         if (state.loaded && !entranceTriggered) {
             entranceTriggered = true
             splashEntranceDone = false
+            startupPerformanceHintActive = true
             launch {
                 delay(60)
                 topBarEntranceY.animateTo(0f, spring(dampingRatio = 0.68f, stiffness = 520f))
@@ -622,6 +668,10 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 delay(900)
                 splashEntranceDone = true
             }
+            launch {
+                delay(1400)
+                startupPerformanceHintActive = false
+            }
         }
     }
 
@@ -636,10 +686,15 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         hideFromRecentsEnabled = state.config.hideFromRecents
     }
 
+    var initialLifecycleStartSeen by remember { mutableStateOf(false) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) {
-                viewModel.refreshNotifications()
+                if (initialLifecycleStartSeen) {
+                    viewModel.refreshNotifications()
+                } else {
+                    initialLifecycleStartSeen = true
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
