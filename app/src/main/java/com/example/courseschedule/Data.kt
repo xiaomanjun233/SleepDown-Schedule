@@ -1,6 +1,8 @@
 package com.example.courseschedule
 
 import android.app.Application
+import android.database.sqlite.SQLiteDatabase
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -17,11 +19,13 @@ import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.File
 
 enum class WeekParity { ALL, ODD, EVEN }
 enum class NotificationMode { STANDARD, LIVE_UPDATE }
@@ -40,7 +44,16 @@ data class CourseEntity(
     val periods: List<Int>,
     val weeks: List<Int>,
     val weekParity: WeekParity,
-    val note: String?
+    val note: String?,
+    @ColumnInfo(defaultValue = "1")
+    val scheduleId: Int = 1
+)
+
+@Entity(tableName = "schedule_profiles")
+data class ScheduleProfileEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val name: String,
+    val isActive: Boolean = false
 )
 
 @Entity(tableName = "schedule_config")
@@ -75,11 +88,12 @@ data class ScheduleConfigEntity(
     val hideFromRecents: Boolean = false
 )
 
-@Entity(tableName = "periods")
+@Entity(tableName = "periods", primaryKeys = ["scheduleId", "periodIndex"])
 data class PeriodEntity(
-    @PrimaryKey val periodIndex: Int,
+    val periodIndex: Int,
     val startTime: String,
-    val endTime: String
+    val endTime: String,
+    val scheduleId: Int = 1
 )
 
 class ScheduleConverters {
@@ -137,11 +151,17 @@ class ScheduleConverters {
 
 @Dao
 interface CourseDao {
-    @Query("SELECT * FROM courses")
+    @Query("SELECT * FROM courses WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
     fun observeCourses(): Flow<List<CourseEntity>>
 
     @Query("SELECT * FROM courses")
+    fun observeAllCourses(): Flow<List<CourseEntity>>
+
+    @Query("SELECT * FROM courses WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
     suspend fun getCourses(): List<CourseEntity>
+
+    @Query("SELECT * FROM courses")
+    suspend fun getAllCourses(): List<CourseEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCourse(course: CourseEntity): Long
@@ -155,22 +175,37 @@ interface CourseDao {
     @Query("DELETE FROM courses WHERE id = :courseId")
     suspend fun deleteCourse(courseId: Long)
 
-    @Query("DELETE FROM courses")
+    @Query("DELETE FROM courses WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
     suspend fun deleteAll()
+
+    @Query("DELETE FROM courses WHERE scheduleId = :scheduleId")
+    suspend fun deleteBySchedule(scheduleId: Int)
 }
 
 @Dao
 interface ConfigDao {
-    @Query("SELECT * FROM schedule_config WHERE id = 1")
+    @Query("SELECT * FROM schedule_config WHERE id = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
     fun observeConfig(): Flow<ScheduleConfigEntity?>
 
-    @Query("SELECT * FROM periods ORDER BY periodIndex")
+    @Query("SELECT * FROM schedule_config")
+    fun observeAllConfigs(): Flow<List<ScheduleConfigEntity>>
+
+    @Query("SELECT * FROM schedule_config")
+    suspend fun getAllConfigs(): List<ScheduleConfigEntity>
+
+    @Query("SELECT * FROM periods WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1) ORDER BY periodIndex")
     fun observePeriods(): Flow<List<PeriodEntity>>
 
-    @Query("SELECT * FROM schedule_config WHERE id = 1")
+    @Query("SELECT * FROM periods ORDER BY scheduleId, periodIndex")
+    fun observeAllPeriods(): Flow<List<PeriodEntity>>
+
+    @Query("SELECT * FROM schedule_config WHERE id = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
     suspend fun getConfig(): ScheduleConfigEntity?
 
-    @Query("SELECT * FROM periods ORDER BY periodIndex")
+    @Query("SELECT * FROM schedule_config WHERE id = :scheduleId")
+    suspend fun getConfig(scheduleId: Int): ScheduleConfigEntity?
+
+    @Query("SELECT * FROM periods WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1) ORDER BY periodIndex")
     suspend fun getPeriods(): List<PeriodEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -179,15 +214,46 @@ interface ConfigDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPeriods(periods: List<PeriodEntity>)
 
-    @Query("DELETE FROM periods")
+    @Query("DELETE FROM periods WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
     suspend fun deletePeriods()
+
+    @Query("DELETE FROM periods WHERE scheduleId = :scheduleId")
+    suspend fun deletePeriods(scheduleId: Int)
+
+    @Query("DELETE FROM schedule_config WHERE id = :scheduleId")
+    suspend fun deleteConfig(scheduleId: Int)
 }
 
-@Database(entities = [CourseEntity::class, ScheduleConfigEntity::class, PeriodEntity::class], version = 20, exportSchema = false)
+@Dao
+interface ScheduleProfileDao {
+    @Query("SELECT * FROM schedule_profiles ORDER BY id")
+    fun observeProfiles(): Flow<List<ScheduleProfileEntity>>
+
+    @Query("SELECT * FROM schedule_profiles ORDER BY id")
+    suspend fun getProfiles(): List<ScheduleProfileEntity>
+
+    @Query("SELECT * FROM schedule_profiles WHERE isActive = 1 LIMIT 1")
+    suspend fun getActiveProfile(): ScheduleProfileEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertProfile(profile: ScheduleProfileEntity): Long
+
+    @Query("UPDATE schedule_profiles SET name = :name WHERE id = :profileId")
+    suspend fun renameProfile(profileId: Int, name: String)
+
+    @Query("UPDATE schedule_profiles SET isActive = CASE WHEN id = :profileId THEN 1 ELSE 0 END")
+    suspend fun activateProfile(profileId: Int)
+
+    @Query("DELETE FROM schedule_profiles WHERE id = :profileId")
+    suspend fun deleteProfile(profileId: Int)
+}
+
+@Database(entities = [CourseEntity::class, ScheduleProfileEntity::class, ScheduleConfigEntity::class, PeriodEntity::class], version = 22, exportSchema = false)
 @TypeConverters(ScheduleConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun courseDao(): CourseDao
     abstract fun configDao(): ConfigDao
+    abstract fun scheduleProfileDao(): ScheduleProfileDao
 }
 
 private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -311,17 +377,236 @@ private val MIGRATION_19_20 = object : Migration(19, 20) {
     }
 }
 
+private fun SupportSQLiteDatabase.hasTable(table: String): Boolean {
+    query("SELECT name FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table)).use { cursor ->
+        return cursor.moveToFirst()
+    }
+}
+
+private fun SupportSQLiteDatabase.hasColumn(table: String, column: String): Boolean {
+    if (!hasTable(table)) return false
+    query("PRAGMA table_info(`$table`)").use { cursor ->
+        val nameIndex = cursor.getColumnIndex("name")
+        while (cursor.moveToNext()) {
+            if (cursor.getString(nameIndex) == column) return true
+        }
+    }
+    return false
+}
+
+private fun ensureMultiScheduleSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("CREATE TABLE IF NOT EXISTS schedule_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, isActive INTEGER NOT NULL)")
+    db.execSQL("INSERT OR IGNORE INTO schedule_profiles (id, name, isActive) VALUES (1, '\u9ED8\u8BA4\u8BFE\u8868', 1)")
+    if (!db.hasColumn("courses", "scheduleId")) {
+        db.execSQL("ALTER TABLE courses ADD COLUMN scheduleId INTEGER NOT NULL DEFAULT 1")
+    }
+    repairPeriodsForMultiSchedule(db)
+}
+
+private fun repairPeriodsForMultiSchedule(db: SupportSQLiteDatabase) {
+    if (!db.hasTable("periods")) {
+        db.execSQL("CREATE TABLE periods (scheduleId INTEGER NOT NULL, periodIndex INTEGER NOT NULL, startTime TEXT NOT NULL, endTime TEXT NOT NULL, PRIMARY KEY(scheduleId, periodIndex))")
+        return
+    }
+    val hasScheduleId = db.hasColumn("periods", "scheduleId")
+    db.execSQL("CREATE TABLE IF NOT EXISTS periods_room_fix (scheduleId INTEGER NOT NULL, periodIndex INTEGER NOT NULL, startTime TEXT NOT NULL, endTime TEXT NOT NULL, PRIMARY KEY(scheduleId, periodIndex))")
+    if (hasScheduleId) {
+        db.execSQL("INSERT OR REPLACE INTO periods_room_fix (scheduleId, periodIndex, startTime, endTime) SELECT scheduleId, periodIndex, startTime, endTime FROM periods")
+    } else {
+        db.execSQL("INSERT OR REPLACE INTO periods_room_fix (scheduleId, periodIndex, startTime, endTime) SELECT 1, periodIndex, startTime, endTime FROM periods")
+    }
+    db.execSQL("DROP TABLE periods")
+    db.execSQL("ALTER TABLE periods_room_fix RENAME TO periods")
+}
+
+private val MIGRATION_20_21 = object : Migration(20, 21) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        ensureMultiScheduleSchema(db)
+    }
+}
+
+private val MIGRATION_21_22 = object : Migration(21, 22) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        ensureMultiScheduleSchema(db)
+    }
+}
+
+private val MIGRATION_23_22 = object : Migration(23, 22) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        ensureMultiScheduleSchema(db)
+    }
+}
+
 class CourseScheduleApp : Application() {
     val database: AppDatabase by lazy {
+        repairDatabaseFileBeforeRoomOpen(getDatabasePath("course_schedule.db"))
         Room.databaseBuilder(this, AppDatabase::class.java, "course_schedule.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_23_22)
             .build()
     }
     val repository: ScheduleRepository by lazy { ScheduleRepository(database) }
 }
 
+private fun repairDatabaseFileBeforeRoomOpen(path: File) {
+    if (!path.exists()) return
+    runCatching {
+        SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+            repairSQLiteDatabase(db)
+        }
+    }
+}
+
+private fun repairSQLiteDatabase(db: SQLiteDatabase) {
+    db.beginTransaction()
+    try {
+        db.execSQL("CREATE TABLE IF NOT EXISTS schedule_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, isActive INTEGER NOT NULL)")
+        db.execSQL("INSERT OR IGNORE INTO schedule_profiles (id, name, isActive) VALUES (1, '\u9ED8\u8BA4\u8BFE\u8868', 1)")
+        if (!sqliteColumnExists(db, "courses", "scheduleId")) {
+            db.execSQL("ALTER TABLE courses ADD COLUMN scheduleId INTEGER NOT NULL DEFAULT 1")
+        }
+        repairScheduleConfigTable(db)
+        repairPeriodsTable(db)
+        db.execSQL("DROP TABLE IF EXISTS room_master_table")
+        db.setVersion(22)
+        db.setTransactionSuccessful()
+    } finally {
+        db.endTransaction()
+    }
+}
+
+private fun sqliteTableExists(db: SQLiteDatabase, table: String): Boolean {
+    db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table)).use { cursor ->
+        return cursor.moveToFirst()
+    }
+}
+
+private fun sqliteColumnExists(db: SQLiteDatabase, table: String, column: String): Boolean {
+    if (!sqliteTableExists(db, table)) return false
+    db.rawQuery("PRAGMA table_info(`$table`)", null).use { cursor ->
+        val nameIndex = cursor.getColumnIndex("name")
+        while (cursor.moveToNext()) {
+            if (cursor.getString(nameIndex) == column) return true
+        }
+    }
+    return false
+}
+
+private fun ensureSqliteColumn(db: SQLiteDatabase, table: String, column: String, definition: String) {
+    if (!sqliteColumnExists(db, table, column)) {
+        db.execSQL("ALTER TABLE $table ADD COLUMN $column $definition")
+    }
+}
+
+private fun repairScheduleConfigTable(db: SQLiteDatabase) {
+    if (!sqliteTableExists(db, "schedule_config")) {
+        db.execSQL(scheduleConfigCreateSql("schedule_config"))
+        return
+    }
+    ensureSqliteColumn(db, "schedule_config", "termStartDate", "TEXT")
+    ensureSqliteColumn(db, "schedule_config", "autoCurrentWeek", "INTEGER NOT NULL DEFAULT 0")
+    ensureSqliteColumn(db, "schedule_config", "notificationsEnabled", "INTEGER NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "notificationMode", "TEXT NOT NULL DEFAULT 'STANDARD'")
+    ensureSqliteColumn(db, "schedule_config", "wallpaperUri", "TEXT")
+    ensureSqliteColumn(db, "schedule_config", "wallpaperBlur", "REAL NOT NULL DEFAULT 0")
+    ensureSqliteColumn(db, "schedule_config", "wallpaperBrightness", "REAL NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "cardColorArgb", "INTEGER NOT NULL DEFAULT 4293516543")
+    ensureSqliteColumn(db, "schedule_config", "cardAlpha", "REAL NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "courseCardBlur", "REAL NOT NULL DEFAULT 18")
+    ensureSqliteColumn(db, "schedule_config", "courseCardGlassEnabled", "INTEGER NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "weekCardHeightDp", "REAL")
+    ensureSqliteColumn(db, "schedule_config", "homeTextLight", "INTEGER NOT NULL DEFAULT 0")
+    ensureSqliteColumn(db, "schedule_config", "followSystemDarkMode", "INTEGER NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "darkMode", "INTEGER NOT NULL DEFAULT 0")
+    ensureSqliteColumn(db, "schedule_config", "defaultWallpaperStyle", "TEXT NOT NULL DEFAULT 'KANBAN'")
+    ensureSqliteColumn(db, "schedule_config", "hideEmptyWeekends", "INTEGER NOT NULL DEFAULT 0")
+    ensureSqliteColumn(db, "schedule_config", "dockAlignment", "TEXT NOT NULL DEFAULT 'LEFT'")
+    ensureSqliteColumn(db, "schedule_config", "defaultHomeMode", "TEXT NOT NULL DEFAULT 'WEEK'")
+    ensureSqliteColumn(db, "schedule_config", "liveUpdateActionsEnabled", "INTEGER NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "liveUpdateChipTextMode", "TEXT NOT NULL DEFAULT 'LOCATION'")
+    ensureSqliteColumn(db, "schedule_config", "classDurationMinutes", "INTEGER NOT NULL DEFAULT 45")
+    ensureSqliteColumn(db, "schedule_config", "breakDurationMinutes", "INTEGER NOT NULL DEFAULT 10")
+    ensureSqliteColumn(db, "schedule_config", "hideFromRecents", "INTEGER NOT NULL DEFAULT 0")
+    db.execSQL(scheduleConfigCreateSql("schedule_config_room_fix"))
+    db.execSQL(
+        """
+        INSERT OR REPLACE INTO schedule_config_room_fix (
+            id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek,
+            notificationsEnabled, notificationMode, wallpaperUri, wallpaperBlur, wallpaperBrightness,
+            cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, weekCardHeightDp,
+            homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
+            dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
+            classDurationMinutes, breakDurationMinutes, hideFromRecents
+        )
+        SELECT
+            id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek,
+            notificationsEnabled, notificationMode, wallpaperUri, wallpaperBlur, wallpaperBrightness,
+            cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, weekCardHeightDp,
+            homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
+            dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
+            classDurationMinutes, breakDurationMinutes, hideFromRecents
+        FROM schedule_config
+        """.trimIndent()
+    )
+    db.execSQL("DROP TABLE schedule_config")
+    db.execSQL("ALTER TABLE schedule_config_room_fix RENAME TO schedule_config")
+}
+
+private fun scheduleConfigCreateSql(table: String): String =
+    """
+    CREATE TABLE IF NOT EXISTS $table (
+        id INTEGER NOT NULL PRIMARY KEY,
+        totalWeeks INTEGER NOT NULL,
+        currentWeek INTEGER NOT NULL,
+        notificationLeadMinutes INTEGER NOT NULL,
+        termStartDate TEXT,
+        autoCurrentWeek INTEGER NOT NULL,
+        notificationsEnabled INTEGER NOT NULL,
+        notificationMode TEXT NOT NULL,
+        wallpaperUri TEXT,
+        wallpaperBlur REAL NOT NULL,
+        wallpaperBrightness REAL NOT NULL,
+        cardColorArgb INTEGER NOT NULL,
+        cardAlpha REAL NOT NULL,
+        courseCardBlur REAL NOT NULL,
+        courseCardGlassEnabled INTEGER NOT NULL,
+        weekCardHeightDp REAL,
+        homeTextLight INTEGER NOT NULL,
+        followSystemDarkMode INTEGER NOT NULL,
+        darkMode INTEGER NOT NULL,
+        defaultWallpaperStyle TEXT NOT NULL,
+        hideEmptyWeekends INTEGER NOT NULL,
+        dockAlignment TEXT NOT NULL,
+        defaultHomeMode TEXT NOT NULL,
+        liveUpdateActionsEnabled INTEGER NOT NULL,
+        liveUpdateChipTextMode TEXT NOT NULL,
+        classDurationMinutes INTEGER NOT NULL,
+        breakDurationMinutes INTEGER NOT NULL,
+        hideFromRecents INTEGER NOT NULL
+    )
+    """.trimIndent()
+
+private fun repairPeriodsTable(db: SQLiteDatabase) {
+    if (!sqliteTableExists(db, "periods")) {
+        db.execSQL("CREATE TABLE periods (scheduleId INTEGER NOT NULL, periodIndex INTEGER NOT NULL, startTime TEXT NOT NULL, endTime TEXT NOT NULL, PRIMARY KEY(scheduleId, periodIndex))")
+        return
+    }
+    val hasScheduleId = sqliteColumnExists(db, "periods", "scheduleId")
+    db.execSQL("CREATE TABLE IF NOT EXISTS periods_room_fix (scheduleId INTEGER NOT NULL, periodIndex INTEGER NOT NULL, startTime TEXT NOT NULL, endTime TEXT NOT NULL, PRIMARY KEY(scheduleId, periodIndex))")
+    if (hasScheduleId) {
+        db.execSQL("INSERT OR REPLACE INTO periods_room_fix (scheduleId, periodIndex, startTime, endTime) SELECT scheduleId, periodIndex, startTime, endTime FROM periods")
+    } else {
+        db.execSQL("INSERT OR REPLACE INTO periods_room_fix (scheduleId, periodIndex, startTime, endTime) SELECT 1, periodIndex, startTime, endTime FROM periods")
+    }
+    db.execSQL("DROP TABLE periods")
+    db.execSQL("ALTER TABLE periods_room_fix RENAME TO periods")
+}
+
 data class AppState(
     val courses: List<CourseEntity> = emptyList(),
+    val allCourses: List<CourseEntity> = emptyList(),
+    val schedules: List<ScheduleProfileEntity> = listOf(ScheduleProfileEntity(id = 1, name = "\u9ED8\u8BA4\u8BFE\u8868", isActive = true)),
+    val allConfigs: List<ScheduleConfigEntity> = emptyList(),
+    val allPeriods: List<PeriodEntity> = emptyList(),
     val config: ScheduleConfigEntity = defaultConfig(),
     val periods: List<PeriodEntity> = defaultPeriods(),
     val loaded: Boolean = false
@@ -333,25 +618,72 @@ data class ImportDraft(
     val courses: List<CourseEntity>
 )
 
+private data class MultiScheduleSnapshot(
+    val courses: List<CourseEntity>,
+    val allCourses: List<CourseEntity>,
+    val schedules: List<ScheduleProfileEntity>,
+    val allConfigs: List<ScheduleConfigEntity>,
+    val allPeriods: List<PeriodEntity>
+)
+
 class ScheduleRepository(private val database: AppDatabase) {
     private val courseDao = database.courseDao()
     private val configDao = database.configDao()
+    private val profileDao = database.scheduleProfileDao()
 
-    val state = combine(courseDao.observeCourses(), configDao.observeConfig(), configDao.observePeriods()) { courses, config, periods ->
-        AppState(courses = courses, config = config ?: defaultConfig(), periods = periods.ifEmpty { defaultPeriods() }, loaded = true)
+    private val multiScheduleState = combine(
+        courseDao.observeAllCourses(),
+        profileDao.observeProfiles(),
+        configDao.observeAllConfigs(),
+        configDao.observeAllPeriods()
+    ) { allCourses, schedules, allConfigs, allPeriods ->
+        val profiles = schedules.ifEmpty {
+            listOf(ScheduleProfileEntity(id = 1, name = "\u9ED8\u8BA4\u8BFE\u8868", isActive = true))
+        }
+        val activeId = profiles.firstOrNull { it.isActive }?.id ?: profiles.first().id
+        MultiScheduleSnapshot(
+            courses = allCourses.filter { it.scheduleId == activeId },
+            allCourses = allCourses,
+            schedules = profiles,
+            allConfigs = allConfigs,
+            allPeriods = allPeriods
+        )
+    }
+
+    val state = multiScheduleState.map { snapshot ->
+        val activeId = snapshot.schedules.firstOrNull { it.isActive }?.id ?: 1
+        val config = snapshot.allConfigs.firstOrNull { it.id == activeId } ?: defaultConfig(activeId)
+        val periods = snapshot.allPeriods.filter { it.scheduleId == activeId }.ifEmpty { defaultPeriods(activeId) }
+        AppState(
+            courses = snapshot.courses,
+            allCourses = snapshot.allCourses,
+            schedules = snapshot.schedules,
+            allConfigs = snapshot.allConfigs,
+            allPeriods = snapshot.allPeriods,
+            config = config,
+            periods = periods,
+            loaded = true
+        )
     }
 
     suspend fun ensureDefaults() {
-        if (configDao.getConfig() == null) configDao.upsertConfig(defaultConfig())
-        if (configDao.getPeriods().isEmpty()) configDao.upsertPeriods(defaultPeriods())
+        if (profileDao.getProfiles().isEmpty()) {
+            profileDao.upsertProfile(ScheduleProfileEntity(id = 1, name = "\u9ED8\u8BA4\u8BFE\u8868", isActive = true))
+        }
+        if (profileDao.getActiveProfile() == null) {
+            profileDao.getProfiles().firstOrNull()?.let { profileDao.activateProfile(it.id) }
+        }
+        val scheduleId = activeScheduleId()
+        if (configDao.getConfig() == null) configDao.upsertConfig(defaultConfig(scheduleId))
+        if (configDao.getPeriods().isEmpty()) configDao.upsertPeriods(defaultPeriods(scheduleId))
     }
 
     suspend fun addCourse(course: CourseEntity) {
-        courseDao.insertCourse(course)
+        courseDao.insertCourse(course.copy(scheduleId = activeScheduleId()))
     }
 
     suspend fun updateCourse(course: CourseEntity) {
-        courseDao.updateCourse(course)
+        courseDao.updateCourse(course.copy(scheduleId = activeScheduleId()))
     }
 
     suspend fun updateCourseSingleWeek(original: CourseEntity, edited: CourseEntity, targetWeek: Int) {
@@ -362,7 +694,7 @@ class ScheduleRepository(private val database: AppDatabase) {
             } else {
                 courseDao.updateCourse(original.copy(weeks = remainingWeeks))
             }
-            courseDao.insertCourse(edited.copy(id = 0, weeks = listOf(targetWeek)))
+            courseDao.insertCourse(edited.copy(id = 0, weeks = listOf(targetWeek), scheduleId = activeScheduleId()))
         }
     }
 
@@ -394,45 +726,144 @@ class ScheduleRepository(private val database: AppDatabase) {
         courseDao.deleteCourse(course.id)
     }
 
-    suspend fun importDraft(draft: ImportDraft) {
+    suspend fun importDraft(draft: ImportDraft, createNewSchedule: Boolean = false) {
         database.withTransaction {
-            configDao.upsertConfig(draft.config)
-            configDao.deletePeriods()
-            configDao.upsertPeriods(draft.periods)
-            courseDao.deleteAll()
-            courseDao.insertCourses(draft.courses)
+            val globalConfig = configDao.getConfig() ?: defaultConfig(activeScheduleId())
+            val scheduleId = if (createNewSchedule) {
+                profileDao.upsertProfile(ScheduleProfileEntity(name = "\u5BFC\u5165\u8BFE\u8868", isActive = false)).toInt().also {
+                    profileDao.activateProfile(it)
+                }
+            } else {
+                activeScheduleId()
+            }
+            configDao.upsertConfig(draft.config.copy(id = scheduleId).withGlobalSettingsFrom(globalConfig))
+            configDao.deletePeriods(scheduleId)
+            configDao.upsertPeriods(draft.periods.map { it.copy(scheduleId = scheduleId) })
+            courseDao.deleteBySchedule(scheduleId)
+            courseDao.insertCourses(draft.courses.map { it.copy(id = 0, scheduleId = scheduleId) })
         }
     }
 
     suspend fun saveConfig(config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
+        val scheduleId = activeScheduleId()
         database.withTransaction {
-            configDao.upsertConfig(config)
+            configDao.upsertConfig(config.copy(id = scheduleId))
             configDao.deletePeriods()
-            configDao.upsertPeriods(periods)
+            configDao.upsertPeriods(periods.map { it.copy(scheduleId = scheduleId) })
         }
     }
 
     suspend fun saveConfigOnly(config: ScheduleConfigEntity) {
-        configDao.upsertConfig(config)
+        configDao.upsertConfig(config.copy(id = activeScheduleId()))
+    }
+
+    suspend fun saveGlobalSettings(config: ScheduleConfigEntity) {
+        val activeId = activeScheduleId()
+        database.withTransaction {
+            val existing = configDao.getAllConfigs()
+            val targetIds = (profileDao.getProfiles().map { it.id } + existing.map { it.id } + activeId).distinct()
+            targetIds.forEach { id ->
+                val base = existing.firstOrNull { it.id == id } ?: defaultConfig(id)
+                configDao.upsertConfig(
+                    base.copy(
+                        id = id,
+                        followSystemDarkMode = config.followSystemDarkMode,
+                        darkMode = config.darkMode,
+                        dockAlignment = config.dockAlignment,
+                        defaultWallpaperStyle = config.defaultWallpaperStyle,
+                        defaultHomeMode = config.defaultHomeMode,
+                        liveUpdateActionsEnabled = config.liveUpdateActionsEnabled,
+                        hideFromRecents = config.hideFromRecents,
+                        notificationLeadMinutes = config.notificationLeadMinutes,
+                        notificationsEnabled = config.notificationsEnabled,
+                        notificationMode = config.notificationMode,
+                        liveUpdateChipTextMode = config.liveUpdateChipTextMode
+                    )
+                )
+            }
+        }
+    }
+
+    suspend fun createSchedule(name: String): Int {
+        return database.withTransaction {
+            val globalConfig = configDao.getConfig() ?: defaultConfig(activeScheduleId())
+            val id = profileDao.upsertProfile(ScheduleProfileEntity(name = name, isActive = false)).toInt()
+            configDao.upsertConfig(defaultConfig(id).withGlobalSettingsFrom(globalConfig))
+            configDao.upsertPeriods(defaultPeriods(id))
+            id
+        }
+    }
+
+    suspend fun activateSchedule(scheduleId: Int) {
+        database.withTransaction {
+            val oldActiveId = activeScheduleId()
+            val globalConfig = configDao.getConfig(oldActiveId) ?: defaultConfig(oldActiveId)
+            val targetConfig = configDao.getConfig(scheduleId) ?: defaultConfig(scheduleId)
+            profileDao.activateProfile(scheduleId)
+            configDao.upsertConfig(targetConfig.withGlobalSettingsFrom(globalConfig).copy(id = scheduleId))
+        }
+    }
+
+    suspend fun renameSchedule(scheduleId: Int, name: String) {
+        profileDao.renameProfile(scheduleId, name.ifBlank { "\u672A\u547D\u540D\u8BFE\u8868" })
+    }
+
+    suspend fun deleteSchedule(scheduleId: Int) {
+        database.withTransaction {
+            val profiles = profileDao.getProfiles()
+            if (profiles.size <= 1) return@withTransaction
+            profileDao.deleteProfile(scheduleId)
+            courseDao.deleteBySchedule(scheduleId)
+            configDao.deletePeriods(scheduleId)
+            configDao.deleteConfig(scheduleId)
+            val remaining = profiles.filterNot { it.id == scheduleId }
+            if (profiles.any { it.id == scheduleId && it.isActive }) {
+                remaining.firstOrNull()?.let { profileDao.activateProfile(it.id) }
+            }
+        }
     }
 
     suspend fun snapshot(): AppState {
         return AppState(
             courses = courseDao.getCourses(),
+            allCourses = courseDao.getAllCourses(),
+            schedules = profileDao.getProfiles().ifEmpty { listOf(ScheduleProfileEntity(id = 1, name = "\u9ED8\u8BA4\u8BFE\u8868", isActive = true)) },
+            allConfigs = emptyList(),
+            allPeriods = emptyList(),
             config = configDao.getConfig() ?: defaultConfig(),
             periods = configDao.getPeriods().ifEmpty { defaultPeriods() },
             loaded = true
         )
     }
+
+    private suspend fun activeScheduleId(): Int {
+        return profileDao.getActiveProfile()?.id ?: 1
+    }
 }
 
-fun defaultConfig() = ScheduleConfigEntity(totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, weekCardHeightDp = null, homeTextLight = false, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.KANBAN, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false)
+private fun ScheduleConfigEntity.withGlobalSettingsFrom(global: ScheduleConfigEntity): ScheduleConfigEntity {
+    return copy(
+        followSystemDarkMode = global.followSystemDarkMode,
+        darkMode = global.darkMode,
+        dockAlignment = global.dockAlignment,
+        defaultWallpaperStyle = global.defaultWallpaperStyle,
+        defaultHomeMode = global.defaultHomeMode,
+        liveUpdateActionsEnabled = global.liveUpdateActionsEnabled,
+        hideFromRecents = global.hideFromRecents,
+        notificationLeadMinutes = global.notificationLeadMinutes,
+        notificationsEnabled = global.notificationsEnabled,
+        notificationMode = global.notificationMode,
+        liveUpdateChipTextMode = global.liveUpdateChipTextMode
+    )
+}
 
-fun defaultPeriods() = listOf(
-    PeriodEntity(1, "08:00", "08:45"), PeriodEntity(2, "08:55", "09:40"),
-    PeriodEntity(3, "10:00", "10:45"), PeriodEntity(4, "10:55", "11:40"),
-    PeriodEntity(5, "14:00", "14:45"), PeriodEntity(6, "14:55", "15:40"),
-    PeriodEntity(7, "16:00", "16:45"), PeriodEntity(8, "16:55", "17:40"),
-    PeriodEntity(9, "19:00", "19:45"), PeriodEntity(10, "19:55", "20:40"),
-    PeriodEntity(11, "20:50", "21:35"), PeriodEntity(12, "21:45", "22:30")
+fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, weekCardHeightDp = null, homeTextLight = false, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.KANBAN, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false)
+
+fun defaultPeriods(scheduleId: Int = 1) = listOf(
+    PeriodEntity(1, "08:00", "08:45", scheduleId), PeriodEntity(2, "08:55", "09:40", scheduleId),
+    PeriodEntity(3, "10:00", "10:45", scheduleId), PeriodEntity(4, "10:55", "11:40", scheduleId),
+    PeriodEntity(5, "14:00", "14:45", scheduleId), PeriodEntity(6, "14:55", "15:40", scheduleId),
+    PeriodEntity(7, "16:00", "16:45", scheduleId), PeriodEntity(8, "16:55", "17:40", scheduleId),
+    PeriodEntity(9, "19:00", "19:45", scheduleId), PeriodEntity(10, "19:55", "20:40", scheduleId),
+    PeriodEntity(11, "20:50", "21:35", scheduleId), PeriodEntity(12, "21:45", "22:30", scheduleId)
 )

@@ -51,8 +51,14 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
@@ -145,6 +151,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -415,6 +422,35 @@ class ScheduleViewModel(private val app: Application, private val repository: Sc
         repository.saveConfigOnly(config)
     }
 
+    fun createSchedule(name: String = "\u65B0\u8BFE\u8868") = viewModelScope.launch {
+        Log.d("ScheduleManager", "viewModel.createSchedule name=$name")
+        val scheduleId = repository.createSchedule(name)
+        Log.d("ScheduleManager", "repository.createSchedule created id=$scheduleId")
+        repository.activateSchedule(scheduleId)
+        rescheduleToday()
+        TodayCoursesWidgetProvider.refreshAll(app)
+    }
+
+    fun activateSchedule(scheduleId: Int, finish: (() -> Unit)? = null) = viewModelScope.launch {
+        Log.d("ScheduleManager", "viewModel.activateSchedule id=$scheduleId")
+        repository.activateSchedule(scheduleId)
+        rescheduleToday()
+        TodayCoursesWidgetProvider.refreshAll(app)
+        finish?.invoke()
+    }
+
+    fun renameSchedule(scheduleId: Int, name: String) = viewModelScope.launch {
+        Log.d("ScheduleManager", "viewModel.renameSchedule id=$scheduleId name=$name")
+        repository.renameSchedule(scheduleId, name)
+    }
+
+    fun deleteSchedule(scheduleId: Int) = viewModelScope.launch {
+        Log.d("ScheduleManager", "viewModel.deleteSchedule id=$scheduleId")
+        repository.deleteSchedule(scheduleId)
+        rescheduleToday()
+        TodayCoursesWidgetProvider.refreshAll(app)
+    }
+
     fun clearSnackbar() {
         snackbar.value = null
     }
@@ -449,7 +485,7 @@ sealed interface Screen {
 
 enum class HomeMode { Day, Week }
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, Schedule, Notifications, About, Changelog, Download, Donate }
+enum class SettingsPage { Root, General, Schedule, Notifications, ScheduleManager, About, Changelog, Download, Donate }
 sealed interface EduImportPage {
     data object SelectSchool : EduImportPage
     data class Import(val adapter: EduAdapter) : EduImportPage
@@ -463,6 +499,7 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.General -> "通用设置"
     SettingsPage.Schedule -> "课表设置"
     SettingsPage.Notifications -> "通知设置"
+    SettingsPage.ScheduleManager -> "课表设置"
     SettingsPage.About -> "关于"
     SettingsPage.Changelog -> "更新日志"
     SettingsPage.Download -> "下载新版"
@@ -485,6 +522,8 @@ sealed interface HomeDialog {
 }
 
 private var splashEntranceDone = false
+private val LocalEditingCourseId = compositionLocalOf<Long?> { null }
+private val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope> { error("SharedTransitionScope not provided") }
 internal var hideFromRecentsEnabled = false
 
 @OptIn(ExperimentalAnimationApi::class)
@@ -510,7 +549,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             homeDialogVisible = true
         } else if (renderedHomeDialog != null) {
             homeDialogVisible = false
-            delay(180)
+            delay(320)
             renderedHomeDialog = null
         }
     }
@@ -518,6 +557,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var renderAddMenu by remember { mutableStateOf(false) }
     var addButtonBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var courseEditSourceBounds by remember { mutableStateOf<Rect?>(null) }
+    var showScheduleEntryPill by remember { mutableStateOf(false) }
+    val editingCourseId: Long? = if (homeDialogVisible) (renderedHomeDialog as? HomeDialog.EditCourse)?.course?.id else null
     LaunchedEffect(addMenuExpanded) {
         if (addMenuExpanded) {
             renderAddMenu = true
@@ -625,6 +666,15 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     }
 
     // Root wrapper — ensures splash covers all content including Scaffold internals
+    @OptIn(ExperimentalSharedTransitionApi::class)
+    SharedTransitionLayout(
+        modifier = Modifier.fillMaxSize()
+    ) {
+    val sharedTransitionScope = this
+    CompositionLocalProvider(
+        LocalSharedTransitionScope provides sharedTransitionScope,
+        LocalEditingCourseId provides editingCourseId
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -741,6 +791,11 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                         courseEditSourceBounds = sourceBounds
                                         homeDialog = HomeDialog.EditCourse(course, week)
                                     },
+                                    onScheduleLongPress = {
+                                        addMenuExpanded = false
+                                        showPersonalizePanel = false
+                                        showScheduleEntryPill = true
+                                    }
                                 )
                             }
                             Screen.Config -> SettingsScreen(
@@ -821,6 +876,23 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     }
                 }
             }
+            if (screen is Screen.Home) {
+                ScheduleManagerEntryPill(
+                    visible = showScheduleEntryPill,
+                    backdrop = chromeBackdrop,
+                    config = state.config,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .zIndex(22f),
+                    onClick = {
+                        showScheduleEntryPill = false
+                        context.startActivity(Intent(context, ScheduleManagerActivity::class.java))
+                    },
+                    onDismiss = { showScheduleEntryPill = false }
+                )
+            } else {
+                showScheduleEntryPill = false
+            }
             if (screen is Screen.Home || screen is Screen.Config) {
                 FloatingDock(
                     selected = screen,
@@ -881,12 +953,76 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     }
     }
 
+    // Inline EditCourse overlay \u2014 enables shared element transition from course card
+    val isInlineEditVisible = renderedHomeDialog is HomeDialog.EditCourse && (renderedHomeDialog as HomeDialog.EditCourse).course != null
+    BackHandler(enabled = isInlineEditVisible && homeDialogVisible) {
+        dismissHomeDialog()
+    }
+    if (isInlineEditVisible) {
+        val editDialog = renderedHomeDialog as HomeDialog.EditCourse
+        val editCourse = editDialog.course!!
+        val editSharedState = rememberSharedContentState(key = "course_edit_${editingCourseId}")
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(100f)
+        ) {
+            AnimatedVisibility(
+                visible = homeDialogVisible,
+                enter = fadeIn(animationSpec = spring(dampingRatio = 0.86f, stiffness = 620f)),
+                exit = fadeOut(animationSpec = spring(dampingRatio = 0.92f, stiffness = 620f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(ComposeColor.Black.copy(alpha = 0.5f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { dismissHomeDialog() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    CenterLiquidDialog(
+                        backdrop = chromeBackdrop,
+                        config = state.config,
+                        modifier = Modifier.sharedElementWithCallerManagedVisibility(
+                            sharedContentState = editSharedState,
+                            visible = editingCourseId != null,
+                            renderInOverlayDuringTransition = false,
+                            clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(26.dp))
+                        )
+                    ) {
+                        NormalizedCourseEditorScreen(
+                            state = state,
+                            initialCourse = editDialog.course,
+                            onCancel = { dismissHomeDialog() },
+                            onSave = {
+                                if (courseWeeksChanged(editCourse, it)) {
+                                    viewModel.updateCourse(it)
+                                    dismissHomeDialog()
+                                } else {
+                                    homeDialog = HomeDialog.ApplyCourseEdit(editCourse, it, editDialog.targetWeek ?: effectiveCurrentWeek(state.config))
+                                }
+                            },
+                            onDelete = {
+                                homeDialog = HomeDialog.ApplyCourseDelete(it, editDialog.targetWeek ?: effectiveCurrentWeek(state.config))
+                            },
+                            backdrop = chromeBackdrop
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // Dialog-based dialogs for all other types (including EditCourse without a source card)
     renderedHomeDialog?.let { dialog ->
+        if (dialog !is HomeDialog.EditCourse || dialog.course == null) {
         Dialog(onDismissRequest = { dismissHomeDialog() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             AnimatedVisibility(
                 visible = homeDialogVisible,
-                enter = if (dialog is HomeDialog.EditCourse && dialog.course != null) fadeIn(animationSpec = spring(dampingRatio = 0.86f, stiffness = 620f)) else popEnterTransition(),
-                exit = if (dialog is HomeDialog.EditCourse && dialog.course != null) fadeOut(animationSpec = spring(dampingRatio = 0.92f, stiffness = 620f)) else popExitTransition()
+                enter = popEnterTransition(),
+                exit = popExitTransition()
             ) {
                 val useKyantDialog = dialog is HomeDialog.ApplyCourseEdit || dialog is HomeDialog.ApplyCourseDelete
                 val dialogContent: @Composable ColumnScope.() -> Unit = {
@@ -987,18 +1123,14 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     CenterLiquidDialog(
                         backdrop = chromeBackdrop,
                         config = state.config,
-                        modifier = if (dialog is HomeDialog.EditCourse && dialog.course != null) {
-                            Modifier.courseEditSourceTransform(courseEditSourceBounds, homeDialogVisible)
-                        } else {
-                            Modifier
-                        }
+                        modifier = Modifier
                     ) {
                         dialogContent()
                     }
                 }
             }
         }
-
+        }
         }
 
         // Startup splash — covers content until config loaded, then circular reveal
@@ -1024,6 +1156,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     }
             )
         }
+    }
+    }
     }
 
 }
@@ -1420,6 +1554,7 @@ fun AppTopBar(
                                 SettingsPage.General -> "通用设置"
                                 SettingsPage.Schedule -> "课表设置"
                                 SettingsPage.Notifications -> "通知设置"
+                                SettingsPage.ScheduleManager -> "课表设置"
                                 SettingsPage.About -> "关于"
                                 SettingsPage.Changelog -> "更新日志"
                                 SettingsPage.Download -> "下载新版"
@@ -2171,6 +2306,93 @@ fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEn
 }
 
 @Composable
+fun ScheduleManagerEntryPill(
+    visible: Boolean,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    BackHandler(enabled = visible) {
+        onDismiss()
+    }
+    val density = LocalDensity.current
+    val bottomInset = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).getBottom(this).toDp() }
+    val dockBottomOffset = (bottomInset + 8.dp).coerceAtLeast(8.dp)
+    val pillBottomOffset = dockBottomOffset + 68.dp
+    val dockAlignment = when (config.dockAlignment) {
+        DockAlignment.LEFT -> Alignment.BottomStart
+        DockAlignment.CENTER -> Alignment.BottomCenter
+        DockAlignment.RIGHT -> Alignment.BottomEnd
+    }
+    val horizontalPadding = when (config.dockAlignment) {
+        DockAlignment.LEFT -> PaddingValues(start = 18.dp, bottom = pillBottomOffset)
+        DockAlignment.CENTER -> PaddingValues(start = 18.dp, end = 18.dp, bottom = pillBottomOffset)
+        DockAlignment.RIGHT -> PaddingValues(end = 18.dp, bottom = pillBottomOffset)
+    }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontalPadding),
+        contentAlignment = dockAlignment
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = spring(dampingRatio = 0.82f, stiffness = 560f)) +
+                scaleIn(initialScale = 0.86f, animationSpec = spring(dampingRatio = 0.62f, stiffness = 620f)) +
+                slideInVertically(initialOffsetY = { it / 2 }, animationSpec = spring(dampingRatio = 0.70f, stiffness = 640f)),
+            exit = fadeOut(animationSpec = spring(dampingRatio = 0.92f, stiffness = 620f)) +
+                scaleOut(targetScale = 0.88f, animationSpec = spring(dampingRatio = 0.82f, stiffness = 620f)) +
+                slideOutVertically(targetOffsetY = { it / 2 }, animationSpec = spring(dampingRatio = 0.86f, stiffness = 620f))
+        ) {
+            val lightGlass = glassUsesLightStyle(config)
+            if (backdrop != null) {
+                LiquidButton(
+                    onClick = onClick,
+                    backdrop = backdrop,
+                    modifier = Modifier.width(140.dp),
+                    height = 48.dp,
+                    blurRadius = 7.dp,
+                    lensHeight = 34.dp,
+                    lensAmount = 42.dp,
+                    surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.22f) else ComposeColor(0xFF121212).copy(alpha = 0.24f),
+                    chromaticAberration = false,
+                    contentPadding = PaddingValues(horizontal = 18.dp)
+                ) {
+                    Text(
+                        "课表设置",
+                        color = glassForegroundColor(config),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                }
+            } else {
+                GlassPill(
+                    backdrop = null,
+                    config = config,
+                    modifier = Modifier
+                        .width(140.dp)
+                        .height(48.dp),
+                    onClick = onClick
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            "课表设置",
+                            color = glassForegroundColor(config),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun DockBackdropContinuityPatch(config: ScheduleConfigEntity, modifier: Modifier = Modifier) {
     val density = LocalDensity.current
     val bottomInset = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).getBottom(this).toDp() }
@@ -2529,6 +2751,13 @@ class SettingsDetailActivity : ComponentActivity() {
                         )
                         SettingsPage.Donate -> DonateSettingsScreen(state, backdrop)
                         SettingsPage.Download -> DownloadUpdateScreen(state, backdrop)
+                        SettingsPage.ScheduleManager -> ScheduleManagerScreen(
+                            state = state, backdrop = backdrop,
+                            onCreateSchedule = { viewModel.createSchedule(it) },
+                            onActivateSchedule = { id, finish -> viewModel.activateSchedule(id, finish) },
+                            onRenameSchedule = { id, name -> viewModel.renameSchedule(id, name) },
+                            onDeleteSchedule = { viewModel.deleteSchedule(it) }
+                        )
                         SettingsPage.Root -> SettingsRootScreen(state, backdrop) {}
                     }
                 }
@@ -2839,6 +3068,7 @@ fun HomeScreen(
     weekHeaderBackdrop: Backdrop? = backdrop,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
+    onScheduleLongPress: () -> Unit = {},
 ) {
     val cardColor = remember(state.config.cardColorArgb, state.config.cardAlpha) {
         ComposeColor(state.config.cardColorArgb.toInt()).copy(alpha = state.config.cardAlpha)
@@ -2852,31 +3082,38 @@ fun HomeScreen(
     val todayWeekday = LocalDate.now().dayOfWeek.toChineseWeekday()
     val textColor = homeForegroundColor(state.config)
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedContent(
-            targetState = mode,
-            transitionSpec = {
-                (fadeIn(animationSpec = spring()) + scaleIn(initialScale = 0.985f, animationSpec = spring())) togetherWith
-                        (fadeOut(animationSpec = spring()) + scaleOut(targetScale = 0.985f, animationSpec = spring()))
-            },
-            label = "home-mode"
-        ) { currentMode ->
-            if (currentMode == HomeMode.Day) {
-                DayScheduleScreen(state, todayWeekday, currentWeek, cardColor, textColor, backdrop, onContentUnderTopBarChange, onCourseClick)
-            } else {
-                SinglePillWeekScheduleScreen(
-                    state = state,
-                    displayWeek = displayWeek,
-                    cardHeight = weekCardHeight,
-                    cardColor = cardColor,
-                    textColor = textColor,
-                    backdrop = backdrop,
-                    headerBackdrop = weekHeaderBackdrop,
-                    onSwipeWeek = { delta -> displayWeek = (displayWeek + delta).coerceIn(1, state.config.totalWeeks) },
-                    onContentUnderTopBarChange = onContentUnderTopBarChange,
-                    onCourseClick = { course, week, sourceBounds -> onCourseClick(course, week, sourceBounds) }
-                )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .animateContentSize(spring(dampingRatio = 0.87f, stiffness = 380f))
+            .pointerInput(onScheduleLongPress) {
+                detectTapGestures(onLongPress = { onScheduleLongPress() })
             }
+    ) {
+        AnimatedVisibility(
+            visible = mode == HomeMode.Day,
+            enter = fadeIn(tween(200, delayMillis = 100)),
+            exit = fadeOut(tween(80))
+        ) {
+            DayScheduleScreen(state, todayWeekday, currentWeek, cardColor, textColor, backdrop, onContentUnderTopBarChange, onCourseClick)
+        }
+        AnimatedVisibility(
+            visible = mode == HomeMode.Week,
+            enter = fadeIn(tween(200, delayMillis = 100)),
+            exit = fadeOut(tween(80))
+        ) {
+            SinglePillWeekScheduleScreen(
+                state = state,
+                displayWeek = displayWeek,
+                cardHeight = weekCardHeight,
+                cardColor = cardColor,
+                textColor = textColor,
+                backdrop = backdrop,
+                headerBackdrop = weekHeaderBackdrop,
+                onSwipeWeek = { delta -> displayWeek = (displayWeek + delta).coerceIn(1, state.config.totalWeeks) },
+                onContentUnderTopBarChange = onContentUnderTopBarChange,
+                onCourseClick = { course, week, sourceBounds -> onCourseClick(course, week, sourceBounds) }
+            )
         }
     }
 }
@@ -4291,12 +4528,24 @@ fun WeekCourseBlock(
     }
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
     val cardView = LocalView.current
+    val editingId = LocalEditingCourseId.current
+    val sharedScope = LocalSharedTransitionScope.current
+    val cardSharedState = with(sharedScope) { rememberSharedContentState(key = "course_edit_${course.id}") }
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
         modifier = Modifier
             .fillMaxWidth()
             .height(height)
+            .then(
+                with(sharedScope) {
+                    Modifier.sharedElementWithCallerManagedVisibility(
+                        sharedContentState = cardSharedState,
+                        visible = editingId != course.id,
+                        clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(8.dp))
+                    )
+                }
+            )
             .graphicsLayer {
                 val tailX = layerOffset?.let { offset ->
                     val progress = (kotlin.math.abs(offset.value) / layerTravel.coerceAtLeast(1f)).coerceIn(0f, 1f)
@@ -4441,6 +4690,9 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
     val textColor = readableOn(cardColor)
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
     val cardView = LocalView.current
+    val editId = LocalEditingCourseId.current
+    val sharedScope = LocalSharedTransitionScope.current
+    val cardSharedState = with(sharedScope) { rememberSharedContentState(key = "course_edit_${course.id}") }
     val enableEntrance = entranceIndex != null && !splashEntranceDone
     val startIndex = entranceIndex ?: 0
     val entranceOffsetX = remember { Animatable(if (enableEntrance) 220f else 0f) }
@@ -4459,6 +4711,15 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         config = config,
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                with(sharedScope) {
+                    Modifier.sharedElementWithCallerManagedVisibility(
+                        sharedContentState = cardSharedState,
+                        visible = editId != course.id,
+                        clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(12.dp))
+                    )
+                }
+            )
             .graphicsLayer {
                 translationX = entranceOffsetX.value
                 translationY = entranceOffsetY.value
@@ -4532,7 +4793,8 @@ fun CourseEditorScreen(
                                 periods = selectedPeriods,
                                 weeks = selectedWeeks,
                                 weekParity = parity,
-                                note = note.ifBlank { null }
+                                note = note.ifBlank { null },
+                                scheduleId = initialCourse?.scheduleId ?: 1
                             )
                         )
                     }
@@ -4676,7 +4938,8 @@ fun NormalizedCourseEditorScreen(
                                 periods = selectedPeriods,
                                 weeks = selectedWeeks,
                                 weekParity = parity,
-                                note = note.ifBlank { null }
+                                note = note.ifBlank { null },
+                                scheduleId = initialCourse?.scheduleId ?: 1
                             )
                         )
                     }
@@ -5875,7 +6138,11 @@ fun SettingsScreen(
     onPageChange: (SettingsPage) -> Unit,
     onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
     onUpdateConfig: (ScheduleConfigEntity) -> Unit,
-    onPreviewLiveUpdate: () -> Unit
+    onPreviewLiveUpdate: () -> Unit,
+    onCreateSchedule: (String) -> Unit = {},
+    onActivateSchedule: (Int, (() -> Unit)?) -> Unit = { _, _ -> },
+    onRenameSchedule: (Int, String) -> Unit = { _, _ -> },
+    onDeleteSchedule: (Int) -> Unit = {}
 ) {
     val pageConfig = settingsVisualConfig(state.config)
     val pageState = state.copy(config = pageConfig)
@@ -5884,6 +6151,7 @@ fun SettingsScreen(
         SettingsPage.General -> GeneralSettingsScreen(state, backdrop, onUpdateConfig)
         SettingsPage.Schedule -> ScheduleConfigScreen(state, backdrop, SettingsSection.Schedule, onSave, onPreviewLiveUpdate)
         SettingsPage.Notifications -> ScheduleConfigScreen(state, backdrop, SettingsSection.Notifications, onSave, onPreviewLiveUpdate)
+        SettingsPage.ScheduleManager -> ScheduleManagerScreen(state, backdrop, onCreateSchedule, onActivateSchedule, onRenameSchedule, onDeleteSchedule)
         SettingsPage.About -> AboutSettingsScreen(pageState, backdrop)
         SettingsPage.Changelog -> ChangelogSettingsScreen(pageState, backdrop) {}
         SettingsPage.Download -> DownloadUpdateScreen(pageState, backdrop)
@@ -5929,7 +6197,7 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 SettingsNavigationRow("通用设置", "深色模式与系统外观", onClick = { onPageChange(SettingsPage.General) })
                 SettingsDivider()
-                SettingsNavigationRow("课表设置", "学期、周数与节次时间", onClick = { onPageChange(SettingsPage.Schedule) })
+                SettingsNavigationRow("课表设置", "管理多个课表", onClick = { context.startActivity(Intent(context, ScheduleManagerActivity::class.java)) })
                 SettingsDivider()
                 SettingsNavigationRow("通知设置", "上课提醒与实时活动", onClick = { onPageChange(SettingsPage.Notifications) })
             }
@@ -5938,6 +6206,177 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 SettingsNavigationRow("关于", "软件信息与开源引用", onClick = { onPageChange(SettingsPage.About) })
             }
+        }
+    }
+}
+
+@Composable
+fun ScheduleManagerScreen(
+    state: AppState,
+    backdrop: Backdrop?,
+    onCreateSchedule: (String) -> Unit,
+    onActivateSchedule: (Int, (() -> Unit)?) -> Unit,
+    onRenameSchedule: (Int, String) -> Unit,
+    onDeleteSchedule: (Int) -> Unit
+) {
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    var deleteTarget by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    val topPadding = detailContentTopPadding()
+    val coursesPerSchedule = remember(state.allCourses) {
+        state.allCourses.groupBy { it.scheduleId }.mapValues { it.value.size }
+    }
+    LazyColumn(
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "课表设置",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                SettingsActionButton("新建课表", backdrop, onClick = { showCreateDialog = true })
+            }
+        }
+        item {
+            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                state.schedules.forEachIndexed { idx, profile ->
+                    val courseCount = coursesPerSchedule[profile.id] ?: 0
+                    val isActive = profile.isActive
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { onActivateSchedule(profile.id, null) }
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    profile.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium
+                                )
+                                if (isActive) {
+                                    Text(
+                                        "当前",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                "$courseCount 门课程",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            SettingsActionButton("重命名", backdrop, onClick = {
+                                renameTarget = Pair(profile.id, profile.name)
+                            })
+                            if (!isActive && state.schedules.size > 1) {
+                                SettingsActionButton("删除", backdrop, onClick = {
+                                    deleteTarget = Pair(profile.id, profile.name)
+                                }, destructive = true)
+                            }
+                        }
+                    }
+                    if (idx != state.schedules.lastIndex) SettingsDivider()
+                }
+            }
+        }
+    }
+
+    if (showCreateDialog) {
+        ScheduleNameDialog(
+            title = "新建课表",
+            initialName = "",
+            backdrop = backdrop,
+            config = state.config,
+            onConfirm = { name ->
+                showCreateDialog = false
+                if (name.isNotBlank()) onCreateSchedule(name)
+            },
+            onDismiss = { showCreateDialog = false }
+        )
+    }
+
+    renameTarget?.let { (id, name) ->
+        ScheduleNameDialog(
+            title = "重命名课表",
+            initialName = name,
+            backdrop = backdrop,
+            config = state.config,
+            onConfirm = { newName ->
+                renameTarget = null
+                if (newName.isNotBlank()) onRenameSchedule(id, newName)
+            },
+            onDismiss = { renameTarget = null }
+        )
+    }
+
+    deleteTarget?.let { (id, name) ->
+        Dialog(onDismissRequest = { deleteTarget = null }) {
+            NormalizedDialogScaffold(
+                title = "删除课表",
+                onCancel = { deleteTarget = null },
+                backdrop = backdrop,
+                config = state.config
+            ) {
+                Text(
+                    "确定要删除「$name」吗？\n该课表下的所有课程都会被删除，且无法恢复。",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+                Box(Modifier.padding(vertical = 8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    SettingsActionButton("取消", backdrop, onClick = { deleteTarget = null }, modifier = Modifier.weight(1f))
+                    SettingsActionButton("确认删除", backdrop, onClick = {
+                        val targetId = id
+                        deleteTarget = null
+                        onDeleteSchedule(targetId)
+                    }, modifier = Modifier.weight(1f), destructive = true)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ScheduleNameDialog(
+    title: String,
+    initialName: String,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf(initialName) }
+    val textColor = glassForegroundColor(config)
+    Dialog(onDismissRequest = onDismiss) {
+        Column(modifier = Modifier.heightIn(max = 650.dp)) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                DialogLiquidButton(backdrop, "取消", onDismiss, role = DialogButtonRole.Cancel)
+                Text(title, modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = textColor)
+                DialogLiquidButton(backdrop, "确定", { onConfirm(name.trim()) }, role = DialogButtonRole.Confirm)
+            }
+            DialogCapsuleField(name, { name = it }, "课表名称", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

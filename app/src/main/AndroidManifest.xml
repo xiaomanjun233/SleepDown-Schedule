@@ -34,6 +34,11 @@
             android:theme="@style/AppTheme"
             android:parentActivityName=".MainActivity" />
         <activity
+            android:name=".ScheduleManagerActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:parentActivityName=".MainActivity" />
+        <activity
             android:name=".EduSchoolSelectActivity"
             android:exported="false"
             android:theme="@style/AppTheme"
