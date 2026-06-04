@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.animateColor
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -1599,6 +1600,69 @@ fun HomeAddButton(
     )
 }
 
+private const val HomeAddMenuBoundsKey = "home_add_menu_bounds"
+
+private data class AddMenuContainerMotion(
+    val cornerRadius: Dp,
+    val surfaceColor: ComposeColor,
+    val iconAlpha: Float,
+    val contentAlpha: Float
+)
+
+@Composable
+private fun rememberAddMenuContainerMotion(
+    expanded: Boolean,
+    config: ScheduleConfigEntity
+): AddMenuContainerMotion {
+    val lightGlass = glassUsesLightStyle(config)
+    val collapsedSurface = if (lightGlass) {
+        ComposeColor.White.copy(alpha = 0.26f)
+    } else {
+        ComposeColor(0xFF121212).copy(alpha = 0.28f)
+    }
+    val expandedSurface = if (lightGlass) {
+        ComposeColor.White.copy(alpha = 0.22f)
+    } else {
+        ComposeColor(0xFF050505).copy(alpha = 0.38f)
+    }
+    val transition = updateTransition(targetState = expanded, label = "add-menu-container")
+    val cornerRadius by transition.animateDp(
+        transitionSpec = { spring(dampingRatio = 0.82f, stiffness = 520f) },
+        label = "add-menu-corner"
+    ) { targetExpanded ->
+        if (targetExpanded) 26.dp else 21.dp
+    }
+    val surfaceColor by transition.animateColor(
+        transitionSpec = { tween(durationMillis = 180) },
+        label = "add-menu-surface-color"
+    ) { targetExpanded ->
+        if (targetExpanded) expandedSurface else collapsedSurface
+    }
+    val iconAlpha by transition.animateFloat(
+        transitionSpec = { tween(durationMillis = 90) },
+        label = "add-menu-icon-alpha"
+    ) { targetExpanded ->
+        if (targetExpanded) 0f else 1f
+    }
+    val contentAlpha by transition.animateFloat(
+        transitionSpec = {
+            tween(
+                durationMillis = if (targetState) 160 else 90,
+                delayMillis = if (targetState) 80 else 0
+            )
+        },
+        label = "add-menu-content-alpha"
+    ) { targetExpanded ->
+        if (targetExpanded) 1f else 0f
+    }
+    return AddMenuContainerMotion(
+        cornerRadius = cornerRadius,
+        surfaceColor = surfaceColor,
+        iconAlpha = iconAlpha,
+        contentAlpha = contentAlpha
+    )
+}
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun AddMenuAnchorButton(
@@ -1609,21 +1673,19 @@ private fun AddMenuAnchorButton(
     onClick: () -> Unit
 ) {
     val sharedScope = LocalSharedTransitionScope.current
-    val shape = RoundedCornerShape(50)
+    val motion = rememberAddMenuContainerMotion(expanded, config)
+    val shape = RoundedCornerShape(motion.cornerRadius)
     Box(
         modifier = modifier
             .padding(end = 7.dp)
-            .size(42.dp),
+            .size(42.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
-        val buttonContent: @Composable BoxScope.() -> Unit = {
-            Icon(
-                painterResource(R.drawable.ic_add_course),
-                contentDescription = "添加",
-                modifier = Modifier.size(20.dp),
-                tint = ComposeColor(0xFF0A84FF)
-            )
-        }
         if (sharedScope != null) {
             with(sharedScope) {
                 AnimatedVisibility(
@@ -1632,7 +1694,7 @@ private fun AddMenuAnchorButton(
                     exit = fadeOut(animationSpec = tween(durationMillis = 90)),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    val sharedState = rememberSharedContentState(key = "home_add_menu_bounds")
+                    val sharedState = rememberSharedContentState(key = HomeAddMenuBoundsKey)
                     AddMenuSurface(
                         backdrop = backdrop,
                         config = config,
@@ -1649,41 +1711,56 @@ private fun AddMenuAnchorButton(
                                 },
                                 resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
                                 clipInOverlayDuringTransition = OverlayClip(shape)
-                            )
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = onClick
                             ),
                         blurRadius = 7.dp,
                         lensHeight = 30.dp,
                         lensAmount = 38.dp,
-                        surfaceAlpha = if (glassUsesLightStyle(config)) 0.26f else 0.28f,
-                        contentAlignment = Alignment.Center,
-                        content = buttonContent
+                        surfaceColor = motion.surfaceColor
                     )
                 }
             }
         } else {
-            AddMenuSurface(
-                backdrop = backdrop,
-                config = config,
-                shape = shape,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onClick
-                    ),
-                blurRadius = 7.dp,
-                lensHeight = 30.dp,
-                lensAmount = 38.dp,
-                surfaceAlpha = if (glassUsesLightStyle(config)) 0.26f else 0.28f,
-                contentAlignment = Alignment.Center,
-                content = buttonContent
-            )
+            AnimatedVisibility(
+                visible = !expanded,
+                enter = fadeIn(animationSpec = tween(durationMillis = 90)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 90)),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                AddMenuSurface(
+                    backdrop = backdrop,
+                    config = config,
+                    shape = shape,
+                    modifier = Modifier.fillMaxSize(),
+                    blurRadius = 7.dp,
+                    lensHeight = 30.dp,
+                    lensAmount = 38.dp,
+                    surfaceColor = motion.surfaceColor
+                )
+            }
         }
+        AddMenuCollapsedIcon(alpha = motion.iconAlpha)
+    }
+}
+
+@Composable
+private fun AddMenuCollapsedIcon(alpha: Float) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                this.alpha = alpha
+                val iconScale = 0.88f + 0.12f * alpha
+                scaleX = iconScale
+                scaleY = iconScale
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painterResource(R.drawable.ic_add_course),
+            contentDescription = "添加",
+            modifier = Modifier.size(20.dp),
+            tint = ComposeColor(0xFF0A84FF)
+        )
     }
 }
 
@@ -2079,6 +2156,7 @@ private fun AddMenuContainerTransform(
         }
     }
     val sharedScope = LocalSharedTransitionScope.current
+    val motion = rememberAddMenuContainerMotion(expanded, config)
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -2097,17 +2175,22 @@ private fun AddMenuContainerTransform(
                 AnimatedVisibility(
                     visible = expanded,
                     enter = fadeIn(animationSpec = tween(durationMillis = 90)),
-                    exit = fadeOut(animationSpec = tween(durationMillis = 120))
+                    exit = fadeOut(animationSpec = tween(durationMillis = 120)),
+                    modifier = panelModifier
+                        .width(206.dp)
+                        .height(164.dp)
+                        .zIndex(1f)
                 ) {
-                    val sharedState = rememberSharedContentState(key = "home_add_menu_bounds")
+                    val sharedState = rememberSharedContentState(key = HomeAddMenuBoundsKey)
                     AddMenuExpandedPanel(
                         backdrop = backdrop,
                         config = config,
                         actions = actions,
                         visible = expanded,
-                        modifier = panelModifier
-                            .width(206.dp)
-                            .height(164.dp)
+                        motion = motion,
+                        modifier = Modifier.fillMaxSize(),
+                        surfaceModifier = Modifier
+                            .fillMaxSize()
                             .sharedBounds(
                                 sharedContentState = sharedState,
                                 animatedVisibilityScope = this,
@@ -2117,7 +2200,7 @@ private fun AddMenuContainerTransform(
                                     spring(dampingRatio = 0.82f, stiffness = 520f)
                                 },
                                 resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
-                                clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(26.dp))
+                                clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(motion.cornerRadius))
                             )
                     )
                 }
@@ -2138,15 +2221,18 @@ private fun AddMenuContainerTransform(
                 config = config,
                 actions = actions,
                 visible = expanded,
+                motion = motion,
                 modifier = panelModifier
                     .width(206.dp)
                     .height(164.dp)
+                    .zIndex(1f)
                     .graphicsLayer {
                         alpha = fallbackAlpha
                         scaleX = fallbackScale
                         scaleY = fallbackScale
                         transformOrigin = TransformOrigin(0.5f, 0f)
-                    }
+                    },
+                surfaceModifier = Modifier.fillMaxSize()
             )
         }
     }
@@ -2158,27 +2244,25 @@ private fun AddMenuExpandedPanel(
     config: ScheduleConfigEntity,
     actions: List<AddMenuAction>,
     visible: Boolean,
-    modifier: Modifier = Modifier
+    motion: AddMenuContainerMotion,
+    modifier: Modifier = Modifier,
+    surfaceModifier: Modifier = Modifier.fillMaxSize()
 ) {
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 150, delayMillis = if (visible) 90 else 0),
-        label = "add-menu-content-alpha"
-    )
-    AddMenuSurface(
-        backdrop = backdrop,
-        config = config,
-        shape = RoundedCornerShape(26.dp),
-        modifier = modifier,
-        blurRadius = 14.dp,
-        lensHeight = 46.dp,
-        lensAmount = 58.dp,
-        surfaceAlpha = if (glassUsesLightStyle(config)) 0.22f else 0.38f
-    ) {
+    Box(modifier = modifier) {
+        AddMenuSurface(
+            backdrop = backdrop,
+            config = config,
+            shape = RoundedCornerShape(motion.cornerRadius),
+            modifier = surfaceModifier,
+            blurRadius = 14.dp,
+            lensHeight = 46.dp,
+            lensAmount = 58.dp,
+            surfaceColor = motion.surfaceColor
+        )
         AddMenuContent(
             config = config,
             actions = actions,
-            contentAlpha = contentAlpha
+            contentAlpha = if (visible) motion.contentAlpha else 0f
         )
     }
 }
@@ -2192,15 +2276,11 @@ private fun AddMenuSurface(
     blurRadius: Dp,
     lensHeight: Dp,
     lensAmount: Dp,
-    surfaceAlpha: Float,
-    contentAlignment: Alignment = Alignment.TopCenter,
-    content: @Composable BoxScope.() -> Unit
+    surfaceColor: ComposeColor
 ) {
     val lightGlass = glassUsesLightStyle(config)
     val useGlass = backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val quality = LocalGlassQuality.current.coerceIn(0.7f, 1f)
-    val baseColor = if (lightGlass) ComposeColor.White else ComposeColor(0xFF050505)
-    val surfaceColor = baseColor.copy(alpha = surfaceAlpha)
     val compactSurface = blurRadius <= 8.dp
     val surfaceModifier = if (useGlass) {
         modifier
@@ -2232,13 +2312,9 @@ private fun AddMenuSurface(
     } else {
         modifier
             .clip(shape)
-            .background(if (appUsesDarkTheme(config)) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
+            .background(surfaceColor)
     }
-    Box(
-        modifier = surfaceModifier,
-        contentAlignment = contentAlignment,
-        content = content
-    )
+    Box(modifier = surfaceModifier)
 }
 
 @Composable
