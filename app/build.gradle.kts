@@ -11,6 +11,9 @@ plugins {
 android {
     namespace = "com.example.courseschedule"
     compileSdk = 36
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "com.example.courseschedule"
@@ -18,6 +21,7 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName = "1.04 beta"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -50,6 +54,7 @@ dependencies {
     implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.metrics:metrics-performance:1.0.0")
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("io.github.kyant0:backdrop:2.0.0-alpha03")
     implementation("io.github.kyant0:shapes:1.2.0")
@@ -57,4 +62,9 @@ dependencies {
     implementation("androidx.room:room-ktx:2.8.3")
     ksp("androidx.room:room-compiler:2.8.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.room:room-testing:2.8.3")
 }

@@ -120,18 +120,26 @@ C=大学英语|-|B203|3|3|2-18|O|-
 }
 
 object ScheduleImportParser {
-    private val json = Json { ignoreUnknownKeys = false; isLenient = false }
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
     fun cleanMarkdown(input: String): String {
         val trimmed = input.trim()
         val fence = Char(96).toString().repeat(3)
         val firstFence = trimmed.indexOf(fence)
-        if (firstFence < 0) return trimmed
-        val afterFence = trimmed.indexOf('\n', firstFence).let { if (it < 0) firstFence + fence.length else it + 1 }
-        val lastFence = trimmed.indexOf(fence, afterFence)
-        if (lastFence < 0) return trimmed.removePrefix(fence).removePrefix("json").trim()
-        return trimmed.substring(afterFence, lastFence).trim()
+        if (firstFence >= 0) {
+            val afterFence = trimmed.indexOf('\n', firstFence).let { if (it < 0) firstFence + fence.length else it + 1 }
+            val lastFence = trimmed.indexOf(fence, afterFence)
+            if (lastFence >= 0) return trimmed.substring(afterFence, lastFence).trim()
+            return trimmed.removePrefix(fence).removePrefix("json").trim()
+        }
+        if (containsSleepDownToken(trimmed)) return trimmed
+        val firstBrace = trimmed.indexOf('{')
+        val lastBrace = trimmed.lastIndexOf('}')
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+            return trimmed.substring(firstBrace, lastBrace + 1).trim()
+        }
+        return trimmed
     }
 
     fun parse(input: String, baseConfig: ScheduleConfigEntity): Result<ImportDraft> = runCatching {
@@ -150,10 +158,10 @@ object ScheduleImportParser {
         require(payload.schemaVersion == 1) { "schemaVersion 目前只支持 1" }
         require(payload.scheduleConfig.totalWeeks in 1..60) { "totalWeeks 必须在 1 到 60 之间" }
         require(payload.scheduleConfig.periods.isNotEmpty()) { "periods 不能为空" }
-        val indexes = payload.scheduleConfig.periods.map { it.index }
-        require(indexes.distinct().size == indexes.size) { "节次 index 不能重复" }
+        val uniquePeriodPayloads = payload.scheduleConfig.periods.distinctBy { it.index }.sortedBy { it.index }
+        val indexes = uniquePeriodPayloads.map { it.index }
         require(indexes.all { it > 0 }) { "节次 index 必须大于 0" }
-        val periods = payload.scheduleConfig.periods.sortedBy { it.index }.map {
+        val periods = uniquePeriodPayloads.map {
             val start = parseTime(it.startTime, "第 ${it.index} 节 startTime")
             val end = parseTime(it.endTime, "第 ${it.index} 节 endTime")
             require(start < end) { "第 ${it.index} 节结束时间必须晚于开始时间" }
@@ -200,12 +208,12 @@ object ScheduleImportParser {
     }
 
     private fun containsSleepDownToken(input: String): Boolean {
-        return input.lineSequence().any { it.trim() == "SDCT1" }
+        return input.lineSequence().any { it.trim().contains("SDCT1") }
     }
 
     private fun parseSleepDownToken(input: String): ScheduleImportPayload {
         val lines = input.lines().map { it.trim() }.filter { it.isNotEmpty() }
-        val startIndex = lines.indexOfFirst { it == "SDCT1" }
+        val startIndex = lines.indexOfFirst { it.contains("SDCT1") }
         require(startIndex >= 0) { "未找到 SleepDown 课程表口令 SDCT1" }
         var totalWeeks = 20
         val periods = mutableListOf<PeriodPayload>()
@@ -257,6 +265,7 @@ object ScheduleImportParser {
             .split(',')
             .flatMap { part ->
                 val token = part.trim()
+                if (token.isBlank()) return@flatMap emptyList()
                 if (token.contains('-')) {
                     val bounds = token.split('-', limit = 2).map { it.trim().toInt() }
                     val start = minOf(bounds[0], bounds[1])

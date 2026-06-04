@@ -25,11 +25,9 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
-import android.os.PerformanceHintManager
 import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
-import android.view.Choreographer
 import android.view.WindowInsetsController
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -53,8 +51,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -81,7 +79,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -92,6 +89,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -165,7 +163,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -407,10 +408,10 @@ class ScheduleViewModel(private val app: Application, private val repository: Sc
         snackbar.value = "课程已删除"
     }
 
-    fun importDraft(draft: ImportDraft, onDone: () -> Unit) = viewModelScope.launch {
-        repository.importDraft(draft)
+    fun importDraft(draft: ImportDraft, createNewSchedule: Boolean = false, onDone: () -> Unit) = viewModelScope.launch {
+        repository.importDraft(draft, createNewSchedule)
         rescheduleToday()
-        snackbar.value = "课程表已导入"
+        snackbar.value = if (createNewSchedule) "已导入到新课表" else "课程表已导入"
         onDone()
     }
 
@@ -525,49 +526,8 @@ sealed interface HomeDialog {
 
 private var splashEntranceDone = false
 private val LocalEditingCourseId = compositionLocalOf<Long?> { null }
-private val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope> { error("SharedTransitionScope not provided") }
+private val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope?> { null }
 internal var hideFromRecentsEnabled = false
-
-@Composable
-private fun StartupPerformanceHint(active: Boolean) {
-    val view = LocalView.current
-    DisposableEffect(active, view) {
-        if (!active || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            onDispose {}
-        } else {
-            val manager = view.context.getSystemService(PerformanceHintManager::class.java)
-            val refreshRate = view.display?.refreshRate?.takeIf { it > 0f } ?: 60f
-            val targetDurationNanos = (1_000_000_000f / refreshRate).toLong().coerceAtLeast(4_000_000L)
-            val session = runCatching {
-                manager?.createHintSession(intArrayOf(android.os.Process.myTid()), targetDurationNanos)
-            }.getOrNull()
-            if (session == null) {
-                onDispose {}
-            } else {
-                runCatching { session.updateTargetWorkDuration(targetDurationNanos) }
-                val choreographer = Choreographer.getInstance()
-                var lastFrameNanos = 0L
-                val frameCallback = object : Choreographer.FrameCallback {
-                    override fun doFrame(frameTimeNanos: Long) {
-                        if (lastFrameNanos != 0L) {
-                            val actualDuration = (frameTimeNanos - lastFrameNanos).coerceAtLeast(1L)
-                            runCatching {
-                                session.reportActualWorkDuration(actualDuration)
-                            }
-                        }
-                        lastFrameNanos = frameTimeNanos
-                        choreographer.postFrameCallback(this)
-                    }
-                }
-                choreographer.postFrameCallback(frameCallback)
-                onDispose {
-                    choreographer.removeFrameCallback(frameCallback)
-                    runCatching { session.close() }
-                }
-            }
-        }
-    }
-}
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -620,60 +580,50 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val contentBackdrop = rememberLayerBackdrop()
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
     val logRecording by DiagnosticLogCapture.recording.collectAsState()
-    val wallpaperBitmap by rememberHomeWallpaperBitmap(state.config)
-    var startupPerformanceHintActive by remember { mutableStateOf(false) }
-    StartupPerformanceHint(startupPerformanceHintActive)
+    val wallpaperImages by rememberHomeWallpaperImages(state.config)
+
+    var startupPhase by remember {
+        mutableStateOf(if (state.loaded || splashEntranceDone) StartupPhase.FullQuality else StartupPhase.Loading)
+    }
+    LaunchedEffect(state.loaded) {
+        if (state.loaded && startupPhase == StartupPhase.Loading) {
+            startupPhase = StartupPhase.Prewarm
+        }
+    }
+    if (startupPhase == StartupPhase.Prewarm) {
+        waitForPrewarmFrames { startupPhase = StartupPhase.Reveal }
+    }
+    LaunchedEffect(startupPhase) {
+        if (startupPhase == StartupPhase.Entrance) {
+            splashEntranceDone = false
+            delay(820)
+            startupPhase = StartupPhase.Settle
+            delay(180)
+            splashEntranceDone = true
+            startupPhase = StartupPhase.FullQuality
+        }
+    }
+    val glassQuality = animatedGlassQuality(startupPhase)
+    val startupAnimation = when (startupPhase) {
+        StartupPhase.Reveal -> "StartupReveal"
+        StartupPhase.Entrance -> "HomeEntrance"
+        StartupPhase.Settle -> "HomeEntrance"
+        else -> if (homeDialogVisible) "DialogOpen" else "Idle"
+    }
+    StartupPerformanceBoost(
+        startupPhase == StartupPhase.Reveal ||
+            startupPhase == StartupPhase.Entrance ||
+            homeDialogVisible
+    )
+    StartupJankStats(
+        phase = startupPhase,
+        screen = if (screen is Screen.Home) "Home" else if (screen is Screen.Config) "Settings" else "Other",
+        animation = startupAnimation
+    )
 
     // Startup splash with circular reveal
     val systemDark = isSystemInDarkTheme()
     val splashColor = if (systemDark) ComposeColor(0xFF000000) else ComposeColor(0xFFFFFFFF)
-    var splashActive by remember { mutableStateOf(true) }
-    val revealRadius = remember { Animatable(0f) }
-    var screenDiagonal by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(state.loaded) {
-        if (state.loaded && splashActive) {
-            delay(30)
-            revealRadius.snapTo(0f)
-            revealRadius.animateTo(
-                screenDiagonal * 1.2f,
-                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
-            )
-            splashActive = false
-        }
-    }
-
-    // Entrance animations after splash reveal (first launch only, tuned for 120fps)
-    val topBarEntranceY = remember { Animatable(-200f) }
-    val contentEntranceY = remember { Animatable(80f) }
-    val dockEntranceY = remember { Animatable(200f) }
-    var entranceTriggered by remember { mutableStateOf(false) }
-    LaunchedEffect(state.loaded) {
-        if (state.loaded && !entranceTriggered) {
-            entranceTriggered = true
-            splashEntranceDone = false
-            startupPerformanceHintActive = true
-            launch {
-                delay(60)
-                topBarEntranceY.animateTo(0f, spring(dampingRatio = 0.68f, stiffness = 520f))
-            }
-            launch {
-                delay(130)
-                contentEntranceY.animateTo(0f, spring(dampingRatio = 0.62f, stiffness = 430f))
-            }
-            launch {
-                delay(200)
-                dockEntranceY.animateTo(0f, spring(dampingRatio = 0.70f, stiffness = 500f))
-            }
-            launch {
-                delay(900)
-                splashEntranceDone = true
-            }
-            launch {
-                delay(1400)
-                startupPerformanceHintActive = false
-            }
-        }
-    }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val wallpaperLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -726,18 +676,15 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         modifier = Modifier.fillMaxSize()
     ) {
     val sharedTransitionScope = this
+    val activeSharedTransitionScope = if (startupPhase == StartupPhase.FullQuality) sharedTransitionScope else null
     CompositionLocalProvider(
-        LocalSharedTransitionScope provides sharedTransitionScope,
-        LocalEditingCourseId provides editingCourseId
+        LocalSharedTransitionScope provides activeSharedTransitionScope,
+        LocalEditingCourseId provides editingCourseId,
+        LocalStartupPhase provides startupPhase,
+        LocalGlassQuality provides glassQuality
     ) {
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .onSizeChanged { size ->
-                val halfW = size.width / 2f
-                val halfH = size.height / 2f
-                screenDiagonal = sqrt(halfW * halfW + halfH * halfH)
-            }
+        modifier = Modifier.fillMaxSize()
     ) {
         Box(
             modifier = Modifier
@@ -748,11 +695,11 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             containerColor = ComposeColor.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                Box(
+                TopBarEntranceContainer(
+                    phase = startupPhase,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(if (screen is Screen.Home) HomeTopOverlayHeight else HomeInitialTopInset)
-                        .graphicsLayer { translationY = topBarEntranceY.value }
                 ) {
                     if (screen is Screen.Home) {
                         AnimatedVisibility(
@@ -776,7 +723,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         backdrop = chromeBackdrop,
                         homeMode = homeMode,
                         onHomeModeChange = { homeMode = it },
-                        addMenuExpanded = renderAddMenu,
+                        addMenuExpanded = addMenuExpanded,
                         onAddButtonPositioned = { addButtonBounds = it },
                         onToggleAddMenu = {
                             val next = !addMenuExpanded
@@ -807,8 +754,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         if (!state.loaded) {
                             HomeWallpaperLoadingMask(state.config)
                         } else {
-                            HomeWallpaper(state.config, wallpaperBitmap)
-                            if (state.config.hasAnyWallpaper() && wallpaperBitmap == null) {
+                            HomeWallpaper(state.config, wallpaperImages, startupPhase)
+                            if (state.config.hasAnyWallpaper() && wallpaperImages.source == null) {
                                 HomeWallpaperLoadingMask(state.config)
                             } else if (!state.config.hasAnyWallpaper()) {
                                 HomeBackdropFallback()
@@ -832,7 +779,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 }
                 Column(modifier = contentModifier) {
                     message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                    Box(modifier = Modifier.weight(1f).graphicsLayer { translationY = contentEntranceY.value }) {
+                    ContentEntranceContainer(phase = startupPhase, modifier = Modifier.weight(1f)) {
                         when (val current = screen) {
                             Screen.Home -> {
                                 HomeScreen(
@@ -873,7 +820,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     onPageChange = {},
                                     onParsed = { screen = Screen.Confirm(it) }
                                 )
-                            is Screen.Confirm -> ConfirmScheduleScreen(current.draft, onCancel = { screen = Screen.Home }, onConfirm = { viewModel.importDraft(current.draft) { screen = Screen.Home } })
+                            is Screen.Confirm -> ConfirmScheduleScreen(current.draft, onCancel = { screen = Screen.Home }, onConfirm = { createNewSchedule -> viewModel.importDraft(current.draft, createNewSchedule) { screen = Screen.Home } })
                         }
                         if (screen is Screen.Home) {
                             DockBackdropContinuityPatch(
@@ -884,16 +831,23 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     }
                 }
             if (screen is Screen.Home && renderAddMenu) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .zIndex(23f)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = { addMenuExpanded = false }
-                        )
-                )
+                AnimatedVisibility(
+                    visible = addMenuExpanded,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 120)),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 140)),
+                    modifier = Modifier.fillMaxSize().zIndex(23f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(ComposeColor.Black.copy(alpha = 0.05f))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { addMenuExpanded = false }
+                            )
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -949,18 +903,20 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 showScheduleEntryPill = false
             }
             if (screen is Screen.Home || screen is Screen.Config) {
-                FloatingDock(
-                    selected = screen,
-                    backdrop = chromeBackdrop,
-                    config = state.config,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .graphicsLayer { translationY = dockEntranceY.value },
-                    onHome = { screen = Screen.Home },
-                    onConfig = {
-                        screen = Screen.Config
-                    }
-                )
+                DockEntranceContainer(
+                    phase = startupPhase,
+                    modifier = Modifier.align(Alignment.BottomStart)
+                ) {
+                    FloatingDock(
+                        selected = screen,
+                        backdrop = chromeBackdrop,
+                        config = state.config,
+                        onHome = { screen = Screen.Home },
+                        onConfig = {
+                            screen = Screen.Config
+                        }
+                    )
+                }
             }
             if (screen is Screen.Home) {
                 AnimatedVisibility(
@@ -1016,7 +972,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     if (isInlineEditVisible) {
         val editDialog = renderedHomeDialog as HomeDialog.EditCourse
         val editCourse = editDialog.course!!
-        val editSharedState = rememberSharedContentState(key = "course_edit_${editingCourseId}")
+        val sharedScope = LocalSharedTransitionScope.current.takeIf { editingCourseId != null && editCourse.id > 0L }
+        val useSharedBounds = startupPhase == StartupPhase.FullQuality && sharedScope != null
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1037,34 +994,28 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         ) { dismissHomeDialog() },
                     contentAlignment = Alignment.Center
                 ) {
-                    CenterLiquidDialog(
+                    CourseEditSharedDialog(
+                        visible = homeDialogVisible,
+                        course = editCourse,
+                        useSharedBounds = useSharedBounds,
+                        sharedScope = sharedScope,
+                        sourceBounds = courseEditSourceBounds,
                         backdrop = chromeBackdrop,
                         config = state.config,
-                        modifier = Modifier.sharedElementWithCallerManagedVisibility(
-                            sharedContentState = editSharedState,
-                            visible = editingCourseId != null,
-                            renderInOverlayDuringTransition = false,
-                            clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(26.dp))
-                        )
-                    ) {
-                        NormalizedCourseEditorScreen(
-                            state = state,
-                            initialCourse = editDialog.course,
-                            onCancel = { dismissHomeDialog() },
-                            onSave = {
-                                if (courseWeeksChanged(editCourse, it)) {
-                                    viewModel.updateCourse(it)
-                                    dismissHomeDialog()
-                                } else {
-                                    homeDialog = HomeDialog.ApplyCourseEdit(editCourse, it, editDialog.targetWeek ?: effectiveCurrentWeek(state.config))
-                                }
-                            },
-                            onDelete = {
-                                homeDialog = HomeDialog.ApplyCourseDelete(it, editDialog.targetWeek ?: effectiveCurrentWeek(state.config))
-                            },
-                            backdrop = chromeBackdrop
-                        )
-                    }
+                        state = state,
+                        onCancel = { dismissHomeDialog() },
+                        onSave = {
+                            if (courseWeeksChanged(editCourse, it)) {
+                                viewModel.updateCourse(it)
+                                dismissHomeDialog()
+                            } else {
+                                homeDialog = HomeDialog.ApplyCourseEdit(editCourse, it, editDialog.targetWeek ?: effectiveCurrentWeek(state.config))
+                            }
+                        },
+                        onDelete = {
+                            homeDialog = HomeDialog.ApplyCourseDelete(it, editDialog.targetWeek ?: effectiveCurrentWeek(state.config))
+                        }
+                    )
                 }
             }
         }
@@ -1125,7 +1076,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     is HomeDialog.ConfirmImport -> ConfirmScheduleScreen(
                         draft = dialog.draft,
                         onCancel = { homeDialog = HomeDialog.ImportSchedule },
-                        onConfirm = { viewModel.importDraft(dialog.draft) { dismissHomeDialog() } }
+                        onConfirm = { createNewSchedule -> viewModel.importDraft(dialog.draft, createNewSchedule) { dismissHomeDialog() } }
                     )
                     HomeDialog.SampleWallpaperColor -> WallpaperColorSamplerScreen(
                         state = state,
@@ -1189,28 +1140,11 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         }
 
         // Startup splash — covers content until config loaded, then circular reveal
-        if (splashActive) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .drawWithContent {
-                        val r = revealRadius.value
-                        if (r > 0f) {
-                            val path = Path().apply {
-                                addRect(Rect(0f, 0f, size.width, size.height))
-                                fillType = PathFillType.EvenOdd
-                                addOval(Rect(
-                                    center = Offset(size.width / 2f, size.height / 2f),
-                                    radius = r
-                                ))
-                            }
-                            drawPath(path, splashColor)
-                        } else {
-                            drawRect(splashColor)
-                        }
-                    }
-            )
-        }
+        StartupRevealOverlay(
+            phase = startupPhase,
+            splashColor = splashColor,
+            onRevealFinished = { startupPhase = StartupPhase.Entrance }
+        )
     }
     }
     }
@@ -1656,28 +1590,100 @@ fun HomeAddButton(
     onPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
     onClick: () -> Unit
 ) {
-    val alpha = remember { Animatable(1f) }
-    val scale = remember { Animatable(1f) }
-    LaunchedEffect(expanded) {
-        if (expanded) {
-            alpha.animateTo(0f, spring(dampingRatio = 0.78f, stiffness = 520f))
-            scale.animateTo(1.08f, spring(dampingRatio = 0.62f, stiffness = 460f))
-        } else {
-            alpha.snapTo(1f)
-            scale.snapTo(1f)
+    AddMenuAnchorButton(
+        backdrop = backdrop,
+        config = config,
+        expanded = expanded,
+        modifier = Modifier.onGloballyPositioned { onPositioned(it.boundsInRoot()) },
+        onClick = onClick
+    )
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun AddMenuAnchorButton(
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    expanded: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val sharedScope = LocalSharedTransitionScope.current
+    val shape = RoundedCornerShape(50)
+    Box(
+        modifier = modifier
+            .padding(end = 7.dp)
+            .size(42.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        val buttonContent: @Composable BoxScope.() -> Unit = {
+            Icon(
+                painterResource(R.drawable.ic_add_course),
+                contentDescription = "添加",
+                modifier = Modifier.size(20.dp),
+                tint = ComposeColor(0xFF0A84FF)
+            )
         }
-    }
-    Box(modifier = Modifier.graphicsLayer { this.alpha = alpha.value; scaleX = scale.value; scaleY = scale.value }) {
-        HomeIconButton(
-            backdrop = backdrop,
-            config = config,
-            iconRes = R.drawable.ic_add_course,
-            contentDescription = "添加",
-            selected = expanded,
-            tint = ComposeColor(0xFF0A84FF),
-            modifier = Modifier.onGloballyPositioned { onPositioned(it.boundsInRoot()) },
-            onClick = onClick
-        )
+        if (sharedScope != null) {
+            with(sharedScope) {
+                AnimatedVisibility(
+                    visible = !expanded,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 90)),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 90)),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    val sharedState = rememberSharedContentState(key = "home_add_menu_bounds")
+                    AddMenuSurface(
+                        backdrop = backdrop,
+                        config = config,
+                        shape = shape,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .sharedBounds(
+                                sharedContentState = sharedState,
+                                animatedVisibilityScope = this,
+                                enter = fadeIn(animationSpec = tween(durationMillis = 90)),
+                                exit = fadeOut(animationSpec = tween(durationMillis = 90)),
+                                boundsTransform = BoundsTransform { _, _ ->
+                                    spring(dampingRatio = 0.82f, stiffness = 520f)
+                                },
+                                resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
+                                clipInOverlayDuringTransition = OverlayClip(shape)
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onClick
+                            ),
+                        blurRadius = 7.dp,
+                        lensHeight = 30.dp,
+                        lensAmount = 38.dp,
+                        surfaceAlpha = if (glassUsesLightStyle(config)) 0.26f else 0.28f,
+                        contentAlignment = Alignment.Center,
+                        content = buttonContent
+                    )
+                }
+            }
+        } else {
+            AddMenuSurface(
+                backdrop = backdrop,
+                config = config,
+                shape = shape,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onClick
+                    ),
+                blurRadius = 7.dp,
+                lensHeight = 30.dp,
+                lensAmount = 38.dp,
+                surfaceAlpha = if (glassUsesLightStyle(config)) 0.26f else 0.28f,
+                contentAlignment = Alignment.Center,
+                content = buttonContent
+            )
+        }
     }
 }
 
@@ -1725,6 +1731,128 @@ private fun courseEditExitTransition(): ExitTransition =
             targetOffsetY = { it / 8 },
             animationSpec = spring(dampingRatio = 0.86f, stiffness = 620f)
         )
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun CourseBoundsSource(
+    courseId: Long,
+    visible: Boolean,
+    sharedScope: SharedTransitionScope?,
+    modifier: Modifier,
+    shape: RoundedCornerShape,
+    content: @Composable (Modifier) -> Unit
+) {
+    if (sharedScope == null || courseId <= 0L) {
+        content(modifier)
+        return
+    }
+    Box(modifier = modifier) {
+        with(sharedScope) {
+            AnimatedVisibility(
+                visible = visible,
+                enter = fadeIn(animationSpec = tween(durationMillis = 90)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 90)),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                val sharedState = rememberSharedContentState(key = "course_bounds_${courseId}")
+                content(
+                    Modifier
+                        .fillMaxSize()
+                        .sharedBounds(
+                            sharedContentState = sharedState,
+                            animatedVisibilityScope = this,
+                            enter = fadeIn(animationSpec = tween(durationMillis = 90)),
+                            exit = fadeOut(animationSpec = tween(durationMillis = 90)),
+                            boundsTransform = BoundsTransform { _, _ ->
+                                spring(dampingRatio = 0.78f, stiffness = 520f)
+                            },
+                            resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
+                            clipInOverlayDuringTransition = OverlayClip(shape)
+                        )
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun CourseEditSharedDialog(
+    visible: Boolean,
+    course: CourseEntity,
+    useSharedBounds: Boolean,
+    sharedScope: SharedTransitionScope?,
+    sourceBounds: Rect?,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    state: AppState,
+    onCancel: () -> Unit,
+    onSave: (CourseEntity) -> Unit,
+    onDelete: (CourseEntity) -> Unit
+) {
+    val contentAlpha = remember { Animatable(0f) }
+    LaunchedEffect(visible, course.id) {
+        if (visible) {
+            contentAlpha.snapTo(0f)
+            delay(100)
+            contentAlpha.animateTo(1f, tween(durationMillis = 120))
+        } else {
+            contentAlpha.animateTo(0f, tween(durationMillis = 80))
+        }
+    }
+    val fallbackModifier = if (useSharedBounds) {
+        Modifier
+    } else {
+        Modifier.courseEditSourceTransform(sourceBounds, visible)
+    }
+    val dialogContent: @Composable () -> Unit = {
+        CenterLiquidDialog(
+            backdrop = backdrop,
+            config = config,
+            modifier = fallbackModifier
+        ) {
+            Box(Modifier.graphicsLayer { alpha = contentAlpha.value }) {
+                NormalizedCourseEditorScreen(
+                    state = state,
+                    initialCourse = course,
+                    onCancel = onCancel,
+                    onSave = onSave,
+                    onDelete = onDelete,
+                    backdrop = backdrop
+                )
+            }
+        }
+    }
+    if (useSharedBounds && sharedScope != null) {
+        with(sharedScope) {
+            AnimatedVisibility(
+                visible = visible,
+                enter = fadeIn(animationSpec = tween(durationMillis = 90)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 90))
+            ) {
+                val sharedState = rememberSharedContentState(key = "course_bounds_${course.id}")
+                Box(
+                    modifier = Modifier
+                        .sharedBounds(
+                            sharedContentState = sharedState,
+                            animatedVisibilityScope = this,
+                            enter = fadeIn(animationSpec = tween(durationMillis = 90)),
+                            exit = fadeOut(animationSpec = tween(durationMillis = 90)),
+                            boundsTransform = BoundsTransform { _, _ ->
+                                spring(dampingRatio = 0.78f, stiffness = 520f)
+                            },
+                            resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
+                            clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(26.dp))
+                        )
+                ) {
+                    dialogContent()
+                }
+            }
+        }
+    } else {
+        dialogContent()
+    }
+}
 
 @Composable
 fun Modifier.courseEditSourceTransform(sourceBounds: Rect?, visible: Boolean): Modifier {
@@ -1906,221 +2034,245 @@ fun MorphingLiquidAddMenu(
     anchorBounds: androidx.compose.ui.geometry.Rect? = null,
     expanded: Boolean = true
 ) {
-    var animatedExpanded by remember { mutableStateOf(false) }
-    LaunchedEffect(expanded) {
-        if (expanded) {
-            delay(16)
-            animatedExpanded = true
-        } else {
-            animatedExpanded = false
-        }
-    }
-    val transition = androidx.compose.animation.core.updateTransition(animatedExpanded, label = "morph-add-menu")
-    val sinkOffset by transition.animateDp(
-        transitionSpec = {
-            if (targetState) {
-                keyframes {
-                    durationMillis = 180
-                    0.dp at 0
-                    30.dp at 38
-                    48.dp at 162
-                    46.dp at 180
-                }
-            } else {
-                keyframes {
-                    durationMillis = 180
-                    46.dp at 0
-                    28.dp at 132
-                    0.dp at 180
-                }
-            }
-        },
-        label = "add-menu-sink"
-    ) { if (it) 46.dp else 0.dp }
-    val width by transition.animateDp(
-        transitionSpec = {
-            if (targetState) {
-                keyframes {
-                    durationMillis = 180
-                    42.dp at 0
-                    42.dp at 64
-                    42.dp at 78
-                    206.dp at 168
-                    202.dp at 180
-                }
-            } else {
-                keyframes {
-                    durationMillis = 180
-                    206.dp at 0
-                    42.dp at 132
-                    42.dp at 180
-                }
-            }
-        },
-        label = "add-menu-width"
-    ) { if (it) 206.dp else 42.dp }
-    val height by transition.animateDp(
-        transitionSpec = {
-            if (targetState) {
-                keyframes {
-                    durationMillis = 180
-                    42.dp at 0
-                    42.dp at 64
-                    42.dp at 78
-                    164.dp at 168
-                    160.dp at 180
-                }
-            } else {
-                keyframes {
-                    durationMillis = 180
-                    164.dp at 0
-                    42.dp at 132
-                    42.dp at 180
-                }
-            }
-        },
-        label = "add-menu-height"
-    ) { if (it) 164.dp else 42.dp }
-    val radius by transition.animateDp(
-        transitionSpec = { spring(dampingRatio = 0.66f, stiffness = 460f) },
-        label = "add-menu-radius"
-    ) { if (it) 26.dp else 50.dp }
-    val iconAlpha by transition.animateFloat(
-        transitionSpec = { spring(dampingRatio = 0.9f, stiffness = 520f) },
-        label = "add-menu-icon-alpha"
-    ) { if (it) 0f else 1f }
-    val contentAlpha by transition.animateFloat(
-        transitionSpec = { spring(dampingRatio = 0.90f, stiffness = 360f) },
-        label = "add-menu-content-alpha"
-    ) { if (it) 1f else 0f }
-    val dynamicBlur by transition.animateDp(
-        transitionSpec = { spring(dampingRatio = 0.76f, stiffness = 300f) },
-        label = "add-menu-blur"
-    ) { if (it) 14.dp else 5.dp }
-    var highlightedIndex by remember { mutableIntStateOf(-1) }
-    var touching by remember { mutableStateOf(false) }
-    val pressProgress by animateFloatAsState(
-        targetValue = if (touching || highlightedIndex >= 0) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 360f),
-        label = "morph-add-menu-press"
+    AddMenuContainerTransform(
+        backdrop = backdrop,
+        config = config,
+        actions = actions,
+        modifier = modifier,
+        anchorBounds = anchorBounds,
+        expanded = expanded
     )
-    val itemHeight = 48.dp
-    val itemSpacing = 4.dp
-    val menuPadding = 8.dp
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun AddMenuContainerTransform(
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    actions: List<AddMenuAction>,
+    modifier: Modifier = Modifier,
+    anchorBounds: androidx.compose.ui.geometry.Rect? = null,
+    expanded: Boolean = true
+) {
     val density = LocalDensity.current
-    val itemHeightPx = with(density) { itemHeight.toPx() }
-    val itemStepPx = with(density) { (itemHeight + itemSpacing).toPx() }
-    val menuPaddingPx = with(density) { menuPadding.toPx() }
-    val lightGlass = glassUsesLightStyle(config)
-    val textColor = glassForegroundColor(config)
-    fun hitIndex(y: Float): Int {
-        val localY = y - menuPaddingPx
-        if (localY < 0f || contentAlpha < 0.6f) return -1
-        val index = (localY / itemStepPx).toInt()
-        val inItem = localY - index * itemStepPx <= itemHeightPx
-        return index.takeIf { it in actions.indices && inItem } ?: -1
-    }
-    val dragModifier = Modifier.pointerInput(actions, contentAlpha) {
-        awaitPointerEventScope {
-            while (true) {
-                val down = awaitPointerEvent().changes.firstOrNull { it.pressed } ?: continue
-                touching = true
-                highlightedIndex = hitIndex(down.position.y)
-                down.consume()
-                var released = false
-                while (!released) {
-                    val event = awaitPointerEvent()
-                    val change = event.changes.firstOrNull() ?: continue
-                    highlightedIndex = hitIndex(change.position.y)
-                    if (change.changedToUpIgnoreConsumed()) {
-                        val index = highlightedIndex
-                        touching = false
-                        highlightedIndex = -1
-                        if (index in actions.indices) actions[index].onClick()
-                        released = true
-                    }
-                    change.consume()
+    val configuration = LocalConfiguration.current
+    val targetOffset = remember(anchorBounds, density, configuration.screenWidthDp) {
+        if (anchorBounds == null) {
+            IntOffset.Zero
+        } else {
+            with(density) {
+                val panelWidth = 206.dp.toPx()
+                val panelGap = 8.dp.toPx()
+                val horizontalPadding = 12.dp.toPx()
+                val screenWidth = configuration.screenWidthDp.dp.toPx()
+                val maxX = screenWidth - panelWidth - horizontalPadding
+                val targetX = if (maxX >= horizontalPadding) {
+                    (anchorBounds.right - panelWidth).coerceIn(horizontalPadding, maxX)
+                } else {
+                    horizontalPadding
                 }
+                IntOffset(
+                    x = targetX.roundToInt(),
+                    y = (anchorBounds.bottom + panelGap).roundToInt()
+                )
             }
         }
     }
-    val shape = RoundedCornerShape(radius)
-    val anchorDensity = LocalDensity.current
-    val anchorCenter = anchorBounds?.center
-    val anchorOffset = if (anchorCenter != null) {
-        with(anchorDensity) {
-            IntOffset(
-                x = (anchorCenter.x - width.toPx() / 2f).roundToInt(),
-                y = (anchorCenter.y - 21.dp.toPx()).roundToInt()
+    val sharedScope = LocalSharedTransitionScope.current
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+    )
+    {
+        val panelModifier = if (anchorBounds != null) {
+            Modifier.offset { targetOffset }
+        } else {
+            Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 54.dp, end = 58.dp)
+        }
+        if (sharedScope != null) {
+            with(sharedScope) {
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 90)),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 120))
+                ) {
+                    val sharedState = rememberSharedContentState(key = "home_add_menu_bounds")
+                    AddMenuExpandedPanel(
+                        backdrop = backdrop,
+                        config = config,
+                        actions = actions,
+                        visible = expanded,
+                        modifier = panelModifier
+                            .width(206.dp)
+                            .height(164.dp)
+                            .sharedBounds(
+                                sharedContentState = sharedState,
+                                animatedVisibilityScope = this,
+                                enter = fadeIn(animationSpec = tween(durationMillis = 90)),
+                                exit = fadeOut(animationSpec = tween(durationMillis = 90)),
+                                boundsTransform = BoundsTransform { _, _ ->
+                                    spring(dampingRatio = 0.82f, stiffness = 520f)
+                                },
+                                resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
+                                clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(26.dp))
+                            )
+                    )
+                }
+            }
+        } else {
+            val fallbackScale by animateFloatAsState(
+                targetValue = if (expanded) 1f else 0.24f,
+                animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f),
+                label = "add-menu-fallback-scale"
+            )
+            val fallbackAlpha by animateFloatAsState(
+                targetValue = if (expanded) 1f else 0f,
+                animationSpec = tween(durationMillis = if (expanded) 120 else 90),
+                label = "add-menu-fallback-alpha"
+            )
+            AddMenuExpandedPanel(
+                backdrop = backdrop,
+                config = config,
+                actions = actions,
+                visible = expanded,
+                modifier = panelModifier
+                    .width(206.dp)
+                    .height(164.dp)
+                    .graphicsLayer {
+                        alpha = fallbackAlpha
+                        scaleX = fallbackScale
+                        scaleY = fallbackScale
+                        transformOrigin = TransformOrigin(0.5f, 0f)
+                    }
             )
         }
-    } else {
-        IntOffset.Zero
     }
-    val containerModifier = modifier
-        .offset { anchorOffset }
-        .offset(y = sinkOffset)
-        .width(width)
-        .height(height)
-        .clip(shape)
-        .then(dragModifier)
+}
 
-    Box(
-        modifier = if (backdrop != null) {
-            containerModifier.drawBackdrop(
+@Composable
+private fun AddMenuExpandedPanel(
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    actions: List<AddMenuAction>,
+    visible: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 150, delayMillis = if (visible) 90 else 0),
+        label = "add-menu-content-alpha"
+    )
+    AddMenuSurface(
+        backdrop = backdrop,
+        config = config,
+        shape = RoundedCornerShape(26.dp),
+        modifier = modifier,
+        blurRadius = 14.dp,
+        lensHeight = 46.dp,
+        lensAmount = 58.dp,
+        surfaceAlpha = if (glassUsesLightStyle(config)) 0.22f else 0.38f
+    ) {
+        AddMenuContent(
+            config = config,
+            actions = actions,
+            contentAlpha = contentAlpha
+        )
+    }
+}
+
+@Composable
+private fun AddMenuSurface(
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    shape: RoundedCornerShape,
+    modifier: Modifier = Modifier,
+    blurRadius: Dp,
+    lensHeight: Dp,
+    lensAmount: Dp,
+    surfaceAlpha: Float,
+    contentAlignment: Alignment = Alignment.TopCenter,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val lightGlass = glassUsesLightStyle(config)
+    val useGlass = backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val quality = LocalGlassQuality.current.coerceIn(0.7f, 1f)
+    val baseColor = if (lightGlass) ComposeColor.White else ComposeColor(0xFF050505)
+    val surfaceColor = baseColor.copy(alpha = surfaceAlpha)
+    val compactSurface = blurRadius <= 8.dp
+    val surfaceModifier = if (useGlass) {
+        modifier
+            .drawBackdrop(
                 backdrop = backdrop,
                 shape = { shape },
                 effects = {
-                    blur((dynamicBlur + 5.dp * pressProgress).toPx())
+                    blur((blurRadius * quality).toPx())
                     lens(
-                        (24.dp + 22.dp * contentAlpha + 8.dp * pressProgress).toPx(),
-                        (32.dp + 26.dp * contentAlpha + 10.dp * pressProgress).toPx(),
+                        (lensHeight * quality).toPx(),
+                        (lensAmount * quality).toPx(),
                         chromaticAberration = false
                     )
                 },
-                highlight = { Highlight.Default.copy(alpha = 0.12f + 0.12f * pressProgress) },
-                shadow = { Shadow(alpha = (if (lightGlass) 0.18f else 0.34f) + 0.12f * pressProgress) },
-                innerShadow = { InnerShadow(radius = 10.dp + 6.dp * contentAlpha, alpha = 0.20f + 0.12f * pressProgress) },
-                layerBlock = {
-                    val scale = 1f + 0.016f * pressProgress
-                    scaleX = scale
-                    scaleY = scale
+                highlight = { Highlight.Default.copy(alpha = if (compactSurface) 0.18f else 0.12f) },
+                shadow = { Shadow(alpha = if (compactSurface) (if (lightGlass) 0.28f else 0.40f) else (if (lightGlass) 0.18f else 0.34f)) },
+                innerShadow = {
+                    InnerShadow(
+                        radius = if (compactSurface) 10.dp else 12.dp,
+                        alpha = if (compactSurface) 0.30f else 0.22f
+                    )
                 },
                 onDrawSurface = {
-                    drawRect((if (lightGlass) ComposeColor.White else ComposeColor(0xFF050505)).copy(alpha = if (lightGlass) 0.22f else 0.38f))
-                    drawRect(ComposeColor.Black.copy(alpha = if (lightGlass) 0.05f else 0.14f))
+                    drawRect(surfaceColor)
+                    drawRect(ComposeColor.Black.copy(alpha = if (lightGlass) 0.03f else 0.14f))
                 }
             )
-        } else {
-            containerModifier.background(if (appUsesDarkTheme(config)) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
-        },
-        contentAlignment = Alignment.TopCenter
+            .clip(shape)
+    } else {
+        modifier
+            .clip(shape)
+            .background(if (appUsesDarkTheme(config)) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
+    }
+    Box(
+        modifier = surfaceModifier,
+        contentAlignment = contentAlignment,
+        content = content
+    )
+}
+
+@Composable
+private fun AddMenuContent(
+    config: ScheduleConfigEntity,
+    actions: List<AddMenuAction>,
+    contentAlpha: Float
+) {
+    val itemHeight = 48.dp
+    val itemSpacing = 4.dp
+    val menuPadding = 8.dp
+    val enabled = contentAlpha > 0.75f
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer(alpha = contentAlpha)
+            .padding(menuPadding),
+        verticalArrangement = Arrangement.spacedBy(itemSpacing)
     ) {
-        Icon(
-            painterResource(R.drawable.ic_add_course),
-            contentDescription = "添加",
-            tint = ComposeColor(0xFF0A84FF),
-            modifier = Modifier
-                .align(Alignment.Center)
-                .graphicsLayer(alpha = iconAlpha, rotationZ = 45f * contentAlpha)
-                .size(20.dp)
-        )
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer(alpha = contentAlpha)
-                .padding(menuPadding),
-            verticalArrangement = Arrangement.spacedBy(itemSpacing)
-        ) {
-            CompositionLocalProvider(LocalContentColor provides textColor) {
-                actions.forEachIndexed { index, action ->
-                    AddMenuLiquidItem(
-                        config = config,
-                        action = action,
-                        highlighted = highlightedIndex == index,
-                        itemHeight = itemHeight
-                    )
-                }
+        actions.forEachIndexed { index, action ->
+            key(action.label, action.iconRes) {
+                val itemAlpha by animateFloatAsState(
+                    targetValue = contentAlpha,
+                    animationSpec = tween(durationMillis = 130, delayMillis = if (contentAlpha > 0f) 90 + index * 28 else 0),
+                    label = "add-menu-item-alpha"
+                )
+                AddMenuLiquidItem(
+                    config = config,
+                    action = action,
+                    highlighted = false,
+                    itemHeight = itemHeight,
+                    modifier = Modifier.graphicsLayer(alpha = itemAlpha),
+                    clickEnabled = enabled
+                )
             }
         }
     }
@@ -2257,14 +2409,30 @@ fun AddMenuLiquidItem(
     config: ScheduleConfigEntity,
     action: AddMenuAction,
     highlighted: Boolean,
-    itemHeight: Dp
+    itemHeight: Dp,
+    modifier: Modifier = Modifier,
+    clickEnabled: Boolean = false
 ) {
     val baseText = glassForegroundColor(config)
-    val textColor = if (highlighted) ComposeColor(0xFF0A84FF) else baseText
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val active = highlighted || pressed
+    val textColor = if (active) ComposeColor(0xFF0A84FF) else baseText
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .height(itemHeight),
+            .height(itemHeight)
+            .then(
+                if (clickEnabled) {
+                    Modifier.clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        onClick = action.onClick
+                    )
+                } else {
+                    Modifier
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -2272,7 +2440,7 @@ fun AddMenuLiquidItem(
                 .fillMaxWidth()
                 .height(itemHeight - 6.dp)
                 .clip(RoundedCornerShape(50))
-                .background(if (highlighted) ComposeColor(0xFF0A84FF).copy(alpha = 0.10f) else ComposeColor.Transparent)
+                .background(if (active) ComposeColor(0xFF0A84FF).copy(alpha = 0.10f) else ComposeColor.Transparent)
                 .padding(horizontal = 16.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -2913,7 +3081,7 @@ class EduImportActivity : ComponentActivity() {
                                 draft = pendingDraft!!,
                                 warning = if (adapter.isGeneralEduTool()) "可能部分节次信息会有误，请自行检查修改。" else null,
                                 onCancel = { pendingDraft = null },
-                                onConfirm = { viewModel.importDraft(pendingDraft!!) { finish() } }
+                                onConfirm = { createNewSchedule -> viewModel.importDraft(pendingDraft!!, createNewSchedule) { finish() } }
                             )
                         }
                     }
@@ -3140,35 +3308,39 @@ fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .animateContentSize(spring(dampingRatio = 0.87f, stiffness = 380f))
             .pointerInput(onScheduleLongPress) {
                 detectTapGestures(onLongPress = { onScheduleLongPress() })
             }
     ) {
-        AnimatedVisibility(
-            visible = mode == HomeMode.Day,
-            enter = fadeIn(tween(200, delayMillis = 100)),
-            exit = fadeOut(tween(80))
-        ) {
-            DayScheduleScreen(state, todayWeekday, currentWeek, cardColor, textColor, backdrop, onContentUnderTopBarChange, onCourseClick)
-        }
-        AnimatedVisibility(
-            visible = mode == HomeMode.Week,
-            enter = fadeIn(tween(200, delayMillis = 100)),
-            exit = fadeOut(tween(80))
-        ) {
-            SinglePillWeekScheduleScreen(
-                state = state,
-                displayWeek = displayWeek,
-                cardHeight = weekCardHeight,
-                cardColor = cardColor,
-                textColor = textColor,
-                backdrop = backdrop,
-                headerBackdrop = weekHeaderBackdrop,
-                onSwipeWeek = { delta -> displayWeek = (displayWeek + delta).coerceIn(1, state.config.totalWeeks) },
-                onContentUnderTopBarChange = onContentUnderTopBarChange,
-                onCourseClick = { course, week, sourceBounds -> onCourseClick(course, week, sourceBounds) }
-            )
+        AnimatedContent(
+            targetState = mode,
+            transitionSpec = {
+                val direction = if (targetState == HomeMode.Week) 1 else -1
+                (
+                    fadeIn(tween(180, delayMillis = 40)) +
+                        slideInHorizontally(tween(200)) { direction * it / 10 }
+                    ) togetherWith (
+                    fadeOut(tween(120)) +
+                        slideOutHorizontally(tween(180)) { -direction * it / 10 }
+                    ) using SizeTransform(clip = false)
+            },
+            label = "home-mode"
+        ) { targetMode ->
+            when (targetMode) {
+                HomeMode.Day -> DayScheduleScreen(state, todayWeekday, currentWeek, cardColor, textColor, backdrop, onContentUnderTopBarChange, onCourseClick)
+                HomeMode.Week -> SinglePillWeekScheduleScreen(
+                    state = state,
+                    displayWeek = displayWeek,
+                    cardHeight = weekCardHeight,
+                    cardColor = cardColor,
+                    textColor = textColor,
+                    backdrop = backdrop,
+                    headerBackdrop = weekHeaderBackdrop,
+                    onSwipeWeek = { delta -> displayWeek = (displayWeek + delta).coerceIn(1, state.config.totalWeeks) },
+                    onContentUnderTopBarChange = onContentUnderTopBarChange,
+                    onCourseClick = { course, week, sourceBounds -> onCourseClick(course, week, sourceBounds) }
+                )
+            }
         }
     }
 }
@@ -3189,19 +3361,50 @@ fun rememberHomeWallpaperBitmap(config: ScheduleConfigEntity): androidx.compose.
 }
 
 @Composable
-fun HomeWallpaper(config: ScheduleConfigEntity, bitmap: Bitmap?) {
+fun HomeWallpaper(config: ScheduleConfigEntity, images: HomeWallpaperImages, phase: StartupPhase) {
+    val targetBitmap = remember(images.source, images.blurred, images.blurBucket, phase) {
+        if (images.blurBucket > 0) images.blurred ?: images.source else images.source
+    }
+    var visibleBitmap by remember { mutableStateOf<Bitmap?>(targetBitmap) }
+    var previousBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var crossfadeTarget by remember { mutableFloatStateOf(1f) }
+    val crossfadeAlpha by animateFloatAsState(
+        targetValue = crossfadeTarget,
+        animationSpec = tween(durationMillis = 140),
+        label = "wallpaper-crossfade"
+    )
+    LaunchedEffect(targetBitmap) {
+        if (targetBitmap != visibleBitmap) {
+            previousBitmap = visibleBitmap
+            visibleBitmap = targetBitmap
+            crossfadeTarget = 0f
+            withFrameNanos { }
+            crossfadeTarget = 1f
+            delay(160)
+            previousBitmap = null
+        }
+    }
     val uri = config.wallpaperUri
     if (!uri.isNullOrBlank()) {
-        if (bitmap == null) return
+        val bitmap = visibleBitmap ?: return
         bitmap.let {
             Box(modifier = Modifier.fillMaxSize()) {
+                previousBitmap?.let { old ->
+                    Image(
+                        bitmap = old.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(alpha = (1f - crossfadeAlpha) * config.wallpaperBrightness.coerceIn(0.35f, 1.35f).coerceAtMost(1f)),
+                        contentScale = ContentScale.Crop
+                    )
+                }
                 Image(
                     bitmap = it.asImageBitmap(),
                     contentDescription = null,
                     modifier = Modifier
                         .fillMaxSize()
-                        .blur(config.wallpaperBlur.dp)
-                        .graphicsLayer(alpha = config.wallpaperBrightness.coerceIn(0.35f, 1.35f).coerceAtMost(1f)),
+                        .graphicsLayer(alpha = crossfadeAlpha * config.wallpaperBrightness.coerceIn(0.35f, 1.35f).coerceAtMost(1f)),
                     contentScale = ContentScale.Crop
                 )
                 WallpaperToneOverlay(config)
@@ -3210,15 +3413,24 @@ fun HomeWallpaper(config: ScheduleConfigEntity, bitmap: Bitmap?) {
         return
     }
     if (config.defaultWallpaperStyle == DefaultWallpaperStyle.KANBAN) {
-        bitmap?.let {
+        visibleBitmap?.let {
             Box(modifier = Modifier.fillMaxSize()) {
+                previousBitmap?.let { old ->
+                    Image(
+                        bitmap = old.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(alpha = (1f - crossfadeAlpha) * config.wallpaperBrightness.coerceIn(0.35f, 1.35f).coerceAtMost(1f)),
+                        contentScale = ContentScale.Crop
+                    )
+                }
                 Image(
                     bitmap = it.asImageBitmap(),
                     contentDescription = null,
                     modifier = Modifier
                         .fillMaxSize()
-                        .blur(config.wallpaperBlur.dp)
-                        .graphicsLayer(alpha = config.wallpaperBrightness.coerceIn(0.35f, 1.35f).coerceAtMost(1f)),
+                        .graphicsLayer(alpha = crossfadeAlpha * config.wallpaperBrightness.coerceIn(0.35f, 1.35f).coerceAtMost(1f)),
                     contentScale = ContentScale.Crop
                 )
                 WallpaperToneOverlay(config)
@@ -3943,6 +4155,10 @@ fun SinglePillWeekScheduleScreen(
                     outgoingLayerOffset.snapTo(0f)
                 }
             }
+            launch {
+                delay(220)
+                if (outgoingWeekKey.intValue != displayWeek) outgoingCourses.value = null
+            }
         } else {
             incomingLayerOffset.snapTo(0f)
             outgoingLayerOffset.snapTo(0f)
@@ -4570,53 +4786,58 @@ fun WeekCourseBlock(
     val tailBase = with(density) { (32.dp + ((periodIndex - 1).coerceAtLeast(0).coerceAtMost(9) * 9f).dp + (stackIndex * 16f).dp).toPx() }
     // Card entrance — fly in from edge based on grid position (first launch only)
     val leftSide = dayIndex <= 4
-    val entranceOffsetX = remember { Animatable(if (!splashEntranceDone && leftSide) -260f else if (!splashEntranceDone) 260f else 0f) }
-    val entranceOffsetY = remember { Animatable(if (!splashEntranceDone) (periodIndex - 5) * 22f else 0f) }
-    val entranceAlpha = remember { Animatable(if (!splashEntranceDone) 0f else 1f) }
-    LaunchedEffect(Unit) {
-        if (!splashEntranceDone) {
-            delay(140 + (dayIndex * 28L) + (periodIndex * 18L))
+    val startupPhase = LocalStartupPhase.current
+    val enableStartupEntrance = startupPhase == StartupPhase.Entrance && !splashEntranceDone
+    val entranceOffsetX = remember { Animatable(if (enableStartupEntrance && leftSide) -260f else if (enableStartupEntrance) 260f else 0f) }
+    val entranceOffsetY = remember { Animatable(if (enableStartupEntrance) (periodIndex - 5) * 22f else 0f) }
+    val entranceAlpha = remember { Animatable(if (enableStartupEntrance) 0f else 1f) }
+    LaunchedEffect(startupPhase) {
+        if (enableStartupEntrance) {
+            delay(360 + (dayIndex * 28L) + (periodIndex * 18L))
             launch { entranceOffsetX.animateTo(0f, spring(dampingRatio = 0.60f, stiffness = 420f)) }
             launch { entranceOffsetY.animateTo(0f, spring(dampingRatio = 0.62f, stiffness = 450f)) }
             entranceAlpha.animateTo(1f, spring(dampingRatio = 0.74f, stiffness = 560f))
+        } else if (startupPhase == StartupPhase.FullQuality) {
+            entranceOffsetX.snapTo(0f)
+            entranceOffsetY.snapTo(0f)
+            entranceAlpha.snapTo(1f)
         }
     }
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
     val cardView = LocalView.current
     val editingId = LocalEditingCourseId.current
-    val sharedScope = LocalSharedTransitionScope.current
-    val cardSharedState = with(sharedScope) { rememberSharedContentState(key = "course_edit_${course.id}") }
+    val sharedScope = if (startupPhase == StartupPhase.FullQuality && course.id > 0L) LocalSharedTransitionScope.current else null
+    val baseModifier = Modifier
+        .fillMaxWidth()
+        .height(height)
+    val animatedModifier = Modifier
+        .graphicsLayer {
+            val tailX = layerOffset?.let { offset ->
+                val progress = (kotlin.math.abs(offset.value) / layerTravel.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                tailBase * progress * tailDirection
+            } ?: 0f
+            translationX = entranceOffsetX.value + tailX
+            translationY = entranceOffsetY.value
+            alpha = entranceAlpha.value
+        }
+        .onGloballyPositioned { coordinates ->
+            val wb = coordinates.boundsInWindow()
+            val loc = IntArray(2)
+            cardView.getLocationOnScreen(loc)
+            ownBounds = if (loc[0] == 0 && loc[1] == 0) wb
+            else wb.translate(Offset(loc[0].toFloat(), loc[1].toFloat()))
+        }
+    CourseBoundsSource(
+        courseId = course.id,
+        visible = editingId != course.id,
+        sharedScope = sharedScope,
+        modifier = baseModifier,
+        shape = RoundedCornerShape(8.dp)
+    ) { sharedModifier ->
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(height)
-            .then(
-                with(sharedScope) {
-                    Modifier.sharedElementWithCallerManagedVisibility(
-                        sharedContentState = cardSharedState,
-                        visible = editingId != course.id,
-                        clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(8.dp))
-                    )
-                }
-            )
-            .graphicsLayer {
-                val tailX = layerOffset?.let { offset ->
-                    val progress = (kotlin.math.abs(offset.value) / layerTravel.coerceAtLeast(1f)).coerceIn(0f, 1f)
-                    tailBase * progress * tailDirection
-                } ?: 0f
-                translationX = entranceOffsetX.value + tailX
-                translationY = entranceOffsetY.value
-                alpha = entranceAlpha.value
-            }
-            .onGloballyPositioned { coordinates ->
-                val wb = coordinates.boundsInWindow()
-                val loc = IntArray(2)
-                cardView.getLocationOnScreen(loc)
-                ownBounds = if (loc[0] == 0 && loc[1] == 0) wb
-                else wb.translate(Offset(loc[0].toFloat(), loc[1].toFloat()))
-            },
+        modifier = sharedModifier.then(animatedModifier),
         shape = RoundedCornerShape(8.dp),
         onClick = { onCourseClick(course, ownBounds) }
     ) {
@@ -4734,6 +4955,7 @@ fun WeekCourseBlock(
             }
         }
     }
+    }
 }
 
 private fun scaledWeekText(value: TextUnit, fontScale: Float): TextUnit {
@@ -4741,52 +4963,54 @@ private fun scaledWeekText(value: TextUnit, fontScale: Float): TextUnit {
 }
 
 @Composable
-fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null) {
+fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null, enableSharedTransition: Boolean = true) {
     val textColor = readableOn(cardColor)
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
     val cardView = LocalView.current
     val editId = LocalEditingCourseId.current
-    val sharedScope = LocalSharedTransitionScope.current
-    val cardSharedState = with(sharedScope) { rememberSharedContentState(key = "course_edit_${course.id}") }
-    val enableEntrance = entranceIndex != null && !splashEntranceDone
+    val startupPhase = LocalStartupPhase.current
+    val sharedScope = if (startupPhase == StartupPhase.FullQuality && enableSharedTransition && course.id > 0L) LocalSharedTransitionScope.current else null
+    val enableEntrance = entranceIndex != null && startupPhase == StartupPhase.Entrance && !splashEntranceDone
     val startIndex = entranceIndex ?: 0
     val entranceOffsetX = remember { Animatable(if (enableEntrance) 220f else 0f) }
     val entranceOffsetY = remember { Animatable(if (enableEntrance) (startIndex - 2) * 14f else 0f) }
     val entranceAlpha = remember { Animatable(if (enableEntrance) 0f else 1f) }
-    LaunchedEffect(entranceIndex) {
+    LaunchedEffect(entranceIndex, startupPhase) {
         if (enableEntrance) {
-            delay(160 + startIndex * 38L)
+            delay(420 + startIndex * 38L)
             launch { entranceOffsetX.animateTo(0f, spring(dampingRatio = 0.60f, stiffness = 420f)) }
             launch { entranceOffsetY.animateTo(0f, spring(dampingRatio = 0.62f, stiffness = 450f)) }
             entranceAlpha.animateTo(1f, spring(dampingRatio = 0.74f, stiffness = 560f))
+        } else if (startupPhase == StartupPhase.FullQuality) {
+            entranceOffsetX.snapTo(0f)
+            entranceOffsetY.snapTo(0f)
+            entranceAlpha.snapTo(1f)
         }
     }
+    val animatedModifier = Modifier
+        .graphicsLayer {
+            translationX = entranceOffsetX.value
+            translationY = entranceOffsetY.value
+            alpha = entranceAlpha.value
+        }
+        .onGloballyPositioned { coordinates ->
+            val wb = coordinates.boundsInWindow()
+            val loc = IntArray(2)
+            cardView.getLocationOnScreen(loc)
+            ownBounds = if (loc[0] == 0 && loc[1] == 0) wb
+            else wb.translate(Offset(loc[0].toFloat(), loc[1].toFloat()))
+        }
+    CourseBoundsSource(
+        courseId = course.id,
+        visible = editId != course.id,
+        sharedScope = sharedScope,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp)
+    ) { sharedModifier ->
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                with(sharedScope) {
-                    Modifier.sharedElementWithCallerManagedVisibility(
-                        sharedContentState = cardSharedState,
-                        visible = editId != course.id,
-                        clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(12.dp))
-                    )
-                }
-            )
-            .graphicsLayer {
-                translationX = entranceOffsetX.value
-                translationY = entranceOffsetY.value
-                alpha = entranceAlpha.value
-            }
-            .onGloballyPositioned { coordinates ->
-                val wb = coordinates.boundsInWindow()
-                val loc = IntArray(2)
-                cardView.getLocationOnScreen(loc)
-                ownBounds = if (loc[0] == 0 && loc[1] == 0) wb
-                else wb.translate(Offset(loc[0].toFloat(), loc[1].toFloat()))
-            },
+        modifier = sharedModifier.then(animatedModifier),
         shape = RoundedCornerShape(16.dp),
         onClick = if (onClick != null) ({ onClick(ownBounds) }) else null
     ) {
@@ -4796,6 +5020,32 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             if (!course.location.isNullOrBlank()) Text("地点：" + course.location, color = textColor.copy(alpha = 0.86f))
             if (!course.teacher.isNullOrBlank()) Text("教师：" + course.teacher, color = textColor.copy(alpha = 0.86f))
             if (showWeeks) Text("周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity), color = textColor.copy(alpha = 0.86f))
+            if (!course.note.isNullOrBlank()) Text("备注：" + course.note, color = textColor.copy(alpha = 0.86f))
+        }
+    }
+    }
+}
+
+@Composable
+fun ImportPreviewCourseCard(
+    course: CourseEntity,
+    periods: List<PeriodEntity>,
+    config: ScheduleConfigEntity = defaultConfig()
+) {
+    val cardColor = ComposeColor(config.cardColorArgb.toInt()).copy(alpha = config.cardAlpha.coerceIn(0.28f, 1f))
+    val textColor = readableOn(cardColor)
+    CourseGlassCard(
+        backdrop = null,
+        config = config,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(course.name, style = MaterialTheme.typography.titleMedium, color = textColor)
+            Text(courseTimeLabel(course, periods) + " · 第 " + course.periods.joinToString(",") + " 节", color = textColor.copy(alpha = 0.86f))
+            if (!course.location.isNullOrBlank()) Text("地点：" + course.location, color = textColor.copy(alpha = 0.86f))
+            if (!course.teacher.isNullOrBlank()) Text("教师：" + course.teacher, color = textColor.copy(alpha = 0.86f))
+            Text("周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity), color = textColor.copy(alpha = 0.86f))
             if (!course.note.isNullOrBlank()) Text("备注：" + course.note, color = textColor.copy(alpha = 0.86f))
         }
     }
@@ -4814,7 +5064,9 @@ fun CourseEditorScreen(
     var teacher by remember(initialCourse) { mutableStateOf(initialCourse?.teacher.orEmpty()) }
     var location by remember(initialCourse) { mutableStateOf(initialCourse?.location.orEmpty()) }
     var weekday by remember(initialCourse) { mutableStateOf(initialCourse?.weekday ?: 1) }
-    val periodValues = state.periods.map { it.periodIndex }
+    val rawPeriodValues = state.periods.map { it.periodIndex }
+    val coursePeriodValues = initialCourse?.periods.orEmpty()
+    val periodValues = (rawPeriodValues + coursePeriodValues).distinct().sorted()
     var periodStart by remember(initialCourse, periodValues) { mutableIntStateOf(initialCourse?.periods?.minOrNull() ?: (periodValues.firstOrNull() ?: 1)) }
     var periodEnd by remember(initialCourse, periodValues) { mutableIntStateOf(initialCourse?.periods?.maxOrNull() ?: periodStart) }
     var weekStart by remember(initialCourse, state.config.totalWeeks) { mutableIntStateOf(initialCourse?.weeks?.minOrNull() ?: 1) }
@@ -4849,7 +5101,7 @@ fun CourseEditorScreen(
                                 weeks = selectedWeeks,
                                 weekParity = parity,
                                 note = note.ifBlank { null },
-                                scheduleId = initialCourse?.scheduleId ?: 1
+                                scheduleId = initialCourse?.scheduleId ?: 0
                             )
                         )
                     }
@@ -4960,7 +5212,9 @@ fun NormalizedCourseEditorScreen(
     var teacher by remember(initialCourse) { mutableStateOf(initialCourse?.teacher.orEmpty()) }
     var location by remember(initialCourse) { mutableStateOf(initialCourse?.location.orEmpty()) }
     var weekday by remember(initialCourse) { mutableIntStateOf(initialCourse?.weekday ?: 1) }
-    val periodValues = state.periods.map { it.periodIndex }
+    val rawPeriodValues = state.periods.map { it.periodIndex }
+    val coursePeriodValues = initialCourse?.periods.orEmpty()
+    val periodValues = (rawPeriodValues + coursePeriodValues).distinct().sorted()
     var periodStart by remember(initialCourse, periodValues) { mutableIntStateOf(initialCourse?.periods?.minOrNull() ?: (periodValues.firstOrNull() ?: 1)) }
     var periodEnd by remember(initialCourse, periodValues) { mutableIntStateOf(initialCourse?.periods?.maxOrNull() ?: periodStart) }
     var weekStart by remember(initialCourse, state.config.totalWeeks) { mutableIntStateOf(initialCourse?.weeks?.minOrNull() ?: 1) }
@@ -4994,7 +5248,7 @@ fun NormalizedCourseEditorScreen(
                                 weeks = selectedWeeks,
                                 weekParity = parity,
                                 note = note.ifBlank { null },
-                                scheduleId = initialCourse?.scheduleId ?: 1
+                                scheduleId = initialCourse?.scheduleId ?: 0
                             )
                         )
                     }
@@ -6168,18 +6422,44 @@ fun EduImportScreen(state: AppState, onParsed: (ImportDraft) -> Unit) {
 }
 
 @Composable
-fun ConfirmScheduleScreen(draft: ImportDraft, warning: String? = null, onCancel: () -> Unit, onConfirm: () -> Unit) {
+fun ConfirmScheduleScreen(draft: ImportDraft, warning: String? = null, onCancel: () -> Unit, onConfirm: (Boolean) -> Unit) {
+    val previewDraft = remember(draft) {
+        draft.copy(
+            periods = draft.periods.distinctBy { it.periodIndex }.sortedBy { it.periodIndex },
+            courses = draft.courses.map {
+                it.copy(
+                    periods = it.periods.distinct().sorted(),
+                    weeks = it.weeks.distinct().sorted()
+                )
+            }
+        )
+    }
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = DockScrollPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("即将导入 " + draft.courses.size + " 门课程，请确认后写入课表。") }
+        item { Text("即将导入 " + previewDraft.courses.size + " 门课程，请确认后写入课表。") }
         warning?.let { text ->
             item { Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
         }
-        item { Text("总周数 " + draft.config.totalWeeks + " 周，节次数 " + draft.periods.size) }
-        items(draft.courses) { CourseCard(it, draft.periods) }
+        item { Text("总周数 " + previewDraft.config.totalWeeks + " 周，节次数 " + previewDraft.periods.size) }
+        if (previewDraft.courses.isEmpty()) {
+            item { Text("没有解析到课程", color = MaterialTheme.colorScheme.error) }
+        } else {
+            itemsIndexed(
+                previewDraft.courses,
+                key = { index, course ->
+                    "preview_${index}_${course.name}_${course.weekday}_${course.periods.joinToString("_")}_${course.weeks.take(3).joinToString("_")}"
+                }
+            ) { _, course ->
+                ImportPreviewCourseCard(course, previewDraft.periods, previewDraft.config)
+            }
+        }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                DialogLiquidButton(null, "取消", onCancel, modifier = Modifier.weight(1f), role = DialogButtonRole.Cancel)
-                DialogLiquidButton(null, "确认导入", onConfirm, modifier = Modifier.weight(1f), role = DialogButtonRole.Confirm)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("请选择导入方式：", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DialogLiquidButton(null, "覆盖当前课表", { onConfirm(false) }, modifier = Modifier.weight(1f), role = DialogButtonRole.Confirm)
+                    DialogLiquidButton(null, "创建新课表", { onConfirm(true) }, modifier = Modifier.weight(1f), role = DialogButtonRole.Confirm)
+                }
+                DialogLiquidButton(null, "取消", onCancel, modifier = Modifier.fillMaxWidth(), role = DialogButtonRole.Cancel)
             }
         }
     }
@@ -7944,57 +8224,10 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
     var error by remember { mutableStateOf<String?>(null) }
     var lastSavedConfig by remember { mutableStateOf(state.config) }
     var lastSavedPeriods by remember { mutableStateOf(state.periods) }
-    LaunchedEffect(state.config, state.periods) {
-        val savedMatchesDraft = totalWeeks == lastSavedConfig.totalWeeks.toString() &&
-            currentWeek == lastSavedConfig.currentWeek.toString() &&
-            leadMinutes == lastSavedConfig.notificationLeadMinutes.toString() &&
-            notificationsEnabled == lastSavedConfig.notificationsEnabled &&
-            notificationMode == lastSavedConfig.notificationMode &&
-            liveUpdateChipTextMode == lastSavedConfig.liveUpdateChipTextMode &&
-            autoCurrentWeek == lastSavedConfig.autoCurrentWeek &&
-            hideEmptyWeekends == lastSavedConfig.hideEmptyWeekends &&
-            termStartDate == lastSavedConfig.termStartDate.orEmpty() &&
-            classDurationMinutes == lastSavedConfig.classDurationMinutes.toString() &&
-            breakDurationMinutes == lastSavedConfig.breakDurationMinutes.toString() &&
-            periods == lastSavedPeriods
-        if (savedMatchesDraft) {
-            totalWeeks = state.config.totalWeeks.toString()
-            currentWeek = state.config.currentWeek.toString()
-            leadMinutes = state.config.notificationLeadMinutes.toString()
-            notificationsEnabled = state.config.notificationsEnabled
-            notificationMode = state.config.notificationMode
-            liveUpdateChipTextMode = state.config.liveUpdateChipTextMode
-            autoCurrentWeek = state.config.autoCurrentWeek
-            hideEmptyWeekends = state.config.hideEmptyWeekends
-            termStartDate = state.config.termStartDate.orEmpty()
-            classDurationMinutes = state.config.classDurationMinutes.toString()
-            breakDurationMinutes = state.config.breakDurationMinutes.toString()
-            periods = state.periods
-            error = null
-        }
-        lastSavedConfig = state.config
-        lastSavedPeriods = state.periods
-    }
-    val detectedWeek = remember(autoCurrentWeek, termStartDate, totalWeeks, currentWeek) {
-        val total = totalWeeks.toIntOrNull() ?: state.config.totalWeeks
-        val manual = currentWeek.toIntOrNull() ?: state.config.currentWeek
-        effectiveCurrentWeek(state.config.copy(totalWeeks = total.coerceAtLeast(1), currentWeek = manual.coerceAtLeast(1), termStartDate = termStartDate.ifBlank { null }, autoCurrentWeek = true))
-    }
-    val displayedCurrentWeek = if (autoCurrentWeek) detectedWeek.toString() else currentWeek
-    val dirty = totalWeeks != state.config.totalWeeks.toString() ||
-            currentWeek != state.config.currentWeek.toString() ||
-            leadMinutes != state.config.notificationLeadMinutes.toString() ||
-            notificationsEnabled != state.config.notificationsEnabled ||
-            notificationMode != state.config.notificationMode ||
-            liveUpdateChipTextMode != state.config.liveUpdateChipTextMode ||
-            autoCurrentWeek != state.config.autoCurrentWeek ||
-            hideEmptyWeekends != state.config.hideEmptyWeekends ||
-            termStartDate != state.config.termStartDate.orEmpty() ||
-            classDurationMinutes != state.config.classDurationMinutes.toString() ||
-            breakDurationMinutes != state.config.breakDurationMinutes.toString() ||
-            periods != state.periods
+    var currentDraftScheduleId by remember { mutableIntStateOf(state.config.id) }
 
-    fun resetConfigDraft() {
+    fun resetConfigDraftFromState() {
+        currentDraftScheduleId = state.config.id
         totalWeeks = state.config.totalWeeks.toString()
         currentWeek = state.config.currentWeek.toString()
         leadMinutes = state.config.notificationLeadMinutes.toString()
@@ -8010,6 +8243,38 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
         error = null
         lastSavedConfig = state.config
         lastSavedPeriods = state.periods
+    }
+
+    fun computeDirty(): Boolean {
+        return totalWeeks != lastSavedConfig.totalWeeks.toString() ||
+            currentWeek != lastSavedConfig.currentWeek.toString() ||
+            leadMinutes != lastSavedConfig.notificationLeadMinutes.toString() ||
+            notificationsEnabled != lastSavedConfig.notificationsEnabled ||
+            notificationMode != lastSavedConfig.notificationMode ||
+            liveUpdateChipTextMode != lastSavedConfig.liveUpdateChipTextMode ||
+            autoCurrentWeek != lastSavedConfig.autoCurrentWeek ||
+            hideEmptyWeekends != lastSavedConfig.hideEmptyWeekends ||
+            termStartDate != lastSavedConfig.termStartDate.orEmpty() ||
+            classDurationMinutes != lastSavedConfig.classDurationMinutes.toString() ||
+            breakDurationMinutes != lastSavedConfig.breakDurationMinutes.toString() ||
+            periods != lastSavedPeriods
+    }
+
+    LaunchedEffect(state.config.id, state.config, state.periods) {
+        if (state.config.id != currentDraftScheduleId || !computeDirty()) {
+            resetConfigDraftFromState()
+        }
+    }
+    val detectedWeek = remember(autoCurrentWeek, termStartDate, totalWeeks, currentWeek) {
+        val total = totalWeeks.toIntOrNull() ?: state.config.totalWeeks
+        val manual = currentWeek.toIntOrNull() ?: state.config.currentWeek
+        effectiveCurrentWeek(state.config.copy(totalWeeks = total.coerceAtLeast(1), currentWeek = manual.coerceAtLeast(1), termStartDate = termStartDate.ifBlank { null }, autoCurrentWeek = true))
+    }
+    val displayedCurrentWeek = if (autoCurrentWeek) detectedWeek.toString() else currentWeek
+    val dirty = computeDirty()
+
+    fun resetConfigDraft() {
+        resetConfigDraftFromState()
     }
 
     fun saveConfigDraft() {
@@ -8031,7 +8296,12 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
             } else if (termStartDate.isNotBlank()) {
                 require(parseScheduleDate(termStartDate) != null) { "学期开始日期必须是 yyyy-MM-dd 格式" }
             }
-            periods.forEach {
+            val nextPeriods = periods
+                .filter { it.periodIndex > 0 }
+                .distinctBy { it.periodIndex }
+                .sortedBy { it.periodIndex }
+            require(nextPeriods.isNotEmpty()) { "至少需要保留 1 个节次" }
+            nextPeriods.forEach {
                 val start = ScheduleImportParser.parseTimeForUi(it.startTime)
                 val end = ScheduleImportParser.parseTimeForUi(it.endTime)
                 require(start < end) { "第" + it.periodIndex + "节结束时间必须晚于开始时间" }
@@ -8062,11 +8332,11 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
                 classDurationMinutes = classDuration,
                 breakDurationMinutes = breakDuration
             )
-            val nextPeriods = periods.sortedBy { it.periodIndex }
+            currentWeek = effectiveWeekForSave.toString()
+            periods = nextPeriods
+            onSave(nextConfig, nextPeriods)
             lastSavedConfig = nextConfig
             lastSavedPeriods = nextPeriods
-            currentWeek = effectiveWeekForSave.toString()
-            onSave(nextConfig, nextPeriods)
         } catch (t: Throwable) {
             error = t.message ?: "设置保存失败"
         }

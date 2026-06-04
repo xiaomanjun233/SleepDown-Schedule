@@ -679,11 +679,13 @@ class ScheduleRepository(private val database: AppDatabase) {
     }
 
     suspend fun addCourse(course: CourseEntity) {
-        courseDao.insertCourse(course.copy(scheduleId = activeScheduleId()))
+        val scheduleId = activeScheduleId()
+        courseDao.insertCourse(normalizeCoursesForSchedule(listOf(course.copy(id = 0)), scheduleId).single())
     }
 
     suspend fun updateCourse(course: CourseEntity) {
-        courseDao.updateCourse(course.copy(scheduleId = activeScheduleId()))
+        val scheduleId = activeScheduleId()
+        courseDao.updateCourse(normalizeCoursesForSchedule(listOf(course), scheduleId).single())
     }
 
     suspend fun updateCourseSingleWeek(original: CourseEntity, edited: CourseEntity, targetWeek: Int) {
@@ -694,7 +696,8 @@ class ScheduleRepository(private val database: AppDatabase) {
             } else {
                 courseDao.updateCourse(original.copy(weeks = remainingWeeks))
             }
-            courseDao.insertCourse(edited.copy(id = 0, weeks = listOf(targetWeek), scheduleId = activeScheduleId()))
+            val scheduleId = activeScheduleId()
+            courseDao.insertCourse(normalizeCoursesForSchedule(listOf(edited.copy(id = 0, weeks = listOf(targetWeek))), scheduleId).single())
         }
     }
 
@@ -719,7 +722,7 @@ class ScheduleRepository(private val database: AppDatabase) {
                 note = edited.note
             )
         }
-        if (related.isNotEmpty()) courseDao.insertCourses(related)
+        if (related.isNotEmpty()) courseDao.insertCourses(normalizeCoursesForSchedule(related, activeScheduleId()))
     }
 
     suspend fun deleteCourse(course: CourseEntity) {
@@ -728,28 +731,29 @@ class ScheduleRepository(private val database: AppDatabase) {
 
     suspend fun importDraft(draft: ImportDraft, createNewSchedule: Boolean = false) {
         database.withTransaction {
-            val globalConfig = configDao.getConfig() ?: defaultConfig(activeScheduleId())
+            val oldActiveId = activeScheduleId()
+            val globalConfig = configDao.getConfig(oldActiveId) ?: defaultConfig(oldActiveId)
             val scheduleId = if (createNewSchedule) {
                 profileDao.upsertProfile(ScheduleProfileEntity(name = "\u5BFC\u5165\u8BFE\u8868", isActive = false)).toInt().also {
                     profileDao.activateProfile(it)
                 }
             } else {
-                activeScheduleId()
+                oldActiveId
             }
-            configDao.upsertConfig(draft.config.copy(id = scheduleId).withGlobalSettingsFrom(globalConfig))
+            configDao.upsertConfig(normalizeConfigForSchedule(draft.config.withGlobalSettingsFrom(globalConfig), scheduleId))
             configDao.deletePeriods(scheduleId)
-            configDao.upsertPeriods(draft.periods.map { it.copy(scheduleId = scheduleId) })
+            configDao.upsertPeriods(normalizePeriodsForSchedule(draft.periods, scheduleId))
             courseDao.deleteBySchedule(scheduleId)
-            courseDao.insertCourses(draft.courses.map { it.copy(id = 0, scheduleId = scheduleId) })
+            courseDao.insertCourses(normalizeImportedCoursesForSchedule(draft.courses, scheduleId))
         }
     }
 
     suspend fun saveConfig(config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
         val scheduleId = activeScheduleId()
         database.withTransaction {
-            configDao.upsertConfig(config.copy(id = scheduleId))
-            configDao.deletePeriods()
-            configDao.upsertPeriods(periods.map { it.copy(scheduleId = scheduleId) })
+            configDao.upsertConfig(normalizeConfigForSchedule(config, scheduleId))
+            configDao.deletePeriods(scheduleId)
+            configDao.upsertPeriods(normalizePeriodsForSchedule(periods, scheduleId))
         }
     }
 
@@ -838,6 +842,26 @@ class ScheduleRepository(private val database: AppDatabase) {
 
     private suspend fun activeScheduleId(): Int {
         return profileDao.getActiveProfile()?.id ?: 1
+    }
+
+    private fun normalizeConfigForSchedule(config: ScheduleConfigEntity, scheduleId: Int): ScheduleConfigEntity {
+        return config.copy(id = scheduleId)
+    }
+
+    private fun normalizePeriodsForSchedule(periods: List<PeriodEntity>, scheduleId: Int): List<PeriodEntity> {
+        return periods
+            .filter { it.periodIndex > 0 }
+            .distinctBy { it.periodIndex }
+            .sortedBy { it.periodIndex }
+            .map { it.copy(scheduleId = scheduleId) }
+    }
+
+    private fun normalizeCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int): List<CourseEntity> {
+        return courses.map { it.copy(scheduleId = scheduleId) }
+    }
+
+    private fun normalizeImportedCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int): List<CourseEntity> {
+        return normalizeCoursesForSchedule(courses, scheduleId).map { it.copy(id = 0) }
     }
 }
 

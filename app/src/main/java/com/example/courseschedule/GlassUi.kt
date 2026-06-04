@@ -94,6 +94,7 @@ fun GlassSurface(
     content: @Composable () -> Unit
 ) {
     val useGlass = backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val quality = LocalGlassQuality.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val pressProgress by animateFloatAsState(if (pressed) 1f else 0f, label = "glass-press")
@@ -104,17 +105,17 @@ fun GlassSurface(
     } else {
         MaterialTheme.colorScheme.primaryContainer
     }
-    val clearAlpha = tokens.surfaceAlpha
+    val clearAlpha = tokens.surfaceAlpha * quality
     val surfaceColor = if (selected) selectedColor else base.copy(alpha = clearAlpha)
     val contentModifier = if (useGlass) {
         modifier.drawBackdrop(
             backdrop = backdrop!!,
             shape = { shape },
             effects = {
-                blur(tokens.blur.toPx())
+                blur((tokens.blur * quality).toPx())
                 lens(
-                    tokens.lensHeight.toPx() * (0.7f + 0.3f * pressProgress),
-                    tokens.lensAmount.toPx() * (0.85f + 0.35f * pressProgress),
+                    (tokens.lensHeight * quality).toPx() * (0.7f + 0.3f * pressProgress),
+                    (tokens.lensAmount * quality).toPx() * (0.85f + 0.35f * pressProgress),
                     chromaticAberration = false
                 )
             },
@@ -199,18 +200,19 @@ fun GlassLens(
     content: @Composable () -> Unit = {}
 ) {
     val useGlass = backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val quality = LocalGlassQuality.current
     val lightGlass = glassUsesLightStyle(config)
-    val surfaceColor = if (lightGlass) Color.Black.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.08f)
+    val surfaceColor = if (lightGlass) Color.Black.copy(alpha = 0.07f * quality) else Color.White.copy(alpha = 0.08f * quality)
     val shape = RoundedCornerShape(50)
     val contentModifier = if (useGlass) {
         modifier.drawBackdrop(
             backdrop = backdrop!!,
             shape = { shape },
             effects = {
-                blur(5.dp.toPx())
+                blur((5.dp * quality).toPx())
                 lens(
-                    22.dp.toPx() + 30.dp.toPx() * pressProgress,
-                    20.dp.toPx() + 30.dp.toPx() * pressProgress,
+                    (22.dp * quality).toPx() + (30.dp * quality).toPx() * pressProgress,
+                    (20.dp * quality).toPx() + (30.dp * quality).toPx() * pressProgress,
                     chromaticAberration = false
                 )
             },
@@ -268,10 +270,11 @@ fun CourseGlassCard(
     content: @Composable () -> Unit
 ) {
     val useGlass = config.courseCardGlassEnabled && backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val quality = LocalGlassQuality.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val pressProgress by animateFloatAsState(if (pressed) 1f else 0f, label = "course-card-press")
-    val glassTint = Color(config.cardColorArgb.toInt()).copy(alpha = (config.cardAlpha * 0.34f).coerceIn(0.10f, 0.42f))
+    val glassTint = Color(config.cardColorArgb.toInt()).copy(alpha = ((config.cardAlpha * 0.34f).coerceIn(0.10f, 0.42f) * quality).coerceIn(0.06f, 0.42f))
     val solidColor = Color(config.cardColorArgb.toInt()).copy(alpha = config.cardAlpha.coerceIn(0.28f, 1f))
     val tokens = GlassTokens.courseCard(config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
@@ -280,10 +283,10 @@ fun CourseGlassCard(
             backdrop = backdrop!!,
             shape = { shape },
             effects = {
-                blur(tokens.blur.toPx())
+                blur((tokens.blur * quality).toPx())
                 lens(
-                    tokens.lensHeight.toPx() * (0.85f + 0.15f * pressProgress),
-                    tokens.lensAmount.toPx() * (0.9f + 0.2f * pressProgress),
+                    (tokens.lensHeight * quality).toPx() * (0.85f + 0.15f * pressProgress),
+                    (tokens.lensAmount * quality).toPx() * (0.9f + 0.2f * pressProgress),
                     chromaticAberration = false
                 )
                 vibrancy()
