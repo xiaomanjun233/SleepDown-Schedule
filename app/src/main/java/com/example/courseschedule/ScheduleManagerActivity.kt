@@ -1,9 +1,13 @@
 package com.example.courseschedule
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -97,6 +101,7 @@ import kotlin.math.abs
 class ScheduleManagerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installScheduleDepthTransitions()
         enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
@@ -114,12 +119,10 @@ class ScheduleManagerActivity : ComponentActivity() {
                     },
                     onCustomize = { id ->
                         Log.d("ScheduleManager", "customize schedule id=$id")
-                        viewModel.activateSchedule(id) {
-                            startActivity(
-                                Intent(this, SettingsDetailActivity::class.java)
-                                    .putExtra("settings_page", SettingsPage.Schedule.name)
-                            )
-                        }
+                        val intent = Intent(this, SettingsDetailActivity::class.java)
+                            .putExtra("settings_page", SettingsPage.Schedule.name)
+                            .putScheduleCustomizeId(id)
+                        startActivity(intent)
                     },
                     onCreate = {
                         Log.d("ScheduleManager", "create schedule")
@@ -137,6 +140,11 @@ class ScheduleManagerActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun finish() {
+        super.finish()
+        applyLegacyScheduleDepthCloseTransition()
     }
 }
 
@@ -166,6 +174,7 @@ fun ScheduleManagerScreen(
     var selectedProfileId by remember { mutableIntStateOf(profiles[activeIndex].id) }
     var pendingActivationId by remember { mutableStateOf<Int?>(null) }
     var initialActiveCentered by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val activeProfileId = profiles.getOrNull(activeIndex)?.id ?: profiles.first().id
 
     val currentPageIndex by remember(profiles.size, activeIndex) {
@@ -182,6 +191,12 @@ fun ScheduleManagerScreen(
         .takeIf { it >= 0 }
         ?: activeIndex
     val centeredProfile = profiles.getOrNull(selectedIndex) ?: profiles.first()
+    val centeredConfig = state.allConfigs.firstOrNull { it.id == centeredProfile.id }
+        ?: if (centeredProfile.isActive) state.config else defaultConfig(centeredProfile.id)
+    val centeredCourses = state.allCourses.filter { it.scheduleId == centeredProfile.id }
+    val centeredPeriods = state.allPeriods.filter { it.scheduleId == centeredProfile.id }.ifEmpty {
+        if (centeredProfile.isActive) state.periods else defaultPeriods(centeredProfile.id)
+    }
 
     LaunchedEffect(profiles.size, activeProfileId) {
         val pendingId = pendingActivationId
@@ -391,6 +406,33 @@ fun ScheduleManagerScreen(
             val customizeWidth = if (compact) 160.dp else 176.dp
             val buttonSize = if (compact) 48.dp else 52.dp
             val plusOffset = customizeWidth / 2 + if (compact) 52.dp else 58.dp
+            LiquidButton(
+                onClick = {
+                    val token = buildSleepDownScheduleToken(centeredConfig, centeredPeriods, centeredCourses)
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("SleepDown 课程表口令", token))
+                    Toast.makeText(context, "课表口令已复制", Toast.LENGTH_SHORT).show()
+                },
+                backdrop = chromeBackdrop,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .offset(x = -plusOffset)
+                    .size(buttonSize),
+                height = buttonSize,
+                tint = Color(0xFF34C759),
+                surfaceColor = Color(0xFF34C759).copy(alpha = 0.22f),
+                blurRadius = 10.dp,
+                lensHeight = 30.dp,
+                lensAmount = 44.dp,
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_share_schedule),
+                    contentDescription = "分享课表",
+                    modifier = Modifier.size(22.dp),
+                    tint = Color.White
+                )
+            }
             LiquidButton(
                 onClick = { onCustomize(centeredProfile.id) },
                 backdrop = chromeBackdrop,

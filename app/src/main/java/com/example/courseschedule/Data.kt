@@ -757,6 +757,14 @@ class ScheduleRepository(private val database: AppDatabase) {
         }
     }
 
+    suspend fun saveConfigForSchedule(scheduleId: Int, config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
+        database.withTransaction {
+            configDao.upsertConfig(normalizeConfigForSchedule(config, scheduleId))
+            configDao.deletePeriods(scheduleId)
+            configDao.upsertPeriods(normalizePeriodsForSchedule(periods, scheduleId))
+        }
+    }
+
     suspend fun saveConfigOnly(config: ScheduleConfigEntity) {
         configDao.upsertConfig(config.copy(id = activeScheduleId()))
     }

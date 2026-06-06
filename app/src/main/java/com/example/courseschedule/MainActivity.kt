@@ -422,6 +422,12 @@ class ScheduleViewModel(private val app: Application, private val repository: Sc
         snackbar.value = "设置已保存"
     }
 
+    fun saveConfigForSchedule(scheduleId: Int, config: ScheduleConfigEntity, periods: List<PeriodEntity>) = viewModelScope.launch {
+        repository.saveConfigForSchedule(scheduleId, config, periods)
+        rescheduleToday()
+        snackbar.value = "设置已保存"
+    }
+
     fun savePersonalization(config: ScheduleConfigEntity) = viewModelScope.launch {
         repository.saveConfigOnly(config)
     }
@@ -896,7 +902,13 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         .zIndex(22f),
                     onClick = {
                         showScheduleEntryPill = false
-                        context.startActivity(Intent(context, ScheduleManagerActivity::class.java))
+                        val intent = Intent(context, ScheduleManagerActivity::class.java)
+                        val activity = context as? android.app.Activity
+                        if (activity != null) {
+                            activity.startActivityWithScheduleDepthTransition(intent)
+                        } else {
+                            context.startActivity(intent)
+                        }
                     },
                     onDismiss = { showScheduleEntryPill = false }
                 )
@@ -1591,175 +1603,27 @@ fun HomeAddButton(
     onPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
     onClick: () -> Unit
 ) {
-    AddMenuAnchorButton(
-        backdrop = backdrop,
-        config = config,
-        expanded = expanded,
-        modifier = Modifier.onGloballyPositioned { onPositioned(it.boundsInRoot()) },
-        onClick = onClick
-    )
-}
-
-private const val HomeAddMenuBoundsKey = "home_add_menu_bounds"
-
-private data class AddMenuContainerMotion(
-    val cornerRadius: Dp,
-    val surfaceColor: ComposeColor,
-    val iconAlpha: Float,
-    val contentAlpha: Float
-)
-
-@Composable
-private fun rememberAddMenuContainerMotion(
-    expanded: Boolean,
-    config: ScheduleConfigEntity
-): AddMenuContainerMotion {
-    val lightGlass = glassUsesLightStyle(config)
-    val collapsedSurface = if (lightGlass) {
-        ComposeColor.White.copy(alpha = 0.26f)
-    } else {
-        ComposeColor(0xFF121212).copy(alpha = 0.28f)
-    }
-    val expandedSurface = if (lightGlass) {
-        ComposeColor.White.copy(alpha = 0.22f)
-    } else {
-        ComposeColor(0xFF050505).copy(alpha = 0.38f)
-    }
-    val transition = updateTransition(targetState = expanded, label = "add-menu-container")
-    val cornerRadius by transition.animateDp(
-        transitionSpec = { spring(dampingRatio = 0.82f, stiffness = 520f) },
-        label = "add-menu-corner"
-    ) { targetExpanded ->
-        if (targetExpanded) 26.dp else 21.dp
-    }
-    val surfaceColor by transition.animateColor(
-        transitionSpec = { tween(durationMillis = 180) },
-        label = "add-menu-surface-color"
-    ) { targetExpanded ->
-        if (targetExpanded) expandedSurface else collapsedSurface
-    }
-    val iconAlpha by transition.animateFloat(
-        transitionSpec = { tween(durationMillis = 90) },
-        label = "add-menu-icon-alpha"
-    ) { targetExpanded ->
-        if (targetExpanded) 0f else 1f
-    }
-    val contentAlpha by transition.animateFloat(
-        transitionSpec = {
-            tween(
-                durationMillis = if (targetState) 160 else 90,
-                delayMillis = if (targetState) 80 else 0
-            )
-        },
-        label = "add-menu-content-alpha"
-    ) { targetExpanded ->
-        if (targetExpanded) 1f else 0f
-    }
-    return AddMenuContainerMotion(
-        cornerRadius = cornerRadius,
-        surfaceColor = surfaceColor,
-        iconAlpha = iconAlpha,
-        contentAlpha = contentAlpha
-    )
-}
-
-@OptIn(ExperimentalSharedTransitionApi::class)
-@Composable
-private fun AddMenuAnchorButton(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    expanded: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    val sharedScope = LocalSharedTransitionScope.current
-    val motion = rememberAddMenuContainerMotion(expanded, config)
-    val shape = RoundedCornerShape(motion.cornerRadius)
-    Box(
-        modifier = modifier
-            .padding(end = 7.dp)
-            .size(42.dp)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        if (sharedScope != null) {
-            with(sharedScope) {
-                AnimatedVisibility(
-                    visible = !expanded,
-                    enter = fadeIn(animationSpec = tween(durationMillis = 90)),
-                    exit = fadeOut(animationSpec = tween(durationMillis = 90)),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    val sharedState = rememberSharedContentState(key = HomeAddMenuBoundsKey)
-                    AddMenuSurface(
-                        backdrop = backdrop,
-                        config = config,
-                        shape = shape,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .sharedBounds(
-                                sharedContentState = sharedState,
-                                animatedVisibilityScope = this,
-                                enter = fadeIn(animationSpec = tween(durationMillis = 90)),
-                                exit = fadeOut(animationSpec = tween(durationMillis = 90)),
-                                boundsTransform = BoundsTransform { _, _ ->
-                                    spring(dampingRatio = 0.82f, stiffness = 520f)
-                                },
-                                resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
-                                clipInOverlayDuringTransition = OverlayClip(shape)
-                            ),
-                        blurRadius = 7.dp,
-                        lensHeight = 30.dp,
-                        lensAmount = 38.dp,
-                        surfaceColor = motion.surfaceColor
-                    )
-                }
-            }
+    val alpha = remember { Animatable(1f) }
+    val scale = remember { Animatable(1f) }
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            alpha.animateTo(0f, spring(dampingRatio = 0.78f, stiffness = 520f))
+            scale.animateTo(1.08f, spring(dampingRatio = 0.62f, stiffness = 460f))
         } else {
-            AnimatedVisibility(
-                visible = !expanded,
-                enter = fadeIn(animationSpec = tween(durationMillis = 90)),
-                exit = fadeOut(animationSpec = tween(durationMillis = 90)),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                AddMenuSurface(
-                    backdrop = backdrop,
-                    config = config,
-                    shape = shape,
-                    modifier = Modifier.fillMaxSize(),
-                    blurRadius = 7.dp,
-                    lensHeight = 30.dp,
-                    lensAmount = 38.dp,
-                    surfaceColor = motion.surfaceColor
-                )
-            }
+            alpha.snapTo(1f)
+            scale.snapTo(1f)
         }
-        AddMenuCollapsedIcon(alpha = motion.iconAlpha)
     }
-}
-
-@Composable
-private fun AddMenuCollapsedIcon(alpha: Float) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                this.alpha = alpha
-                val iconScale = 0.88f + 0.12f * alpha
-                scaleX = iconScale
-                scaleY = iconScale
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            painterResource(R.drawable.ic_add_course),
+    Box(modifier = Modifier.graphicsLayer { this.alpha = alpha.value; scaleX = scale.value; scaleY = scale.value }) {
+        HomeIconButton(
+            backdrop = backdrop,
+            config = config,
+            iconRes = R.drawable.ic_add_course,
             contentDescription = "添加",
-            modifier = Modifier.size(20.dp),
-            tint = ComposeColor(0xFF0A84FF)
+            selected = expanded,
+            tint = ComposeColor(0xFF0A84FF),
+            modifier = Modifier.onGloballyPositioned { onPositioned(it.boundsInRoot()) },
+            onClick = onClick
         )
     }
 }
@@ -2111,244 +1975,221 @@ fun MorphingLiquidAddMenu(
     anchorBounds: androidx.compose.ui.geometry.Rect? = null,
     expanded: Boolean = true
 ) {
-    AddMenuContainerTransform(
-        backdrop = backdrop,
-        config = config,
-        actions = actions,
-        modifier = modifier,
-        anchorBounds = anchorBounds,
-        expanded = expanded
-    )
-}
-
-@OptIn(ExperimentalSharedTransitionApi::class)
-@Composable
-private fun AddMenuContainerTransform(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    actions: List<AddMenuAction>,
-    modifier: Modifier = Modifier,
-    anchorBounds: androidx.compose.ui.geometry.Rect? = null,
-    expanded: Boolean = true
-) {
-    val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
-    val targetOffset = remember(anchorBounds, density, configuration.screenWidthDp) {
-        if (anchorBounds == null) {
-            IntOffset.Zero
+    var animatedExpanded by remember { mutableStateOf(false) }
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            delay(16)
+            animatedExpanded = true
         } else {
-            with(density) {
-                val panelWidth = 206.dp.toPx()
-                val panelGap = 8.dp.toPx()
-                val horizontalPadding = 12.dp.toPx()
-                val screenWidth = configuration.screenWidthDp.dp.toPx()
-                val maxX = screenWidth - panelWidth - horizontalPadding
-                val targetX = if (maxX >= horizontalPadding) {
-                    (anchorBounds.right - panelWidth).coerceIn(horizontalPadding, maxX)
-                } else {
-                    horizontalPadding
-                }
-                IntOffset(
-                    x = targetX.roundToInt(),
-                    y = (anchorBounds.bottom + panelGap).roundToInt()
-                )
-            }
+            animatedExpanded = false
         }
     }
-    val sharedScope = LocalSharedTransitionScope.current
-    val motion = rememberAddMenuContainerMotion(expanded, config)
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-    )
-    {
-        val panelModifier = if (anchorBounds != null) {
-            Modifier.offset { targetOffset }
-        } else {
-            Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 54.dp, end = 58.dp)
-        }
-        if (sharedScope != null) {
-            with(sharedScope) {
-                AnimatedVisibility(
-                    visible = expanded,
-                    enter = fadeIn(animationSpec = tween(durationMillis = 90)),
-                    exit = fadeOut(animationSpec = tween(durationMillis = 120)),
-                    modifier = panelModifier
-                        .width(206.dp)
-                        .height(164.dp)
-                        .zIndex(1f)
-                ) {
-                    val sharedState = rememberSharedContentState(key = HomeAddMenuBoundsKey)
-                    AddMenuExpandedPanel(
-                        backdrop = backdrop,
-                        config = config,
-                        actions = actions,
-                        visible = expanded,
-                        motion = motion,
-                        modifier = Modifier.fillMaxSize(),
-                        surfaceModifier = Modifier
-                            .fillMaxSize()
-                            .sharedBounds(
-                                sharedContentState = sharedState,
-                                animatedVisibilityScope = this,
-                                enter = fadeIn(animationSpec = tween(durationMillis = 90)),
-                                exit = fadeOut(animationSpec = tween(durationMillis = 90)),
-                                boundsTransform = BoundsTransform { _, _ ->
-                                    spring(dampingRatio = 0.82f, stiffness = 520f)
-                                },
-                                resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
-                                clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(motion.cornerRadius))
-                            )
-                    )
+    val transition = androidx.compose.animation.core.updateTransition(animatedExpanded, label = "morph-add-menu")
+    val sinkOffset by transition.animateDp(
+        transitionSpec = {
+            if (targetState) {
+                keyframes {
+                    durationMillis = 180
+                    0.dp at 0
+                    30.dp at 38
+                    48.dp at 162
+                    46.dp at 180
+                }
+            } else {
+                keyframes {
+                    durationMillis = 180
+                    46.dp at 0
+                    28.dp at 132
+                    0.dp at 180
                 }
             }
-        } else {
-            val fallbackScale by animateFloatAsState(
-                targetValue = if (expanded) 1f else 0.24f,
-                animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f),
-                label = "add-menu-fallback-scale"
-            )
-            val fallbackAlpha by animateFloatAsState(
-                targetValue = if (expanded) 1f else 0f,
-                animationSpec = tween(durationMillis = if (expanded) 120 else 90),
-                label = "add-menu-fallback-alpha"
-            )
-            AddMenuExpandedPanel(
-                backdrop = backdrop,
-                config = config,
-                actions = actions,
-                visible = expanded,
-                motion = motion,
-                modifier = panelModifier
-                    .width(206.dp)
-                    .height(164.dp)
-                    .zIndex(1f)
-                    .graphicsLayer {
-                        alpha = fallbackAlpha
-                        scaleX = fallbackScale
-                        scaleY = fallbackScale
-                        transformOrigin = TransformOrigin(0.5f, 0f)
-                    },
-                surfaceModifier = Modifier.fillMaxSize()
-            )
-        }
-    }
-}
-
-@Composable
-private fun AddMenuExpandedPanel(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    actions: List<AddMenuAction>,
-    visible: Boolean,
-    motion: AddMenuContainerMotion,
-    modifier: Modifier = Modifier,
-    surfaceModifier: Modifier = Modifier.fillMaxSize()
-) {
-    Box(modifier = modifier) {
-        AddMenuSurface(
-            backdrop = backdrop,
-            config = config,
-            shape = RoundedCornerShape(motion.cornerRadius),
-            modifier = surfaceModifier,
-            blurRadius = 14.dp,
-            lensHeight = 46.dp,
-            lensAmount = 58.dp,
-            surfaceColor = motion.surfaceColor
-        )
-        AddMenuContent(
-            config = config,
-            actions = actions,
-            contentAlpha = if (visible) motion.contentAlpha else 0f
-        )
-    }
-}
-
-@Composable
-private fun AddMenuSurface(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    shape: RoundedCornerShape,
-    modifier: Modifier = Modifier,
-    blurRadius: Dp,
-    lensHeight: Dp,
-    lensAmount: Dp,
-    surfaceColor: ComposeColor
-) {
-    val lightGlass = glassUsesLightStyle(config)
-    val useGlass = backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val quality = LocalGlassQuality.current.coerceIn(0.7f, 1f)
-    val compactSurface = blurRadius <= 8.dp
-    val surfaceModifier = if (useGlass) {
-        modifier
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { shape },
-                effects = {
-                    blur((blurRadius * quality).toPx())
-                    lens(
-                        (lensHeight * quality).toPx(),
-                        (lensAmount * quality).toPx(),
-                        chromaticAberration = false
-                    )
-                },
-                highlight = { Highlight.Default.copy(alpha = if (compactSurface) 0.18f else 0.12f) },
-                shadow = { Shadow(alpha = if (compactSurface) (if (lightGlass) 0.28f else 0.40f) else (if (lightGlass) 0.18f else 0.34f)) },
-                innerShadow = {
-                    InnerShadow(
-                        radius = if (compactSurface) 10.dp else 12.dp,
-                        alpha = if (compactSurface) 0.30f else 0.22f
-                    )
-                },
-                onDrawSurface = {
-                    drawRect(surfaceColor)
-                    drawRect(ComposeColor.Black.copy(alpha = if (lightGlass) 0.03f else 0.14f))
+        },
+        label = "add-menu-sink"
+    ) { if (it) 46.dp else 0.dp }
+    val width by transition.animateDp(
+        transitionSpec = {
+            if (targetState) {
+                keyframes {
+                    durationMillis = 180
+                    42.dp at 0
+                    42.dp at 64
+                    42.dp at 78
+                    206.dp at 168
+                    202.dp at 180
                 }
-            )
-            .clip(shape)
-    } else {
-        modifier
-            .clip(shape)
-            .background(surfaceColor)
-    }
-    Box(modifier = surfaceModifier)
-}
-
-@Composable
-private fun AddMenuContent(
-    config: ScheduleConfigEntity,
-    actions: List<AddMenuAction>,
-    contentAlpha: Float
-) {
+            } else {
+                keyframes {
+                    durationMillis = 180
+                    206.dp at 0
+                    42.dp at 132
+                    42.dp at 180
+                }
+            }
+        },
+        label = "add-menu-width"
+    ) { if (it) 206.dp else 42.dp }
+    val height by transition.animateDp(
+        transitionSpec = {
+            if (targetState) {
+                keyframes {
+                    durationMillis = 180
+                    42.dp at 0
+                    42.dp at 64
+                    42.dp at 78
+                    164.dp at 168
+                    160.dp at 180
+                }
+            } else {
+                keyframes {
+                    durationMillis = 180
+                    164.dp at 0
+                    42.dp at 132
+                    42.dp at 180
+                }
+            }
+        },
+        label = "add-menu-height"
+    ) { if (it) 164.dp else 42.dp }
+    val radius by transition.animateDp(
+        transitionSpec = { spring(dampingRatio = 0.66f, stiffness = 460f) },
+        label = "add-menu-radius"
+    ) { if (it) 26.dp else 50.dp }
+    val iconAlpha by transition.animateFloat(
+        transitionSpec = { spring(dampingRatio = 0.9f, stiffness = 520f) },
+        label = "add-menu-icon-alpha"
+    ) { if (it) 0f else 1f }
+    val contentAlpha by transition.animateFloat(
+        transitionSpec = { spring(dampingRatio = 0.90f, stiffness = 360f) },
+        label = "add-menu-content-alpha"
+    ) { if (it) 1f else 0f }
+    val dynamicBlur by transition.animateDp(
+        transitionSpec = { spring(dampingRatio = 0.76f, stiffness = 300f) },
+        label = "add-menu-blur"
+    ) { if (it) 14.dp else 5.dp }
+    var highlightedIndex by remember { mutableIntStateOf(-1) }
+    var touching by remember { mutableStateOf(false) }
+    val pressProgress by animateFloatAsState(
+        targetValue = if (touching || highlightedIndex >= 0) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 360f),
+        label = "morph-add-menu-press"
+    )
     val itemHeight = 48.dp
     val itemSpacing = 4.dp
     val menuPadding = 8.dp
-    val enabled = contentAlpha > 0.75f
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer(alpha = contentAlpha)
-            .padding(menuPadding),
-        verticalArrangement = Arrangement.spacedBy(itemSpacing)
+    val density = LocalDensity.current
+    val itemHeightPx = with(density) { itemHeight.toPx() }
+    val itemStepPx = with(density) { (itemHeight + itemSpacing).toPx() }
+    val menuPaddingPx = with(density) { menuPadding.toPx() }
+    val lightGlass = glassUsesLightStyle(config)
+    val textColor = glassForegroundColor(config)
+    fun hitIndex(y: Float): Int {
+        val localY = y - menuPaddingPx
+        if (localY < 0f || contentAlpha < 0.6f) return -1
+        val index = (localY / itemStepPx).toInt()
+        val inItem = localY - index * itemStepPx <= itemHeightPx
+        return index.takeIf { it in actions.indices && inItem } ?: -1
+    }
+    val dragModifier = Modifier.pointerInput(actions, contentAlpha) {
+        awaitPointerEventScope {
+            while (true) {
+                val down = awaitPointerEvent().changes.firstOrNull { it.pressed } ?: continue
+                touching = true
+                highlightedIndex = hitIndex(down.position.y)
+                down.consume()
+                var released = false
+                while (!released) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull() ?: continue
+                    highlightedIndex = hitIndex(change.position.y)
+                    if (change.changedToUpIgnoreConsumed()) {
+                        val index = highlightedIndex
+                        touching = false
+                        highlightedIndex = -1
+                        if (index in actions.indices) actions[index].onClick()
+                        released = true
+                    }
+                    change.consume()
+                }
+            }
+        }
+    }
+    val shape = RoundedCornerShape(radius)
+    val anchorDensity = LocalDensity.current
+    val anchorCenter = anchorBounds?.center
+    val anchorOffset = if (anchorCenter != null) {
+        with(anchorDensity) {
+            IntOffset(
+                x = (anchorCenter.x - width.toPx() / 2f).roundToInt(),
+                y = (anchorCenter.y - 21.dp.toPx()).roundToInt()
+            )
+        }
+    } else {
+        IntOffset.Zero
+    }
+    val containerModifier = modifier
+        .offset { anchorOffset }
+        .offset(y = sinkOffset)
+        .width(width)
+        .height(height)
+        .clip(shape)
+        .then(dragModifier)
+
+    Box(
+        modifier = if (backdrop != null) {
+            containerModifier.drawBackdrop(
+                backdrop = backdrop,
+                shape = { shape },
+                effects = {
+                    blur((dynamicBlur + 5.dp * pressProgress).toPx())
+                    lens(
+                        (24.dp + 22.dp * contentAlpha + 8.dp * pressProgress).toPx(),
+                        (32.dp + 26.dp * contentAlpha + 10.dp * pressProgress).toPx(),
+                        chromaticAberration = false
+                    )
+                },
+                highlight = { Highlight.Default.copy(alpha = 0.12f + 0.12f * pressProgress) },
+                shadow = { Shadow(alpha = (if (lightGlass) 0.18f else 0.34f) + 0.12f * pressProgress) },
+                innerShadow = { InnerShadow(radius = 10.dp + 6.dp * contentAlpha, alpha = 0.20f + 0.12f * pressProgress) },
+                layerBlock = {
+                    val scale = 1f + 0.016f * pressProgress
+                    scaleX = scale
+                    scaleY = scale
+                },
+                onDrawSurface = {
+                    drawRect((if (lightGlass) ComposeColor.White else ComposeColor(0xFF050505)).copy(alpha = if (lightGlass) 0.22f else 0.38f))
+                    drawRect(ComposeColor.Black.copy(alpha = if (lightGlass) 0.05f else 0.14f))
+                }
+            )
+        } else {
+            containerModifier.background(if (appUsesDarkTheme(config)) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
+        },
+        contentAlignment = Alignment.TopCenter
     ) {
-        actions.forEachIndexed { index, action ->
-            key(action.label, action.iconRes) {
-                val itemAlpha by animateFloatAsState(
-                    targetValue = contentAlpha,
-                    animationSpec = tween(durationMillis = 130, delayMillis = if (contentAlpha > 0f) 90 + index * 28 else 0),
-                    label = "add-menu-item-alpha"
-                )
-                AddMenuLiquidItem(
-                    config = config,
-                    action = action,
-                    highlighted = false,
-                    itemHeight = itemHeight,
-                    modifier = Modifier.graphicsLayer(alpha = itemAlpha),
-                    clickEnabled = enabled
-                )
+        Icon(
+            painterResource(R.drawable.ic_add_course),
+            contentDescription = "添加",
+            tint = ComposeColor(0xFF0A84FF),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .graphicsLayer(alpha = iconAlpha, rotationZ = 45f * contentAlpha)
+                .size(20.dp)
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer(alpha = contentAlpha)
+                .padding(menuPadding),
+            verticalArrangement = Arrangement.spacedBy(itemSpacing)
+        ) {
+            CompositionLocalProvider(LocalContentColor provides textColor) {
+                actions.forEachIndexed { index, action ->
+                    AddMenuLiquidItem(
+                        config = config,
+                        action = action,
+                        highlighted = highlightedIndex == index,
+                        itemHeight = itemHeight
+                    )
+                }
             }
         }
     }
@@ -2485,30 +2326,14 @@ fun AddMenuLiquidItem(
     config: ScheduleConfigEntity,
     action: AddMenuAction,
     highlighted: Boolean,
-    itemHeight: Dp,
-    modifier: Modifier = Modifier,
-    clickEnabled: Boolean = false
+    itemHeight: Dp
 ) {
     val baseText = glassForegroundColor(config)
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val active = highlighted || pressed
-    val textColor = if (active) ComposeColor(0xFF0A84FF) else baseText
+    val textColor = if (highlighted) ComposeColor(0xFF0A84FF) else baseText
     Box(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
-            .height(itemHeight)
-            .then(
-                if (clickEnabled) {
-                    Modifier.clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                        onClick = action.onClick
-                    )
-                } else {
-                    Modifier
-                }
-            ),
+            .height(itemHeight),
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -2516,7 +2341,7 @@ fun AddMenuLiquidItem(
                 .fillMaxWidth()
                 .height(itemHeight - 6.dp)
                 .clip(RoundedCornerShape(50))
-                .background(if (active) ComposeColor(0xFF0A84FF).copy(alpha = 0.10f) else ComposeColor.Transparent)
+                .background(if (highlighted) ComposeColor(0xFF0A84FF).copy(alpha = 0.10f) else ComposeColor.Transparent)
                 .padding(horizontal = 16.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -2615,6 +2440,12 @@ fun ScheduleManagerEntryPill(
 ) {
     BackHandler(enabled = visible) {
         onDismiss()
+    }
+    LaunchedEffect(visible) {
+        if (visible) {
+            delay(5_000)
+            onDismiss()
+        }
     }
     val density = LocalDensity.current
     val bottomInset = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).getBottom(this).toDp() }
@@ -2799,22 +2630,33 @@ fun PersonalizePanel(
         .fillMaxWidth(0.95f)
     if (backdrop != null) {
         val lightGlass = glassUsesLightStyle(state.config)
+        val panelTextColor = personalizePanelForegroundColor(state.config)
         LiquidPanel(
             backdrop = backdrop,
             modifier = panelModifier,
             surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.18f) else ComposeColor(0xFF121212).copy(alpha = 0.30f)
         ) {
-            PanelContent()
+            CompositionLocalProvider(LocalContentColor provides panelTextColor) {
+                PanelContent()
+            }
         }
     } else {
+        val panelTextColor = personalizePanelForegroundColor(state.config)
         GlassDialogSurface(
             backdrop = null,
             config = state.config,
             modifier = panelModifier
         ) {
-            PanelContent()
+            CompositionLocalProvider(LocalContentColor provides panelTextColor) {
+                PanelContent()
+            }
         }
     }
+}
+
+@Composable
+private fun personalizePanelForegroundColor(config: ScheduleConfigEntity): ComposeColor {
+    return homeForegroundColor(config)
 }
 
 @Composable
@@ -3014,6 +2856,7 @@ class SettingsDetailActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        val customizeScheduleId = intent.getIntExtra(ScheduleCustomizeIdExtra, -1).takeIf { it > 0 }
         setContent {
             val app = application as CourseScheduleApp
             val viewModel: ScheduleViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
@@ -3022,6 +2865,9 @@ class SettingsDetailActivity : ComponentActivity() {
             val section = SettingsPage.valueOf(intent.getStringExtra(SettingsDetailPageExtra) ?: SettingsPage.General.name)
             val state by viewModel.state.collectAsState()
             CourseScheduleTheme(config = state.config) {
+                val scheduleEditState = remember(state, customizeScheduleId) {
+                    if (customizeScheduleId != null) scheduleConfigStateForEdit(state, customizeScheduleId) else state
+                }
                 DetailActivityScaffold(
                     title = section.title(),
                     config = state.config,
@@ -3029,7 +2875,20 @@ class SettingsDetailActivity : ComponentActivity() {
                 ) { backdrop ->
                     when (section) {
                         SettingsPage.General -> GeneralSettingsScreen(state, backdrop, viewModel::savePersonalization)
-                        SettingsPage.Schedule -> ScheduleConfigScreen(state, backdrop, SettingsSection.Schedule, viewModel::saveConfig, viewModel::previewLiveUpdate)
+                        SettingsPage.Schedule -> ScheduleConfigScreen(
+                            scheduleEditState,
+                            backdrop,
+                            SettingsSection.Schedule,
+                            onSave = { config, periods ->
+                                val targetId = customizeScheduleId
+                                if (targetId != null) {
+                                    viewModel.saveConfigForSchedule(targetId, config, periods)
+                                } else {
+                                    viewModel.saveConfig(config, periods)
+                                }
+                            },
+                            onPreviewLiveUpdate = viewModel::previewLiveUpdate
+                        )
                         SettingsPage.Notifications -> ScheduleConfigScreen(state, backdrop, SettingsSection.Notifications, viewModel::saveConfig, viewModel::previewLiveUpdate)
                         SettingsPage.About -> AboutSettingsScreen(state, backdrop)
                         SettingsPage.Changelog -> ChangelogSettingsScreen(
@@ -3063,6 +2922,15 @@ class SettingsDetailActivity : ComponentActivity() {
             }
         }
     }
+}
+
+private fun scheduleConfigStateForEdit(state: AppState, scheduleId: Int): AppState {
+    val targetConfig = state.allConfigs.firstOrNull { it.id == scheduleId }
+        ?: state.config.takeIf { it.id == scheduleId }
+        ?: defaultConfig(scheduleId)
+    val targetPeriods = state.allPeriods.filter { it.scheduleId == scheduleId }
+        .ifEmpty { state.periods.takeIf { targetConfig.id == state.config.id } ?: defaultPeriods(scheduleId) }
+    return state.copy(config = targetConfig.copy(id = scheduleId), periods = targetPeriods)
 }
 
 class EduSchoolSelectActivity : ComponentActivity() {
@@ -3924,9 +3792,7 @@ fun saveCroppedWallpaper(context: Context, source: Bitmap, cropSize: IntSize, sc
     canvas.drawBitmap(source, -source.width / 2f, -source.height / 2f, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
     val wallpaperDir = File(context.filesDir, "wallpaper")
     if (!wallpaperDir.exists()) wallpaperDir.mkdirs()
-    // Clean up old wallpaper files
-    wallpaperDir.listFiles()?.forEach { it.delete() }
-    val file = File(wallpaperDir, "custom_wallpaper.jpg")
+    val file = File(wallpaperDir, "custom_wallpaper_${System.currentTimeMillis()}.jpg")
     file.outputStream().use { output.compress(Bitmap.CompressFormat.JPEG, 94, it) }
     output.recycle()
     return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
@@ -6846,6 +6712,8 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.05beta", "新增多课表功能，首页长按即可进入多课表管理页面，设置亦可进入；新增课表分享功能，可以一键复制课表口令；优化首次启动掉帧问题；优化编辑卡片弹窗无缝动画。")
+                SettingsDivider()
                 SettingsInfoRow("1.04 beta", "新增首次启动课程卡片飞入动画；新增隐藏后台卡片功能，返回桌面后自动从最近任务移除；修复自定义壁纸可能在应用重启后丢失的问题；全面适配 120Hz 高刷屏动画。")
                 SettingsDivider()
                 SettingsInfoRow("1.03 beta", "新增加号菜单连贯展开动画；新增课程卡片无缝展开与返回动画；调整玻璃通透度；增加课程卡片通透度可调范围；优化壁纸设置；优化周视图甩尾动画掉帧问题；优化桌面小组件排版、深色模式和剩余课程显示逻辑；调整实时活动提示文本，并支持系统新增荣耀 MagicOS 10。")

@@ -280,6 +280,71 @@ object ScheduleImportParser {
     }
 }
 
+fun buildSleepDownScheduleToken(
+    config: ScheduleConfigEntity,
+    periods: List<PeriodEntity>,
+    courses: List<CourseEntity>
+): String {
+    val periodLine = periods
+        .filter { it.periodIndex > 0 }
+        .distinctBy { it.periodIndex }
+        .sortedBy { it.periodIndex }
+        .joinToString(";") { "${it.periodIndex},${it.startTime}-${it.endTime}" }
+    val courseLines = courses
+        .sortedWith(compareBy<CourseEntity> { it.weekday }.thenBy { it.periods.minOrNull() ?: 0 }.thenBy { it.name })
+        .map { course ->
+            listOf(
+                tokenField(course.name),
+                tokenField(course.teacher),
+                tokenField(course.location),
+                course.weekday.toString(),
+                formatNumberRanges(course.periods),
+                formatNumberRanges(course.weeks),
+                when (course.weekParity) {
+                    WeekParity.ALL -> "A"
+                    WeekParity.ODD -> "O"
+                    WeekParity.EVEN -> "E"
+                },
+                tokenField(course.note)
+            ).joinToString("|")
+        }
+    return buildString {
+        appendLine("SDCT1")
+        appendLine("T=${config.totalWeeks.coerceIn(1, 60)}")
+        appendLine("P=$periodLine")
+        courseLines.forEach { appendLine("C=$it") }
+    }.trimEnd()
+}
+
+private fun tokenField(value: String?): String {
+    val text = value
+        ?.replace('|', ' ')
+        ?.replace('\n', ' ')
+        ?.replace('\r', ' ')
+        ?.trim()
+        .orEmpty()
+    return text.ifBlank { "-" }
+}
+
+private fun formatNumberRanges(values: List<Int>): String {
+    val sorted = values.filter { it > 0 }.distinct().sorted()
+    if (sorted.isEmpty()) return "-"
+    val ranges = mutableListOf<String>()
+    var start = sorted.first()
+    var previous = start
+    sorted.drop(1).forEach { value ->
+        if (value == previous + 1) {
+            previous = value
+        } else {
+            ranges += if (start == previous) start.toString() else "$start-$previous"
+            start = value
+            previous = value
+        }
+    }
+    ranges += if (start == previous) start.toString() else "$start-$previous"
+    return ranges.joinToString(",")
+}
+
 fun todayCourses(state: AppState): List<CourseEntity> {
     val weekday = LocalDate.now(ZoneId.of("Asia/Shanghai")).dayOfWeek.toChineseWeekday()
     val currentWeek = effectiveCurrentWeek(state.config)
