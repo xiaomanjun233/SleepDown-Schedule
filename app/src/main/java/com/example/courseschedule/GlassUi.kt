@@ -36,31 +36,46 @@ data class GlassTokens(
     val lensHeight: Dp,
     val lensAmount: Dp,
     val surfaceAlpha: Float,
-    val borderAlpha: Float
+    val borderAlpha: Float,
+    val highlightAlpha: Float = 0.06f,
+    val shadowAlpha: Float = 0.16f,
+    val innerShadowAlpha: Float = 0.12f,
+    val chromaticAberration: Boolean = false,
+    val depthEffect: Boolean = true,
+    val useVibrancy: Boolean = true
 ) {
     companion object {
         fun pill(intensity: Float = 1f, reduceTransparency: Boolean = false) = GlassTokens(
-            blur = if (reduceTransparency) 0.dp else (4f * intensity.coerceIn(0.4f, 1.5f)).dp,
-            lensHeight = if (reduceTransparency) 0.dp else (40f * intensity.coerceIn(0.4f, 1.5f)).dp,
-            lensAmount = if (reduceTransparency) 0.dp else (44f * intensity.coerceIn(0.4f, 1.5f)).dp,
+            blur = if (reduceTransparency) 0.dp else (2.5f * intensity.coerceIn(0.4f, 1.5f)).dp,
+            lensHeight = if (reduceTransparency) 0.dp else (12f * intensity.coerceIn(0.4f, 1.5f)).dp,
+            lensAmount = if (reduceTransparency) 0.dp else (24f * intensity.coerceIn(0.4f, 1.5f)).dp,
             surfaceAlpha = if (reduceTransparency) 0.86f else 0.18f,
-            borderAlpha = if (reduceTransparency) 0.18f else 0.42f
+            borderAlpha = if (reduceTransparency) 0.18f else 0.32f,
+            highlightAlpha = if (reduceTransparency) 0.04f else 0.055f,
+            shadowAlpha = if (reduceTransparency) 0.08f else 0.14f,
+            innerShadowAlpha = if (reduceTransparency) 0.05f else 0.09f
         )
 
         fun dialog(intensity: Float = 1f, reduceTransparency: Boolean = false) = GlassTokens(
-            blur = if (reduceTransparency) 0.dp else (6f * intensity.coerceIn(0.4f, 1.5f)).dp,
-            lensHeight = if (reduceTransparency) 0.dp else (36f * intensity.coerceIn(0.4f, 1.5f)).dp,
-            lensAmount = if (reduceTransparency) 0.dp else (40f * intensity.coerceIn(0.4f, 1.5f)).dp,
+            blur = if (reduceTransparency) 0.dp else (4f * intensity.coerceIn(0.4f, 1.5f)).dp,
+            lensHeight = if (reduceTransparency) 0.dp else (16f * intensity.coerceIn(0.4f, 1.5f)).dp,
+            lensAmount = if (reduceTransparency) 0.dp else (32f * intensity.coerceIn(0.4f, 1.5f)).dp,
             surfaceAlpha = if (reduceTransparency) 0.92f else 0.40f,
-            borderAlpha = if (reduceTransparency) 0.16f else 0.36f
+            borderAlpha = if (reduceTransparency) 0.16f else 0.28f,
+            highlightAlpha = if (reduceTransparency) 0.04f else 0.06f,
+            shadowAlpha = if (reduceTransparency) 0.08f else 0.18f,
+            innerShadowAlpha = if (reduceTransparency) 0.05f else 0.11f
         )
 
         fun courseCard(blur: Float, reduceTransparency: Boolean = false) = GlassTokens(
             blur = if (reduceTransparency) 0.dp else blur.coerceIn(0f, 34f).dp,
-            lensHeight = if (reduceTransparency) 0.dp else 24.dp,
-            lensAmount = if (reduceTransparency) 0.dp else 26.dp,
-            surfaceAlpha = if (reduceTransparency) 0.92f else 0.58f,
-            borderAlpha = if (reduceTransparency) 0.14f else 0.30f
+            lensHeight = if (reduceTransparency) 0.dp else 10.dp,
+            lensAmount = if (reduceTransparency) 0.dp else 20.dp,
+            surfaceAlpha = if (reduceTransparency) 0.92f else 0.52f,
+            borderAlpha = if (reduceTransparency) 0.14f else 0.24f,
+            highlightAlpha = if (reduceTransparency) 0.035f else 0.045f,
+            shadowAlpha = if (reduceTransparency) 0.08f else 0.14f,
+            innerShadowAlpha = if (reduceTransparency) 0.05f else 0.10f
         )
     }
 }
@@ -112,23 +127,26 @@ fun GlassSurface(
             backdrop = backdrop!!,
             shape = { shape },
             effects = {
+                if (tokens.useVibrancy) vibrancy()
                 blur((tokens.blur * quality).toPx())
                 lens(
                     (tokens.lensHeight * quality).toPx() * (0.7f + 0.3f * pressProgress),
                     (tokens.lensAmount * quality).toPx() * (0.85f + 0.35f * pressProgress),
-                    chromaticAberration = false
+                    depthEffect = tokens.depthEffect,
+                    chromaticAberration = tokens.chromaticAberration
                 )
             },
             highlight = {
-                Highlight.Default.copy(alpha = if (selected) 0.18f + 0.18f * pressProgress else 0.20f * pressProgress)
+                val alpha = if (selected) tokens.highlightAlpha + 0.10f * pressProgress else tokens.highlightAlpha * 0.65f * pressProgress
+                if (alpha <= 0.001f) Highlight.Plain else Highlight.Default.copy(alpha = alpha)
             },
             shadow = {
-                Shadow(alpha = if (selected) 0.35f + 0.25f * pressProgress else 0.28f * pressProgress)
+                Shadow(alpha = if (selected) tokens.shadowAlpha + 0.12f * pressProgress else tokens.shadowAlpha * pressProgress)
             },
             innerShadow = {
                 InnerShadow(
-                    radius = if (selected) 8.dp else 4.dp * pressProgress,
-                    alpha = if (selected) 0.45f else 0.35f * pressProgress
+                    radius = if (selected) 6.dp else 3.dp * pressProgress,
+                    alpha = if (selected) tokens.innerShadowAlpha + 0.10f * pressProgress else tokens.innerShadowAlpha * pressProgress
                 )
             },
             layerBlock = {
@@ -139,10 +157,10 @@ fun GlassSurface(
             onDrawSurface = {
                 drawRect(surfaceColor)
                 if (lightGlass) {
-                    drawRect(Color.White.copy(alpha = 0.035f + 0.035f * pressProgress), blendMode = BlendMode.Screen)
+                    drawRect(Color.White.copy(alpha = 0.014f + 0.018f * pressProgress), blendMode = BlendMode.Screen)
                 } else {
-                    drawRect(Color.Black.copy(alpha = 0.03f + 0.03f * pressProgress))
-                    drawRect(Color.White.copy(alpha = 0.012f + 0.016f * pressProgress), blendMode = BlendMode.Screen)
+                    drawRect(Color.Black.copy(alpha = 0.014f + 0.018f * pressProgress))
+                    drawRect(Color.White.copy(alpha = 0.006f + 0.010f * pressProgress), blendMode = BlendMode.Screen)
                 }
             }
         )
@@ -209,16 +227,17 @@ fun GlassLens(
             backdrop = backdrop!!,
             shape = { shape },
             effects = {
-                blur((5.dp * quality).toPx())
+                vibrancy()
+                blur((3.dp * quality).toPx())
                 lens(
-                    (22.dp * quality).toPx() + (30.dp * quality).toPx() * pressProgress,
-                    (20.dp * quality).toPx() + (30.dp * quality).toPx() * pressProgress,
+                    (8.dp * quality).toPx() + (16.dp * quality).toPx() * pressProgress,
+                    (14.dp * quality).toPx() + (20.dp * quality).toPx() * pressProgress,
                     chromaticAberration = false
                 )
             },
-            highlight = { Highlight.Default.copy(alpha = 0.20f + 0.18f * pressProgress) },
-            shadow = { Shadow(alpha = 0.45f + 0.25f * pressProgress) },
-            innerShadow = { InnerShadow(radius = 8.dp, alpha = 0.55f) },
+            highlight = { Highlight.Default.copy(alpha = 0.08f + 0.10f * pressProgress) },
+            shadow = { Shadow(alpha = 0.18f + 0.16f * pressProgress) },
+            innerShadow = { InnerShadow(radius = 6.dp, alpha = 0.18f + 0.16f * pressProgress) },
             layerBlock = {
                 val scale = 1f + 0.04f * pressProgress
                 scaleX = scale
@@ -227,10 +246,10 @@ fun GlassLens(
             onDrawSurface = {
                 drawRect(surfaceColor)
                 if (lightGlass) {
-                    drawRect(Color.White.copy(alpha = 0.035f), blendMode = BlendMode.Screen)
+                    drawRect(Color.White.copy(alpha = 0.014f), blendMode = BlendMode.Screen)
                 } else {
-                    drawRect(Color.Black.copy(alpha = 0.03f))
-                    drawRect(Color.White.copy(alpha = 0.012f), blendMode = BlendMode.Screen)
+                    drawRect(Color.Black.copy(alpha = 0.014f))
+                    drawRect(Color.White.copy(alpha = 0.006f), blendMode = BlendMode.Screen)
                 }
             }
         )
@@ -283,17 +302,18 @@ fun CourseGlassCard(
             backdrop = backdrop!!,
             shape = { shape },
             effects = {
+                if (tokens.useVibrancy) vibrancy()
                 blur((tokens.blur * quality).toPx())
                 lens(
                     (tokens.lensHeight * quality).toPx() * (0.85f + 0.15f * pressProgress),
                     (tokens.lensAmount * quality).toPx() * (0.9f + 0.2f * pressProgress),
-                    chromaticAberration = false
+                    depthEffect = tokens.depthEffect,
+                    chromaticAberration = tokens.chromaticAberration
                 )
-                vibrancy()
             },
-            highlight = { Highlight.Default.copy(alpha = 0.08f + 0.16f * pressProgress) },
-            shadow = { Shadow(alpha = 0.22f + 0.18f * pressProgress) },
-            innerShadow = { InnerShadow(radius = 6.dp + 2.dp * pressProgress, alpha = 0.20f + 0.18f * pressProgress) },
+            highlight = { Highlight.Default.copy(alpha = tokens.highlightAlpha + 0.09f * pressProgress) },
+            shadow = { Shadow(alpha = tokens.shadowAlpha + 0.10f * pressProgress) },
+            innerShadow = { InnerShadow(radius = 5.dp + 2.dp * pressProgress, alpha = tokens.innerShadowAlpha + 0.10f * pressProgress) },
             layerBlock = {
                 val scale = 1f + 0.018f * pressProgress
                 scaleX = scale
@@ -301,8 +321,8 @@ fun CourseGlassCard(
             },
             onDrawSurface = {
                 drawRect(glassTint)
-                drawRect(Color.White.copy(alpha = if (lightGlass) 0.028f else 0.018f), blendMode = BlendMode.Screen)
-                drawRect(Color.Black.copy(alpha = if (lightGlass) 0.008f else 0.030f))
+                drawRect(Color.White.copy(alpha = if (lightGlass) 0.012f else 0.008f), blendMode = BlendMode.Screen)
+                drawRect(Color.Black.copy(alpha = if (lightGlass) 0.004f else 0.014f))
             }
         )
     } else {

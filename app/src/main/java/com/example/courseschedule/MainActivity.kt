@@ -233,6 +233,7 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.runtimeShaderEffect
+import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
@@ -1257,8 +1258,9 @@ fun KyantLiquidDialog(
                         brightness = if (lightGlass) 0.2f else 0f,
                         saturation = 1.5f
                     )
-                    blur(if (lightGlass) 16.dp.toPx() else 8.dp.toPx())
-                    lens(24.dp.toPx(), 48.dp.toPx(), depthEffect = true)
+                    vibrancy()
+                    blur(if (lightGlass) 8.dp.toPx() else 5.dp.toPx())
+                    lens(16.dp.toPx(), 32.dp.toPx(), depthEffect = true)
                 },
                 highlight = { Highlight.Plain },
                 onDrawSurface = { drawRect(containerColor) }
@@ -2140,24 +2142,26 @@ fun MorphingLiquidAddMenu(
                 backdrop = backdrop,
                 shape = { shape },
                 effects = {
-                    blur((dynamicBlur + 5.dp * pressProgress).toPx())
+                    vibrancy()
+                    blur(((dynamicBlur * 0.65f) + 3.dp * pressProgress).toPx())
                     lens(
-                        (24.dp + 22.dp * contentAlpha + 8.dp * pressProgress).toPx(),
-                        (32.dp + 26.dp * contentAlpha + 10.dp * pressProgress).toPx(),
+                        (12.dp + 6.dp * contentAlpha + 4.dp * pressProgress).toPx(),
+                        (22.dp + 8.dp * contentAlpha + 6.dp * pressProgress).toPx(),
+                        depthEffect = true,
                         chromaticAberration = false
                     )
                 },
-                highlight = { Highlight.Default.copy(alpha = 0.12f + 0.12f * pressProgress) },
-                shadow = { Shadow(alpha = (if (lightGlass) 0.18f else 0.34f) + 0.12f * pressProgress) },
-                innerShadow = { InnerShadow(radius = 10.dp + 6.dp * contentAlpha, alpha = 0.20f + 0.12f * pressProgress) },
+                highlight = { Highlight.Default.copy(alpha = 0.04f + 0.08f * pressProgress) },
+                shadow = { Shadow(alpha = (if (lightGlass) 0.10f else 0.18f) + 0.08f * pressProgress) },
+                innerShadow = { InnerShadow(radius = 8.dp + 3.dp * contentAlpha, alpha = 0.10f + 0.08f * pressProgress) },
                 layerBlock = {
                     val scale = 1f + 0.016f * pressProgress
                     scaleX = scale
                     scaleY = scale
                 },
                 onDrawSurface = {
-                    drawRect((if (lightGlass) ComposeColor.White else ComposeColor(0xFF050505)).copy(alpha = if (lightGlass) 0.22f else 0.38f))
-                    drawRect(ComposeColor.Black.copy(alpha = if (lightGlass) 0.05f else 0.14f))
+                    drawRect((if (lightGlass) ComposeColor.White else ComposeColor(0xFF050505)).copy(alpha = if (lightGlass) 0.16f else 0.26f))
+                    drawRect(ComposeColor.Black.copy(alpha = if (lightGlass) 0.018f else 0.055f))
                 }
             )
         } else {
@@ -6439,6 +6443,18 @@ fun SettingsScreen(
 @Composable
 fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (SettingsPage) -> Unit) {
     val context = LocalContext.current
+    var glassTuningTapCount by remember { mutableIntStateOf(0) }
+    var lastGlassTuningTapAt by remember { mutableStateOf(0L) }
+    fun handleGlassTuningTap() {
+        val now = System.currentTimeMillis()
+        glassTuningTapCount = if (now - lastGlassTuningTapAt <= 2_000L) glassTuningTapCount + 1 else 1
+        lastGlassTuningTapAt = now
+        if (glassTuningTapCount >= 5) {
+            glassTuningTapCount = 0
+            Toast.makeText(context, "已解锁液态玻璃调参", Toast.LENGTH_SHORT).show()
+            context.startActivity(Intent(context, LiquidGlassTuningActivity::class.java))
+        }
+    }
     val versionName = remember {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
@@ -6463,7 +6479,11 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
                     modifier = Modifier
                         .size(82.dp)
                         .clip(RoundedCornerShape(22.dp))
-                        .clickable { onPageChange(SettingsPage.Changelog) }
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = ::handleGlassTuningTap
+                        )
                 )
                 Text(appName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text("版本 $versionName", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
