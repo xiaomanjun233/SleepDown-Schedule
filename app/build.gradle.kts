@@ -19,8 +19,8 @@ android {
         applicationId = "com.example.courseschedule"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.05beta"
+        versionCode = 4
+        versionName = "1.05 beta"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
