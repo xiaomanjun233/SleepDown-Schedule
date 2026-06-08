@@ -73,6 +73,7 @@ data class ScheduleConfigEntity(
     val cardAlpha: Float = 1f,
     val courseCardBlur: Float = 18f,
     val courseCardGlassEnabled: Boolean = true,
+    val courseCardFontScale: Float = 1f,
     val weekCardHeightDp: Float? = null,
     val homeTextLight: Boolean = false,
     val followSystemDarkMode: Boolean = true,
@@ -248,7 +249,7 @@ interface ScheduleProfileDao {
     suspend fun deleteProfile(profileId: Int)
 }
 
-@Database(entities = [CourseEntity::class, ScheduleProfileEntity::class, ScheduleConfigEntity::class, PeriodEntity::class], version = 22, exportSchema = false)
+@Database(entities = [CourseEntity::class, ScheduleProfileEntity::class, ScheduleConfigEntity::class, PeriodEntity::class], version = 23, exportSchema = false)
 @TypeConverters(ScheduleConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun courseDao(): CourseDao
@@ -431,6 +432,13 @@ private val MIGRATION_21_22 = object : Migration(21, 22) {
     }
 }
 
+private val MIGRATION_22_23 = object : Migration(22, 23) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        ensureMultiScheduleSchema(db)
+        db.execSQL("ALTER TABLE schedule_config ADD COLUMN courseCardFontScale REAL NOT NULL DEFAULT 1")
+    }
+}
+
 private val MIGRATION_23_22 = object : Migration(23, 22) {
     override fun migrate(db: SupportSQLiteDatabase) {
         ensureMultiScheduleSchema(db)
@@ -441,7 +449,7 @@ class CourseScheduleApp : Application() {
     val database: AppDatabase by lazy {
         repairDatabaseFileBeforeRoomOpen(getDatabasePath("course_schedule.db"))
         Room.databaseBuilder(this, AppDatabase::class.java, "course_schedule.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_23_22)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_22)
             .build()
     }
     val repository: ScheduleRepository by lazy { ScheduleRepository(database) }
@@ -467,7 +475,7 @@ private fun repairSQLiteDatabase(db: SQLiteDatabase) {
         repairScheduleConfigTable(db)
         repairPeriodsTable(db)
         db.execSQL("DROP TABLE IF EXISTS room_master_table")
-        db.setVersion(22)
+        db.setVersion(23)
         db.setTransactionSuccessful()
     } finally {
         db.endTransaction()
@@ -513,6 +521,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "cardAlpha", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "courseCardBlur", "REAL NOT NULL DEFAULT 18")
     ensureSqliteColumn(db, "schedule_config", "courseCardGlassEnabled", "INTEGER NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "courseCardFontScale", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "weekCardHeightDp", "REAL")
     ensureSqliteColumn(db, "schedule_config", "homeTextLight", "INTEGER NOT NULL DEFAULT 0")
     ensureSqliteColumn(db, "schedule_config", "followSystemDarkMode", "INTEGER NOT NULL DEFAULT 1")
@@ -532,7 +541,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
         INSERT OR REPLACE INTO schedule_config_room_fix (
             id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek,
             notificationsEnabled, notificationMode, wallpaperUri, wallpaperBlur, wallpaperBrightness,
-            cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, weekCardHeightDp,
+            cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale, weekCardHeightDp,
             homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
             classDurationMinutes, breakDurationMinutes, hideFromRecents
@@ -540,7 +549,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
         SELECT
             id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek,
             notificationsEnabled, notificationMode, wallpaperUri, wallpaperBlur, wallpaperBrightness,
-            cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, weekCardHeightDp,
+            cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale, weekCardHeightDp,
             homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
             classDurationMinutes, breakDurationMinutes, hideFromRecents
@@ -569,6 +578,7 @@ private fun scheduleConfigCreateSql(table: String): String =
         cardAlpha REAL NOT NULL,
         courseCardBlur REAL NOT NULL,
         courseCardGlassEnabled INTEGER NOT NULL,
+        courseCardFontScale REAL NOT NULL,
         weekCardHeightDp REAL,
         homeTextLight INTEGER NOT NULL,
         followSystemDarkMode INTEGER NOT NULL,
@@ -889,7 +899,7 @@ private fun ScheduleConfigEntity.withGlobalSettingsFrom(global: ScheduleConfigEn
     )
 }
 
-fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, weekCardHeightDp = null, homeTextLight = false, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.KANBAN, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false)
+fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, weekCardHeightDp = null, homeTextLight = false, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.KANBAN, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false)
 
 fun defaultPeriods(scheduleId: Int = 1) = listOf(
     PeriodEntity(1, "08:00", "08:45", scheduleId), PeriodEntity(2, "08:55", "09:40", scheduleId),

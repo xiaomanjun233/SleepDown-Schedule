@@ -138,6 +138,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField as MaterialOutlinedTextField
@@ -733,6 +734,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         onHomeModeChange = { homeMode = it },
                         addMenuExpanded = addMenuExpanded,
                         onAddButtonPositioned = { addButtonBounds = it },
+                        addMenuRendering = renderAddMenu,
                         onToggleAddMenu = {
                             val next = !addMenuExpanded
                             addMenuExpanded = next
@@ -1525,6 +1527,7 @@ fun AppTopBar(
     onHomeModeChange: (HomeMode) -> Unit,
     addMenuExpanded: Boolean,
     onAddButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
+    addMenuRendering: Boolean,
     onToggleAddMenu: () -> Unit,
     showPersonalize: Boolean,
     onTogglePersonalize: () -> Unit,
@@ -1589,7 +1592,7 @@ fun AppTopBar(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     HomeIconButton(backdrop, state.config, R.drawable.ic_tune, "个性化", selected = showPersonalize, onClick = onTogglePersonalize)
-                    HomeAddButton(backdrop, state.config, addMenuExpanded, onAddButtonPositioned, onToggleAddMenu)
+                    HomeAddButton(backdrop, state.config, addMenuExpanded, addMenuRendering, onAddButtonPositioned, onToggleAddMenu)
                     HomeModeSwitch(backdrop, state.config, homeMode, onHomeModeChange)
                 }
             }
@@ -1602,18 +1605,21 @@ fun HomeAddButton(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     expanded: Boolean,
+    menuRendering: Boolean,
     onPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
     onClick: () -> Unit
 ) {
     val alpha = remember { Animatable(1f) }
     val scale = remember { Animatable(1f) }
-    LaunchedEffect(expanded) {
-        if (expanded) {
-            alpha.animateTo(0f, spring(dampingRatio = 0.78f, stiffness = 520f))
+    val visible = !expanded && !menuRendering
+    LaunchedEffect(expanded, menuRendering) {
+        if (!visible) {
+            launch { alpha.animateTo(0f, tween(durationMillis = 90)) }
             scale.animateTo(1.08f, spring(dampingRatio = 0.62f, stiffness = 460f))
         } else {
-            alpha.snapTo(1f)
             scale.snapTo(1f)
+            delay(18)
+            alpha.animateTo(1f, spring(dampingRatio = 0.86f, stiffness = 620f))
         }
     }
     Box(modifier = Modifier.graphicsLayer { this.alpha = alpha.value; scaleX = scale.value; scaleY = scale.value }) {
@@ -1895,13 +1901,13 @@ fun HomeIconButton(
             modifier = modifier.padding(end = 7.dp).size(42.dp),
             tint = tint,
             surfaceColor = when {
-                selected && lightGlass -> ComposeColor.Black.copy(alpha = 0.06f)
-                selected -> ComposeColor.White.copy(alpha = 0.12f)
-                lightGlass -> ComposeColor.White.copy(alpha = 0.18f)
-                else -> ComposeColor(0xFF121212).copy(alpha = 0.20f)
+                selected && lightGlass -> ComposeColor.Black.copy(alpha = 0.025f)
+                selected -> ComposeColor.White.copy(alpha = 0.055f)
+                lightGlass -> ComposeColor.White.copy(alpha = 0.070f)
+                else -> ComposeColor(0xFF121212).copy(alpha = 0.085f)
             },
             contentPadding = PaddingValues(0.dp),
-            blurRadius = 7.dp,
+            blurRadius = 4.dp,
             lensHeight = 30.dp,
             lensAmount = 38.dp,
             chromaticAberration = false
@@ -2405,8 +2411,8 @@ fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEn
                     modifier = Modifier.width(140.dp),
                     containerHeight = 54.dp,
                     indicatorHeight = 46.dp,
-                    blurRadius = 4.dp,
-                    containerAlpha = 0.18f,
+                    blurRadius = 2.dp,
+                    containerAlpha = 0.075f,
                     lensHeight = 44.dp,
                     lensAmount = 52.dp,
                     indicatorWidthOverflow = 24.dp,
@@ -2615,6 +2621,8 @@ fun PersonalizePanel(
             LiquidControlSlider(state.config.cardAlpha, { onUpdateConfig(state.config.copy(cardAlpha = it)) }, 0.35f..1f, backdrop)
             Text("课程卡片模糊 ${state.config.courseCardBlur.toInt()}dp", style = MaterialTheme.typography.labelMedium)
             LiquidControlSlider(state.config.courseCardBlur, { onUpdateConfig(state.config.copy(courseCardBlur = it)) }, 0f..34f, backdrop)
+            Text("课程卡片字体 ${(state.config.courseCardFontScale * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
+            LiquidControlSlider(state.config.courseCardFontScale, { onUpdateConfig(state.config.copy(courseCardFontScale = it)) }, 0.80f..1.35f, backdrop)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -3170,6 +3178,8 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
             containerHeight = 42.dp,
             indicatorHeight = 34.dp,
             horizontalPadding = 4.dp,
+            blurRadius = 3.dp,
+            containerAlpha = 0.12f,
             lensHeight = 30.dp,
             lensAmount = 34.dp,
             indicatorWidthOverflow = 8.dp,
@@ -4800,12 +4810,14 @@ fun WeekCourseBlock(
             }
             val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
             val fontScaleCompensation = density.fontScale.coerceAtLeast(1f)
-            val nameFont = scaledWeekText(if (tiny) 8.8.sp else if (compact) 9.7.sp else 10.7.sp, fontScaleCompensation)
-            val nameLineHeight = scaledWeekText(if (tiny) 8.2.sp else if (compact) 9.1.sp else 10.0.sp, fontScaleCompensation)
-            val locationFont = scaledWeekText(if (tiny) 8.1.sp else if (compact) 8.7.sp else 9.5.sp, fontScaleCompensation)
-            val locationLineHeight = scaledWeekText(if (tiny) 8.0.sp else if (compact) 8.6.sp else 9.3.sp, fontScaleCompensation)
-            val teacherFont = scaledWeekText(8.4.sp, fontScaleCompensation)
-            val teacherLineHeight = scaledWeekText(7.9.sp, fontScaleCompensation)
+            val courseFontScale = config.courseCardFontScale.coerceIn(0.80f, 1.35f)
+            fun scaledCourseWeekText(value: TextUnit): TextUnit = scaledWeekText((value.value * courseFontScale).sp, fontScaleCompensation)
+            val nameFont = scaledCourseWeekText(if (tiny) 8.8.sp else if (compact) 9.7.sp else 10.7.sp)
+            val nameLineHeight = scaledCourseWeekText(if (tiny) 8.2.sp else if (compact) 9.1.sp else 10.0.sp)
+            val locationFont = scaledCourseWeekText(if (tiny) 8.1.sp else if (compact) 8.7.sp else 9.5.sp)
+            val locationLineHeight = scaledCourseWeekText(if (tiny) 8.0.sp else if (compact) 8.6.sp else 9.3.sp)
+            val teacherFont = scaledCourseWeekText(8.4.sp)
+            val teacherLineHeight = scaledCourseWeekText(7.9.sp)
             val contentWidthPx = with(density) { (maxWidth - horizontalPadding * 2f).coerceAtLeast(24.dp).toPx() }
             val availableTextPx = with(density) { (maxHeight - verticalPadding * 2f).coerceAtLeast(0.dp).toPx() }
 
@@ -4906,6 +4918,13 @@ fun WeekCourseBlock(
 
 private fun scaledWeekText(value: TextUnit, fontScale: Float): TextUnit {
     return (value.value / fontScale.coerceAtLeast(1f)).sp
+}
+
+private fun androidx.compose.ui.text.TextStyle.scaledCourseCardStyle(scale: Float): androidx.compose.ui.text.TextStyle {
+    val safeScale = scale.coerceIn(0.80f, 1.35f)
+    val scaledFontSize = if (fontSize == TextUnit.Unspecified) fontSize else (fontSize.value * safeScale).sp
+    val scaledLineHeight = if (lineHeight == TextUnit.Unspecified) lineHeight else (lineHeight.value * safeScale).sp
+    return copy(fontSize = scaledFontSize, lineHeight = scaledLineHeight)
 }
 
 @Composable
@@ -6443,18 +6462,6 @@ fun SettingsScreen(
 @Composable
 fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (SettingsPage) -> Unit) {
     val context = LocalContext.current
-    var glassTuningTapCount by remember { mutableIntStateOf(0) }
-    var lastGlassTuningTapAt by remember { mutableStateOf(0L) }
-    fun handleGlassTuningTap() {
-        val now = System.currentTimeMillis()
-        glassTuningTapCount = if (now - lastGlassTuningTapAt <= 2_000L) glassTuningTapCount + 1 else 1
-        lastGlassTuningTapAt = now
-        if (glassTuningTapCount >= 5) {
-            glassTuningTapCount = 0
-            Toast.makeText(context, "已解锁液态玻璃调参", Toast.LENGTH_SHORT).show()
-            context.startActivity(Intent(context, LiquidGlassTuningActivity::class.java))
-        }
-    }
     val versionName = remember {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
@@ -6479,11 +6486,7 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
                     modifier = Modifier
                         .size(82.dp)
                         .clip(RoundedCornerShape(22.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = ::handleGlassTuningTap
-                        )
+                        .clickable { onPageChange(SettingsPage.Changelog) }
                 )
                 Text(appName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text("版本 $versionName", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
