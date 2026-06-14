@@ -68,7 +68,7 @@ data class GlassTokens(
         )
 
         fun courseCard(blur: Float, reduceTransparency: Boolean = false) = GlassTokens(
-            blur = if (reduceTransparency) 0.dp else blur.coerceIn(0f, 34f).dp,
+            blur = if (reduceTransparency) 0.dp else blur.coerceIn(0f, 10f).dp,
             lensHeight = if (reduceTransparency) 0.dp else 10.dp,
             lensAmount = if (reduceTransparency) 0.dp else 20.dp,
             surfaceAlpha = if (reduceTransparency) 0.92f else 0.52f,
@@ -91,7 +91,6 @@ fun glassUsesLightStyle(config: ScheduleConfigEntity): Boolean {
     if (config.wallpaperUri.isNullOrBlank()) return !appUsesDarkTheme(config)
     return when {
         config.wallpaperBrightness < 0.72f -> false
-        config.wallpaperBrightness > 1.18f -> true
         config.homeTextLight -> false
         else -> true
     }

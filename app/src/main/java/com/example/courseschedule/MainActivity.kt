@@ -73,6 +73,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -191,6 +192,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.boundsInWindow
@@ -200,6 +202,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -526,7 +529,7 @@ sealed interface HomeDialog {
     data object ImportSchedule : HomeDialog
     data object EduImport : HomeDialog
     data class ConfirmImport(val draft: ImportDraft) : HomeDialog
-    data class CropWallpaper(val uri: Uri) : HomeDialog
+    data class EditWallpaper(val uri: Uri) : HomeDialog
     data object SampleWallpaperColor : HomeDialog
     data class EditCourse(val course: CourseEntity?, val targetWeek: Int? = null) : HomeDialog
     data class ApplyCourseEdit(val original: CourseEntity, val edited: CourseEntity, val targetWeek: Int) : HomeDialog
@@ -575,7 +578,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         if (addMenuExpanded) {
             renderAddMenu = true
         } else if (renderAddMenu) {
-            delay(180)
+            delay(210)
             renderAddMenu = false
         }
     }
@@ -590,19 +593,30 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
     val logRecording by DiagnosticLogCapture.recording.collectAsState()
     val wallpaperImages by rememberHomeWallpaperImages(state.config)
+    val startupAnimationsEnabled = remember(context) { animationsEnabled(context) }
 
     var startupPhase by remember {
-        mutableStateOf(if (state.loaded || splashEntranceDone) StartupPhase.FullQuality else StartupPhase.Loading)
+        mutableStateOf(if (state.loaded || splashEntranceDone || !startupAnimationsEnabled) StartupPhase.FullQuality else StartupPhase.Loading)
     }
-    LaunchedEffect(state.loaded) {
+    LaunchedEffect(state.loaded, startupAnimationsEnabled) {
         if (state.loaded && startupPhase == StartupPhase.Loading) {
-            startupPhase = StartupPhase.Prewarm
+            if (startupAnimationsEnabled) {
+                startupPhase = StartupPhase.Prewarm
+            } else {
+                splashEntranceDone = true
+                startupPhase = StartupPhase.FullQuality
+            }
         }
     }
-    if (startupPhase == StartupPhase.Prewarm) {
+    if (startupAnimationsEnabled && startupPhase == StartupPhase.Prewarm) {
         waitForPrewarmFrames { startupPhase = StartupPhase.Reveal }
     }
-    LaunchedEffect(startupPhase) {
+    LaunchedEffect(startupPhase, startupAnimationsEnabled) {
+        if (!startupAnimationsEnabled) {
+            splashEntranceDone = true
+            startupPhase = StartupPhase.FullQuality
+            return@LaunchedEffect
+        }
         if (startupPhase == StartupPhase.Entrance) {
             splashEntranceDone = false
             delay(820)
@@ -615,13 +629,19 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val glassQuality = animatedGlassQuality(startupPhase)
     val startupAnimation = when (startupPhase) {
         StartupPhase.Reveal -> "StartupReveal"
-        StartupPhase.Entrance -> "HomeEntrance"
-        StartupPhase.Settle -> "HomeEntrance"
+        StartupPhase.Entrance -> "HomeFlyInEntrance"
+        StartupPhase.Settle -> "HomeFlyInEntrance"
         else -> if (homeDialogVisible) "DialogOpen" else "Idle"
     }
+    val startupEntranceSpec = rememberStartupEntranceSpec(
+        phase = startupPhase,
+        courseCount = state.courses.size,
+        animationsEnabled = startupAnimationsEnabled
+    )
     StartupPerformanceBoost(
         startupPhase == StartupPhase.Reveal ||
             startupPhase == StartupPhase.Entrance ||
+            startupPhase == StartupPhase.Settle ||
             homeDialogVisible
     )
     StartupJankStats(
@@ -637,8 +657,25 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val wallpaperLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
-            homeDialog = HomeDialog.CropWallpaper(uri)
+            homeDialog = HomeDialog.EditWallpaper(uri)
         }
+    }
+    val todayDate = LocalDate.now()
+    val homeCurrentWeek = effectiveCurrentWeek(state.config)
+    var homeDisplayWeek by remember(state.config.id, state.config.totalWeeks, homeCurrentWeek) { mutableIntStateOf(homeCurrentWeek) }
+    var homeDisplayDate by remember(state.config.id) { mutableStateOf(todayDate) }
+    LaunchedEffect(state.config.id, state.config.totalWeeks, homeCurrentWeek, state.config.autoCurrentWeek) {
+        homeDisplayWeek = homeDisplayWeek.coerceIn(1, state.config.totalWeeks.coerceAtLeast(1))
+        if (state.config.autoCurrentWeek) homeDisplayWeek = homeCurrentWeek
+    }
+    val homeTitleWeek = if (homeMode == HomeMode.Day) {
+        effectiveCurrentWeek(state.config, homeDisplayDate)
+    } else {
+        homeDisplayWeek
+    }
+    val returnHomeToCurrentDateAndWeek = {
+        homeDisplayDate = LocalDate.now()
+        homeDisplayWeek = homeCurrentWeek
     }
 
     LaunchedEffect(state.config.hideFromRecents) {
@@ -690,7 +727,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         LocalSharedTransitionScope provides activeSharedTransitionScope,
         LocalEditingCourseId provides editingCourseId,
         LocalStartupPhase provides startupPhase,
-        LocalGlassQuality provides glassQuality
+        LocalGlassQuality provides glassQuality,
+        LocalStartupEntranceSpec provides startupEntranceSpec
     ) {
     Box(
         modifier = Modifier.fillMaxSize()
@@ -732,6 +770,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         backdrop = chromeBackdrop,
                         homeMode = homeMode,
                         onHomeModeChange = { homeMode = it },
+                        homeDisplayDate = homeDisplayDate,
+                        homeDisplayWeek = homeTitleWeek,
+                        onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
                         addMenuExpanded = addMenuExpanded,
                         onAddButtonPositioned = { addButtonBounds = it },
                         addMenuRendering = renderAddMenu,
@@ -777,16 +818,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
                     }
                 }
-                val contentModifier = if (screen is Screen.Home) {
-                    Modifier
-                        .fillMaxSize()
-                        .layerBackdrop(contentBackdrop)
-                } else {
-                    Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .layerBackdrop(contentBackdrop)
-                }
+                val contentModifier = Modifier
+                    .fillMaxSize()
+                    .layerBackdrop(contentBackdrop)
                 Column(modifier = contentModifier) {
                     message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                     ContentEntranceContainer(phase = startupPhase, modifier = Modifier.weight(1f)) {
@@ -796,8 +830,12 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     state = state,
                                     mode = homeMode,
                                     weekCardHeight = weekCardHeight.dp,
+                                    displayWeek = homeDisplayWeek,
+                                    displayDate = homeDisplayDate,
                                     backdrop = backgroundBackdrop,
                                     weekHeaderBackdrop = backgroundBackdrop,
+                                    onSwipeWeek = { delta -> homeDisplayWeek = (homeDisplayWeek + delta).coerceIn(1, state.config.totalWeeks.coerceAtLeast(1)) },
+                                    onSwipeDay = { delta -> homeDisplayDate = homeDisplayDate.plusDays(delta.toLong()) },
                                     onContentUnderTopBarChange = { homeContentUnderTopBar = it },
                                     onCourseClick = { course, week, sourceBounds ->
                                         courseEditSourceBounds = sourceBounds
@@ -810,27 +848,33 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     }
                                 )
                             }
-                            Screen.Config -> SettingsScreen(
-                                    page = SettingsPage.Root,
-                                    state = state,
-                                    backdrop = backgroundBackdrop,
-                                    onPageChange = {
-                                        context.startActivity(
-                                            Intent(context, SettingsDetailActivity::class.java)
-                                                .putExtra(SettingsDetailPageExtra, it.name)
-                                        )
-                                    },
-                                    onSave = viewModel::saveConfig,
-                                    onUpdateConfig = viewModel::savePersonalization,
-                                    onPreviewLiveUpdate = viewModel::previewLiveUpdate
-                                )
-                            Screen.EduImport -> EduImportFlowScreen(
-                                    page = EduImportPage.SelectSchool,
-                                    state = state,
-                                    onPageChange = {},
-                                    onParsed = { screen = Screen.Confirm(it) }
-                                )
-                            is Screen.Confirm -> ConfirmScheduleScreen(current.draft, onCancel = { screen = Screen.Home }, onConfirm = { createNewSchedule -> viewModel.importDraft(current.draft, createNewSchedule) { screen = Screen.Home } })
+                            Screen.Config -> Box(Modifier.fillMaxSize().padding(padding)) {
+                                SettingsScreen(
+                                        page = SettingsPage.Root,
+                                        state = state,
+                                        backdrop = backgroundBackdrop,
+                                        onPageChange = {
+                                            context.startActivity(
+                                                Intent(context, SettingsDetailActivity::class.java)
+                                                    .putExtra(SettingsDetailPageExtra, it.name)
+                                            )
+                                        },
+                                        onSave = viewModel::saveConfig,
+                                        onUpdateConfig = viewModel::savePersonalization,
+                                        onPreviewLiveUpdate = viewModel::previewLiveUpdate
+                                    )
+                            }
+                            Screen.EduImport -> Box(Modifier.fillMaxSize().padding(padding)) {
+                                EduImportFlowScreen(
+                                        page = EduImportPage.SelectSchool,
+                                        state = state,
+                                        onPageChange = {},
+                                        onParsed = { screen = Screen.Confirm(it) }
+                                    )
+                            }
+                            is Screen.Confirm -> Box(Modifier.fillMaxSize().padding(padding)) {
+                                ConfirmScheduleScreen(current.draft, onCancel = { screen = Screen.Home }, onConfirm = { createNewSchedule -> viewModel.importDraft(current.draft, createNewSchedule) { screen = Screen.Home } })
+                            }
                         }
                         if (screen is Screen.Home) {
                             DockBackdropContinuityPatch(
@@ -850,7 +894,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(ComposeColor.Black.copy(alpha = 0.05f))
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
@@ -1074,18 +1117,13 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         NormalizedAiManualImportScreen(state, backdrop = chromeBackdrop, onParsed = { homeDialog = HomeDialog.ConfirmImport(it) })
                     }
                     HomeDialog.EduImport -> Unit
-                    is HomeDialog.CropWallpaper -> WallpaperCropScreen(
+                    is HomeDialog.EditWallpaper -> WallpaperEditorDialog(
                         uri = dialog.uri,
                         config = state.config,
                         backdrop = chromeBackdrop,
                         onCancel = { dismissHomeDialog() },
-                        onApply = { croppedUri ->
-                            viewModel.savePersonalization(
-                                state.config.copy(
-                                    wallpaperUri = croppedUri.toString(),
-                                    homeTextLight = wallpaperPrefersLightText(context, croppedUri.toString())
-                                )
-                            )
+                        onApply = { nextConfig ->
+                            viewModel.savePersonalization(nextConfig)
                             dismissHomeDialog()
                         }
                     )
@@ -1525,6 +1563,9 @@ fun AppTopBar(
     backdrop: Backdrop?,
     homeMode: HomeMode,
     onHomeModeChange: (HomeMode) -> Unit,
+    homeDisplayDate: LocalDate,
+    homeDisplayWeek: Int,
+    onReturnHomeToCurrentWeek: () -> Unit,
     addMenuExpanded: Boolean,
     onAddButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
     addMenuRendering: Boolean,
@@ -1545,7 +1586,12 @@ fun AppTopBar(
         ),
         title = {
             if (screen is Screen.Home) {
-                HomeDateTitle(state)
+                HomeDateTitle(
+                    state = state,
+                    displayDate = homeDisplayDate,
+                    displayWeek = homeDisplayWeek,
+                    onReturnCurrent = onReturnHomeToCurrentWeek
+                )
             } else {
                 Box(
                     modifier = Modifier
@@ -1611,15 +1657,17 @@ fun HomeAddButton(
 ) {
     val alpha = remember { Animatable(1f) }
     val scale = remember { Animatable(1f) }
+    val buttonFadeEase = remember { CubicBezierEasing(0.16f, 1f, 0.30f, 1f) }
     val visible = !expanded && !menuRendering
     LaunchedEffect(expanded, menuRendering) {
         if (!visible) {
-            launch { alpha.animateTo(0f, tween(durationMillis = 90)) }
-            scale.animateTo(1.08f, spring(dampingRatio = 0.62f, stiffness = 460f))
+            launch { alpha.animateTo(0f, tween(durationMillis = 100, easing = buttonFadeEase)) }
+            scale.animateTo(0.92f, tween(durationMillis = 110, easing = buttonFadeEase))
         } else {
-            scale.snapTo(1f)
+            scale.snapTo(0.94f)
             delay(18)
-            alpha.animateTo(1f, spring(dampingRatio = 0.86f, stiffness = 620f))
+            launch { alpha.animateTo(1f, tween(durationMillis = 130, easing = buttonFadeEase)) }
+            scale.animateTo(1f, spring(dampingRatio = 0.78f, stiffness = 620f))
         }
     }
     Box(modifier = Modifier.graphicsLayer { this.alpha = alpha.value; scaleX = scale.value; scaleY = scale.value }) {
@@ -1907,9 +1955,9 @@ fun HomeIconButton(
                 else -> ComposeColor(0xFF121212).copy(alpha = 0.085f)
             },
             contentPadding = PaddingValues(0.dp),
-            blurRadius = 4.dp,
-            lensHeight = 30.dp,
-            lensAmount = 38.dp,
+            blurRadius = 2.5.dp,
+            lensHeight = 12.dp,
+            lensAmount = 24.dp,
             chromaticAberration = false
         ) {
             Icon(painterResource(iconRes), contentDescription = contentDescription, modifier = Modifier.size(20.dp))
@@ -1993,22 +2041,23 @@ fun MorphingLiquidAddMenu(
         }
     }
     val transition = androidx.compose.animation.core.updateTransition(animatedExpanded, label = "morph-add-menu")
+    val addMenuEase = remember { CubicBezierEasing(0.16f, 1f, 0.30f, 1f) }
+    val addMenuSettleEase = remember { CubicBezierEasing(0.22f, 1f, 0.36f, 1f) }
     val sinkOffset by transition.animateDp(
         transitionSpec = {
             if (targetState) {
                 keyframes {
-                    durationMillis = 180
+                    durationMillis = 190
                     0.dp at 0
-                    30.dp at 38
-                    48.dp at 162
-                    46.dp at 180
+                    49.dp at 150 using addMenuEase
+                    46.dp at 190 using addMenuSettleEase
                 }
             } else {
                 keyframes {
-                    durationMillis = 180
+                    durationMillis = 190
                     46.dp at 0
-                    28.dp at 132
-                    0.dp at 180
+                    (-3).dp at 150 using addMenuEase
+                    0.dp at 190 using addMenuSettleEase
                 }
             }
         },
@@ -2018,62 +2067,107 @@ fun MorphingLiquidAddMenu(
         transitionSpec = {
             if (targetState) {
                 keyframes {
-                    durationMillis = 180
+                    durationMillis = 190
                     42.dp at 0
-                    42.dp at 64
-                    42.dp at 78
-                    206.dp at 168
-                    202.dp at 180
+                    42.dp at 42
+                    212.dp at 150 using addMenuEase
+                    202.dp at 190 using addMenuSettleEase
                 }
             } else {
                 keyframes {
-                    durationMillis = 180
-                    206.dp at 0
-                    42.dp at 132
-                    42.dp at 180
+                    durationMillis = 190
+                    202.dp at 0
+                    38.dp at 150 using addMenuEase
+                    42.dp at 190 using addMenuSettleEase
                 }
             }
         },
         label = "add-menu-width"
-    ) { if (it) 206.dp else 42.dp }
+    ) { if (it) 202.dp else 42.dp }
     val height by transition.animateDp(
         transitionSpec = {
             if (targetState) {
                 keyframes {
-                    durationMillis = 180
+                    durationMillis = 190
                     42.dp at 0
-                    42.dp at 64
-                    42.dp at 78
-                    164.dp at 168
-                    160.dp at 180
+                    42.dp at 42
+                    168.dp at 150 using addMenuEase
+                    160.dp at 190 using addMenuSettleEase
                 }
             } else {
                 keyframes {
-                    durationMillis = 180
-                    164.dp at 0
-                    42.dp at 132
-                    42.dp at 180
+                    durationMillis = 190
+                    160.dp at 0
+                    38.dp at 150 using addMenuEase
+                    42.dp at 190 using addMenuSettleEase
                 }
             }
         },
         label = "add-menu-height"
-    ) { if (it) 164.dp else 42.dp }
+    ) { if (it) 160.dp else 42.dp }
     val radius by transition.animateDp(
-        transitionSpec = { spring(dampingRatio = 0.66f, stiffness = 460f) },
+        transitionSpec = {
+            if (targetState) {
+                keyframes {
+                    durationMillis = 190
+                    50.dp at 0
+                    24.dp at 150 using addMenuEase
+                    26.dp at 190 using addMenuSettleEase
+                }
+            } else {
+                keyframes {
+                    durationMillis = 190
+                    26.dp at 0
+                    52.dp at 150 using addMenuEase
+                    50.dp at 190 using addMenuSettleEase
+                }
+            }
+        },
         label = "add-menu-radius"
     ) { if (it) 26.dp else 50.dp }
     val iconAlpha by transition.animateFloat(
-        transitionSpec = { spring(dampingRatio = 0.9f, stiffness = 520f) },
+        transitionSpec = { tween(durationMillis = 90, easing = addMenuEase) },
         label = "add-menu-icon-alpha"
     ) { if (it) 0f else 1f }
     val contentAlpha by transition.animateFloat(
-        transitionSpec = { spring(dampingRatio = 0.90f, stiffness = 360f) },
+        transitionSpec = {
+            if (targetState) {
+                keyframes {
+                    durationMillis = 175
+                    0f at 0
+                    0f at 48
+                    1f at 175 using addMenuEase
+                }
+            } else {
+                tween(durationMillis = 85, easing = addMenuEase)
+            }
+        },
         label = "add-menu-content-alpha"
     ) { if (it) 1f else 0f }
     val dynamicBlur by transition.animateDp(
-        transitionSpec = { spring(dampingRatio = 0.76f, stiffness = 300f) },
+        transitionSpec = { tween(durationMillis = 175, easing = addMenuEase) },
         label = "add-menu-blur"
     ) { if (it) 14.dp else 5.dp }
+    val menuReboundScale by transition.animateFloat(
+        transitionSpec = {
+            if (targetState) {
+                keyframes {
+                    durationMillis = 190
+                    1f at 0
+                    1.018f at 150 using addMenuEase
+                    1f at 190 using addMenuSettleEase
+                }
+            } else {
+                keyframes {
+                    durationMillis = 190
+                    1f at 0
+                    0.985f at 150 using addMenuEase
+                    1f at 190 using addMenuSettleEase
+                }
+            }
+        },
+        label = "add-menu-rebound-scale"
+    ) { if (it) 1.0001f else 1f }
     var highlightedIndex by remember { mutableIntStateOf(-1) }
     var touching by remember { mutableStateOf(false) }
     val pressProgress by animateFloatAsState(
@@ -2137,6 +2231,10 @@ fun MorphingLiquidAddMenu(
     val containerModifier = modifier
         .offset { anchorOffset }
         .offset(y = sinkOffset)
+        .graphicsLayer {
+            scaleX = menuReboundScale
+            scaleY = menuReboundScale
+        }
         .width(width)
         .height(height)
         .clip(shape)
@@ -2413,10 +2511,10 @@ fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEn
                     indicatorHeight = 46.dp,
                     blurRadius = 2.dp,
                     containerAlpha = 0.075f,
-                    lensHeight = 44.dp,
-                    lensAmount = 52.dp,
+                    lensHeight = 12.dp,
+                    lensAmount = 24.dp,
                     indicatorWidthOverflow = 24.dp,
-                    indicatorHeightOverflow = 12.dp,
+                    indicatorHeightOverflow = 6.dp,
                     chromaticAberrationEnabled = false,
                     isLightThemeOverride = lightGlass
                 ) {
@@ -2493,10 +2591,10 @@ fun ScheduleManagerEntryPill(
                     backdrop = backdrop,
                     modifier = Modifier.width(140.dp),
                     height = 48.dp,
-                    blurRadius = 7.dp,
-                    lensHeight = 34.dp,
-                    lensAmount = 42.dp,
-                    surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.22f) else ComposeColor(0xFF121212).copy(alpha = 0.24f),
+                    blurRadius = 2.dp,
+                    lensHeight = 12.dp,
+                    lensAmount = 24.dp,
+                    surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.075f) else ComposeColor(0xFF121212).copy(alpha = 0.075f),
                     chromaticAberration = false,
                     contentPadding = PaddingValues(horizontal = 18.dp)
                 ) {
@@ -2573,94 +2671,187 @@ fun PersonalizePanel(
     onUpdateConfig: (ScheduleConfigEntity) -> Unit
 ) {
     val adaptiveHeight = if (state.periods.size >= 10) 72f else 80f
+    var wallpaperBlurDisplay by remember { mutableFloatStateOf(state.config.wallpaperBlur) }
+    var wallpaperBrightnessDisplay by remember { mutableFloatStateOf(state.config.wallpaperBrightness.coerceIn(0.35f, 1f)) }
+    var cardAlphaDisplay by remember { mutableFloatStateOf(state.config.cardAlpha) }
+    var courseCardBlurDisplay by remember { mutableFloatStateOf(state.config.courseCardBlur.coerceIn(0f, 10f) / 10f * 100f) }
+    var courseCardFontDisplay by remember { mutableFloatStateOf(state.config.courseCardFontScale) }
+    var sliderTouchActive by remember { mutableStateOf(false) }
+    LaunchedEffect(state.config.wallpaperBlur) { wallpaperBlurDisplay = state.config.wallpaperBlur }
+    LaunchedEffect(state.config.wallpaperBrightness) { wallpaperBrightnessDisplay = state.config.wallpaperBrightness.coerceIn(0.35f, 1f) }
+    LaunchedEffect(state.config.cardAlpha) { cardAlphaDisplay = state.config.cardAlpha }
+    LaunchedEffect(state.config.courseCardBlur) { courseCardBlurDisplay = state.config.courseCardBlur.coerceIn(0f, 10f) / 10f * 100f }
+    LaunchedEffect(state.config.courseCardFontScale) { courseCardFontDisplay = state.config.courseCardFontScale }
     @Composable
-    fun PanelContent() {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (mode == HomeMode.Week) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("周视图行高", style = MaterialTheme.typography.labelLarge)
-                    Text("${weekCardHeight.toInt()}dp", style = MaterialTheme.typography.labelMedium)
-                    LiquidMenuButton(backdrop, "\u81EA\u9002\u5E94", onClick = { onWeekCardHeight(adaptiveHeight) })
+    fun PersonalizeSection(content: @Composable ColumnScope.() -> Unit) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(ComposeColor.Black.copy(alpha = 0.10f))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            content = content
+        )
+    }
+    @Composable
+    fun PanelContent(modifier: Modifier = Modifier) {
+        Column(modifier = modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PersonalizeSection {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("首页壁纸", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                    LiquidMenuButton(
+                        backdrop,
+                        "\u9009\u62E9\u58C1\u7EB8",
+                        onClick = onPickWallpaper,
+                        textColorOverride = ComposeColor.White,
+                        surfaceColorOverride = ComposeColor(0xFFFFB340).copy(alpha = 0.62f)
+                    )
+                    if (state.config.wallpaperUri != null) {
+                        LiquidMenuButton(
+                            backdrop,
+                            "\u6E05\u9664",
+                            onClick = {
+                                onUpdateConfig(
+                                    state.config.copy(
+                                        wallpaperUri = null,
+                                        wallpaperPortraitCenterX = 0.5f,
+                                        wallpaperPortraitCenterY = 0.5f,
+                                        wallpaperPortraitScale = 1f,
+                                        wallpaperLandscapeCenterX = 0.5f,
+                                        wallpaperLandscapeCenterY = 0.5f,
+                                        wallpaperLandscapeScale = 1f,
+                                        wallpaperSourceWidth = null,
+                                        wallpaperSourceHeight = null,
+                                        homeTextLight = false
+                                    )
+                                )
+                            },
+                            textColorOverride = ComposeColor.White,
+                            surfaceColorOverride = ComposeColor(0xFFFF453A).copy(alpha = 0.62f)
+                        )
+                    }
                 }
-                LiquidControlSlider(weekCardHeight, onWeekCardHeight, 44f..180f, backdrop)
+                Text("壁纸模糊 ${wallpaperBlurDisplay.toInt()}dp", style = MaterialTheme.typography.labelMedium)
+                LiquidControlSlider(state.config.wallpaperBlur, { onUpdateConfig(state.config.copy(wallpaperBlur = it)) }, 0f..30f, backdrop, onLiveValueChange = { wallpaperBlurDisplay = it }, snapValue = 0f, onSliderTouchActiveChange = { sliderTouchActive = it })
+                Text("壁纸亮度 ${(wallpaperBrightnessDisplay.coerceIn(0.35f, 1f) * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
+                LiquidControlSlider(state.config.wallpaperBrightness.coerceIn(0.35f, 1f), { onUpdateConfig(state.config.copy(wallpaperBrightness = it)) }, 0.35f..1f, backdrop, onLiveValueChange = { wallpaperBrightnessDisplay = it }, snapValue = 1f, onSliderTouchActiveChange = { sliderTouchActive = it })
             }
-            Text("首页壁纸", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                LiquidMenuButton(backdrop, "\u9009\u62E9\u58C1\u7EB8", onClick = onPickWallpaper)
-                if (state.config.wallpaperUri != null) {
-                    LiquidMenuButton(backdrop, "\u6E05\u9664", onClick = { onUpdateConfig(state.config.copy(wallpaperUri = null, homeTextLight = false)) })
+            PersonalizeSection {
+                if (mode == HomeMode.Week) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("周视图行高", style = MaterialTheme.typography.labelLarge)
+                        Text("${weekCardHeight.toInt()}dp", style = MaterialTheme.typography.labelMedium)
+                        LiquidMenuButton(
+                            backdrop,
+                            "\u81EA\u9002\u5E94",
+                            onClick = { onWeekCardHeight(adaptiveHeight) },
+                            textColorOverride = ComposeColor.White,
+                            surfaceColorOverride = ComposeColor(0xFF0A84FF).copy(alpha = 0.58f)
+                        )
+                    }
+                    LiquidControlSlider(weekCardHeight, onWeekCardHeight, 44f..180f, backdrop, snapValue = adaptiveHeight, onSliderTouchActiveChange = { sliderTouchActive = it })
                 }
-            }
-            Text("壁纸模糊 ${state.config.wallpaperBlur.toInt()}dp", style = MaterialTheme.typography.labelMedium)
-            LiquidControlSlider(state.config.wallpaperBlur, { onUpdateConfig(state.config.copy(wallpaperBlur = it)) }, 0f..30f, backdrop)
-            Text("壁纸亮度 ${(state.config.wallpaperBrightness * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
-            LiquidControlSlider(state.config.wallpaperBrightness, { onUpdateConfig(state.config.copy(wallpaperBrightness = it)) }, 0.35f..1.35f, backdrop)
-            Text("课程卡片颜色", style = MaterialTheme.typography.labelLarge)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    0xFFD6E9FF, 0xFFBFE0FF, 0xFF9ED4FF, 0xFFFFE1E8,
-                    0xFFFFC4D6, 0xFFD8F3DC, 0xFFB7E4C7, 0xFFFFF0C2,
-                    0xFFFFD166, 0xFFE8D7FF, 0xFFD7C0FF, 0xFFE8EAED
-                ).forEach { color ->
-                    val selected = state.config.cardColorArgb == color
-                    Surface(
-                        modifier = Modifier.size(34.dp),
-                        shape = RoundedCornerShape(50),
-                        color = ComposeColor(color.toInt()),
-                        border = BorderStroke(
-                            if (selected) 2.dp else 1.dp,
-                            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
-                        ),
-                        onClick = { onUpdateConfig(state.config.copy(cardColorArgb = color)) }
-                    ) {}
+                Text("课程卡片颜色", style = MaterialTheme.typography.labelLarge)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        0xFFD6E9FF, 0xFFBFE0FF, 0xFF9ED4FF, 0xFFFFE1E8,
+                        0xFFFFC4D6, 0xFFD8F3DC, 0xFFB7E4C7, 0xFFFFF0C2,
+                        0xFFFFD166, 0xFFE8D7FF, 0xFFD7C0FF, 0xFFE8EAED
+                    ).forEach { color ->
+                        val selected = state.config.cardColorArgb == color
+                        Surface(
+                            modifier = Modifier.size(34.dp),
+                            shape = RoundedCornerShape(50),
+                            color = ComposeColor(color.toInt()),
+                            border = BorderStroke(
+                                if (selected) 2.dp else 1.dp,
+                                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
+                            ),
+                            onClick = { onUpdateConfig(state.config.copy(cardColorArgb = color)) }
+                        ) {}
+                    }
                 }
-            }
-            LiquidMenuButton(backdrop, "从壁纸取色", onClick = onSampleWallpaperColor)
-            val alphaLabel = if (state.config.courseCardGlassEnabled) "课程卡片着色强度" else "课程卡片不透明度"
-            Text("$alphaLabel ${(state.config.cardAlpha * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
-            LiquidControlSlider(state.config.cardAlpha, { onUpdateConfig(state.config.copy(cardAlpha = it)) }, 0.35f..1f, backdrop)
-            Text("课程卡片模糊 ${state.config.courseCardBlur.toInt()}dp", style = MaterialTheme.typography.labelMedium)
-            LiquidControlSlider(state.config.courseCardBlur, { onUpdateConfig(state.config.copy(courseCardBlur = it)) }, 0f..34f, backdrop)
-            Text("课程卡片字体 ${(state.config.courseCardFontScale * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
-            LiquidControlSlider(state.config.courseCardFontScale, { onUpdateConfig(state.config.copy(courseCardFontScale = it)) }, 0.80f..1.35f, backdrop)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("课程卡片液态玻璃", style = MaterialTheme.typography.labelLarge)
-                LiquidControlToggle(
-                    checked = state.config.courseCardGlassEnabled,
-                    onCheckedChange = { onUpdateConfig(state.config.copy(courseCardGlassEnabled = it)) },
-                    backdrop = backdrop
+                LiquidMenuButton(backdrop, "从壁纸取色", onClick = onSampleWallpaperColor)
+                val alphaLabel = if (state.config.courseCardGlassEnabled) "课程卡片着色强度" else "课程卡片不透明度"
+                Text("$alphaLabel ${(cardAlphaDisplay * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
+                LiquidControlSlider(state.config.cardAlpha, { onUpdateConfig(state.config.copy(cardAlpha = it)) }, 0.35f..1f, backdrop, onLiveValueChange = { cardAlphaDisplay = it }, snapValue = 0.5f, onSliderTouchActiveChange = { sliderTouchActive = it })
+                Text("课程卡片模糊 ${courseCardBlurDisplay.toInt()}%", style = MaterialTheme.typography.labelMedium)
+                LiquidControlSlider(
+                    value = state.config.courseCardBlur.coerceIn(0f, 10f) / 10f * 100f,
+                    onValueChange = { onUpdateConfig(state.config.copy(courseCardBlur = it / 100f * 10f)) },
+                    valueRange = 0f..100f,
+                    backdrop = backdrop,
+                    onLiveValueChange = { courseCardBlurDisplay = it },
+                    snapValue = 35f,
+                    onSliderTouchActiveChange = { sliderTouchActive = it }
                 )
+                Text("课程卡片字体 ${(courseCardFontDisplay * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
+                LiquidControlSlider(state.config.courseCardFontScale, { onUpdateConfig(state.config.copy(courseCardFontScale = it)) }, 0.80f..1.35f, backdrop, onLiveValueChange = { courseCardFontDisplay = it }, snapValue = 1f, onSliderTouchActiveChange = { sliderTouchActive = it })
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("课程卡片液态玻璃", style = MaterialTheme.typography.labelLarge)
+                    LiquidControlToggle(
+                        checked = state.config.courseCardGlassEnabled,
+                        onCheckedChange = { onUpdateConfig(state.config.copy(courseCardGlassEnabled = it)) },
+                        backdrop = backdrop
+                    )
+                }
             }
         }
     }
-    val panelModifier = modifier
-        .padding(horizontal = 16.dp)
-        .fillMaxWidth(0.95f)
-    if (backdrop != null) {
-        val lightGlass = glassUsesLightStyle(state.config)
-        val panelTextColor = personalizePanelForegroundColor(state.config)
-        LiquidPanel(
-            backdrop = backdrop,
-            modifier = panelModifier,
-            surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.18f) else ComposeColor(0xFF121212).copy(alpha = 0.30f)
-        ) {
-            CompositionLocalProvider(LocalContentColor provides panelTextColor) {
-                PanelContent()
-            }
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        val topClearance = HomeInitialTopInset + 8.dp
+        val heightRatio = when {
+            maxHeight < 520.dp -> 0.74f
+            maxHeight < 700.dp -> 0.72f
+            else -> 0.68f
         }
-    } else {
-        val panelTextColor = personalizePanelForegroundColor(state.config)
-        GlassDialogSurface(
-            backdrop = null,
-            config = state.config,
-            modifier = panelModifier
-        ) {
-            CompositionLocalProvider(LocalContentColor provides panelTextColor) {
-                PanelContent()
+        val centeredSafeHeight = (maxHeight - topClearance * 2).coerceAtLeast(280.dp)
+        val panelMaxHeight = (maxHeight * heightRatio)
+            .coerceAtMost(centeredSafeHeight)
+            .coerceAtMost(680.dp)
+        val panelModifier = Modifier
+            .fillMaxWidth(0.95f)
+            .heightIn(max = panelMaxHeight)
+        val scrollState = rememberScrollState()
+        val contentModifier = Modifier
+            .heightIn(max = panelMaxHeight)
+            .verticalScroll(scrollState, enabled = !sliderTouchActive)
+        if (backdrop != null) {
+            val lightGlass = glassUsesLightStyle(state.config)
+            val panelTextColor = personalizePanelForegroundColor(state.config)
+            LiquidPanel(
+                backdrop = backdrop,
+                modifier = panelModifier,
+                surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.18f) else ComposeColor(0xFF121212).copy(alpha = 0.30f)
+            ) {
+                CompositionLocalProvider(LocalContentColor provides panelTextColor) {
+                    PanelContent(contentModifier)
+                }
+            }
+        } else {
+            val panelTextColor = personalizePanelForegroundColor(state.config)
+            GlassDialogSurface(
+                backdrop = null,
+                config = state.config,
+                modifier = panelModifier
+            ) {
+                CompositionLocalProvider(LocalContentColor provides panelTextColor) {
+                    PanelContent(contentModifier)
+                }
             }
         }
     }
@@ -2677,10 +2868,12 @@ fun LiquidMenuButton(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    destructive: Boolean = false
+    destructive: Boolean = false,
+    textColorOverride: ComposeColor? = null,
+    surfaceColorOverride: ComposeColor? = null
 ) {
-    val textColor = if (destructive) ComposeColor(0xFFFF453A) else MaterialTheme.colorScheme.primary
-    val surfaceColor = if (destructive) ComposeColor(0xFFFF453A).copy(alpha = 0.16f) else ComposeColor.White.copy(alpha = 0.10f)
+    val textColor = textColorOverride ?: if (destructive) ComposeColor(0xFFFF453A) else MaterialTheme.colorScheme.primary
+    val surfaceColor = surfaceColorOverride ?: if (destructive) ComposeColor(0xFFFF453A).copy(alpha = 0.16f) else ComposeColor.White.copy(alpha = 0.10f)
     if (backdrop != null) {
         LiquidButton(
             onClick = onClick,
@@ -2721,57 +2914,69 @@ fun DialogLiquidButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     role: DialogButtonRole = DialogButtonRole.Neutral,
-    iconRes: Int? = null
+    iconRes: Int? = null,
+    roundIcon: Boolean = (role == DialogButtonRole.Cancel && label == "取消") ||
+        (role == DialogButtonRole.Confirm && label == "保存")
 ) {
+    val useRoundIcon = roundIcon && role != DialogButtonRole.Neutral
+    val resolvedIconRes = iconRes ?: when {
+        useRoundIcon && role == DialogButtonRole.Cancel -> R.drawable.ic_close_light
+        useRoundIcon && role == DialogButtonRole.Confirm -> R.drawable.ic_check
+        else -> null
+    }
     val textColor = when (role) {
         DialogButtonRole.Confirm -> ComposeColor.White
-        DialogButtonRole.Cancel -> ComposeColor(0xFFFF453A)
+        DialogButtonRole.Cancel -> if (useRoundIcon) ComposeColor.White else ComposeColor(0xFFFF453A)
         DialogButtonRole.Neutral -> MaterialTheme.colorScheme.primary
     }
     val surfaceColor = when (role) {
         DialogButtonRole.Confirm -> ComposeColor(0xFF0A84FF).copy(alpha = 0.82f)
-        DialogButtonRole.Cancel -> ComposeColor(0xFFFF453A).copy(alpha = 0.16f)
+        DialogButtonRole.Cancel -> ComposeColor(0xFFFF453A).copy(alpha = if (useRoundIcon) 0.78f else 0.16f)
         DialogButtonRole.Neutral -> ComposeColor.Transparent
     }
     if (backdrop != null) {
         LiquidButton(
             onClick = onClick,
             backdrop = backdrop,
-            modifier = modifier,
-            height = 40.dp,
+            modifier = if (useRoundIcon) modifier.size(42.dp) else modifier,
+            height = if (useRoundIcon) 42.dp else 40.dp,
             surfaceColor = surfaceColor,
-            contentPadding = PaddingValues(horizontal = 15.dp),
-            blurRadius = 9.dp,
-            lensHeight = 26.dp,
-            lensAmount = 32.dp,
+            contentPadding = if (useRoundIcon) PaddingValues(0.dp) else PaddingValues(horizontal = 15.dp),
+            blurRadius = if (useRoundIcon) 7.dp else 9.dp,
+            lensHeight = if (useRoundIcon) 18.dp else 26.dp,
+            lensAmount = if (useRoundIcon) 24.dp else 32.dp,
             chromaticAberration = false
         ) {
-            iconRes?.let {
-                Icon(painterResource(it), contentDescription = null, modifier = Modifier.size(18.dp), tint = textColor)
+            resolvedIconRes?.let {
+                Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
             }
-            Text(label, color = textColor, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+            if (!useRoundIcon) {
+                Text(label, color = textColor, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+            }
         }
     } else {
         Row(
-            modifier = modifier
+            modifier = (if (useRoundIcon) modifier.size(42.dp) else modifier)
                 .clip(RoundedCornerShape(50))
                 .background(surfaceColor.copy(alpha = surfaceColor.alpha.coerceAtLeast(if (role == DialogButtonRole.Neutral) 0f else 0.16f)))
                 .clickable(onClick = onClick)
-                .padding(horizontal = 15.dp, vertical = 10.dp),
+                .then(if (useRoundIcon) Modifier else Modifier.padding(horizontal = 15.dp, vertical = 10.dp)),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            iconRes?.let {
-                Icon(painterResource(it), contentDescription = null, modifier = Modifier.size(18.dp), tint = textColor)
+            resolvedIconRes?.let {
+                Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
             }
-            Text(
-                label,
-                color = textColor,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                softWrap = false
-            )
+            if (!useRoundIcon) {
+                Text(
+                    label,
+                    color = textColor,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
         }
     }
 }
@@ -3055,8 +3260,101 @@ fun LiquidControlSlider(
     valueRange: ClosedFloatingPointRange<Float>,
     backdrop: Backdrop?,
     modifier: Modifier = Modifier,
+    onLiveValueChange: ((Float) -> Unit)? = null,
+    snapValue: Float? = null,
+    onSliderTouchActiveChange: (Boolean) -> Unit = {},
     visibilityThreshold: Float = 0.01f
 ) {
+    val haptic = LocalHapticFeedback.current
+    val safeSnapValue = snapValue?.coerceIn(valueRange)
+    @Composable
+    fun SliderWithSnapMarker(currentValue: Float, onSnapClick: () -> Unit, content: @Composable () -> Unit) {
+        val density = LocalDensity.current
+        BoxWithConstraints(
+            modifier = modifier
+                .fillMaxWidth()
+                .pointerInput(currentValue, valueRange, onSliderTouchActiveChange) {
+                    val thumbInsetPx = with(density) { 10.dp.toPx() }
+                    val thumbHitRadiusPx = with(density) { 18.dp.toPx() }
+                    val dragLockThresholdPx = with(density) { 4.dp.toPx() }
+                    val thumbFraction = ((currentValue.coerceIn(valueRange) - valueRange.start) / (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
+                    val thumbCenterX = thumbInsetPx + (size.width - thumbInsetPx * 2f).coerceAtLeast(1f) * thumbFraction
+                    try {
+                        awaitPointerEventScope {
+                            var pressed = false
+                            var downTimeMillis = 0L
+                            var scrollLocked = false
+                            var thumbPress = false
+                            var downX = 0f
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val nextPressed = event.changes.any { it.pressed }
+                                val eventTimeMillis = event.changes.maxOfOrNull { it.uptimeMillis } ?: 0L
+                                if (nextPressed) {
+                                    if (!pressed) {
+                                        pressed = true
+                                        downTimeMillis = eventTimeMillis
+                                        val firstPressed = event.changes.firstOrNull { it.pressed }
+                                        thumbPress = firstPressed?.let { change ->
+                                            downX = change.position.x
+                                            abs(change.position.x - thumbCenterX) <= thumbHitRadiusPx
+                                        } ?: false
+                                    }
+                                    val currentX = event.changes.firstOrNull { it.pressed }?.position?.x ?: downX
+                                    val draggedThumb = abs(currentX - downX) >= dragLockThresholdPx
+                                    if (thumbPress && !scrollLocked && (eventTimeMillis - downTimeMillis >= 80L || draggedThumb)) {
+                                        scrollLocked = true
+                                        onSliderTouchActiveChange(true)
+                                    }
+                                } else if (pressed) {
+                                    pressed = false
+                                    downTimeMillis = 0L
+                                    thumbPress = false
+                                    downX = 0f
+                                    if (scrollLocked) {
+                                        scrollLocked = false
+                                        onSliderTouchActiveChange(false)
+                                    }
+                                }
+                            }
+                        }
+                    } finally {
+                        onSliderTouchActiveChange(false)
+                    }
+                }
+        ) {
+            content()
+            val snap = safeSnapValue
+            if (snap != null) {
+                val fraction = ((snap - valueRange.start) / (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
+                val trackWidth = maxWidth
+                val markerClickable = abs(currentValue.coerceIn(valueRange) - snap) > visibilityThreshold
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .height(36.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .offset(x = ((trackWidth - 20.dp) * fraction) - 4.dp)
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(50))
+                            .then(if (markerClickable) Modifier.clickable(onClick = onSnapClick) else Modifier),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(ComposeColor.White.copy(alpha = 0.78f))
+                        )
+                    }
+                }
+            }
+        }
+    }
     if (backdrop != null) {
         var localValue by remember(valueRange) { mutableFloatStateOf(value.coerceIn(valueRange)) }
         var localEditPending by remember(valueRange) { mutableStateOf(false) }
@@ -3065,29 +3363,63 @@ fun LiquidControlSlider(
                 val coerced = value.coerceIn(valueRange)
                 if (abs(localValue - coerced) > visibilityThreshold) {
                     localValue = coerced
+                    onLiveValueChange?.invoke(coerced)
                 }
             }
         }
         LaunchedEffect(localValue, localEditPending) {
             if (localEditPending) {
                 delay(220)
-                onValueChange(localValue.coerceIn(valueRange))
+                val committedValue = localValue.coerceIn(valueRange)
+                onValueChange(committedValue)
                 localEditPending = false
             }
         }
-        LiquidSlider(
-            value = { localValue },
-            onValueChange = {
-                localValue = it.coerceIn(valueRange)
-                localEditPending = true
-            },
-            valueRange = valueRange,
-            visibilityThreshold = visibilityThreshold,
-            backdrop = backdrop,
-            modifier = modifier
-        )
+        SliderWithSnapMarker(
+            currentValue = localValue,
+            onSnapClick = {
+                val snap = safeSnapValue ?: return@SliderWithSnapMarker
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                localValue = snap
+                onLiveValueChange?.invoke(snap)
+                localEditPending = false
+                onValueChange(snap)
+            }
+        ) {
+            LiquidSlider(
+                value = { localValue },
+                onValueChange = {
+                    localValue = it.coerceIn(valueRange)
+                    onLiveValueChange?.invoke(localValue)
+                    localEditPending = true
+                },
+                valueRange = valueRange,
+                visibilityThreshold = visibilityThreshold,
+                backdrop = backdrop,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     } else {
-        Slider(value = value, onValueChange = onValueChange, valueRange = valueRange, modifier = modifier)
+        SliderWithSnapMarker(
+            currentValue = value,
+            onSnapClick = {
+                val snap = safeSnapValue ?: return@SliderWithSnapMarker
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onLiveValueChange?.invoke(snap)
+                onValueChange(snap)
+            }
+        ) {
+            Slider(
+            value = value,
+            onValueChange = {
+                val bounded = it.coerceIn(valueRange)
+                onLiveValueChange?.invoke(bounded)
+                onValueChange(bounded)
+            },
+                valueRange = valueRange,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
@@ -3142,13 +3474,23 @@ fun DockItem(selected: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntit
 }
 
 @Composable
-fun HomeDateTitle(state: AppState) {
-    val today = LocalDate.now()
-    val currentWeek = effectiveCurrentWeek(state.config)
+fun HomeDateTitle(
+    state: AppState,
+    displayDate: LocalDate,
+    displayWeek: Int,
+    onReturnCurrent: () -> Unit
+) {
     val color = homeForegroundColor(state.config)
-    Column(modifier = Modifier.padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy((-6).dp)) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Column(
+        modifier = Modifier
+            .padding(top = 2.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onReturnCurrent),
+        verticalArrangement = Arrangement.spacedBy((-6).dp)
+    ) {
         Text(
-            "${today.monthValue}月${today.dayOfMonth}日 周${weekdayLabel(today.dayOfWeek.toChineseWeekday())}",
+            "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}",
             style = MaterialTheme.typography.titleMedium,
             color = color,
             maxLines = 1,
@@ -3156,7 +3498,7 @@ fun HomeDateTitle(state: AppState) {
             overflow = TextOverflow.Clip
         )
         Text(
-            "第$currentWeek 周",
+            "第${displayWeek}周",
             style = MaterialTheme.typography.labelMedium,
             color = color.copy(alpha = 0.78f),
             maxLines = 1,
@@ -3178,12 +3520,12 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
             containerHeight = 42.dp,
             indicatorHeight = 34.dp,
             horizontalPadding = 4.dp,
-            blurRadius = 3.dp,
+            blurRadius = 2.5.dp,
             containerAlpha = 0.12f,
-            lensHeight = 30.dp,
-            lensAmount = 34.dp,
+            lensHeight = 12.dp,
+            lensAmount = 24.dp,
             indicatorWidthOverflow = 8.dp,
-            indicatorHeightOverflow = 6.dp,
+            indicatorHeightOverflow = 4.dp,
             isLightThemeOverride = lightGlass
         ) {
             LiquidBottomTab(onClick = { onModeChange(HomeMode.Day) }) {
@@ -3245,8 +3587,12 @@ fun HomeScreen(
     state: AppState,
     mode: HomeMode,
     weekCardHeight: Dp,
+    displayWeek: Int,
+    displayDate: LocalDate,
     backdrop: Backdrop?,
     weekHeaderBackdrop: Backdrop? = backdrop,
+    onSwipeWeek: (Int) -> Unit,
+    onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onScheduleLongPress: () -> Unit = {},
@@ -3254,13 +3600,6 @@ fun HomeScreen(
     val cardColor = remember(state.config.cardColorArgb, state.config.cardAlpha) {
         ComposeColor(state.config.cardColorArgb.toInt()).copy(alpha = state.config.cardAlpha)
     }
-    val currentWeek = effectiveCurrentWeek(state.config)
-    var displayWeek by remember(state.config.totalWeeks, currentWeek) { mutableIntStateOf(currentWeek) }
-    LaunchedEffect(currentWeek, state.config.totalWeeks) {
-        displayWeek = displayWeek.coerceIn(1, state.config.totalWeeks)
-        if (state.config.autoCurrentWeek) displayWeek = currentWeek
-    }
-    val todayWeekday = LocalDate.now().dayOfWeek.toChineseWeekday()
     val textColor = homeForegroundColor(state.config)
 
     Box(
@@ -3285,7 +3624,17 @@ fun HomeScreen(
             label = "home-mode"
         ) { targetMode ->
             when (targetMode) {
-                HomeMode.Day -> DayScheduleScreen(state, todayWeekday, currentWeek, cardColor, textColor, backdrop, onContentUnderTopBarChange, onCourseClick)
+                HomeMode.Day -> DayScheduleScreen(
+                    state = state,
+                    displayDate = displayDate,
+                    displayWeek = effectiveCurrentWeek(state.config, displayDate),
+                    cardColor = cardColor,
+                    textColor = textColor,
+                    backdrop = backdrop,
+                    onSwipeDay = onSwipeDay,
+                    onContentUnderTopBarChange = onContentUnderTopBarChange,
+                    onCourseClick = onCourseClick
+                )
                 HomeMode.Week -> SinglePillWeekScheduleScreen(
                     state = state,
                     displayWeek = displayWeek,
@@ -3294,7 +3643,7 @@ fun HomeScreen(
                     textColor = textColor,
                     backdrop = backdrop,
                     headerBackdrop = weekHeaderBackdrop,
-                    onSwipeWeek = { delta -> displayWeek = (displayWeek + delta).coerceIn(1, state.config.totalWeeks) },
+                    onSwipeWeek = onSwipeWeek,
                     onContentUnderTopBarChange = onContentUnderTopBarChange,
                     onCourseClick = { course, week, sourceBounds -> onCourseClick(course, week, sourceBounds) }
                 )
@@ -3320,9 +3669,7 @@ fun rememberHomeWallpaperBitmap(config: ScheduleConfigEntity): androidx.compose.
 
 @Composable
 fun HomeWallpaper(config: ScheduleConfigEntity, images: HomeWallpaperImages, phase: StartupPhase) {
-    val targetBitmap = remember(images.source, images.blurred, images.blurBucket, phase) {
-        if (images.blurBucket > 0) images.blurred ?: images.source else images.source
-    }
+    val targetBitmap = images.source
     var visibleBitmap by remember { mutableStateOf<Bitmap?>(targetBitmap) }
     var previousBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var crossfadeTarget by remember { mutableFloatStateOf(1f) }
@@ -3348,22 +3695,20 @@ fun HomeWallpaper(config: ScheduleConfigEntity, images: HomeWallpaperImages, pha
         bitmap.let {
             Box(modifier = Modifier.fillMaxSize()) {
                 previousBitmap?.let { old ->
-                    Image(
-                        bitmap = old.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer(alpha = (1f - crossfadeAlpha) * config.wallpaperBrightness.coerceIn(0.35f, 1.35f).coerceAtMost(1f)),
-                        contentScale = ContentScale.Crop
+                    HomeWallpaperLayer(
+                        bitmap = old,
+                        config = config,
+                        alpha = 1f - crossfadeAlpha,
+                        useSavedCrop = true,
+                        blurRadius = images.blurBucket.dp
                     )
                 }
-                Image(
-                    bitmap = it.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer(alpha = crossfadeAlpha * config.wallpaperBrightness.coerceIn(0.35f, 1.35f).coerceAtMost(1f)),
-                    contentScale = ContentScale.Crop
+                HomeWallpaperLayer(
+                    bitmap = it,
+                    config = config,
+                    alpha = crossfadeAlpha,
+                    useSavedCrop = true,
+                    blurRadius = images.blurBucket.dp
                 )
                 WallpaperToneOverlay(config)
             }
@@ -3374,28 +3719,52 @@ fun HomeWallpaper(config: ScheduleConfigEntity, images: HomeWallpaperImages, pha
         visibleBitmap?.let {
             Box(modifier = Modifier.fillMaxSize()) {
                 previousBitmap?.let { old ->
-                    Image(
-                        bitmap = old.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer(alpha = (1f - crossfadeAlpha) * config.wallpaperBrightness.coerceIn(0.35f, 1.35f).coerceAtMost(1f)),
-                        contentScale = ContentScale.Crop
+                    HomeWallpaperLayer(
+                        bitmap = old,
+                        config = config,
+                        alpha = 1f - crossfadeAlpha,
+                        useSavedCrop = false,
+                        blurRadius = images.blurBucket.dp
                     )
                 }
-                Image(
-                    bitmap = it.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer(alpha = crossfadeAlpha * config.wallpaperBrightness.coerceIn(0.35f, 1.35f).coerceAtMost(1f)),
-                    contentScale = ContentScale.Crop
+                HomeWallpaperLayer(
+                    bitmap = it,
+                    config = config,
+                    alpha = crossfadeAlpha,
+                    useSavedCrop = false,
+                    blurRadius = images.blurBucket.dp
                 )
                 WallpaperToneOverlay(config)
             }
         }
         return
     }
+}
+
+@Composable
+private fun HomeWallpaperLayer(
+    bitmap: Bitmap,
+    config: ScheduleConfigEntity,
+    alpha: Float,
+    useSavedCrop: Boolean,
+    blurRadius: Dp
+) {
+    val layerModifier = if (blurRadius > 0.dp) {
+        Modifier
+            .fillMaxSize()
+            .blur(radius = blurRadius, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+            .graphicsLayer(alpha = alpha)
+    } else {
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer(alpha = alpha)
+    }
+    FocusCroppedWallpaper(
+        bitmap = bitmap,
+        config = config,
+        modifier = layerModifier,
+        useSavedCrop = useSavedCrop
+    )
 }
 
 private fun ScheduleConfigEntity.hasAnyWallpaper(): Boolean {
@@ -3413,10 +3782,8 @@ private fun HomeWallpaperLoadingMask(config: ScheduleConfigEntity) {
 
 @Composable
 private fun WallpaperToneOverlay(config: ScheduleConfigEntity) {
-    val dim = (1f - config.wallpaperBrightness).coerceIn(0f, 0.65f)
-    val light = (config.wallpaperBrightness - 1f).coerceIn(0f, 0.35f)
+    val dim = (1f - config.wallpaperBrightness.coerceIn(0.35f, 1f)).coerceIn(0f, 0.65f)
     if (dim > 0f) Box(Modifier.fillMaxSize().background(ComposeColor.Black.copy(alpha = dim)))
-    if (light > 0f) Box(Modifier.fillMaxSize().background(ComposeColor.White.copy(alpha = light)))
 }
 
 @Composable
@@ -3449,92 +3816,6 @@ fun HomeBackdropFallback() {
 }
 
 @Composable
-fun WallpaperCropScreen(
-    uri: Uri,
-    config: ScheduleConfigEntity,
-    backdrop: Backdrop?,
-    onCancel: () -> Unit,
-    onApply: (Uri) -> Unit
-) {
-    val context = LocalContext.current
-    val bitmap = remember(uri) {
-        runCatching {
-            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-        }.getOrNull()
-    }
-    var cropSize by remember { mutableStateOf(IntSize.Zero) }
-    var scale by remember(uri) { mutableFloatStateOf(1f) }
-    var offset by remember(uri) { mutableStateOf(Offset.Zero) }
-    val minScale = remember(bitmap, cropSize) { wallpaperCropMinScale(bitmap, cropSize) }
-    LaunchedEffect(minScale, bitmap, cropSize) {
-        if (bitmap != null && cropSize.width > 0 && cropSize.height > 0) {
-            scale = max(scale, minScale)
-            offset = clampWallpaperCropOffset(offset, bitmap, cropSize, scale)
-        }
-    }
-    Column(
-        modifier = Modifier
-            .heightIn(max = 560.dp)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        NormalizedDialogHeader(
-            title = "裁切壁纸",
-            onCancel = onCancel,
-            onSave = {
-                val source = bitmap ?: return@NormalizedDialogHeader
-                val output = saveCroppedWallpaper(context, source, cropSize, scale, offset)
-                onApply(output)
-            },
-            backdrop = backdrop,
-            config = config
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .width(166.dp)
-                .height(360.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(if (appUsesDarkTheme(config)) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
-                .onSizeChanged { cropSize = it }
-                .pointerInput(bitmap, cropSize, minScale) {
-                    detectTransformGestures { centroid, pan, zoom, _ ->
-                        val source = bitmap ?: return@detectTransformGestures
-                        if (cropSize.width <= 0 || cropSize.height <= 0) return@detectTransformGestures
-                        val oldScale = scale
-                        val nextScale = (scale * zoom).coerceIn(minScale, minScale * 5f)
-                        val center = Offset(cropSize.width / 2f, cropSize.height / 2f)
-                        val nextOffset = (offset + centroid - center) * (nextScale / oldScale) - (centroid - center) + pan
-                        scale = nextScale
-                        offset = clampWallpaperCropOffset(nextOffset, source, cropSize, nextScale)
-                    }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            if (bitmap != null) {
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                            translationX = offset.x
-                            translationY = offset.y
-                        },
-                    contentScale = ContentScale.Fit
-                )
-                Box(Modifier.matchParentSize().background(ComposeColor.Black.copy(alpha = 0.10f)))
-            } else {
-                Text("无法读取图片", color = glassForegroundColor(config))
-            }
-        }
-        Text("拖动移动图片，双指缩放；保存后会把当前框内画面作为首页壁纸。", color = glassForegroundColor(config).copy(alpha = 0.72f), style = MaterialTheme.typography.bodySmall)
-    }
-}
-
-@Composable
 fun ApplyCourseEditDialog(
     original: CourseEntity,
     edited: CourseEntity,
@@ -3548,7 +3829,7 @@ fun ApplyCourseEditDialog(
         Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             DialogLiquidButton(backdrop, "取消", onCancel, role = DialogButtonRole.Cancel)
             Text("应用修改", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = glassForegroundColor(config))
-            Spacer(Modifier.width(64.dp))
+            Spacer(Modifier.width(42.dp))
         }
         Text(
             "要将“${original.name}”的修改应用到哪里？",
@@ -3593,7 +3874,7 @@ fun ApplyCourseDeleteDialog(
         Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             DialogLiquidButton(backdrop, "取消", onCancel, role = DialogButtonRole.Cancel)
             Text("应用删除", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = glassForegroundColor(config))
-            Spacer(Modifier.width(64.dp))
+            Spacer(Modifier.width(42.dp))
         }
         Text(
             "要将“${course.name}”从哪里删除？",
@@ -3669,18 +3950,20 @@ fun WallpaperColorSamplerScreen(
                 .pointerInput(bitmap, previewSize) {
                     detectTapGestures { tap ->
                         bitmap ?: return@detectTapGestures
-                        val color = sampleCroppedBitmapColor(bitmap, previewSize, tap.x, tap.y)
+                        val orientation = if (previewSize.height >= previewSize.width) WallpaperPreviewOrientation.Portrait else WallpaperPreviewOrientation.Landscape
+                        val cropState = if (!config.wallpaperUri.isNullOrBlank()) config.wallpaperCropState(orientation) else WallpaperCropState()
+                        val color = sampleCroppedBitmapColor(bitmap, previewSize, tap.x, tap.y, cropState)
                         if (color != null) sampledColor = color
                     }
                 },
             contentAlignment = Alignment.Center
         ) {
             if (bitmap != null) {
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = null,
+                FocusCroppedWallpaper(
+                    bitmap = bitmap,
+                    config = config,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    useSavedCrop = !config.wallpaperUri.isNullOrBlank()
                 )
             } else {
                 Text("当前没有可取色的壁纸", color = glassForegroundColor(config))
@@ -3717,99 +4000,25 @@ fun WallpaperColorSamplerScreen(
     }
 }
 
-fun loadWallpaperBitmap(context: Context, config: ScheduleConfigEntity, useDarkDefaultWallpaper: Boolean): Bitmap? {
-    val customUri = config.wallpaperUri
-    if (!customUri.isNullOrBlank()) {
-        runCatching {
-            context.contentResolver.openInputStream(Uri.parse(customUri))?.use { BitmapFactory.decodeStream(it) }
-        }.getOrNull()?.let { return it }
-    }
-    if (config.defaultWallpaperStyle == DefaultWallpaperStyle.KANBAN) {
-        val defaultRes = if (useDarkDefaultWallpaper) R.drawable.default_wallpaper_dark else R.drawable.default_wallpaper_light
-        return runCatching { BitmapFactory.decodeResource(context.resources, defaultRes) }.getOrNull()
-    }
-    return null
-}
-
-fun sampleCroppedBitmapColor(bitmap: Bitmap, previewSize: IntSize, tapX: Float, tapY: Float): Long? {
+fun sampleCroppedBitmapColor(
+    bitmap: Bitmap,
+    previewSize: IntSize,
+    tapX: Float,
+    tapY: Float,
+    cropState: WallpaperCropState
+): Long? {
     if (previewSize.width <= 0 || previewSize.height <= 0 || bitmap.width <= 0 || bitmap.height <= 0) return null
-    val scale = max(
-        previewSize.width.toFloat() / bitmap.width.toFloat(),
-        previewSize.height.toFloat() / bitmap.height.toFloat()
+    val rect = calculateFocusCropRect(
+        bitmap.width,
+        bitmap.height,
+        previewSize.width.toFloat(),
+        previewSize.height.toFloat(),
+        cropState
     )
-    val drawnWidth = bitmap.width * scale
-    val drawnHeight = bitmap.height * scale
-    val offsetX = (previewSize.width - drawnWidth) / 2f
-    val offsetY = (previewSize.height - drawnHeight) / 2f
-    val bitmapX = ((tapX - offsetX) / scale).roundToInt().coerceIn(0, bitmap.width - 1)
-    val bitmapY = ((tapY - offsetY) / scale).roundToInt().coerceIn(0, bitmap.height - 1)
+    if (rect == androidx.compose.ui.geometry.Rect.Zero || rect.width <= 0f || rect.height <= 0f) return null
+    val bitmapX = ((tapX - rect.left) * bitmap.width / rect.width).roundToInt().coerceIn(0, bitmap.width - 1)
+    val bitmapY = ((tapY - rect.top) * bitmap.height / rect.height).roundToInt().coerceIn(0, bitmap.height - 1)
     return bitmap.getPixel(bitmapX, bitmapY).toLong() and 0xFFFFFFFFL
-}
-
-fun extractWallpaperColor(context: Context, uri: String?): Long? {
-    if (uri.isNullOrBlank()) return null
-    val bitmap = runCatching {
-        context.contentResolver.openInputStream(Uri.parse(uri))?.use { BitmapFactory.decodeStream(it) }
-    }.getOrNull() ?: return null
-    val color = runCatching {
-        Palette.from(bitmap).generate().getVibrantColor(
-            Palette.from(bitmap).generate().getMutedColor(android.graphics.Color.rgb(233, 221, 255))
-        )
-    }.getOrDefault(android.graphics.Color.rgb(233, 221, 255))
-    return (color.toLong() and 0xFFFFFFFFL)
-}
-
-fun wallpaperPrefersLightText(context: Context, uri: String?): Boolean {
-    if (uri.isNullOrBlank()) return false
-    val bitmap = runCatching {
-        context.contentResolver.openInputStream(Uri.parse(uri))?.use { BitmapFactory.decodeStream(it) }
-    }.getOrNull() ?: return false
-    val palette = runCatching { Palette.from(bitmap).generate() }.getOrNull()
-    val color = palette?.getDominantColor(android.graphics.Color.WHITE) ?: android.graphics.Color.WHITE
-    val red = android.graphics.Color.red(color) / 255.0
-    val green = android.graphics.Color.green(color) / 255.0
-    val blue = android.graphics.Color.blue(color) / 255.0
-    val luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
-    return luminance < 0.56
-}
-
-fun wallpaperCropMinScale(bitmap: Bitmap?, cropSize: IntSize): Float {
-    if (bitmap == null || bitmap.width <= 0 || bitmap.height <= 0 || cropSize.width <= 0 || cropSize.height <= 0) return 1f
-    val fitScale = min(cropSize.width.toFloat() / bitmap.width.toFloat(), cropSize.height.toFloat() / bitmap.height.toFloat())
-    val displayedWidth = bitmap.width * fitScale
-    val displayedHeight = bitmap.height * fitScale
-    return max(cropSize.width / displayedWidth, cropSize.height / displayedHeight)
-}
-
-fun clampWallpaperCropOffset(offset: Offset, bitmap: Bitmap, cropSize: IntSize, scale: Float): Offset {
-    if (cropSize.width <= 0 || cropSize.height <= 0 || bitmap.width <= 0 || bitmap.height <= 0) return Offset.Zero
-    val fitScale = min(cropSize.width.toFloat() / bitmap.width.toFloat(), cropSize.height.toFloat() / bitmap.height.toFloat())
-    val drawnWidth = bitmap.width * fitScale * scale
-    val drawnHeight = bitmap.height * fitScale * scale
-    val maxX = max(0f, (drawnWidth - cropSize.width) / 2f)
-    val maxY = max(0f, (drawnHeight - cropSize.height) / 2f)
-    return Offset(offset.x.coerceIn(-maxX, maxX), offset.y.coerceIn(-maxY, maxY))
-}
-
-fun saveCroppedWallpaper(context: Context, source: Bitmap, cropSize: IntSize, scale: Float, offset: Offset): Uri {
-    val outputWidth = 1080
-    val outputHeight = 2352
-    val safeCropSize = if (cropSize.width > 0 && cropSize.height > 0) cropSize else IntSize(outputWidth, outputHeight)
-    val fitScale = min(safeCropSize.width.toFloat() / source.width.toFloat(), safeCropSize.height.toFloat() / source.height.toFloat())
-    val previewScale = fitScale * scale
-    val output = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
-    val canvas = android.graphics.Canvas(output)
-    canvas.drawColor(source.getPixel((source.width / 2).coerceIn(0, source.width - 1), (source.height / 2).coerceIn(0, source.height - 1)))
-    val outputScale = outputWidth.toFloat() / safeCropSize.width.toFloat()
-    canvas.translate(outputWidth / 2f + offset.x * outputScale, outputHeight / 2f + offset.y * outputScale)
-    canvas.scale(previewScale * outputScale, previewScale * outputScale)
-    canvas.drawBitmap(source, -source.width / 2f, -source.height / 2f, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
-    val wallpaperDir = File(context.filesDir, "wallpaper")
-    if (!wallpaperDir.exists()) wallpaperDir.mkdirs()
-    val file = File(wallpaperDir, "custom_wallpaper_${System.currentTimeMillis()}.jpg")
-    file.outputStream().use { output.compress(Bitmap.CompressFormat.JPEG, 94, it) }
-    output.recycle()
-    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 }
 
 @Composable
@@ -3817,7 +4026,6 @@ fun homeForegroundColor(config: ScheduleConfigEntity): ComposeColor {
     if (config.wallpaperUri.isNullOrBlank()) return MaterialTheme.colorScheme.onBackground
     return when {
         config.wallpaperBrightness < 0.72f -> ComposeColor.White
-        config.wallpaperBrightness > 1.18f -> ComposeColor.Black
         config.homeTextLight -> ComposeColor.White
         else -> ComposeColor.Black
     }
@@ -3867,31 +4075,82 @@ fun glassForegroundColor(config: ScheduleConfigEntity): ComposeColor {
 @Composable
 fun DayScheduleScreen(
     state: AppState,
-    todayWeekday: Int,
-    currentWeek: Int,
+    displayDate: LocalDate,
+    displayWeek: Int,
     cardColor: ComposeColor,
     textColor: ComposeColor,
     backdrop: Backdrop?,
+    onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit
 ) {
-    val todayCourses = remember(state) { todayCourses(state) }
-    val listState = rememberLazyListState()
-    val contentUnderTopBar by remember {
-        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 }
-    }
-    LaunchedEffect(contentUnderTopBar) {
-        onContentUnderTopBarChange(contentUnderTopBar)
-    }
-    LazyColumn(
-        state = listState,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = HomeInitialTopInset, bottom = DayDockScrollPadding),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    var horizontalDrag by remember { mutableFloatStateOf(0f) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(displayDate) {
+                detectHorizontalDragGestures(
+                    onDragStart = { horizontalDrag = 0f },
+                    onHorizontalDrag = { _, dragAmount -> horizontalDrag += dragAmount },
+                    onDragEnd = {
+                        when {
+                            horizontalDrag <= -80f -> onSwipeDay(1)
+                            horizontalDrag >= 80f -> onSwipeDay(-1)
+                        }
+                        horizontalDrag = 0f
+                    },
+                    onDragCancel = { horizontalDrag = 0f }
+                )
+            }
     ) {
-        item { Text("今天 周" + weekdayLabel(todayWeekday) + " · 第 " + currentWeek + " 周", style = MaterialTheme.typography.titleMedium, color = textColor) }
-        if (todayCourses.isEmpty()) item { Text("今天没有课程", color = textColor) }
-        itemsIndexed(todayCourses, key = { _, it -> it.id }) { index, course ->
-            DayTimelineCourse(course, currentWeek, state.periods, cardColor, backdrop, state.config, onCourseClick, entranceIndex = index)
+        AnimatedContent(
+            targetState = displayDate,
+            modifier = Modifier.fillMaxSize(),
+            transitionSpec = {
+                val direction = if (targetState.isAfter(initialState)) 1 else -1
+                (
+                    fadeIn(tween(170, delayMillis = 35)) +
+                        slideInHorizontally(tween(240)) { direction * it / 4 }
+                    ) togetherWith (
+                    fadeOut(tween(120)) +
+                        slideOutHorizontally(tween(220)) { -direction * it / 5 }
+                    ) using SizeTransform(clip = false)
+            },
+            label = "day-date-switch"
+        ) { targetDate ->
+            val targetWeek = effectiveCurrentWeek(state.config, targetDate)
+            val targetWeekday = targetDate.dayOfWeek.toChineseWeekday()
+            val dayCourses = remember(state.courses, targetWeek, targetWeekday) {
+                state.courses.filter { course ->
+                    course.weekday == targetWeekday &&
+                        targetWeek in course.weeks &&
+                        parityMatches(course.weekParity, targetWeek)
+                }.sortedWith(compareBy<CourseEntity> { it.periods.minOrNull() ?: Int.MAX_VALUE }.thenBy { it.name })
+            }
+            val listState = rememberLazyListState()
+            val contentUnderTopBar by remember {
+                derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 }
+            }
+            LaunchedEffect(contentUnderTopBar) {
+                onContentUnderTopBarChange(contentUnderTopBar)
+            }
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = HomeInitialTopInset, bottom = DayDockScrollPadding),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    Text(
+                        "${targetDate.monthValue}月${targetDate.dayOfMonth}日 周${weekdayLabel(targetWeekday)} · 第${targetWeek}周",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textColor
+                    )
+                }
+                if (dayCourses.isEmpty()) item { Text("这一天没有课程", color = textColor) }
+                itemsIndexed(dayCourses, key = { _, it -> it.id }) { index, course ->
+                    DayTimelineCourse(course, targetWeek, state.periods, cardColor, backdrop, state.config, onCourseClick, entranceIndex = index)
+                }
+            }
         }
     }
 }
@@ -4740,25 +4999,14 @@ fun WeekCourseBlock(
     val density = LocalDensity.current
     val tailDirection = if (weekMotionOutgoing) -weekMotionDirection else weekMotionDirection
     val tailBase = with(density) { (32.dp + ((periodIndex - 1).coerceAtLeast(0).coerceAtMost(9) * 9f).dp + (stackIndex * 16f).dp).toPx() }
-    // Card entrance — fly in from edge based on grid position (first launch only)
-    val leftSide = dayIndex <= 4
     val startupPhase = LocalStartupPhase.current
-    val enableStartupEntrance = startupPhase == StartupPhase.Entrance && !splashEntranceDone
-    val entranceOffsetX = remember { Animatable(if (enableStartupEntrance && leftSide) -260f else if (enableStartupEntrance) 260f else 0f) }
-    val entranceOffsetY = remember { Animatable(if (enableStartupEntrance) (periodIndex - 5) * 22f else 0f) }
-    val entranceAlpha = remember { Animatable(if (enableStartupEntrance) 0f else 1f) }
-    LaunchedEffect(startupPhase) {
-        if (enableStartupEntrance) {
-            delay(360 + (dayIndex * 28L) + (periodIndex * 18L))
-            launch { entranceOffsetX.animateTo(0f, spring(dampingRatio = 0.60f, stiffness = 420f)) }
-            launch { entranceOffsetY.animateTo(0f, spring(dampingRatio = 0.62f, stiffness = 450f)) }
-            entranceAlpha.animateTo(1f, spring(dampingRatio = 0.74f, stiffness = 560f))
-        } else if (startupPhase == StartupPhase.FullQuality) {
-            entranceOffsetX.snapTo(0f)
-            entranceOffsetY.snapTo(0f)
-            entranceAlpha.snapTo(1f)
-        }
-    }
+    val startupOrigin = startupOriginForWeekCard(
+        dayIndex = dayIndex,
+        periodIndex = periodIndex,
+        weekdayCount = 7,
+        periodCount = periods.size
+    )
+    val startupIndex = ((periodIndex - 1).coerceAtLeast(0) * 7 + (dayIndex - 1).coerceAtLeast(0)) * 2 + stackIndex
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
     val cardView = LocalView.current
     val editingId = LocalEditingCourseId.current
@@ -4766,15 +5014,23 @@ fun WeekCourseBlock(
     val baseModifier = Modifier
         .fillMaxWidth()
         .height(height)
-    val animatedModifier = Modifier
+    val startupModifier = Modifier
+        .startupFlyIn(
+            key = "week_${course.id}_${dayIndex}_${periodIndex}_${stackIndex}",
+            index = startupIndex,
+            totalCount = periods.size * 7 * 2,
+            origin = startupOrigin,
+            intensity = if (startupOrigin == StartupFlyOrigin.Center) 0.62f else 1f,
+            delayFactor = 0.12f,
+            alphaStart = 0f
+        )
+    val tailModifier = Modifier
         .graphicsLayer {
             val tailX = layerOffset?.let { offset ->
                 val progress = (kotlin.math.abs(offset.value) / layerTravel.coerceAtLeast(1f)).coerceIn(0f, 1f)
                 tailBase * progress * tailDirection
             } ?: 0f
-            translationX = entranceOffsetX.value + tailX
-            translationY = entranceOffsetY.value
-            alpha = entranceAlpha.value
+            translationX = tailX
         }
         .onGloballyPositioned { coordinates ->
             val wb = coordinates.boundsInWindow()
@@ -4793,7 +5049,7 @@ fun WeekCourseBlock(
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
-        modifier = sharedModifier.then(animatedModifier),
+        modifier = sharedModifier.then(startupModifier).then(tailModifier),
         shape = RoundedCornerShape(8.dp),
         onClick = { onCourseClick(course, ownBounds) }
     ) {
@@ -4895,7 +5151,7 @@ fun WeekCourseBlock(
                         fontSize = locationFont,
                         lineHeight = locationLineHeight,
                         fontWeight = FontWeight.Medium,
-                        color = courseTextColor.copy(alpha = 0.90f),
+                        color = courseTextColor.copy(alpha = 0.78f),
                         maxLines = locationLines,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -4905,7 +5161,8 @@ fun WeekCourseBlock(
                         course.teacher,
                         fontSize = teacherFont,
                         lineHeight = teacherLineHeight,
-                        color = courseTextColor.copy(alpha = 0.82f),
+                        fontWeight = FontWeight.Normal,
+                        color = courseTextColor.copy(alpha = 0.58f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -4935,29 +5192,28 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
     val editId = LocalEditingCourseId.current
     val startupPhase = LocalStartupPhase.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && enableSharedTransition && course.id > 0L) LocalSharedTransitionScope.current else null
-    val enableEntrance = entranceIndex != null && startupPhase == StartupPhase.Entrance && !splashEntranceDone
     val startIndex = entranceIndex ?: 0
-    val entranceOffsetX = remember { Animatable(if (enableEntrance) 220f else 0f) }
-    val entranceOffsetY = remember { Animatable(if (enableEntrance) (startIndex - 2) * 14f else 0f) }
-    val entranceAlpha = remember { Animatable(if (enableEntrance) 0f else 1f) }
-    LaunchedEffect(entranceIndex, startupPhase) {
-        if (enableEntrance) {
-            delay(420 + startIndex * 38L)
-            launch { entranceOffsetX.animateTo(0f, spring(dampingRatio = 0.60f, stiffness = 420f)) }
-            launch { entranceOffsetY.animateTo(0f, spring(dampingRatio = 0.62f, stiffness = 450f)) }
-            entranceAlpha.animateTo(1f, spring(dampingRatio = 0.74f, stiffness = 560f))
-        } else if (startupPhase == StartupPhase.FullQuality) {
-            entranceOffsetX.snapTo(0f)
-            entranceOffsetY.snapTo(0f)
-            entranceAlpha.snapTo(1f)
-        }
+    val entranceOrigin = if (startIndex % 2 == 0) {
+        if (startIndex < 2) StartupFlyOrigin.Left else StartupFlyOrigin.BottomLeft
+    } else {
+        if (startIndex < 2) StartupFlyOrigin.Right else StartupFlyOrigin.BottomRight
     }
-    val animatedModifier = Modifier
-        .graphicsLayer {
-            translationX = entranceOffsetX.value
-            translationY = entranceOffsetY.value
-            alpha = entranceAlpha.value
-        }
+    val entranceModifier = Modifier
+        .then(
+            if (entranceIndex != null) {
+                Modifier.startupFlyIn(
+                    key = "day_${course.id}_${startIndex}",
+                    index = startIndex,
+                    totalCount = 36,
+                    origin = entranceOrigin,
+                    intensity = if (startIndex < 2) 0.68f else 0.95f,
+                    delayFactor = 0.12f,
+                    alphaStart = 0f
+                )
+            } else {
+                Modifier
+            }
+        )
         .onGloballyPositioned { coordinates ->
             val wb = coordinates.boundsInWindow()
             val loc = IntArray(2)
@@ -4975,7 +5231,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
-        modifier = sharedModifier.then(animatedModifier),
+        modifier = sharedModifier.then(entranceModifier),
         shape = RoundedCornerShape(16.dp),
         onClick = if (onClick != null) ({ onClick(ownBounds) }) else null
     ) {
@@ -5039,7 +5295,8 @@ fun CourseEditorScreen(
     var parity by remember(initialCourse) { mutableStateOf(initialCourse?.weekParity ?: WeekParity.ALL) }
     var note by remember(initialCourse) { mutableStateOf(initialCourse?.note.orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
-    val selectedPeriods = periodValues.filter { it in minOf(periodStart, periodEnd)..maxOf(periodStart, periodEnd) }
+    var periodInputValid by remember(initialCourse, periodValues) { mutableStateOf(true) }
+    val selectedPeriods = if (periodStart <= periodEnd) periodValues.filter { it in periodStart..periodEnd } else emptyList()
     val selectedWeeks = (minOf(weekStart, weekEnd)..maxOf(weekStart, weekEnd)).toList()
     val dialogTextColor = glassForegroundColor(state.config)
 
@@ -5053,6 +5310,7 @@ fun CourseEditorScreen(
                 onSave = {
                     when {
                         name.isBlank() -> error = "课程名称不能为空"
+                        !periodInputValid -> error = "请先修正节次范围"
                         selectedPeriods.isEmpty() -> error = "请选择节次"
                         selectedWeeks.isEmpty() -> error = "请选择周次"
                         else -> onSave(
@@ -5084,7 +5342,9 @@ fun CourseEditorScreen(
                 start = periodStart,
                 end = periodEnd,
                 onStart = { periodStart = it },
-                onEnd = { periodEnd = it }
+                onEnd = { periodEnd = it },
+                enforceOrderedInput = true,
+                onInputValidChange = { periodInputValid = it }
             ) { "第" + it + "节" }
         }
         item {
@@ -5123,7 +5383,7 @@ fun DialogScaffold(title: String, onCancel: () -> Unit, backdrop: Backdrop? = nu
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             DialogLiquidButton(backdrop, "取消", onCancel, role = DialogButtonRole.Cancel)
             Text(title, modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = textColor)
-            Spacer(Modifier.width(64.dp))
+            Spacer(Modifier.width(42.dp))
         }
         content()
     }
@@ -5158,7 +5418,7 @@ fun NormalizedDialogScaffold(
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             DialogLiquidButton(backdrop, "\u53D6\u6D88", onCancel, role = DialogButtonRole.Cancel)
             Text(title, modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = textColor)
-            Spacer(Modifier.width(64.dp))
+            Spacer(Modifier.width(42.dp))
         }
         content()
     }
@@ -5187,7 +5447,8 @@ fun NormalizedCourseEditorScreen(
     var parity by remember(initialCourse) { mutableStateOf(initialCourse?.weekParity ?: WeekParity.ALL) }
     var note by remember(initialCourse) { mutableStateOf(initialCourse?.note.orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
-    val selectedPeriods = periodValues.filter { it in minOf(periodStart, periodEnd)..maxOf(periodStart, periodEnd) }
+    var periodInputValid by remember(initialCourse, periodValues) { mutableStateOf(true) }
+    val selectedPeriods = if (periodStart <= periodEnd) periodValues.filter { it in periodStart..periodEnd } else emptyList()
     val selectedWeeks = (minOf(weekStart, weekEnd)..maxOf(weekStart, weekEnd)).toList()
 
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -5200,6 +5461,7 @@ fun NormalizedCourseEditorScreen(
                 onSave = {
                     when {
                         name.isBlank() -> error = "\u8BFE\u7A0B\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A"
+                        !periodInputValid -> error = "\u8BF7\u5148\u4FEE\u6B63\u8282\u6B21\u8303\u56F4"
                         selectedPeriods.isEmpty() -> error = "\u8BF7\u9009\u62E9\u8282\u6B21"
                         selectedWeeks.isEmpty() -> error = "\u8BF7\u9009\u62E9\u5468\u6B21"
                         else -> onSave(
@@ -5233,7 +5495,9 @@ fun NormalizedCourseEditorScreen(
                 onStart = { periodStart = it },
                 onEnd = { periodEnd = it },
                 backdrop = backdrop,
-                config = state.config
+                config = state.config,
+                enforceOrderedInput = true,
+                onInputValidChange = { periodInputValid = it }
             ) { "\u7B2C" + it + "\u8282" }
         }
         item {
@@ -5280,6 +5544,8 @@ fun RangeWheelPicker(
     onEnd: (Int) -> Unit,
     backdrop: Backdrop? = null,
     config: ScheduleConfigEntity = defaultConfig(),
+    enforceOrderedInput: Boolean = false,
+    onInputValidChange: (Boolean) -> Unit = {},
     label: (Int) -> String
 ) {
     var startText by remember(start) { mutableStateOf(start.toString()) }
@@ -5288,6 +5554,12 @@ fun RangeWheelPicker(
         val parsed = value.toIntOrNull() ?: return null
         return parsed.coerceIn(values.firstOrNull() ?: parsed, values.lastOrNull() ?: parsed)
     }
+    val draftStart = clamp(startText)
+    val draftEnd = clamp(endText)
+    val inputComplete = draftStart != null && draftEnd != null
+    val orderedInvalid = enforceOrderedInput && draftStart != null && draftEnd != null && draftEnd < draftStart
+    val inputValid = inputComplete && !orderedInvalid
+    LaunchedEffect(inputValid) { onInputValidChange(inputValid) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -5312,7 +5584,13 @@ fun RangeWheelPicker(
                 modifier = Modifier.weight(1f)
             )
         }
-        Text("${label(minOf(start, end))} - ${label(maxOf(start, end))}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        if (orderedInvalid) {
+            Text("当前结束节早于开始节", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+        } else {
+            val previewStart = draftStart ?: start
+            val previewEnd = draftEnd ?: end
+            Text("${label(minOf(previewStart, previewEnd))} - ${label(maxOf(previewStart, previewEnd))}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 
@@ -5326,6 +5604,8 @@ fun DialogRangePicker(
     onEnd: (Int) -> Unit,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
+    enforceOrderedInput: Boolean = false,
+    onInputValidChange: (Boolean) -> Unit = {},
     label: (Int) -> String
 ) {
     var startText by remember(start) { mutableStateOf(start.toString()) }
@@ -5334,6 +5614,12 @@ fun DialogRangePicker(
         val parsed = value.toIntOrNull() ?: return null
         return parsed.coerceIn(values.firstOrNull() ?: parsed, values.lastOrNull() ?: parsed)
     }
+    val draftStart = clamp(startText)
+    val draftEnd = clamp(endText)
+    val inputComplete = draftStart != null && draftEnd != null
+    val orderedInvalid = enforceOrderedInput && draftStart != null && draftEnd != null && draftEnd < draftStart
+    val inputValid = inputComplete && !orderedInvalid
+    LaunchedEffect(inputValid) { onInputValidChange(inputValid) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -5360,11 +5646,21 @@ fun DialogRangePicker(
                 modifier = Modifier.weight(1f)
             )
         }
-        Text(
-            "${label(minOf(start, end))} - ${label(maxOf(start, end))}",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary
-        )
+        if (orderedInvalid) {
+            Text(
+                "\u5F53\u524D\u7ED3\u675F\u8282\u65E9\u4E8E\u5F00\u59CB\u8282",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.error
+            )
+        } else {
+            val previewStart = draftStart ?: start
+            val previewEnd = draftEnd ?: end
+            Text(
+                "${label(minOf(previewStart, previewEnd))} - ${label(maxOf(previewStart, previewEnd))}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
     }
 }
 
@@ -6424,7 +6720,7 @@ fun ConfirmScheduleScreen(draft: ImportDraft, warning: String? = null, onCancel:
                     DialogLiquidButton(null, "覆盖当前课表", { onConfirm(false) }, modifier = Modifier.weight(1f), role = DialogButtonRole.Confirm)
                     DialogLiquidButton(null, "创建新课表", { onConfirm(true) }, modifier = Modifier.weight(1f), role = DialogButtonRole.Confirm)
                 }
-                DialogLiquidButton(null, "取消", onCancel, modifier = Modifier.fillMaxWidth(), role = DialogButtonRole.Cancel)
+                DialogLiquidButton(null, "取消", onCancel, modifier = Modifier.fillMaxWidth(), role = DialogButtonRole.Cancel, roundIcon = false)
             }
         }
     }
@@ -6618,6 +6914,8 @@ fun ScheduleManagerScreen(
             title = "重命名课表",
             initialName = name,
             backdrop = backdrop,
+
+
             config = state.config,
             onConfirm = { newName ->
                 renameTarget = null
@@ -6735,6 +7033,10 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.07 beta", "优化个性化面板布局，壁纸与课程卡片设置分区更清晰；调整弹窗取消与保存按钮为圆形液态图标按钮；优化课程卡片可读性，周视图课程名、地点、教师信息层级更分明；改进滑块默认值交互，点击标记点即可快速恢复默认并提供震动反馈；支持点击首页日期快速回到本周，日视图也可左右滑动切换日期；修复壁纸模糊时出现马赛克的问题。")
+                SettingsDivider()
+                SettingsInfoRow("1.06 beta", "重构首页自定义壁纸设置，支持竖屏和横屏分别调整显示区域，横竖屏切换和大屏窗口下显示更稳定；新增课程卡片字体大小调节；调整优化液态玻璃参数，修复液态玻璃可能出现分界线的问题，视效更通透灵动；优化加号菜单动画和首次启动课程卡片入场动画。")
+                SettingsDivider()
                 SettingsInfoRow("1.05 beta", "新增多课表功能，首页长按即可进入多课表管理页面，设置亦可进入；新增课表分享功能，可以一键复制课表口令；优化首次启动掉帧问题；优化编辑卡片弹窗无缝动画。")
                 SettingsDivider()
                 SettingsInfoRow("1.04 beta", "新增首次启动课程卡片飞入动画；新增隐藏后台卡片功能，返回桌面后自动从最近任务移除；修复自定义壁纸可能在应用重启后丢失的问题；全面适配 120Hz 高刷屏动画。")

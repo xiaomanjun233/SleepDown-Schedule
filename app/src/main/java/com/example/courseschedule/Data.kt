@@ -69,6 +69,14 @@ data class ScheduleConfigEntity(
     val wallpaperUri: String? = null,
     val wallpaperBlur: Float = 0f,
     val wallpaperBrightness: Float = 1f,
+    val wallpaperPortraitCenterX: Float? = 0.5f,
+    val wallpaperPortraitCenterY: Float? = 0.5f,
+    val wallpaperPortraitScale: Float? = 1f,
+    val wallpaperLandscapeCenterX: Float? = 0.5f,
+    val wallpaperLandscapeCenterY: Float? = 0.5f,
+    val wallpaperLandscapeScale: Float? = 1f,
+    val wallpaperSourceWidth: Int? = null,
+    val wallpaperSourceHeight: Int? = null,
     val cardColorArgb: Long = 0xFFD6E9FF,
     val cardAlpha: Float = 1f,
     val courseCardBlur: Float = 18f,
@@ -249,7 +257,7 @@ interface ScheduleProfileDao {
     suspend fun deleteProfile(profileId: Int)
 }
 
-@Database(entities = [CourseEntity::class, ScheduleProfileEntity::class, ScheduleConfigEntity::class, PeriodEntity::class], version = 23, exportSchema = false)
+@Database(entities = [CourseEntity::class, ScheduleProfileEntity::class, ScheduleConfigEntity::class, PeriodEntity::class], version = 24, exportSchema = false)
 @TypeConverters(ScheduleConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun courseDao(): CourseDao
@@ -439,17 +447,29 @@ private val MIGRATION_22_23 = object : Migration(22, 23) {
     }
 }
 
-private val MIGRATION_23_22 = object : Migration(23, 22) {
+private val MIGRATION_23_24 = object : Migration(23, 24) {
     override fun migrate(db: SupportSQLiteDatabase) {
         ensureMultiScheduleSchema(db)
+        addWallpaperCropColumns(db)
     }
+}
+
+private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
+    if (!db.hasColumn("schedule_config", "wallpaperPortraitCenterX")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperPortraitCenterX REAL DEFAULT 0.5")
+    if (!db.hasColumn("schedule_config", "wallpaperPortraitCenterY")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperPortraitCenterY REAL DEFAULT 0.5")
+    if (!db.hasColumn("schedule_config", "wallpaperPortraitScale")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperPortraitScale REAL DEFAULT 1")
+    if (!db.hasColumn("schedule_config", "wallpaperLandscapeCenterX")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperLandscapeCenterX REAL DEFAULT 0.5")
+    if (!db.hasColumn("schedule_config", "wallpaperLandscapeCenterY")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperLandscapeCenterY REAL DEFAULT 0.5")
+    if (!db.hasColumn("schedule_config", "wallpaperLandscapeScale")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperLandscapeScale REAL DEFAULT 1")
+    if (!db.hasColumn("schedule_config", "wallpaperSourceWidth")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperSourceWidth INTEGER")
+    if (!db.hasColumn("schedule_config", "wallpaperSourceHeight")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperSourceHeight INTEGER")
 }
 
 class CourseScheduleApp : Application() {
     val database: AppDatabase by lazy {
         repairDatabaseFileBeforeRoomOpen(getDatabasePath("course_schedule.db"))
         Room.databaseBuilder(this, AppDatabase::class.java, "course_schedule.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_22)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24)
             .build()
     }
     val repository: ScheduleRepository by lazy { ScheduleRepository(database) }
@@ -475,7 +495,7 @@ private fun repairSQLiteDatabase(db: SQLiteDatabase) {
         repairScheduleConfigTable(db)
         repairPeriodsTable(db)
         db.execSQL("DROP TABLE IF EXISTS room_master_table")
-        db.setVersion(23)
+        db.setVersion(24)
         db.setTransactionSuccessful()
     } finally {
         db.endTransaction()
@@ -517,6 +537,14 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "wallpaperUri", "TEXT")
     ensureSqliteColumn(db, "schedule_config", "wallpaperBlur", "REAL NOT NULL DEFAULT 0")
     ensureSqliteColumn(db, "schedule_config", "wallpaperBrightness", "REAL NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "wallpaperPortraitCenterX", "REAL DEFAULT 0.5")
+    ensureSqliteColumn(db, "schedule_config", "wallpaperPortraitCenterY", "REAL DEFAULT 0.5")
+    ensureSqliteColumn(db, "schedule_config", "wallpaperPortraitScale", "REAL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "wallpaperLandscapeCenterX", "REAL DEFAULT 0.5")
+    ensureSqliteColumn(db, "schedule_config", "wallpaperLandscapeCenterY", "REAL DEFAULT 0.5")
+    ensureSqliteColumn(db, "schedule_config", "wallpaperLandscapeScale", "REAL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "wallpaperSourceWidth", "INTEGER")
+    ensureSqliteColumn(db, "schedule_config", "wallpaperSourceHeight", "INTEGER")
     ensureSqliteColumn(db, "schedule_config", "cardColorArgb", "INTEGER NOT NULL DEFAULT 4293516543")
     ensureSqliteColumn(db, "schedule_config", "cardAlpha", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "courseCardBlur", "REAL NOT NULL DEFAULT 18")
@@ -541,6 +569,9 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
         INSERT OR REPLACE INTO schedule_config_room_fix (
             id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek,
             notificationsEnabled, notificationMode, wallpaperUri, wallpaperBlur, wallpaperBrightness,
+            wallpaperPortraitCenterX, wallpaperPortraitCenterY, wallpaperPortraitScale,
+            wallpaperLandscapeCenterX, wallpaperLandscapeCenterY, wallpaperLandscapeScale,
+            wallpaperSourceWidth, wallpaperSourceHeight,
             cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale, weekCardHeightDp,
             homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
@@ -549,6 +580,9 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
         SELECT
             id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek,
             notificationsEnabled, notificationMode, wallpaperUri, wallpaperBlur, wallpaperBrightness,
+            wallpaperPortraitCenterX, wallpaperPortraitCenterY, wallpaperPortraitScale,
+            wallpaperLandscapeCenterX, wallpaperLandscapeCenterY, wallpaperLandscapeScale,
+            wallpaperSourceWidth, wallpaperSourceHeight,
             cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale, weekCardHeightDp,
             homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
@@ -574,6 +608,14 @@ private fun scheduleConfigCreateSql(table: String): String =
         wallpaperUri TEXT,
         wallpaperBlur REAL NOT NULL,
         wallpaperBrightness REAL NOT NULL,
+        wallpaperPortraitCenterX REAL DEFAULT 0.5,
+        wallpaperPortraitCenterY REAL DEFAULT 0.5,
+        wallpaperPortraitScale REAL DEFAULT 1,
+        wallpaperLandscapeCenterX REAL DEFAULT 0.5,
+        wallpaperLandscapeCenterY REAL DEFAULT 0.5,
+        wallpaperLandscapeScale REAL DEFAULT 1,
+        wallpaperSourceWidth INTEGER,
+        wallpaperSourceHeight INTEGER,
         cardColorArgb INTEGER NOT NULL,
         cardAlpha REAL NOT NULL,
         courseCardBlur REAL NOT NULL,
@@ -899,7 +941,7 @@ private fun ScheduleConfigEntity.withGlobalSettingsFrom(global: ScheduleConfigEn
     )
 }
 
-fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, weekCardHeightDp = null, homeTextLight = false, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.KANBAN, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false)
+fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, wallpaperPortraitCenterX = 0.5f, wallpaperPortraitCenterY = 0.5f, wallpaperPortraitScale = 1f, wallpaperLandscapeCenterX = 0.5f, wallpaperLandscapeCenterY = 0.5f, wallpaperLandscapeScale = 1f, wallpaperSourceWidth = null, wallpaperSourceHeight = null, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, weekCardHeightDp = null, homeTextLight = false, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.KANBAN, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false)
 
 fun defaultPeriods(scheduleId: Int = 1) = listOf(
     PeriodEntity(1, "08:00", "08:45", scheduleId), PeriodEntity(2, "08:55", "09:40", scheduleId),

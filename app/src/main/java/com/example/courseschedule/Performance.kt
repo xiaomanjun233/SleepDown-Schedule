@@ -219,15 +219,7 @@ fun TopBarEntranceContainer(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    StartupEntranceContainer(
-        phase = phase,
-        startOffsetY = -200f,
-        delayMillis = 0,
-        dampingRatio = 0.68f,
-        stiffness = 520f,
-        modifier = modifier,
-        content = content
-    )
+    Box(modifier = modifier) { content() }
 }
 
 @Composable
@@ -236,15 +228,7 @@ fun ContentEntranceContainer(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    StartupEntranceContainer(
-        phase = phase,
-        startOffsetY = 80f,
-        delayMillis = 95,
-        dampingRatio = 0.62f,
-        stiffness = 430f,
-        modifier = modifier,
-        content = content
-    )
+    Box(modifier = modifier) { content() }
 }
 
 @Composable
@@ -253,57 +237,11 @@ fun DockEntranceContainer(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    StartupEntranceContainer(
-        phase = phase,
-        startOffsetY = 200f,
-        delayMillis = 190,
-        dampingRatio = 0.70f,
-        stiffness = 500f,
-        modifier = modifier,
-        content = content
-    )
-}
-
-@Composable
-private fun StartupEntranceContainer(
-    phase: StartupPhase,
-    startOffsetY: Float,
-    delayMillis: Long,
-    dampingRatio: Float,
-    stiffness: Float,
-    modifier: Modifier = Modifier,
-    content: @Composable BoxScope.() -> Unit
-) {
-    val offsetY = remember { Animatable(if (phase.isAtLeastEntrance) 0f else startOffsetY) }
-    val alpha = remember { Animatable(if (phase.isAtLeastEntrance) 1f else 0.72f) }
-    LaunchedEffect(phase) {
-        when {
-            phase == StartupPhase.Entrance -> {
-                delay(delayMillis)
-                launch {
-                    offsetY.animateTo(0f, spring(dampingRatio = dampingRatio, stiffness = stiffness))
-                }
-                alpha.animateTo(1f, spring(dampingRatio = 0.78f, stiffness = stiffness + 80f))
-            }
-            phase == StartupPhase.FullQuality && offsetY.value != 0f -> {
-                offsetY.snapTo(0f)
-                alpha.snapTo(1f)
-            }
-        }
-    }
-    Box(
-        modifier = modifier.graphicsLayer {
-            translationY = offsetY.value
-            this.alpha = alpha.value
-        }
-    ) {
-        content()
-    }
+    Box(modifier = modifier) { content() }
 }
 
 data class HomeWallpaperImages(
     val source: Bitmap?,
-    val blurred: Bitmap?,
     val blurBucket: Int
 )
 
@@ -316,23 +254,20 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
     val context = LocalContext.current.applicationContext
     val useDarkDefaultWallpaper = appUsesDarkTheme(config)
     val blurBucket = bucketWallpaperBlur(config.wallpaperBlur)
-    val cacheKey = remember(config.wallpaperUri, config.defaultWallpaperStyle, useDarkDefaultWallpaper, blurBucket, config.wallpaperBrightness) {
-        "${config.wallpaperUri}|${config.defaultWallpaperStyle}|$useDarkDefaultWallpaper|$blurBucket|${config.wallpaperBrightness}"
+    val cacheKey = remember(config.wallpaperUri, config.defaultWallpaperStyle, useDarkDefaultWallpaper) {
+        "${config.wallpaperUri}|${config.defaultWallpaperStyle}|$useDarkDefaultWallpaper"
     }
     return produceState(initialValue = synchronized(wallpaperCache) {
-        wallpaperCache[cacheKey] ?: HomeWallpaperImages(null, null, blurBucket)
-    }, cacheKey) {
+        wallpaperCache[cacheKey] ?: HomeWallpaperImages(null, blurBucket)
+    }, cacheKey, blurBucket) {
         val cached = synchronized(wallpaperCache) { wallpaperCache[cacheKey] }
         if (cached != null) {
-            value = cached
+            value = cached.copy(blurBucket = blurBucket)
             return@produceState
         }
         val loaded = withContext(Dispatchers.IO) {
             val source = loadWallpaperBitmap(context, config, useDarkDefaultWallpaper)
-            val blurred = withContext(Dispatchers.Default) {
-                source?.let { createStartupBlurredBitmap(it, blurBucket) }
-            }
-            HomeWallpaperImages(source = source, blurred = blurred, blurBucket = blurBucket)
+            HomeWallpaperImages(source = source, blurBucket = blurBucket)
         }
         synchronized(wallpaperCache) { wallpaperCache[cacheKey] = loaded }
         value = loaded
@@ -342,22 +277,6 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
 fun bucketWallpaperBlur(blur: Float): Int {
     val buckets = intArrayOf(0, 4, 8, 12, 18, 24, 30)
     return buckets.minBy { kotlin.math.abs(it - blur.toInt()) }
-}
-
-private fun createStartupBlurredBitmap(source: Bitmap, blurBucket: Int): Bitmap? {
-    if (source.width <= 0 || source.height <= 0) return null
-    if (blurBucket <= 0) return source
-    return runCatching {
-        val scale = when {
-            blurBucket >= 24 -> 10
-            blurBucket >= 18 -> 8
-            blurBucket >= 12 -> 6
-            else -> 4
-        }
-        val smallWidth = max(48, source.width / scale)
-        val smallHeight = max(48, source.height / scale)
-        Bitmap.createScaledBitmap(source, smallWidth, smallHeight, true)
-    }.getOrNull()
 }
 
 @Composable
