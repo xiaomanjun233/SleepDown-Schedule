@@ -185,7 +185,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.TransformOrigin
@@ -232,11 +231,9 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.drawPlainBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.runtimeShaderEffect
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
@@ -627,6 +624,28 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         }
     }
     val glassQuality = animatedGlassQuality(startupPhase)
+    val fallbackAdaptiveGlass = rememberFallbackAdaptiveGlassState(state.config)
+    val adaptiveSamplerEnabled =
+        screen is Screen.Home &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            glassQuality >= 0.8f &&
+            startupPhase == StartupPhase.FullQuality
+    val adaptiveSampler = rememberAdaptiveBackdropLuminanceSampler(
+        enabled = adaptiveSamplerEnabled,
+        sampleIntervalMillis = 650L,
+        sampleSize = 5,
+        animationMillis = 750
+    )
+    var adaptiveLightHint by remember(state.config.id) { mutableStateOf(fallbackAdaptiveGlass.lightGlass) }
+    val sampledAdaptiveGlass = adaptiveGlassStateFromLuminance(
+        luminance = adaptiveSampler.luminance.value,
+        preferLightGlass = adaptiveLightHint,
+        quality = glassQuality
+    ).copy(contentColor = adaptiveSampler.contentColor.value)
+    LaunchedEffect(sampledAdaptiveGlass.lightGlass) {
+        adaptiveLightHint = sampledAdaptiveGlass.lightGlass
+    }
+    val adaptiveGlassState = if (adaptiveSamplerEnabled) sampledAdaptiveGlass else fallbackAdaptiveGlass
     val startupAnimation = when (startupPhase) {
         StartupPhase.Reveal -> "StartupReveal"
         StartupPhase.Entrance -> "HomeFlyInEntrance"
@@ -728,11 +747,17 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         LocalEditingCourseId provides editingCourseId,
         LocalStartupPhase provides startupPhase,
         LocalGlassQuality provides glassQuality,
-        LocalStartupEntranceSpec provides startupEntranceSpec
+        LocalStartupEntranceSpec provides startupEntranceSpec,
+        LocalAdaptiveGlass provides adaptiveGlassState
     ) {
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
+        AdaptiveBackdropLuminanceProbe(
+            backdrop = chromeBackdrop,
+            sampler = adaptiveSampler,
+            modifier = Modifier.fillMaxSize()
+        )
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1503,7 +1528,6 @@ fun settingsVisualConfig(config: ScheduleConfigEntity): ScheduleConfigEntity {
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeTopGradientBlur(
     config: ScheduleConfigEntity,
@@ -1512,44 +1536,19 @@ fun HomeTopGradientBlur(
     modifier: Modifier = Modifier
 ) {
     val tintColor = if (glassUsesLightStyle(config)) ComposeColor.White else ComposeColor(0xFF111111)
-    val fallbackTint = Brush.verticalGradient(
-        0f to tintColor.copy(alpha = 0.42f),
-        0.42f to tintColor.copy(alpha = 0.18f),
-        1f to ComposeColor.Transparent
-    )
-    val baseModifier = modifier.fillMaxWidth().height(height)
-    Box(
-        modifier = if (backdrop != null) {
-            baseModifier.drawPlainBackdrop(
-                backdrop = backdrop,
-                shape = { RectangleShape },
-                effects = {
-                    blur(28f.dp.toPx())
-                    runtimeShaderEffect(
-                        "HomeTopProgressiveBlur",
-                        """
-uniform shader content;
-
-uniform float2 size;
-layout(color) uniform half4 tint;
-uniform float tintIntensity;
-
-half4 main(float2 coord) {
-    float blurAlpha = smoothstep(size.y, size.y * 0.18, coord.y);
-    float tintAlpha = smoothstep(size.y, size.y * 0.24, coord.y);
-    return mix(content.eval(coord) * blurAlpha, tint * tintAlpha, tintIntensity);
-}""",
-                        "content"
-                    ) {
-                        setFloatUniform("size", size.width, size.height)
-                        setColorUniform("tint", tintColor)
-                        setFloatUniform("tintIntensity", 0.18f)
-                    }
-                }
-            )
-        } else {
-            baseModifier.background(fallbackTint)
-        }
+    ProgressiveBackdropBlur(
+        backdrop = backdrop,
+        modifier = modifier,
+        tintColor = tintColor,
+        height = height,
+        blurRadius = 18.dp,
+        tintIntensity = 0.18f,
+        direction = ProgressiveBlurDirection.TopToBottom,
+        fallbackTintStops = listOf(
+            0f to tintColor.copy(alpha = 0.42f),
+            0.42f to tintColor.copy(alpha = 0.18f),
+            1f to ComposeColor.Transparent
+        )
     )
 }
 
@@ -1574,7 +1573,8 @@ fun AppTopBar(
     onTogglePersonalize: () -> Unit,
     onBackHome: () -> Unit
 ) {
-    val homeTextColor = homeForegroundColor(state.config)
+    val adaptiveTopBarColor = LocalAdaptiveGlass.current.contentColor
+    val homeTextColor = adaptiveTopBarColor
     TopAppBar(
         modifier = Modifier.statusBarsPadding().height(66.dp),
         colors = TopAppBarDefaults.topAppBarColors(
@@ -1900,12 +1900,13 @@ fun Modifier.courseEditSourceTransform(sourceBounds: Rect?, visible: Boolean): M
 
 @Composable
 fun TopBackButton(backdrop: Backdrop?, config: ScheduleConfigEntity, onClick: () -> Unit, modifier: Modifier = Modifier.padding(start = 8.dp).size(42.dp)) {
+    val lightGlass = glassUsesLightStyle(config)
     if (backdrop != null) {
         LiquidButton(
             onClick = onClick,
             backdrop = backdrop,
             modifier = modifier,
-            surfaceColor = if (glassUsesLightStyle(config)) ComposeColor.White.copy(alpha = 0.26f) else ComposeColor(0xFF121212).copy(alpha = 0.28f),
+            surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.26f) else ComposeColor(0xFF121212).copy(alpha = 0.28f),
             contentPadding = PaddingValues(0.dp),
             blurRadius = 10.dp,
             lensHeight = 30.dp,
@@ -1941,7 +1942,8 @@ fun HomeIconButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val lightGlass = glassUsesLightStyle(config)
+    val adaptiveGlass = LocalAdaptiveGlass.current
+    val lightGlass = adaptiveGlass.lightGlass
     if (backdrop != null) {
         LiquidButton(
             onClick = onClick,
@@ -1949,18 +1951,23 @@ fun HomeIconButton(
             modifier = modifier.padding(end = 7.dp).size(42.dp),
             tint = tint,
             surfaceColor = when {
-                selected && lightGlass -> ComposeColor.Black.copy(alpha = 0.025f)
-                selected -> ComposeColor.White.copy(alpha = 0.055f)
-                lightGlass -> ComposeColor.White.copy(alpha = 0.070f)
-                else -> ComposeColor(0xFF121212).copy(alpha = 0.085f)
+                selected && lightGlass -> ComposeColor.White.copy(alpha = 0.16f)
+                selected -> ComposeColor(0xFF121212).copy(alpha = 0.16f)
+                lightGlass -> ComposeColor.White.copy(alpha = 0.16f)
+                else -> ComposeColor(0xFF121212).copy(alpha = 0.16f)
             },
             contentPadding = PaddingValues(0.dp),
-            blurRadius = 2.5.dp,
-            lensHeight = 12.dp,
-            lensAmount = 24.dp,
+            blurRadius = 3.dp,
+            lensHeight = 22.dp,
+            lensAmount = 27.dp,
             chromaticAberration = false
         ) {
-            Icon(painterResource(iconRes), contentDescription = contentDescription, modifier = Modifier.size(20.dp))
+            Icon(
+                painterResource(iconRes),
+                contentDescription = contentDescription,
+                modifier = Modifier.size(20.dp),
+                tint = if (tint.isSpecified) tint else adaptiveGlass.contentColor
+            )
         }
     } else {
         GlassPill(
@@ -2478,11 +2485,11 @@ fun AddMenuLiquidItem(
 
 @Composable
 fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier, onHome: () -> Unit, onConfig: () -> Unit) {
-    val lightGlass = glassUsesLightStyle(config)
+    val lightGlass = LocalAdaptiveGlass.current.lightGlass
     val density = LocalDensity.current
     val bottomInset = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).getBottom(this).toDp() }
     val bottomOffset = (bottomInset + 8.dp).coerceAtLeast(8.dp)
-    val dockTextColor = glassForegroundColor(config)
+    val dockTextColor = LocalAdaptiveGlass.current.contentColor
     val dockAlignment = when (config.dockAlignment) {
         DockAlignment.LEFT -> Alignment.BottomStart
         DockAlignment.CENTER -> Alignment.BottomCenter
@@ -2509,14 +2516,20 @@ fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEn
                     modifier = Modifier.width(140.dp),
                     containerHeight = 54.dp,
                     indicatorHeight = 46.dp,
-                    blurRadius = 2.dp,
-                    containerAlpha = 0.075f,
-                    lensHeight = 12.dp,
-                    lensAmount = 24.dp,
-                    indicatorWidthOverflow = 24.dp,
-                    indicatorHeightOverflow = 6.dp,
-                    chromaticAberrationEnabled = false,
-                    isLightThemeOverride = lightGlass
+                    blurRadius = 3.dp,
+                    containerAlpha = 0.16f,
+                    lensHeight = 27.dp,
+                    lensAmount = 32.dp,
+                    indicatorWidthOverflow = 10.dp,
+                    indicatorHeightOverflow = 5.dp,
+                    indicatorLensHeight = 12.dp,
+                    indicatorLensAmount = 17.dp,
+                    officialHighlightAlpha = 0.07f,
+                    officialShadowAlpha = 0.05f,
+                    officialInnerShadowAlpha = 0.08f,
+                    chromaticAberrationEnabled = true,
+                    isLightThemeOverride = lightGlass,
+                    useOfficialGlassParameters = true
                 ) {
                     LiquidBottomTab(onClick = onHome) {
                         DockTabContent(R.drawable.ic_courses, "课程", iconSize = 23.dp)
@@ -3509,7 +3522,7 @@ fun HomeDateTitle(
 
 @Composable
 fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: HomeMode, onModeChange: (HomeMode) -> Unit) {
-    val lightGlass = glassUsesLightStyle(config)
+    val lightGlass = LocalAdaptiveGlass.current.lightGlass
     if (backdrop != null) {
         LiquidBottomTabs(
             selectedTabIndex = { if (mode == HomeMode.Day) 0 else 1 },
@@ -3520,13 +3533,20 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
             containerHeight = 42.dp,
             indicatorHeight = 34.dp,
             horizontalPadding = 4.dp,
-            blurRadius = 2.5.dp,
-            containerAlpha = 0.12f,
-            lensHeight = 12.dp,
-            lensAmount = 24.dp,
+            blurRadius = 3.dp,
+            containerAlpha = 0.16f,
+            lensHeight = 27.dp,
+            lensAmount = 32.dp,
             indicatorWidthOverflow = 8.dp,
             indicatorHeightOverflow = 4.dp,
-            isLightThemeOverride = lightGlass
+            indicatorLensHeight = 12.dp,
+            indicatorLensAmount = 17.dp,
+            officialHighlightAlpha = 0.07f,
+            officialShadowAlpha = 0.05f,
+            officialInnerShadowAlpha = 0.08f,
+            chromaticAberrationEnabled = true,
+            isLightThemeOverride = lightGlass,
+            useOfficialGlassParameters = true
         ) {
             LiquidBottomTab(onClick = { onModeChange(HomeMode.Day) }) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -4024,11 +4044,7 @@ fun sampleCroppedBitmapColor(
 @Composable
 fun homeForegroundColor(config: ScheduleConfigEntity): ComposeColor {
     if (config.wallpaperUri.isNullOrBlank()) return MaterialTheme.colorScheme.onBackground
-    return when {
-        config.wallpaperBrightness < 0.72f -> ComposeColor.White
-        config.homeTextLight -> ComposeColor.White
-        else -> ComposeColor.Black
-    }
+    return LocalAdaptiveGlass.current.contentColor
 }
 
 fun readableOn(background: ComposeColor): ComposeColor {
@@ -4753,7 +4769,7 @@ fun LiquidWeekScheduleScreen(
 @Composable
 fun WeekSwitchButton(label: String, config: ScheduleConfigEntity, backdrop: Backdrop?, enabled: Boolean, onClick: () -> Unit) {
     val lightGlass = glassUsesLightStyle(config)
-    val surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.18f) else ComposeColor.Black.copy(alpha = 0.14f)
+    val surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.16f) else ComposeColor.Black.copy(alpha = 0.16f)
     val textColor = glassForegroundColor(config)
     if (backdrop != null) {
         LiquidButton(
@@ -4766,9 +4782,9 @@ fun WeekSwitchButton(label: String, config: ScheduleConfigEntity, backdrop: Back
             surfaceColor = surfaceColor,
             height = 34.dp,
             contentPadding = PaddingValues(0.dp),
-            blurRadius = 4.dp,
-            lensHeight = 34.dp,
-            lensAmount = 42.dp,
+            blurRadius = 3.dp,
+            lensHeight = 26.dp,
+            lensAmount = 32.dp,
             chromaticAberration = false
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -4995,7 +5011,9 @@ fun WeekCourseBlock(
     val locationText = course.location.orEmpty()
     val hasLocation = locationText.isNotBlank()
     val hasTeacher = !course.teacher.isNullOrBlank()
-    val courseTextColor = readableOn(cardColor)
+    val courseTextColor =
+        if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
+        else readableOn(cardColor)
     val density = LocalDensity.current
     val tailDirection = if (weekMotionOutgoing) -weekMotionDirection else weekMotionDirection
     val tailBase = with(density) { (32.dp + ((periodIndex - 1).coerceAtLeast(0).coerceAtMost(9) * 9f).dp + (stackIndex * 16f).dp).toPx() }
@@ -5186,7 +5204,9 @@ private fun androidx.compose.ui.text.TextStyle.scaledCourseCardStyle(scale: Floa
 
 @Composable
 fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null, enableSharedTransition: Boolean = true) {
-    val textColor = readableOn(cardColor)
+    val textColor =
+        if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
+        else readableOn(cardColor)
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
     val cardView = LocalView.current
     val editId = LocalEditingCourseId.current
@@ -7695,11 +7715,16 @@ fun LiquidOptionTabs(
                 containerHeight = 42.dp,
                 indicatorHeight = 34.dp,
                 horizontalPadding = 4.dp,
-                lensHeight = 30.dp,
-                lensAmount = 34.dp,
-                indicatorWidthOverflow = 8.dp,
-                indicatorHeightOverflow = 6.dp,
-                isLightThemeOverride = glassUsesLightStyle(config)
+                blurRadius = 4.dp,
+                containerAlpha = 0.4f,
+                lensHeight = 24.dp,
+                lensAmount = 24.dp,
+                indicatorWidthOverflow = 0.dp,
+                indicatorHeightOverflow = 0.dp,
+                pressedContentScale = 1.04f,
+                chromaticAberrationEnabled = true,
+                isLightThemeOverride = glassUsesLightStyle(config),
+                useOfficialGlassParameters = true
             ) {
                 labels.forEachIndexed { index, label ->
                     LiquidBottomTab(onClick = { onSelected(index) }) {

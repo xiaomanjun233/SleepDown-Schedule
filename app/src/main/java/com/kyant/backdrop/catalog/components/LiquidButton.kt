@@ -1,3 +1,5 @@
+// Based on Kyant0/AndroidLiquidGlass catalog components, Apache-2.0.
+// Modified for SleepDown-Schedule.
 package com.kyant.backdrop.catalog.components
 
 import androidx.compose.foundation.LocalIndication
@@ -64,6 +66,7 @@ fun LiquidButton(
                 backdrop = backdrop,
                 shape = { Capsule() },
                 effects = {
+                    vibrancy()
                     blur(blurRadius.toPx())
                     lens(lensHeight.toPx(), lensAmount.toPx(), chromaticAberration = chromaticAberration)
                 },

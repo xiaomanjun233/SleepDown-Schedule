@@ -1,3 +1,5 @@
+// Based on Kyant0/AndroidLiquidGlass catalog components, Apache-2.0.
+// Modified for SleepDown-Schedule.
 package com.kyant.backdrop.catalog.components
 
 import androidx.compose.foundation.layout.Box
@@ -31,6 +33,7 @@ fun LiquidPanel(
             backdrop = backdrop,
             shape = { shape },
             effects = {
+                vibrancy()
                 blur(10f.dp.toPx())
                 lens(24f.dp.toPx(), 34f.dp.toPx(), chromaticAberration = false)
             },

@@ -1,3 +1,5 @@
+// Based on Kyant0/AndroidLiquidGlass catalog components, Apache-2.0.
+// Modified for SleepDown-Schedule.
 package com.kyant.backdrop.catalog.utils
 
 import android.graphics.RuntimeShader
