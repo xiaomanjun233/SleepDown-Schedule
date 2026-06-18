@@ -311,10 +311,10 @@ fun CourseGlassCard(
                 )
             },
             highlight = { Highlight.Default.copy(alpha = tokens.highlightAlpha + 0.09f * pressProgress) },
-            shadow = { Shadow(alpha = tokens.shadowAlpha + 0.10f * pressProgress) },
+            shadow = { Shadow(alpha = (tokens.shadowAlpha * (1f - 0.35f * pressProgress)).coerceAtLeast(0.04f)) },
             innerShadow = { InnerShadow(radius = 5.dp + 2.dp * pressProgress, alpha = tokens.innerShadowAlpha + 0.10f * pressProgress) },
             layerBlock = {
-                val scale = 1f + 0.018f * pressProgress
+                val scale = 1f - 0.024f * pressProgress
                 scaleX = scale
                 scaleY = scale
             },
@@ -328,6 +328,11 @@ fun CourseGlassCard(
         modifier
             .clip(shape)
             .background(solidColor.copy(alpha = solidColor.alpha.coerceAtLeast(0.86f)))
+            .graphicsLayer {
+                val scale = 1f - 0.020f * pressProgress
+                scaleX = scale
+                scaleY = scale
+            }
     }
         .then(
             if (onClick == null) Modifier else Modifier.clickable(

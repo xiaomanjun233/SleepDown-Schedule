@@ -52,14 +52,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.animateColor
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
@@ -172,11 +170,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -185,8 +179,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
@@ -194,7 +186,6 @@ import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
@@ -551,6 +542,14 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var homeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     var renderedHomeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     var homeDialogVisible by remember { mutableStateOf(false) }
+    var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
+    var courseEditorRenderedCourseId by remember { mutableStateOf<Long?>(null) }
+    fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?) {
+        courseEditorRequest = CourseEditorOverlayRequest(course, targetWeek, sourceBounds)
+    }
+    fun closeCourseEditor() {
+        courseEditorRequest = null
+    }
     fun dismissHomeDialog() {
         homeDialogVisible = false
         homeDialog = null
@@ -568,9 +567,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var addMenuExpanded by remember { mutableStateOf(false) }
     var renderAddMenu by remember { mutableStateOf(false) }
     var addButtonBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
-    var courseEditSourceBounds by remember { mutableStateOf<Rect?>(null) }
     var showScheduleEntryPill by remember { mutableStateOf(false) }
-    val editingCourseId: Long? = if (homeDialogVisible) (renderedHomeDialog as? HomeDialog.EditCourse)?.course?.id else null
+    val editingCourseId: Long? = courseEditorRenderedCourseId
     LaunchedEffect(addMenuExpanded) {
         if (addMenuExpanded) {
             renderAddMenu = true
@@ -863,8 +861,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     onSwipeDay = { delta -> homeDisplayDate = homeDisplayDate.plusDays(delta.toLong()) },
                                     onContentUnderTopBarChange = { homeContentUnderTopBar = it },
                                     onCourseClick = { course, week, sourceBounds ->
-                                        courseEditSourceBounds = sourceBounds
-                                        homeDialog = HomeDialog.EditCourse(course, week)
+                                        openCourseEditor(course, week, sourceBounds)
                                     },
                                     onScheduleLongPress = {
                                         addMenuExpanded = false
@@ -1048,62 +1045,28 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     }
     }
 
-    // Inline EditCourse overlay \u2014 enables shared element transition from course card
-    val isInlineEditVisible = renderedHomeDialog is HomeDialog.EditCourse && (renderedHomeDialog as HomeDialog.EditCourse).course != null
-    BackHandler(enabled = isInlineEditVisible && homeDialogVisible) {
-        dismissHomeDialog()
-    }
-    if (isInlineEditVisible) {
-        val editDialog = renderedHomeDialog as HomeDialog.EditCourse
-        val editCourse = editDialog.course!!
-        val sharedScope = LocalSharedTransitionScope.current.takeIf { editingCourseId != null && editCourse.id > 0L }
-        val useSharedBounds = startupPhase == StartupPhase.FullQuality && sharedScope != null
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(100f)
-        ) {
-            AnimatedVisibility(
-                visible = homeDialogVisible,
-                enter = fadeIn(animationSpec = spring(dampingRatio = 0.86f, stiffness = 620f)),
-                exit = fadeOut(animationSpec = spring(dampingRatio = 0.92f, stiffness = 620f))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(ComposeColor.Black.copy(alpha = 0.5f))
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() }
-                        ) { dismissHomeDialog() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    CourseEditSharedDialog(
-                        visible = homeDialogVisible,
-                        course = editCourse,
-                        useSharedBounds = useSharedBounds,
-                        sharedScope = sharedScope,
-                        sourceBounds = courseEditSourceBounds,
-                        backdrop = chromeBackdrop,
-                        config = state.config,
-                        state = state,
-                        onCancel = { dismissHomeDialog() },
-                        onSave = {
-                            if (courseWeeksChanged(editCourse, it)) {
-                                viewModel.updateCourse(it)
-                                dismissHomeDialog()
-                            } else {
-                                homeDialog = HomeDialog.ApplyCourseEdit(editCourse, it, editDialog.targetWeek ?: effectiveCurrentWeek(state.config))
-                            }
-                        },
-                        onDelete = {
-                            homeDialog = HomeDialog.ApplyCourseDelete(it, editDialog.targetWeek ?: effectiveCurrentWeek(state.config))
-                        }
-                    )
-                }
+    CourseEditorContainerOverlayHost(
+        request = courseEditorRequest,
+        state = state,
+        backdrop = chromeBackdrop,
+        config = state.config,
+        modifier = Modifier.zIndex(100f),
+        onDismissRequest = { closeCourseEditor() },
+        onSave = { original, edited, targetWeek ->
+            if (courseWeeksChanged(original, edited)) {
+                viewModel.updateCourse(edited)
+                closeCourseEditor()
+            } else {
+                closeCourseEditor()
+                homeDialog = HomeDialog.ApplyCourseEdit(original, edited, targetWeek ?: effectiveCurrentWeek(state.config))
             }
-        }
-    }
+        },
+        onDelete = { course, targetWeek ->
+            closeCourseEditor()
+            homeDialog = HomeDialog.ApplyCourseDelete(course, targetWeek ?: effectiveCurrentWeek(state.config))
+        },
+        onRenderedCourseIdChange = { courseEditorRenderedCourseId = it }
+    )
 
     // Dialog-based dialogs for all other types (including EditCourse without a source card)
     renderedHomeDialog?.let { dialog ->
@@ -1179,7 +1142,10 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                             viewModel.updateCourse(dialog.edited)
                             dismissHomeDialog()
                         },
-                        onCancel = { homeDialog = HomeDialog.EditCourse(dialog.original, dialog.targetWeek) }
+                        onCancel = {
+                            dismissHomeDialog()
+                            openCourseEditor(dialog.original, dialog.targetWeek, null)
+                        }
                     )
                     is HomeDialog.ApplyCourseDelete -> ApplyCourseDeleteDialog(
                         course = dialog.course,
@@ -1193,7 +1159,10 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                             viewModel.deleteCourse(dialog.course)
                             dismissHomeDialog()
                         },
-                        onCancel = { homeDialog = HomeDialog.EditCourse(dialog.course, dialog.targetWeek) }
+                        onCancel = {
+                            dismissHomeDialog()
+                            openCourseEditor(dialog.course, dialog.targetWeek, null)
+                        }
                     )
                     }
                 }
@@ -1729,7 +1698,7 @@ private fun courseEditExitTransition(): ExitTransition =
             animationSpec = spring(dampingRatio = 0.86f, stiffness = 620f)
         )
 
-@OptIn(ExperimentalSharedTransitionApi::class)
+@Suppress("UNUSED_PARAMETER")
 @Composable
 private fun CourseBoundsSource(
     courseId: Long,
@@ -1739,163 +1708,11 @@ private fun CourseBoundsSource(
     shape: RoundedCornerShape,
     content: @Composable (Modifier) -> Unit
 ) {
-    if (sharedScope == null || courseId <= 0L) {
-        content(modifier)
-        return
-    }
-    Box(modifier = modifier) {
-        with(sharedScope) {
-            AnimatedVisibility(
-                visible = visible,
-                enter = fadeIn(animationSpec = tween(durationMillis = 90)),
-                exit = fadeOut(animationSpec = tween(durationMillis = 90)),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                val sharedState = rememberSharedContentState(key = "course_bounds_${courseId}")
-                content(
-                    Modifier
-                        .fillMaxSize()
-                        .sharedBounds(
-                            sharedContentState = sharedState,
-                            animatedVisibilityScope = this,
-                            enter = fadeIn(animationSpec = tween(durationMillis = 90)),
-                            exit = fadeOut(animationSpec = tween(durationMillis = 90)),
-                            boundsTransform = BoundsTransform { _, _ ->
-                                spring(dampingRatio = 0.78f, stiffness = 520f)
-                            },
-                            resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
-                            clipInOverlayDuringTransition = OverlayClip(shape)
-                        )
-                )
-            }
+    content(
+        modifier.graphicsLayer {
+            alpha = if (visible) 1f else 0f
         }
-    }
-}
-
-@OptIn(ExperimentalSharedTransitionApi::class)
-@Composable
-private fun CourseEditSharedDialog(
-    visible: Boolean,
-    course: CourseEntity,
-    useSharedBounds: Boolean,
-    sharedScope: SharedTransitionScope?,
-    sourceBounds: Rect?,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    state: AppState,
-    onCancel: () -> Unit,
-    onSave: (CourseEntity) -> Unit,
-    onDelete: (CourseEntity) -> Unit
-) {
-    val contentAlpha = remember { Animatable(0f) }
-    LaunchedEffect(visible, course.id) {
-        if (visible) {
-            contentAlpha.snapTo(0f)
-            delay(100)
-            contentAlpha.animateTo(1f, tween(durationMillis = 120))
-        } else {
-            contentAlpha.animateTo(0f, tween(durationMillis = 80))
-        }
-    }
-    val fallbackModifier = if (useSharedBounds) {
-        Modifier
-    } else {
-        Modifier.courseEditSourceTransform(sourceBounds, visible)
-    }
-    val dialogContent: @Composable () -> Unit = {
-        CenterLiquidDialog(
-            backdrop = backdrop,
-            config = config,
-            modifier = fallbackModifier
-        ) {
-            Box(Modifier.graphicsLayer { alpha = contentAlpha.value }) {
-                NormalizedCourseEditorScreen(
-                    state = state,
-                    initialCourse = course,
-                    onCancel = onCancel,
-                    onSave = onSave,
-                    onDelete = onDelete,
-                    backdrop = backdrop
-                )
-            }
-        }
-    }
-    if (useSharedBounds && sharedScope != null) {
-        with(sharedScope) {
-            AnimatedVisibility(
-                visible = visible,
-                enter = fadeIn(animationSpec = tween(durationMillis = 90)),
-                exit = fadeOut(animationSpec = tween(durationMillis = 90))
-            ) {
-                val sharedState = rememberSharedContentState(key = "course_bounds_${course.id}")
-                Box(
-                    modifier = Modifier
-                        .sharedBounds(
-                            sharedContentState = sharedState,
-                            animatedVisibilityScope = this,
-                            enter = fadeIn(animationSpec = tween(durationMillis = 90)),
-                            exit = fadeOut(animationSpec = tween(durationMillis = 90)),
-                            boundsTransform = BoundsTransform { _, _ ->
-                                spring(dampingRatio = 0.78f, stiffness = 520f)
-                            },
-                            resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
-                            clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(26.dp))
-                        )
-                ) {
-                    dialogContent()
-                }
-            }
-        }
-    } else {
-        dialogContent()
-    }
-}
-
-@Composable
-fun Modifier.courseEditSourceTransform(sourceBounds: Rect?, visible: Boolean): Modifier {
-    if (sourceBounds == null) return this
-    var dialogBounds by remember { mutableStateOf<Rect?>(null) }
-    val dialogView = LocalView.current
-    val progress by animateFloatAsState(
-        targetValue = if (visible && dialogBounds != null) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = 560f),
-        label = "course-edit-source-progress"
     )
-    return this
-        .onGloballyPositioned { coordinates ->
-            val wb = coordinates.boundsInWindow()
-            val loc = IntArray(2)
-            dialogView.getLocationOnScreen(loc)
-            dialogBounds = if (loc[0] == 0 && loc[1] == 0) wb
-            else wb.translate(Offset(loc[0].toFloat(), loc[1].toFloat()))
-        }
-        .drawWithContent {
-            val target = dialogBounds
-            if (target == null || progress >= 1f) {
-                drawContent()
-                return@drawWithContent
-            }
-            // Map card bounds to dialog-local coordinates
-            val srcLeft = sourceBounds.left - target.left
-            val srcTop = sourceBounds.top - target.top
-            val srcRight = sourceBounds.right - target.left
-            val srcBottom = sourceBounds.bottom - target.top
-            // Animate clip rect from card position to full dialog bounds
-            val e = progress
-            val clipLeft = srcLeft + (0f - srcLeft) * e
-            val clipTop = srcTop + (0f - srcTop) * e
-            val clipRight = srcRight + (target.width - srcRight) * e
-            val clipBottom = srcBottom + (target.height - srcBottom) * e
-            val srcRadius = 12.dp.toPx()
-            val dstRadius = 26.dp.toPx()
-            val clipRadius = srcRadius + (dstRadius - srcRadius) * e
-            val clipPath = Path().apply {
-                addRoundRect(RoundRect(Rect(clipLeft, clipTop, clipRight, clipBottom), CornerRadius(clipRadius)))
-            }
-            clipPath(clipPath) {
-                this@drawWithContent.drawContent()
-            }
-        }
 }
 
 @Composable
@@ -5026,7 +4843,6 @@ fun WeekCourseBlock(
     )
     val startupIndex = ((periodIndex - 1).coerceAtLeast(0) * 7 + (dayIndex - 1).coerceAtLeast(0)) * 2 + stackIndex
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
-    val cardView = LocalView.current
     val editingId = LocalEditingCourseId.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && course.id > 0L) LocalSharedTransitionScope.current else null
     val baseModifier = Modifier
@@ -5051,11 +4867,7 @@ fun WeekCourseBlock(
             translationX = tailX
         }
         .onGloballyPositioned { coordinates ->
-            val wb = coordinates.boundsInWindow()
-            val loc = IntArray(2)
-            cardView.getLocationOnScreen(loc)
-            ownBounds = if (loc[0] == 0 && loc[1] == 0) wb
-            else wb.translate(Offset(loc[0].toFloat(), loc[1].toFloat()))
+            ownBounds = coordinates.boundsInRoot()
         }
     CourseBoundsSource(
         courseId = course.id,
@@ -5208,7 +5020,6 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
         else readableOn(cardColor)
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
-    val cardView = LocalView.current
     val editId = LocalEditingCourseId.current
     val startupPhase = LocalStartupPhase.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && enableSharedTransition && course.id > 0L) LocalSharedTransitionScope.current else null
@@ -5235,11 +5046,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             }
         )
         .onGloballyPositioned { coordinates ->
-            val wb = coordinates.boundsInWindow()
-            val loc = IntArray(2)
-            cardView.getLocationOnScreen(loc)
-            ownBounds = if (loc[0] == 0 && loc[1] == 0) wb
-            else wb.translate(Offset(loc[0].toFloat(), loc[1].toFloat()))
+            ownBounds = coordinates.boundsInRoot()
         }
     CourseBoundsSource(
         courseId = course.id,
