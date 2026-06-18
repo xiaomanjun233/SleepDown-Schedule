@@ -3,8 +3,7 @@ package com.example.courseschedule
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.Easing
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.keyframes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -47,23 +46,10 @@ import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import kotlin.math.ceil
-import kotlin.math.PI
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
-private val CourseEditorOpenEasing = Easing { fraction ->
-    CubicBezierEasing(0.42f, 0.0f, 0.58f, 1.0f).transform(fraction)
-}
-
-private val CourseEditorCloseEasing = Easing { fraction ->
-    val base = CubicBezierEasing(0.42f, 0.0f, 0.58f, 1.0f).transform(fraction)
-    val rebound = if (fraction > 0.84f) {
-        sin(((fraction - 0.84f) / 0.16f).coerceIn(0f, 1f) * PI).toFloat() * 0.008f
-    } else {
-        0f
-    }
-    base + rebound
-}
+private val CourseEditorPrimaryEasing = CubicBezierEasing(0.20f, 0.0f, 0.10f, 1.0f)
+private val CourseEditorSettleEasing = CubicBezierEasing(0.24f, 0.0f, 0.30f, 1.0f)
 
 data class CourseEditorOverlayRequest(
     val course: CourseEntity,
@@ -95,12 +81,22 @@ fun CourseEditorContainerOverlayHost(
             progress.snapTo(0f)
             progress.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(durationMillis = 320, easing = CourseEditorOpenEasing)
+                animationSpec = keyframes {
+                    durationMillis = 240
+                    0f at 0 using CourseEditorPrimaryEasing
+                    1.014f at 196 using CourseEditorSettleEasing
+                    1f at 240
+                }
             )
         } else if (renderedRequest != null) {
             progress.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = 320, easing = CourseEditorCloseEasing)
+                animationSpec = keyframes {
+                    durationMillis = 240
+                    1f at 0 using CourseEditorPrimaryEasing
+                    -0.010f at 196 using CourseEditorSettleEasing
+                    0f at 240
+                }
             )
             renderedRequest = null
             latestOnRenderedCourseIdChange(null)
@@ -143,10 +139,10 @@ fun CourseEditorContainerOverlayHost(
     val animatedRect = interpolateRectUnbounded(sourceRect, targetRect, motionProgress)
     val sourceCorner = with(density) { if (sourceRect.width >= 220.dp.toPx()) 16.dp else 8.dp }
     val corner = with(density) { interpolateFloatUnbounded(sourceCorner.toPx(), 32.dp.toPx(), motionProgress).coerceIn(6.dp.toPx(), 36.dp.toPx()).toDp() }
-    val scrimAlpha = interpolateFloat(0f, 0.34f, alphaProgress)
-    val contentAlpha = smoothStep(0.76f, 0.96f, alphaProgress)
-    val dialogSurfaceAlpha = smoothStep(0.58f, 0.88f, alphaProgress)
-    val morphSurfaceAlpha = 1f - smoothStep(0.62f, 0.90f, alphaProgress)
+    val backgroundDepthProgress = smoothStep(0.04f, 0.86f, alphaProgress)
+    val contentAlpha = smoothStep(0.78f, 0.96f, alphaProgress)
+    val dialogSurfaceAlpha = smoothStep(0.62f, 0.88f, alphaProgress)
+    val morphSurfaceAlpha = 1f - smoothStep(0.58f, 0.86f, alphaProgress)
     val shellAlpha = 1f - smoothStep(0.26f, 0.62f, alphaProgress)
     val textColor = glassForegroundColor(config)
 
@@ -158,12 +154,17 @@ fun CourseEditorContainerOverlayHost(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = scrimAlpha))
                 .clickable(
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() }
                 ) { onDismissRequest() }
-        )
+        ) {
+            CourseEditorBackgroundDepthLayer(
+                backdrop = backdrop,
+                progress = backgroundDepthProgress,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         CourseEditorAnimatedContainer(
             backdrop = backdrop,
             config = config,
@@ -255,6 +256,19 @@ private fun CourseEditorAnimatedContainer(
             content()
         }
     }
+}
+
+@Composable
+private fun CourseEditorBackgroundDepthLayer(
+    backdrop: Backdrop?,
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    val safeProgress = progress.coerceIn(0f, 1f)
+    if (safeProgress <= 0.001f) return
+
+    val dimAlpha = interpolateFloat(0f, 0.42f, safeProgress)
+    Box(modifier.background(Color.Black.copy(alpha = dimAlpha)))
 }
 
 @Composable

@@ -512,6 +512,15 @@ private fun SettingsPage.title(): String = when (this) {
 private val DayDockScrollPadding = 104.dp
 private val WeekDockScrollPadding = 132.dp
 private val DockScrollPadding = 132.dp
+private val HomeHeaderGlassBlur = 2.dp
+private val HomeHeaderGlassLensHeight = 12.dp
+private val HomeHeaderGlassLensAmount = 24.dp
+private const val HomeHeaderGlassSurfaceAlpha = 0.15f
+private const val HomeHeaderGlassHighlightAlpha = 0.07f
+private const val HomeHeaderGlassShadowAlpha = 0.05f
+private const val HomeHeaderGlassInnerShadowAlpha = 0.08f
+
+private fun homeHeaderGlassTokens(): GlassTokens = GlassTokens.pill(intensity = 0.95f)
 
 sealed interface HomeDialog {
     data object ImportSchedule : HomeDialog
@@ -623,11 +632,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     }
     val glassQuality = animatedGlassQuality(startupPhase)
     val fallbackAdaptiveGlass = rememberFallbackAdaptiveGlassState(state.config)
-    val adaptiveSamplerEnabled =
-        screen is Screen.Home &&
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            glassQuality >= 0.8f &&
-            startupPhase == StartupPhase.FullQuality
+    val adaptiveSamplerEnabled = false
     val adaptiveSampler = rememberAdaptiveBackdropLuminanceSampler(
         enabled = adaptiveSamplerEnabled,
         sampleIntervalMillis = 650L,
@@ -1646,7 +1651,7 @@ fun HomeAddButton(
             iconRes = R.drawable.ic_add_course,
             contentDescription = "添加",
             selected = expanded,
-            tint = ComposeColor(0xFF0A84FF),
+            accentColor = ComposeColor(0xFF0A84FF),
             modifier = Modifier.onGloballyPositioned { onPositioned(it.boundsInRoot()) },
             onClick = onClick
         )
@@ -1755,36 +1760,39 @@ fun HomeIconButton(
     iconRes: Int,
     contentDescription: String,
     selected: Boolean,
-    tint: ComposeColor = ComposeColor.Unspecified,
+    accentColor: ComposeColor = ComposeColor.Unspecified,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val adaptiveGlass = LocalAdaptiveGlass.current
     val lightGlass = adaptiveGlass.lightGlass
+    val baseSurfaceColor = if (lightGlass) ComposeColor.White else ComposeColor(0xFF121212)
+    val buttonSurfaceColor = if (accentColor.isSpecified) {
+        accentColor.copy(alpha = if (lightGlass) 0.20f else 0.24f)
+    } else {
+        baseSurfaceColor.copy(alpha = HomeHeaderGlassSurfaceAlpha)
+    }
     if (backdrop != null) {
         LiquidButton(
             onClick = onClick,
             backdrop = backdrop,
             modifier = modifier.padding(end = 7.dp).size(42.dp),
-            tint = tint,
-            surfaceColor = when {
-                selected && lightGlass -> ComposeColor.White.copy(alpha = 0.16f)
-                selected -> ComposeColor(0xFF121212).copy(alpha = 0.16f)
-                lightGlass -> ComposeColor.White.copy(alpha = 0.16f)
-                else -> ComposeColor(0xFF121212).copy(alpha = 0.16f)
-            },
+            tint = if (accentColor.isSpecified) accentColor else ComposeColor.Unspecified,
+            surfaceColor = buttonSurfaceColor,
             contentPadding = PaddingValues(0.dp),
-            blurRadius = 3.dp,
-            lensHeight = 22.dp,
-            lensAmount = 27.dp,
+            blurRadius = HomeHeaderGlassBlur,
+            lensHeight = HomeHeaderGlassLensHeight,
+            lensAmount = HomeHeaderGlassLensAmount,
             chromaticAberration = false
         ) {
-            Icon(
-                painterResource(iconRes),
-                contentDescription = contentDescription,
-                modifier = Modifier.size(20.dp),
-                tint = if (tint.isSpecified) tint else adaptiveGlass.contentColor
-            )
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(
+                    painterResource(iconRes),
+                    contentDescription = contentDescription,
+                    modifier = Modifier.size(20.dp),
+                    tint = adaptiveGlass.contentColor
+                )
+            }
         }
     } else {
         GlassPill(
@@ -3350,17 +3358,17 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
             containerHeight = 42.dp,
             indicatorHeight = 34.dp,
             horizontalPadding = 4.dp,
-            blurRadius = 3.dp,
-            containerAlpha = 0.16f,
-            lensHeight = 27.dp,
-            lensAmount = 32.dp,
-            indicatorWidthOverflow = 8.dp,
-            indicatorHeightOverflow = 4.dp,
-            indicatorLensHeight = 12.dp,
-            indicatorLensAmount = 17.dp,
-            officialHighlightAlpha = 0.07f,
-            officialShadowAlpha = 0.05f,
-            officialInnerShadowAlpha = 0.08f,
+            blurRadius = HomeHeaderGlassBlur,
+            containerAlpha = HomeHeaderGlassSurfaceAlpha,
+            lensHeight = HomeHeaderGlassLensHeight,
+            lensAmount = HomeHeaderGlassLensAmount,
+            indicatorWidthOverflow = 4.dp,
+            indicatorHeightOverflow = 2.dp,
+            indicatorLensHeight = HomeHeaderGlassLensHeight,
+            indicatorLensAmount = HomeHeaderGlassLensAmount,
+            officialHighlightAlpha = HomeHeaderGlassHighlightAlpha,
+            officialShadowAlpha = HomeHeaderGlassShadowAlpha,
+            officialInnerShadowAlpha = HomeHeaderGlassInnerShadowAlpha,
             chromaticAberrationEnabled = true,
             isLightThemeOverride = lightGlass,
             useOfficialGlassParameters = true
@@ -4586,7 +4594,7 @@ fun LiquidWeekScheduleScreen(
 @Composable
 fun WeekSwitchButton(label: String, config: ScheduleConfigEntity, backdrop: Backdrop?, enabled: Boolean, onClick: () -> Unit) {
     val lightGlass = glassUsesLightStyle(config)
-    val surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.16f) else ComposeColor.Black.copy(alpha = 0.16f)
+    val surfaceColor = if (lightGlass) ComposeColor.White else ComposeColor(0xFF121212)
     val textColor = glassForegroundColor(config)
     if (backdrop != null) {
         LiquidButton(
@@ -4596,12 +4604,12 @@ fun WeekSwitchButton(label: String, config: ScheduleConfigEntity, backdrop: Back
                 .size(34.dp)
                 .graphicsLayer(alpha = if (enabled) 1f else 0.35f),
             isInteractive = enabled,
-            surfaceColor = surfaceColor,
+            surfaceColor = surfaceColor.copy(alpha = HomeHeaderGlassSurfaceAlpha),
             height = 34.dp,
             contentPadding = PaddingValues(0.dp),
-            blurRadius = 3.dp,
-            lensHeight = 26.dp,
-            lensAmount = 32.dp,
+            blurRadius = HomeHeaderGlassBlur,
+            lensHeight = HomeHeaderGlassLensHeight,
+            lensAmount = HomeHeaderGlassLensAmount,
             chromaticAberration = false
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -4634,7 +4642,7 @@ fun WeekHeaderPill(backdrop: Backdrop?, config: ScheduleConfigEntity, selected: 
         config = config,
         modifier = Modifier.fillMaxSize(),
         shape = RoundedCornerShape(50),
-        tokens = GlassTokens.pill(intensity = 0.95f),
+        tokens = homeHeaderGlassTokens(),
         selected = selected,
         content = content
     )
@@ -6860,6 +6868,8 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.08 beta", "优化动画过渡，课程卡片打开与收回更顺滑；优化渐变模糊效果，顶部与背景过渡更自然。")
+                SettingsDivider()
                 SettingsInfoRow("1.07 beta", "优化个性化面板布局，壁纸与课程卡片设置分区更清晰；调整弹窗取消与保存按钮为圆形液态图标按钮；优化课程卡片可读性，周视图课程名、地点、教师信息层级更分明；改进滑块默认值交互，点击标记点即可快速恢复默认并提供震动反馈；支持点击首页日期快速回到本周，日视图也可左右滑动切换日期；修复壁纸模糊时出现马赛克的问题。")
                 SettingsDivider()
                 SettingsInfoRow("1.06 beta", "重构首页自定义壁纸设置，支持竖屏和横屏分别调整显示区域，横竖屏切换和大屏窗口下显示更稳定；新增课程卡片字体大小调节；调整优化液态玻璃参数，修复液态玻璃可能出现分界线的问题，视效更通透灵动；优化加号菜单动画和首次启动课程卡片入场动画。")
