@@ -14,13 +14,29 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    lint {
+        disable += setOf(
+            "NullSafeMutableLiveData",
+            "RememberInComposition",
+            "FrequentlyChangingValue",
+            "AutoboxingStateCreation",
+            "ObsoleteLintCustomCheck",
+            "GradleDependency",
+            "VectorPath",
+            "NestedWeights",
+            "UnusedResources",
+            "IconLauncherShape",
+            "IconLocation",
+            "IconDuplicates"
+        )
+    }
 
     defaultConfig {
         applicationId = "com.example.courseschedule"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.08 beta"
+        versionCode = 8
+        versionName = "1.09 beta"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -1,7 +1,9 @@
 package com.example.courseschedule
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.AlarmManager
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -26,6 +28,17 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -147,12 +160,158 @@ object ScheduleImportParser {
         val payload = if (containsSleepDownToken(cleaned)) {
             parseSleepDownToken(cleaned)
         } else {
-            json.decodeFromString(cleaned)
+            decodeSchedulePayloadWithFallback(cleaned)
         }
-        validatePayload(payload, baseConfig)
+        if (containsSleepDownToken(cleaned)) {
+            validatePayload(payload, baseConfig)
+        } else {
+            runCatching { validatePayload(payload, baseConfig) }.getOrElse { firstError ->
+                val normalizedPayload = decodeNormalizedSchedulePayload(cleaned, firstError)
+                runCatching { validatePayload(normalizedPayload, baseConfig) }.getOrElse { secondError ->
+                    throw IllegalArgumentException(
+                        "本地校验失败：${firstError.message.orEmpty()}；容错清洗后仍失败：${secondError.message.orEmpty()}",
+                        secondError
+                    )
+                }
+            }
+        }
     }
 
     fun parseTimeForUi(value: String): LocalTime = LocalTime.parse(value, timeFormatter)
+
+    private fun decodeSchedulePayloadWithFallback(cleaned: String): ScheduleImportPayload {
+        return runCatching {
+            json.decodeFromString<ScheduleImportPayload>(cleaned)
+        }.getOrElse { firstError ->
+            runCatching { decodeNormalizedSchedulePayload(cleaned, firstError) }.getOrElse { secondError ->
+                throw IllegalArgumentException(
+                    "JSON 结构无法解析：${firstError.message.orEmpty()}；容错清洗后仍失败：${secondError.message.orEmpty()}",
+                    secondError
+                )
+            }
+        }
+    }
+
+    private fun decodeNormalizedSchedulePayload(cleaned: String, cause: Throwable): ScheduleImportPayload {
+        val normalizedText = runCatching {
+            normalizeAiScheduleJson(Json.parseToJsonElement(cleaned)).toString()
+        }.getOrElse {
+            throw cause
+        }
+        return json.decodeFromString(normalizedText)
+    }
+
+    private fun normalizeAiScheduleJson(element: JsonElement): JsonElement {
+        if (element !is JsonObject) return element
+        val courses = element["courses"]?.jsonArray
+        return JsonObject(element.mapValues { (key, value) ->
+            if (key == "courses" && courses != null) {
+                JsonArray(courses.map { normalizeAiCourseJson(it) })
+            } else {
+                value
+            }
+        })
+    }
+
+    private fun normalizeAiCourseJson(element: JsonElement): JsonElement {
+        if (element !is JsonObject) return element
+        val normalized = element.mapValues { (key, value) ->
+            when (key) {
+                "weekday" -> JsonPrimitive(parseFlexibleWeekday(value) ?: value.jsonPrimitiveOrNull()?.intOrNull ?: 7)
+                "periods", "weeks" -> flexibleIntArray(value)
+                "weekParity" -> JsonPrimitive(normalizeWeekParity(value))
+                else -> value
+            }
+        }.toMutableMap()
+        val periods = normalized["periods"] as? JsonArray
+        val weeks = normalized["weeks"] as? JsonArray
+        val weekday = normalized["weekday"]?.jsonPrimitiveOrNull()?.intOrNull
+        val needsPlaceholder = weekday !in 1..7 || periods == null || periods.isEmpty() || weeks == null || weeks.isEmpty()
+        if (needsPlaceholder) {
+            normalized["weekday"] = JsonPrimitive((weekday ?: 7).coerceIn(1, 7))
+            if (periods == null || periods.isEmpty()) normalized["periods"] = JsonArray(listOf(JsonPrimitive(1)))
+            if (weeks == null || weeks.isEmpty()) normalized["weeks"] = JsonArray(listOf(JsonPrimitive(1)))
+            val note = normalized["note"]?.jsonPrimitiveOrNull()?.contentOrNull.orEmpty().trim()
+            normalized["note"] = JsonPrimitive(
+                listOf(note, "AI 占位课程：原始数据没有明确上课星期/节次/周次，请手动修改。")
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .joinToString("；")
+            )
+        }
+        return JsonObject(normalized)
+    }
+
+    private fun JsonElement.jsonPrimitiveOrNull() = this as? JsonPrimitive
+
+    private fun flexibleIntArray(value: JsonElement): JsonArray {
+        val values = when (value) {
+            is JsonArray -> value.flatMap { item ->
+                when (item) {
+                    is JsonPrimitive -> parseFlexibleNumbers(item.contentOrNull.orEmpty())
+                    else -> emptyList()
+                }
+            }
+            is JsonPrimitive -> parseFlexibleNumbers(value.contentOrNull.orEmpty())
+            else -> emptyList()
+        }
+        return buildJsonArray { values.distinct().sorted().forEach { add(JsonPrimitive(it)) } }
+    }
+
+    private fun parseFlexibleNumbers(raw: String): List<Int> {
+        val text = raw
+            .replace('，', ',')
+            .replace('、', ',')
+            .replace('；', ',')
+            .replace(';', ',')
+            .replace('－', '-')
+            .replace('—', '-')
+            .replace('–', '-')
+            .replace("周", "")
+            .trim()
+        if (text.isBlank()) return emptyList()
+        return text.split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .flatMap { part ->
+                val range = part.split('-', limit = 2).map { it.trim() }
+                if (range.size == 2) {
+                    val start = range[0].toIntOrNull()
+                    val end = range[1].toIntOrNull()
+                    if (start != null && end != null) {
+                        if (start <= end) (start..end).toList() else (end..start).toList()
+                    } else {
+                        emptyList()
+                    }
+                } else {
+                    listOfNotNull(part.toIntOrNull())
+                }
+            }
+    }
+
+    private fun parseFlexibleWeekday(value: JsonElement): Int? {
+        val primitive = value.jsonPrimitiveOrNull() ?: return null
+        primitive.intOrNull?.let { return it }
+        return when (primitive.contentOrNull.orEmpty().trim()) {
+            "1", "一", "周一", "星期一", "礼拜一", "Monday", "MONDAY" -> 1
+            "2", "二", "周二", "星期二", "礼拜二", "Tuesday", "TUESDAY" -> 2
+            "3", "三", "周三", "星期三", "礼拜三", "Wednesday", "WEDNESDAY" -> 3
+            "4", "四", "周四", "星期四", "礼拜四", "Thursday", "THURSDAY" -> 4
+            "5", "五", "周五", "星期五", "礼拜五", "Friday", "FRIDAY" -> 5
+            "6", "六", "周六", "星期六", "礼拜六", "Saturday", "SATURDAY" -> 6
+            "7", "日", "天", "周日", "周天", "星期日", "星期天", "礼拜日", "礼拜天", "Sunday", "SUNDAY" -> 7
+            else -> null
+        }
+    }
+
+    private fun normalizeWeekParity(value: JsonElement): String {
+        val raw = value.jsonPrimitiveOrNull()?.contentOrNull.orEmpty().trim().uppercase()
+        return when (raw) {
+            "ODD", "O", "SINGLE", "单", "单周", "奇", "奇周" -> "ODD"
+            "EVEN", "E", "DOUBLE", "双", "双周", "偶", "偶周" -> "EVEN"
+            else -> "ALL"
+        }
+    }
 
     private fun validatePayload(payload: ScheduleImportPayload, baseConfig: ScheduleConfigEntity): ImportDraft {
         require(payload.schemaVersion == 1) { "schemaVersion 目前只支持 1" }
@@ -593,10 +752,8 @@ object NotificationScheduler {
     private fun CourseEntity.requestCode(retryIndex: Int = 0): Int = ((id * 10 + retryIndex) % Int.MAX_VALUE).toInt()
 
     fun createChannel(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "课程提醒", NotificationManager.IMPORTANCE_DEFAULT)
-            context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
+        val channel = NotificationChannel(CHANNEL_ID, "课程提醒", NotificationManager.IMPORTANCE_DEFAULT)
+        context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     fun channelId(): String = CHANNEL_ID
@@ -632,11 +789,7 @@ object NotificationScheduler {
             openAppIntent ?: Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            android.app.Notification.Builder(context, CHANNEL_ID)
-        } else {
-            android.app.Notification.Builder(context)
-        }
+        val builder = android.app.Notification.Builder(context, CHANNEL_ID)
         builder
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(titleText)
@@ -647,28 +800,21 @@ object NotificationScheduler {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(android.app.Notification.CATEGORY_EVENT)
-            .setPriority(android.app.Notification.PRIORITY_HIGH)
             .setColor(0xFF0A84FF.toInt())
         if (showActions) {
             val dndEnabled = isDoNotDisturbEnabledByApp(context)
             val dndTitle = if (dndEnabled) "关闭勿扰" else "开启勿扰"
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                builder
-                    .addAction(android.app.Notification.Action.Builder(
-                        Icon.createWithResource(context, R.drawable.ic_close_light),
-                        "取消本次提醒",
-                        actionPendingIntent(context, ACTION_CANCEL_LIVE_UPDATE, 1, muteKey, muteUntil)
-                    ).build())
-                    .addAction(android.app.Notification.Action.Builder(
-                        Icon.createWithResource(context, R.drawable.ic_moon_light),
-                        dndTitle,
-                        actionPendingIntent(context, ACTION_TOGGLE_DND, 2, muteKey, muteUntil)
-                    ).build())
-            } else {
-                builder
-                    .addAction(R.drawable.ic_close_light, "取消本次提醒", actionPendingIntent(context, ACTION_CANCEL_LIVE_UPDATE, 1, muteKey, muteUntil))
-                    .addAction(R.drawable.ic_moon_light, dndTitle, actionPendingIntent(context, ACTION_TOGGLE_DND, 2, muteKey, muteUntil))
-            }
+            builder
+                .addAction(android.app.Notification.Action.Builder(
+                    Icon.createWithResource(context, R.drawable.ic_close_light),
+                    "取消本次提醒",
+                    actionPendingIntent(context, ACTION_CANCEL_LIVE_UPDATE, 1, muteKey, muteUntil)
+                ).build())
+                .addAction(android.app.Notification.Action.Builder(
+                    Icon.createWithResource(context, R.drawable.ic_moon_light),
+                    dndTitle,
+                    actionPendingIntent(context, ACTION_TOGGLE_DND, 2, muteKey, muteUntil)
+                ).build())
         }
         runCatching {
             builder.javaClass
@@ -749,7 +895,7 @@ object NotificationScheduler {
 
     fun toggleDoNotDisturb(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && manager?.isNotificationPolicyAccessGranted == true) {
+        if (manager?.isNotificationPolicyAccessGranted == true) {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             if (prefs.getBoolean(KEY_DND_ENABLED_BY_APP, false)) {
                 manager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
@@ -785,8 +931,26 @@ object NotificationScheduler {
             Log.d(TAG, "startForegroundService requested")
         }.onFailure {
             Log.w(TAG, "startForegroundService failed, fallback notify: ${it.javaClass.simpleName}: ${it.message}")
-            NotificationManagerCompat.from(context).notify(LIVE_UPDATE_ID, notification)
+            if (!canPostNotifications(context)) {
+                Log.w(TAG, "fallback notify skipped: notification permission missing")
+                return@onFailure
+            }
+            runCatching {
+                postLiveUpdateNotification(context, notification)
+            }.onFailure { notifyError ->
+                Log.w(TAG, "fallback notify failed: ${notifyError.javaClass.simpleName}: ${notifyError.message}")
+            }
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun postLiveUpdateNotification(context: Context, notification: Notification) {
+        NotificationManagerCompat.from(context).notify(LIVE_UPDATE_ID, notification)
+    }
+
+    private fun canPostNotifications(context: Context): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
     }
 
     fun stopLiveUpdateService(context: Context) {
@@ -888,6 +1052,14 @@ class LiveUpdateActionReceiver : BroadcastReceiver() {
 
 class CourseBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action !in setOf(
+                Intent.ACTION_BOOT_COMPLETED,
+                Intent.ACTION_LOCKED_BOOT_COMPLETED,
+                Intent.ACTION_MY_PACKAGE_REPLACED
+            )
+        ) {
+            return
+        }
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {

@@ -4,10 +4,12 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.net.Uri
 import androidx.palette.graphics.Palette
 import java.io.File
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 data class WallpaperSourceSize(val width: Int, val height: Int)
 
@@ -63,6 +65,113 @@ fun loadSampledBitmap(context: Context, uri: Uri, maxDimension: Int = 2200): Bit
     return runCatching {
         openWallpaperInputStream(context, uri)?.use { BitmapFactory.decodeStream(it, null, options) }
     }.getOrNull()
+}
+
+fun createReducedWallpaperBitmap(source: Bitmap?): Bitmap? {
+    if (source == null || source.width <= 0 || source.height <= 0) return null
+    val largest = max(source.width, source.height).coerceAtLeast(1)
+    val maxReducedDimension = 900
+    val scale = (maxReducedDimension.toFloat() / largest).coerceAtMost(1f)
+    if (scale >= 0.999f) return source
+    val width = (source.width * scale).roundToInt().coerceAtLeast(1)
+    val height = (source.height * scale).roundToInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(source, width, height, true)
+}
+
+fun createBlurredWallpaperBitmap(source: Bitmap?, blurRadius: Int): Bitmap? {
+    if (source == null || blurRadius <= 0 || source.width <= 0 || source.height <= 0) return null
+    val largest = max(source.width, source.height).coerceAtLeast(1)
+    val maxBlurDimension = 900
+    val scale = (maxBlurDimension.toFloat() / largest).coerceAtMost(1f)
+    val width = (source.width * scale).roundToInt().coerceAtLeast(1)
+    val height = (source.height * scale).roundToInt().coerceAtLeast(1)
+    val working = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    Canvas(working).drawBitmap(source, null, android.graphics.Rect(0, 0, width, height), null)
+    return runCatching {
+        boxBlurBitmap(working, (blurRadius * scale).roundToInt().coerceIn(2, 18))
+    }.getOrElse {
+        working
+    }
+}
+
+private fun boxBlurBitmap(bitmap: Bitmap, radius: Int): Bitmap {
+    val width = bitmap.width
+    val height = bitmap.height
+    if (width <= 1 || height <= 1 || radius <= 0) return bitmap
+    var pixels = IntArray(width * height)
+    var scratch = IntArray(width * height)
+    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+    repeat(3) {
+        boxBlurHorizontal(pixels, scratch, width, height, radius)
+        boxBlurVertical(scratch, pixels, width, height, radius)
+    }
+    bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+    return bitmap
+}
+
+private fun boxBlurHorizontal(input: IntArray, output: IntArray, width: Int, height: Int, radius: Int) {
+    val window = radius * 2 + 1
+    for (y in 0 until height) {
+        val row = y * width
+        var a = 0
+        var r = 0
+        var g = 0
+        var b = 0
+        for (i in -radius..radius) {
+            val color = input[row + i.coerceIn(0, width - 1)]
+            a += color ushr 24
+            r += color shr 16 and 0xFF
+            g += color shr 8 and 0xFF
+            b += color and 0xFF
+        }
+        for (x in 0 until width) {
+            output[row + x] =
+                (a / window shl 24) or
+                    (r / window shl 16) or
+                    (g / window shl 8) or
+                    (b / window)
+            val removeX = (x - radius).coerceIn(0, width - 1)
+            val addX = (x + radius + 1).coerceIn(0, width - 1)
+            val remove = input[row + removeX]
+            val add = input[row + addX]
+            a += (add ushr 24) - (remove ushr 24)
+            r += (add shr 16 and 0xFF) - (remove shr 16 and 0xFF)
+            g += (add shr 8 and 0xFF) - (remove shr 8 and 0xFF)
+            b += (add and 0xFF) - (remove and 0xFF)
+        }
+    }
+}
+
+private fun boxBlurVertical(input: IntArray, output: IntArray, width: Int, height: Int, radius: Int) {
+    val window = radius * 2 + 1
+    for (x in 0 until width) {
+        var a = 0
+        var r = 0
+        var g = 0
+        var b = 0
+        for (i in -radius..radius) {
+            val color = input[i.coerceIn(0, height - 1) * width + x]
+            a += color ushr 24
+            r += color shr 16 and 0xFF
+            g += color shr 8 and 0xFF
+            b += color and 0xFF
+        }
+        for (y in 0 until height) {
+            output[y * width + x] =
+                (a / window shl 24) or
+                    (r / window shl 16) or
+                    (g / window shl 8) or
+                    (b / window)
+            val removeY = (y - radius).coerceIn(0, height - 1)
+            val addY = (y + radius + 1).coerceIn(0, height - 1)
+            val remove = input[removeY * width + x]
+            val add = input[addY * width + x]
+            a += (add ushr 24) - (remove ushr 24)
+            r += (add shr 16 and 0xFF) - (remove shr 16 and 0xFF)
+            g += (add shr 8 and 0xFF) - (remove shr 8 and 0xFF)
+            b += (add and 0xFF) - (remove and 0xFF)
+        }
+    }
 }
 
 fun readWallpaperSourceSize(context: Context, uri: Uri): WallpaperSourceSize? {

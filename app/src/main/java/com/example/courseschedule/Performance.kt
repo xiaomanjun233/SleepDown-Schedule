@@ -2,7 +2,6 @@ package com.example.courseschedule
 
 import android.graphics.Bitmap
 import android.os.Build
-import android.os.PerformanceHintManager
 import android.util.Log
 import android.view.View
 import androidx.activity.ComponentActivity
@@ -12,7 +11,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -70,23 +68,7 @@ val StartupPhase.isAtLeastEntrance: Boolean
 
 @Composable
 fun StartupPerformanceBoost(active: Boolean) {
-    val view = LocalView.current
-    DisposableEffect(active, view) {
-        if (!active || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            onDispose {}
-        } else {
-            val session = runCatching {
-                val manager = view.context.getSystemService(PerformanceHintManager::class.java)
-                val refreshRate = view.display?.refreshRate?.takeIf { it > 0f } ?: 60f
-                val targetDurationNanos = (1_000_000_000f / refreshRate).toLong().coerceAtLeast(4_000_000L)
-                manager?.createHintSession(intArrayOf(android.os.Process.myTid()), targetDurationNanos)
-                    ?.also { it.updateTargetWorkDuration(targetDurationNanos) }
-            }.getOrNull()
-            onDispose {
-                runCatching { session?.close() }
-            }
-        }
-    }
+    // Glass quality is lowered elsewhere during heavy transitions; no CPU/GPU performance hint is requested here.
 }
 
 @Composable
@@ -242,6 +224,8 @@ fun DockEntranceContainer(
 
 data class HomeWallpaperImages(
     val source: Bitmap?,
+    val reducedSource: Bitmap?,
+    val blurredSource: Bitmap?,
     val blurBucket: Int
 )
 
@@ -257,21 +241,28 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
     val cacheKey = remember(config.wallpaperUri, config.defaultWallpaperStyle, useDarkDefaultWallpaper) {
         "${config.wallpaperUri}|${config.defaultWallpaperStyle}|$useDarkDefaultWallpaper"
     }
-    return produceState(initialValue = synchronized(wallpaperCache) {
-        wallpaperCache[cacheKey] ?: HomeWallpaperImages(null, blurBucket)
-    }, cacheKey, blurBucket) {
+    val images = remember(cacheKey) { mutableStateOf(synchronized(wallpaperCache) {
+        wallpaperCache[cacheKey] ?: HomeWallpaperImages(null, null, null, blurBucket)
+    }) }
+    LaunchedEffect(cacheKey, blurBucket) {
         val cached = synchronized(wallpaperCache) { wallpaperCache[cacheKey] }
-        if (cached != null) {
-            value = cached.copy(blurBucket = blurBucket)
-            return@produceState
+        if (cached != null && cached.blurBucket == blurBucket) {
+            images.value = cached
+            return@LaunchedEffect
         }
         val loaded = withContext(Dispatchers.IO) {
-            val source = loadWallpaperBitmap(context, config, useDarkDefaultWallpaper)
-            HomeWallpaperImages(source = source, blurBucket = blurBucket)
+            val source = cached?.source ?: loadWallpaperBitmap(context, config, useDarkDefaultWallpaper)
+            HomeWallpaperImages(
+                source = source,
+                reducedSource = createReducedWallpaperBitmap(source),
+                blurredSource = createBlurredWallpaperBitmap(source, blurBucket),
+                blurBucket = blurBucket
+            )
         }
         synchronized(wallpaperCache) { wallpaperCache[cacheKey] = loaded }
-        value = loaded
+        images.value = loaded
     }
+    return images
 }
 
 fun bucketWallpaperBlur(blur: Float): Int {
@@ -280,7 +271,7 @@ fun bucketWallpaperBlur(blur: Float): Int {
 }
 
 @Composable
-fun waitForPrewarmFrames(onReady: () -> Unit) {
+fun WaitForPrewarmFrames(onReady: () -> Unit) {
     LaunchedEffect(Unit) {
         withFrameNanos { }
         withFrameNanos { }

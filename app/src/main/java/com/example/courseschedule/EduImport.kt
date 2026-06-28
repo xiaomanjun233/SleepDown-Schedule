@@ -66,9 +66,33 @@ fun EduAdapter.isGeneralEduTool(): Boolean {
     return school.id in setOf("zhengfang_jiaowu", "chaoxing_jiaowu", "qingguo_jiaowu", "urp_jiaowu")
 }
 
+fun EduAdapter.isAiEduImportTool(): Boolean {
+    return school.id == "AI_EDU_IMPORT" && adapterId == "AI_EDU_IMPORT"
+}
+
+fun EduAdapter.requiresManualEduUrl(): Boolean {
+    return isGeneralEduTool() || isAiEduImportTool()
+}
+
 fun EduAdapter.isEduTestTool(): Boolean {
     return school.id == "GLOBAL_TOOLS" && adapterId == "GENERAL_TOOL_01"
 }
+
+fun aiEduImportAdapter(): EduAdapter = EduAdapter(
+    school = EduSchool(
+        id = "AI_EDU_IMPORT",
+        name = "AI教务导入",
+        folder = "GLOBAL_TOOLS",
+        initial = "#"
+    ),
+    adapterId = "AI_EDU_IMPORT",
+    adapterName = "AI解析当前教务页面",
+    category = "AI_EDU",
+    assetJsPath = "",
+    importUrl = "",
+    maintainer = "SleepDown",
+    description = "打开学校教务系统课表页后，使用 AI 解析当前页面内容。"
+)
 
 private const val EduBridgeTestPageUrl = "file:///android_asset/shiguang_warehouse-main/resources/GLOBAL_TOOLS/test_page.html"
 
@@ -78,7 +102,7 @@ object ShiguangWarehouse {
 
     fun loadAdapters(context: Context): List<EduAdapter> {
         val schools = parseSchools(context.assets.open("$Root/index/root_index.yaml").bufferedReader().readText())
-        return schools.flatMap { school ->
+        val warehouseAdapters = schools.flatMap { school ->
             runCatching {
                 parseAdapters(
                     school = school,
@@ -89,6 +113,7 @@ object ShiguangWarehouse {
             if (adapter.isEduTestTool()) adapter.copy(importUrl = EduBridgeTestPageUrl) else adapter
         }.filter { it.assetJsPath.isNotBlank() && (it.importUrl.isNotBlank() || it.isGeneralEduTool()) }
             .sortedWith(compareBy<EduAdapter> { it.school.initial }.thenBy { it.school.name }.thenBy { it.adapterName })
+        return listOf(aiEduImportAdapter()) + warehouseAdapters
     }
 
     fun loadScript(context: Context, adapter: EduAdapter): String {
@@ -173,6 +198,10 @@ class EduImportBridge(
     private var configJson: String? = null
     private var coursesJson: String? = null
     private var timeSlotsJson: String? = null
+    @Volatile
+    private var taskCompletionCount: Int = 0
+
+    fun taskCompletionCount(): Int = taskCompletionCount
 
     @JavascriptInterface
     fun saveCourseConfig(json: String): Boolean {
@@ -194,11 +223,12 @@ class EduImportBridge(
 
     @JavascriptInterface
     fun notifyTaskCompletion() {
+        taskCompletionCount += 1
         val config = configJson
         val courses = coursesJson
         val slots = timeSlotsJson ?: "[]"
         if (courses == null) {
-            mainHandler.post { onMessage("导入脚本没有返回课程数据") }
+            mainHandler.post { onMessage("导入脚本没有返回课程数据，可以尝试 AI 兜底扒页。") }
             return
         }
         runCatching {

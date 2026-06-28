@@ -61,7 +61,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -81,6 +80,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -530,8 +530,9 @@ fun ScheduleCarouselCard(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val dark = appUsesDarkTheme(config)
-    val bitmap by produceState<Bitmap?>(initialValue = null, config.wallpaperUri, config.defaultWallpaperStyle, dark) {
-        value = withContext(Dispatchers.IO) { loadWallpaperBitmap(context, config, dark) }
+    var bitmap by remember(config.wallpaperUri, config.defaultWallpaperStyle, dark) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(config.wallpaperUri, config.defaultWallpaperStyle, dark) {
+        bitmap = withContext(Dispatchers.IO) { loadWallpaperBitmap(context, config, dark) }
     }
     val deleteVisible = deleteReveal > 0.05f
     val animatedPressOffset by animateDpAsState(
@@ -547,7 +548,7 @@ fun ScheduleCarouselCard(
     val shape = RoundedCornerShape(34.dp)
     Box(
         modifier = modifier
-            .offset(y = animatedPressOffset)
+            .offset { IntOffset(0, animatedPressOffset.roundToPx()) }
             .clip(shape)
             .background(Color(0xFF111111))
             .then(

@@ -1,15 +1,15 @@
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="AppThemeBase" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowBackground">#FFF2F2F7</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
-        <item name="android:enforceNavigationBarContrast">false</item>
     </style>
+
+    <style name="AppTheme" parent="@style/AppThemeBase" />
 
     <style name="WidgetCourseLargeText">
         <item name="android:layout_width">match_parent</item>

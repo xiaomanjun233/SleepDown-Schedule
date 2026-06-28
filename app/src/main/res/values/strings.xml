@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">SleepDown课程表</string>
     <string name="widget_today_courses_description">显示今天的课程安排</string>
+    <string name="widget_refresh_symbol">&#x21BB;</string>
 </resources>

@@ -44,7 +44,7 @@
             android:layout_height="34dp"
             android:background="@drawable/widget_refresh_background"
             android:gravity="center"
-            android:text="↻"
+            android:text="@string/widget_refresh_symbol"
             android:textColor="#FF0A84FF"
             android:textSize="18sp"
             android:textStyle="bold" />

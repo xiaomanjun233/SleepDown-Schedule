@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -19,7 +20,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
-        android:theme="@style/AppTheme">
+        android:theme="@style/AppTheme"
+        tools:targetApi="tiramisu">
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -48,6 +50,11 @@
             android:exported="false"
             android:theme="@style/AppTheme"
             android:parentActivityName=".EduSchoolSelectActivity" />
+        <activity
+            android:name=".AiEduImportProgressActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:parentActivityName=".EduImportActivity" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

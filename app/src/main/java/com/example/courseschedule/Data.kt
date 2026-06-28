@@ -503,18 +503,24 @@ private fun repairSQLiteDatabase(db: SQLiteDatabase) {
 }
 
 private fun sqliteTableExists(db: SQLiteDatabase, table: String): Boolean {
-    db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table)).use { cursor ->
+    val cursor = db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table))
+    try {
         return cursor.moveToFirst()
+    } finally {
+        cursor.close()
     }
 }
 
 private fun sqliteColumnExists(db: SQLiteDatabase, table: String, column: String): Boolean {
     if (!sqliteTableExists(db, table)) return false
-    db.rawQuery("PRAGMA table_info(`$table`)", null).use { cursor ->
+    val cursor = db.rawQuery("PRAGMA table_info(`$table`)", null)
+    try {
         val nameIndex = cursor.getColumnIndex("name")
         while (cursor.moveToNext()) {
             if (cursor.getString(nameIndex) == column) return true
         }
+    } finally {
+        cursor.close()
     }
     return false
 }
@@ -742,14 +748,18 @@ class ScheduleRepository(private val database: AppDatabase) {
 
     suspend fun updateCourseSingleWeek(original: CourseEntity, edited: CourseEntity, targetWeek: Int) {
         database.withTransaction {
+            val scheduleId = activeScheduleId()
             val remainingWeeks = original.weeks.filter { it != targetWeek }
             if (remainingWeeks.isEmpty()) {
                 courseDao.deleteCourse(original.id)
             } else {
-                courseDao.updateCourse(original.copy(weeks = remainingWeeks))
+                courseDao.updateCourse(original.copy(weeks = remainingWeeks, scheduleId = scheduleId))
             }
-            val scheduleId = activeScheduleId()
-            courseDao.insertCourse(normalizeCoursesForSchedule(listOf(edited.copy(id = 0, weeks = listOf(targetWeek))), scheduleId).single())
+            val singleWeekCourse = normalizeCoursesForSchedule(listOf(edited.copy(id = 0, weeks = listOf(targetWeek))), scheduleId).single()
+            courseDao.getCourses()
+                .filter { it.id != original.id && it.weeks.distinct() == listOf(targetWeek) && it.hasSameOccurrenceSlot(singleWeekCourse) }
+                .forEach { courseDao.deleteCourse(it.id) }
+            courseDao.insertCourse(singleWeekCourse)
         }
     }
 
@@ -917,12 +927,25 @@ class ScheduleRepository(private val database: AppDatabase) {
     }
 
     private fun normalizeCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int): List<CourseEntity> {
-        return courses.map { it.copy(scheduleId = scheduleId) }
+        return courses.map {
+            it.copy(
+                weekday = it.weekday.coerceIn(1, 7),
+                periods = it.periods.filter { period -> period > 0 }.distinct().sorted().ifEmpty { listOf(1) },
+                weeks = it.weeks.filter { week -> week > 0 }.distinct().sorted().ifEmpty { listOf(1) },
+                scheduleId = scheduleId
+            )
+        }
     }
 
     private fun normalizeImportedCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int): List<CourseEntity> {
         return normalizeCoursesForSchedule(courses, scheduleId).map { it.copy(id = 0) }
     }
+}
+
+private fun CourseEntity.hasSameOccurrenceSlot(other: CourseEntity): Boolean {
+    return weekday == other.weekday &&
+        periods.distinct().sorted() == other.periods.distinct().sorted() &&
+        name.trim() == other.name.trim()
 }
 
 private fun ScheduleConfigEntity.withGlobalSettingsFrom(global: ScheduleConfigEntity): ScheduleConfigEntity {

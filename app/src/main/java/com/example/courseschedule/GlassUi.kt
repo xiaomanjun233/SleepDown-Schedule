@@ -107,7 +107,8 @@ fun GlassSurface(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val useGlass = backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val glassBackdrop = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
+    val useGlass = glassBackdrop != null
     val quality = LocalGlassQuality.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -123,7 +124,7 @@ fun GlassSurface(
     val surfaceColor = if (selected) selectedColor else base.copy(alpha = clearAlpha)
     val contentModifier = if (useGlass) {
         modifier.drawBackdrop(
-            backdrop = backdrop!!,
+            backdrop = glassBackdrop,
             shape = { shape },
             effects = {
                 if (tokens.useVibrancy) vibrancy()
@@ -216,14 +217,15 @@ fun GlassLens(
     pressProgress: Float = 1f,
     content: @Composable () -> Unit = {}
 ) {
-    val useGlass = backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val glassBackdrop = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
+    val useGlass = glassBackdrop != null
     val quality = LocalGlassQuality.current
     val lightGlass = glassUsesLightStyle(config)
     val surfaceColor = if (lightGlass) Color.Black.copy(alpha = 0.07f * quality) else Color.White.copy(alpha = 0.08f * quality)
     val shape = RoundedCornerShape(50)
     val contentModifier = if (useGlass) {
         modifier.drawBackdrop(
-            backdrop = backdrop!!,
+            backdrop = glassBackdrop,
             shape = { shape },
             effects = {
                 vibrancy()
@@ -287,7 +289,8 @@ fun CourseGlassCard(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val useGlass = config.courseCardGlassEnabled && backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val glassBackdrop = if (config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
+    val useGlass = glassBackdrop != null
     val quality = LocalGlassQuality.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -298,7 +301,7 @@ fun CourseGlassCard(
     val lightGlass = glassUsesLightStyle(config)
     val glassModifier = if (useGlass) {
         modifier.drawBackdrop(
-            backdrop = backdrop!!,
+            backdrop = glassBackdrop,
             shape = { shape },
             effects = {
                 if (tokens.useVibrancy) vibrancy()

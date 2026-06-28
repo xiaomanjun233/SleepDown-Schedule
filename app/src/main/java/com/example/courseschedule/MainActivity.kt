@@ -28,13 +28,13 @@ import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
+import android.view.HapticFeedbackConstants
 import android.view.WindowInsetsController
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
 import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
-import androidx.browser.customtabs.CustomTabsIntent
 import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
@@ -60,10 +60,12 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -158,7 +160,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -171,12 +172,11 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.draw.BlurredEdgeTreatment
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.TransformOrigin
@@ -207,10 +207,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.palette.graphics.Palette
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.core.content.ContextCompat
+import org.json.JSONArray
+import org.json.JSONObject
 import com.kyant.backdrop.catalog.components.LiquidBottomTab
 import com.kyant.backdrop.catalog.components.LiquidBottomTabs
 import com.kyant.backdrop.catalog.components.LiquidButton
@@ -300,8 +304,7 @@ fun CourseScheduleTheme(config: ScheduleConfigEntity = defaultConfig(), content:
     val view = LocalView.current
     LaunchedEffect(darkTheme, view) {
         val window = (view.context as? ComponentActivity)?.window ?: return@LaunchedEffect
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
-        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        window.makeSystemBarsTransparent()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
         }
@@ -310,7 +313,7 @@ fun CourseScheduleTheme(config: ScheduleConfigEntity = defaultConfig(), content:
                 if (darkTheme) 0 else WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
                 WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
             )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        } else {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = if (darkTheme) 0 else android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
@@ -353,6 +356,16 @@ fun CourseScheduleTheme(config: ScheduleConfigEntity = defaultConfig(), content:
     ) {
         Surface(modifier = Modifier.fillMaxSize(), content = content)
     }
+}
+
+@Suppress("DEPRECATION")
+private fun android.view.Window.makeSystemBarsTransparent() {
+    statusBarColor = android.graphics.Color.TRANSPARENT
+    navigationBarColor = android.graphics.Color.TRANSPARENT
+}
+
+private fun performButtonHaptic(view: android.view.View) {
+    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
 }
 
 class ScheduleViewModel(private val app: Application, private val repository: ScheduleRepository) : AndroidViewModel(app) {
@@ -488,7 +501,7 @@ sealed interface Screen {
 
 enum class HomeMode { Day, Week }
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, Schedule, Notifications, ScheduleManager, About, Changelog, Download, Donate }
+enum class SettingsPage { Root, General, AiImport, Schedule, Notifications, ScheduleManager, About, Changelog, Download, Donate }
 sealed interface EduImportPage {
     data object SelectSchool : EduImportPage
     data class Import(val adapter: EduAdapter) : EduImportPage
@@ -500,6 +513,7 @@ private const val EduAdapterExtra = "edu_adapter"
 private fun SettingsPage.title(): String = when (this) {
     SettingsPage.Root -> "设置"
     SettingsPage.General -> "通用设置"
+    SettingsPage.AiImport -> "AI 导入设置"
     SettingsPage.Schedule -> "课表设置"
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
@@ -515,17 +529,27 @@ private val DockScrollPadding = 132.dp
 private val HomeHeaderGlassBlur = 2.dp
 private val HomeHeaderGlassLensHeight = 12.dp
 private val HomeHeaderGlassLensAmount = 24.dp
-private const val HomeHeaderGlassSurfaceAlpha = 0.15f
+private const val HomeHeaderGlassSurfaceAlpha = 0.45f
 private const val HomeHeaderGlassHighlightAlpha = 0.07f
 private const val HomeHeaderGlassShadowAlpha = 0.05f
+private const val HomeHeaderGlassOuterShadowAlpha = 0.018f
 private const val HomeHeaderGlassInnerShadowAlpha = 0.08f
+private const val AddMenuMorphDurationMillis = 190
+private const val AddMenuCloseSettleMillis = 36
 
-private fun homeHeaderGlassTokens(): GlassTokens = GlassTokens.pill(intensity = 0.95f)
+private enum class AddMenuPhase {
+    Idle,
+    Opening,
+    Open,
+    Closing
+}
+
+private fun homeHeaderGlassTokens(): GlassTokens = GlassTokens.pill(intensity = 0.95f).copy(surfaceAlpha = 0.20f)
 
 sealed interface HomeDialog {
     data object ImportSchedule : HomeDialog
     data object EduImport : HomeDialog
-    data class ConfirmImport(val draft: ImportDraft) : HomeDialog
+    data class ConfirmImport(val draft: ImportDraft, val returnDialog: HomeDialog = ImportSchedule) : HomeDialog
     data class EditWallpaper(val uri: Uri) : HomeDialog
     data object SampleWallpaperColor : HomeDialog
     data class EditCourse(val course: CourseEntity?, val targetWeek: Int? = null) : HomeDialog
@@ -553,6 +577,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var homeDialogVisible by remember { mutableStateOf(false) }
     var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var courseEditorRenderedCourseId by remember { mutableStateOf<Long?>(null) }
+    var courseEditorOverlayPhase by remember { mutableStateOf(CourseEditorOverlayPhase.Idle) }
     fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?) {
         courseEditorRequest = CourseEditorOverlayRequest(course, targetWeek, sourceBounds)
     }
@@ -575,18 +600,41 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     }
     var addMenuExpanded by remember { mutableStateOf(false) }
     var renderAddMenu by remember { mutableStateOf(false) }
+    var addMenuPhase by remember { mutableStateOf(AddMenuPhase.Idle) }
     var addButtonBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var showScheduleEntryPill by remember { mutableStateOf(false) }
-    val editingCourseId: Long? = courseEditorRenderedCourseId
+    val editingCourseId: Long? = courseEditorRequest?.course?.id ?: courseEditorRenderedCourseId
     LaunchedEffect(addMenuExpanded) {
         if (addMenuExpanded) {
             renderAddMenu = true
+            addMenuPhase = AddMenuPhase.Opening
+            withFrameNanos { }
+            addMenuPhase = AddMenuPhase.Open
         } else if (renderAddMenu) {
-            delay(210)
+            addMenuPhase = AddMenuPhase.Closing
+            delay(AddMenuMorphDurationMillis.toLong())
+            withFrameNanos { }
+            addMenuPhase = AddMenuPhase.Idle
+            delay((AddMenuCloseSettleMillis + 130).toLong())
             renderAddMenu = false
+        } else {
+            addMenuPhase = AddMenuPhase.Idle
         }
     }
     var showPersonalizePanel by remember { mutableStateOf(false) }
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.roundToPx() }
+    val personalizePanelOffscreenMarginPx = with(density) { 24.dp.roundToPx() }
+    var personalizePanelHeightPx by remember { mutableIntStateOf(0) }
+    val personalizePanelOffscreenOffsetY = remember(
+        screenHeightPx,
+        personalizePanelHeightPx,
+        personalizePanelOffscreenMarginPx
+    ) {
+        val panelHeight = personalizePanelHeightPx.takeIf { it > 0 } ?: screenHeightPx
+        -(screenHeightPx / 2 + panelHeight / 2 + personalizePanelOffscreenMarginPx)
+    }
     var homeContentUnderTopBar by remember { mutableStateOf(false) }
     val adaptiveWeekCardHeight = if (state.periods.size >= 10) 72f else 80f
     var weekCardHeight by remember(state.periods.size, state.config.weekCardHeightDp) { mutableFloatStateOf(state.config.weekCardHeightDp ?: adaptiveWeekCardHeight) }
@@ -613,7 +661,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         }
     }
     if (startupAnimationsEnabled && startupPhase == StartupPhase.Prewarm) {
-        waitForPrewarmFrames { startupPhase = StartupPhase.Reveal }
+        WaitForPrewarmFrames { startupPhase = StartupPhase.Reveal }
     }
     LaunchedEffect(startupPhase, startupAnimationsEnabled) {
         if (!startupAnimationsEnabled) {
@@ -649,11 +697,16 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         adaptiveLightHint = sampledAdaptiveGlass.lightGlass
     }
     val adaptiveGlassState = if (adaptiveSamplerEnabled) sampledAdaptiveGlass else fallbackAdaptiveGlass
-    val startupAnimation = when (startupPhase) {
-        StartupPhase.Reveal -> "StartupReveal"
-        StartupPhase.Entrance -> "HomeFlyInEntrance"
-        StartupPhase.Settle -> "HomeFlyInEntrance"
-        else -> if (homeDialogVisible) "DialogOpen" else "Idle"
+    val startupAnimation = when {
+        courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing -> "CourseEditorPrepare"
+        courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening -> "CourseEditorOpen"
+        courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Disposing -> "CourseEditorClose"
+        startupPhase == StartupPhase.Reveal -> "StartupReveal"
+        startupPhase == StartupPhase.Entrance -> "HomeFlyInEntrance"
+        startupPhase == StartupPhase.Settle -> "HomeFlyInEntrance"
+        homeDialogVisible -> "DialogOpen"
+        else -> "Idle"
     }
     val startupEntranceSpec = rememberStartupEntranceSpec(
         phase = startupPhase,
@@ -666,11 +719,26 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             startupPhase == StartupPhase.Settle ||
             homeDialogVisible
     )
+    PerformanceAnimationState(startupAnimation, startupAnimation != "Idle")
     StartupJankStats(
         phase = startupPhase,
         screen = if (screen is Screen.Home) "Home" else if (screen is Screen.Config) "Settings" else "Other",
         animation = startupAnimation
     )
+    val reduceWallpaperQualityForCourseEditor =
+        courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Disposing
+    val courseEditorBackdrop =
+        if (
+            reduceWallpaperQualityForCourseEditor ||
+            (courseEditorRequest != null && courseEditorOverlayPhase != CourseEditorOverlayPhase.Open)
+        ) {
+            backgroundBackdrop
+        } else {
+            chromeBackdrop
+        }
 
     // Startup splash with circular reveal
     val systemDark = isSystemInDarkTheme()
@@ -734,7 +802,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     BackHandler(enabled = showPersonalizePanel) {
         showPersonalizePanel = false
     }
-    BackHandler(enabled = addMenuExpanded) {
+    BackHandler(enabled = addMenuExpanded || renderAddMenu) {
         addMenuExpanded = false
     }
 
@@ -774,49 +842,62 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     phase = startupPhase,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(if (screen is Screen.Home) HomeTopOverlayHeight else HomeInitialTopInset)
+                        .height(rootTopBarLayoutHeight(screen))
                 ) {
-                    if (screen is Screen.Home) {
+                    if (screen is Screen.Home || screen is Screen.Config) {
                         AnimatedVisibility(
-                            visible = homeContentUnderTopBar,
-                            modifier = Modifier.align(Alignment.TopCenter),
+                            visible = screen is Screen.Config || homeContentUnderTopBar,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .zIndex(10f),
                             enter = fadeIn(animationSpec = spring(dampingRatio = 0.9f, stiffness = 520f)),
                             exit = fadeOut(animationSpec = spring(dampingRatio = 0.95f, stiffness = 560f))
                         ) {
                             HomeTopGradientBlur(
-                                config = state.config,
-                                backdrop = chromeBackdrop,
+                                config = if (screen is Screen.Config) settingsVisualConfig(state.config) else state.config,
+                                backdrop = if (screen is Screen.Config) contentBackdrop else chromeBackdrop,
+                                height = rootTopGradientHeight(screen),
                                 modifier = Modifier
                             )
                         }
                     }
-                    AppTopBar(
-                        screen = screen,
-                        state = state,
-                        settingsPage = SettingsPage.Root,
-                        eduImportPage = EduImportPage.SelectSchool,
-                        backdrop = chromeBackdrop,
-                        homeMode = homeMode,
-                        onHomeModeChange = { homeMode = it },
-                        homeDisplayDate = homeDisplayDate,
-                        homeDisplayWeek = homeTitleWeek,
-                        onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
-                        addMenuExpanded = addMenuExpanded,
-                        onAddButtonPositioned = { addButtonBounds = it },
-                        addMenuRendering = renderAddMenu,
-                        onToggleAddMenu = {
-                            val next = !addMenuExpanded
-                            addMenuExpanded = next
-                            if (next) showPersonalizePanel = false
-                        },
-                        showPersonalize = showPersonalizePanel,
-                        onTogglePersonalize = {
-                            val next = !showPersonalizePanel
-                            showPersonalizePanel = next
-                            if (next) addMenuExpanded = false
-                        },
-                        onBackHome = { screen = Screen.Home }
-                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .zIndex(11f)
+                    ) {
+                        AppTopBar(
+                            screen = screen,
+                            state = state,
+                            settingsPage = SettingsPage.Root,
+                            eduImportPage = EduImportPage.SelectSchool,
+                            backdrop = chromeBackdrop,
+                            homeMode = homeMode,
+                            onHomeModeChange = { homeMode = it },
+                            homeDisplayDate = homeDisplayDate,
+                            homeDisplayWeek = homeTitleWeek,
+                            onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
+                            addMenuExpanded = addMenuExpanded,
+                            onAddButtonPositioned = { addButtonBounds = it },
+                            addMenuRendering = renderAddMenu && addMenuPhase != AddMenuPhase.Idle,
+                            onToggleAddMenu = {
+                                val next = !addMenuExpanded
+                                if (next) {
+                                    renderAddMenu = true
+                                    addMenuPhase = AddMenuPhase.Opening
+                                }
+                                addMenuExpanded = next
+                                if (next) showPersonalizePanel = false
+                            },
+                            showPersonalize = showPersonalizePanel,
+                            onTogglePersonalize = {
+                                val next = !showPersonalizePanel
+                                showPersonalizePanel = next
+                                if (next) addMenuExpanded = false
+                            },
+                            onBackHome = { screen = Screen.Home }
+                        )
+                    }
                 }
             }
         ) { padding ->
@@ -833,7 +914,12 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         if (!state.loaded) {
                             HomeWallpaperLoadingMask(state.config)
                         } else {
-                            HomeWallpaper(state.config, wallpaperImages, startupPhase)
+                            HomeWallpaper(
+                                state.config,
+                                wallpaperImages,
+                                startupPhase,
+                                reduceQuality = reduceWallpaperQualityForCourseEditor
+                            )
                             if (state.config.hasAnyWallpaper() && wallpaperImages.source == null) {
                                 HomeWallpaperLoadingMask(state.config)
                             } else if (!state.config.hasAnyWallpaper()) {
@@ -875,7 +961,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     }
                                 )
                             }
-                            Screen.Config -> Box(Modifier.fillMaxSize().padding(padding)) {
+                            Screen.Config -> Box(Modifier.fillMaxSize()) {
                                 SettingsScreen(
                                         page = SettingsPage.Root,
                                         state = state,
@@ -913,7 +999,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 }
             if (screen is Screen.Home && renderAddMenu) {
                 AnimatedVisibility(
-                    visible = addMenuExpanded,
+                    visible = addMenuPhase == AddMenuPhase.Open,
                     enter = fadeIn(animationSpec = tween(durationMillis = 120)),
                     exit = fadeOut(animationSpec = tween(durationMillis = 140)),
                     modifier = Modifier.fillMaxSize().zIndex(23f)
@@ -937,7 +1023,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     LiquidAddMenu(
                         backdrop = chromeBackdrop,
                         config = state.config,
-                        expanded = addMenuExpanded,
+                        expanded = addMenuPhase == AddMenuPhase.Open,
                         anchorBounds = addButtonBounds,
                         actions = listOf(
                             AddMenuAction(R.drawable.ic_add_course, "\u6DFB\u52A0\u5355\u8282\u8BFE") { addMenuExpanded = false; homeDialog = HomeDialog.EditCourse(null) },
@@ -1007,8 +1093,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             if (screen is Screen.Home) {
                 AnimatedVisibility(
                     visible = showPersonalizePanel,
-                    enter = popEnterTransition(),
-                    exit = popExitTransition(),
+                    enter = personalizePanelEnterTransition(personalizePanelOffscreenOffsetY),
+                    exit = personalizePanelExitTransition(personalizePanelOffscreenOffsetY),
                     modifier = Modifier.fillMaxSize().zIndex(19f)
                 ) {
                     Box(
@@ -1022,7 +1108,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     )
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         PersonalizePanel(
-                            modifier = Modifier,
+                            modifier = Modifier.onSizeChanged { personalizePanelHeightPx = it.height },
                             state = state,
                             backdrop = chromeBackdrop,
                             mode = homeMode,
@@ -1053,7 +1139,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     CourseEditorContainerOverlayHost(
         request = courseEditorRequest,
         state = state,
-        backdrop = chromeBackdrop,
+        backdrop = courseEditorBackdrop,
         config = state.config,
         modifier = Modifier.zIndex(100f),
         onDismissRequest = { closeCourseEditor() },
@@ -1070,7 +1156,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             closeCourseEditor()
             homeDialog = HomeDialog.ApplyCourseDelete(course, targetWeek ?: effectiveCurrentWeek(state.config))
         },
-        onRenderedCourseIdChange = { courseEditorRenderedCourseId = it }
+        onRenderedCourseIdChange = { courseEditorRenderedCourseId = it },
+        onPhaseChange = { courseEditorOverlayPhase = it }
     )
 
     // Dialog-based dialogs for all other types (including EditCourse without a source card)
@@ -1122,7 +1209,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     )
                     is HomeDialog.ConfirmImport -> ConfirmScheduleScreen(
                         draft = dialog.draft,
-                        onCancel = { homeDialog = HomeDialog.ImportSchedule },
+                        onCancel = { homeDialog = dialog.returnDialog },
                         onConfirm = { createNewSchedule -> viewModel.importDraft(dialog.draft, createNewSchedule) { dismissHomeDialog() } }
                     )
                     HomeDialog.SampleWallpaperColor -> WallpaperColorSamplerScreen(
@@ -1209,6 +1296,31 @@ private val DetailTopBarHeight = 58.dp
 private val DetailTopOverlayExtra = 74.dp
 private val DetailContentTopGap = 44.dp
 private val HomeInitialTopInset = 122.dp
+
+@Composable
+private fun rootTopBarLayoutHeight(screen: Screen): Dp {
+    return when (screen) {
+        Screen.Home -> HomeTopOverlayHeight
+        Screen.Config -> detailTopOverlayHeight()
+        else -> HomeInitialTopInset
+    }
+}
+
+@Composable
+private fun detailTopOverlayHeight(): Dp {
+    val density = LocalDensity.current
+    val statusTop = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
+    return statusTop + DetailTopBarHeight + DetailTopOverlayExtra
+}
+
+@Composable
+private fun rootTopGradientHeight(screen: Screen): Dp {
+    return when (screen) {
+        Screen.Home -> HomeTopOverlayHeight
+        Screen.Config -> detailTopOverlayHeight()
+        else -> HomeInitialTopInset
+    }
+}
 
 @Composable
 private fun detailContentTopPadding(): Dp {
@@ -1335,10 +1447,7 @@ fun DetailActivityScaffold(
     val backgroundBackdrop = rememberLayerBackdrop()
     val contentBackdrop = rememberLayerBackdrop()
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
-    val density = LocalDensity.current
-    val statusTop = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
-    val topBarBottom = statusTop + DetailTopBarHeight
-    val overlayHeight = topBarBottom + DetailTopOverlayExtra
+    val overlayHeight = detailTopOverlayHeight()
     val logRecording by DiagnosticLogCapture.recording.collectAsState()
     Box(Modifier.fillMaxSize().background(settingsPageBackground(pageConfig))) {
         Box(
@@ -1363,15 +1472,18 @@ fun DetailActivityScaffold(
         if (showTopGradientBlur) {
             HomeTopGradientBlur(
                 config = pageConfig,
-                backdrop = chromeBackdrop,
+                backdrop = contentBackdrop,
                 height = overlayHeight,
-                modifier = Modifier.align(Alignment.TopCenter)
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .zIndex(10f)
             )
         }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
+                .zIndex(11f)
         ) {
             DetailTopBar(title = title, config = pageConfig, backdrop = chromeBackdrop, onBack = onBack)
         }
@@ -1549,6 +1661,7 @@ fun AppTopBar(
 ) {
     val adaptiveTopBarColor = LocalAdaptiveGlass.current.contentColor
     val homeTextColor = adaptiveTopBarColor
+    val view = LocalView.current
     TopAppBar(
         modifier = Modifier.statusBarsPadding().height(66.dp),
         colors = TopAppBarDefaults.topAppBarColors(
@@ -1579,6 +1692,7 @@ fun AppTopBar(
                             Screen.Config -> when (settingsPage) {
                                 SettingsPage.Root -> "设置"
                                 SettingsPage.General -> "通用设置"
+                                SettingsPage.AiImport -> "AI 导入设置"
                                 SettingsPage.Schedule -> "课表设置"
                                 SettingsPage.Notifications -> "通知设置"
                                 SettingsPage.ScheduleManager -> "课表设置"
@@ -1611,8 +1725,28 @@ fun AppTopBar(
                     modifier = Modifier.padding(top = 2.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    HomeIconButton(backdrop, state.config, R.drawable.ic_tune, "个性化", selected = showPersonalize, onClick = onTogglePersonalize)
-                    HomeAddButton(backdrop, state.config, addMenuExpanded, addMenuRendering, onAddButtonPositioned, onToggleAddMenu)
+                    HomeIconButton(
+                        backdrop,
+                        state.config,
+                        R.drawable.ic_tune,
+                        "个性化",
+                        selected = showPersonalize,
+                        onClick = {
+                            performButtonHaptic(view)
+                            onTogglePersonalize()
+                        }
+                    )
+                    HomeAddButton(
+                        backdrop,
+                        state.config,
+                        addMenuExpanded,
+                        addMenuRendering,
+                        onAddButtonPositioned,
+                        onClick = {
+                            performButtonHaptic(view)
+                            onToggleAddMenu()
+                        }
+                    )
                     HomeModeSwitch(backdrop, state.config, homeMode, onHomeModeChange)
                 }
             }
@@ -1652,8 +1786,8 @@ fun HomeAddButton(
             contentDescription = "添加",
             selected = expanded,
             accentColor = ComposeColor(0xFF0A84FF),
-            modifier = Modifier.onGloballyPositioned { onPositioned(it.boundsInRoot()) },
-            onClick = onClick
+            onClick = onClick,
+            onButtonPositioned = onPositioned
         )
     }
 }
@@ -1678,6 +1812,50 @@ private fun popEnterTransition(): EnterTransition =
 private fun popExitTransition(): ExitTransition =
     fadeOut(animationSpec = spring(dampingRatio = 0.92f, stiffness = 560f)) +
         scaleOut(targetScale = 0.94f, animationSpec = spring(dampingRatio = 0.82f, stiffness = 560f))
+
+private fun personalizePanelEnterTransition(offscreenOffsetY: Int): EnterTransition {
+    val flowEase = CubicBezierEasing(0.18f, 0.82f, 0.24f, 1f)
+    return fadeIn(animationSpec = tween(durationMillis = 190, easing = flowEase)) +
+        expandIn(
+            expandFrom = Alignment.TopCenter,
+            initialSize = ::personalizePanelCollapsedSize,
+            animationSpec = tween(durationMillis = 300, easing = flowEase)
+        ) +
+        scaleIn(
+            initialScale = 0.02f,
+            transformOrigin = TransformOrigin(0.5f, 0.02f),
+            animationSpec = tween(durationMillis = 300, easing = flowEase)
+        ) +
+        slideInVertically(
+            initialOffsetY = { offscreenOffsetY },
+            animationSpec = tween(durationMillis = 300, easing = flowEase)
+        )
+}
+
+private fun personalizePanelExitTransition(offscreenOffsetY: Int): ExitTransition {
+    val ease = CubicBezierEasing(0.76f, 0f, 0.82f, 0.18f)
+    return fadeOut(animationSpec = tween(durationMillis = 260, easing = ease)) +
+        shrinkOut(
+            shrinkTowards = Alignment.TopCenter,
+            targetSize = ::personalizePanelCollapsedSize,
+            animationSpec = tween(durationMillis = 260, easing = ease)
+        ) +
+        scaleOut(
+            targetScale = 0.02f,
+            transformOrigin = TransformOrigin(0.5f, 0.02f),
+            animationSpec = tween(durationMillis = 260, easing = ease)
+        ) +
+        slideOutVertically(
+            targetOffsetY = { offscreenOffsetY },
+            animationSpec = tween(durationMillis = 260, easing = ease)
+        )
+}
+
+private fun personalizePanelCollapsedSize(fullSize: IntSize): IntSize =
+    IntSize(
+        width = (fullSize.width * 0.075f).roundToInt().coerceAtLeast(1),
+        height = (fullSize.height * 0.012f).roundToInt().coerceAtLeast(1)
+    )
 
 private fun courseEditEnterTransition(): EnterTransition =
     fadeIn(animationSpec = spring(dampingRatio = 0.86f, stiffness = 620f)) +
@@ -1728,6 +1906,7 @@ fun TopBackButton(backdrop: Backdrop?, config: ScheduleConfigEntity, onClick: ()
             onClick = onClick,
             backdrop = backdrop,
             modifier = modifier,
+            height = 42.dp,
             surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.26f) else ComposeColor(0xFF121212).copy(alpha = 0.28f),
             contentPadding = PaddingValues(0.dp),
             blurRadius = 10.dp,
@@ -1762,7 +1941,8 @@ fun HomeIconButton(
     selected: Boolean,
     accentColor: ComposeColor = ComposeColor.Unspecified,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onButtonPositioned: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null
 ) {
     val adaptiveGlass = LocalAdaptiveGlass.current
     val lightGlass = adaptiveGlass.lightGlass
@@ -1776,7 +1956,17 @@ fun HomeIconButton(
         LiquidButton(
             onClick = onClick,
             backdrop = backdrop,
-            modifier = modifier.padding(end = 7.dp).size(42.dp),
+            modifier = modifier
+                .padding(end = 7.dp)
+                .size(42.dp)
+                .then(
+                    if (onButtonPositioned != null) {
+                        Modifier.onGloballyPositioned { onButtonPositioned(it.boundsInRoot()) }
+                    } else {
+                        Modifier
+                    }
+                ),
+            height = 42.dp,
             tint = if (accentColor.isSpecified) accentColor else ComposeColor.Unspecified,
             surfaceColor = buttonSurfaceColor,
             contentPadding = PaddingValues(0.dp),
@@ -1798,7 +1988,16 @@ fun HomeIconButton(
         GlassPill(
             backdrop = null,
             config = config,
-            modifier = modifier.padding(end = 7.dp).size(42.dp),
+            modifier = modifier
+                .padding(end = 7.dp)
+                .size(42.dp)
+                .then(
+                    if (onButtonPositioned != null) {
+                        Modifier.onGloballyPositioned { onButtonPositioned(it.boundsInRoot()) }
+                    } else {
+                        Modifier
+                    }
+                ),
             selected = selected,
             onClick = onClick
         ) {
@@ -1875,21 +2074,25 @@ fun MorphingLiquidAddMenu(
     val transition = androidx.compose.animation.core.updateTransition(animatedExpanded, label = "morph-add-menu")
     val addMenuEase = remember { CubicBezierEasing(0.16f, 1f, 0.30f, 1f) }
     val addMenuSettleEase = remember { CubicBezierEasing(0.22f, 1f, 0.36f, 1f) }
+    val itemHeight = 48.dp
+    val itemSpacing = 4.dp
+    val menuPadding = 8.dp
+    val expandedHeight = menuPadding * 2 + itemHeight * actions.size + itemSpacing * (actions.size - 1).coerceAtLeast(0)
     val sinkOffset by transition.animateDp(
         transitionSpec = {
             if (targetState) {
                 keyframes {
-                    durationMillis = 190
+                    durationMillis = AddMenuMorphDurationMillis
                     0.dp at 0
                     49.dp at 150 using addMenuEase
-                    46.dp at 190 using addMenuSettleEase
+                    46.dp at AddMenuMorphDurationMillis using addMenuSettleEase
                 }
             } else {
                 keyframes {
-                    durationMillis = 190
+                    durationMillis = AddMenuMorphDurationMillis
                     46.dp at 0
                     (-3).dp at 150 using addMenuEase
-                    0.dp at 190 using addMenuSettleEase
+                    0.dp at AddMenuMorphDurationMillis using addMenuSettleEase
                 }
             }
         },
@@ -1899,18 +2102,18 @@ fun MorphingLiquidAddMenu(
         transitionSpec = {
             if (targetState) {
                 keyframes {
-                    durationMillis = 190
+                    durationMillis = AddMenuMorphDurationMillis
                     42.dp at 0
                     42.dp at 42
                     212.dp at 150 using addMenuEase
-                    202.dp at 190 using addMenuSettleEase
+                    202.dp at AddMenuMorphDurationMillis using addMenuSettleEase
                 }
             } else {
                 keyframes {
-                    durationMillis = 190
+                    durationMillis = AddMenuMorphDurationMillis
                     202.dp at 0
                     38.dp at 150 using addMenuEase
-                    42.dp at 190 using addMenuSettleEase
+                    42.dp at AddMenuMorphDurationMillis using addMenuSettleEase
                 }
             }
         },
@@ -1920,38 +2123,38 @@ fun MorphingLiquidAddMenu(
         transitionSpec = {
             if (targetState) {
                 keyframes {
-                    durationMillis = 190
+                    durationMillis = AddMenuMorphDurationMillis
                     42.dp at 0
                     42.dp at 42
-                    168.dp at 150 using addMenuEase
-                    160.dp at 190 using addMenuSettleEase
+                    (expandedHeight + 8.dp) at 150 using addMenuEase
+                    expandedHeight at AddMenuMorphDurationMillis using addMenuSettleEase
                 }
             } else {
                 keyframes {
-                    durationMillis = 190
-                    160.dp at 0
+                    durationMillis = AddMenuMorphDurationMillis
+                    expandedHeight at 0
                     38.dp at 150 using addMenuEase
-                    42.dp at 190 using addMenuSettleEase
+                    42.dp at AddMenuMorphDurationMillis using addMenuSettleEase
                 }
             }
         },
         label = "add-menu-height"
-    ) { if (it) 160.dp else 42.dp }
+    ) { if (it) expandedHeight else 42.dp }
     val radius by transition.animateDp(
         transitionSpec = {
             if (targetState) {
                 keyframes {
-                    durationMillis = 190
+                    durationMillis = AddMenuMorphDurationMillis
                     50.dp at 0
                     24.dp at 150 using addMenuEase
-                    26.dp at 190 using addMenuSettleEase
+                    26.dp at AddMenuMorphDurationMillis using addMenuSettleEase
                 }
             } else {
                 keyframes {
-                    durationMillis = 190
+                    durationMillis = AddMenuMorphDurationMillis
                     26.dp at 0
                     52.dp at 150 using addMenuEase
-                    50.dp at 190 using addMenuSettleEase
+                    50.dp at AddMenuMorphDurationMillis using addMenuSettleEase
                 }
             }
         },
@@ -1979,22 +2182,22 @@ fun MorphingLiquidAddMenu(
     val dynamicBlur by transition.animateDp(
         transitionSpec = { tween(durationMillis = 175, easing = addMenuEase) },
         label = "add-menu-blur"
-    ) { if (it) 14.dp else 5.dp }
+    ) { if (it) 14.dp else 3.dp }
     val menuReboundScale by transition.animateFloat(
         transitionSpec = {
             if (targetState) {
                 keyframes {
-                    durationMillis = 190
+                    durationMillis = AddMenuMorphDurationMillis
                     1f at 0
                     1.018f at 150 using addMenuEase
-                    1f at 190 using addMenuSettleEase
+                    1f at AddMenuMorphDurationMillis using addMenuSettleEase
                 }
             } else {
                 keyframes {
-                    durationMillis = 190
+                    durationMillis = AddMenuMorphDurationMillis
                     1f at 0
                     0.985f at 150 using addMenuEase
-                    1f at 190 using addMenuSettleEase
+                    1f at AddMenuMorphDurationMillis using addMenuSettleEase
                 }
             }
         },
@@ -2007,15 +2210,19 @@ fun MorphingLiquidAddMenu(
         animationSpec = spring(dampingRatio = 0.72f, stiffness = 360f),
         label = "morph-add-menu-press"
     )
-    val itemHeight = 48.dp
-    val itemSpacing = 4.dp
-    val menuPadding = 8.dp
     val density = LocalDensity.current
     val itemHeightPx = with(density) { itemHeight.toPx() }
     val itemStepPx = with(density) { (itemHeight + itemSpacing).toPx() }
     val menuPaddingPx = with(density) { menuPadding.toPx() }
     val lightGlass = glassUsesLightStyle(config)
     val textColor = glassForegroundColor(config)
+    val expansionProgress = contentAlpha.coerceIn(0f, 1f)
+    val closedTintColor = ComposeColor(0xFF0A84FF)
+    val closedSurfaceColor = closedTintColor.copy(alpha = if (lightGlass) 0.20f else 0.24f)
+    val expandedSurfaceColor = (if (lightGlass) ComposeColor.White else ComposeColor(0xFF050505))
+        .copy(alpha = if (lightGlass) 0.16f else 0.26f)
+    val closedBackdropAlpha = 1f - expansionProgress
+    val expandedBackdropAlpha = expansionProgress
     fun hitIndex(y: Float): Int {
         val localY = y - menuPaddingPx
         if (localY < 0f || contentAlpha < 0.6f) return -1
@@ -2062,7 +2269,7 @@ fun MorphingLiquidAddMenu(
     }
     val containerModifier = modifier
         .offset { anchorOffset }
-        .offset(y = sinkOffset)
+        .offset { IntOffset(0, sinkOffset.roundToPx()) }
         .graphicsLayer {
             scaleX = menuReboundScale
             scaleY = menuReboundScale
@@ -2082,22 +2289,44 @@ fun MorphingLiquidAddMenu(
                     blur(((dynamicBlur * 0.65f) + 3.dp * pressProgress).toPx())
                     lens(
                         (12.dp + 6.dp * contentAlpha + 4.dp * pressProgress).toPx(),
-                        (22.dp + 8.dp * contentAlpha + 6.dp * pressProgress).toPx(),
+                        (HomeHeaderGlassLensAmount + 6.dp * contentAlpha + 6.dp * pressProgress).toPx(),
                         depthEffect = true,
                         chromaticAberration = false
                     )
                 },
-                highlight = { Highlight.Default.copy(alpha = 0.04f + 0.08f * pressProgress) },
-                shadow = { Shadow(alpha = (if (lightGlass) 0.10f else 0.18f) + 0.08f * pressProgress) },
-                innerShadow = { InnerShadow(radius = 8.dp + 3.dp * contentAlpha, alpha = 0.10f + 0.08f * pressProgress) },
+                highlight = {
+                    Highlight.Default.copy(
+                        alpha = HomeHeaderGlassHighlightAlpha * closedBackdropAlpha +
+                            0.04f * expandedBackdropAlpha +
+                            0.08f * pressProgress
+                    )
+                },
+                shadow = {
+                    Shadow(
+                        alpha = HomeHeaderGlassShadowAlpha * closedBackdropAlpha +
+                            (if (lightGlass) 0.10f else 0.18f) * expandedBackdropAlpha +
+                            0.08f * pressProgress
+                    )
+                },
+                innerShadow = {
+                    InnerShadow(
+                        radius = 8.dp + 3.dp * contentAlpha,
+                        alpha = HomeHeaderGlassInnerShadowAlpha * closedBackdropAlpha +
+                            0.10f * expandedBackdropAlpha +
+                            0.08f * pressProgress
+                    )
+                },
                 layerBlock = {
                     val scale = 1f + 0.016f * pressProgress
                     scaleX = scale
                     scaleY = scale
                 },
                 onDrawSurface = {
-                    drawRect((if (lightGlass) ComposeColor.White else ComposeColor(0xFF050505)).copy(alpha = if (lightGlass) 0.16f else 0.26f))
-                    drawRect(ComposeColor.Black.copy(alpha = if (lightGlass) 0.018f else 0.055f))
+                    drawRect(closedTintColor.copy(alpha = 0.18f * closedBackdropAlpha), blendMode = BlendMode.Hue)
+                    drawRect(closedTintColor.copy(alpha = 0.22f * closedBackdropAlpha))
+                    drawRect(closedSurfaceColor.copy(alpha = closedSurfaceColor.alpha * closedBackdropAlpha))
+                    drawRect(expandedSurfaceColor.copy(alpha = expandedSurfaceColor.alpha * expandedBackdropAlpha))
+                    drawRect(ComposeColor.Black.copy(alpha = (if (lightGlass) 0.018f else 0.055f) * expandedBackdropAlpha))
                 }
             )
         } else {
@@ -2341,12 +2570,12 @@ fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEn
                     modifier = Modifier.width(140.dp),
                     containerHeight = 54.dp,
                     indicatorHeight = 46.dp,
-                    blurRadius = 3.dp,
-                    containerAlpha = 0.16f,
-                    lensHeight = 27.dp,
-                    lensAmount = 32.dp,
-                    indicatorWidthOverflow = 10.dp,
-                    indicatorHeightOverflow = 5.dp,
+                    blurRadius = 1.3.dp,
+                    containerAlpha = 0.56f,
+                    lensHeight = 10.dp,
+                    lensAmount = 40.dp,
+                    indicatorWidthOverflow = 8.dp,
+                    indicatorHeightOverflow = 4.dp,
                     indicatorLensHeight = 12.dp,
                     indicatorLensAmount = 17.dp,
                     officialHighlightAlpha = 0.07f,
@@ -2930,6 +3159,7 @@ class SettingsDetailActivity : ComponentActivity() {
                 ) { backdrop ->
                     when (section) {
                         SettingsPage.General -> GeneralSettingsScreen(state, backdrop, viewModel::savePersonalization)
+                        SettingsPage.AiImport -> AiImportSettingsScreen(state, backdrop)
                         SettingsPage.Schedule -> ScheduleConfigScreen(
                             scheduleEditState,
                             backdrop,
@@ -3179,7 +3409,15 @@ fun LiquidControlSlider(
                             .offset(x = ((trackWidth - 20.dp) * fraction) - 4.dp)
                             .size(28.dp)
                             .clip(RoundedCornerShape(50))
-                            .then(if (markerClickable) Modifier.clickable(onClick = onSnapClick) else Modifier),
+                            .then(
+                                if (markerClickable) {
+                                    Modifier.pointerInput(onSnapClick) {
+                                        detectTapGestures(onTap = { onSnapClick() })
+                                    }
+                                } else {
+                                    Modifier
+                                }
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Box(
@@ -3220,8 +3458,7 @@ fun LiquidControlSlider(
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 localValue = snap
                 onLiveValueChange?.invoke(snap)
-                localEditPending = false
-                onValueChange(snap)
+                localEditPending = true
             }
         ) {
             LiquidSlider(
@@ -3367,7 +3604,7 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
             indicatorLensHeight = HomeHeaderGlassLensHeight,
             indicatorLensAmount = HomeHeaderGlassLensAmount,
             officialHighlightAlpha = HomeHeaderGlassHighlightAlpha,
-            officialShadowAlpha = HomeHeaderGlassShadowAlpha,
+            officialShadowAlpha = HomeHeaderGlassOuterShadowAlpha,
             officialInnerShadowAlpha = HomeHeaderGlassInnerShadowAlpha,
             chromaticAberrationEnabled = true,
             isLightThemeOverride = lightGlass,
@@ -3503,35 +3740,56 @@ fun rememberHomeWallpaperBitmap(config: ScheduleConfigEntity): androidx.compose.
     val useDarkDefaultWallpaper = appUsesDarkTheme(config)
     val wallpaperKey = "${config.wallpaperUri}|${config.defaultWallpaperStyle}|$useDarkDefaultWallpaper"
     val cachedBitmap = remember { mutableStateOf<Bitmap?>(null) }
-    return produceState<Bitmap?>(initialValue = cachedBitmap.value, wallpaperKey) {
+    LaunchedEffect(wallpaperKey) {
         val loaded = withContext(Dispatchers.IO) {
             loadWallpaperBitmap(context.applicationContext, config, useDarkDefaultWallpaper)
         }
         cachedBitmap.value = loaded
-        value = loaded
     }
+    return cachedBitmap
 }
 
 @Composable
-fun HomeWallpaper(config: ScheduleConfigEntity, images: HomeWallpaperImages, phase: StartupPhase) {
+fun HomeWallpaper(
+    config: ScheduleConfigEntity,
+    images: HomeWallpaperImages,
+    phase: StartupPhase,
+    reduceQuality: Boolean = false
+) {
     val targetBitmap = images.source
+    val targetBlurredBitmap = images.blurredSource
+    val targetReducedBitmap = images.reducedSource
     var visibleBitmap by remember { mutableStateOf<Bitmap?>(targetBitmap) }
+    var visibleBlurredBitmap by remember { mutableStateOf<Bitmap?>(targetBlurredBitmap) }
+    var visibleReducedBitmap by remember { mutableStateOf<Bitmap?>(targetReducedBitmap) }
     var previousBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var previousBlurredBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var previousReducedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var crossfadeTarget by remember { mutableFloatStateOf(1f) }
     val crossfadeAlpha by animateFloatAsState(
         targetValue = crossfadeTarget,
         animationSpec = tween(durationMillis = 140),
         label = "wallpaper-crossfade"
     )
-    LaunchedEffect(targetBitmap) {
-        if (targetBitmap != visibleBitmap) {
+    LaunchedEffect(targetBitmap, targetBlurredBitmap, targetReducedBitmap) {
+        if (
+            targetBitmap != visibleBitmap ||
+            targetBlurredBitmap != visibleBlurredBitmap ||
+            targetReducedBitmap != visibleReducedBitmap
+        ) {
             previousBitmap = visibleBitmap
+            previousBlurredBitmap = visibleBlurredBitmap
+            previousReducedBitmap = visibleReducedBitmap
             visibleBitmap = targetBitmap
+            visibleBlurredBitmap = targetBlurredBitmap
+            visibleReducedBitmap = targetReducedBitmap
             crossfadeTarget = 0f
             withFrameNanos { }
             crossfadeTarget = 1f
             delay(160)
             previousBitmap = null
+            previousBlurredBitmap = null
+            previousReducedBitmap = null
         }
     }
     val uri = config.wallpaperUri
@@ -3541,19 +3799,27 @@ fun HomeWallpaper(config: ScheduleConfigEntity, images: HomeWallpaperImages, pha
             Box(modifier = Modifier.fillMaxSize()) {
                 previousBitmap?.let { old ->
                     HomeWallpaperLayer(
-                        bitmap = old,
+                        bitmap = wallpaperBitmapForRender(
+                            source = old,
+                            reduced = previousReducedBitmap,
+                            blurred = previousBlurredBitmap,
+                            reduceQuality = reduceQuality
+                        ),
                         config = config,
                         alpha = 1f - crossfadeAlpha,
-                        useSavedCrop = true,
-                        blurRadius = images.blurBucket.dp
+                        useSavedCrop = true
                     )
                 }
                 HomeWallpaperLayer(
-                    bitmap = it,
+                    bitmap = wallpaperBitmapForRender(
+                        source = it,
+                        reduced = visibleReducedBitmap,
+                        blurred = visibleBlurredBitmap,
+                        reduceQuality = reduceQuality
+                    ),
                     config = config,
                     alpha = crossfadeAlpha,
-                    useSavedCrop = true,
-                    blurRadius = images.blurBucket.dp
+                    useSavedCrop = true
                 )
                 WallpaperToneOverlay(config)
             }
@@ -3565,19 +3831,27 @@ fun HomeWallpaper(config: ScheduleConfigEntity, images: HomeWallpaperImages, pha
             Box(modifier = Modifier.fillMaxSize()) {
                 previousBitmap?.let { old ->
                     HomeWallpaperLayer(
-                        bitmap = old,
+                        bitmap = wallpaperBitmapForRender(
+                            source = old,
+                            reduced = previousReducedBitmap,
+                            blurred = previousBlurredBitmap,
+                            reduceQuality = reduceQuality
+                        ),
                         config = config,
                         alpha = 1f - crossfadeAlpha,
-                        useSavedCrop = false,
-                        blurRadius = images.blurBucket.dp
+                        useSavedCrop = false
                     )
                 }
                 HomeWallpaperLayer(
-                    bitmap = it,
+                    bitmap = wallpaperBitmapForRender(
+                        source = it,
+                        reduced = visibleReducedBitmap,
+                        blurred = visibleBlurredBitmap,
+                        reduceQuality = reduceQuality
+                    ),
                     config = config,
                     alpha = crossfadeAlpha,
-                    useSavedCrop = false,
-                    blurRadius = images.blurBucket.dp
+                    useSavedCrop = false
                 )
                 WallpaperToneOverlay(config)
             }
@@ -3586,28 +3860,32 @@ fun HomeWallpaper(config: ScheduleConfigEntity, images: HomeWallpaperImages, pha
     }
 }
 
+private fun wallpaperBitmapForRender(
+    source: Bitmap,
+    reduced: Bitmap?,
+    blurred: Bitmap?,
+    reduceQuality: Boolean
+): Bitmap {
+    return if (reduceQuality) {
+        blurred ?: reduced ?: source
+    } else {
+        blurred ?: source
+    }
+}
+
 @Composable
 private fun HomeWallpaperLayer(
     bitmap: Bitmap,
     config: ScheduleConfigEntity,
     alpha: Float,
-    useSavedCrop: Boolean,
-    blurRadius: Dp
+    useSavedCrop: Boolean
 ) {
-    val layerModifier = if (blurRadius > 0.dp) {
-        Modifier
-            .fillMaxSize()
-            .blur(radius = blurRadius, edgeTreatment = BlurredEdgeTreatment.Unbounded)
-            .graphicsLayer(alpha = alpha)
-    } else {
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer(alpha = alpha)
-    }
     FocusCroppedWallpaper(
         bitmap = bitmap,
         config = config,
-        modifier = layerModifier,
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer(alpha = alpha),
         useSavedCrop = useSavedCrop
     )
 }
@@ -3753,6 +4031,28 @@ fun ApplyCourseDeleteDialog(
 
 private fun courseWeeksChanged(original: CourseEntity, edited: CourseEntity): Boolean {
     return original.weeks.sorted() != edited.weeks.sorted() || original.weekParity != edited.weekParity
+}
+
+private fun coursesVisibleInWeek(courses: List<CourseEntity>, week: Int): List<CourseEntity> {
+    val visible = courses.filter { course ->
+        week in course.weeks && parityMatches(course.weekParity, week)
+    }
+    val singleWeekOverrideKeys = visible
+        .filter { it.weeks.distinct() == listOf(week) }
+        .map { it.occurrenceOverrideKey() }
+        .toSet()
+    if (singleWeekOverrideKeys.isEmpty()) return visible
+    return visible.filter { course ->
+        course.weeks.distinct() == listOf(week) || course.occurrenceOverrideKey() !in singleWeekOverrideKeys
+    }
+}
+
+private fun CourseEntity.occurrenceOverrideKey(): String {
+    return listOf(
+        weekday.toString(),
+        periods.distinct().sorted().joinToString(","),
+        name.trim()
+    ).joinToString("|")
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -3914,6 +4214,11 @@ fun glassForegroundColor(config: ScheduleConfigEntity): ComposeColor {
 }
 
 @Composable
+fun appPanelForegroundColor(config: ScheduleConfigEntity): ComposeColor {
+    return if (appUsesDarkTheme(config)) ComposeColor.White else ComposeColor(0xFF111111)
+}
+
+@Composable
 fun DayScheduleScreen(
     state: AppState,
     displayDate: LocalDate,
@@ -3962,11 +4267,9 @@ fun DayScheduleScreen(
             val targetWeek = effectiveCurrentWeek(state.config, targetDate)
             val targetWeekday = targetDate.dayOfWeek.toChineseWeekday()
             val dayCourses = remember(state.courses, targetWeek, targetWeekday) {
-                state.courses.filter { course ->
-                    course.weekday == targetWeekday &&
-                        targetWeek in course.weeks &&
-                        parityMatches(course.weekParity, targetWeek)
-                }.sortedWith(compareBy<CourseEntity> { it.periods.minOrNull() ?: Int.MAX_VALUE }.thenBy { it.name })
+                coursesVisibleInWeek(state.courses, targetWeek)
+                    .filter { it.weekday == targetWeekday }
+                    .sortedWith(compareBy<CourseEntity> { it.periods.minOrNull() ?: Int.MAX_VALUE }.thenBy { it.name })
             }
             val listState = rememberLazyListState()
             val contentUnderTopBar by remember {
@@ -4026,10 +4329,8 @@ fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardCo
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
     val weekStart = today.minusDays((today.dayOfWeek.toChineseWeekday() - 1).toLong()).plusWeeks((displayWeek - effectiveCurrentWeek(state.config)).toLong())
-    val visibleCourses = remember(state, displayWeek) {
-        state.courses.filter { course ->
-            displayWeek in course.weeks && parityMatches(course.weekParity, displayWeek)
-        }
+    val visibleCourses = remember(state.courses, displayWeek) {
+        coursesVisibleInWeek(state.courses, displayWeek)
     }
     var horizontalDrag by remember { mutableFloatStateOf(0f) }
 
@@ -4158,9 +4459,7 @@ fun SinglePillWeekScheduleScreen(
         .minusDays((today.dayOfWeek.toChineseWeekday() - 1).toLong())
         .plusWeeks((displayWeek - effectiveCurrentWeek(state.config)).toLong())
     val visibleCourses = remember(state.courses, displayWeek) {
-        state.courses.filter { course ->
-            displayWeek in course.weeks && parityMatches(course.weekParity, displayWeek)
-        }
+        coursesVisibleInWeek(state.courses, displayWeek)
     }
     val weekdays = remember(visibleCourses, state.config.hideEmptyWeekends) {
         val weekendHasCourse = visibleCourses.any { it.weekday == 6 || it.weekday == 7 }
@@ -4180,9 +4479,7 @@ fun SinglePillWeekScheduleScreen(
         val direction = (displayWeek - previousDisplayWeek).coerceIn(-1, 1)
         if (direction != 0) {
             val oldWeek = previousDisplayWeek
-            val oldCourses = state.courses.filter { course ->
-                oldWeek in course.weeks && parityMatches(course.weekParity, oldWeek)
-            }
+            val oldCourses = coursesVisibleInWeek(state.courses, oldWeek)
             val oldWeekendHasCourse = oldCourses.any { it.weekday == 6 || it.weekday == 7 }
             outgoingCourses.value = oldCourses
             outgoingWeekdays.value = if (state.config.hideEmptyWeekends && !oldWeekendHasCourse) (1..5).toList() else (1..7).toList()
@@ -4432,9 +4729,7 @@ fun LiquidWeekScheduleScreen(
         .minusDays((today.dayOfWeek.toChineseWeekday() - 1).toLong())
         .plusWeeks((displayWeek - effectiveCurrentWeek(state.config)).toLong())
     val visibleCourses = remember(state.courses, displayWeek) {
-        state.courses.filter { course ->
-            displayWeek in course.weeks && parityMatches(course.weekParity, displayWeek)
-        }
+        coursesVisibleInWeek(state.courses, displayWeek)
     }
     var horizontalDrag by remember { mutableFloatStateOf(0f) }
 
@@ -5131,8 +5426,9 @@ fun CourseEditorScreen(
     var note by remember(initialCourse) { mutableStateOf(initialCourse?.note.orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
     var periodInputValid by remember(initialCourse, periodValues) { mutableStateOf(true) }
+    var weekInputValid by remember(initialCourse, state.config.totalWeeks) { mutableStateOf(true) }
     val selectedPeriods = if (periodStart <= periodEnd) periodValues.filter { it in periodStart..periodEnd } else emptyList()
-    val selectedWeeks = (minOf(weekStart, weekEnd)..maxOf(weekStart, weekEnd)).toList()
+    val selectedWeeks = if (weekStart <= weekEnd) (weekStart..weekEnd).toList() else emptyList()
     val dialogTextColor = glassForegroundColor(state.config)
 
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -5146,6 +5442,7 @@ fun CourseEditorScreen(
                     when {
                         name.isBlank() -> error = "课程名称不能为空"
                         !periodInputValid -> error = "请先修正节次范围"
+                        !weekInputValid -> error = "请先修正周次范围"
                         selectedPeriods.isEmpty() -> error = "请选择节次"
                         selectedWeeks.isEmpty() -> error = "请选择周次"
                         else -> onSave(
@@ -5188,8 +5485,11 @@ fun CourseEditorScreen(
                 values = (1..state.config.totalWeeks).toList(),
                 start = weekStart,
                 end = weekEnd,
-                onStart = { weekStart = it; if (weekEnd < it) weekEnd = it },
-                onEnd = { weekEnd = it; if (weekStart > it) weekStart = it }
+                onStart = { weekStart = it },
+                onEnd = { weekEnd = it },
+                enforceOrderedInput = true,
+                onInputValidChange = { weekInputValid = it },
+                invalidRangeMessage = "当前结束周早于开始周"
             ) { "第" + it + "周" }
         }
         item { WheelPicker("单双周", WeekParity.entries, parity, { parity = it }) { parityLabel(it) } }
@@ -5246,16 +5546,18 @@ fun NormalizedDialogScaffold(
     onCancel: () -> Unit,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
+    contentColor: ComposeColor = glassForegroundColor(config),
     content: @Composable () -> Unit
 ) {
-    val textColor = glassForegroundColor(config)
     Column(modifier = Modifier.heightIn(max = 650.dp)) {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             DialogLiquidButton(backdrop, "\u53D6\u6D88", onCancel, role = DialogButtonRole.Cancel)
-            Text(title, modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = textColor)
+            Text(title, modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = contentColor)
             Spacer(Modifier.width(42.dp))
         }
-        content()
+        CompositionLocalProvider(LocalContentColor provides contentColor) {
+            content()
+        }
     }
 }
 
@@ -5283,8 +5585,9 @@ fun NormalizedCourseEditorScreen(
     var note by remember(initialCourse) { mutableStateOf(initialCourse?.note.orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
     var periodInputValid by remember(initialCourse, periodValues) { mutableStateOf(true) }
+    var weekInputValid by remember(initialCourse, state.config.totalWeeks) { mutableStateOf(true) }
     val selectedPeriods = if (periodStart <= periodEnd) periodValues.filter { it in periodStart..periodEnd } else emptyList()
-    val selectedWeeks = (minOf(weekStart, weekEnd)..maxOf(weekStart, weekEnd)).toList()
+    val selectedWeeks = if (weekStart <= weekEnd) (weekStart..weekEnd).toList() else emptyList()
 
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -5297,6 +5600,7 @@ fun NormalizedCourseEditorScreen(
                     when {
                         name.isBlank() -> error = "\u8BFE\u7A0B\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A"
                         !periodInputValid -> error = "\u8BF7\u5148\u4FEE\u6B63\u8282\u6B21\u8303\u56F4"
+                        !weekInputValid -> error = "\u8BF7\u5148\u4FEE\u6B63\u5468\u6B21\u8303\u56F4"
                         selectedPeriods.isEmpty() -> error = "\u8BF7\u9009\u62E9\u8282\u6B21"
                         selectedWeeks.isEmpty() -> error = "\u8BF7\u9009\u62E9\u5468\u6B21"
                         else -> onSave(
@@ -5341,10 +5645,13 @@ fun NormalizedCourseEditorScreen(
                 values = (1..state.config.totalWeeks).toList(),
                 start = weekStart,
                 end = weekEnd,
-                onStart = { weekStart = it; if (weekEnd < it) weekEnd = it },
-                onEnd = { weekEnd = it; if (weekStart > it) weekStart = it },
+                onStart = { weekStart = it },
+                onEnd = { weekEnd = it },
                 backdrop = backdrop,
-                config = state.config
+                config = state.config,
+                enforceOrderedInput = true,
+                onInputValidChange = { weekInputValid = it },
+                invalidRangeMessage = "\u5F53\u524D\u7ED3\u675F\u5468\u65E9\u4E8E\u5F00\u59CB\u5468"
             ) { "\u7B2C" + it + "\u5468" }
         }
         item { WheelPicker("\u5355\u53CC\u5468", WeekParity.entries, parity, { parity = it }, backdrop, state.config) { parityLabel(it) } }
@@ -5381,6 +5688,7 @@ fun RangeWheelPicker(
     config: ScheduleConfigEntity = defaultConfig(),
     enforceOrderedInput: Boolean = false,
     onInputValidChange: (Boolean) -> Unit = {},
+    invalidRangeMessage: String = "当前结束节早于开始节",
     label: (Int) -> String
 ) {
     var startText by remember(start) { mutableStateOf(start.toString()) }
@@ -5420,7 +5728,7 @@ fun RangeWheelPicker(
             )
         }
         if (orderedInvalid) {
-            Text("当前结束节早于开始节", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+            Text(invalidRangeMessage, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
         } else {
             val previewStart = draftStart ?: start
             val previewEnd = draftEnd ?: end
@@ -5441,6 +5749,7 @@ fun DialogRangePicker(
     config: ScheduleConfigEntity,
     enforceOrderedInput: Boolean = false,
     onInputValidChange: (Boolean) -> Unit = {},
+    invalidRangeMessage: String = "\u5F53\u524D\u7ED3\u675F\u8282\u65E9\u4E8E\u5F00\u59CB\u8282",
     label: (Int) -> String
 ) {
     var startText by remember(start) { mutableStateOf(start.toString()) }
@@ -5483,7 +5792,7 @@ fun DialogRangePicker(
         }
         if (orderedInvalid) {
             Text(
-                "\u5F53\u524D\u7ED3\u675F\u8282\u65E9\u4E8E\u5F00\u59CB\u8282",
+                invalidRangeMessage,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.error
             )
@@ -5530,12 +5839,144 @@ fun MissingCourseScreen(onBack: () -> Unit) {
     }
 }
 
+private fun formatAiImportFileSize(bytes: Int): String {
+    return when {
+        bytes >= 1024 * 1024 -> "%.1f MB".format(Locale.US, bytes / 1024f / 1024f)
+        bytes >= 1024 -> "%.1f KB".format(Locale.US, bytes / 1024f)
+        else -> "$bytes B"
+    }
+}
+
 @Composable
 fun NormalizedAiManualImportScreen(state: AppState, backdrop: Backdrop?, onParsed: (ImportDraft) -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var jsonText by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var routeMessage by remember { mutableStateOf<String?>(null) }
+    var selectedFileName by remember { mutableStateOf<String?>(null) }
+    var aiParsing by remember { mutableStateOf(false) }
+    var aiSettings by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
     val textColor = glassForegroundColor(state.config)
+    val fileUploadVisible = aiSettings.profile.id != AiProviderPresets.deepSeek.id
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) launcher@{ uri ->
+        if (uri == null) return@launcher
+        val settings = AiImportSettingsStore.load(context)
+        aiSettings = settings
+        if (settings.profile.id == AiProviderPresets.deepSeek.id) {
+            error = "当前 DeepSeek 仅支持文本导入。请粘贴可复制的课表文本，或到 AI 导入设置切换 OpenAI / MiMo / 自定义视觉模型。"
+            return@launcher
+        }
+        selectedFileName = null
+        routeMessage = null
+        error = null
+        aiParsing = true
+        AiEduImportProgressSession.clearActions()
+        AiEduImportProgressSession.update(
+            AiEduImportProgress(
+                routeLabel = "AI 手动导入",
+                steps = listOf("准备读取文件"),
+                requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n输入：用户选择的 PDF 或图片文件\n密钥：已从本机安全存储读取，未显示"
+            )
+        )
+        context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
+        scope.launch {
+            loadAiImportFile(context, uri)
+                .onSuccess { file ->
+                    selectedFileName = file.displayName
+                    val fileSummary = buildString {
+                        appendLine("文件名：${file.displayName}")
+                        appendLine("类型：${file.mimeType}")
+                        appendLine("大小：${formatAiImportFileSize(file.bytes.size)}")
+                        appendLine("处理：OpenAI 官方配置会优先使用原生 PDF 输入；MiMo / 视觉模型会将 PDF 渲染为图片；DeepSeek 不显示文件上传入口。")
+                    }
+                    routeMessage = "正在使用 ${settings.profile.displayName} 解析 ${file.displayName}..."
+                    AiEduImportProgressSession.update(
+                        AiEduImportProgress(
+                            routeLabel = "AI 手动导入",
+                            steps = listOf("准备读取文件", "已读取文件", "正在发送给 AI 解析"),
+                            requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}\n类型：${file.mimeType}\n大小：${formatAiImportFileSize(file.bytes.size)}\n提示词：已附加完整 SleepDown JSON 解析协议",
+                            pageText = fileSummary
+                        )
+                    )
+                    AiScheduleImportService(context).parseScheduleFile(file, settings)
+                        .onSuccess { aiResult ->
+                            routeMessage = aiResult.routeMessage
+                            val output = aiResult.output.ifBlank { aiResult.rawOutput }
+                            AiEduImportProgressSession.update(
+                                AiEduImportProgress(
+                                    routeLabel = "AI 手动导入",
+                                    steps = listOf("准备读取文件", "已读取文件", "已发送给 AI", "AI 已返回可见文本，开始本地校验"),
+                                    requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}\n处理路线：${aiResult.routeMessage}",
+                                    pageText = fileSummary,
+                                    reasoningOutput = aiResult.reasoningOutput.take(20_000),
+                                    aiOutput = aiResult.rawOutput.take(80_000)
+                                )
+                            )
+                            ScheduleImportParser.parse(output, state.config)
+                                .onSuccess { draft ->
+                                    error = null
+                                    AiEduImportProgressSession.update(
+                                        AiEduImportProgress(
+                                            routeLabel = "AI 手动导入",
+                                            steps = listOf("准备读取文件", "已读取文件", "已发送给 AI", "AI 已返回可见文本", "本地校验通过，进入导入预览"),
+                                            requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}\n处理路线：${aiResult.routeMessage}",
+                                            pageText = fileSummary,
+                                            reasoningOutput = aiResult.reasoningOutput.take(20_000),
+                                            aiOutput = aiResult.rawOutput.take(80_000),
+                                            finished = true
+                                        )
+                                    )
+                                    onParsed(draft)
+                                }
+                                .onFailure {
+                                    error = "AI 已返回内容，但本地解析失败：${it.message ?: "未知错误"}"
+                                    AiEduImportProgressSession.update(
+                                        AiEduImportProgress(
+                                            routeLabel = "AI 手动导入",
+                                            steps = listOf("准备读取文件", "已读取文件", "已发送给 AI", "AI 已返回可见文本", "本地校验失败"),
+                                            requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}\n处理路线：${aiResult.routeMessage}",
+                                            pageText = fileSummary,
+                                            reasoningOutput = aiResult.reasoningOutput.take(20_000),
+                                            aiOutput = aiResult.rawOutput.take(80_000),
+                                            error = it.message ?: "AI 返回内容无法解析",
+                                            finished = true
+                                        )
+                                    )
+                                }
+                        }
+                        .onFailure {
+                            error = it.message ?: "AI 文件解析失败"
+                            val rawBody = it.aiRawResponseBody().orEmpty()
+                            AiEduImportProgressSession.update(
+                                AiEduImportProgress(
+                                    routeLabel = "AI 手动导入",
+                                    steps = listOf("准备读取文件", "已读取文件", "AI 请求失败"),
+                                    requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}",
+                                    pageText = fileSummary,
+                                    reasoningOutput = extractAiReasoningForDisplay(rawBody).take(20_000),
+                                    aiOutput = sanitizeAiOutputForDisplay(rawBody).take(80_000),
+                                    error = it.message ?: "AI 文件解析失败",
+                                    finished = true
+                                )
+                            )
+                        }
+                }
+                .onFailure {
+                    error = it.message ?: "文件读取失败"
+                    AiEduImportProgressSession.update(
+                        AiEduImportProgress(
+                            routeLabel = "AI 手动导入",
+                            steps = listOf("准备读取文件", "文件读取失败"),
+                            requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}",
+                            error = it.message ?: "文件读取失败",
+                            finished = true
+                        )
+                    )
+                }
+            aiParsing = false
+        }
+    }
     fun parseDraft() {
         val result = ScheduleImportParser.parse(jsonText, state.config)
         result.onSuccess { error = null; onParsed(it) }.onFailure { error = it.message ?: "口令解析失败" }
@@ -5547,7 +5988,12 @@ fun NormalizedAiManualImportScreen(state: AppState, backdrop: Backdrop?, onParse
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("\u5C06\u4F60\u7684\u8BFE\u8868 PDF \u8FDE\u540C\u63D0\u793A\u8BCD\u4E00\u8D77\u53D1\u7ED9\u4EFB\u610F AI\uFF0C\u7136\u540E\u5C06\u8FD4\u56DE\u7684 SleepDown \u8BFE\u8868\u53E3\u4EE4\u590D\u5236\u5230\u8F93\u5165\u6846\u5185\u3002", color = textColor)
+        Text("\u5C06\u4F60\u7684\u8BFE\u8868 PDF \u8FDE\u540C\u63D0\u793A\u8BCD\u4E00\u8D77\u53D1\u7ED9\u4EFB\u610F AI\uFF0C\u7136\u540E\u5C06\u8FD4\u56DE\u7684 SleepDown \u8BFE\u8868\u53E3\u4EE4\u590D\u5236\u5230\u8F93\u5165\u6846\u5185\u3002\u4E5F\u53EF\u4EE5\u76F4\u63A5\u4F7F\u7528\u5DF2\u914D\u7F6E\u7684 AI \u6A21\u578B\u89E3\u6790 PDF \u6216\u56FE\u7247\u6587\u4EF6\u3002", color = textColor)
+        Text(
+            "当前 AI：${aiSettings.profile.displayName} / ${aiSettings.profile.defaultModel}",
+            color = textColor.copy(alpha = 0.72f),
+            style = MaterialTheme.typography.bodySmall
+        )
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             DialogLiquidButton(
                 backdrop = backdrop,
@@ -5571,6 +6017,39 @@ fun NormalizedAiManualImportScreen(state: AppState, backdrop: Backdrop?, onParse
                 iconRes = R.drawable.ic_download,
                 onClick = { parseDraft() }
             )
+            if (fileUploadVisible) {
+                DialogLiquidButton(
+                    backdrop = backdrop,
+                    label = if (aiParsing) "解析中..." else "上传 PDF/图片",
+                    role = DialogButtonRole.Confirm,
+                    iconRes = R.drawable.ic_download,
+                    onClick = {
+                        if (!aiParsing) {
+                            fileLauncher.launch(arrayOf("application/pdf", "image/*"))
+                        }
+                    }
+                )
+            }
+            DialogLiquidButton(
+                backdrop = backdrop,
+                label = "刷新 AI 配置",
+                onClick = { aiSettings = AiImportSettingsStore.load(context) },
+                role = DialogButtonRole.Neutral
+            )
+        }
+        if (!fileUploadVisible) {
+            Text(
+                "当前 DeepSeek 配置不显示文件上传按钮。它适合粘贴课表文本解析；PDF/图片请切换到 OpenAI、MiMo 或自定义视觉模型。",
+                color = textColor.copy(alpha = 0.72f),
+                style = MaterialTheme.typography.bodySmall,
+                lineHeight = 18.sp
+            )
+        }
+        selectedFileName?.let {
+            Text("已选择：$it", color = textColor.copy(alpha = 0.78f), style = MaterialTheme.typography.bodySmall)
+        }
+        routeMessage?.let {
+            Text(it, color = textColor.copy(alpha = 0.78f), style = MaterialTheme.typography.bodySmall, lineHeight = 18.sp)
         }
         DialogCapsuleField(
             value = jsonText,
@@ -5745,17 +6224,24 @@ fun EduSchoolIndexedSelectScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val topPadding = detailContentTopPadding()
+    val aiEduAdapters = remember(adapters) {
+        adapters.filter { it.isAiEduImportTool() }
+    }
     val pinnedAdapters = remember(adapters) {
-        adapters.filter { it.isGeneralEduTool() || it.isEduTestTool() }
+        adapters.filter { !it.isAiEduImportTool() && (it.isGeneralEduTool() || it.isEduTestTool()) }
             .sortedWith(compareBy<EduAdapter> { it.school.id }.thenBy { it.adapterName })
     }
-    val indexedAdapters = remember(adapters) { adapters.filterNot { it.isGeneralEduTool() || it.isEduTestTool() } }
+    val indexedAdapters = remember(adapters) {
+        adapters.filterNot { it.isAiEduImportTool() || it.isGeneralEduTool() || it.isEduTestTool() }
+    }
     val grouped = remember(indexedAdapters) {
         indexedAdapters.groupBy { it.school.initial.ifBlank { "#" }.uppercase() }.toSortedMap()
     }
     val letters = remember(grouped) { grouped.keys.toList() }
-    val sectionPositions = remember(grouped, pinnedAdapters) {
-        var index = 2 + if (pinnedAdapters.isEmpty()) 0 else 1 + pinnedAdapters.size
+    val sectionPositions = remember(grouped, aiEduAdapters, pinnedAdapters) {
+        val aiSectionSize = if (aiEduAdapters.isEmpty()) 0 else 1 + aiEduAdapters.size
+        val pinnedSectionSize = if (pinnedAdapters.isEmpty()) 0 else 1 + pinnedAdapters.size
+        var index = 1 + aiSectionSize + pinnedSectionSize
         buildMap {
             grouped.forEach { (letter, list) ->
                 put(letter, index)
@@ -5774,6 +6260,16 @@ fun EduSchoolIndexedSelectScreen(
             if (adapters.isEmpty()) {
                 item { Text("没有找到学校适配资源", color = MaterialTheme.colorScheme.error) }
             } else {
+                if (aiEduAdapters.isNotEmpty()) {
+                    item(key = "ai-edu-title") {
+                        Text("AI教务导入", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp))
+                    }
+                    items(aiEduAdapters, key = { "ai-${it.adapterId}" }) { adapter ->
+                        SettingsGroup(backdrop = null, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                            SettingsNavigationRow(adapter.school.name, adapter.adapterName, onClick = { onSelect(adapter) })
+                        }
+                    }
+                }
                 if (pinnedAdapters.isNotEmpty()) {
                     item(key = "general-edu-title") {
                         Text("通用教务", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp))
@@ -5876,10 +6372,10 @@ fun EduImportActivityScreen(
     var webView by remember { mutableStateOf<WebView?>(null) }
     var currentUrl by remember(adapter) {
         mutableStateOf(
-            if (adapter.isGeneralEduTool()) "" else adapter.importUrl.ifBlank { "https://" }
+            if (adapter.requiresManualEduUrl()) "" else adapter.importUrl.ifBlank { "https://" }
         )
     }
-    var showGeneralUrlDialog by remember(adapter) { mutableStateOf(adapter.isGeneralEduTool()) }
+    var showGeneralUrlDialog by remember(adapter) { mutableStateOf(adapter.requiresManualEduUrl()) }
     val bridge = remember(state.config, adapter) {
         EduImportBridge(
             context = context,
@@ -5897,6 +6393,11 @@ fun EduImportActivityScreen(
                     config = state.config,
                     backdrop = backdrop,
                     initialUrl = currentUrl,
+                    helperText = if (adapter.isAiEduImportTool()) {
+                        "AI教务导入需要先打开学校教务系统网址。登录后进入课表页面，后续可使用 AI 解析当前页面。"
+                    } else {
+                        "通用教务需要先填写学校教务系统网址，进入后可继续在顶部网址栏修改。"
+                    },
                     onCancel = { showGeneralUrlDialog = false },
                     onConfirm = {
                         currentUrl = it
@@ -5918,7 +6419,8 @@ fun EduImportActivityScreen(
         onUrlChange = { currentUrl = it },
         bridge = bridge,
         useDetailTopPadding = useDetailTopPadding,
-        onMessage = { message = it }
+        onMessage = { message = it },
+        onAiParsed = onParsed
     )
 }
 
@@ -5927,6 +6429,7 @@ fun GeneralEduUrlDialog(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     initialUrl: String,
+    helperText: String = "通用教务需要先填写学校教务系统网址，进入后可继续在顶部网址栏修改。",
     onCancel: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
@@ -5959,7 +6462,7 @@ fun GeneralEduUrlDialog(
             keyboardType = KeyboardType.Uri
         )
         Text(
-            error ?: "通用教务需要先填写学校教务系统网址，进入后可继续在顶部网址栏修改。",
+            error ?: helperText,
             style = MaterialTheme.typography.bodySmall,
             color = if (error == null) glassForegroundColor(config).copy(alpha = 0.72f) else MaterialTheme.colorScheme.error,
             lineHeight = 18.sp
@@ -5974,6 +6477,385 @@ fun normalizeEduUrl(input: String): String {
         trimmed.startsWith("file://", ignoreCase = true) -> trimmed
         trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true) -> trimmed
         else -> "https://$trimmed"
+    }
+}
+
+private val AiEduPageExtractScript = """
+(function () {
+  var seen = [];
+  function pushUnique(list, value) {
+    value = (value || "").replace(/\s+/g, " ").trim();
+    if (!value || value.length < 2) return;
+    var key = value.slice(0, 500);
+    if (seen.indexOf(key) >= 0) return;
+    seen.push(key);
+    list.push(value);
+  }
+  function textOf(node) {
+    if (!node) return "";
+    return (node.innerText || node.textContent || "").replace(/\s+/g, " ").trim();
+  }
+  function collectShadowText(root, depth) {
+    if (!root || depth > 3) return "";
+    var parts = [];
+    try {
+      Array.prototype.slice.call(root.querySelectorAll("*")).slice(0, 500).forEach(function (node) {
+        if (node.shadowRoot) {
+          pushUnique(parts, textOf(node.shadowRoot));
+          var nested = collectShadowText(node.shadowRoot, depth + 1);
+          if (nested) pushUnique(parts, nested);
+        }
+      });
+    } catch (e) {
+      pushUnique(parts, "Shadow DOM read failed: " + (e && e.message ? e.message : e));
+    }
+    return parts.join("\n");
+  }
+  function tableText(table, index) {
+    var rows = Array.prototype.slice.call(table.querySelectorAll("tr")).slice(0, 160);
+    var body = rows.map(function (row) {
+      return Array.prototype.slice.call(row.querySelectorAll("th,td"))
+        .map(textOf)
+        .filter(Boolean)
+        .join(" | ");
+    }).filter(Boolean).join("\n");
+    return body ? ("表格 " + (index + 1) + "\n" + body) : "";
+  }
+  var tables = Array.prototype.slice.call(document.querySelectorAll("table"))
+    .slice(0, 48)
+    .map(tableText)
+    .filter(Boolean)
+    .join("\n\n");
+  var containerSelectors = [
+    "[class*='kb']", "[id*='kb']", "[class*='course']", "[id*='course']",
+    "[class*='schedule']", "[id*='schedule']", "[class*='timetable']", "[id*='timetable']",
+    "[class*='lesson']", "[id*='lesson']", "[class*='calendar']", "[id*='calendar']",
+    ".el-table", ".ant-table", ".layui-table", ".ivu-table", "[role='grid']"
+  ];
+  var containers = [];
+  containerSelectors.forEach(function (selector) {
+    try {
+      Array.prototype.slice.call(document.querySelectorAll(selector)).slice(0, 20).forEach(function (node) {
+        pushUnique(containers, selector + "\n" + textOf(node).slice(0, 8000));
+      });
+    } catch (e) {}
+  });
+  var formState = [];
+  Array.prototype.slice.call(document.querySelectorAll("select,input,textarea,button,[role='button']")).slice(0, 120).forEach(function (node, index) {
+    var label = node.getAttribute("aria-label") || node.getAttribute("placeholder") || node.name || node.id || node.className || node.tagName;
+    var value = "";
+    if (node.tagName === "SELECT") {
+      value = Array.prototype.slice.call(node.selectedOptions || []).map(function (option) { return option.text || option.value || ""; }).join(",");
+    } else {
+      value = node.value || textOf(node);
+    }
+    pushUnique(formState, (index + 1) + ". " + label + " = " + value);
+  });
+  var iframeText = [];
+  Array.prototype.slice.call(document.querySelectorAll("iframe,frame")).slice(0, 12).forEach(function (frame, index) {
+    try {
+      var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+      if (doc && doc.body) {
+        pushUnique(iframeText, "Frame " + (index + 1) + "\n" + textOf(doc.body).slice(0, 12000));
+      } else {
+        pushUnique(iframeText, "Frame " + (index + 1) + ": empty or inaccessible");
+      }
+    } catch (e) {
+      pushUnique(iframeText, "Frame " + (index + 1) + ": inaccessible (" + (e && e.message ? e.message : e) + ")");
+    }
+  });
+  var shadowText = collectShadowText(document, 0);
+  var bodyText = textOf(document.body).slice(0, 70000);
+  return JSON.stringify({
+    title: document.title || "",
+    url: location.href || "",
+    tables: tables,
+    containers: containers.join("\n\n"),
+    formState: formState.join("\n"),
+    iframeText: iframeText.join("\n\n"),
+    shadowText: shadowText,
+    text: bodyText
+  });
+})()
+""".trimIndent()
+
+private fun decodeAiEduPageSnapshot(encoded: String?): String {
+    val decoded = JSONArray("[$encoded]").getString(0)
+    val snapshot = JSONObject(decoded)
+    val title = snapshot.optString("title")
+    val url = snapshot.optString("url")
+    val tables = snapshot.optString("tables")
+    val containers = snapshot.optString("containers")
+    val formState = snapshot.optString("formState")
+    val iframeText = snapshot.optString("iframeText")
+    val shadowText = snapshot.optString("shadowText")
+    val text = snapshot.optString("text")
+    return buildString {
+        if (title.isNotBlank()) appendLine("页面标题：$title")
+        if (url.isNotBlank()) appendLine("页面地址：$url")
+        if (tables.isNotBlank()) {
+            appendLine("页面表格：")
+            appendLine(tables)
+        }
+        if (containers.isNotBlank()) {
+            appendLine("Page schedule-like containers:")
+            appendLine(containers)
+        }
+        if (formState.isNotBlank()) {
+            appendLine("Page form state:")
+            appendLine(formState)
+        }
+        if (iframeText.isNotBlank()) {
+            appendLine("Page frames:")
+            appendLine(iframeText)
+        }
+        if (shadowText.isNotBlank()) {
+            appendLine("Page shadow DOM:")
+            appendLine(shadowText)
+        }
+        if (text.isNotBlank()) {
+            appendLine("页面正文：")
+            appendLine(text)
+        }
+    }.trim()
+}
+
+private data class EduPageCaptureIssue(
+    val step: String,
+    val message: String
+)
+
+private fun inspectEduPageCapture(pageText: String): EduPageCaptureIssue? {
+    val compact = pageText.replace(Regex("\\s+"), "")
+    if (compact.length < 80) {
+        return EduPageCaptureIssue(
+            step = "抓不到课表页：页面文本过少",
+            message = "抓不到课表页：当前页面可提取文本太少。请先在内置页面登录并进入具体课表查询结果页。"
+        )
+    }
+
+    val lower = pageText.lowercase()
+    val loginSignals = listOf(
+        "登录", "登陆", "密码", "验证码", "统一身份认证", "账号", "学号",
+        "login", "password", "captcha", "cas"
+    ).count { lower.contains(it.lowercase()) }
+    val scheduleSignals = listOf(
+        "课表", "课程", "节次", "星期", "周一", "周二", "周三", "周四", "周五", "周六", "周日",
+        "教师", "教室", "上课", "校区", "学年", "学期", "教学班", "周数", "周次"
+    ).count { pageText.contains(it) }
+    val timeSignals = Regex("""\b\d{1,2}:\d{2}\b""").findAll(pageText).take(3).count()
+
+    if (loginSignals >= 2 && scheduleSignals == 0) {
+        return EduPageCaptureIssue(
+            step = "抓不到课表页：仍在登录或认证页",
+            message = "抓不到课表页：当前页面像登录/认证页。请先完成登录，再进入课表页面后重试。"
+        )
+    }
+
+    if (scheduleSignals < 2 && timeSignals < 2) {
+        return EduPageCaptureIssue(
+            step = "抓不到课表页：当前页不像课表",
+            message = "抓不到课表页：当前页面没有明显课程、节次或时间表信息。这个学校可能需要先点进具体课表查询结果页，或当前拾光适配器抓不到课表页。"
+        )
+    }
+
+    return null
+}
+
+data class AiEduImportProgress(
+    val steps: List<String> = emptyList(),
+    val routeLabel: String = "",
+    val requestPreview: String = "",
+    val pageText: String = "",
+    val screenshotPreviews: List<RenderedPageImage> = emptyList(),
+    val reasoningOutput: String = "",
+    val aiOutput: String = "",
+    val awaitingConfirmation: Boolean = false,
+    val confirmActionLabel: String = "",
+    val secondaryConfirmActionLabel: String = "",
+    val screenModeActionLabel: String = "",
+    val cancelActionLabel: String = "返回重抓",
+    val finished: Boolean = false,
+    val error: String? = null
+)
+
+enum class AiEduImportStepStatus {
+    Done,
+    Current,
+    Pending,
+    Error
+}
+
+data class AiEduImportStepRow(
+    val text: String,
+    val status: AiEduImportStepStatus
+)
+
+private val AiEduImportPendingSteps = listOf(
+    "读取当前页面",
+    "DOM 深度抓取",
+    "滚动补抓页面",
+    "截图兜底判断",
+    "检查是否为课表页",
+    "读取 AI 配置",
+    "发送给 AI 解析",
+    "等待 AI 返回",
+    "本地校验",
+    "进入导入预览"
+)
+
+fun aiEduImportStepRows(progress: AiEduImportProgress): List<AiEduImportStepRow> {
+    val rows = progress.steps.mapIndexed { index, step ->
+        val isLast = index == progress.steps.lastIndex
+        val status = when {
+            progress.error != null && isLast -> AiEduImportStepStatus.Error
+            progress.finished -> AiEduImportStepStatus.Done
+            isLast -> AiEduImportStepStatus.Current
+            else -> AiEduImportStepStatus.Done
+        }
+        AiEduImportStepRow(step, status)
+    }.toMutableList()
+    if (!progress.finished && progress.error == null) {
+        AiEduImportPendingSteps.drop(progress.steps.size).forEach { step ->
+            rows += AiEduImportStepRow(step, AiEduImportStepStatus.Pending)
+        }
+    }
+    return rows
+}
+
+private fun aiEduStepColor(status: AiEduImportStepStatus, fallback: ComposeColor): ComposeColor {
+    return when (status) {
+        AiEduImportStepStatus.Done -> fallback.copy(alpha = 0.42f)
+        AiEduImportStepStatus.Current -> ComposeColor(0xFF0A84FF)
+        AiEduImportStepStatus.Pending -> fallback.copy(alpha = 0.92f)
+        AiEduImportStepStatus.Error -> ComposeColor(0xFFFF453A)
+    }
+}
+
+private fun aiEduRequestPreview(settings: AiImportSettings, pageTextLength: Int): String {
+    val baseUrl = normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl)
+    val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
+    val outputMode = if (settings.profile.id == AiProviderPresets.deepSeek.id) {
+        StructuredOutputMode.PROMPT_ONLY
+    } else {
+        settings.profile.structuredOutputMode
+    }
+    return buildString {
+        appendLine("服务商：${settings.profile.displayName}")
+        appendLine("接口：$endpoint")
+        appendLine("模型：${settings.profile.defaultModel}")
+        appendLine("结构化输出：${outputMode.name}")
+        if (settings.profile.id == AiProviderPresets.deepSeek.id) {
+            appendLine("DeepSeek thinking：enabled / high（保留推理能力，正文与思考分开展示）")
+            appendLine("DeepSeek max_tokens：393216；MiMo max_completion_tokens：131072（避免思考过程或长 JSON 耗尽输出额度）")
+        }
+        appendLine("输入文本：$pageTextLength 字符")
+        appendLine("提示词：已附加完整 SleepDown JSON 解析协议与字段示例")
+        append("密钥：已从本机安全存储读取，未显示")
+    }
+}
+
+@Composable
+private fun AiEduImportProgressDialog(
+    progress: AiEduImportProgress,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = { if (progress.finished) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        CenterLiquidDialog(backdrop = backdrop, config = config) {
+            val textColor = appPanelForegroundColor(config)
+            val scrollState = rememberScrollState()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 620.dp)
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "AI教务导入",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = textColor
+                    )
+                    if (progress.finished) {
+                        DialogLiquidButton(backdrop, "关闭", onDismiss, role = DialogButtonRole.Cancel)
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(ComposeColor.Black.copy(alpha = if (appUsesDarkTheme(config)) 0.24f else 0.10f))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    aiEduImportStepRows(progress).forEachIndexed { index, row ->
+                        val stepColor = aiEduStepColor(row.status, textColor)
+                        Text(
+                            "${index + 1}. ${row.text}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = stepColor,
+                            lineHeight = 19.sp
+                        )
+                    }
+                    progress.error?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            lineHeight = 18.sp
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(ComposeColor.Black.copy(alpha = if (appUsesDarkTheme(config)) 0.22f else 0.08f))
+                        .verticalScroll(scrollState)
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (progress.pageText.isNotBlank()) {
+                        Text("页面文本预览", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = textColor)
+                        Text(
+                            progress.pageText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = textColor.copy(alpha = 0.74f),
+                            lineHeight = 17.sp
+                        )
+                    }
+                    if (progress.aiOutput.isNotBlank()) {
+                        Text("AI 可见输出", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = textColor)
+                        Text(
+                            progress.aiOutput,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = textColor.copy(alpha = 0.82f),
+                            lineHeight = 17.sp
+                        )
+                    } else {
+                        Text(
+                            "等待 AI 返回可见文本。模型隐藏推理过程不会显示，这里会展示请求进度和模型最终返回内容。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = textColor.copy(alpha = 0.66f),
+                            lineHeight = 18.sp
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -6023,9 +6905,11 @@ fun EduImportBrowserScreen(
     onUrlChange: (String) -> Unit,
     bridge: EduImportBridge,
     useDetailTopPadding: Boolean = true,
-    onMessage: (String) -> Unit
+    onMessage: (String) -> Unit,
+    onAiParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val fallbackBackdrop = rememberLayerBackdrop()
     val buttonBackdrop = backdrop ?: fallbackBackdrop
     var addressText by remember(currentUrl) { mutableStateOf(currentUrl) }
@@ -6033,7 +6917,10 @@ fun EduImportBrowserScreen(
     var canGoForward by remember { mutableStateOf(false) }
     var lastRequestedUrl by remember { mutableStateOf<String?>(null) }
     var desktopMode by remember { mutableStateOf(false) }
-    var waitingBrowserReturn by remember { mutableStateOf(false) }
+    var aiParsing by remember { mutableStateOf(false) }
+    var aiProgress by remember { mutableStateOf<AiEduImportProgress?>(null) }
+    var isScreenCapturing by remember { mutableStateOf(false) }
+    var screenCaptureStatus by remember { mutableStateOf<String?>(null) }
     val topPadding = if (useDetailTopPadding) detailContentTopPadding() else 0.dp
     val normalizedUrl = remember(addressText) {
         normalizeEduUrl(addressText)
@@ -6048,50 +6935,294 @@ fun EduImportBrowserScreen(
         webView?.loadUrl(normalizedUrl)
     }
 
-    fun openInSystemBrowser() {
-        val targetUrl = webView?.url?.takeIf { it.isNotBlank() } ?: normalizedUrl
-        if (targetUrl.isBlank()) {
-            onMessage("请输入教务系统网址")
-            return
+    fun appendAiStep(step: String) {
+        val next = (aiProgress ?: AiEduImportProgress()).let {
+            it.copy(steps = it.steps + step)
         }
-        waitingBrowserReturn = true
-        runCatching {
-            CustomTabsIntent.Builder()
-                .setShowTitle(true)
-                .setColorScheme(CustomTabsIntent.COLOR_SCHEME_SYSTEM)
-                .build()
-                .launchUrl(context, Uri.parse(targetUrl))
-        }.onFailure {
-            runCatching {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)))
-            }.onFailure {
-                onMessage("无法打开系统浏览器")
-            }
-        }
+        aiProgress = next
+        AiEduImportProgressSession.update(next)
     }
 
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, waitingBrowserReturn, webView) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && waitingBrowserReturn) {
-                waitingBrowserReturn = false
-                webView?.reload()
-                onMessage("已返回 App，页面已刷新，可继续执行导入")
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    fun setAiProgress(progress: AiEduImportProgress?) {
+        aiProgress = progress
+        AiEduImportProgressSession.update(progress)
     }
 
-    fun runImportScript() {
+    fun runAiEduImport(forceFallback: Boolean = false) {
         val target = webView
         if (target == null) {
             onMessage("网页还没有加载完成")
             return
         }
+        if (aiParsing) return
+        val routeLabel = when {
+            forceFallback -> "AI 兜底扒页"
+            adapter.isAiEduImportTool() -> "AI 专用教务导入"
+            else -> "AI 解析当前页"
+        }
+        fun cancelAiImport(message: String = "已取消 AI 教务导入") {
+            AiEduImportProgressSession.clearActions()
+            setAiProgress(aiProgress?.copy(
+                steps = aiProgress?.steps.orEmpty() + "用户取消",
+                awaitingConfirmation = false,
+                finished = true
+            ))
+            onMessage(message)
+            aiParsing = false
+        }
+
+        fun sendCaptureToAi(capture: EduPageCaptureResult, settings: AiImportSettings, includePageText: Boolean = true) {
+            val pageUrl = target.url?.takeIf { it.isNotBlank() } ?: currentUrl
+            val aiPageText = buildString {
+                appendLine("当前教务页面地址：${pageUrl.ifBlank { "未知" }}")
+                appendLine("请根据该网址识别学校或教务系统来源，并在模型具备相关能力时参考该学校公开的作息/排课时间。")
+                appendLine()
+                if (includePageText) {
+                    append(capture.text)
+                } else {
+                    appendLine("用户选择只发送截图，DOM 文本未发送；请以截图中的课表结构、表头、时间轴和课程块为准。")
+                }
+            }
+            AiEduImportProgressSession.clearActions()
+            setAiProgress(aiProgress?.copy(
+                awaitingConfirmation = false,
+                confirmActionLabel = "",
+                secondaryConfirmActionLabel = "",
+                screenModeActionLabel = "",
+                steps = aiProgress?.steps.orEmpty() + (if (includePageText) {
+                    "用户确认发送给 AI"
+                } else {
+                    "用户确认只发送截图给 AI"
+                })
+            ))
+            scope.launch {
+                if (settings.apiKey.isBlank()) {
+                    setAiProgress(aiProgress?.copy(
+                        steps = aiProgress?.steps.orEmpty() + "缺少 AI API Key",
+                        error = "请先在设置中配置 AI API Key",
+                        finished = true
+                    ))
+                    onMessage("请先在设置中配置 AI API Key")
+                    aiParsing = false
+                    return@launch
+                }
+                appendAiStep("已读取 AI 配置：${settings.profile.displayName} / ${settings.profile.defaultModel}")
+                appendAiStep("正在发送给 AI 解析")
+                onMessage("AI 正在解析当前教务页面...")
+                AiScheduleImportService(context)
+                    .parseScheduleCapturedPage(
+                        text = aiPageText,
+                        screenshots = capture.screenshots,
+                        sourceName = routeLabel,
+                        warnings = capture.warnings,
+                        settings = settings
+                    )
+                    .onSuccess { result ->
+                        setAiProgress(aiProgress?.copy(
+                            steps = aiProgress?.steps.orEmpty() + "AI 已返回可见文本，开始本地校验",
+                            reasoningOutput = result.reasoningOutput.take(20_000),
+                            aiOutput = result.rawOutput.take(80_000)
+                        ))
+                        ScheduleImportParser.parse(result.output, state.config)
+                            .onSuccess {
+                                setAiProgress(aiProgress?.copy(
+                                    steps = aiProgress?.steps.orEmpty() + "本地校验通过，即将进入导入预览",
+                                    finished = true
+                                ))
+                                onMessage(result.routeMessage)
+                                onAiParsed(it)
+                            }
+                            .onFailure {
+                                setAiProgress(aiProgress?.copy(
+                                    steps = aiProgress?.steps.orEmpty() + "本地校验失败",
+                                    error = it.message ?: "AI 返回内容无法解析",
+                                    finished = true
+                                ))
+                                onMessage(it.message ?: "AI 返回内容无法解析")
+                            }
+                    }
+                    .onFailure {
+                        val rawBody = it.aiRawResponseBody().orEmpty()
+                        setAiProgress(aiProgress?.copy(
+                            steps = aiProgress?.steps.orEmpty() + "AI 请求失败",
+                            reasoningOutput = extractAiReasoningForDisplay(rawBody).take(20_000),
+                            aiOutput = sanitizeAiOutputForDisplay(rawBody).take(80_000),
+                            error = it.message ?: "AI 解析失败",
+                            finished = true
+                        ))
+                        onMessage(it.message ?: "AI 解析失败")
+                    }
+                aiParsing = false
+            }
+        }
+
+        fun prepareCapturePreview(capture: EduPageCaptureResult, settings: AiImportSettings, screenMode: Boolean) {
+            val supportsVision = settings.profile.supportsVision || settings.profile.capabilities.supportsImageInput
+            val pageIssue = inspectEduPageCapture(capture.text)
+            val isLoginPage = pageIssue?.step?.contains("登录") == true
+            val pageText = (capture.diagnosticsText + "\n\n" + capture.text).take(12_000)
+            if (isLoginPage) {
+                AiEduImportProgressSession.clearActions()
+                setAiProgress(aiProgress?.copy(
+                    steps = aiProgress?.steps.orEmpty() + pageIssue.step,
+                    pageText = pageText,
+                    error = pageIssue.message,
+                    finished = true
+                ))
+                onMessage(pageIssue.message)
+                aiParsing = false
+                return
+            }
+            if (capture.screenshots.isNotEmpty() && !supportsVision) {
+                AiEduImportProgressSession.clearActions()
+                val message = "已生成截图兜底，但当前模型不支持视觉输入。请换视觉模型，或手动进入可复制文本课表页。"
+                setAiProgress(aiProgress?.copy(
+                    steps = aiProgress?.steps.orEmpty() + "当前模型不支持识屏",
+                    pageText = pageText,
+                    error = message,
+                    finished = true
+                ))
+                onMessage(message)
+                aiParsing = false
+                return
+            }
+            val warningStep = when {
+                pageIssue != null && supportsVision -> "页面文本不够像课表，请确认是否改用识屏模式"
+                pageIssue != null -> pageIssue.step
+                capture.screenshots.isNotEmpty() -> "已准备页面文本和识屏截图，等待确认发送"
+                else -> "已抓取页面文本，等待确认发送"
+            }
+            val confirmLabel = when {
+                capture.screenshots.isNotEmpty() -> "发送截图+文本"
+                else -> "确认发送文本"
+            }
+            val secondaryConfirmLabel = if (capture.screenshots.isNotEmpty()) "只发送截图" else ""
+            val screenLabel = if (!screenMode && supportsVision) "进入识屏模式" else ""
+            setAiProgress(aiProgress?.copy(
+                steps = aiProgress?.steps.orEmpty() + warningStep,
+                pageText = pageText,
+                screenshotPreviews = capture.screenshots.take(6),
+                requestPreview = aiEduRequestPreview(settings, capture.text.length),
+                awaitingConfirmation = true,
+                confirmActionLabel = confirmLabel,
+                secondaryConfirmActionLabel = secondaryConfirmLabel,
+                screenModeActionLabel = screenLabel,
+                cancelActionLabel = "返回重抓",
+                finished = false,
+                error = null
+            ))
+            AiEduImportProgressSession.setActions(
+                onConfirm = { sendCaptureToAi(capture, settings, includePageText = true) },
+                onSecondaryConfirm = if (secondaryConfirmLabel.isNotBlank()) {
+                    { sendCaptureToAi(capture, settings, includePageText = false) }
+                } else null,
+                onScreenMode = if (screenLabel.isNotBlank()) {
+                    {
+                        setAiProgress(aiProgress?.copy(
+                            steps = aiProgress?.steps.orEmpty() + "用户选择识屏模式",
+                            awaitingConfirmation = false,
+                            secondaryConfirmActionLabel = "",
+                            screenModeActionLabel = ""
+                        ))
+                        scope.launch {
+                            delay(420)
+                            isScreenCapturing = true
+                            screenCaptureStatus = "正在识屏截取，请保持页面不动..."
+                            withFrameNanos { }
+                            withFrameNanos { }
+                            delay(120)
+                            val screenCapture = runCatching {
+                                try {
+                                    captureEduPage(
+                                        webView = target,
+                                        maxScreenshots = 4,
+                                        forceScreenshots = true,
+                                        onScreenshotProgress = { index, total ->
+                                            screenCaptureStatus = "正在截取第 $index/$total 段"
+                                        }
+                                    )
+                                } finally {
+                                    isScreenCapturing = false
+                                    screenCaptureStatus = null
+                                }
+                            }.getOrElse {
+                                context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
+                                AiEduImportProgressSession.clearActions()
+                                setAiProgress(aiProgress?.copy(
+                                    steps = aiProgress?.steps.orEmpty() + "识屏截图失败",
+                                    error = it.message ?: "识屏截图失败",
+                                    finished = true
+                                ))
+                                onMessage(it.message ?: "识屏截图失败")
+                                aiParsing = false
+                                return@launch
+                            }
+                            context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
+                            prepareCapturePreview(screenCapture, settings, screenMode = true)
+                        }
+                    }
+                } else null,
+                onCancel = { cancelAiImport() }
+            )
+            onMessage(
+                if (capture.screenshots.isNotEmpty()) "已进入识屏预览，确认后才会发送给 AI。"
+                else "已抓取页面文本，请确认后再发送给 AI。"
+            )
+        }
+
+        AiEduImportProgressSession.clearActions()
+        setAiProgress(AiEduImportProgress(steps = listOf("准备读取当前页面")))
+        context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
+        setAiProgress(aiProgress?.copy(routeLabel = routeLabel))
+        onMessage("正在分层抓取当前页面...")
+        aiParsing = true
+        scope.launch {
+            val capture = runCatching { captureEduPage(target, allowScreenshotFallback = false) }.getOrElse {
+                setAiProgress(aiProgress?.copy(
+                    steps = aiProgress?.steps.orEmpty() + "页面抓取失败",
+                    error = it.message ?: "页面抓取失败",
+                    finished = true
+                ))
+                onMessage(it.message ?: "页面抓取失败")
+                aiParsing = false
+                return@launch
+            }
+            val captureStep = when (capture.mode) {
+                EduPageCaptureMode.TEXT_ONLY -> "已完成 DOM 深度抓取（${capture.text.length} 字符）"
+                EduPageCaptureMode.TEXT_PLUS_SCREENSHOT -> "已完成 DOM 抓取并生成截图兜底（${capture.screenshots.size} 张）"
+                EduPageCaptureMode.SCREENSHOT_ONLY -> "DOM 文本不足，已生成截图兜底（${capture.screenshots.size} 张）"
+            }
+            setAiProgress(aiProgress?.copy(
+                steps = aiProgress?.steps.orEmpty() + captureStep,
+                pageText = (capture.diagnosticsText + "\n\n" + capture.text).take(12_000)
+            ))
+            if (capture.warnings.isNotEmpty()) {
+                appendAiStep("页面诊断：${capture.warnings.joinToString("；").take(120)}")
+            }
+            val settings = AiImportSettingsStore.load(context)
+            appendAiStep(
+                if (capture.screenshots.isEmpty()) "已准备页面文本预览，等待用户确认"
+                else "已生成页面截图兜底，等待用户确认"
+            )
+            prepareCapturePreview(capture, settings, screenMode = capture.screenshots.isNotEmpty())
+        }
+    }
+
+    fun runOriginalImportScript() {
+        val target = webView
+        if (target == null) {
+            onMessage("网页还没有加载完成")
+            return
+        }
+        target.evaluateJavascript(AiEduPageExtractScript) { encoded ->
+            runCatching { inspectEduPageCapture(decodeAiEduPageSnapshot(encoded)) }
+                .getOrNull()
+                ?.let { onMessage("${it.message}；仍将尝试执行原有拾光导入脚本。") }
+        }
         runCatching { ShiguangWarehouse.loadScript(context, adapter) }
             .onSuccess {
-                onMessage("已执行导入脚本")
+                val completionCountAtStart = bridge.taskCompletionCount()
+                onMessage("已加载拾光仓库脚本，正在执行导入")
                 target.evaluateJavascript(
                     """
                     console.log('SleepDown bridge check', !!window.AndroidBridgePromise, typeof window.AndroidBridgePromise?.showAlert, typeof window.AndroidBridge?.notifyTaskCompletion);
@@ -6099,8 +7230,14 @@ fun EduImportBrowserScreen(
                     """.trimIndent(),
                     null
                 )
+                scope.launch {
+                    delay(10_000)
+                    if (bridge.taskCompletionCount() == completionCountAtStart) {
+                        onMessage("拾光适配器暂未返回课程数据，可以点击 AI 兜底扒页，强制读取当前页面文字后交给 AI 解析。")
+                    }
+                }
             }
-            .onFailure { onMessage(it.message ?: "脚本加载失败") }
+            .onFailure { onMessage("拾光仓库脚本加载失败：${it.message ?: "找不到该学校的导入脚本"}") }
     }
 
     fun updateNavigationState(target: WebView?) {
@@ -6124,11 +7261,8 @@ fun EduImportBrowserScreen(
 
     fun createEduWebView(context: Context): WebView {
         return WebView(context).apply {
-            val provider = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WebView.getCurrentWebViewPackage() else null
-            Log.d("SleepDownWebView", "provider=${provider?.packageName}/${provider?.versionName}")
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            settings.databaseEnabled = true
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
             settings.setSupportZoom(true)
@@ -6169,27 +7303,43 @@ fun EduImportBrowserScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            BasicTextField(
-                value = addressText,
-                onValueChange = { addressText = it },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(42.dp)
-                    .clip(RoundedCornerShape(21.dp))
-                    .background(if (appUsesDarkTheme(state.config)) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
-                    .padding(horizontal = 14.dp, vertical = 11.dp),
-                decorationBox = { innerTextField ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (addressText.isBlank() || addressText == "https://") {
-                            Text("输入教务系统网址", color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            if (isScreenCapturing) {
+                Spacer(Modifier.weight(1f))
+                Text(
+                    screenCaptureStatus ?: "正在识屏截取",
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(21.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.90f))
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.weight(1f))
+            } else {
+                BasicTextField(
+                    value = addressText,
+                    onValueChange = { addressText = it },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(21.dp))
+                        .background(if (appUsesDarkTheme(state.config)) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                    decorationBox = { innerTextField ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (addressText.isBlank() || addressText == "https://") {
+                                Text("输入教务系统网址", color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                            }
+                            innerTextField()
                         }
-                        innerTextField()
                     }
-                }
-            )
-            LiquidMenuButton(null, "打开", onClick = { loadAddress() })
+                )
+                LiquidMenuButton(null, "打开", onClick = { loadAddress() })
+            }
         }
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             AndroidView(
@@ -6216,7 +7366,7 @@ fun EduImportBrowserScreen(
                     container.removeAllViews()
                 }
             )
-            message?.let {
+            if (!isScreenCapturing) message?.let {
                 Text(
                     it,
                     modifier = Modifier
@@ -6231,70 +7381,84 @@ fun EduImportBrowserScreen(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .navigationBarsPadding()
-                    .padding(start = 22.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                EduWebNavButton(
-                    backdrop = buttonBackdrop,
-                    iconRes = R.drawable.ic_arrow_back,
-                    contentDescription = "网页后退",
-                    enabled = canGoBack,
-                    onClick = {
-                        webView?.goBack()
-                        updateNavigationState(webView)
-                    }
-                )
-                EduWebNavButton(
-                    backdrop = buttonBackdrop,
-                    iconRes = R.drawable.ic_arrow_back,
-                    contentDescription = "网页前进",
-                    enabled = canGoForward,
-                    flipHorizontal = true,
-                    onClick = {
-                        webView?.goForward()
-                        updateNavigationState(webView)
-                    }
-                )
-                LiquidMenuButton(
-                    null,
-                    if (desktopMode) "电脑" else "手机",
-                    onClick = {
-                        desktopMode = !desktopMode
-                        webView?.let { target ->
-                            applyEduWebMode(target, desktopMode)
-                            target.reload()
+            if (!isScreenCapturing) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .navigationBarsPadding()
+                        .padding(start = 22.dp, bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    EduWebNavButton(
+                        backdrop = buttonBackdrop,
+                        iconRes = R.drawable.ic_arrow_back,
+                        contentDescription = "网页后退",
+                        enabled = canGoBack,
+                        onClick = {
+                            webView?.goBack()
+                            updateNavigationState(webView)
                         }
+                    )
+                    EduWebNavButton(
+                        backdrop = buttonBackdrop,
+                        iconRes = R.drawable.ic_arrow_back,
+                        contentDescription = "网页前进",
+                        enabled = canGoForward,
+                        flipHorizontal = true,
+                        onClick = {
+                            webView?.goForward()
+                            updateNavigationState(webView)
+                        }
+                    )
+                    EduWebNavButton(
+                        backdrop = buttonBackdrop,
+                        iconRes = R.drawable.ic_refresh,
+                        contentDescription = "刷新网页",
+                        enabled = true,
+                        onClick = {
+                            webView?.reload()
+                            onMessage("已刷新页面")
+                        }
+                    )
+                    EduWebModeButton(
+                        backdrop = buttonBackdrop,
+                        label = if (desktopMode) "电脑" else "手机",
+                        onClick = {
+                            desktopMode = !desktopMode
+                            webView?.let { target ->
+                                applyEduWebMode(target, desktopMode)
+                                target.reload()
+                            }
+                        }
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .navigationBarsPadding()
+                        .padding(end = 22.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    EduWebImportButton(
+                        backdrop = buttonBackdrop,
+                        iconRes = R.drawable.ic_ai_import,
+                        contentDescription = if (adapter.isAiEduImportTool()) "AI专用教务导入" else "AI兜底扒页",
+                        tint = ComposeColor(0xFF0A84FF),
+                        alpha = if (aiParsing) 0.58f else 1f,
+                        onClick = { runAiEduImport(forceFallback = !adapter.isAiEduImportTool()) }
+                    )
+                    if (!adapter.isAiEduImportTool()) {
+                        EduWebImportButton(
+                            backdrop = buttonBackdrop,
+                            iconRes = R.drawable.ic_download,
+                            contentDescription = "执行原有导入脚本",
+                            tint = ComposeColor(0xFF0A84FF),
+                            onClick = { runOriginalImportScript() }
+                        )
                     }
-                )
-                LiquidMenuButton(null, "浏览器", onClick = { openInSystemBrowser() })
-            }
-            LiquidButton(
-                onClick = { runImportScript() },
-                backdrop = buttonBackdrop,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    .padding(end = 22.dp, bottom = 16.dp)
-                    .size(58.dp),
-                tint = ComposeColor(0xFF0A84FF),
-                surfaceColor = ComposeColor(0xFF0A84FF).copy(alpha = 0.34f),
-                contentPadding = PaddingValues(0.dp),
-                blurRadius = 8.dp,
-                lensHeight = 34.dp,
-                lensAmount = 42.dp,
-                chromaticAberration = false
-            ) {
-                Icon(
-                    painterResource(R.drawable.ic_download),
-                    contentDescription = "执行导入",
-                    tint = ComposeColor.White,
-                    modifier = Modifier.size(25.dp)
-                )
+                }
             }
         }
     }
@@ -6327,17 +7491,6 @@ fun EduImportWebScreen(
             SettingsValueRow("登录地址", adapter.importUrl)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SettingsActionButton("用浏览器打开", null, onClick = {
-                if (adapter.importUrl.isBlank()) {
-                    onMessage("请先输入教务系统网址")
-                    return@SettingsActionButton
-                }
-                runCatching {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(adapter.importUrl)))
-                }.onFailure {
-                    onMessage(it.message ?: "无法打开浏览器")
-                }
-            })
             SettingsActionButton("使用内置页面", null, onClick = {
                 onMessage("已打开内置页面，登录完成后执行导入脚本。")
                 onShowEmbeddedPage()
@@ -6359,7 +7512,6 @@ fun EduImportWebScreen(
                     WebView(it).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
-                        settings.databaseEnabled = true
                         webViewClient = WebViewClient()
                         webChromeClient = WebChromeClient()
                         enableSleepDownDownloads()
@@ -6407,6 +7559,66 @@ fun EduWebNavButton(
             modifier = Modifier
                 .size(22.dp)
                 .graphicsLayer(scaleX = if (flipHorizontal) -1f else 1f)
+        )
+    }
+}
+
+@Composable
+fun EduWebModeButton(
+    backdrop: Backdrop,
+    label: String,
+    onClick: () -> Unit
+) {
+    LiquidButton(
+        onClick = onClick,
+        backdrop = backdrop,
+        modifier = Modifier.size(50.dp),
+        surfaceColor = ComposeColor.White.copy(alpha = 0.16f),
+        contentPadding = PaddingValues(0.dp),
+        blurRadius = 8.dp,
+        lensHeight = 30.dp,
+        lensAmount = 38.dp,
+        chromaticAberration = false
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = LocalContentColor.current,
+            maxLines = 1,
+            softWrap = false
+        )
+    }
+}
+
+@Composable
+fun EduWebImportButton(
+    backdrop: Backdrop,
+    iconRes: Int,
+    contentDescription: String,
+    tint: ComposeColor,
+    alpha: Float = 1f,
+    onClick: () -> Unit
+) {
+    LiquidButton(
+        onClick = onClick,
+        backdrop = backdrop,
+        modifier = Modifier
+            .size(58.dp)
+            .graphicsLayer(alpha = alpha),
+        tint = tint,
+        surfaceColor = tint.copy(alpha = 0.34f),
+        contentPadding = PaddingValues(0.dp),
+        blurRadius = 8.dp,
+        lensHeight = 34.dp,
+        lensAmount = 42.dp,
+        chromaticAberration = false
+    ) {
+        Icon(
+            painterResource(iconRes),
+            contentDescription = contentDescription,
+            tint = ComposeColor.White,
+            modifier = Modifier.size(25.dp)
         )
     }
 }
@@ -6502,7 +7714,6 @@ fun EduImportScreen(state: AppState, onParsed: (ImportDraft) -> Unit) {
                 WebView(it).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
-                    settings.databaseEnabled = true
                     webViewClient = WebViewClient()
                     webChromeClient = WebChromeClient()
                     enableSleepDownDownloads()
@@ -6580,6 +7791,7 @@ fun SettingsScreen(
     when (page) {
         SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange)
         SettingsPage.General -> GeneralSettingsScreen(state, backdrop, onUpdateConfig)
+        SettingsPage.AiImport -> AiImportSettingsScreen(state, backdrop)
         SettingsPage.Schedule -> ScheduleConfigScreen(state, backdrop, SettingsSection.Schedule, onSave, onPreviewLiveUpdate)
         SettingsPage.Notifications -> ScheduleConfigScreen(state, backdrop, SettingsSection.Notifications, onSave, onPreviewLiveUpdate)
         SettingsPage.ScheduleManager -> ScheduleManagerScreen(state, backdrop, onCreateSchedule, onActivateSchedule, onRenameSchedule, onDeleteSchedule)
@@ -6593,6 +7805,7 @@ fun SettingsScreen(
 @Composable
 fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (SettingsPage) -> Unit) {
     val context = LocalContext.current
+    val topContentPadding = detailContentTopPadding()
     val versionName = remember {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
@@ -6605,7 +7818,7 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
     }
 
     LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 34.dp, bottom = DockScrollPadding),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topContentPadding, bottom = DockScrollPadding),
         verticalArrangement = Arrangement.spacedBy(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -6631,6 +7844,11 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
                 SettingsNavigationRow("课表设置", "管理多个课表", onClick = { context.startActivity(Intent(context, ScheduleManagerActivity::class.java)) })
                 SettingsDivider()
                 SettingsNavigationRow("通知设置", "上课提醒与实时活动", onClick = { onPageChange(SettingsPage.Notifications) })
+            }
+        }
+        item {
+            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsNavigationRow("AI 导入设置", "配置 API Key、服务商和模型。", onClick = { onPageChange(SettingsPage.AiImport) })
             }
         }
         item {
@@ -6868,6 +8086,8 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.09 beta", "新增 AI 导入功能，绑定 API Key 之后，可以在原有教务导入无法识别网页课表结构时调用大模型来组织课表结构；无法抓取网页时，可以通过识屏进行强制抓取。此导入方法作为兜底方案，课表导入准确度取决于学校网站结构、选用大模型能力等。目前仅 DeepSeek 和小米 MIMO 经过了全流程测试，DeepSeek 不支持多模态，所以无法使用图片导入功能；优化各项玻璃参数，视觉效果更透亮；优化了个性化弹窗和加号菜单打开的动画。")
+                SettingsDivider()
                 SettingsInfoRow("1.08 beta", "优化动画过渡，课程卡片打开与收回更顺滑；优化渐变模糊效果，顶部与背景过渡更自然。")
                 SettingsDivider()
                 SettingsInfoRow("1.07 beta", "优化个性化面板布局，壁纸与课程卡片设置分区更清晰；调整弹窗取消与保存按钮为圆形液态图标按钮；优化课程卡片可读性，周视图课程名、地点、教师信息层级更分明；改进滑块默认值交互，点击标记点即可快速恢复默认并提供震动反馈；支持点击首页日期快速回到本周，日视图也可左右滑动切换日期；修复壁纸模糊时出现马赛克的问题。")
@@ -6918,7 +8138,6 @@ fun DownloadUpdateScreen(state: AppState, backdrop: Backdrop?) {
                 WebView(it).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
-                    settings.databaseEnabled = true
                     settings.useWideViewPort = true
                     settings.loadWithOverviewMode = true
                     webViewClient = sleepDownWebViewClient(context)
@@ -7272,6 +8491,495 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
     }
 }
 
+@Composable
+fun AiImportSettingsScreen(state: AppState, backdrop: Backdrop?) {
+    val topPadding = detailContentTopPadding()
+    LazyColumn(
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            AiImportSettingsSection(state = state, backdrop = backdrop)
+        }
+    }
+}
+
+@Composable
+fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var saved by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
+    var selectedProviderId by remember(saved.profile.id) { mutableStateOf(saved.profile.id) }
+    var baseUrl by remember(saved.profile.baseUrl) { mutableStateOf(saved.profile.baseUrl) }
+    var model by remember(saved.profile.defaultModel) { mutableStateOf(saved.profile.defaultModel) }
+    var apiKeyInput by remember(saved.apiKey) { mutableStateOf("") }
+    var structuredOutputMode by remember(saved.profile.structuredOutputMode) { mutableStateOf(saved.profile.structuredOutputMode) }
+    var inputMode by remember(saved.profile.inputMode) { mutableStateOf(saved.profile.inputMode) }
+    var supportsVision by remember(saved.profile.supportsVision) { mutableStateOf(saved.profile.supportsVision) }
+    var supportsFileUpload by remember(saved.profile.supportsFileUpload) { mutableStateOf(saved.profile.supportsFileUpload) }
+    var supportsPdfDirect by remember(saved.profile.supportsPdfDirect) { mutableStateOf(saved.profile.supportsPdfDirect) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var testResult by remember { mutableStateOf<String?>(null) }
+    var providerMenuExpanded by remember { mutableStateOf(false) }
+    var modelUsesCustomInput by remember(saved.profile.id) {
+        mutableStateOf(AiProviderPresets.modelOptions(saved.profile.id).none { it.model == saved.profile.defaultModel })
+    }
+    var customModelInput by remember(saved.profile.id) {
+        mutableStateOf(
+            saved.profile.defaultModel.takeIf { savedModel ->
+                AiProviderPresets.modelOptions(saved.profile.id).none { it.model == savedModel }
+            }.orEmpty()
+        )
+    }
+    val presets = AiProviderPresets.selectable
+    val selectedPreset = presets.firstOrNull { it.id == selectedProviderId } ?: AiProviderPresets.openAI
+    val modelOptions = AiProviderPresets.modelOptions(selectedProviderId)
+    val modelEditable = modelOptions.isEmpty() || modelUsesCustomInput
+    val selectedModelOptionIndex = if (modelUsesCustomInput) {
+        modelOptions.size
+    } else {
+        modelOptions.indexOfFirst { it.model == model }.coerceAtLeast(0)
+    }
+    val normalizedBaseUrl = normalizeAiBaseUrlForProvider(selectedProviderId, baseUrl)
+    val usesOpenAICompatibleSite = selectedProviderId == AiProviderPresets.openAI.id &&
+        !normalizedBaseUrl.equals("https://api.openai.com/v1", ignoreCase = true)
+    val endpointStyle = if (
+        selectedProviderId == AiProviderPresets.openAI.id &&
+        !usesOpenAICompatibleSite &&
+        inputMode == AiInputMode.RESPONSES_FILE
+    ) {
+        AiEndpointStyle.RESPONSES
+    } else {
+        AiEndpointStyle.CHAT_COMPLETIONS
+    }
+    val profile = selectedPreset.copy(
+        baseUrl = normalizedBaseUrl,
+        defaultModel = model.trim(),
+        providerType = if (usesOpenAICompatibleSite) AiProviderType.OpenAIChatCompatible else selectedPreset.providerType,
+        capabilities = selectedPreset.capabilities.copy(
+            supportsImageInput = supportsVision,
+            supportsPdfFileInput = supportsPdfDirect && !usesOpenAICompatibleSite,
+            supportsFileUpload = supportsFileUpload && !usesOpenAICompatibleSite,
+            supportsJsonSchema = structuredOutputMode == StructuredOutputMode.JSON_SCHEMA,
+            supportsJsonMode = structuredOutputMode != StructuredOutputMode.PROMPT_ONLY
+        ),
+        endpointStyle = endpointStyle,
+        structuredOutputMode = structuredOutputMode,
+        inputMode = inputMode,
+        supportsVision = supportsVision,
+        supportsFileUpload = supportsFileUpload && !usesOpenAICompatibleSite,
+        supportsPdfDirect = supportsPdfDirect && !usesOpenAICompatibleSite
+    )
+    fun reload() {
+        saved = AiImportSettingsStore.load(context)
+        selectedProviderId = saved.profile.id
+        baseUrl = saved.profile.baseUrl
+        model = saved.profile.defaultModel
+        apiKeyInput = ""
+        structuredOutputMode = saved.profile.structuredOutputMode
+        inputMode = saved.profile.inputMode
+        supportsVision = saved.profile.supportsVision
+        supportsFileUpload = saved.profile.supportsFileUpload
+        supportsPdfDirect = saved.profile.supportsPdfDirect
+        testResult = null
+        val savedModelOptions = AiProviderPresets.modelOptions(saved.profile.id)
+        val savedUsesPresetModel = savedModelOptions.any { it.model == saved.profile.defaultModel }
+        modelUsesCustomInput = savedModelOptions.isEmpty() || !savedUsesPresetModel
+        customModelInput = if (savedUsesPresetModel) "" else saved.profile.defaultModel
+    }
+    fun selectProvider(providerId: String) {
+        val providerSettings = AiImportSettingsStore.loadProvider(context, providerId)
+        val providerModelOptions = AiProviderPresets.modelOptions(providerSettings.profile.id)
+        val providerUsesPresetModel = providerModelOptions.any { it.model == providerSettings.profile.defaultModel }
+        saved = providerSettings
+        selectedProviderId = providerSettings.profile.id
+        baseUrl = providerSettings.profile.baseUrl
+        model = providerSettings.profile.defaultModel
+        apiKeyInput = ""
+        structuredOutputMode = providerSettings.profile.structuredOutputMode
+        inputMode = providerSettings.profile.inputMode
+        supportsVision = providerSettings.profile.supportsVision
+        supportsFileUpload = providerSettings.profile.supportsFileUpload
+        supportsPdfDirect = providerSettings.profile.supportsPdfDirect
+        testResult = null
+        modelUsesCustomInput = providerModelOptions.isEmpty() || !providerUsesPresetModel
+        customModelInput = if (providerUsesPresetModel) "" else providerSettings.profile.defaultModel
+        providerMenuExpanded = false
+    }
+    fun save() {
+        val nextKey = apiKeyInput.ifBlank { saved.apiKey }
+        if (profile.baseUrl.isBlank() || profile.defaultModel.isBlank()) {
+            message = "请先填写接口地址和模型名称"
+            return
+        }
+        AiImportSettingsStore.save(context, AiImportSettings(profile, nextKey))
+        reload()
+        message = "AI 导入设置已保存"
+    }
+
+    SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+        SettingsInfoRow(
+            "AI 导入设置",
+            "配置用于 AI 教务导入的模型服务。API Key 只保存在本机，不会写入课表数据库或诊断日志。除 DeepSeek 外，目前其他 AI 未经全链路测试，推荐优先使用 DeepSeek；如遇到使用问题，请和开发者反馈。"
+        )
+        SettingsDivider()
+        AiProviderPickerRow(
+            value = selectedPreset.displayName,
+            expanded = providerMenuExpanded,
+            presets = presets,
+            selectedProviderId = selectedProviderId,
+            backdrop = backdrop,
+            config = state.config,
+            onExpandedChange = { providerMenuExpanded = it },
+            onSelected = { selectProvider(it) }
+        )
+        SettingsDivider()
+        SettingsTextFieldRow("接口地址", baseUrl, { baseUrl = it }, KeyboardType.Uri)
+        SettingsDivider()
+        SettingsTextFieldRow(
+            "模型",
+            model,
+            {
+                if (modelEditable) {
+                    model = it
+                    customModelInput = it
+                    modelUsesCustomInput = true
+                }
+            },
+            enabled = modelEditable
+        )
+        SettingsDivider()
+        if (modelOptions.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("常用模型", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                LiquidOptionTabs(
+                    selectedIndex = selectedModelOptionIndex,
+                    labels = modelOptions.map { it.label } + "自定义",
+                    backdrop = backdrop,
+                    config = state.config,
+                    width = 320.dp,
+                    onSelected = { index ->
+                        if (index >= modelOptions.size) {
+                            modelUsesCustomInput = true
+                            model = customModelInput
+                        } else {
+                            val nextModel = modelOptions[index.coerceIn(modelOptions.indices)].model
+                            modelUsesCustomInput = false
+                            model = nextModel
+                            if (
+                                nextModel.contains("vl", ignoreCase = true) ||
+                                nextModel.contains("vision", ignoreCase = true) ||
+                                selectedProviderId == AiProviderPresets.kimi.id
+                            ) {
+                                supportsVision = true
+                            }
+                        }
+                    }
+                )
+            }
+            SettingsDivider()
+        }
+        SettingsTextFieldRow(
+            title = if (saved.apiKey.isBlank()) "API Key" else "API Key（已保存）",
+            value = apiKeyInput,
+            onValueChange = { apiKeyInput = it },
+            keyboardType = KeyboardType.Password
+        )
+        SettingsDivider()
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("结构化输出", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+            val outputModes = listOf(StructuredOutputMode.JSON_SCHEMA, StructuredOutputMode.JSON_OBJECT, StructuredOutputMode.PROMPT_ONLY)
+            LiquidOptionTabs(
+                selectedIndex = outputModes.indexOf(structuredOutputMode).coerceAtLeast(0),
+                labels = listOf("Schema", "JSON", "Prompt"),
+                backdrop = backdrop,
+                config = state.config,
+                width = 320.dp,
+                onSelected = { index -> structuredOutputMode = outputModes[index.coerceIn(outputModes.indices)] }
+            )
+        }
+        SettingsDivider()
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("连接测试", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SettingsActionButton(
+                    "网络诊断",
+                    backdrop,
+                    onClick = {
+                        val nextKey = apiKeyInput.ifBlank { saved.apiKey }
+                        testResult = "正在诊断网络..."
+                        scope.launch {
+                            diagnoseAiProviderNetwork(AiImportSettings(profile, nextKey))
+                                .onSuccess { testResult = it }
+                                .onFailure { testResult = it.message ?: "网络诊断失败" }
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                SettingsActionButton(
+                    "测试连接",
+                    backdrop,
+                    onClick = {
+                        val nextKey = apiKeyInput.ifBlank { saved.apiKey }
+                        testResult = "正在测试连接..."
+                        scope.launch {
+                            testAiProviderConnection(AiImportSettings(profile, nextKey))
+                                .onSuccess { testResult = it }
+                                .onFailure { testResult = it.message ?: "连接测试失败" }
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            testResult?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (it.contains("失败") || it.contains("请先")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp
+                )
+            }
+        }
+        SettingsDivider()
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            SettingsActionButton("保存", backdrop, onClick = { save() }, modifier = Modifier.weight(1f))
+            SettingsActionButton(
+                "清除 Key",
+                backdrop,
+                onClick = {
+                    AiImportSettingsStore.clearApiKey(context, selectedProviderId)
+                    saved = AiImportSettings(profile, "")
+                    apiKeyInput = ""
+                    message = "API Key 已清除"
+                },
+                modifier = Modifier.weight(1f),
+                destructive = true
+            )
+        }
+        message?.let {
+            Text(
+                it,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 14.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (it.contains("请先")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+@Composable
+private fun AiProviderPickerRow(
+    value: String,
+    expanded: Boolean,
+    presets: List<AiProviderProfile>,
+    selectedProviderId: String,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onExpandedChange: (Boolean) -> Unit,
+    onSelected: (String) -> Unit
+) {
+    val density = LocalDensity.current
+    val popupOffsetY = with(density) { 54.dp.roundToPx() }
+    var renderMenu by remember { mutableStateOf(false) }
+    var menuVisible by remember { mutableStateOf(false) }
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 90f else -90f,
+        animationSpec = tween(durationMillis = 160),
+        label = "ai-provider-arrow"
+    )
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            renderMenu = true
+            withFrameNanos { }
+            menuVisible = true
+        } else {
+            menuVisible = false
+            delay(130)
+            renderMenu = false
+        }
+    }
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { onExpandedChange(!expanded) }
+                )
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "服务商",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .weight(1f)
+                    .offset(y = 1.dp)
+            )
+            Row(
+                modifier = Modifier
+                    .weight(1.55f)
+                    .offset(y = 1.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    value.ifBlank { "未设置" },
+                    modifier = Modifier.weight(1f, fill = false),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End
+                )
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_back),
+                    contentDescription = if (expanded) "收起服务商" else "展开服务商",
+                    modifier = Modifier
+                        .size(18.dp)
+                        .graphicsLayer(rotationZ = arrowRotation),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (renderMenu) {
+            Popup(
+                alignment = Alignment.TopEnd,
+                offset = IntOffset(0, popupOffsetY),
+                onDismissRequest = { onExpandedChange(false) },
+                properties = PopupProperties(focusable = true)
+            ) {
+                val shape = RoundedCornerShape(24.dp)
+                val contentColor = appPanelForegroundColor(config)
+                val menuModifier = Modifier
+                    .width(220.dp)
+                    .heightIn(max = 318.dp)
+                    .zIndex(10f)
+                AnimatedVisibility(
+                    visible = menuVisible,
+                    enter = fadeIn(tween(110)) +
+                        scaleIn(
+                            initialScale = 0.96f,
+                            animationSpec = tween(150),
+                            transformOrigin = TransformOrigin(0.92f, 0f)
+                        ) +
+                        slideInVertically(tween(150)) { -12 },
+                    exit = fadeOut(tween(90)) + scaleOut(
+                        targetScale = 0.98f,
+                        animationSpec = tween(110),
+                        transformOrigin = TransformOrigin(0.92f, 0f)
+                    )
+                ) {
+                    if (backdrop != null) {
+                        LiquidPanel(
+                            backdrop = backdrop,
+                            modifier = menuModifier,
+                            shape = shape,
+                            surfaceColor = if (appUsesDarkTheme(config)) {
+                                ComposeColor(0xFF1C1C1E).copy(alpha = 0.86f)
+                            } else {
+                                ComposeColor.White.copy(alpha = 0.94f)
+                            }
+                        ) {
+                            CompositionLocalProvider(LocalContentColor provides contentColor) {
+                                Column(
+                                    Modifier
+                                        .padding(vertical = 6.dp)
+                                        .verticalScroll(rememberScrollState())
+                                ) {
+                                    presets.forEachIndexed { index, preset ->
+                                        AiProviderMenuRow(
+                                            name = preset.displayName,
+                                            selected = preset.id == selectedProviderId,
+                                            onClick = { onSelected(preset.id) }
+                                        )
+                                        if (index != presets.lastIndex) SettingsDivider()
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Surface(
+                            modifier = menuModifier,
+                            shape = shape,
+                            color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 8.dp
+                        ) {
+                            Column(
+                                Modifier
+                                    .padding(vertical = 6.dp)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                presets.forEachIndexed { index, preset ->
+                                    AiProviderMenuRow(
+                                        name = preset.displayName,
+                                        selected = preset.id == selectedProviderId,
+                                        onClick = { onSelected(preset.id) }
+                                    )
+                                    if (index != presets.lastIndex) SettingsDivider()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiProviderMenuRow(name: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 46.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 16.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            name,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (selected) MaterialTheme.colorScheme.primary else LocalContentColor.current
+        )
+        if (selected) {
+            Text(
+                "已选",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
 private suspend fun createDiagnosticLogUri(context: Context, config: ScheduleConfigEntity): Uri {
     return withContext(Dispatchers.IO) {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
@@ -7522,7 +9230,7 @@ fun LiquidOptionTabs(
     onSelected: (Int) -> Unit
 ) {
     if (backdrop != null) {
-        CompositionLocalProvider(LocalContentColor provides glassForegroundColor(config)) {
+        CompositionLocalProvider(LocalContentColor provides appPanelForegroundColor(config)) {
             LiquidBottomTabs(
                 selectedTabIndex = { selectedIndex.coerceIn(labels.indices) },
                 onTabSelected = { index -> onSelected(index.coerceIn(labels.indices)) },
@@ -7540,12 +9248,12 @@ fun LiquidOptionTabs(
                 indicatorHeightOverflow = 0.dp,
                 pressedContentScale = 1.04f,
                 chromaticAberrationEnabled = true,
-                isLightThemeOverride = glassUsesLightStyle(config),
+                isLightThemeOverride = !appUsesDarkTheme(config),
                 useOfficialGlassParameters = true
             ) {
                 labels.forEachIndexed { index, label ->
                     LiquidBottomTab(onClick = { onSelected(index) }) {
-                        Text(label, style = MaterialTheme.typography.labelLarge)
+                        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -7656,6 +9364,7 @@ fun LegacyGeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateCo
 fun SettingsGroup(backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(30.dp)
     val darkTheme = appUsesDarkTheme(config)
+    val contentColor = if (darkTheme) ComposeColor.White else ComposeColor(0xFF111111)
     if (backdrop != null) {
         LiquidPanel(
             backdrop = backdrop,
@@ -7663,16 +9372,20 @@ fun SettingsGroup(backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: M
             shape = shape,
             surfaceColor = if (darkTheme) ComposeColor(0xFF1C1C1E).copy(alpha = 0.78f) else ComposeColor.White.copy(alpha = 0.94f)
         ) {
-            Column(Modifier.padding(vertical = 4.dp), content = content)
+            CompositionLocalProvider(LocalContentColor provides contentColor) {
+                Column(Modifier.padding(vertical = 4.dp), content = content)
+            }
         }
     } else {
-        Column(
-            modifier = modifier
-                .clip(shape)
-                .background(if (darkTheme) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
-                .padding(vertical = 4.dp),
-            content = content
-        )
+        CompositionLocalProvider(LocalContentColor provides contentColor) {
+            Column(
+                modifier = modifier
+                    .clip(shape)
+                    .background(if (darkTheme) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
+                    .padding(vertical = 4.dp),
+                content = content
+            )
+        }
     }
 }
 
@@ -7813,6 +9526,8 @@ fun SettingsTextFieldRow(
             title,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .weight(1f)
                 .offset(y = 1.dp)
@@ -8177,11 +9892,7 @@ fun ScheduleSettingsContent(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         SettingsActionButton("电池优化", backdrop, onClick = {
-                            runCatching {
-                                appContext.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${appContext.packageName}")))
-                            }.onFailure {
-                                appContext.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${appContext.packageName}")))
-                            }
+                            openBatteryOptimizationSettings(appContext)
                         }, modifier = Modifier.weight(1f))
                         SettingsActionButton("自启动设置", backdrop, onClick = {
                             openKeepAliveSettings(appContext)
@@ -8554,6 +10265,25 @@ fun openKeepAliveSettings(context: Context) {
         runCatching {
             context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }.isSuccess
+    }
+}
+
+@SuppressLint("BatteryLife")
+private fun openBatteryOptimizationSettings(context: Context) {
+    runCatching {
+        context.startActivity(
+            Intent(
+                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:${context.packageName}")
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }.onFailure {
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${context.packageName}")
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     }
 }
 

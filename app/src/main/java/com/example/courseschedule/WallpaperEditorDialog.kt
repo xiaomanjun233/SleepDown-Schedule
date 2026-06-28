@@ -22,7 +22,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -57,11 +56,13 @@ fun WallpaperEditorDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val uriText = remember(uri) { uri.toString() }
-    val bitmap by produceState<Bitmap?>(initialValue = null, uri) {
-        value = withContext(Dispatchers.IO) { loadSampledBitmap(context.applicationContext, uri, maxDimension = 1600) }
+    var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
+    var sourceSize by remember(uri) { mutableStateOf<WallpaperSourceSize?>(null) }
+    LaunchedEffect(uri) {
+        bitmap = withContext(Dispatchers.IO) { loadSampledBitmap(context.applicationContext, uri, maxDimension = 1600) }
     }
-    val sourceSize by produceState<WallpaperSourceSize?>(initialValue = null, uri) {
-        value = withContext(Dispatchers.IO) { readWallpaperSourceSize(context.applicationContext, uri) }
+    LaunchedEffect(uri) {
+        sourceSize = withContext(Dispatchers.IO) { readWallpaperSourceSize(context.applicationContext, uri) }
     }
     val initialPortrait = remember(uriText, config.wallpaperUri) {
         if (config.wallpaperUri == uriText) config.wallpaperCropState(WallpaperPreviewOrientation.Portrait) else WallpaperCropState()
