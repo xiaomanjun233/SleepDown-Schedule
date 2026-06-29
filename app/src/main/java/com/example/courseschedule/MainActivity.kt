@@ -75,10 +75,14 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateDpAsState
+
 import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
@@ -123,6 +127,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -164,6 +172,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -171,8 +180,10 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.asImageBitmap
@@ -182,6 +193,8 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -394,7 +407,6 @@ class ScheduleViewModel(private val app: Application, private val repository: Sc
     fun updateCourseSingleWeek(original: CourseEntity, edited: CourseEntity, targetWeek: Int) = viewModelScope.launch {
         repository.updateCourseSingleWeek(original, edited, targetWeek)
         rescheduleToday()
-        snackbar.value = "课程已更新"
     }
 
     fun updateRelatedCourses(original: CourseEntity, edited: CourseEntity) = viewModelScope.launch {
@@ -947,6 +959,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     displayWeek = homeDisplayWeek,
                                     displayDate = homeDisplayDate,
                                     backdrop = backgroundBackdrop,
+                                    // Dragged week cards must not sample contentBackdrop/chromeBackdrop:
+                                    // they live inside contentBackdrop, so sampling it can recursively include themselves.
+                                    floatingCourseBackdrop = backgroundBackdrop,
                                     weekHeaderBackdrop = backgroundBackdrop,
                                     onSwipeWeek = { delta -> homeDisplayWeek = (homeDisplayWeek + delta).coerceIn(1, state.config.totalWeeks.coerceAtLeast(1)) },
                                     onSwipeDay = { delta -> homeDisplayDate = homeDisplayDate.plusDays(delta.toLong()) },
@@ -954,7 +969,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     onCourseClick = { course, week, sourceBounds ->
                                         openCourseEditor(course, week, sourceBounds)
                                     },
-                                    onScheduleLongPress = {
+                                    onUpdateCourseSingleWeek = viewModel::updateCourseSingleWeek,
+                                onScheduleLongPress = {
                                         addMenuExpanded = false
                                         showPersonalizePanel = false
                                         showScheduleEntryPill = true
@@ -3672,25 +3688,35 @@ fun HomeScreen(
     displayWeek: Int,
     displayDate: LocalDate,
     backdrop: Backdrop?,
+    floatingCourseBackdrop: Backdrop? = backdrop,
     weekHeaderBackdrop: Backdrop? = backdrop,
     onSwipeWeek: (Int) -> Unit,
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
+    onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     onScheduleLongPress: () -> Unit = {},
 ) {
     val cardColor = remember(state.config.cardColorArgb, state.config.cardAlpha) {
         ComposeColor(state.config.cardColorArgb.toInt()).copy(alpha = state.config.cardAlpha)
     }
     val textColor = homeForegroundColor(state.config)
+    var weekEditMode by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(onScheduleLongPress) {
-                detectTapGestures(onLongPress = { onScheduleLongPress() })
+            .pointerInput(weekEditMode, onScheduleLongPress) {
+                if (weekEditMode) {
+                    detectTapGestures(onTap = { weekEditMode = false })
+                } else {
+                    detectTapGestures(onLongPress = { onScheduleLongPress() })
+                }
             }
     ) {
+        BackHandler(enabled = mode == HomeMode.Week && weekEditMode) {
+            weekEditMode = false
+        }
         AnimatedContent(
             targetState = mode,
             transitionSpec = {
@@ -3724,9 +3750,13 @@ fun HomeScreen(
                     cardColor = cardColor,
                     textColor = textColor,
                     backdrop = backdrop,
+                    floatingCourseBackdrop = floatingCourseBackdrop,
                     headerBackdrop = weekHeaderBackdrop,
                     onSwipeWeek = onSwipeWeek,
                     onContentUnderTopBarChange = onContentUnderTopBarChange,
+                    weekEditMode = weekEditMode,
+                    onEnterWeekEditMode = { weekEditMode = true },
+                    onUpdateCourseSingleWeek = onUpdateCourseSingleWeek,
                     onCourseClick = { course, week, sourceBounds -> onCourseClick(course, week, sourceBounds) }
                 )
             }
@@ -4448,9 +4478,13 @@ fun SinglePillWeekScheduleScreen(
     cardColor: ComposeColor,
     textColor: ComposeColor,
     backdrop: Backdrop?,
+    floatingCourseBackdrop: Backdrop? = backdrop,
     headerBackdrop: Backdrop? = backdrop,
     onSwipeWeek: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
+    weekEditMode: Boolean = false,
+    onEnterWeekEditMode: () -> Unit = {},
+    onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit
 ) {
     val rowHeaderWidth = 56.dp
@@ -4682,11 +4716,16 @@ fun SinglePillWeekScheduleScreen(
                                 cardHeight = cardHeight,
                                 cardColor = cardColor,
                                 backdrop = backdrop,
+                                floatingBackdrop = floatingCourseBackdrop,
                                 config = state.config,
                                 weekMotionDirection = outgoingDirection.intValue,
                                 outgoing = true,
                                 layerOffset = outgoingLayerOffset,
-                                onCourseClick = { course, sourceBounds -> onCourseClick(course, outgoingWeekKey.intValue, sourceBounds) }
+                            editMode = false,
+                            editWeek = outgoingWeekKey.intValue,
+                            allWeekCourses = oldCourses,
+                            editScrollState = scrollState,
+                            onCourseClick = { course, sourceBounds -> onCourseClick(course, outgoingWeekKey.intValue, sourceBounds) }
                             )
                         }
                         WeekCourseColumnsLayer(
@@ -4696,10 +4735,17 @@ fun SinglePillWeekScheduleScreen(
                             cardHeight = cardHeight,
                             cardColor = cardColor,
                             backdrop = backdrop,
+                            floatingBackdrop = floatingCourseBackdrop,
                             config = state.config,
                             weekMotionDirection = weekMotionDirection,
                             outgoing = false,
                             layerOffset = incomingLayerOffset,
+                            editMode = weekEditMode,
+                            editWeek = displayWeek,
+                            allWeekCourses = visibleCourses,
+                            editScrollState = scrollState,
+                            onEnterEditMode = onEnterWeekEditMode,
+                            onUpdateSingleWeekCourse = { original, edited -> onUpdateCourseSingleWeek(original, edited, displayWeek) },
                             onCourseClick = { course, sourceBounds -> onCourseClick(course, displayWeek, sourceBounds) }
                         )
                     }
@@ -4951,13 +4997,25 @@ fun WeekDayColumn(
     cardColor: ComposeColor,
     emptyBackground: ComposeColor,
     backdrop: Backdrop?,
+    floatingBackdrop: Backdrop? = backdrop,
     config: ScheduleConfigEntity,
     weekMotionDirection: Int = 0,
     weekMotionOutgoing: Boolean = false,
     dayIndex: Int = 1,
+    gridColumnWidth: Dp = 0.dp,
+    periodRowHeight: Dp = cardHeight,
     layerOffset: Animatable<Float, AnimationVector1D>? = null,
     layerTravel: Float = 1f,
-    onCourseClick: (CourseEntity, Rect?) -> Unit
+    editMode: Boolean = false,
+    editWeek: Int = 1,
+    allWeekCourses: List<CourseEntity> = emptyList(),
+    weekdayCount: Int = 7,
+    editScrollState: ScrollState? = null,
+    onEnterEditMode: () -> Unit = {},
+    onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
+    onCourseClick: (CourseEntity, Rect?) -> Unit,
+    onDragStateChanged: (dayIndex: Int?, courseId: Long?) -> Unit = { _, _ -> },
+    draggingCourseId: Long? = null
 ) {
     val periodIndexes = periods.map { it.periodIndex }
     var periodCursor = 0
@@ -4978,14 +5036,26 @@ fun WeekDayColumn(
                 cardColor = cardColor,
                 background = emptyBackground,
                 backdrop = backdrop,
+                floatingBackdrop = floatingBackdrop,
                 config = config,
                 weekMotionDirection = weekMotionDirection,
                 weekMotionOutgoing = weekMotionOutgoing,
                 dayIndex = dayIndex,
+                gridColumnWidth = gridColumnWidth,
+                periodRowHeight = periodRowHeight,
                 periodIndex = period.periodIndex,
                 layerOffset = layerOffset,
                 layerTravel = layerTravel,
-                onCourseClick = onCourseClick
+                editMode = editMode,
+                editWeek = editWeek,
+                allWeekCourses = allWeekCourses,
+                weekdayCount = weekdayCount,
+                editScrollState = editScrollState,
+                onEnterEditMode = onEnterEditMode,
+                onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
+                onCourseClick = onCourseClick,
+                onDragStateChanged = onDragStateChanged,
+                draggingCourseId = draggingCourseId
             )
             periodCursor += span
         }
@@ -5000,36 +5070,67 @@ fun WeekCourseColumnsLayer(
     cardHeight: Dp,
     cardColor: ComposeColor,
     backdrop: Backdrop?,
+    floatingBackdrop: Backdrop? = backdrop,
     config: ScheduleConfigEntity,
     weekMotionDirection: Int,
     outgoing: Boolean,
     layerOffset: Animatable<Float, AnimationVector1D>,
+    editMode: Boolean = false,
+    editWeek: Int = 1,
+    allWeekCourses: List<CourseEntity> = emptyList(),
+    editScrollState: ScrollState? = null,
+    onEnterEditMode: () -> Unit = {},
+    onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
     onCourseClick: (CourseEntity, Rect?) -> Unit
 ) {
     val density = LocalDensity.current
     val travel = with(density) { (LocalConfiguration.current.screenWidthDp.dp + 96.dp).toPx() }
-    Row(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer { translationX = layerOffset.value }
     ) {
-        weekdays.forEach { day ->
-            Column(modifier = Modifier.weight(1f)) {
-                WeekDayColumn(
-                    courses = courses.filter { it.weekday == day },
-                    periods = periods,
-                    cardHeight = cardHeight,
-                    cardColor = cardColor,
-                    emptyBackground = ComposeColor.Transparent,
-                    backdrop = backdrop,
-                    config = config,
-                    weekMotionDirection = weekMotionDirection,
-                    weekMotionOutgoing = outgoing,
-                    dayIndex = day,
-                    layerOffset = layerOffset,
-                    layerTravel = travel,
-                    onCourseClick = onCourseClick
-                )
+        val dayColumnWidth = maxWidth / weekdays.size.coerceAtLeast(1)
+        var draggingDayIndex by remember { mutableStateOf<Int?>(null) }
+        var draggingCourseId by remember { mutableStateOf<Long?>(null) }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            weekdays.forEach { day ->
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .zIndex(if (draggingDayIndex == day) 1f else 0f)
+                ) {
+                    WeekDayColumn(
+                        courses = courses.filter { it.weekday == day },
+                        periods = periods,
+                        cardHeight = cardHeight,
+                        cardColor = cardColor,
+                        emptyBackground = ComposeColor.Transparent,
+                        backdrop = backdrop,
+                        floatingBackdrop = floatingBackdrop,
+                        config = config,
+                        weekMotionDirection = weekMotionDirection,
+                        weekMotionOutgoing = outgoing,
+                        dayIndex = day,
+                        gridColumnWidth = dayColumnWidth,
+                        periodRowHeight = cardHeight,
+                        layerOffset = layerOffset,
+                        layerTravel = travel,
+                        editMode = editMode,
+                        editWeek = editWeek,
+                        allWeekCourses = allWeekCourses,
+                        weekdayCount = weekdays.size,
+                        editScrollState = editScrollState,
+                        onEnterEditMode = onEnterEditMode,
+                        onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
+                        onCourseClick = onCourseClick,
+                        onDragStateChanged = { dayIndex, courseId ->
+                            draggingDayIndex = dayIndex
+                            draggingCourseId = courseId
+                        },
+                        draggingCourseId = draggingCourseId
+                    )
+                }
             }
         }
     }
@@ -5051,6 +5152,47 @@ private fun continuousSpanFrom(course: CourseEntity, start: Int, periodIndexes: 
     return span
 }
 
+private data class WeekCourseEditTarget(
+    val weekday: Int,
+    val periods: List<Int>,
+    val valid: Boolean
+)
+
+private fun weekCourseEditTarget(
+    periodIndexes: List<Int>,
+    weekday: Int,
+    startPeriod: Int,
+    span: Int,
+    weekdayCount: Int
+): WeekCourseEditTarget {
+    val safeWeekday = weekday.coerceIn(1, weekdayCount.coerceAtLeast(1))
+    val startPosition = periodIndexes.indexOf(startPeriod)
+    if (startPosition < 0 || span <= 0) {
+        return WeekCourseEditTarget(safeWeekday, emptyList(), false)
+    }
+    val targetPeriods = periodIndexes.drop(startPosition).take(span)
+    return WeekCourseEditTarget(
+        weekday = safeWeekday,
+        periods = targetPeriods,
+        valid = targetPeriods.size == span
+    )
+}
+
+private fun hasWeekCourseEditConflict(
+    original: CourseEntity,
+    edited: CourseEntity,
+    weekCourses: List<CourseEntity>,
+    week: Int
+): Boolean {
+    val editedPeriods = edited.periods.toSet()
+    return weekCourses.any { other ->
+        other.id != original.id &&
+            week in other.weeks &&
+            other.weekday == edited.weekday &&
+            other.periods.any { it in editedPeriods }
+    }
+}
+
 @Composable
 fun EmptyWeekCell(height: Dp, background: ComposeColor) {
     Box(
@@ -5070,21 +5212,35 @@ fun MergedWeekCell(
     cardColor: ComposeColor,
     background: ComposeColor,
     backdrop: Backdrop?,
+    floatingBackdrop: Backdrop? = backdrop,
     config: ScheduleConfigEntity,
     weekMotionDirection: Int = 0,
     weekMotionOutgoing: Boolean = false,
     dayIndex: Int = 1,
     periodIndex: Int = 1,
+    gridColumnWidth: Dp = 0.dp,
+    periodRowHeight: Dp = height,
     layerOffset: Animatable<Float, AnimationVector1D>? = null,
     layerTravel: Float = 1f,
-    onCourseClick: (CourseEntity, Rect?) -> Unit
+    editMode: Boolean = false,
+    editWeek: Int = 1,
+    allWeekCourses: List<CourseEntity> = emptyList(),
+    weekdayCount: Int = 7,
+    editScrollState: ScrollState? = null,
+    onEnterEditMode: () -> Unit = {},
+    onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
+    onCourseClick: (CourseEntity, Rect?) -> Unit,
+    onDragStateChanged: (dayIndex: Int?, courseId: Long?) -> Unit = { _, _ -> },
+    draggingCourseId: Long? = null
 ) {
+    val hasDraggingCourse = draggingCourseId?.let { id -> courses.any { it.id == id } } == true
     Box(
         modifier = Modifier
             .height(height)
             .fillMaxWidth()
             .padding(2.dp)
             .background(background)
+            .zIndex(if (hasDraggingCourse) 1f else 0f)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             courses.take(2).forEachIndexed { stackIndex, course ->
@@ -5095,15 +5251,26 @@ fun MergedWeekCell(
                     height = courseHeight,
                     cardColor = cardColor,
                     backdrop = backdrop,
+                    floatingBackdrop = floatingBackdrop,
                     config = config,
                     weekMotionDirection = weekMotionDirection,
                     weekMotionOutgoing = weekMotionOutgoing,
                     dayIndex = dayIndex,
                     periodIndex = periodIndex,
+                    gridColumnWidth = gridColumnWidth,
+                    periodRowHeight = periodRowHeight,
                     layerOffset = layerOffset,
                     layerTravel = layerTravel,
                     stackIndex = stackIndex,
-                    onCourseClick = onCourseClick
+                    editMode = editMode,
+                    editWeek = editWeek,
+                    allWeekCourses = allWeekCourses,
+                    weekdayCount = weekdayCount,
+                    editScrollState = editScrollState,
+                    onEnterEditMode = onEnterEditMode,
+                    onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
+                    onCourseClick = onCourseClick,
+                    onDragStateChanged = onDragStateChanged
                 )
             }
             if (courses.size > 2) Text("+${courses.size - 2}", modifier = Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelSmall)
@@ -5118,15 +5285,26 @@ fun WeekCourseBlock(
     height: Dp,
     cardColor: ComposeColor,
     backdrop: Backdrop?,
+    floatingBackdrop: Backdrop? = backdrop,
     config: ScheduleConfigEntity,
     weekMotionDirection: Int = 0,
     weekMotionOutgoing: Boolean = false,
     dayIndex: Int = 1,
     periodIndex: Int = 1,
+    gridColumnWidth: Dp = 0.dp,
+    periodRowHeight: Dp = height,
     layerOffset: Animatable<Float, AnimationVector1D>? = null,
     layerTravel: Float = 1f,
     stackIndex: Int = 0,
-    onCourseClick: (CourseEntity, Rect?) -> Unit
+    editMode: Boolean = false,
+    editWeek: Int = 1,
+    allWeekCourses: List<CourseEntity> = emptyList(),
+    weekdayCount: Int = 7,
+    editScrollState: ScrollState? = null,
+    onEnterEditMode: () -> Unit = {},
+    onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
+    onCourseClick: (CourseEntity, Rect?) -> Unit,
+    onDragStateChanged: (dayIndex: Int?, courseId: Long?) -> Unit = { _, _ -> }
 ) {
     val locationText = course.location.orEmpty()
     val hasLocation = locationText.isNotBlank()
@@ -5146,6 +5324,180 @@ fun WeekCourseBlock(
     )
     val startupIndex = ((periodIndex - 1).coerceAtLeast(0) * 7 + (dayIndex - 1).coerceAtLeast(0)) * 2 + stackIndex
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
+    val haptic = LocalHapticFeedback.current
+    val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
+    val currentSpan = remember(course.periods, periodIndex, periodIndexes) {
+        continuousSpanFrom(course, periodIndex, periodIndexes)
+            .takeIf { it > 0 }
+            ?: course.periods.size.coerceAtLeast(1)
+    }
+    var moveDragX by remember(course.id, editWeek) { mutableFloatStateOf(0f) }
+    var moveDragY by remember(course.id, editWeek) { mutableFloatStateOf(0f) }
+    var resizeDragY by remember(course.id, editWeek) { mutableFloatStateOf(0f) }
+    var resizeVelocityHintY by remember(course.id, editWeek) { mutableFloatStateOf(0f) }
+    var bodyDragging by remember(course.id, editWeek) { mutableStateOf(false) }
+    var handleDragging by remember(course.id, editWeek) { mutableStateOf(false) }
+    var settlingResizeTarget by remember(course.id, editWeek) { mutableStateOf<WeekCourseEditTarget?>(null) }
+    val scope = rememberCoroutineScope()
+    val screenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
+    val edgeScrollThresholdPx = with(density) { 92.dp.toPx() }
+    val measuredCardWidthPx = ownBounds?.width?.coerceAtLeast(1f) ?: with(density) { 48.dp.toPx() }
+    val gridColumnWidthPx = with(density) { gridColumnWidth.toPx() }
+        .takeIf { it > 1f }
+        ?: measuredCardWidthPx
+    val periodRowHeightPx = with(density) { periodRowHeight.toPx() }.coerceAtLeast(1f)
+    fun moveTarget(): WeekCourseEditTarget {
+        val dayDelta = (moveDragX / gridColumnWidthPx).roundToInt()
+        val periodDelta = (moveDragY / periodRowHeightPx).roundToInt()
+        return weekCourseEditTarget(
+            periodIndexes = periodIndexes,
+            weekday = dayIndex + dayDelta,
+            startPeriod = periodIndex + periodDelta,
+            span = currentSpan,
+            weekdayCount = weekdayCount
+        )
+    }
+    fun resizeTargetForDrag(dragY: Float): WeekCourseEditTarget {
+        val spanDelta = (dragY / periodRowHeightPx).roundToInt()
+        return weekCourseEditTarget(
+            periodIndexes = periodIndexes,
+            weekday = dayIndex,
+            startPeriod = periodIndex,
+            span = (currentSpan + spanDelta).coerceIn(1, periodIndexes.size.coerceAtLeast(1)),
+            weekdayCount = weekdayCount
+        )
+    }
+    fun resizeTarget(): WeekCourseEditTarget = resizeTargetForDrag(resizeDragY)
+    val liveTarget = when {
+        bodyDragging -> moveTarget()
+        handleDragging -> resizeTarget()
+        else -> null
+    }
+    val activeCardBackdrop = if (bodyDragging || handleDragging) {
+        floatingBackdrop ?: backdrop
+    } else {
+        backdrop
+    }
+    val editJitter by if (editMode) {
+        rememberInfiniteTransition(label = "week-edit-jitter-${course.id}").animateFloat(
+            initialValue = -0.35f,
+            targetValue = 0.35f,
+            animationSpec = infiniteRepeatable(tween(durationMillis = 115), RepeatMode.Reverse),
+            label = "week-edit-jitter-value-${course.id}"
+        )
+    } else {
+        remember { mutableFloatStateOf(0f) }
+    }
+    val pressScale by animateFloatAsState(
+        targetValue = if (bodyDragging || handleDragging) 1.035f else 1f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 560f),
+        label = "week-edit-press-scale-${course.id}"
+    )
+    val settledResizeHeight = settlingResizeTarget?.let { target ->
+        val rawHeight = periodRowHeight * target.periods.size.coerceAtLeast(1).toFloat() - 4.dp
+        if (rawHeight < 18.dp) 18.dp else rawHeight
+    } ?: height
+    val displayedHeight by animateDpAsState(
+        targetValue = settledResizeHeight,
+        animationSpec = spring(dampingRatio = 0.76f, stiffness = 430f),
+        label = "week-edit-saved-height-${course.id}"
+    )
+    val resizeStartIndex = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
+    val resizeMaxSpan = (periodIndexes.size - resizeStartIndex).coerceAtLeast(1)
+    val baseHeightPx = with(density) { height.toPx() }
+    val minResizeHeightPx = with(density) { periodRowHeightPx - 4.dp.toPx() }
+    val maxResizeHeightPx = with(density) { periodRowHeightPx * resizeMaxSpan - 4.dp.toPx() }
+    val resizeRevealHeight = if (handleDragging) {
+        with(density) {
+            (baseHeightPx + resizeDragY)
+                .coerceAtLeast(minResizeHeightPx)
+                .coerceAtMost(maxResizeHeightPx)
+                .toDp()
+        }
+    } else {
+        displayedHeight
+    }
+    val resizeGlassShellHeight = if (handleDragging || settlingResizeTarget != null) {
+        with(density) { maxResizeHeightPx.toDp() }
+    } else {
+        resizeRevealHeight
+    }
+    fun autoScrollDeltaPx(): Float {
+        val bounds = ownBounds ?: return 0f
+        val draggedTop = bounds.top + moveDragY
+        val draggedBottom = bounds.bottom + moveDragY
+        return when {
+            draggedBottom > screenHeightPx - edgeScrollThresholdPx -> {
+                val pressure = ((draggedBottom - (screenHeightPx - edgeScrollThresholdPx)) / edgeScrollThresholdPx).coerceIn(0f, 1f)
+                4f + 14f * pressure
+            }
+            draggedTop < edgeScrollThresholdPx -> {
+                val pressure = ((edgeScrollThresholdPx - draggedTop) / edgeScrollThresholdPx).coerceIn(0f, 1f)
+                -(4f + 14f * pressure)
+            }
+            else -> 0f
+        }
+    }
+    LaunchedEffect(bodyDragging, editScrollState) {
+        val scroll = editScrollState ?: return@LaunchedEffect
+        while (bodyDragging) {
+            val delta = autoScrollDeltaPx()
+            if (delta != 0f) {
+                val before = scroll.value
+                val next = (before + delta).roundToInt().coerceIn(0, scroll.maxValue)
+                if (next != before) {
+                    scroll.scrollTo(next)
+                    moveDragY += (scroll.value - before).toFloat()
+                }
+            }
+            delay(16)
+        }
+    }
+    val dragActive = bodyDragging || handleDragging || settlingResizeTarget != null
+    LaunchedEffect(dragActive) {
+        if (dragActive) onDragStateChanged(dayIndex, course.id) else onDragStateChanged(null, null)
+    }
+    val bodyGestureModifier = Modifier.pointerInput(editMode, course.id, editWeek, currentSpan) {
+        if (editMode) {
+            detectDragGesturesAfterLongPress(
+                onDragStart = {
+                    bodyDragging = true
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                },
+                onDrag = { change, dragAmount ->
+                    change.consume()
+                    moveDragX += dragAmount.x
+                    moveDragY += dragAmount.y
+                },
+                onDragEnd = {
+                    val target = moveTarget()
+                    val edited = course.copy(weekday = target.weekday, periods = target.periods)
+                    val shouldSave = target.valid &&
+                        !hasWeekCourseEditConflict(course, edited, allWeekCourses, editWeek) &&
+                        (edited.weekday != course.weekday || edited.periods != course.periods)
+                    bodyDragging = false
+                    moveDragX = 0f
+                    moveDragY = 0f
+                    if (shouldSave) {
+                        onUpdateSingleWeekCourse(course, edited)
+                    }
+                },
+                onDragCancel = {
+                    bodyDragging = false
+                    moveDragX = 0f
+                    moveDragY = 0f
+                }
+            )
+        } else {
+            detectTapGestures(
+                onTap = { onCourseClick(course, ownBounds) },
+                onLongPress = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onEnterEditMode()
+                }
+            )
+        }
+    }
     val editingId = LocalEditingCourseId.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && course.id > 0L) LocalSharedTransitionScope.current else null
     val baseModifier = Modifier
@@ -5179,16 +5531,70 @@ fun WeekCourseBlock(
         modifier = baseModifier,
         shape = RoundedCornerShape(8.dp)
     ) { sharedModifier ->
-    CourseGlassCard(
-        backdrop = backdrop,
-        config = config,
-        modifier = sharedModifier.then(startupModifier).then(tailModifier),
-        shape = RoundedCornerShape(8.dp),
-        onClick = { onCourseClick(course, ownBounds) }
-    ) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
+        Box(
+            modifier = sharedModifier
+                .then(startupModifier)
+                .then(tailModifier)
+                .then(bodyGestureModifier)
+                .zIndex(if (bodyDragging || handleDragging || settlingResizeTarget != null) 3f else 0f)
+        ) {
+            if (bodyDragging && liveTarget != null) {
+                val target = liveTarget
+                val targetOffsetX = (target.weekday - dayIndex) * gridColumnWidthPx
+                val targetOffsetY = ((target.periods.firstOrNull() ?: periodIndex) - periodIndex) * periodRowHeightPx
+                val rawTargetHeight = periodRowHeight * target.periods.size.coerceAtLeast(1).toFloat() - 4.dp
+                val targetPreviewHeight = if (rawTargetHeight < 18.dp) 18.dp else rawTargetHeight
+                val editedCourse = course.copy(weekday = target.weekday, periods = target.periods)
+                val targetHasConflict = !target.valid || hasWeekCourseEditConflict(course, editedCourse, allWeekCourses, editWeek)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(targetPreviewHeight)
+                        .graphicsLayer {
+                            translationX = targetOffsetX
+                            translationY = targetOffsetY
+                        }
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(
+                            if (targetHasConflict) {
+                                MaterialTheme.colorScheme.error.copy(alpha = 0.32f)
+                            } else {
+                                ComposeColor.Gray.copy(alpha = 0.24f)
+                            }
+                        )
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(resizeRevealHeight)
+                    .graphicsLayer {
+                        val activeScale = if (bodyDragging || handleDragging) 1.035f else pressScale
+                        translationX = if (bodyDragging) moveDragX else 0f
+                        translationY = if (bodyDragging) moveDragY else 0f
+                        rotationZ = if (bodyDragging || handleDragging) 0f else editJitter
+                        scaleX = activeScale
+                        scaleY = activeScale
+                    }
+            ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(resizeRevealHeight)
+                    .clipToBounds()
+            ) {
+            CourseGlassCard(
+                backdrop = activeCardBackdrop,
+                config = config,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(resizeGlassShellHeight),
+                shape = RoundedCornerShape(8.dp),
+                onClick = null
+            ) {}
+            BoxWithConstraints(Modifier.fillMaxWidth().height(displayedHeight).clipToBounds()) {
             val density = LocalDensity.current
-            val heightDp = maxHeight.value
+            val heightDp = displayedHeight.value
             val widthDp = maxWidth.value
             val compact = heightDp < 78f
             val tiny = heightDp < 52f
@@ -5301,8 +5707,99 @@ fun WeekCourseBlock(
                     )
                 }
             }
+            }
+            }
+            if (editMode) {
+                val handleLight = glassUsesLightStyle(config)
+                val handleColor = if (handleLight) ComposeColor.Black.copy(alpha = 0.72f) else ComposeColor.White.copy(alpha = 0.88f)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .offset(x = 8.dp, y = 8.dp)
+                        .size(48.dp)
+                        .zIndex(6f)
+                        .graphicsLayer {
+                            scaleX = if (handleDragging) 1.08f else 1f
+                            scaleY = if (handleDragging) 1.08f else 1f
+                        }
+                        .pointerInput(course.id, editWeek, currentSpan) {
+                            detectDragGestures(
+                                onDragStart = {
+                                    handleDragging = true
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    resizeDragY += dragAmount.y
+                                    resizeVelocityHintY = resizeVelocityHintY * 0.68f + dragAmount.y * 0.32f
+                                },
+                                onDragEnd = {
+                                    val projectedDragY = resizeDragY + resizeVelocityHintY.coerceIn(
+                                        -periodRowHeightPx * 0.42f,
+                                        periodRowHeightPx * 0.42f
+                                    )
+                                    val target = resizeTargetForDrag(projectedDragY)
+                                    val edited = course.copy(periods = target.periods)
+                                    val shouldSave = target.valid &&
+                                        !hasWeekCourseEditConflict(course, edited, allWeekCourses, editWeek) &&
+                                        edited.periods != course.periods
+                                    if (shouldSave) {
+                                        settlingResizeTarget = target
+                                        scope.launch {
+                                            delay(140)
+                                            onUpdateSingleWeekCourse(course, edited)
+                                            delay(220)
+                                            settlingResizeTarget = null
+                                        }
+                                    }
+                                    handleDragging = false
+                                    resizeDragY = 0f
+                                    resizeVelocityHintY = 0f
+                                },
+                                onDragCancel = {
+                                    handleDragging = false
+                                    resizeDragY = 0f
+                                    resizeVelocityHintY = 0f
+                                }
+                            )
+                        },
+                    contentAlignment = Alignment.BottomEnd
+                ) {
+                    Canvas(modifier = Modifier.size(17.dp)) {
+                        val strokeWidth = 6.dp.toPx()
+                        val halfStroke = strokeWidth / 2f
+                        val cornerRadius = 8.dp.toPx()
+                        val armLength = 4.5.dp.toPx()
+                        val right = size.width - halfStroke
+                        val bottom = size.height - halfStroke
+                        drawLine(
+                            color = handleColor,
+                            start = Offset(right, (bottom - cornerRadius - armLength).coerceAtLeast(halfStroke)),
+                            end = Offset(right, bottom - cornerRadius),
+                            strokeWidth = strokeWidth,
+                            cap = StrokeCap.Round
+                        )
+                        drawArc(
+                            color = handleColor,
+                            startAngle = 0f,
+                            sweepAngle = 90f,
+                            useCenter = false,
+                            topLeft = Offset(right - cornerRadius * 2f, bottom - cornerRadius * 2f),
+                            size = androidx.compose.ui.geometry.Size(cornerRadius * 2f, cornerRadius * 2f),
+                            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                        )
+                        drawLine(
+                            color = handleColor,
+                            start = Offset(right - cornerRadius, bottom),
+                            end = Offset((right - cornerRadius - armLength).coerceAtLeast(halfStroke), bottom),
+                            strokeWidth = strokeWidth,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                }
+            }
+            }
         }
-    }
     }
 }
 
