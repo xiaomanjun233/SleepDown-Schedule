@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -86,17 +88,20 @@ fun CourseEditorContainerOverlayHost(
     onSave: (original: CourseEntity, edited: CourseEntity, targetWeek: Int?) -> Unit,
     onDelete: (course: CourseEntity, targetWeek: Int?) -> Unit,
     onRenderedCourseIdChange: (Long?) -> Unit = {},
-    onPhaseChange: (CourseEditorOverlayPhase) -> Unit = {}
+    onPhaseChange: (CourseEditorOverlayPhase) -> Unit = {},
+    onMotionProgressChange: (Float) -> Unit = {}
 ) {
     var renderedRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     var editorContentMounted by remember { mutableStateOf(false) }
+    var editorContentReady by remember { mutableStateOf(false) }
     var overlayPhase by remember { mutableStateOf(CourseEditorOverlayPhase.Idle) }
     val progress = remember { Animatable(0f) }
     val editorContentAlpha = remember { Animatable(0f) }
     val editorContentReveal = remember { Animatable(0f) }
     val latestOnRenderedCourseIdChange by rememberUpdatedState(onRenderedCourseIdChange)
     val latestOnPhaseChange by rememberUpdatedState(onPhaseChange)
+    val latestOnMotionProgressChange by rememberUpdatedState(onMotionProgressChange)
 
     fun updatePhase(phase: CourseEditorOverlayPhase) {
         overlayPhase = phase
@@ -107,13 +112,21 @@ fun CourseEditorContainerOverlayHost(
         if (request != null) {
             updatePhase(CourseEditorOverlayPhase.Preparing)
             renderedRequest = request
-            editorContentAlpha.snapTo(0f)
-            editorContentReveal.snapTo(0f)
+            editorContentAlpha.snapTo(1f)
+            editorContentReveal.snapTo(1f)
             latestOnRenderedCourseIdChange(request.course.id)
             progress.snapTo(0f)
+            editorContentReady = false
             editorContentMounted = true
-            withFrameNanos { }
-            withFrameNanos { }
+            var waitedFrames = 0
+            while (
+                waitedFrames < 30 &&
+                (rootSize.width <= 0 || rootSize.height <= 0 || !editorContentReady)
+            ) {
+                withFrameNanos { }
+                waitedFrames++
+            }
+            repeat(3) { withFrameNanos { } }
             updatePhase(CourseEditorOverlayPhase.Opening)
             progress.animateTo(
                 targetValue = 1f,
@@ -124,22 +137,6 @@ fun CourseEditorContainerOverlayHost(
                     1f at CourseEditorOpenDurationMillis
                 }
             )
-            editorContentAlpha.snapTo(0f)
-            editorContentReveal.snapTo(0f)
-            kotlinx.coroutines.coroutineScope {
-                launch {
-                    editorContentAlpha.animateTo(
-                        targetValue = 1f,
-                        animationSpec = tween(durationMillis = 120, easing = CubicBezierEasing(0.18f, 0.0f, 0.20f, 1.0f))
-                    )
-                }
-                launch {
-                    editorContentReveal.animateTo(
-                        targetValue = 1f,
-                        animationSpec = tween(durationMillis = 180, easing = CubicBezierEasing(0.18f, 0.0f, 0.20f, 1.0f))
-                    )
-                }
-            }
             updatePhase(CourseEditorOverlayPhase.Open)
         } else if (renderedRequest != null) {
             updatePhase(CourseEditorOverlayPhase.Closing)
@@ -159,10 +156,12 @@ fun CourseEditorContainerOverlayHost(
                     }
                 }
                 editorContentMounted = false
+                editorContentReady = false
                 withFrameNanos { }
             } else {
                 editorContentReveal.snapTo(0f)
                 editorContentAlpha.snapTo(0f)
+                editorContentReady = false
             }
             progress.animateTo(
                 targetValue = 0f,
@@ -176,15 +175,18 @@ fun CourseEditorContainerOverlayHost(
             updatePhase(CourseEditorOverlayPhase.Disposing)
             renderedRequest = null
             latestOnRenderedCourseIdChange(null)
+            latestOnMotionProgressChange(0f)
             updatePhase(CourseEditorOverlayPhase.Idle)
         } else {
             if (overlayPhase != CourseEditorOverlayPhase.Idle || editorContentMounted || renderedRequest != null) {
                 updatePhase(CourseEditorOverlayPhase.Disposing)
             }
             editorContentMounted = false
+            editorContentReady = false
             editorContentAlpha.snapTo(0f)
             editorContentReveal.snapTo(0f)
             latestOnRenderedCourseIdChange(null)
+            latestOnMotionProgressChange(0f)
             if (overlayPhase != CourseEditorOverlayPhase.Idle) {
                 updatePhase(CourseEditorOverlayPhase.Idle)
             }
@@ -220,7 +222,9 @@ fun CourseEditorContainerOverlayHost(
         return
     }
 
-    val sourceRect = validSourceRect(shownRequest.sourceBoundsInRoot, rootSize) ?: targetRect
+    val validSource = validSourceRect(shownRequest.sourceBoundsInRoot, rootSize)
+    val sourceRect = validSource ?: targetRect
+    val hasSourceTransform = validSource != null
     val motionProgress = progress.value.coerceIn(-0.035f, 1.045f)
     val alphaProgress = progress.value.coerceIn(0f, 1f)
     val animatedRect = interpolateRectUnbounded(sourceRect, targetRect, motionProgress)
@@ -249,11 +253,24 @@ fun CourseEditorContainerOverlayHost(
     val sourceCorner = with(density) { if (sourceRect.width >= 220.dp.toPx()) 16.dp else 8.dp }
     val corner = with(density) { interpolateFloatUnbounded(sourceCorner.toPx(), 32.dp.toPx(), motionProgress).coerceIn(6.dp.toPx(), 36.dp.toPx()).toDp() }
     val backgroundDepthProgress = smoothStep(0.04f, 0.86f, alphaProgress)
+    SideEffect {
+        latestOnMotionProgressChange(backgroundDepthProgress)
+    }
     val contentAlpha = if (editorContentMounted) editorContentAlpha.value else 0f
     val contentReveal = if (editorContentMounted) editorContentReveal.value.coerceIn(0f, 1f) else 0f
-    val dialogSurfaceAlpha = smoothStep(0.90f, 1.0f, alphaProgress)
-    val morphSurfaceAlpha = 1f - smoothStep(0.84f, 1.0f, alphaProgress)
-    val shellAlpha = 1f - smoothStep(0.26f, 0.62f, alphaProgress)
+    val morphSurfaceAlpha = 1f
+    val editorFormBackdrop = if (overlayPhase == CourseEditorOverlayPhase.Open) backdrop else null
+    val sourceCoverAlpha = if (hasSourceTransform) {
+        when (overlayPhase) {
+            CourseEditorOverlayPhase.Opening,
+            CourseEditorOverlayPhase.Preparing -> 0f
+            CourseEditorOverlayPhase.Closing,
+            CourseEditorOverlayPhase.Disposing -> 1f - smoothStep(0.28f, 0.66f, alphaProgress)
+            else -> 0f
+        }
+    } else {
+        0f
+    }
     val textColor = glassForegroundColor(config)
     val revealPath = remember { Path() }
 
@@ -280,31 +297,86 @@ fun CourseEditorContainerOverlayHost(
             backdrop = backdrop,
             config = config,
             corner = corner,
+            progress = alphaProgress,
             alpha = morphSurfaceAlpha,
             modifier = animatedModifier
         ) {
-            CourseEditorSourceShell(
-                course = shownRequest.course,
-                backdrop = backdrop,
-                config = config,
-                sourceIsWide = sourceRect.width >= with(density) { 220.dp.toPx() },
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = shellAlpha }
-            )
+                    .clip(RoundedCornerShape(corner))
+            ) {
+                if (editorContentMounted) {
+                    CourseEditorScaledContentLayer(
+                        animatedRect = animatedRect,
+                        targetRect = targetRect,
+                        contentAlpha = contentAlpha,
+                        contentReveal = contentReveal,
+                        revealPath = revealPath,
+                        textColor = textColor,
+                        state = state,
+                        course = shownRequest.course,
+                        targetWeek = shownRequest.targetWeek,
+                        backdrop = editorFormBackdrop,
+                        onContentLaidOut = { editorContentReady = true },
+                        onDismissRequest = onDismissRequest,
+                        onSave = onSave,
+                        onDelete = onDelete
+                    )
+                }
+                if (sourceCoverAlpha > 0.001f) {
+                    CourseEditorSourceShell(
+                        course = shownRequest.course,
+                        backdrop = backdrop,
+                        config = config,
+                        sourceIsWide = sourceRect.width >= with(density) { 220.dp.toPx() },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = sourceCoverAlpha }
+                    )
+                }
+            }
         }
-        CourseEditorFinalDialogSurface(
-            backdrop = backdrop,
-            config = config,
-            alpha = dialogSurfaceAlpha,
-            modifier = targetModifier
-        )
-        Box(
-            modifier = targetModifier
-                .clip(RoundedCornerShape(32.dp))
-                .graphicsLayer { alpha = contentAlpha }
-                .drawWithContent {
-                    val radius = hypot(size.width / 2f, size.height / 2f) * contentReveal
+    }
+}
+
+@Composable
+private fun CourseEditorScaledContentLayer(
+    animatedRect: Rect,
+    targetRect: Rect,
+    contentAlpha: Float,
+    contentReveal: Float,
+    revealPath: Path,
+    textColor: Color,
+    state: AppState,
+    course: CourseEntity,
+    targetWeek: Int?,
+    backdrop: Backdrop?,
+    onContentLaidOut: () -> Unit,
+    onDismissRequest: () -> Unit,
+    onSave: (original: CourseEntity, edited: CourseEntity, targetWeek: Int?) -> Unit,
+    onDelete: (course: CourseEntity, targetWeek: Int?) -> Unit
+) {
+    if (targetRect.width <= 1f || targetRect.height <= 1f || animatedRect.width <= 1f || animatedRect.height <= 1f) {
+        return
+    }
+    val density = LocalDensity.current
+    val scale = maxOf(
+        animatedRect.width / targetRect.width,
+        animatedRect.height / targetRect.height
+    ).coerceAtLeast(0.001f)
+    val translateX = (animatedRect.width - targetRect.width * scale) / 2f
+    val translateY = (animatedRect.height - targetRect.height * scale) / 2f
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(32.dp))
+            .graphicsLayer { alpha = contentAlpha }
+            .drawWithContent {
+                if (contentReveal >= 0.999f) {
+                    drawContent()
+                } else {
+                    val radius = hypot(size.width / 2f, size.height / 2f) * contentReveal.coerceIn(0f, 1f)
                     revealPath.reset()
                     revealPath.addOval(
                         Rect(
@@ -318,18 +390,34 @@ fun CourseEditorContainerOverlayHost(
                         this@drawWithContent.drawContent()
                     }
                 }
-        ) {
-            if (editorContentMounted) {
-                CompositionLocalProvider(LocalContentColor provides textColor) {
-                    NormalizedCourseEditorScreen(
-                        state = state,
-                        initialCourse = shownRequest.course,
-                        onCancel = onDismissRequest,
-                        onSave = { edited -> onSave(shownRequest.course, edited, shownRequest.targetWeek) },
-                        onDelete = { course -> onDelete(course, shownRequest.targetWeek) },
-                        backdrop = backdrop
-                    )
+            }
+    ) {
+        Box(
+            modifier = Modifier
+                .size(
+                    width = with(density) { targetRect.width.toDp() },
+                    height = with(density) { targetRect.height.toDp() }
+                )
+                .onSizeChanged {
+                    if (it.width > 0 && it.height > 0) onContentLaidOut()
                 }
+                .graphicsLayer {
+                    transformOrigin = TransformOrigin(0f, 0f)
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = translateX
+                    translationY = translateY
+                }
+        ) {
+            CompositionLocalProvider(LocalContentColor provides textColor) {
+                NormalizedCourseEditorScreen(
+                    state = state,
+                    initialCourse = course,
+                    onCancel = onDismissRequest,
+                    onSave = { edited -> onSave(course, edited, targetWeek) },
+                    onDelete = { deleteCourse -> onDelete(deleteCourse, targetWeek) },
+                    backdrop = backdrop
+                )
             }
         }
     }
@@ -340,18 +428,35 @@ private fun CourseEditorAnimatedContainer(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     corner: androidx.compose.ui.unit.Dp,
+    progress: Float,
     alpha: Float,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
     val shape = RoundedCornerShape(corner)
+    val finalDialogBlur = 10f
+    val editorBlur = interpolateFloat(
+        config.courseCardBlur,
+        finalDialogBlur,
+        smoothStep(0.62f, 1f, progress)
+    )
+    val lightGlass = glassUsesLightStyle(config)
+    val dialogMaskAlpha = (if (lightGlass) 0.12f else 0.20f) * smoothStep(0.42f, 1f, progress)
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
         modifier = modifier.graphicsLayer { this.alpha = alpha },
-        shape = shape
+        shape = shape,
+        blurOverride = editorBlur
     ) {
         Box(Modifier.fillMaxSize()) {
+            if (dialogMaskAlpha > 0.001f) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = dialogMaskAlpha))
+                )
+            }
             content()
         }
     }

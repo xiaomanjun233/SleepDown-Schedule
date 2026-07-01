@@ -760,15 +760,20 @@ class ScheduleRepository(private val database: AppDatabase) {
                 .filter { it.id != original.id && it.weeks.distinct() == listOf(targetWeek) && it.hasSameOccurrenceSlot(singleWeekCourse) }
                 .forEach { courseDao.deleteCourse(it.id) }
             courseDao.insertCourse(singleWeekCourse)
+            mergeCompatibleCourseFragments(scheduleId)
         }
     }
 
     suspend fun deleteCourseSingleWeek(course: CourseEntity, targetWeek: Int) {
-        val remainingWeeks = course.weeks.filter { it != targetWeek }
-        if (remainingWeeks.isEmpty()) {
-            courseDao.deleteCourse(course.id)
-        } else {
-            courseDao.updateCourse(course.copy(weeks = remainingWeeks))
+        database.withTransaction {
+            val scheduleId = activeScheduleId()
+            val remainingWeeks = course.weeks.filter { it != targetWeek }
+            if (remainingWeeks.isEmpty()) {
+                courseDao.deleteCourse(course.id)
+            } else {
+                courseDao.updateCourse(course.copy(weeks = remainingWeeks, scheduleId = scheduleId))
+            }
+            mergeCompatibleCourseFragments(scheduleId)
         }
     }
 
@@ -940,12 +945,64 @@ class ScheduleRepository(private val database: AppDatabase) {
     private fun normalizeImportedCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int): List<CourseEntity> {
         return normalizeCoursesForSchedule(courses, scheduleId).map { it.copy(id = 0) }
     }
+
+    private suspend fun mergeCompatibleCourseFragments(scheduleId: Int) {
+        val courses = courseDao.getCourses()
+            .filter { it.scheduleId == scheduleId }
+            .map { normalizeCoursesForSchedule(listOf(it), scheduleId).single() }
+        courses
+            .groupBy { it.mergeKey() }
+            .values
+            .filter { it.size > 1 }
+            .forEach { fragments ->
+                val ordered = fragments.sortedBy { it.id }
+                val keep = ordered.first()
+                val mergedWeeks = ordered
+                    .flatMap { it.weeks }
+                    .filter { it > 0 }
+                    .distinct()
+                    .sorted()
+                if (mergedWeeks.isNotEmpty() && keep.weeks != mergedWeeks) {
+                    courseDao.updateCourse(keep.copy(weeks = mergedWeeks, scheduleId = scheduleId))
+                }
+                ordered.drop(1).forEach { courseDao.deleteCourse(it.id) }
+            }
+    }
 }
 
 private fun CourseEntity.hasSameOccurrenceSlot(other: CourseEntity): Boolean {
     return weekday == other.weekday &&
         periods.distinct().sorted() == other.periods.distinct().sorted() &&
-        name.trim() == other.name.trim()
+        name.trim() == other.name.trim() &&
+        teacher.orEmpty().trim() == other.teacher.orEmpty().trim() &&
+        location.orEmpty().trim() == other.location.orEmpty().trim() &&
+        note.orEmpty().trim() == other.note.orEmpty().trim() &&
+        weekParity == other.weekParity &&
+        scheduleId == other.scheduleId
+}
+
+private data class CourseMergeKey(
+    val scheduleId: Int,
+    val name: String,
+    val teacher: String,
+    val location: String,
+    val note: String,
+    val weekday: Int,
+    val periods: List<Int>,
+    val weekParity: WeekParity
+)
+
+private fun CourseEntity.mergeKey(): CourseMergeKey {
+    return CourseMergeKey(
+        scheduleId = scheduleId,
+        name = name.trim(),
+        teacher = teacher.orEmpty().trim(),
+        location = location.orEmpty().trim(),
+        note = note.orEmpty().trim(),
+        weekday = weekday,
+        periods = periods.distinct().sorted(),
+        weekParity = weekParity
+    )
 }
 
 private fun ScheduleConfigEntity.withGlobalSettingsFrom(global: ScheduleConfigEntity): ScheduleConfigEntity {

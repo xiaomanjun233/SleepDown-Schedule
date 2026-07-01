@@ -286,6 +286,7 @@ fun CourseGlassCard(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(12.dp),
+    blurOverride: Float? = null,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
@@ -297,7 +298,7 @@ fun CourseGlassCard(
     val pressProgress by animateFloatAsState(if (pressed) 1f else 0f, label = "course-card-press")
     val glassTint = Color(config.cardColorArgb.toInt()).copy(alpha = ((config.cardAlpha * 0.34f).coerceIn(0.10f, 0.42f) * quality).coerceIn(0.06f, 0.42f))
     val solidColor = Color(config.cardColorArgb.toInt()).copy(alpha = config.cardAlpha.coerceIn(0.28f, 1f))
-    val tokens = GlassTokens.courseCard(config.courseCardBlur)
+    val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
     val glassModifier = if (useGlass) {
         modifier.drawBackdrop(

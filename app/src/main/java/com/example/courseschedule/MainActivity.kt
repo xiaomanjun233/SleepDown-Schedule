@@ -184,6 +184,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.asImageBitmap
@@ -593,6 +595,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var courseEditorRenderedCourseId by remember { mutableStateOf<Long?>(null) }
     var courseEditorOverlayPhase by remember { mutableStateOf(CourseEditorOverlayPhase.Idle) }
+    var courseEditorMotionProgress by remember { mutableFloatStateOf(0f) }
     fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?) {
         courseEditorRequest = CourseEditorOverlayRequest(course, targetWeek, sourceBounds)
     }
@@ -741,7 +744,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         animation = startupAnimation
     )
     val reduceWallpaperQualityForCourseEditor =
-        courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing ||
+        courseEditorRequest != null ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Disposing
@@ -754,6 +758,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         } else {
             chromeBackdrop
         }
+    val courseEditorBackgroundBlur = 16.dp * courseEditorMotionProgress.coerceIn(0f, 1f)
 
     // Startup splash with circular reveal
     val systemDark = isSystemInDarkTheme()
@@ -848,6 +853,16 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
+                .then(
+                    if (courseEditorBackgroundBlur > 0.dp) {
+                        Modifier.blur(
+                            radius = courseEditorBackgroundBlur,
+                            edgeTreatment = BlurredEdgeTreatment.Unbounded
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
         ) {
         Scaffold(
             containerColor = ComposeColor.Transparent,
@@ -973,7 +988,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                         openCourseEditor(course, week, sourceBounds)
                                     },
                                     onUpdateCourseSingleWeek = viewModel::updateCourseSingleWeek,
-                                onScheduleLongPress = {
+                                    onDeleteCourseSingleWeek = viewModel::deleteCourseSingleWeek,
+                                    onScheduleLongPress = {
                                         addMenuExpanded = false
                                         showPersonalizePanel = false
                                         showScheduleEntryPill = true
@@ -1176,7 +1192,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             homeDialog = HomeDialog.ApplyCourseDelete(course, targetWeek ?: effectiveCurrentWeek(state.config))
         },
         onRenderedCourseIdChange = { courseEditorRenderedCourseId = it },
-        onPhaseChange = { courseEditorOverlayPhase = it }
+        onPhaseChange = { courseEditorOverlayPhase = it },
+        onMotionProgressChange = { courseEditorMotionProgress = it }
     )
 
     // Dialog-based dialogs for all other types (including EditCourse without a source card)
@@ -3089,7 +3106,7 @@ fun DialogCapsuleField(
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = if (minLines == 1) ImeAction.Done else ImeAction.Default),
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
         modifier = modifier
-            .clip(RoundedCornerShape(if (minLines == 1) 50 else 10))
+            .clip(RoundedCornerShape(if (minLines == 1) 50 else 24))
             .background(background)
             .padding(horizontal = 16.dp, vertical = if (minLines == 1) 12.dp else 14.dp),
         decorationBox = { innerTextField ->
@@ -3698,6 +3715,7 @@ fun HomeScreen(
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
+    onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onScheduleLongPress: () -> Unit = {},
 ) {
     val cardColor = remember(state.config.cardColorArgb, state.config.cardAlpha) {
@@ -3705,6 +3723,7 @@ fun HomeScreen(
     }
     val textColor = homeForegroundColor(state.config)
     var weekEditMode by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
 
     Box(
         modifier = Modifier
@@ -3713,7 +3732,10 @@ fun HomeScreen(
                 if (weekEditMode) {
                     detectTapGestures(onTap = { weekEditMode = false })
                 } else {
-                    detectTapGestures(onLongPress = { onScheduleLongPress() })
+                    detectTapGestures(onLongPress = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onScheduleLongPress()
+                    })
                 }
             }
     ) {
@@ -3760,6 +3782,7 @@ fun HomeScreen(
                     weekEditMode = weekEditMode,
                     onEnterWeekEditMode = { weekEditMode = true },
                     onUpdateCourseSingleWeek = onUpdateCourseSingleWeek,
+                    onDeleteCourseSingleWeek = onDeleteCourseSingleWeek,
                     onCourseClick = { course, week, sourceBounds -> onCourseClick(course, week, sourceBounds) }
                 )
             }
@@ -4488,6 +4511,7 @@ fun SinglePillWeekScheduleScreen(
     weekEditMode: Boolean = false,
     onEnterWeekEditMode: () -> Unit = {},
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
+    onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit
 ) {
     val rowHeaderWidth = 56.dp
@@ -4769,6 +4793,7 @@ fun SinglePillWeekScheduleScreen(
                             editScrollState = scrollState,
                             onEnterEditMode = onEnterWeekEditMode,
                             onUpdateSingleWeekCourse = { original, edited -> onUpdateCourseSingleWeek(original, edited, displayWeek) },
+                            onDeleteSingleWeekCourse = { course -> onDeleteCourseSingleWeek(course, displayWeek) },
                             activeOverlayCourseId = weekEditOverlay.request?.course?.id,
                             activeOverlayTargetKey = weekEditOverlay.committedTargetKey,
                             activeOverlayTargetWeek = weekEditOverlay.committedTargetWeek,
@@ -4807,6 +4832,7 @@ fun SinglePillWeekScheduleScreen(
             hostBounds = overlayHostBounds,
             offsetX = weekEditOverlay.offsetX,
             offsetY = weekEditOverlay.offsetY,
+            overlayScale = weekEditOverlay.scale,
             gridOffsetY = weekEditOverlay.gridOffsetY,
             gridScrollCompensationY = weekEditOverlay.gridScrollCompensationY,
             heightPx = weekEditOverlay.height,
@@ -4822,6 +4848,7 @@ private fun WeekEditOverlayHost(
     hostBounds: Rect?,
     offsetX: Float,
     offsetY: Float,
+    overlayScale: Float,
     gridOffsetY: Float,
     gridScrollCompensationY: Float,
     heightPx: Float,
@@ -4883,10 +4910,9 @@ private fun WeekEditOverlayHost(
                 .width(widthDp)
                 .height(heightDp)
                 .graphicsLayer {
-                    scaleX = 1.035f
-                    scaleY = 1.035f
+                    scaleX = overlayScale
+                    scaleY = overlayScale
                 }
-                .clipToBounds()
         ) {
             CourseGlassCard(
                 backdrop = backdrop,
@@ -5351,6 +5377,7 @@ fun WeekDayColumn(
     editScrollState: ScrollState? = null,
     onEnterEditMode: () -> Unit = {},
     onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
+    onDeleteSingleWeekCourse: (CourseEntity) -> Unit = {},
     onCourseClick: (CourseEntity, Rect?) -> Unit,
     onDragStateChanged: (dayIndex: Int?, courseId: Long?) -> Unit = { _, _ -> },
     draggingCourseId: Long? = null,
@@ -5399,6 +5426,7 @@ fun WeekDayColumn(
                 editScrollState = editScrollState,
                 onEnterEditMode = onEnterEditMode,
                 onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
+                onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
                 onCourseClick = onCourseClick,
                 onDragStateChanged = onDragStateChanged,
                 draggingCourseId = draggingCourseId,
@@ -5435,6 +5463,7 @@ fun WeekCourseColumnsLayer(
     editScrollState: ScrollState? = null,
     onEnterEditMode: () -> Unit = {},
     onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
+    onDeleteSingleWeekCourse: (CourseEntity) -> Unit = {},
     activeOverlayCourseId: Long? = null,
     activeOverlayTargetKey: String? = null,
     activeOverlayTargetWeek: Int = 0,
@@ -5485,6 +5514,7 @@ fun WeekCourseColumnsLayer(
                         editScrollState = editScrollState,
                         onEnterEditMode = onEnterEditMode,
                         onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
+                        onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
                         onCourseClick = onCourseClick,
                         onDragStateChanged = { dayIndex, courseId ->
                             draggingDayIndex = dayIndex
@@ -5570,12 +5600,14 @@ private class WeekEditOverlayController(
     private val overlayX = Animatable(0f)
     private val overlayY = Animatable(0f)
     private val overlayHeight = Animatable(0f)
+    private val overlayScale = Animatable(1f)
     private var scrollCompensationY by mutableFloatStateOf(0f)
     private var autoScrollDirection by mutableIntStateOf(0)
 
     val offsetX: Float get() = overlayX.value
     val offsetY: Float get() = overlayY.value
     val height: Float get() = overlayHeight.value
+    val scale: Float get() = overlayScale.value
     val gridOffsetY: Float get() = overlayY.value + scrollCompensationY
     val gridScrollCompensationY: Float get() = scrollCompensationY
 
@@ -5597,6 +5629,7 @@ private class WeekEditOverlayController(
             overlayX.snapTo(0f)
             overlayY.snapTo(0f)
             overlayHeight.snapTo(nextRequest.sourceBounds.height)
+            overlayScale.snapTo(1.035f)
             scrollCompensationY = 0f
             autoScrollDirection = 0
         }
@@ -5660,6 +5693,12 @@ private class WeekEditOverlayController(
                     initialVelocity = velocity.x
                 )
             }
+            launch {
+                overlayScale.animateTo(
+                    1f,
+                    spring(dampingRatio = 0.78f, stiffness = 520f)
+                )
+            }
             overlayY.animateTo(
                 targetY,
                 spring(dampingRatio = 0.72f, stiffness = 520f),
@@ -5674,6 +5713,7 @@ private class WeekEditOverlayController(
                 clear()
                 overlayX.snapTo(0f)
                 overlayY.snapTo(0f)
+                overlayScale.snapTo(1f)
             }
         }
     }
@@ -5707,6 +5747,12 @@ private class WeekEditOverlayController(
             activeRequest.sourceBounds.height
         }
         scope.launch {
+            launch {
+                overlayScale.animateTo(
+                    1f,
+                    spring(dampingRatio = 0.78f, stiffness = 520f)
+                )
+            }
             overlayHeight.animateTo(
                 targetHeight,
                 spring(dampingRatio = 0.72f, stiffness = 480f),
@@ -5720,6 +5766,7 @@ private class WeekEditOverlayController(
             } else {
                 clear()
                 overlayHeight.snapTo(0f)
+                overlayScale.snapTo(1f)
             }
         }
     }
@@ -5833,6 +5880,7 @@ fun MergedWeekCell(
     editScrollState: ScrollState? = null,
     onEnterEditMode: () -> Unit = {},
     onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
+    onDeleteSingleWeekCourse: (CourseEntity) -> Unit = {},
     onCourseClick: (CourseEntity, Rect?) -> Unit,
     onDragStateChanged: (dayIndex: Int?, courseId: Long?) -> Unit = { _, _ -> },
     draggingCourseId: Long? = null,
@@ -5881,6 +5929,7 @@ fun MergedWeekCell(
                     editScrollState = editScrollState,
                     onEnterEditMode = onEnterEditMode,
                     onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
+                    onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
                     onCourseClick = onCourseClick,
                     onDragStateChanged = onDragStateChanged,
                     activeOverlayCourseId = activeOverlayCourseId,
@@ -5923,6 +5972,7 @@ fun WeekCourseBlock(
     editScrollState: ScrollState? = null,
     onEnterEditMode: () -> Unit = {},
     onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
+    onDeleteSingleWeekCourse: (CourseEntity) -> Unit = {},
     onCourseClick: (CourseEntity, Rect?) -> Unit,
     onDragStateChanged: (dayIndex: Int?, courseId: Long?) -> Unit = { _, _ -> },
     activeOverlayCourseId: Long? = null,
@@ -6030,11 +6080,12 @@ fun WeekCourseBlock(
         val rawHeight = periodRowHeight * target.periods.size.coerceAtLeast(1).toFloat() - 4.dp
         if (rawHeight < 18.dp) 18.dp else rawHeight
     } ?: height
-    val displayedHeight by animateDpAsState(
+    val animatedSettledResizeHeight by animateDpAsState(
         targetValue = settledResizeHeight,
         animationSpec = spring(dampingRatio = 0.76f, stiffness = 430f),
         label = "week-edit-saved-height-${course.id}"
     )
+    val displayedHeight = if (settlingResizeTarget != null) animatedSettledResizeHeight else height
     val resizeStartIndex = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
     val resizeMaxSpan = (periodIndexes.size - resizeStartIndex).coerceAtLeast(1)
     val baseHeightPx = with(density) { height.toPx() }
@@ -6354,6 +6405,31 @@ fun WeekCourseBlock(
             }
             }
             if (editMode) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = (-5).dp, y = (-5).dp)
+                        .size(22.dp)
+                        .zIndex(7f)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.92f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onDeleteSingleWeekCourse(course)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        Modifier
+                            .width(10.dp)
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(ComposeColor.White)
+                    )
+                }
                 WeekResizeCornerHandle(
                     config = config,
                     selected = handleDragging,
@@ -7070,38 +7146,44 @@ fun NormalizedAiManualImportScreen(state: AppState, backdrop: Backdrop?, onParse
     }
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
+            .fillMaxWidth()
+            .heightIn(max = 520.dp)
+            .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("\u5C06\u4F60\u7684\u8BFE\u8868 PDF \u8FDE\u540C\u63D0\u793A\u8BCD\u4E00\u8D77\u53D1\u7ED9\u4EFB\u610F AI\uFF0C\u7136\u540E\u5C06\u8FD4\u56DE\u7684 SleepDown \u8BFE\u8868\u53E3\u4EE4\u590D\u5236\u5230\u8F93\u5165\u6846\u5185\u3002\u4E5F\u53EF\u4EE5\u76F4\u63A5\u4F7F\u7528\u5DF2\u914D\u7F6E\u7684 AI \u6A21\u578B\u89E3\u6790 PDF \u6216\u56FE\u7247\u6587\u4EF6\u3002", color = textColor)
-        Text(
-            "当前 AI：${aiSettings.profile.displayName} / ${aiSettings.profile.defaultModel}",
-            color = textColor.copy(alpha = 0.72f),
-            style = MaterialTheme.typography.bodySmall
-        )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            DialogLiquidButton(
-                backdrop = backdrop,
-                label = "\u590D\u5236\u63D0\u793A\u8BCD",
-                onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("SleepDown \u8BFE\u8868\u53E3\u4EE4\u63D0\u793A\u8BCD", SchedulePromptBuilder.buildTokenPrompt()))
-                },
-                role = DialogButtonRole.Neutral
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(ComposeColor.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.18f else 0.08f))
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "将课表文本或 AI 返回的 SleepDown 口令粘贴到下方；也可以直接上传 PDF / 图片，由已配置的 AI 模型解析。",
+                color = textColor,
+                style = MaterialTheme.typography.bodyMedium,
+                lineHeight = 22.sp
             )
-            DialogLiquidButton(
-                backdrop = backdrop,
-                label = "\u6E05\u7406\u683C\u5F0F",
-                onClick = { jsonText = ScheduleImportParser.cleanMarkdown(jsonText) },
-                role = DialogButtonRole.Neutral
+            Text(
+                "当前 AI：${aiSettings.profile.displayName} / ${aiSettings.profile.defaultModel}",
+                color = textColor.copy(alpha = 0.70f),
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             DialogLiquidButton(
                 backdrop = backdrop,
                 label = "\u89E3\u6790\u5E76\u9884\u89C8",
                 role = DialogButtonRole.Confirm,
                 iconRes = R.drawable.ic_download,
+                modifier = Modifier.weight(1f),
                 onClick = { parseDraft() }
             )
             if (fileUploadVisible) {
@@ -7110,6 +7192,7 @@ fun NormalizedAiManualImportScreen(state: AppState, backdrop: Backdrop?, onParse
                     label = if (aiParsing) "解析中..." else "上传 PDF/图片",
                     role = DialogButtonRole.Confirm,
                     iconRes = R.drawable.ic_download,
+                    modifier = Modifier.weight(1f),
                     onClick = {
                         if (!aiParsing) {
                             fileLauncher.launch(arrayOf("application/pdf", "image/*"))
@@ -7117,10 +7200,33 @@ fun NormalizedAiManualImportScreen(state: AppState, backdrop: Backdrop?, onParse
                     }
                 )
             }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            DialogLiquidButton(
+                backdrop = backdrop,
+                label = "\u590D\u5236\u63D0\u793A\u8BCD",
+                onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("SleepDown \u8BFE\u8868\u53E3\u4EE4\u63D0\u793A\u8BCD", SchedulePromptBuilder.buildTokenPrompt()))
+                },
+                modifier = Modifier.weight(1f),
+                role = DialogButtonRole.Neutral
+            )
+            DialogLiquidButton(
+                backdrop = backdrop,
+                label = "\u6E05\u7406\u683C\u5F0F",
+                onClick = { jsonText = ScheduleImportParser.cleanMarkdown(jsonText) },
+                modifier = Modifier.weight(1f),
+                role = DialogButtonRole.Neutral
+            )
             DialogLiquidButton(
                 backdrop = backdrop,
                 label = "刷新 AI 配置",
                 onClick = { aiSettings = AiImportSettingsStore.load(context) },
+                modifier = Modifier.weight(1f),
                 role = DialogButtonRole.Neutral
             )
         }
@@ -7138,13 +7244,20 @@ fun NormalizedAiManualImportScreen(state: AppState, backdrop: Backdrop?, onParse
         routeMessage?.let {
             Text(it, color = textColor.copy(alpha = 0.78f), style = MaterialTheme.typography.bodySmall, lineHeight = 18.sp)
         }
+        Text(
+            "\u8BFE\u8868\u53E3\u4EE4\u6216 AI \u539F\u59CB\u8FD4\u56DE",
+            color = textColor.copy(alpha = 0.76f),
+            style = MaterialTheme.typography.labelLarge
+        )
         DialogCapsuleField(
             value = jsonText,
             onValueChange = { jsonText = it },
             placeholder = "AI \u8FD4\u56DE\u7684 SleepDown \u8BFE\u8868\u53E3\u4EE4",
             config = state.config,
-            minLines = 12,
-            modifier = Modifier.fillMaxWidth()
+            minLines = 6,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 150.dp, max = 230.dp)
         )
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
@@ -9106,8 +9219,8 @@ fun ScheduleNameDialog(
 ) {
     var name by remember { mutableStateOf(initialName) }
     val textColor = glassForegroundColor(config)
-    Dialog(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.heightIn(max = 650.dp)) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        CenterLiquidDialog(backdrop = backdrop, config = config) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 DialogLiquidButton(backdrop, "取消", onDismiss, role = DialogButtonRole.Cancel)
                 Text(title, modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = textColor)
@@ -9168,6 +9281,11 @@ fun ChangelogSettingsScreen(
     ) {
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsNavigationRow("下载新版", "从 Gitee Release 检查并下载最新安装包", onClick = onDownload)
+            }
+        }
+        item {
+            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 SettingsNavigationRow("捐赠支持", "如果 SleepDown 课程表帮到了你，可以请小漫君喝杯奶茶。", onClick = onDonate)
             }
         }
@@ -9194,11 +9312,6 @@ fun ChangelogSettingsScreen(
                 SettingsInfoRow("1.0 beta", "完成基础课程表、手动导入、教务导入、通知提醒、实时活动、深色模式、壁纸与液态玻璃个性化设置。")
             }
         }
-        item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsNavigationRow("下载新版", "打开蓝奏云下载页，密码：i224", onClick = onDownload)
-            }
-        }
     }
 }
 
@@ -9207,35 +9320,218 @@ fun ChangelogSettingsScreen(
 fun DownloadUpdateScreen(state: AppState, backdrop: Backdrop?) {
     val topPadding = detailContentTopPadding()
     val context = LocalContext.current
-    Column(modifier = Modifier.fillMaxSize().padding(top = topPadding)) {
-        Text(
-            "密码：i224",
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary
-        )
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = {
-                WebView(it).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.useWideViewPort = true
-                    settings.loadWithOverviewMode = true
-                    webViewClient = sleepDownWebViewClient(context)
-                    webChromeClient = WebChromeClient()
-                    enableSleepDownDownloads()
-                    loadUrl("https://wwbhx.lanzout.com/b01d6z3uid")
+    val scope = rememberCoroutineScope()
+    val currentVersion = remember {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0" }
+            .getOrDefault("1.0")
+    }
+    var checking by remember { mutableStateOf(true) }
+    var downloading by remember { mutableStateOf(false) }
+    var releaseInfo by remember { mutableStateOf<GiteeReleaseInfo?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun checkLatest() {
+        checking = true
+        error = null
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { fetchSleepDownGiteeRelease() }
+            }.onSuccess {
+                releaseInfo = it
+            }.onFailure {
+                error = it.message ?: "检查更新失败"
+            }
+            checking = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        checkLatest()
+    }
+
+    LazyColumn(
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsValueRow("当前版本", currentVersion)
+                SettingsDivider()
+                SettingsValueRow("更新来源", "Gitee Release")
+                SettingsDivider()
+                SettingsValueRow("仓库", "xiaomanjun233/SleepDown-Schedule")
+            }
+        }
+        item {
+            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                val info = releaseInfo
+                when {
+                    checking -> SettingsInfoRow("正在检查", "正在连接 Gitee Release 获取最新版本信息。")
+                    error != null -> SettingsInfoRow("检查失败", error.orEmpty())
+                    info != null -> {
+                        val hasNewVersion = isRemoteVersionNewer(info.tagName, currentVersion)
+                        SettingsInfoRow(
+                            if (hasNewVersion) "发现新版本" else "当前已是最新",
+                            "最新版本：${info.displayVersion}\n${info.body.ifBlank { "暂无更新说明" }}"
+                        )
+                        if (info.assetName.isNotBlank()) {
+                            SettingsDivider()
+                            SettingsValueRow("安装包", info.assetName)
+                            SettingsDivider()
+                            SettingsValueRow("大小", formatReleaseAssetSize(info.assetSize))
+                        }
+                    }
                 }
-            },
-            update = {},
-            onRelease = { it.releaseSleepDownWebView() }
+            }
+        }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                SettingsActionButton(
+                    label = if (checking) "检查中" else "重新检查",
+                    backdrop = backdrop,
+                    onClick = { if (!checking) checkLatest() },
+                    modifier = Modifier.weight(1f)
+                )
+                SettingsActionButton(
+                    label = if (downloading) "下载中" else "下载新版",
+                    backdrop = backdrop,
+                    onClick = {
+                        val info = releaseInfo ?: return@SettingsActionButton
+                        if (downloading || info.assetDownloadUrl.isBlank()) return@SettingsActionButton
+                        downloading = true
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    context.applicationContext.downloadWebFile(
+                                        url = info.assetDownloadUrl,
+                                        fallbackContentDisposition = "attachment; filename=\"${info.assetName.ifBlank { "SleepDown-Schedule.apk" }}\"",
+                                        userAgent = "SleepDown-Schedule/$currentVersion",
+                                        cookie = null,
+                                        referer = SleepDownGiteeProjectUrl,
+                                        mimeType = "application/vnd.android.package-archive"
+                                    )
+                                }
+                            }.onSuccess {
+                                context.showToastOnMain("已保存到下载目录")
+                            }.onFailure {
+                                context.showToastOnMain("下载失败：${it.message ?: "未知错误"}")
+                            }
+                            downloading = false
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        item {
+            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsNavigationRow("打开 Gitee 仓库", SleepDownGiteeProjectUrl, onClick = {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SleepDownGiteeProjectUrl)))
+                    }
+                })
+            }
+        }
+    }
+}
+
+private const val SleepDownGiteeProjectUrl = "https://gitee.com/xiaomanjun233/SleepDown-Schedule"
+private const val SleepDownGiteeLatestReleaseApi =
+    "https://gitee.com/api/v5/repos/xiaomanjun233/SleepDown-Schedule/releases/latest"
+
+private data class GiteeReleaseInfo(
+    val tagName: String,
+    val name: String,
+    val body: String,
+    val assetName: String,
+    val assetDownloadUrl: String,
+    val assetSize: Long
+) {
+    val displayVersion: String get() = name.ifBlank { tagName }
+}
+
+private fun fetchSleepDownGiteeRelease(): GiteeReleaseInfo {
+    val connection = (URL(SleepDownGiteeLatestReleaseApi).openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 15000
+        readTimeout = 20000
+        setRequestProperty("Accept", "application/json")
+        setRequestProperty("User-Agent", "SleepDown-Schedule")
+    }
+    return try {
+        val responseCode = connection.responseCode
+        val bodyText = if (responseCode in 200..299) {
+            connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } else {
+            val errorText = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            error("Gitee 返回 HTTP $responseCode${errorText.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()}")
+        }
+        val json = JSONObject(bodyText)
+        val assets = json.optJSONArray("assets") ?: JSONArray()
+        var selected: JSONObject? = null
+        for (index in 0 until assets.length()) {
+            val asset = assets.optJSONObject(index) ?: continue
+            val name = asset.optString("name")
+            if (selected == null || name.endsWith(".apk", ignoreCase = true)) {
+                selected = asset
+                if (name.endsWith(".apk", ignoreCase = true)) break
+            }
+        }
+        val asset = selected
+        GiteeReleaseInfo(
+            tagName = json.optString("tag_name", json.optString("tagName")),
+            name = json.optString("name"),
+            body = json.optString("body"),
+            assetName = asset?.optString("name").orEmpty(),
+            assetDownloadUrl = asset?.releaseAssetDownloadUrl().orEmpty(),
+            assetSize = asset?.optLong("size", 0L) ?: 0L
         )
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private fun JSONObject.releaseAssetDownloadUrl(): String {
+    val direct = optString("browser_download_url")
+        .ifBlank { optString("download_url") }
+        .ifBlank { optString("downloadUrl") }
+    if (direct.isNotBlank()) return direct
+    val path = optString("path")
+    if (path.startsWith("http", ignoreCase = true)) return path
+    val url = optString("url")
+    return when {
+        url.startsWith("http", ignoreCase = true) -> url
+        path.isNotBlank() -> "${SleepDownGiteeProjectUrl}/releases/download/${path}"
+        else -> ""
+    }
+}
+
+private fun isRemoteVersionNewer(remote: String, current: String): Boolean {
+    val remoteParts = remote.versionNumberParts()
+    val currentParts = current.versionNumberParts()
+    val maxSize = maxOf(remoteParts.size, currentParts.size, 1)
+    for (index in 0 until maxSize) {
+        val r = remoteParts.getOrNull(index) ?: 0
+        val c = currentParts.getOrNull(index) ?: 0
+        if (r != c) return r > c
+    }
+    return false
+}
+
+private fun String.versionNumberParts(): List<Int> {
+    return Regex("\\d+").findAll(this).map { it.value.toIntOrNull() ?: 0 }.toList()
+}
+
+private fun formatReleaseAssetSize(bytes: Long): String {
+    if (bytes <= 0L) return "未知"
+    val mb = bytes / 1024f / 1024f
+    return if (mb >= 1f) {
+        String.format(Locale.US, "%.1f MB", mb)
+    } else {
+        String.format(Locale.US, "%.0f KB", bytes / 1024f)
     }
 }
 

@@ -442,7 +442,7 @@ object AiProviderPresets {
         displayName = "小米 MiMo",
         providerType = AiProviderType.OpenAIChatCompatible,
         baseUrl = "https://api.xiaomimimo.com/v1",
-        defaultModel = "mimo-v2.5",
+        defaultModel = "mimo-v2.5-pro",
         authType = AiAuthType.CustomHeader,
         capabilities = AiProviderCapabilities(
             supportsImageInput = true,
@@ -525,8 +525,8 @@ object AiProviderPresets {
             AiModelOption("MiniMax Text", "abab6.5s-chat")
         )
         mimo.id, mimoTokenPlan.id -> listOf(
-            AiModelOption("MiMo V2.5", "mimo-v2.5"),
-            AiModelOption("MiMo V2.5 Pro", "mimo-v2.5-pro")
+            AiModelOption("MiMo V2.5 Pro", "mimo-v2.5-pro"),
+            AiModelOption("MiMo V2.5", "mimo-v2.5")
         )
         else -> emptyList()
     }
