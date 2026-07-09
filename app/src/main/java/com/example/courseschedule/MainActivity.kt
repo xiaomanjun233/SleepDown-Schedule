@@ -1009,10 +1009,12 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                         state = state,
                                         backdrop = backgroundBackdrop,
                                         onPageChange = {
-                                            context.startActivity(
-                                                Intent(context, SettingsDetailActivity::class.java)
-                                                    .putExtra(SettingsDetailPageExtra, it.name)
-                                            )
+                                            val intent = Intent(context, SettingsDetailActivity::class.java)
+                                                .putExtra(SettingsDetailPageExtra, it.name)
+                                            if (it == SettingsPage.Schedule) {
+                                                intent.putExtra(ScheduleCustomizeIdExtra, state.config.id)
+                                            }
+                                            context.startActivity(intent)
                                         },
                                         onSave = viewModel::saveConfig,
                                         onUpdateConfig = viewModel::savePersonalization,
@@ -3733,6 +3735,7 @@ fun HomeScreen(
     }
     val textColor = homeForegroundColor(state.config)
     var weekEditMode by remember { mutableStateOf(false) }
+    var pendingSingleWeekDelete by remember { mutableStateOf<Pair<CourseEntity, Int>?>(null) }
     val haptic = LocalHapticFeedback.current
 
     Box(
@@ -3792,9 +3795,68 @@ fun HomeScreen(
                     weekEditMode = weekEditMode,
                     onEnterWeekEditMode = { weekEditMode = true },
                     onUpdateCourseSingleWeek = onUpdateCourseSingleWeek,
-                    onDeleteCourseSingleWeek = onDeleteCourseSingleWeek,
+                    onDeleteCourseSingleWeek = { course, week ->
+                        pendingSingleWeekDelete = course to week
+                    },
                     onCourseClick = { course, week, sourceBounds -> onCourseClick(course, week, sourceBounds) }
                 )
+            }
+        }
+        pendingSingleWeekDelete?.let { (course, week) ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(80f)
+                    .background(ComposeColor.Black.copy(alpha = 0.28f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { pendingSingleWeekDelete = null },
+                contentAlignment = Alignment.Center
+            ) {
+                CenterLiquidDialog(
+                    backdrop = backdrop,
+                    config = state.config,
+                    modifier = Modifier
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) {}
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        DialogLiquidButton(backdrop, "取消", { pendingSingleWeekDelete = null }, role = DialogButtonRole.Cancel)
+                        Text(
+                            "删除单周课程",
+                            modifier = Modifier.weight(1f),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = glassForegroundColor(state.config)
+                        )
+                        Spacer(Modifier.width(42.dp))
+                    }
+                    Text(
+                        "确定删除第${week}周的“${course.name}”吗？",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = glassForegroundColor(state.config)
+                    )
+                    Text(
+                        "只会删除当前周这一次，不会删除其它周的同名课程。",
+                        style = MaterialTheme.typography.bodySmall,
+                        lineHeight = 18.sp,
+                        color = glassForegroundColor(state.config).copy(alpha = 0.72f)
+                    )
+                    DialogLiquidButton(
+                        backdrop = backdrop,
+                        label = "确认删除",
+                        onClick = {
+                            pendingSingleWeekDelete = null
+                            onDeleteCourseSingleWeek(course, week)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        role = DialogButtonRole.Cancel
+                    )
+                }
             }
         }
     }
@@ -5813,6 +5875,10 @@ private class WeekEditOverlayController(
         screenHeightPx: Float,
         edgePx: Float
     ) {
+        if (overlayHeight.value >= screenHeightPx - edgePx * 1.25f) {
+            autoScrollDirection = 0
+            return
+        }
         val top = activeRequest.sourceBounds.top + overlayY.value
         val bottom = top + overlayHeight.value
         val deadZone = edgePx * 0.22f
@@ -6162,6 +6228,7 @@ fun WeekCourseBlock(
     }
     fun autoScrollDeltaPx(): Float {
         val bounds = ownBounds ?: return 0f
+        if (bounds.height >= screenHeightPx - edgeScrollThresholdPx * 1.25f) return 0f
         val draggedTop = bounds.top + moveDragY
         val draggedBottom = bounds.bottom + moveDragY
         return when {
@@ -9105,6 +9172,7 @@ fun ScheduleManagerScreen(
     onRenameSchedule: (Int, String) -> Unit,
     onDeleteSchedule: (Int) -> Unit
 ) {
+    val context = LocalContext.current
     var showCreateDialog by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var deleteTarget by remember { mutableStateOf<Pair<Int, String>?>(null) }
@@ -9139,7 +9207,13 @@ fun ScheduleManagerScreen(
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
-                            ) { onActivateSchedule(profile.id, null) }
+                            ) {
+                                context.startActivity(
+                                    Intent(context, SettingsDetailActivity::class.java)
+                                        .putExtra(SettingsDetailPageExtra, SettingsPage.Schedule.name)
+                                        .putExtra(ScheduleCustomizeIdExtra, profile.id)
+                                )
+                            }
                             .padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -9169,6 +9243,11 @@ fun ScheduleManagerScreen(
                             )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (!isActive) {
+                                SettingsActionButton("设为", backdrop, onClick = {
+                                    onActivateSchedule(profile.id, null)
+                                })
+                            }
                             SettingsActionButton("重命名", backdrop, onClick = {
                                 renameTarget = Pair(profile.id, profile.name)
                             })
@@ -9328,6 +9407,8 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.10 beta", "优化课表切换与周视图渲染性能；改进周视图长按编辑体验，删除单周课程前增加确认提示，超长课程拖拽时避免误触发自动滚动；修复从多课表管理进入课表设置时可能回到默认课表的问题；优化课表设置页的滑动与标签切换手感。")
+                SettingsDivider()
                 SettingsInfoRow("1.09 beta", "新增 AI 导入功能，绑定 API Key 之后，可以在原有教务导入无法识别网页课表结构时调用大模型来组织课表结构；无法抓取网页时，可以通过识屏进行强制抓取。此导入方法作为兜底方案，课表导入准确度取决于学校网站结构、选用大模型能力等。目前仅 DeepSeek 和小米 MIMO 经过了全流程测试，DeepSeek 不支持多模态，所以无法使用图片导入功能；优化各项玻璃参数，视觉效果更透亮；优化了个性化弹窗和加号菜单打开的动画。")
                 SettingsDivider()
                 SettingsInfoRow("1.08 beta", "优化动画过渡，课程卡片打开与收回更顺滑；优化渐变模糊效果，顶部与背景过渡更自然。")

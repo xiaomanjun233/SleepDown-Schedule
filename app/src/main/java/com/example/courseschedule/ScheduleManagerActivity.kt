@@ -176,6 +176,7 @@ fun ScheduleManagerScreen(
     var initialActiveCentered by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val activeProfileId = profiles.getOrNull(activeIndex)?.id ?: profiles.first().id
+    var lastCenteredActiveProfileId by remember { mutableIntStateOf(activeProfileId) }
 
     val currentPageIndex by remember(profiles.size, activeIndex) {
         derivedStateOf {
@@ -206,12 +207,17 @@ fun ScheduleManagerScreen(
         if (pendingId == activeProfileId) {
             pendingActivationId = null
         }
-        val shouldCenterActive = !initialActiveCentered || pendingId == activeProfileId
+        val shouldCenterActive = !initialActiveCentered ||
+            pendingId == activeProfileId ||
+            (selectedProfileId == lastCenteredActiveProfileId && activeProfileId != lastCenteredActiveProfileId)
         if (shouldCenterActive || profiles.none { it.id == selectedProfileId }) {
             selectedProfileId = activeProfileId
         }
         if (shouldCenterActive || (!listState.isScrollInProgress && selectedProfileId == activeProfileId)) {
             listState.animateScrollToItem(activeIndex)
+        }
+        if (shouldCenterActive) {
+            lastCenteredActiveProfileId = activeProfileId
         }
         initialActiveCentered = true
     }
@@ -377,11 +383,21 @@ fun ScheduleManagerScreen(
         ) {
             profiles.forEachIndexed { index, profile ->
                 val active = profile.id == selectedProfileId
+                val dotSize by animateDpAsState(
+                    targetValue = if (active) 9.dp else 7.dp,
+                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f),
+                    label = "schedule-dot-size-${profile.id}"
+                )
+                val dotAlpha by animateFloatAsState(
+                    targetValue = if (active) 0.92f else 0.36f,
+                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f),
+                    label = "schedule-dot-alpha-${profile.id}"
+                )
                 Box(
                     modifier = Modifier
-                        .size(if (active) 9.dp else 7.dp)
+                        .size(dotSize)
                         .clip(RoundedCornerShape(50))
-                        .background(Color.White.copy(alpha = if (active) 0.92f else 0.36f))
+                        .background(Color.White.copy(alpha = dotAlpha))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
