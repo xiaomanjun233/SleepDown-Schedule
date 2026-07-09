@@ -177,6 +177,15 @@ fun ScheduleManagerScreen(
     val context = LocalContext.current
     val activeProfileId = profiles.getOrNull(activeIndex)?.id ?: profiles.first().id
     var lastCenteredActiveProfileId by remember { mutableIntStateOf(activeProfileId) }
+    val configsBySchedule = remember(state.allConfigs) {
+        state.allConfigs.associateBy { it.id }
+    }
+    val coursesBySchedule = remember(state.allCourses) {
+        state.allCourses.groupBy { it.scheduleId }
+    }
+    val periodsBySchedule = remember(state.allPeriods) {
+        state.allPeriods.groupBy { it.scheduleId }
+    }
 
     val currentPageIndex by remember(profiles.size, activeIndex) {
         derivedStateOf {
@@ -192,10 +201,10 @@ fun ScheduleManagerScreen(
         .takeIf { it >= 0 }
         ?: activeIndex
     val centeredProfile = profiles.getOrNull(selectedIndex) ?: profiles.first()
-    val centeredConfig = state.allConfigs.firstOrNull { it.id == centeredProfile.id }
+    val centeredConfig = configsBySchedule[centeredProfile.id]
         ?: if (centeredProfile.isActive) state.config else defaultConfig(centeredProfile.id)
-    val centeredCourses = state.allCourses.filter { it.scheduleId == centeredProfile.id }
-    val centeredPeriods = state.allPeriods.filter { it.scheduleId == centeredProfile.id }.ifEmpty {
+    val centeredCourses = coursesBySchedule[centeredProfile.id].orEmpty()
+    val centeredPeriods = periodsBySchedule[centeredProfile.id].orEmpty().ifEmpty {
         if (centeredProfile.isActive) state.periods else defaultPeriods(centeredProfile.id)
     }
 
@@ -327,10 +336,10 @@ fun ScheduleManagerScreen(
             ) {
                 itemsIndexed(profiles, key = { _, profile -> profile.id }) { index, profile ->
                     val isCentered = profile.id == selectedProfileId
-                    val config = state.allConfigs.firstOrNull { it.id == profile.id }
+                    val config = configsBySchedule[profile.id]
                         ?: if (profile.isActive) state.config else defaultConfig(profile.id)
-                    val courses = state.allCourses.filter { it.scheduleId == profile.id }
-                    val periods = state.allPeriods.filter { it.scheduleId == profile.id }.ifEmpty {
+                    val courses = coursesBySchedule[profile.id].orEmpty()
+                    val periods = periodsBySchedule[profile.id].orEmpty().ifEmpty {
                         if (profile.isActive) state.periods else defaultPeriods(profile.id)
                     }
                     ScheduleCarouselCard(
