@@ -772,11 +772,12 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     }
     val todayDate = LocalDate.now()
     val homeCurrentWeek = effectiveCurrentWeek(state.config)
+    val beforeScheduleTerm = isBeforeScheduleTerm(state.config, todayDate)
     var homeDisplayWeek by remember(state.config.id, state.config.totalWeeks, homeCurrentWeek) { mutableIntStateOf(homeCurrentWeek) }
     var homeDisplayDate by remember(state.config.id) { mutableStateOf(todayDate) }
-    LaunchedEffect(state.config.id, state.config.totalWeeks, homeCurrentWeek, state.config.autoCurrentWeek) {
+    LaunchedEffect(state.config.id, state.config.totalWeeks, homeCurrentWeek, state.config.autoCurrentWeek, beforeScheduleTerm) {
         homeDisplayWeek = homeDisplayWeek.coerceIn(1, state.config.totalWeeks.coerceAtLeast(1))
-        if (state.config.autoCurrentWeek) homeDisplayWeek = homeCurrentWeek
+        if (state.config.autoCurrentWeek) homeDisplayWeek = if (beforeScheduleTerm) 1 else homeCurrentWeek
     }
     val homeTitleWeek = if (homeMode == HomeMode.Day) {
         effectiveCurrentWeek(state.config, homeDisplayDate)
@@ -784,8 +785,13 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         homeDisplayWeek
     }
     val returnHomeToCurrentDateAndWeek = {
-        homeDisplayDate = LocalDate.now()
-        homeDisplayWeek = homeCurrentWeek
+        if (beforeScheduleTerm) {
+            homeDisplayDate = parseScheduleDate(state.config.termStartDate) ?: LocalDate.now()
+            homeDisplayWeek = 1
+        } else {
+            homeDisplayDate = LocalDate.now()
+            homeDisplayWeek = homeCurrentWeek
+        }
     }
 
     LaunchedEffect(state.config.hideFromRecents) {
@@ -906,6 +912,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                             onHomeModeChange = { homeMode = it },
                             homeDisplayDate = homeDisplayDate,
                             homeDisplayWeek = homeTitleWeek,
+                            beforeScheduleTerm = beforeScheduleTerm,
                             onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
                             addMenuExpanded = addMenuExpanded,
                             onAddButtonPositioned = { addButtonBounds = it },
@@ -1686,6 +1693,7 @@ fun AppTopBar(
     onHomeModeChange: (HomeMode) -> Unit,
     homeDisplayDate: LocalDate,
     homeDisplayWeek: Int,
+    beforeScheduleTerm: Boolean,
     onReturnHomeToCurrentWeek: () -> Unit,
     addMenuExpanded: Boolean,
     onAddButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
@@ -1713,6 +1721,7 @@ fun AppTopBar(
                     state = state,
                     displayDate = homeDisplayDate,
                     displayWeek = homeDisplayWeek,
+                    beforeScheduleTerm = beforeScheduleTerm,
                     onReturnCurrent = onReturnHomeToCurrentWeek
                 )
             } else {
@@ -3589,6 +3598,7 @@ fun HomeDateTitle(
     state: AppState,
     displayDate: LocalDate,
     displayWeek: Int,
+    beforeScheduleTerm: Boolean,
     onReturnCurrent: () -> Unit
 ) {
     val color = homeForegroundColor(state.config)
@@ -3609,7 +3619,7 @@ fun HomeDateTitle(
             overflow = TextOverflow.Clip
         )
         Text(
-            "第${displayWeek}周",
+            if (beforeScheduleTerm) "当前暂未开学" else "第${displayWeek}周",
             style = MaterialTheme.typography.labelMedium,
             color = color.copy(alpha = 0.78f),
             maxLines = 1,
@@ -4384,7 +4394,7 @@ fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardCo
     val weekdays = (1..7).toList()
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
-    val weekStart = today.minusDays((today.dayOfWeek.toChineseWeekday() - 1).toLong()).plusWeeks((displayWeek - effectiveCurrentWeek(state.config)).toLong())
+    val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
     val visibleCourses = remember(state.courses, displayWeek) {
         coursesVisibleInWeek(state.courses, displayWeek)
     }
@@ -4516,9 +4526,7 @@ fun SinglePillWeekScheduleScreen(
 ) {
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
-    val weekStart = today
-        .minusDays((today.dayOfWeek.toChineseWeekday() - 1).toLong())
-        .plusWeeks((displayWeek - effectiveCurrentWeek(state.config)).toLong())
+    val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
     val visibleCourses = remember(state.courses, displayWeek) {
         coursesVisibleInWeek(state.courses, displayWeek)
     }
@@ -5135,9 +5143,7 @@ fun LiquidWeekScheduleScreen(
     val weekdays = (1..7).toList()
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
-    val weekStart = today
-        .minusDays((today.dayOfWeek.toChineseWeekday() - 1).toLong())
-        .plusWeeks((displayWeek - effectiveCurrentWeek(state.config)).toLong())
+    val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
     val visibleCourses = remember(state.courses, displayWeek) {
         coursesVisibleInWeek(state.courses, displayWeek)
     }
@@ -6412,7 +6418,7 @@ fun WeekCourseBlock(
                         .size(22.dp)
                         .zIndex(7f)
                         .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.92f))
+                        .background(ComposeColor(0xFFFF1F2D).copy(alpha = 0.96f))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
@@ -9281,7 +9287,7 @@ fun ChangelogSettingsScreen(
     ) {
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsNavigationRow("下载新版", "从 Gitee Release 检查并下载最新安装包", onClick = onDownload)
+                SettingsNavigationRow("下载新版", "打开蓝奏云备用下载页", onClick = onDownload)
             }
         }
         item {
@@ -9320,218 +9326,35 @@ fun ChangelogSettingsScreen(
 fun DownloadUpdateScreen(state: AppState, backdrop: Backdrop?) {
     val topPadding = detailContentTopPadding()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val currentVersion = remember {
-        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0" }
-            .getOrDefault("1.0")
-    }
-    var checking by remember { mutableStateOf(true) }
-    var downloading by remember { mutableStateOf(false) }
-    var releaseInfo by remember { mutableStateOf<GiteeReleaseInfo?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    fun checkLatest() {
-        checking = true
-        error = null
-        scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { fetchSleepDownGiteeRelease() }
-            }.onSuccess {
-                releaseInfo = it
-            }.onFailure {
-                error = it.message ?: "检查更新失败"
-            }
-            checking = false
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        checkLatest()
-    }
-
-    LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsValueRow("当前版本", currentVersion)
-                SettingsDivider()
-                SettingsValueRow("更新来源", "Gitee Release")
-                SettingsDivider()
-                SettingsValueRow("仓库", "xiaomanjun233/SleepDown-Schedule")
-            }
-        }
-        item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                val info = releaseInfo
-                when {
-                    checking -> SettingsInfoRow("正在检查", "正在连接 Gitee Release 获取最新版本信息。")
-                    error != null -> SettingsInfoRow("检查失败", error.orEmpty())
-                    info != null -> {
-                        val hasNewVersion = isRemoteVersionNewer(info.tagName, currentVersion)
-                        SettingsInfoRow(
-                            if (hasNewVersion) "发现新版本" else "当前已是最新",
-                            "最新版本：${info.displayVersion}\n${info.body.ifBlank { "暂无更新说明" }}"
-                        )
-                        if (info.assetName.isNotBlank()) {
-                            SettingsDivider()
-                            SettingsValueRow("安装包", info.assetName)
-                            SettingsDivider()
-                            SettingsValueRow("大小", formatReleaseAssetSize(info.assetSize))
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                SettingsActionButton(
-                    label = if (checking) "检查中" else "重新检查",
-                    backdrop = backdrop,
-                    onClick = { if (!checking) checkLatest() },
-                    modifier = Modifier.weight(1f)
-                )
-                SettingsActionButton(
-                    label = if (downloading) "下载中" else "下载新版",
-                    backdrop = backdrop,
-                    onClick = {
-                        val info = releaseInfo ?: return@SettingsActionButton
-                        if (downloading || info.assetDownloadUrl.isBlank()) return@SettingsActionButton
-                        downloading = true
-                        scope.launch {
-                            runCatching {
-                                withContext(Dispatchers.IO) {
-                                    context.applicationContext.downloadWebFile(
-                                        url = info.assetDownloadUrl,
-                                        fallbackContentDisposition = "attachment; filename=\"${info.assetName.ifBlank { "SleepDown-Schedule.apk" }}\"",
-                                        userAgent = "SleepDown-Schedule/$currentVersion",
-                                        cookie = null,
-                                        referer = SleepDownGiteeProjectUrl,
-                                        mimeType = "application/vnd.android.package-archive"
-                                    )
-                                }
-                            }.onSuccess {
-                                context.showToastOnMain("已保存到下载目录")
-                            }.onFailure {
-                                context.showToastOnMain("下载失败：${it.message ?: "未知错误"}")
-                            }
-                            downloading = false
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-        item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsNavigationRow("打开 Gitee 仓库", SleepDownGiteeProjectUrl, onClick = {
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SleepDownGiteeProjectUrl)))
-                    }
-                })
-            }
-        }
-    }
-}
-
-private const val SleepDownGiteeProjectUrl = "https://gitee.com/xiaomanjun233/SleepDown-Schedule"
-private const val SleepDownGiteeLatestReleaseApi =
-    "https://gitee.com/api/v5/repos/xiaomanjun233/SleepDown-Schedule/releases/latest"
-
-private data class GiteeReleaseInfo(
-    val tagName: String,
-    val name: String,
-    val body: String,
-    val assetName: String,
-    val assetDownloadUrl: String,
-    val assetSize: Long
-) {
-    val displayVersion: String get() = name.ifBlank { tagName }
-}
-
-private fun fetchSleepDownGiteeRelease(): GiteeReleaseInfo {
-    val connection = (URL(SleepDownGiteeLatestReleaseApi).openConnection() as HttpURLConnection).apply {
-        requestMethod = "GET"
-        connectTimeout = 15000
-        readTimeout = 20000
-        setRequestProperty("Accept", "application/json")
-        setRequestProperty("User-Agent", "SleepDown-Schedule")
-    }
-    return try {
-        val responseCode = connection.responseCode
-        val bodyText = if (responseCode in 200..299) {
-            connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        } else {
-            val errorText = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            error("Gitee 返回 HTTP $responseCode${errorText.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()}")
-        }
-        val json = JSONObject(bodyText)
-        val assets = json.optJSONArray("assets") ?: JSONArray()
-        var selected: JSONObject? = null
-        for (index in 0 until assets.length()) {
-            val asset = assets.optJSONObject(index) ?: continue
-            val name = asset.optString("name")
-            if (selected == null || name.endsWith(".apk", ignoreCase = true)) {
-                selected = asset
-                if (name.endsWith(".apk", ignoreCase = true)) break
-            }
-        }
-        val asset = selected
-        GiteeReleaseInfo(
-            tagName = json.optString("tag_name", json.optString("tagName")),
-            name = json.optString("name"),
-            body = json.optString("body"),
-            assetName = asset?.optString("name").orEmpty(),
-            assetDownloadUrl = asset?.releaseAssetDownloadUrl().orEmpty(),
-            assetSize = asset?.optLong("size", 0L) ?: 0L
+    Column(modifier = Modifier.fillMaxSize().padding(top = topPadding)) {
+        Text(
+            "密码：i224",
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary
         )
-    } finally {
-        connection.disconnect()
-    }
-}
-
-private fun JSONObject.releaseAssetDownloadUrl(): String {
-    val direct = optString("browser_download_url")
-        .ifBlank { optString("download_url") }
-        .ifBlank { optString("downloadUrl") }
-    if (direct.isNotBlank()) return direct
-    val path = optString("path")
-    if (path.startsWith("http", ignoreCase = true)) return path
-    val url = optString("url")
-    return when {
-        url.startsWith("http", ignoreCase = true) -> url
-        path.isNotBlank() -> "${SleepDownGiteeProjectUrl}/releases/download/${path}"
-        else -> ""
-    }
-}
-
-private fun isRemoteVersionNewer(remote: String, current: String): Boolean {
-    val remoteParts = remote.versionNumberParts()
-    val currentParts = current.versionNumberParts()
-    val maxSize = maxOf(remoteParts.size, currentParts.size, 1)
-    for (index in 0 until maxSize) {
-        val r = remoteParts.getOrNull(index) ?: 0
-        val c = currentParts.getOrNull(index) ?: 0
-        if (r != c) return r > c
-    }
-    return false
-}
-
-private fun String.versionNumberParts(): List<Int> {
-    return Regex("\\d+").findAll(this).map { it.value.toIntOrNull() ?: 0 }.toList()
-}
-
-private fun formatReleaseAssetSize(bytes: Long): String {
-    if (bytes <= 0L) return "未知"
-    val mb = bytes / 1024f / 1024f
-    return if (mb >= 1f) {
-        String.format(Locale.US, "%.1f MB", mb)
-    } else {
-        String.format(Locale.US, "%.0f KB", bytes / 1024f)
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = {
+                WebView(it).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = true
+                    webViewClient = sleepDownWebViewClient(context)
+                    webChromeClient = WebChromeClient()
+                    enableSleepDownDownloads()
+                    loadUrl("https://wwbhx.lanzout.com/b01d6z3uid")
+                }
+            },
+            update = {},
+            onRelease = { it.releaseSleepDownWebView() }
+        )
     }
 }
 

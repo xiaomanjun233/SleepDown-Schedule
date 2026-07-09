@@ -520,6 +520,29 @@ fun effectiveCurrentWeek(config: ScheduleConfigEntity, today: LocalDate = LocalD
     return calculated.coerceIn(1, config.totalWeeks)
 }
 
+fun isBeforeScheduleTerm(config: ScheduleConfigEntity, today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))): Boolean {
+    if (!config.autoCurrentWeek || config.termStartDate.isNullOrBlank()) return false
+    val startDate = parseScheduleDate(config.termStartDate) ?: return false
+    return today.isBefore(startDate)
+}
+
+fun scheduleWeekStartDate(
+    config: ScheduleConfigEntity,
+    displayWeek: Int,
+    today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+): LocalDate {
+    val safeWeek = displayWeek.coerceAtLeast(1)
+    val termStart = if (config.autoCurrentWeek) parseScheduleDate(config.termStartDate) else null
+    if (termStart != null) {
+        val termWeekStart = termStart.minusDays((termStart.dayOfWeek.toChineseWeekday() - 1).toLong())
+        return termWeekStart.plusWeeks((safeWeek - 1).toLong())
+    }
+    val currentWeek = effectiveCurrentWeek(config, today)
+    return today
+        .minusDays((today.dayOfWeek.toChineseWeekday() - 1).toLong())
+        .plusWeeks((safeWeek - currentWeek).toLong())
+}
+
 fun parseScheduleDate(value: String?): LocalDate? {
     val text = value?.trim().orEmpty()
     if (text.isBlank()) return null
