@@ -4113,6 +4113,33 @@ private fun coursesVisibleInWeek(courses: List<CourseEntity>, week: Int): List<C
     }
 }
 
+private data class WeekCourseBuckets(
+    val visibleCourses: List<CourseEntity>,
+    val byWeekday: Map<Int, List<CourseEntity>>,
+    val weekendHasCourse: Boolean
+)
+
+private val SchoolWeekdays = (1..5).toList()
+private val FullWeekdays = (1..7).toList()
+
+private fun weekCourseBuckets(courses: List<CourseEntity>, week: Int): WeekCourseBuckets {
+    val visibleCourses = coursesVisibleInWeek(courses, week)
+    return WeekCourseBuckets(
+        visibleCourses = visibleCourses,
+        byWeekday = visibleCourses.groupBy { it.weekday },
+        weekendHasCourse = visibleCourses.any { it.weekday == 6 || it.weekday == 7 }
+    )
+}
+
+private fun visibleWeekdaysForBuckets(
+    buckets: WeekCourseBuckets,
+    hideEmptyWeekends: Boolean
+): List<Int> = if (hideEmptyWeekends && !buckets.weekendHasCourse) {
+    SchoolWeekdays
+} else {
+    FullWeekdays
+}
+
 private fun CourseEntity.occurrenceOverrideKey(): String {
     return listOf(
         weekday.toString(),
@@ -4333,8 +4360,9 @@ fun DayScheduleScreen(
             val targetWeek = effectiveCurrentWeek(state.config, targetDate)
             val targetWeekday = targetDate.dayOfWeek.toChineseWeekday()
             val dayCourses = remember(state.courses, targetWeek, targetWeekday) {
-                coursesVisibleInWeek(state.courses, targetWeek)
-                    .filter { it.weekday == targetWeekday }
+                weekCourseBuckets(state.courses, targetWeek)
+                    .byWeekday[targetWeekday]
+                    .orEmpty()
                     .sortedWith(compareBy<CourseEntity> { it.periods.minOrNull() ?: Int.MAX_VALUE }.thenBy { it.name })
             }
             val listState = rememberLazyListState()
@@ -4391,12 +4419,12 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
 
 @Composable
 fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardColor: ComposeColor, textColor: ComposeColor, backdrop: Backdrop?, onSwipeWeek: (Int) -> Unit, onCourseClick: (CourseEntity, Int, Rect?) -> Unit) {
-    val weekdays = (1..7).toList()
+    val weekdays = FullWeekdays
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-    val visibleCourses = remember(state.courses, displayWeek) {
-        coursesVisibleInWeek(state.courses, displayWeek)
+    val weekBuckets = remember(state.courses, displayWeek) {
+        weekCourseBuckets(state.courses, displayWeek)
     }
     var horizontalDrag by remember { mutableFloatStateOf(0f) }
 
@@ -4489,7 +4517,7 @@ fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardCo
                         }
                     }
                     WeekDayColumn(
-                        courses = visibleCourses.filter { it.weekday == day },
+                        courses = weekBuckets.byWeekday[day].orEmpty(),
                         periods = state.periods,
                         cardHeight = cardHeight,
                         cardColor = cardColor,
@@ -4527,12 +4555,15 @@ fun SinglePillWeekScheduleScreen(
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-    val visibleCourses = remember(state.courses, displayWeek) {
-        coursesVisibleInWeek(state.courses, displayWeek)
+    val weekBuckets = remember(state.courses, displayWeek) {
+        weekCourseBuckets(state.courses, displayWeek)
     }
-    val weekdays = remember(visibleCourses, state.config.hideEmptyWeekends) {
-        val weekendHasCourse = visibleCourses.any { it.weekday == 6 || it.weekday == 7 }
-        if (state.config.hideEmptyWeekends && !weekendHasCourse) (1..5).toList() else (1..7).toList()
+    val visibleCourses = weekBuckets.visibleCourses
+    val weekdays = remember(weekBuckets, state.config.hideEmptyWeekends) {
+        visibleWeekdaysForBuckets(weekBuckets, state.config.hideEmptyWeekends)
+    }
+    val periodIndexes = remember(state.periods) {
+        state.periods.map { it.periodIndex }
     }
     var previousDisplayWeek by remember { mutableIntStateOf(displayWeek) }
     var weekMotionDirection by remember { mutableIntStateOf(0) }
@@ -4548,10 +4579,9 @@ fun SinglePillWeekScheduleScreen(
         val direction = (displayWeek - previousDisplayWeek).coerceIn(-1, 1)
         if (direction != 0) {
             val oldWeek = previousDisplayWeek
-            val oldCourses = coursesVisibleInWeek(state.courses, oldWeek)
-            val oldWeekendHasCourse = oldCourses.any { it.weekday == 6 || it.weekday == 7 }
-            outgoingCourses.value = oldCourses
-            outgoingWeekdays.value = if (state.config.hideEmptyWeekends && !oldWeekendHasCourse) (1..5).toList() else (1..7).toList()
+            val oldBuckets = weekCourseBuckets(state.courses, oldWeek)
+            outgoingCourses.value = oldBuckets.visibleCourses
+            outgoingWeekdays.value = visibleWeekdaysForBuckets(oldBuckets, state.config.hideEmptyWeekends)
             outgoingWeekKey.intValue = oldWeek
             outgoingDirection.intValue = direction
         }
@@ -4812,7 +4842,7 @@ fun SinglePillWeekScheduleScreen(
                             onFinishMoveOverlay = { velocity ->
                                 weekEditOverlay.finishMove(
                                     velocity = velocity,
-                                    periodIndexes = state.periods.map { it.periodIndex },
+                                    periodIndexes = periodIndexes,
                                     weekdayCount = weekdays.size,
                                     onUpdateCourseSingleWeek = onUpdateCourseSingleWeek
                                 )
@@ -4820,7 +4850,7 @@ fun SinglePillWeekScheduleScreen(
                             onFinishResizeOverlay = { velocity ->
                                 weekEditOverlay.finishResize(
                                     velocity = velocity,
-                                    periodIndexes = state.periods.map { it.periodIndex },
+                                    periodIndexes = periodIndexes,
                                     weekdayCount = weekdays.size,
                                     resizePaddingPx = with(density) { 4.dp.toPx() },
                                     onUpdateCourseSingleWeek = onUpdateCourseSingleWeek
@@ -5140,12 +5170,12 @@ fun LiquidWeekScheduleScreen(
     onSwipeWeek: (Int) -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit
 ) {
-    val weekdays = (1..7).toList()
+    val weekdays = FullWeekdays
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-    val visibleCourses = remember(state.courses, displayWeek) {
-        coursesVisibleInWeek(state.courses, displayWeek)
+    val weekBuckets = remember(state.courses, displayWeek) {
+        weekCourseBuckets(state.courses, displayWeek)
     }
     var horizontalDrag by remember { mutableFloatStateOf(0f) }
 
@@ -5285,7 +5315,7 @@ fun LiquidWeekScheduleScreen(
                             }
                         }
                         WeekDayColumn(
-                            courses = visibleCourses.filter { it.weekday == day },
+                            courses = weekBuckets.byWeekday[day].orEmpty(),
                             periods = state.periods,
                             cardHeight = cardHeight,
                             cardColor = cardColor,
@@ -5482,6 +5512,7 @@ fun WeekCourseColumnsLayer(
 ) {
     val density = LocalDensity.current
     val travel = with(density) { (LocalConfiguration.current.screenWidthDp.dp + 96.dp).toPx() }
+    val coursesByWeekday = remember(courses) { courses.groupBy { it.weekday } }
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -5498,7 +5529,7 @@ fun WeekCourseColumnsLayer(
                         .zIndex(if (draggingDayIndex == day) 1f else 0f)
                 ) {
                     WeekDayColumn(
-                        courses = courses.filter { it.weekday == day },
+                        courses = coursesByWeekday[day].orEmpty(),
                         periods = periods,
                         cardHeight = cardHeight,
                         cardColor = cardColor,
