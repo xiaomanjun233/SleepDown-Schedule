@@ -9407,7 +9407,7 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsInfoRow("1.10 beta", "优化课表切换与周视图渲染性能；改进周视图长按编辑体验，删除单周课程前增加确认提示，超长课程拖拽时避免误触发自动滚动；修复从多课表管理进入课表设置时可能回到默认课表的问题；优化课表设置页的滑动与标签切换手感。")
+                SettingsInfoRow("1.10 beta", "优化页面切换与周视图渲染性能；新增快速编辑当前周卡片功能，长按卡片会弹出角标和删除按钮，拖拽把手可以修改课程持续时间，按住卡片拖拽可以修改上课时间，编辑体验更顺畅；修复了导入未来学期课表时，无法正确映射第一周的问题。")
                 SettingsDivider()
                 SettingsInfoRow("1.09 beta", "新增 AI 导入功能，绑定 API Key 之后，可以在原有教务导入无法识别网页课表结构时调用大模型来组织课表结构；无法抓取网页时，可以通过识屏进行强制抓取。此导入方法作为兜底方案，课表导入准确度取决于学校网站结构、选用大模型能力等。目前仅 DeepSeek 和小米 MIMO 经过了全流程测试，DeepSeek 不支持多模态，所以无法使用图片导入功能；优化各项玻璃参数，视觉效果更透亮；优化了个性化弹窗和加号菜单打开的动画。")
                 SettingsDivider()
