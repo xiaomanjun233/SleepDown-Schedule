@@ -229,7 +229,16 @@ data class HomeWallpaperImages(
     val blurBucket: Int
 )
 
-private val wallpaperCache = object : LinkedHashMap<String, HomeWallpaperImages>(8, 0.75f, true) {
+private data class WallpaperSourceImages(
+    val source: Bitmap,
+    val reducedSource: Bitmap?
+)
+
+private val wallpaperSourceCache = object : LinkedHashMap<String, WallpaperSourceImages>(6, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, WallpaperSourceImages>?): Boolean = size > 3
+}
+
+private val wallpaperRenderCache = object : LinkedHashMap<String, HomeWallpaperImages>(8, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, HomeWallpaperImages>?): Boolean = size > 4
 }
 
@@ -238,28 +247,37 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
     val context = LocalContext.current.applicationContext
     val useDarkDefaultWallpaper = appUsesDarkTheme(config)
     val blurBucket = bucketWallpaperBlur(config.wallpaperBlur)
-    val cacheKey = remember(config.wallpaperUri, config.defaultWallpaperStyle, useDarkDefaultWallpaper) {
+    val sourceKey = remember(config.wallpaperUri, config.defaultWallpaperStyle, useDarkDefaultWallpaper) {
         "${config.wallpaperUri}|${config.defaultWallpaperStyle}|$useDarkDefaultWallpaper"
     }
-    val images = remember(cacheKey) { mutableStateOf(synchronized(wallpaperCache) {
-        wallpaperCache[cacheKey] ?: HomeWallpaperImages(null, null, null, blurBucket)
+    val renderKey = remember(sourceKey, blurBucket) { "$sourceKey|blur=$blurBucket" }
+    val images = remember(renderKey) { mutableStateOf(synchronized(wallpaperRenderCache) {
+        wallpaperRenderCache[renderKey] ?: HomeWallpaperImages(null, null, null, blurBucket)
     }) }
-    LaunchedEffect(cacheKey, blurBucket) {
-        val cached = synchronized(wallpaperCache) { wallpaperCache[cacheKey] }
-        if (cached != null && cached.blurBucket == blurBucket) {
+    LaunchedEffect(renderKey) {
+        val cached = synchronized(wallpaperRenderCache) { wallpaperRenderCache[renderKey] }
+        if (cached != null) {
             images.value = cached
             return@LaunchedEffect
         }
         val loaded = withContext(Dispatchers.IO) {
-            val source = cached?.source ?: loadWallpaperBitmap(context, config, useDarkDefaultWallpaper)
+            val cachedSource = synchronized(wallpaperSourceCache) { wallpaperSourceCache[sourceKey] }
+            val sourceEntry = cachedSource ?: loadWallpaperBitmap(context, config, useDarkDefaultWallpaper)?.let { source ->
+                WallpaperSourceImages(
+                    source = source,
+                    reducedSource = createReducedWallpaperBitmap(source)
+                ).also { entry ->
+                    synchronized(wallpaperSourceCache) { wallpaperSourceCache[sourceKey] = entry }
+                }
+            }
             HomeWallpaperImages(
-                source = source,
-                reducedSource = createReducedWallpaperBitmap(source),
-                blurredSource = createBlurredWallpaperBitmap(source, blurBucket),
+                source = sourceEntry?.source,
+                reducedSource = sourceEntry?.reducedSource,
+                blurredSource = createBlurredWallpaperBitmap(sourceEntry?.source, blurBucket),
                 blurBucket = blurBucket
             )
         }
-        synchronized(wallpaperCache) { wallpaperCache[cacheKey] = loaded }
+        synchronized(wallpaperRenderCache) { wallpaperRenderCache[renderKey] = loaded }
         images.value = loaded
     }
     return images
