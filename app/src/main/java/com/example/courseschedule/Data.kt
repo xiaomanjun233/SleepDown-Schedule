@@ -19,6 +19,7 @@ import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -708,7 +709,7 @@ class ScheduleRepository(private val database: AppDatabase) {
         )
     }
 
-    val state = multiScheduleState.map { snapshot ->
+    val allSchedulesState = multiScheduleState.map { snapshot ->
         val activeId = snapshot.schedules.firstOrNull { it.isActive }?.id ?: 1
         val config = snapshot.allConfigs.firstOrNull { it.id == activeId } ?: defaultConfig(activeId)
         val periods = snapshot.allPeriods.filter { it.scheduleId == activeId }.ifEmpty { defaultPeriods(activeId) }
@@ -722,7 +723,26 @@ class ScheduleRepository(private val database: AppDatabase) {
             periods = periods,
             loaded = true
         )
-    }
+    }.distinctUntilChanged()
+
+    val state = combine(
+        courseDao.observeCourses(),
+        profileDao.observeProfiles(),
+        configDao.observeConfig(),
+        configDao.observePeriods()
+    ) { courses, schedules, config, periods ->
+        val profiles = schedules.ifEmpty {
+            listOf(ScheduleProfileEntity(id = 1, name = "\u9ED8\u8BA4\u8BFE\u8868", isActive = true))
+        }
+        val activeId = profiles.firstOrNull { it.isActive }?.id ?: profiles.first().id
+        AppState(
+            courses = courses,
+            schedules = profiles,
+            config = config?.copy(id = activeId) ?: defaultConfig(activeId),
+            periods = periods.ifEmpty { defaultPeriods(activeId) },
+            loaded = true
+        )
+    }.distinctUntilChanged()
 
     suspend fun ensureDefaults() {
         if (profileDao.getProfiles().isEmpty()) {

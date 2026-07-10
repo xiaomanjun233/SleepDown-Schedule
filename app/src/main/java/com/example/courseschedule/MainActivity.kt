@@ -256,8 +256,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -292,8 +295,8 @@ class MainActivity : ComponentActivity() {
             val viewModel: ScheduleViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
                 factory = ScheduleViewModelFactory(app, app.repository)
             )
-            val state by viewModel.state.collectAsState()
-            CourseScheduleTheme(config = state.config) {
+            val config by viewModel.themeConfig.collectAsStateWithLifecycle()
+            CourseScheduleTheme(config = config) {
                 CourseScheduleAppUi(viewModel)
             }
         }
@@ -388,66 +391,79 @@ private fun performButtonHaptic(view: android.view.View) {
 
 class ScheduleViewModel(private val app: Application, private val repository: ScheduleRepository) : AndroidViewModel(app) {
     val state: StateFlow<AppState> = repository.state.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppState())
+    val allSchedulesState: StateFlow<AppState> = repository.allSchedulesState.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        AppState()
+    )
+    val themeConfig: StateFlow<ScheduleConfigEntity> = state
+        .map { it.config }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), defaultConfig())
     val snackbar = MutableStateFlow<String?>(null)
+    private val refreshCoordinator = ScheduleRefreshCoordinator(
+        scope = viewModelScope,
+        refresh = ::refreshScheduleSurfaces
+    )
 
     init {
         viewModelScope.launch {
             repository.ensureDefaults()
-            rescheduleToday()
+            refreshCoordinator.refreshNow()
         }
     }
 
     fun addCourse(course: CourseEntity) = viewModelScope.launch {
         repository.addCourse(course)
-        rescheduleToday()
+        refreshCoordinator.request()
 //        snackbar.value = "课程已保存"
     }
 
     fun updateCourse(course: CourseEntity) = viewModelScope.launch {
         repository.updateCourse(course)
-        rescheduleToday()
+        refreshCoordinator.request()
         snackbar.value = "课程已更新"
     }
 
     fun updateCourseSingleWeek(original: CourseEntity, edited: CourseEntity, targetWeek: Int) = viewModelScope.launch {
         repository.updateCourseSingleWeek(original, edited, targetWeek)
-        rescheduleToday()
+        refreshCoordinator.request()
     }
 
     fun updateRelatedCourses(original: CourseEntity, edited: CourseEntity) = viewModelScope.launch {
         repository.updateRelatedCourses(original, edited)
-        rescheduleToday()
+        refreshCoordinator.request()
         snackbar.value = "课程已更新"
     }
 
     fun deleteCourse(course: CourseEntity) = viewModelScope.launch {
         repository.deleteCourse(course)
-        rescheduleToday()
+        refreshCoordinator.request()
         snackbar.value = "课程已删除"
     }
 
     fun deleteCourseSingleWeek(course: CourseEntity, targetWeek: Int) = viewModelScope.launch {
         repository.deleteCourseSingleWeek(course, targetWeek)
-        rescheduleToday()
+        refreshCoordinator.request()
         snackbar.value = "课程已删除"
     }
 
     fun importDraft(draft: ImportDraft, createNewSchedule: Boolean = false, onDone: () -> Unit) = viewModelScope.launch {
         repository.importDraft(draft, createNewSchedule)
-        rescheduleToday()
+        refreshCoordinator.request()
         snackbar.value = if (createNewSchedule) "已导入到新课表" else "课程表已导入"
         onDone()
     }
 
     fun saveConfig(config: ScheduleConfigEntity, periods: List<PeriodEntity>) = viewModelScope.launch {
         repository.saveConfig(config, periods)
-        rescheduleToday()
+        refreshCoordinator.request()
         snackbar.value = "设置已保存"
     }
 
     fun saveConfigForSchedule(scheduleId: Int, config: ScheduleConfigEntity, periods: List<PeriodEntity>) = viewModelScope.launch {
         repository.saveConfigForSchedule(scheduleId, config, periods)
-        rescheduleToday()
+        refreshCoordinator.request()
         snackbar.value = "设置已保存"
     }
 
@@ -460,15 +476,13 @@ class ScheduleViewModel(private val app: Application, private val repository: Sc
         val scheduleId = repository.createSchedule(name)
         Log.d("ScheduleManager", "repository.createSchedule created id=$scheduleId")
         repository.activateSchedule(scheduleId)
-        rescheduleToday()
-        TodayCoursesWidgetProvider.refreshAll(app)
+        refreshCoordinator.request()
     }
 
     fun activateSchedule(scheduleId: Int, finish: (() -> Unit)? = null) = viewModelScope.launch {
         Log.d("ScheduleManager", "viewModel.activateSchedule id=$scheduleId")
         repository.activateSchedule(scheduleId)
-        rescheduleToday()
-        TodayCoursesWidgetProvider.refreshAll(app)
+        refreshCoordinator.request()
         finish?.invoke()
     }
 
@@ -480,8 +494,7 @@ class ScheduleViewModel(private val app: Application, private val repository: Sc
     fun deleteSchedule(scheduleId: Int) = viewModelScope.launch {
         Log.d("ScheduleManager", "viewModel.deleteSchedule id=$scheduleId")
         repository.deleteSchedule(scheduleId)
-        rescheduleToday()
-        TodayCoursesWidgetProvider.refreshAll(app)
+        refreshCoordinator.request()
     }
 
     fun clearSnackbar() {
@@ -493,11 +506,11 @@ class ScheduleViewModel(private val app: Application, private val repository: Sc
         snackbar.value = "已发送实时活动预览"
     }
 
-    fun refreshNotifications() = viewModelScope.launch {
-        rescheduleToday()
+    fun refreshNotifications() {
+        refreshCoordinator.request()
     }
 
-    private suspend fun rescheduleToday() = withContext(Dispatchers.IO) {
+    private suspend fun refreshScheduleSurfaces() = withContext(Dispatchers.IO) {
         val snapshot = repository.snapshot()
         NotificationScheduler.refreshToday(app, snapshot.courses, snapshot.config, snapshot.periods)
         TodayCoursesWidgetProvider.refreshAll(app)
@@ -582,8 +595,8 @@ internal var hideFromRecentsEnabled = false
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
-    val state by viewModel.state.collectAsState()
-    val message by viewModel.snackbar.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val message by viewModel.snackbar.collectAsStateWithLifecycle()
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var homeMode by remember { mutableStateOf(if (state.config.defaultHomeMode == HomeStartMode.DAY) HomeMode.Day else HomeMode.Week) }
     LaunchedEffect(state.config.defaultHomeMode) {
@@ -661,7 +674,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val backgroundBackdrop = rememberLayerBackdrop()
     val contentBackdrop = rememberLayerBackdrop()
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
-    val logRecording by DiagnosticLogCapture.recording.collectAsState()
+    val logRecording by DiagnosticLogCapture.recording.collectAsStateWithLifecycle()
     val wallpaperImages by rememberHomeWallpaperImages(state.config)
     val startupAnimationsEnabled = remember(context) { animationsEnabled(context) }
 
@@ -1493,7 +1506,7 @@ fun DetailActivityScaffold(
     val contentBackdrop = rememberLayerBackdrop()
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
     val overlayHeight = detailTopOverlayHeight()
-    val logRecording by DiagnosticLogCapture.recording.collectAsState()
+    val logRecording by DiagnosticLogCapture.recording.collectAsStateWithLifecycle()
     Box(Modifier.fillMaxSize().background(settingsPageBackground(pageConfig))) {
         Box(
             modifier = Modifier
@@ -3194,7 +3207,12 @@ class SettingsDetailActivity : ComponentActivity() {
                 factory = ScheduleViewModelFactory(app, app.repository)
             )
             val section = SettingsPage.valueOf(intent.getStringExtra(SettingsDetailPageExtra) ?: SettingsPage.General.name)
-            val state by viewModel.state.collectAsState()
+            val stateFlow = if (customizeScheduleId != null || section == SettingsPage.ScheduleManager) {
+                viewModel.allSchedulesState
+            } else {
+                viewModel.state
+            }
+            val state by stateFlow.collectAsStateWithLifecycle()
             CourseScheduleTheme(config = state.config) {
                 val scheduleEditState = remember(state, customizeScheduleId) {
                     if (customizeScheduleId != null) scheduleConfigStateForEdit(state, customizeScheduleId) else state
@@ -3275,7 +3293,7 @@ class EduSchoolSelectActivity : ComponentActivity() {
             val viewModel: ScheduleViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
                 factory = ScheduleViewModelFactory(app, app.repository)
             )
-            val state by viewModel.state.collectAsState()
+            val state by viewModel.state.collectAsStateWithLifecycle()
             CourseScheduleTheme(config = state.config) {
                 DetailActivityScaffold(
                     title = "选择学校",
@@ -3308,7 +3326,7 @@ class EduImportActivity : ComponentActivity() {
             val viewModel: ScheduleViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
                 factory = ScheduleViewModelFactory(app, app.repository)
             )
-            val state by viewModel.state.collectAsState()
+            val state by viewModel.state.collectAsStateWithLifecycle()
             val adapter = remember { eduAdapterFromIntentKey(intent.getStringExtra(EduAdapterExtra)) }
             var pendingDraft by remember { mutableStateOf<ImportDraft?>(null) }
             CourseScheduleTheme(config = state.config) {

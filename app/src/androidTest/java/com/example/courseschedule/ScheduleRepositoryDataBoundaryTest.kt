@@ -109,6 +109,43 @@ class ScheduleRepositoryDataBoundaryTest {
         assertEquals(14, snapshot.periods.size)
     }
 
+    @Test
+    fun activeStateExcludesOtherSchedulePayloadsWhileManagerStateKeepsThem() = runBlocking {
+        repository.ensureDefaults()
+        repository.importDraft(sampleDraft(totalWeeks = 18, periodCount = 14))
+        val secondId = repository.createSchedule("Second")
+        repository.activateSchedule(secondId)
+        repository.addCourse(
+            CourseEntity(
+                name = "Second course",
+                teacher = "Teacher",
+                location = "Room",
+                weekday = 2,
+                periods = listOf(3, 4),
+                weeks = listOf(1, 2),
+                weekParity = WeekParity.ALL,
+                note = null,
+                scheduleId = 1
+            )
+        )
+
+        val active = repository.state.first { it.loaded && it.config.id == secondId }
+        assertEquals(secondId, active.config.id)
+        assertTrue(active.courses.all { it.scheduleId == secondId })
+        assertTrue(active.allCourses.isEmpty())
+        assertTrue(active.allConfigs.isEmpty())
+        assertTrue(active.allPeriods.isEmpty())
+
+        val manager = repository.allSchedulesState.first {
+            it.loaded && it.schedules.size == 2 && it.allCourses.any { course -> course.scheduleId == secondId }
+        }
+        assertEquals(2, manager.schedules.size)
+        assertTrue(manager.allCourses.any { it.scheduleId == 1 })
+        assertTrue(manager.allCourses.any { it.scheduleId == secondId })
+        assertTrue(manager.allConfigs.any { it.id == 1 })
+        assertTrue(manager.allConfigs.any { it.id == secondId })
+    }
+
     private fun sampleDraft(totalWeeks: Int, periodCount: Int): ImportDraft {
         return ImportDraft(
             config = defaultConfig().copy(totalWeeks = totalWeeks),

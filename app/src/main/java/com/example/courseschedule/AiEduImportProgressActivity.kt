@@ -36,7 +36,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -116,7 +116,7 @@ class AiEduImportProgressActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val app = application as CourseScheduleApp
         setContent {
-            val state by app.repository.state.collectAsState(AppState())
+            val state by app.repository.state.collectAsStateWithLifecycle(AppState())
             CourseScheduleTheme(config = state.config) {
                 AiEduImportProgressPage(
                     config = state.config,
@@ -134,7 +134,7 @@ class AiEduImportProgressActivity : ComponentActivity() {
 
 @Composable
 private fun AiEduImportProgressPage(config: ScheduleConfigEntity, onClose: () -> Unit) {
-    val progress by AiEduImportProgressSession.progress.collectAsState()
+    val progress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     val current = progress ?: AiEduImportProgress(steps = listOf("等待 AI 教务导入任务"))
     val listState = rememberLazyListState()
     val context = LocalContext.current

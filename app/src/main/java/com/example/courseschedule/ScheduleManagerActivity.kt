@@ -55,7 +55,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -88,6 +87,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -109,7 +109,7 @@ class ScheduleManagerActivity : ComponentActivity() {
             val viewModel: ScheduleViewModel = viewModel(
                 factory = ScheduleViewModelFactory(app, app.repository)
             )
-            val state by viewModel.state.collectAsState()
+            val state by viewModel.allSchedulesState.collectAsStateWithLifecycle()
             CourseScheduleTheme(config = state.config) {
                 ScheduleManagerScreen(
                     state = state,

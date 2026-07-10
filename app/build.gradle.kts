@@ -80,6 +80,7 @@ dependencies {
     implementation("androidx.core:core:1.15.0")
     implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.metrics:metrics-performance:1.0.0")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
