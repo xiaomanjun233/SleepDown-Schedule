@@ -33,4 +33,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "CourseSchedule"
 include(":app")
+include(":benchmark")
 
