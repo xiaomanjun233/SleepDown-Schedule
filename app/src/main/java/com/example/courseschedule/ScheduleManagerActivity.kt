@@ -98,6 +98,9 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import kotlin.math.abs
 
+private val SnapshotSchoolWeekdays = (1..5).toList()
+private val SnapshotFullWeekdays = (1..7).toList()
+
 class ScheduleManagerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -334,7 +337,11 @@ fun ScheduleManagerScreen(
                 horizontalArrangement = Arrangement.spacedBy(22.dp),
                 modifier = Modifier.align(Alignment.Center)
             ) {
-                itemsIndexed(profiles, key = { _, profile -> profile.id }) { index, profile ->
+                itemsIndexed(
+                    items = profiles,
+                    key = { _, profile -> profile.id },
+                    contentType = { _, _ -> "schedule-card" }
+                ) { index, profile ->
                     val isCentered = profile.id == selectedProfileId
                     val config = configsBySchedule[profile.id]
                         ?: if (profile.isActive) state.config else defaultConfig(profile.id)
@@ -759,11 +766,14 @@ fun StaticWeekSnapshotGrid(
             displayWeek in course.weeks && parityMatches(course.weekParity, displayWeek)
         }
     }
+    val coursesByWeekday = remember(visibleCourses) { visibleCourses.groupBy { it.weekday } }
     val weekdays = remember(visibleCourses, state.config.hideEmptyWeekends) {
         val weekendHasCourse = visibleCourses.any { it.weekday == 6 || it.weekday == 7 }
-        if (state.config.hideEmptyWeekends && !weekendHasCourse) (1..5).toList() else (1..7).toList()
+        if (state.config.hideEmptyWeekends && !weekendHasCourse) SnapshotSchoolWeekdays else SnapshotFullWeekdays
     }
-    val periods = state.periods.take(10).ifEmpty { defaultPeriods(state.config.id).take(10) }
+    val periods = remember(state.periods, state.config.id) {
+        state.periods.take(10).ifEmpty { defaultPeriods(state.config.id).take(10) }
+    }
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -852,7 +862,7 @@ fun StaticWeekSnapshotGrid(
                 weekdays.forEach { day ->
                     Column(modifier = Modifier.weight(1f)) {
                         SnapshotWeekDayColumn(
-                            courses = visibleCourses.filter { it.weekday == day },
+                            courses = coursesByWeekday[day].orEmpty(),
                             periods = periods,
                             cardColor = cardColor,
                             emptyBackground = Color.Transparent,
@@ -886,13 +896,18 @@ fun ColumnScope.SnapshotWeekDayColumn(
     emptyBackground: Color,
     config: ScheduleConfigEntity
 ) {
-    val periodIndexes = periods.map { it.periodIndex }
+    val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
+    val startingCoursesByPeriod = remember(courses, periods) {
+        periods.associate { period ->
+            period.periodIndex to courses
+                .filter { snapshotCourseStartsAt(it, period.periodIndex) }
+                .sortedBy { it.name }
+        }
+    }
     var periodCursor = 0
     while (periodCursor < periods.size) {
         val period = periods[periodCursor]
-        val startingCourses = courses
-            .filter { snapshotCourseStartsAt(it, period.periodIndex) }
-            .sortedBy { it.name }
+        val startingCourses = startingCoursesByPeriod[period.periodIndex].orEmpty()
         if (startingCourses.isEmpty()) {
             Box(
                 modifier = Modifier

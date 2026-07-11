@@ -239,19 +239,14 @@ fun CourseEditorContainerOverlayHost(
             width = with(density) { animatedRect.width.toDp() },
             height = with(density) { animatedRect.height.toDp() }
         )
-    val targetModifier = Modifier
-        .offset {
-            IntOffset(
-                targetRect.left.roundToInt(),
-                targetRect.top.roundToInt()
-            )
-        }
-        .size(
-            width = with(density) { targetRect.width.toDp() },
-            height = with(density) { targetRect.height.toDp() }
-        )
-    val sourceCorner = with(density) { if (sourceRect.width >= 220.dp.toPx()) 16.dp else 8.dp }
-    val corner = with(density) { interpolateFloatUnbounded(sourceCorner.toPx(), 32.dp.toPx(), motionProgress).coerceIn(6.dp.toPx(), 36.dp.toPx()).toDp() }
+    val sourceCornerPx = remember(sourceRect, density) {
+        with(density) { if (sourceRect.width >= 220.dp.toPx()) 16.dp.toPx() else 8.dp.toPx() }
+    }
+    val corner = with(density) {
+        interpolateFloatUnbounded(sourceCornerPx, 32.dp.toPx(), motionProgress)
+            .coerceIn(6.dp.toPx(), 36.dp.toPx())
+            .toDp()
+    }
     val backgroundDepthProgress = smoothStep(0.04f, 0.86f, alphaProgress)
     SideEffect {
         latestOnMotionProgressChange(backgroundDepthProgress)

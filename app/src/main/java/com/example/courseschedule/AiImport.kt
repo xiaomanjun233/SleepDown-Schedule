@@ -1468,17 +1468,24 @@ private class OpenAIChatCompletionsAdapter : AiProviderAdapter {
     }
 }
 
-fun loadAiImportFile(context: Context, uri: Uri): Result<AiImportFile> = runCatching {
-    val resolver = context.contentResolver
-    val mime = resolver.getType(uri) ?: "application/octet-stream"
-    val name = resolver.query(uri, null, null, null, null)?.use { cursor ->
-        val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-        if (cursor.moveToFirst() && index >= 0) cursor.getString(index) else null
-    } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "schedule-file"
-    val rawBytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: error("无法读取文件")
-    val bytes = if (mime.startsWith("image/", ignoreCase = true)) compressAiImportImage(rawBytes) else rawBytes
-    AiImportFile(uri, name, mime, bytes)
-}
+suspend fun loadAiImportFile(context: Context, uri: Uri): Result<AiImportFile> =
+    withContext(Dispatchers.IO) {
+        runCatching {
+            val resolver = context.contentResolver
+            val mime = resolver.getType(uri) ?: "application/octet-stream"
+            val name = resolver.query(uri, null, null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (cursor.moveToFirst() && index >= 0) cursor.getString(index) else null
+            } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "schedule-file"
+            val rawBytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: error("无法读取文件")
+            val bytes = if (mime.startsWith("image/", ignoreCase = true)) {
+                compressAiImportImage(rawBytes)
+            } else {
+                rawBytes
+            }
+            AiImportFile(uri, name, mime, bytes)
+        }
+    }
 
 private fun compressAiImportImage(bytes: ByteArray): ByteArray {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

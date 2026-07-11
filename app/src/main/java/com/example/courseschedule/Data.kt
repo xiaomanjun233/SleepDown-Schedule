@@ -2,6 +2,7 @@ package com.example.courseschedule
 
 import android.app.Application
 import android.database.sqlite.SQLiteDatabase
+import androidx.compose.runtime.Immutable
 import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
@@ -37,6 +38,7 @@ enum class HomeStartMode { DAY, WEEK }
 enum class LiveUpdateChipTextMode { LOCATION, COUNTDOWN, SHORT, NORMAL }
 
 @Entity(tableName = "courses")
+@Immutable
 data class CourseEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
@@ -52,6 +54,7 @@ data class CourseEntity(
 )
 
 @Entity(tableName = "schedule_profiles")
+@Immutable
 data class ScheduleProfileEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
@@ -59,6 +62,7 @@ data class ScheduleProfileEntity(
 )
 
 @Entity(tableName = "schedule_config")
+@Immutable
 data class ScheduleConfigEntity(
     @PrimaryKey val id: Int = 1,
     val totalWeeks: Int,
@@ -100,6 +104,7 @@ data class ScheduleConfigEntity(
 )
 
 @Entity(tableName = "periods", primaryKeys = ["scheduleId", "periodIndex"])
+@Immutable
 data class PeriodEntity(
     val periodIndex: Int,
     val startTime: String,
@@ -673,6 +678,7 @@ private fun repairPeriodsTable(db: SQLiteDatabase) {
     db.execSQL("ALTER TABLE periods_room_fix RENAME TO periods")
 }
 
+@Immutable
 data class AppState(
     val courses: List<CourseEntity> = emptyList(),
     val allCourses: List<CourseEntity> = emptyList(),
@@ -684,6 +690,7 @@ data class AppState(
     val loaded: Boolean = false
 )
 
+@Immutable
 data class ImportDraft(
     val config: ScheduleConfigEntity,
     val periods: List<PeriodEntity>,

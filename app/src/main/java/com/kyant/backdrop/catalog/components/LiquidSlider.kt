@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -55,7 +56,8 @@ fun LiquidSlider(
     valueRange: ClosedFloatingPointRange<Float>,
     visibilityThreshold: Float,
     backdrop: Backdrop,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onValueChangeFinished: () -> Unit = {}
 ) {
     val isLightTheme = !isSystemInDarkTheme()
     val accentColor =
@@ -75,6 +77,8 @@ fun LiquidSlider(
 
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
+        val currentOnValueChange by rememberUpdatedState(onValueChange)
+        val currentOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
         var didDrag by remember { mutableStateOf(false) }
         val dampedDragAnimation = remember(animationScope) {
             DampedDragAnimation(
@@ -87,7 +91,8 @@ fun LiquidSlider(
                 onDragStarted = {},
                 onDragStopped = {
                     if (didDrag) {
-                        onValueChange(targetValue)
+                        currentOnValueChange(targetValue)
+                        currentOnValueChangeFinished()
                     }
                 },
                 onDrag = { _, dragAmount ->
@@ -95,7 +100,7 @@ fun LiquidSlider(
                         didDrag = dragAmount.x != 0f
                     }
                     val delta = (valueRange.endInclusive - valueRange.start) * (dragAmount.x / trackWidth)
-                    onValueChange(
+                    currentOnValueChange(
                         if (isLtr) (targetValue + delta).coerceIn(valueRange)
                         else (targetValue - delta).coerceIn(valueRange)
                     )
@@ -124,7 +129,8 @@ fun LiquidSlider(
                                 else valueRange.endInclusive - delta)
                                     .coerceIn(valueRange)
                             dampedDragAnimation.animateToValue(targetValue)
-                            onValueChange(targetValue)
+                            currentOnValueChange(targetValue)
+                            currentOnValueChangeFinished()
                         }
                     }
                     .height(6f.dp)

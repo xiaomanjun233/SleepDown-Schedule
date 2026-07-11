@@ -171,6 +171,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 
 import androidx.compose.runtime.rememberCoroutineScope
@@ -478,24 +479,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         }
     }
     val glassQuality = animatedGlassQuality(startupPhase)
-    val fallbackAdaptiveGlass = rememberFallbackAdaptiveGlassState(state.config)
-    val adaptiveSamplerEnabled = false
-    val adaptiveSampler = rememberAdaptiveBackdropLuminanceSampler(
-        enabled = adaptiveSamplerEnabled,
-        sampleIntervalMillis = 650L,
-        sampleSize = 5,
-        animationMillis = 750
-    )
-    var adaptiveLightHint by remember(state.config.id) { mutableStateOf(fallbackAdaptiveGlass.lightGlass) }
-    val sampledAdaptiveGlass = adaptiveGlassStateFromLuminance(
-        luminance = adaptiveSampler.luminance.value,
-        preferLightGlass = adaptiveLightHint,
-        quality = glassQuality
-    ).copy(contentColor = adaptiveSampler.contentColor.value)
-    LaunchedEffect(sampledAdaptiveGlass.lightGlass) {
-        adaptiveLightHint = sampledAdaptiveGlass.lightGlass
-    }
-    val adaptiveGlassState = if (adaptiveSamplerEnabled) sampledAdaptiveGlass else fallbackAdaptiveGlass
+    val adaptiveGlassState = rememberFallbackAdaptiveGlassState(state.config)
     val startupAnimation = when {
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing -> "CourseEditorPrepare"
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening -> "CourseEditorOpen"
@@ -629,11 +613,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
-        AdaptiveBackdropLuminanceProbe(
-            backdrop = chromeBackdrop,
-            sampler = adaptiveSampler,
-            modifier = Modifier.fillMaxSize()
-        )
         CourseEditorBackgroundBlurLayer(
             progress = courseEditorMotionProgress,
             modifier = Modifier
@@ -3287,14 +3266,6 @@ fun LiquidControlSlider(
                 }
             }
         }
-        LaunchedEffect(localValue, localEditPending) {
-            if (localEditPending) {
-                delay(220)
-                val committedValue = localValue.coerceIn(valueRange)
-                onValueChange(committedValue)
-                localEditPending = false
-            }
-        }
         SliderWithSnapMarker(
             currentValue = localValue,
             onSnapClick = {
@@ -3315,26 +3286,51 @@ fun LiquidControlSlider(
                 valueRange = valueRange,
                 visibilityThreshold = visibilityThreshold,
                 backdrop = backdrop,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                onValueChangeFinished = {
+                    if (localEditPending) {
+                        onValueChange(localValue.coerceIn(valueRange))
+                        localEditPending = false
+                    }
+                }
             )
         }
     } else {
+        var localValue by remember(valueRange) { mutableFloatStateOf(value.coerceIn(valueRange)) }
+        var localEditPending by remember(valueRange) { mutableStateOf(false) }
+        LaunchedEffect(value, valueRange) {
+            if (!localEditPending) {
+                val coerced = value.coerceIn(valueRange)
+                if (abs(localValue - coerced) > visibilityThreshold) {
+                    localValue = coerced
+                    onLiveValueChange?.invoke(coerced)
+                }
+            }
+        }
         SliderWithSnapMarker(
-            currentValue = value,
+            currentValue = localValue,
             onSnapClick = {
                 val snap = safeSnapValue ?: return@SliderWithSnapMarker
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                localValue = snap
                 onLiveValueChange?.invoke(snap)
                 onValueChange(snap)
+                localEditPending = false
             }
         ) {
             Slider(
-            value = value,
-            onValueChange = {
-                val bounded = it.coerceIn(valueRange)
-                onLiveValueChange?.invoke(bounded)
-                onValueChange(bounded)
-            },
+                value = localValue,
+                onValueChange = {
+                    localValue = it.coerceIn(valueRange)
+                    onLiveValueChange?.invoke(localValue)
+                    localEditPending = true
+                },
+                onValueChangeFinished = {
+                    if (localEditPending) {
+                        onValueChange(localValue.coerceIn(valueRange))
+                        localEditPending = false
+                    }
+                },
                 valueRange = valueRange,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -4003,8 +3999,15 @@ fun WallpaperColorSamplerScreen(
     val context = LocalContext.current
     val config = state.config
     val useDarkDefaultWallpaper = appUsesDarkTheme(config)
-    val bitmap = remember(config.wallpaperUri, config.defaultWallpaperStyle, useDarkDefaultWallpaper) {
-        loadWallpaperBitmap(context, config, useDarkDefaultWallpaper)
+    val bitmap by produceState<android.graphics.Bitmap?>(
+        initialValue = null,
+        config.wallpaperUri,
+        config.defaultWallpaperStyle,
+        useDarkDefaultWallpaper
+    ) {
+        value = withContext(Dispatchers.IO) {
+            loadWallpaperBitmap(context, config, useDarkDefaultWallpaper)
+        }
     }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
     var sampledColor by remember(config.cardColorArgb) { mutableStateOf(config.cardColorArgb) }
@@ -4031,18 +4034,19 @@ fun WallpaperColorSamplerScreen(
                 .onSizeChanged { previewSize = it }
                 .pointerInput(bitmap, previewSize) {
                     detectTapGestures { tap ->
-                        bitmap ?: return@detectTapGestures
+                        val sourceBitmap = bitmap ?: return@detectTapGestures
                         val orientation = if (previewSize.height >= previewSize.width) WallpaperPreviewOrientation.Portrait else WallpaperPreviewOrientation.Landscape
                         val cropState = if (!config.wallpaperUri.isNullOrBlank()) config.wallpaperCropState(orientation) else WallpaperCropState()
-                        val color = sampleCroppedBitmapColor(bitmap, previewSize, tap.x, tap.y, cropState)
+                        val color = sampleCroppedBitmapColor(sourceBitmap, previewSize, tap.x, tap.y, cropState)
                         if (color != null) sampledColor = color
                     }
                 },
             contentAlignment = Alignment.Center
         ) {
-            if (bitmap != null) {
+            val wallpaperBitmap = bitmap
+            if (wallpaperBitmap != null) {
                 FocusCroppedWallpaper(
-                    bitmap = bitmap,
+                    bitmap = wallpaperBitmap,
                     config = config,
                     modifier = Modifier.fillMaxSize(),
                     useSavedCrop = !config.wallpaperUri.isNullOrBlank()

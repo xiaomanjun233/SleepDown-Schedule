@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -58,7 +59,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.withContext
 
 object AiEduImportProgressSession {
     val progress = MutableStateFlow<AiEduImportProgress?>(null)
@@ -544,16 +547,22 @@ private fun AiEduMessageBubble(message: AiEduProgressMessage, textColor: Color, 
                 lineHeight = 18.sp
             )
             message.images.forEach { image ->
-                val bitmap = remember(image.base64) {
-                    runCatching {
-                        val bytes = Base64.decode(image.base64, Base64.DEFAULT)
-                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-                    }.getOrNull()
+                val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(
+                    initialValue = null,
+                    image.base64
+                ) {
+                    value = withContext(Dispatchers.Default) {
+                        runCatching {
+                            val bytes = Base64.decode(image.base64, Base64.DEFAULT)
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                        }.getOrNull()
+                    }
                 }
-                if (bitmap != null) {
-                    val previewHeight = if (bitmap.height > bitmap.width * 2) 520.dp else 280.dp
+                val previewBitmap = bitmap
+                if (previewBitmap != null) {
+                    val previewHeight = if (previewBitmap.height > previewBitmap.width * 2) 520.dp else 280.dp
                     Image(
-                        bitmap = bitmap,
+                        bitmap = previewBitmap,
                         contentDescription = "第 ${image.pageIndex + 1} 张识屏截图",
                         modifier = Modifier
                             .fillMaxWidth()

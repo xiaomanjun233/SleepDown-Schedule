@@ -579,25 +579,27 @@ private suspend fun captureVisibleWebViewBitmap(webView: WebView, pageIndex: Int
     val bitmap = captureWebViewPixels(webView)
         ?: captureWebViewByDraw(webView)
         ?: return null
-    val outputBitmap = if (scale < 1f) {
-        Bitmap.createScaledBitmap(
-            bitmap,
-            (bitmap.width * scale).toInt().coerceAtLeast(1),
-            (bitmap.height * scale).toInt().coerceAtLeast(1),
-            true
-        )
-    } else {
-        bitmap
-    }
-    return ByteArrayOutputStream().use { output ->
-        outputBitmap.compress(Bitmap.CompressFormat.JPEG, 80, output)
-        if (outputBitmap !== bitmap) outputBitmap.recycle()
-        bitmap.recycle()
-        RenderedPageImage(
-            pageIndex = pageIndex,
-            mimeType = "image/jpeg",
-            base64 = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
-        )
+    return withContext(Dispatchers.Default) {
+        val outputBitmap = if (scale < 1f) {
+            Bitmap.createScaledBitmap(
+                bitmap,
+                (bitmap.width * scale).toInt().coerceAtLeast(1),
+                (bitmap.height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+        } else {
+            bitmap
+        }
+        ByteArrayOutputStream().use { output ->
+            outputBitmap.compress(Bitmap.CompressFormat.JPEG, 80, output)
+            if (outputBitmap !== bitmap) outputBitmap.recycle()
+            bitmap.recycle()
+            RenderedPageImage(
+                pageIndex = pageIndex,
+                mimeType = "image/jpeg",
+                base64 = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+            )
+        }
     }
 }
 
@@ -656,42 +658,44 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
-private fun stitchRenderedImages(images: List<RenderedPageImage>): RenderedPageImage? {
+private suspend fun stitchRenderedImages(images: List<RenderedPageImage>): RenderedPageImage? {
     if (images.size <= 1) return null
-    val bitmaps = images.mapNotNull { image ->
-        runCatching {
-            val bytes = Base64.decode(image.base64, Base64.DEFAULT)
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        }.getOrNull()
-    }
-    if (bitmaps.isEmpty()) return null
-    return try {
-        val sourceWidth = bitmaps.maxOf { it.width }.coerceAtMost(1200)
-        val rawHeights = bitmaps.map { bitmap ->
-            (bitmap.height * (sourceWidth / bitmap.width.toFloat())).toInt().coerceAtLeast(1)
+    return withContext(Dispatchers.Default) {
+        val bitmaps = images.mapNotNull { image ->
+            runCatching {
+                val bytes = Base64.decode(image.base64, Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }.getOrNull()
         }
-        val totalHeight = rawHeights.sum().coerceAtLeast(1)
-        val longScale = minOf(1f, 7200f / totalHeight.toFloat())
-        val targetWidth = (sourceWidth * longScale).toInt().coerceAtLeast(1)
-        val targetHeights = rawHeights.map { (it * longScale).toInt().coerceAtLeast(1) }
-        val stitched = Bitmap.createBitmap(targetWidth, targetHeights.sum(), Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(stitched)
-        var top = 0
-        bitmaps.forEachIndexed { index, bitmap ->
-            val height = targetHeights[index]
-            canvas.drawBitmap(bitmap, null, Rect(0, top, targetWidth, top + height), null)
-            top += height
+        if (bitmaps.isEmpty()) return@withContext null
+        try {
+            val sourceWidth = bitmaps.maxOf { it.width }.coerceAtMost(1200)
+            val rawHeights = bitmaps.map { bitmap ->
+                (bitmap.height * (sourceWidth / bitmap.width.toFloat())).toInt().coerceAtLeast(1)
+            }
+            val totalHeight = rawHeights.sum().coerceAtLeast(1)
+            val longScale = minOf(1f, 7200f / totalHeight.toFloat())
+            val targetWidth = (sourceWidth * longScale).toInt().coerceAtLeast(1)
+            val targetHeights = rawHeights.map { (it * longScale).toInt().coerceAtLeast(1) }
+            val stitched = Bitmap.createBitmap(targetWidth, targetHeights.sum(), Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(stitched)
+            var top = 0
+            bitmaps.forEachIndexed { index, bitmap ->
+                val height = targetHeights[index]
+                canvas.drawBitmap(bitmap, null, Rect(0, top, targetWidth, top + height), null)
+                top += height
+            }
+            ByteArrayOutputStream().use { output ->
+                stitched.compress(Bitmap.CompressFormat.JPEG, 82, output)
+                stitched.recycle()
+                RenderedPageImage(
+                    pageIndex = 0,
+                    mimeType = "image/jpeg",
+                    base64 = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+                )
+            }
+        } finally {
+            bitmaps.forEach { it.recycle() }
         }
-        ByteArrayOutputStream().use { output ->
-            stitched.compress(Bitmap.CompressFormat.JPEG, 82, output)
-            stitched.recycle()
-            RenderedPageImage(
-                pageIndex = 0,
-                mimeType = "image/jpeg",
-                base64 = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
-            )
-        }
-    } finally {
-        bitmaps.forEach { it.recycle() }
     }
 }
