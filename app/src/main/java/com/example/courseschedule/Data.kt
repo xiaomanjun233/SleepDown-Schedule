@@ -20,6 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -164,6 +165,9 @@ interface CourseDao {
     @Query("SELECT * FROM courses WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
     fun observeCourses(): Flow<List<CourseEntity>>
 
+    @Query("SELECT * FROM courses WHERE scheduleId = :scheduleId")
+    fun observeCourses(scheduleId: Int): Flow<List<CourseEntity>>
+
     @Query("SELECT * FROM courses")
     fun observeAllCourses(): Flow<List<CourseEntity>>
 
@@ -197,6 +201,9 @@ interface ConfigDao {
     @Query("SELECT * FROM schedule_config WHERE id = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
     fun observeConfig(): Flow<ScheduleConfigEntity?>
 
+    @Query("SELECT * FROM schedule_config WHERE id = :scheduleId")
+    fun observeConfig(scheduleId: Int): Flow<ScheduleConfigEntity?>
+
     @Query("SELECT * FROM schedule_config")
     fun observeAllConfigs(): Flow<List<ScheduleConfigEntity>>
 
@@ -205,6 +212,9 @@ interface ConfigDao {
 
     @Query("SELECT * FROM periods WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1) ORDER BY periodIndex")
     fun observePeriods(): Flow<List<PeriodEntity>>
+
+    @Query("SELECT * FROM periods WHERE scheduleId = :scheduleId ORDER BY periodIndex")
+    fun observePeriods(scheduleId: Int): Flow<List<PeriodEntity>>
 
     @Query("SELECT * FROM periods ORDER BY scheduleId, periodIndex")
     fun observeAllPeriods(): Flow<List<PeriodEntity>>
@@ -238,6 +248,9 @@ interface ConfigDao {
 interface ScheduleProfileDao {
     @Query("SELECT * FROM schedule_profiles ORDER BY id")
     fun observeProfiles(): Flow<List<ScheduleProfileEntity>>
+
+    @Query("SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1")
+    fun observeActiveProfileId(): Flow<Int?>
 
     @Query("SELECT * FROM schedule_profiles ORDER BY id")
     suspend fun getProfiles(): List<ScheduleProfileEntity>
@@ -725,24 +738,26 @@ class ScheduleRepository(private val database: AppDatabase) {
         )
     }.distinctUntilChanged()
 
-    val state = combine(
-        courseDao.observeCourses(),
-        profileDao.observeProfiles(),
-        configDao.observeConfig(),
-        configDao.observePeriods()
-    ) { courses, schedules, config, periods ->
-        val profiles = schedules.ifEmpty {
-            listOf(ScheduleProfileEntity(id = 1, name = "\u9ED8\u8BA4\u8BFE\u8868", isActive = true))
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val state = profileDao.observeActiveProfileId()
+        .map { it ?: 1 }
+        .distinctUntilChanged()
+        .flatMapLatest { activeId ->
+            combine(
+                courseDao.observeCourses(activeId).distinctUntilChanged(),
+                configDao.observeConfig(activeId).distinctUntilChanged(),
+                configDao.observePeriods(activeId).distinctUntilChanged()
+            ) { courses, config, periods ->
+                AppState(
+                    courses = courses,
+                    schedules = emptyList(),
+                    config = config?.copy(id = activeId) ?: defaultConfig(activeId),
+                    periods = periods.ifEmpty { defaultPeriods(activeId) },
+                    loaded = true
+                )
+            }
         }
-        val activeId = profiles.firstOrNull { it.isActive }?.id ?: profiles.first().id
-        AppState(
-            courses = courses,
-            schedules = profiles,
-            config = config?.copy(id = activeId) ?: defaultConfig(activeId),
-            periods = periods.ifEmpty { defaultPeriods(activeId) },
-            loaded = true
-        )
-    }.distinctUntilChanged()
+        .distinctUntilChanged()
 
     suspend fun ensureDefaults() {
         if (profileDao.getProfiles().isEmpty()) {

@@ -9,10 +9,10 @@ pluginManagement {
     repositories {
         maven { url = uri("D:/Android studio/local-maven") }
         mavenLocal()
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
         google()
         mavenCentral()
         gradlePluginPortal()
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/central") }
         maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
     }
@@ -23,9 +23,9 @@ dependencyResolutionManagement {
     repositories {
         maven { url = uri("D:/Android studio/local-maven") }
         mavenLocal()
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
         google()
         mavenCentral()
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/central") }
         maven { url = uri("https://maven.aliyun.com/repository/public") }
     }
