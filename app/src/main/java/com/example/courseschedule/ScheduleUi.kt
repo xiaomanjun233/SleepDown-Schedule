@@ -651,7 +651,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                             .align(Alignment.TopCenter)
                             .zIndex(11f)
                     ) {
-                        AppTopBar(
+                        if (screen !is Screen.Config) AppTopBar(
                             screen = screen,
                             state = state,
                             settingsPage = SettingsPage.Root,
@@ -963,8 +963,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 enter = popEnterTransition(),
                 exit = popExitTransition()
             ) {
-                val useKyantDialog = dialog is HomeDialog.ApplyCourseEdit || dialog is HomeDialog.ApplyCourseDelete
-                val dialogContent: @Composable ColumnScope.() -> Unit = {
+                val useAlertDialog = dialog is HomeDialog.ApplyCourseEdit || dialog is HomeDialog.ApplyCourseDelete
+                val dialogContent: @Composable () -> Unit = {
                     when (dialog) {
                     is HomeDialog.EditCourse ->
                     NormalizedCourseEditorScreen(
@@ -987,9 +987,12 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         },
                         backdrop = chromeBackdrop
                     )
-                    HomeDialog.ImportSchedule -> NormalizedDialogScaffold(title = "\u624B\u52A8\u5BFC\u5165\u6574\u5F20\u8BFE\u8868", onCancel = { dismissHomeDialog() }, backdrop = chromeBackdrop, config = state.config) {
-                        NormalizedAiManualImportScreen(state, backdrop = chromeBackdrop, onParsed = { homeDialog = HomeDialog.ConfirmImport(it) })
-                    }
+                    HomeDialog.ImportSchedule -> NormalizedAiManualImportScreen(
+                        state = state,
+                        backdrop = chromeBackdrop,
+                        onCancel = { dismissHomeDialog() },
+                        onParsed = { homeDialog = HomeDialog.ConfirmImport(it) }
+                    )
                     HomeDialog.EduImport -> Unit
                     is HomeDialog.EditWallpaper -> WallpaperEditorDialog(
                         uri = dialog.uri,
@@ -1003,6 +1006,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     )
                     is HomeDialog.ConfirmImport -> ConfirmScheduleScreen(
                         draft = dialog.draft,
+                        backdrop = chromeBackdrop,
                         onCancel = { homeDialog = dialog.returnDialog },
                         onConfirm = { createNewSchedule -> viewModel.importDraft(dialog.draft, createNewSchedule) { dismissHomeDialog() } }
                     )
@@ -1052,13 +1056,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     )
                     }
                 }
-                if (useKyantDialog) {
-                    KyantLiquidDialog(
-                        backdrop = chromeBackdrop,
-                        config = state.config
-                    ) {
-                        dialogContent()
-                    }
+                if (useAlertDialog) {
+                    dialogContent()
                 } else {
                     CenterLiquidDialog(
                         backdrop = chromeBackdrop,
@@ -1123,7 +1122,7 @@ private fun rootTopBarLayoutHeight(screen: Screen): Dp {
 }
 
 @Composable
-private fun detailTopOverlayHeight(): Dp {
+internal fun detailTopOverlayHeight(): Dp {
     val density = LocalDensity.current
     val statusTop = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
     return statusTop + DetailTopBarHeight + DetailTopOverlayExtra
@@ -1140,6 +1139,7 @@ private fun rootTopGradientHeight(screen: Screen): Dp {
 
 @Composable
 internal fun detailContentTopPadding(): Dp {
+    LocalGlassSettingsContentTopPadding.current?.let { return it }
     val density = LocalDensity.current
     val statusTop = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
     return statusTop + DetailTopBarHeight + DetailContentTopGap
@@ -1152,101 +1152,16 @@ fun CenterLiquidDialog(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(32.dp)
-    val textColor = glassForegroundColor(config)
-    val lightGlass = glassUsesLightStyle(config)
-    val surfaceColor = if (lightGlass) {
-        ComposeColor.White.copy(alpha = 0.18f)
-    } else {
-        ComposeColor(0xFF121212).copy(alpha = 0.28f)
-    }
-    val panelModifier = modifier
-        .fillMaxWidth(0.92f)
-        .heightIn(max = 600.dp)
-    val contentBlock: @Composable () -> Unit = {
-        CompositionLocalProvider(LocalContentColor provides textColor) {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                content = content
-            )
-        }
-    }
-    if (backdrop != null) {
-        LiquidPanel(
-            backdrop = backdrop,
-            modifier = panelModifier,
-            shape = shape,
-            surfaceColor = surfaceColor
-        ) {
-            Box(
-                Modifier
-                    .clip(shape)
-                    .background(ComposeColor.Black.copy(alpha = if (lightGlass) 0.12f else 0.20f))
-            ) {
-                contentBlock()
-            }
-        }
-    } else {
-        Box(
-            modifier = panelModifier
-                .clip(shape)
-                .background(if (appUsesDarkTheme(config)) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
-        ) {
-            contentBlock()
-        }
-    }
-}
-
-@Composable
-fun KyantLiquidDialog(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    val lightGlass = glassUsesLightStyle(config)
-    val contentColor = if (lightGlass) ComposeColor.Black else ComposeColor.White
-    val containerColor = if (lightGlass) {
-        ComposeColor(0xFFFAFAFA).copy(alpha = 0.60f)
-    } else {
-        ComposeColor(0xFF121212).copy(alpha = 0.40f)
-    }
-    val panelModifier = modifier
-        .fillMaxWidth(0.88f)
-        .heightIn(max = 560.dp)
-    if (backdrop != null) {
+    LiquidDialogSurface(
+        backdrop = backdrop,
+        config = config,
+        modifier = modifier
+    ) {
         Column(
-            modifier = panelModifier.drawBackdrop(
-                backdrop = backdrop,
-                shape = { RoundedRectangle(48.dp) },
-                effects = {
-                    colorControls(
-                        brightness = if (lightGlass) 0.2f else 0f,
-                        saturation = 1.5f
-                    )
-                    vibrancy()
-                    blur(if (lightGlass) 8.dp.toPx() else 5.dp.toPx())
-                    lens(16.dp.toPx(), 32.dp.toPx(), depthEffect = true)
-                },
-                highlight = { Highlight.Plain },
-                onDrawSurface = { drawRect(containerColor) }
-            )
-        ) {
-            CompositionLocalProvider(LocalContentColor provides contentColor) {
-                content()
-            }
-        }
-    } else {
-        Column(
-            modifier = panelModifier
-                .clip(RoundedCornerShape(48.dp))
-                .background(containerColor)
-        ) {
-            CompositionLocalProvider(LocalContentColor provides contentColor) {
-                content()
-            }
-        }
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            content = content
+        )
     }
 }
 
@@ -1259,57 +1174,14 @@ fun DetailActivityScaffold(
     isolateContentFromBackdrop: Boolean = false,
     content: @Composable (Backdrop?) -> Unit
 ) {
-    val pageConfig = settingsVisualConfig(config)
-    val backgroundBackdrop = rememberLayerBackdrop()
-    val contentBackdrop = rememberLayerBackdrop()
-    val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
-    val overlayHeight = detailTopOverlayHeight()
-    val logRecording by DiagnosticLogCapture.recording.collectAsStateWithLifecycle()
-    Box(Modifier.fillMaxSize().background(settingsPageBackground(pageConfig))) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(settingsPageBackground(pageConfig))
-                .layerBackdrop(backgroundBackdrop)
-        )
-        if (isolateContentFromBackdrop) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                content(null)
-            }
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .layerBackdrop(contentBackdrop)
-            ) {
-                content(backgroundBackdrop)
-            }
-        }
-        if (showTopGradientBlur) {
-            HomeTopGradientBlur(
-                config = pageConfig,
-                backdrop = contentBackdrop,
-                height = overlayHeight,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .zIndex(10f)
-            )
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .zIndex(11f)
-        ) {
-            DetailTopBar(title = title, config = pageConfig, backdrop = chromeBackdrop, onBack = onBack)
-        }
-        DiagnosticLogStopOverlay(
-            visible = logRecording,
-            config = pageConfig,
-            backdrop = chromeBackdrop,
-            modifier = Modifier.align(Alignment.BottomCenter).zIndex(40f)
-        )
-    }
+    GlassMiuixDetailActivityScaffold(
+        title = title,
+        config = config,
+        onBack = onBack,
+        showTopGradientBlur = showTopGradientBlur,
+        isolateContentFromBackdrop = isolateContentFromBackdrop,
+        content = content
+    )
 }
 
 @Composable
@@ -2874,7 +2746,8 @@ fun DialogCapsuleField(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     keyboardType: KeyboardType = KeyboardType.Text,
-    minLines: Int = 1
+    minLines: Int = 1,
+    cornerRadius: Dp? = null
 ) {
     val dark = appUsesDarkTheme(config)
     val fieldBase = if (dark) ComposeColor(0xFF2C2C2E) else ComposeColor.White
@@ -2888,7 +2761,7 @@ fun DialogCapsuleField(
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = if (minLines == 1) ImeAction.Done else ImeAction.Default),
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
         modifier = modifier
-            .clip(RoundedCornerShape(if (minLines == 1) 50 else 24))
+            .clip(RoundedCornerShape(cornerRadius ?: if (minLines == 1) 50.dp else 24.dp))
             .background(background)
             .padding(horizontal = 16.dp, vertical = if (minLines == 1) 12.dp else 14.dp),
         decorationBox = { innerTextField ->
@@ -3089,32 +2962,27 @@ class EduImportActivity : ComponentActivity() {
             var pendingDraft by remember { mutableStateOf<ImportDraft?>(null) }
             CourseScheduleTheme(config = state.config) {
                 if (pendingDraft == null) {
-                    Scaffold(
-                        topBar = {
-                            TopAppBar(
-                                title = { Text(adapter?.school?.name ?: "教务导入") },
-                                navigationIcon = {
-                                    IconButton(onClick = { finish() }) {
-                                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "返回")
-                                    }
-                                }
-                            )
-                        }
-                    ) { innerPadding ->
+                    DetailActivityScaffold(
+                        title = adapter?.school?.name ?: "教务导入",
+                        config = state.config,
+                        onBack = { finish() }
+                    ) { backdrop ->
                         if (adapter == null) {
-                            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(top = detailContentTopPadding())
+                            ) {
                                 MissingCourseScreen(onBack = { finish() })
                             }
                         } else {
-                            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-                                EduImportActivityScreen(
-                                    state = state,
-                                    adapter = adapter,
-                                    backdrop = null,
-                                    useDetailTopPadding = false,
-                                    onParsed = { draft -> pendingDraft = draft }
-                                )
-                            }
+                            EduImportActivityScreen(
+                                state = state,
+                                adapter = adapter,
+                                backdrop = backdrop,
+                                useDetailTopPadding = true,
+                                onParsed = { draft -> pendingDraft = draft }
+                            )
                         }
                     }
                 } else {
@@ -3404,24 +3272,25 @@ fun SettingsScreen(
 ) {
     val pageConfig = settingsVisualConfig(state.config)
     val pageState = state.copy(config = pageConfig)
-    when (page) {
-        SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange)
-        SettingsPage.General -> GeneralSettingsScreen(state, backdrop, onUpdateConfig)
-        SettingsPage.AiImport -> AiImportSettingsScreen(state, backdrop)
-        SettingsPage.Schedule -> ScheduleConfigScreen(state, backdrop, SettingsSection.Schedule, onSave, onPreviewLiveUpdate)
-        SettingsPage.Notifications -> ScheduleConfigScreen(state, backdrop, SettingsSection.Notifications, onSave, onPreviewLiveUpdate)
-        SettingsPage.ScheduleManager -> ScheduleManagerScreen(state, backdrop, onCreateSchedule, onActivateSchedule, onRenameSchedule, onDeleteSchedule)
-        SettingsPage.About -> AboutSettingsScreen(pageState, backdrop)
-        SettingsPage.Changelog -> ChangelogSettingsScreen(pageState, backdrop) {}
-        SettingsPage.Download -> DownloadUpdateScreen(pageState, backdrop)
-        SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
+    GlassMiuixSettingsTheme(pageConfig) {
+        when (page) {
+            SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange)
+            SettingsPage.General -> GeneralSettingsScreen(state, backdrop, onUpdateConfig)
+            SettingsPage.AiImport -> AiImportSettingsScreen(state, backdrop)
+            SettingsPage.Schedule -> ScheduleConfigScreen(state, backdrop, SettingsSection.Schedule, onSave, onPreviewLiveUpdate)
+            SettingsPage.Notifications -> ScheduleConfigScreen(state, backdrop, SettingsSection.Notifications, onSave, onPreviewLiveUpdate)
+            SettingsPage.ScheduleManager -> ScheduleManagerScreen(state, backdrop, onCreateSchedule, onActivateSchedule, onRenameSchedule, onDeleteSchedule)
+            SettingsPage.About -> AboutSettingsScreen(pageState, backdrop)
+            SettingsPage.Changelog -> ChangelogSettingsScreen(pageState, backdrop) {}
+            SettingsPage.Download -> DownloadUpdateScreen(pageState, backdrop)
+            SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
+        }
     }
 }
 
 @Composable
 fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (SettingsPage) -> Unit) {
     val context = LocalContext.current
-    val topContentPadding = detailContentTopPadding()
     val versionName = remember {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
@@ -3433,26 +3302,38 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
         }.getOrDefault("SleepDown课程表")
     }
 
-    LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topContentPadding, bottom = DockScrollPadding),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    GlassMiuixRootSettingsScaffold(title = "设置", config = state.config) { innerPadding ->
+        LazyColumn(
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = innerPadding.calculateTopPadding() + 8.dp,
+                bottom = DockScrollPadding
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
         item {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Image(
-                    painter = painterResource(R.mipmap.ic_launcher),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(82.dp)
-                        .clip(RoundedCornerShape(22.dp))
-                        .clickable { onPageChange(SettingsPage.Changelog) }
+            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                top.yukonga.miuix.kmp.extra.SuperArrow(
+                    title = appName,
+                    summary = "开发者：小漫君",
+                    rightText = "版本 $versionName",
+                    leftAction = {
+                        Image(
+                            painter = painterResource(R.mipmap.ic_launcher),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .padding(end = 16.dp)
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onPageChange(SettingsPage.Changelog) }
                 )
-                Text(appName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Text("版本 $versionName", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("开发者：小漫君", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        item { GlassPreferenceCategory("应用") }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 SettingsNavigationRow("通用设置", "深色模式与系统外观", onClick = { onPageChange(SettingsPage.General) })
@@ -3462,15 +3343,18 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
                 SettingsNavigationRow("通知设置", "上课提醒与实时活动", onClick = { onPageChange(SettingsPage.Notifications) })
             }
         }
+        item { GlassPreferenceCategory("导入") }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 SettingsNavigationRow("AI 导入设置", "配置 API Key、服务商和模型。", onClick = { onPageChange(SettingsPage.AiImport) })
             }
         }
+        item { GlassPreferenceCategory("其他") }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 SettingsNavigationRow("关于", "软件信息与开源引用", onClick = { onPageChange(SettingsPage.About) })
             }
+        }
         }
     }
 }
@@ -3607,32 +3491,21 @@ fun ScheduleManagerScreen(
     }
 
     deleteTarget?.let { (id, name) ->
-        Dialog(onDismissRequest = { deleteTarget = null }) {
-            NormalizedDialogScaffold(
-                title = "删除课表",
-                onCancel = { deleteTarget = null },
-                backdrop = backdrop,
-                config = state.config
-            ) {
-                Text(
-                    "确定要删除「$name」吗？\n该课表下的所有课程都会被删除，且无法恢复。",
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-                Box(Modifier.padding(vertical = 8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    SettingsActionButton("取消", backdrop, onClick = { deleteTarget = null }, modifier = Modifier.weight(1f))
-                    SettingsActionButton("确认删除", backdrop, onClick = {
-                        val targetId = id
-                        deleteTarget = null
-                        onDeleteSchedule(targetId)
-                    }, modifier = Modifier.weight(1f), destructive = true)
+        LiquidAlertDialog(
+            title = "删除课表",
+            message = "确定要删除「$name」吗？该课表下的所有课程都会被删除，且无法恢复。",
+            actions = listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) { deleteTarget = null },
+                LiquidAlertAction("确认删除", LiquidAlertActionStyle.Destructive) {
+                    val targetId = id
+                    deleteTarget = null
+                    onDeleteSchedule(targetId)
                 }
-            }
-        }
+            ),
+            backdrop = backdrop,
+            config = state.config,
+            onDismissRequest = { deleteTarget = null }
+        )
     }
 }
 
@@ -3649,13 +3522,8 @@ fun ScheduleNameDialog(
     val textColor = glassForegroundColor(config)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CenterLiquidDialog(backdrop = backdrop, config = config) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                DialogLiquidButton(backdrop, "取消", onDismiss, role = DialogButtonRole.Cancel)
-                Text(title, modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = textColor)
-                DialogLiquidButton(backdrop, "确定", { onConfirm(name.trim()) }, role = DialogButtonRole.Confirm)
-            }
+            LiquidDialogHeader(title, onDismiss, backdrop, config, onConfirm = { onConfirm(name.trim()) })
             DialogCapsuleField(name, { name = it }, "课表名称", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-            Spacer(Modifier.height(16.dp))
         }
     }
 }

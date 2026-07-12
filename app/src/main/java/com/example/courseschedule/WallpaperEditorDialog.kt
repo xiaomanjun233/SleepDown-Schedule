@@ -102,8 +102,7 @@ fun WallpaperEditorDialog(
     }
     Column(
         modifier = Modifier
-            .height(620.dp)
-            .padding(16.dp),
+            .fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         NormalizedDialogHeader(
@@ -113,7 +112,10 @@ fun WallpaperEditorDialog(
             backdrop = backdrop,
             config = config
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        ) {
             DialogLiquidButton(
                 backdrop = backdrop,
                 label = "竖屏显示",
@@ -137,10 +139,12 @@ fun WallpaperEditorDialog(
             onCropChange = ::updateActiveCrop,
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 16.dp)
                 .weight(1f)
         )
         Text(
             "请分别调整竖屏和横屏显示区域，横竖屏切换时会自动使用对应设置。",
+            modifier = Modifier.padding(horizontal = 16.dp),
             color = glassForegroundColor(config).copy(alpha = 0.72f),
             style = MaterialTheme.typography.bodySmall
         )
@@ -148,7 +152,7 @@ fun WallpaperEditorDialog(
             backdrop = backdrop,
             label = "重置当前方向",
             onClick = { updateActiveCrop(WallpaperCropState()) },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
         )
     }
 }

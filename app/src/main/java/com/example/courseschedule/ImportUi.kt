@@ -294,7 +294,12 @@ private fun formatAiImportFileSize(bytes: Int): String {
 }
 
 @Composable
-fun NormalizedAiManualImportScreen(state: AppState, backdrop: Backdrop?, onParsed: (ImportDraft) -> Unit) {
+fun NormalizedAiManualImportScreen(
+    state: AppState,
+    backdrop: Backdrop?,
+    onCancel: () -> Unit,
+    onParsed: (ImportDraft) -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var jsonText by remember { mutableStateOf("") }
@@ -302,6 +307,7 @@ fun NormalizedAiManualImportScreen(state: AppState, backdrop: Backdrop?, onParse
     var routeMessage by remember { mutableStateOf<String?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var aiParsing by remember { mutableStateOf(false) }
+    var selectedMode by remember { mutableIntStateOf(0) }
     var aiSettings by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
     val textColor = glassForegroundColor(state.config)
     val fileUploadVisible = aiSettings.profile.id != AiProviderPresets.deepSeek.id
@@ -427,122 +433,153 @@ fun NormalizedAiManualImportScreen(state: AppState, backdrop: Backdrop?, onParse
         val result = ScheduleImportParser.parse(jsonText, state.config)
         result.onSuccess { error = null; onParsed(it) }.onFailure { error = it.message ?: "口令解析失败" }
     }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 520.dp)
-            .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Column(
+    AiManualImportDialogContent(
+        state = state,
+        backdrop = backdrop,
+        onCancel = onCancel,
+        selectedMode = selectedMode,
+        onModeSelected = {
+            selectedMode = it
+            error = null
+        },
+        aiSettings = aiSettings,
+        onRefreshSettings = { aiSettings = AiImportSettingsStore.load(context) },
+        jsonText = jsonText,
+        onJsonTextChange = { jsonText = it },
+        onCopyPrompt = {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("SleepDown 课表口令提示词", SchedulePromptBuilder.buildTokenPrompt()))
+        },
+        onCleanText = { jsonText = ScheduleImportParser.cleanMarkdown(jsonText) },
+        fileUploadVisible = fileUploadVisible,
+        selectedFileName = selectedFileName,
+        routeMessage = routeMessage,
+        error = error,
+        aiParsing = aiParsing,
+        onPrimaryAction = {
+            if (selectedMode == 0) parseDraft()
+            else if (fileUploadVisible && !aiParsing) fileLauncher.launch(arrayOf("application/pdf", "image/*"))
+        }
+    )
+}
+
+@Composable
+private fun AiManualImportDialogContent(
+    state: AppState,
+    backdrop: Backdrop?,
+    onCancel: () -> Unit,
+    selectedMode: Int,
+    onModeSelected: (Int) -> Unit,
+    aiSettings: AiImportSettings,
+    onRefreshSettings: () -> Unit,
+    jsonText: String,
+    onJsonTextChange: (String) -> Unit,
+    onCopyPrompt: () -> Unit,
+    onCleanText: () -> Unit,
+    fileUploadVisible: Boolean,
+    selectedFileName: String?,
+    routeMessage: String?,
+    error: String?,
+    aiParsing: Boolean,
+    onPrimaryAction: () -> Unit
+) {
+    val textColor = glassForegroundColor(state.config)
+    Column(Modifier.fillMaxSize()) {
+        LiquidDialogHeader("手动导入课表", onCancel, backdrop, state.config)
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
+                .padding(horizontal = 16.dp)
+                .clip(RoundedCornerShape(22.dp))
                 .background(ComposeColor.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.18f else 0.08f))
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                "将课表文本或 AI 返回的 SleepDown 口令粘贴到下方；也可以直接上传 PDF / 图片，由已配置的 AI 模型解析。",
-                color = textColor,
-                style = MaterialTheme.typography.bodyMedium,
-                lineHeight = 22.sp
-            )
-            Text(
-                "当前 AI：${aiSettings.profile.displayName} / ${aiSettings.profile.defaultModel}",
-                color = textColor.copy(alpha = 0.70f),
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            DialogLiquidButton(
-                backdrop = backdrop,
-                label = "\u89E3\u6790\u5E76\u9884\u89C8",
-                role = DialogButtonRole.Confirm,
-                iconRes = R.drawable.ic_download,
-                modifier = Modifier.weight(1f),
-                onClick = { parseDraft() }
-            )
-            if (fileUploadVisible) {
-                DialogLiquidButton(
-                    backdrop = backdrop,
-                    label = if (aiParsing) "解析中..." else "上传 PDF/图片",
-                    role = DialogButtonRole.Confirm,
-                    iconRes = R.drawable.ic_download,
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        if (!aiParsing) {
-                            fileLauncher.launch(arrayOf("application/pdf", "image/*"))
-                        }
-                    }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("当前 AI", color = textColor.copy(alpha = 0.62f), style = MaterialTheme.typography.labelSmall)
+                Text(
+                    "${aiSettings.profile.displayName} / ${aiSettings.profile.defaultModel}",
+                    color = textColor,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
+            DialogLiquidButton(backdrop, "刷新", onRefreshSettings)
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
-            DialogLiquidButton(
+            LiquidOptionTabs(
+                selectedIndex = selectedMode,
+                labels = listOf("粘贴口令", "上传 PDF/图片"),
                 backdrop = backdrop,
-                label = "\u590D\u5236\u63D0\u793A\u8BCD",
-                onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("SleepDown \u8BFE\u8868\u53E3\u4EE4\u63D0\u793A\u8BCD", SchedulePromptBuilder.buildTokenPrompt()))
-                },
-                modifier = Modifier.weight(1f),
-                role = DialogButtonRole.Neutral
-            )
-            DialogLiquidButton(
-                backdrop = backdrop,
-                label = "\u6E05\u7406\u683C\u5F0F",
-                onClick = { jsonText = ScheduleImportParser.cleanMarkdown(jsonText) },
-                modifier = Modifier.weight(1f),
-                role = DialogButtonRole.Neutral
-            )
-            DialogLiquidButton(
-                backdrop = backdrop,
-                label = "刷新 AI 配置",
-                onClick = { aiSettings = AiImportSettingsStore.load(context) },
-                modifier = Modifier.weight(1f),
-                role = DialogButtonRole.Neutral
+                config = state.config,
+                width = maxWidth,
+                onSelected = onModeSelected
             )
         }
-        if (!fileUploadVisible) {
+        LiquidDialogBody {
+            if (selectedMode == 0) {
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DialogLiquidButton(backdrop, "复制提示词", onCopyPrompt, modifier = Modifier.weight(1f))
+                        DialogLiquidButton(backdrop, "清理格式", onCleanText, modifier = Modifier.weight(1f))
+                    }
+                    DialogCapsuleField(
+                        value = jsonText,
+                        onValueChange = onJsonTextChange,
+                        placeholder = "粘贴 SleepDown 课表口令或 AI 返回内容",
+                        config = state.config,
+                        minLines = 8,
+                        cornerRadius = 16.dp,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        if (fileUploadVisible) {
+                            "选择 PDF 或课表图片后，将使用当前模型解析并进入导入预览。"
+                        } else {
+                            "当前 DeepSeek 配置仅支持文本输入。请切换 OpenAI、MiMo 或自定义视觉模型后上传文件。"
+                        },
+                        color = textColor.copy(alpha = 0.76f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        lineHeight = 21.sp
+                    )
+                    selectedFileName?.let { Text("已选择：$it", color = textColor) }
+                    routeMessage?.let {
+                        Text(it, color = textColor.copy(alpha = 0.72f), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+        error?.let {
             Text(
-                "当前 DeepSeek 配置不显示文件上传按钮。它适合粘贴课表文本解析；PDF/图片请切换到 OpenAI、MiMo 或自定义视觉模型。",
-                color = textColor.copy(alpha = 0.72f),
-                style = MaterialTheme.typography.bodySmall,
-                lineHeight = 18.sp
+                it,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
             )
         }
-        selectedFileName?.let {
-            Text("已选择：$it", color = textColor.copy(alpha = 0.78f), style = MaterialTheme.typography.bodySmall)
+        LiquidDialogFooter {
+            DialogLiquidButton(
+                backdrop = backdrop,
+                label = when {
+                    selectedMode == 0 -> "解析并预览"
+                    aiParsing -> "解析中..."
+                    else -> "选择文件并解析"
+                },
+                role = DialogButtonRole.Confirm,
+                iconRes = R.drawable.ic_download,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onPrimaryAction
+            )
         }
-        routeMessage?.let {
-            Text(it, color = textColor.copy(alpha = 0.78f), style = MaterialTheme.typography.bodySmall, lineHeight = 18.sp)
-        }
-        Text(
-            "\u8BFE\u8868\u53E3\u4EE4\u6216 AI \u539F\u59CB\u8FD4\u56DE",
-            color = textColor.copy(alpha = 0.76f),
-            style = MaterialTheme.typography.labelLarge
-        )
-        DialogCapsuleField(
-            value = jsonText,
-            onValueChange = { jsonText = it },
-            placeholder = "AI \u8FD4\u56DE\u7684 SleepDown \u8BFE\u8868\u53E3\u4EE4",
-            config = state.config,
-            minLines = 6,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 150.dp, max = 230.dp)
-        )
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
 }
 
@@ -636,31 +673,33 @@ fun EduImportFlowScreen(page: EduImportPage, state: AppState, onPageChange: (Edu
         }
     }
 
-    if (selectedAdapter == null) {
-        EduSchoolIndexedSelectScreen(
-            state = state,
-            adapters = filtered,
-            query = query,
-            onQueryChange = { query = it },
-            onSelect = {
-                message = null
-                webView = null
-                showEmbeddedEduPage = false
-                onPageChange(EduImportPage.Import(it))
-            }
-        )
-    } else {
-        EduImportWebScreen(
-            state = state,
-            adapter = selectedAdapter,
-            message = message,
-            webView = webView,
-            onWebView = { webView = it },
-            showEmbeddedPage = showEmbeddedEduPage,
-            onShowEmbeddedPage = { showEmbeddedEduPage = true },
-            bridge = bridge,
-            onMessage = { message = it }
-        )
+    GlassMiuixSettingsTheme(settingsVisualConfig(state.config)) {
+        if (selectedAdapter == null) {
+            EduSchoolIndexedSelectScreen(
+                state = state,
+                adapters = filtered,
+                query = query,
+                onQueryChange = { query = it },
+                onSelect = {
+                    message = null
+                    webView = null
+                    showEmbeddedEduPage = false
+                    onPageChange(EduImportPage.Import(it))
+                }
+            )
+        } else {
+            EduImportWebScreen(
+                state = state,
+                adapter = selectedAdapter,
+                message = message,
+                webView = webView,
+                onWebView = { webView = it },
+                showEmbeddedPage = showEmbeddedEduPage,
+                onShowEmbeddedPage = { showEmbeddedEduPage = true },
+                bridge = bridge,
+                onMessage = { message = it }
+            )
+        }
     }
 }
 
@@ -744,9 +783,7 @@ fun EduSchoolIndexedSelectScreen(
                 item { Text("没有找到学校适配资源", color = MaterialTheme.colorScheme.error) }
             } else {
                 if (aiEduAdapters.isNotEmpty()) {
-                    item(key = "ai-edu-title") {
-                        Text("AI教务导入", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp))
-                    }
+                    item(key = "ai-edu-title") { GlassPreferenceCategory("AI教务导入") }
                     items(aiEduAdapters, key = { "ai-${it.adapterId}" }) { adapter ->
                         SettingsGroup(backdrop = null, config = state.config, modifier = Modifier.fillMaxWidth()) {
                             SettingsNavigationRow(adapter.school.name, adapter.adapterName, onClick = { onSelect(adapter) })
@@ -754,9 +791,7 @@ fun EduSchoolIndexedSelectScreen(
                     }
                 }
                 if (pinnedAdapters.isNotEmpty()) {
-                    item(key = "general-edu-title") {
-                        Text("通用教务", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp))
-                    }
+                    item(key = "general-edu-title") { GlassPreferenceCategory("通用教务") }
                     items(pinnedAdapters, key = { "pinned-${it.adapterId}" }) { adapter ->
                         SettingsGroup(backdrop = null, config = state.config, modifier = Modifier.fillMaxWidth()) {
                             SettingsNavigationRow(adapter.school.name, adapter.adapterName, onClick = { onSelect(adapter) })
@@ -764,9 +799,7 @@ fun EduSchoolIndexedSelectScreen(
                     }
                 }
                 grouped.forEach { (letter, list) ->
-                    item(key = "section-$letter") {
-                        Text(letter, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp))
-                    }
+                    item(key = "section-$letter") { GlassPreferenceCategory(letter) }
                     items(list, key = { it.adapterId }) { adapter ->
                         SettingsGroup(backdrop = null, config = state.config, modifier = Modifier.fillMaxWidth()) {
                             SettingsNavigationRow(adapter.school.name, adapter.adapterName, onClick = { onSelect(adapter) })
@@ -918,34 +951,23 @@ fun GeneralEduUrlDialog(
 ) {
     var url by remember(initialUrl) { mutableStateOf(initialUrl.ifBlank { "https://" }) }
     var error by remember { mutableStateOf<String?>(null) }
-    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            DialogLiquidButton(backdrop, "取消", onCancel, role = DialogButtonRole.Cancel)
-            Text("输入教务网址", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = glassForegroundColor(config))
-            DialogLiquidButton(
-                backdrop = backdrop,
-                label = "打开",
-                onClick = {
-                    val normalized = normalizeEduUrl(url)
-                    if (normalized.isBlank()) {
-                        error = "请输入教务系统网址"
-                    } else {
-                        onConfirm(normalized)
-                    }
-                },
-                role = DialogButtonRole.Confirm
-            )
-        }
+    fun submit() {
+        val normalized = normalizeEduUrl(url)
+        if (normalized.isBlank()) error = "请输入教务系统网址" else onConfirm(normalized)
+    }
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LiquidDialogHeader("输入教务网址", onCancel, backdrop, config, onConfirm = ::submit)
         DialogCapsuleField(
             value = url,
             onValueChange = { url = it },
             placeholder = "https://example.edu.cn",
             config = config,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             keyboardType = KeyboardType.Uri
         )
         Text(
             error ?: helperText,
+            modifier = Modifier.padding(horizontal = 16.dp),
             style = MaterialTheme.typography.bodySmall,
             color = if (error == null) glassForegroundColor(config).copy(alpha = 0.72f) else MaterialTheme.colorScheme.error,
             lineHeight = 18.sp
@@ -1235,110 +1257,6 @@ private fun aiEduRequestPreview(settings: AiImportSettings, pageTextLength: Int)
         appendLine("输入文本：$pageTextLength 字符")
         appendLine("提示词：已附加完整 SleepDown JSON 解析协议与字段示例")
         append("密钥：已从本机安全存储读取，未显示")
-    }
-}
-
-@Composable
-private fun AiEduImportProgressDialog(
-    progress: AiEduImportProgress,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    onDismiss: () -> Unit
-) {
-    Dialog(
-        onDismissRequest = { if (progress.finished) onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        CenterLiquidDialog(backdrop = backdrop, config = config) {
-            val textColor = appPanelForegroundColor(config)
-            val scrollState = rememberScrollState()
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 620.dp)
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        "AI教务导入",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = textColor
-                    )
-                    if (progress.finished) {
-                        DialogLiquidButton(backdrop, "关闭", onDismiss, role = DialogButtonRole.Cancel)
-                    }
-                }
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(ComposeColor.Black.copy(alpha = if (appUsesDarkTheme(config)) 0.24f else 0.10f))
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    aiEduImportStepRows(progress).forEachIndexed { index, row ->
-                        val stepColor = aiEduStepColor(row.status, textColor)
-                        Text(
-                            "${index + 1}. ${row.text}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = stepColor,
-                            lineHeight = 19.sp
-                        )
-                    }
-                    progress.error?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            lineHeight = 18.sp
-                        )
-                    }
-                }
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f, fill = false)
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(ComposeColor.Black.copy(alpha = if (appUsesDarkTheme(config)) 0.22f else 0.08f))
-                        .verticalScroll(scrollState)
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    if (progress.pageText.isNotBlank()) {
-                        Text("页面文本预览", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = textColor)
-                        Text(
-                            progress.pageText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = textColor.copy(alpha = 0.74f),
-                            lineHeight = 17.sp
-                        )
-                    }
-                    if (progress.aiOutput.isNotBlank()) {
-                        Text("AI 可见输出", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = textColor)
-                        Text(
-                            progress.aiOutput,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = textColor.copy(alpha = 0.82f),
-                            lineHeight = 17.sp
-                        )
-                    } else {
-                        Text(
-                            "等待 AI 返回可见文本。模型隐藏推理过程不会显示，这里会展示请求进度和模型最终返回内容。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = textColor.copy(alpha = 0.66f),
-                            lineHeight = 18.sp
-                        )
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1961,8 +1879,11 @@ fun EduImportWebScreen(
     onMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val topPadding = LocalGlassSettingsContentTopPadding.current ?: 16.dp
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(start = 16.dp, end = 16.dp, top = topPadding, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text(adapter.school.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
@@ -2212,7 +2133,13 @@ fun EduImportScreen(state: AppState, onParsed: (ImportDraft) -> Unit) {
 }
 
 @Composable
-fun ConfirmScheduleScreen(draft: ImportDraft, warning: String? = null, onCancel: () -> Unit, onConfirm: (Boolean) -> Unit) {
+fun ConfirmScheduleScreen(
+    draft: ImportDraft,
+    warning: String? = null,
+    backdrop: Backdrop? = null,
+    onCancel: () -> Unit,
+    onConfirm: (Boolean) -> Unit
+) {
     val previewDraft = remember(draft) {
         draft.copy(
             periods = draft.periods.distinctBy { it.periodIndex }.sortedBy { it.periodIndex },
@@ -2224,7 +2151,11 @@ fun ConfirmScheduleScreen(draft: ImportDraft, warning: String? = null, onCancel:
             }
         )
     }
-    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = DockScrollPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         item { Text("即将导入 " + previewDraft.courses.size + " 门课程，请确认后写入课表。") }
         warning?.let { text ->
             item { Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
@@ -2245,11 +2176,15 @@ fun ConfirmScheduleScreen(draft: ImportDraft, warning: String? = null, onCancel:
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("请选择导入方式：", style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    DialogLiquidButton(null, "覆盖当前课表", { onConfirm(false) }, modifier = Modifier.weight(1f), role = DialogButtonRole.Confirm)
-                    DialogLiquidButton(null, "创建新课表", { onConfirm(true) }, modifier = Modifier.weight(1f), role = DialogButtonRole.Confirm)
-                }
-                DialogLiquidButton(null, "取消", onCancel, modifier = Modifier.fillMaxWidth(), role = DialogButtonRole.Cancel, roundIcon = false)
+                LiquidAlertActions(
+                    actions = listOf(
+                        LiquidAlertAction("创建新课表", LiquidAlertActionStyle.Primary) { onConfirm(true) },
+                        LiquidAlertAction("覆盖当前课表", LiquidAlertActionStyle.Destructive) { onConfirm(false) },
+                        LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onCancel)
+                    ),
+                    backdrop = backdrop,
+                    config = previewDraft.config
+                )
             }
         }
     }

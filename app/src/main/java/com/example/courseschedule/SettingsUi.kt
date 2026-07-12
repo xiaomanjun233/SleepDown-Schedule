@@ -237,6 +237,9 @@ import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.backdrop.catalog.components.LiquidSlider
 import com.kyant.backdrop.catalog.components.LiquidToggle
+import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
+import top.yukonga.miuix.kmp.basic.SmallTitle as MiuixSmallTitle
+import top.yukonga.miuix.kmp.extra.SuperArrow as MiuixSuperArrow
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
@@ -337,6 +340,7 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                 }
             }
         }
+        item { GlassPreferenceCategory("外观与布局") }
         item {
             SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
                 SettingsToggleRow(
@@ -371,6 +375,7 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                 )
             }
         }
+        item { GlassPreferenceCategory("首页与系统") }
         item {
             SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
                 SettingsDefaultWallpaperRow(
@@ -397,6 +402,7 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                 )
             }
         }
+        item { GlassPreferenceCategory("诊断") }
         item {
             SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
                 SettingsActionRow(
@@ -429,6 +435,7 @@ fun AiImportSettingsScreen(state: AppState, backdrop: Backdrop?) {
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        item { GlassPreferenceCategory("模型服务") }
         item {
             AiImportSettingsSection(state = state, backdrop = backdrop)
         }
@@ -1293,7 +1300,8 @@ fun LegacyGeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateCo
 
 @Composable
 fun SettingsGroup(backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    val shape = RoundedCornerShape(30.dp)
+    val miuixLayout = LocalGlassMiuixEnabled.current
+    val shape = RoundedCornerShape(if (miuixLayout) 16.dp else 30.dp)
     val darkTheme = appUsesDarkTheme(config)
     val contentColor = if (darkTheme) ComposeColor.White else ComposeColor(0xFF111111)
     if (backdrop != null) {
@@ -1301,10 +1309,14 @@ fun SettingsGroup(backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: M
             backdrop = backdrop,
             modifier = modifier,
             shape = shape,
-            surfaceColor = if (darkTheme) ComposeColor(0xFF1C1C1E).copy(alpha = 0.78f) else ComposeColor.White.copy(alpha = 0.94f)
+            surfaceColor = if (miuixLayout) {
+                if (darkTheme) ComposeColor(0xFF121212).copy(alpha = 0.30f) else ComposeColor.White.copy(alpha = 0.18f)
+            } else {
+                if (darkTheme) ComposeColor(0xFF1C1C1E).copy(alpha = 0.78f) else ComposeColor.White.copy(alpha = 0.94f)
+            }
         ) {
             CompositionLocalProvider(LocalContentColor provides contentColor) {
-                Column(Modifier.padding(vertical = 4.dp), content = content)
+                Column(Modifier.padding(vertical = if (miuixLayout) 0.dp else 4.dp), content = content)
             }
         }
     } else {
@@ -1313,7 +1325,7 @@ fun SettingsGroup(backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: M
                 modifier = modifier
                     .clip(shape)
                     .background(if (darkTheme) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = if (miuixLayout) 0.dp else 4.dp),
                 content = content
             )
         }
@@ -1322,6 +1334,15 @@ fun SettingsGroup(backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: M
 
 @Composable
 fun SettingsNavigationRow(title: String, subtitle: String, onClick: () -> Unit) {
+    if (LocalGlassMiuixEnabled.current) {
+        MiuixSuperArrow(
+            title = title,
+            summary = subtitle,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onClick
+        )
+        return
+    }
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     Row(
@@ -1343,6 +1364,22 @@ fun SettingsNavigationRow(title: String, subtitle: String, onClick: () -> Unit) 
 
 @Composable
 fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdrop: Backdrop?, enabled: Boolean = true, onCheckedChange: (Boolean) -> Unit) {
+    if (LocalGlassMiuixEnabled.current) {
+        MiuixBasicComponent(
+            title = title,
+            summary = subtitle,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth(),
+            rightActions = {
+                if (enabled) {
+                    LiquidControlToggle(checked, onCheckedChange, backdrop)
+                } else {
+                    LiquidControlToggle(checked, {}, backdrop)
+                }
+            }
+        )
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1378,6 +1415,23 @@ fun SettingsActionRow(
     backdrop: Backdrop?,
     onClick: () -> Unit
 ) {
+    if (LocalGlassMiuixEnabled.current) {
+        MiuixBasicComponent(
+            title = title,
+            summary = subtitle,
+            modifier = Modifier.fillMaxWidth(),
+            rightActions = {
+                DialogLiquidButton(
+                    backdrop = backdrop,
+                    label = buttonText,
+                    onClick = onClick,
+                    role = DialogButtonRole.Confirm,
+                    iconRes = iconRes
+                )
+            }
+        )
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1445,6 +1499,28 @@ fun SettingsTextFieldRow(
         )
         return
     }
+    if (LocalGlassMiuixEnabled.current) {
+        MiuixBasicComponent(
+            title = title,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth(),
+            rightActions = {
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    enabled = enabled,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.End
+                    ),
+                    modifier = Modifier.width(170.dp)
+                )
+            }
+        )
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1480,6 +1556,22 @@ fun SettingsTextFieldRow(
 
 @Composable
 fun SettingsValueRow(title: String, value: String) {
+    if (LocalGlassMiuixEnabled.current) {
+        MiuixBasicComponent(
+            title = title,
+            modifier = Modifier.fillMaxWidth(),
+            rightActions = {
+                Text(
+                    value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        )
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1501,6 +1593,16 @@ fun SettingsValueRow(title: String, value: String) {
 
 @Composable
 fun SettingsPickerValueRow(title: String, value: String, onClick: () -> Unit, enabled: Boolean = true) {
+    if (LocalGlassMiuixEnabled.current) {
+        MiuixSuperArrow(
+            title = title,
+            rightText = value.ifBlank { "未设置" },
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth()
+        )
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1561,6 +1663,14 @@ fun SettingsDatePickerRow(title: String, value: String, onValueChange: (String) 
 
 @Composable
 fun SettingsInfoRow(title: String, body: String) {
+    if (LocalGlassMiuixEnabled.current) {
+        MiuixBasicComponent(
+            title = title,
+            summary = body,
+            modifier = Modifier.fillMaxWidth()
+        )
+        return
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1569,6 +1679,20 @@ fun SettingsInfoRow(title: String, body: String) {
     ) {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
         Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
+    }
+}
+
+@Composable
+fun GlassPreferenceCategory(text: String, modifier: Modifier = Modifier) {
+    if (LocalGlassMiuixEnabled.current) {
+        MiuixSmallTitle(text = text, modifier = modifier)
+    } else {
+        Text(
+            text = text,
+            modifier = modifier.padding(start = 4.dp, bottom = 4.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
     }
 }
 

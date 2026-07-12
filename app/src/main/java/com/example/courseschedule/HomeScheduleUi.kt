@@ -501,10 +501,21 @@ fun HomeScreen(
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
-                    ) { pendingSingleWeekDelete = null },
+                    ) {},
                 contentAlignment = Alignment.Center
             ) {
-                CenterLiquidDialog(
+                LiquidAlertSurface(
+                    title = "删除单周课程",
+                    message = "确定删除第${week}周的“${course.name}”吗？只会删除当前周这一次，不会删除其它周的同名课程。",
+                    actions = listOf(
+                        LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) {
+                            pendingSingleWeekDelete = null
+                        },
+                        LiquidAlertAction("确认删除", LiquidAlertActionStyle.Destructive) {
+                            pendingSingleWeekDelete = null
+                            onDeleteCourseSingleWeek(course, week)
+                        }
+                    ),
                     backdrop = backdrop,
                     config = state.config,
                     modifier = Modifier
@@ -512,41 +523,7 @@ fun HomeScreen(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() }
                         ) {}
-                ) {
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        DialogLiquidButton(backdrop, "取消", { pendingSingleWeekDelete = null }, role = DialogButtonRole.Cancel)
-                        Text(
-                            "删除单周课程",
-                            modifier = Modifier.weight(1f),
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = glassForegroundColor(state.config)
-                        )
-                        Spacer(Modifier.width(42.dp))
-                    }
-                    Text(
-                        "确定删除第${week}周的“${course.name}”吗？",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = glassForegroundColor(state.config)
-                    )
-                    Text(
-                        "只会删除当前周这一次，不会删除其它周的同名课程。",
-                        style = MaterialTheme.typography.bodySmall,
-                        lineHeight = 18.sp,
-                        color = glassForegroundColor(state.config).copy(alpha = 0.72f)
-                    )
-                    DialogLiquidButton(
-                        backdrop = backdrop,
-                        label = "确认删除",
-                        onClick = {
-                            pendingSingleWeekDelete = null
-                            onDeleteCourseSingleWeek(course, week)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        role = DialogButtonRole.Cancel
-                    )
-                }
+                )
             }
         }
     }
@@ -751,40 +728,17 @@ fun ApplyCourseEditDialog(
     onAll: () -> Unit,
     onCancel: () -> Unit
 ) {
-    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            DialogLiquidButton(backdrop, "取消", onCancel, role = DialogButtonRole.Cancel)
-            Text("应用修改", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = glassForegroundColor(config))
-            Spacer(Modifier.width(42.dp))
-        }
-        Text(
-            "要将“${original.name}”的修改应用到哪里？",
-            style = MaterialTheme.typography.bodyMedium,
-            color = glassForegroundColor(config)
-        )
-        Text(
-            "仅单次只修改当前周；应用全部会修改这门课的所有周。",
-            style = MaterialTheme.typography.bodySmall,
-            color = glassForegroundColor(config).copy(alpha = 0.72f),
-            lineHeight = 18.sp
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            DialogLiquidButton(
-                backdrop = backdrop,
-                label = "仅单次",
-                onClick = onSingle,
-                modifier = Modifier.weight(1f),
-                role = DialogButtonRole.Neutral
-            )
-            DialogLiquidButton(
-                backdrop = backdrop,
-                label = "应用全部",
-                onClick = onAll,
-                modifier = Modifier.weight(1f),
-                role = DialogButtonRole.Confirm
-            )
-        }
-    }
+    LiquidAlertSurface(
+        title = "应用修改",
+        message = "要将“${original.name}”的修改应用到哪里？仅单次只修改当前周，应用全部会修改这门课的所有周。",
+        actions = listOf(
+            LiquidAlertAction("仅单次", LiquidAlertActionStyle.Primary, onSingle),
+            LiquidAlertAction("应用全部", LiquidAlertActionStyle.Secondary, onAll),
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onCancel)
+        ),
+        backdrop = backdrop,
+        config = config
+    )
 }
 
 @Composable
@@ -796,40 +750,17 @@ fun ApplyCourseDeleteDialog(
     onAll: () -> Unit,
     onCancel: () -> Unit
 ) {
-    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            DialogLiquidButton(backdrop, "取消", onCancel, role = DialogButtonRole.Cancel)
-            Text("应用删除", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = glassForegroundColor(config))
-            Spacer(Modifier.width(42.dp))
-        }
-        Text(
-            "要将“${course.name}”从哪里删除？",
-            style = MaterialTheme.typography.bodyMedium,
-            color = glassForegroundColor(config)
-        )
-        Text(
-            "仅单次只删除当前周；应用全部会删除这门课的所有周。",
-            style = MaterialTheme.typography.bodySmall,
-            color = glassForegroundColor(config).copy(alpha = 0.72f),
-            lineHeight = 18.sp
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            DialogLiquidButton(
-                backdrop = backdrop,
-                label = "仅单次",
-                onClick = onSingle,
-                modifier = Modifier.weight(1f),
-                role = DialogButtonRole.Neutral
-            )
-            DialogLiquidButton(
-                backdrop = backdrop,
-                label = "应用全部",
-                onClick = onAll,
-                modifier = Modifier.weight(1f),
-                role = DialogButtonRole.Cancel
-            )
-        }
-    }
+    LiquidAlertSurface(
+        title = "删除课程",
+        message = "要将“${course.name}”从哪里删除？仅单次只删除当前周，删除全部会删除这门课的所有周。",
+        actions = listOf(
+            LiquidAlertAction("仅删除本周", LiquidAlertActionStyle.Primary, onSingle),
+            LiquidAlertAction("删除全部", LiquidAlertActionStyle.Destructive, onAll),
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onCancel)
+        ),
+        backdrop = backdrop,
+        config = config
+    )
 }
 
 internal fun courseWeeksChanged(original: CourseEntity, edited: CourseEntity): Boolean {

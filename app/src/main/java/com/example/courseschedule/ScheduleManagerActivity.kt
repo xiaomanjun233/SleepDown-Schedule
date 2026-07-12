@@ -507,25 +507,21 @@ fun ScheduleManagerScreen(
     }
 
     deleteCandidate?.let { profile ->
-        Dialog(onDismissRequest = { deleteCandidate = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            KyantLiquidDialog(backdrop = chromeBackdrop, config = settingsVisualConfig(state.config)) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text("删除课表", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    Text("确定要删除「${profile.name}」吗？该课表内的课程会一起删除。", style = MaterialTheme.typography.bodyMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                        DialogLiquidButton(chromeBackdrop, "取消", { deleteCandidate = null }, modifier = Modifier.weight(1f), role = DialogButtonRole.Neutral)
-                        DialogLiquidButton(chromeBackdrop, "删除", {
-                            onDelete(profile.id)
-                            deleteCandidate = null
-                            deleteReveal = 0f
-                        }, modifier = Modifier.weight(1f), role = DialogButtonRole.Cancel)
-                    }
+        LiquidAlertDialog(
+            title = "删除课表",
+            message = "确定要删除「${profile.name}」吗？该课表内的课程会一起删除。",
+            actions = listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) { deleteCandidate = null },
+                LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive) {
+                    onDelete(profile.id)
+                    deleteCandidate = null
+                    deleteReveal = 0f
                 }
-            }
-        }
+            ),
+            backdrop = chromeBackdrop,
+            config = settingsVisualConfig(state.config),
+            onDismissRequest = { deleteCandidate = null }
+        )
     }
 
     renameCandidate?.let { profile ->
@@ -995,10 +991,17 @@ fun ScheduleRenameDialog(
     var name by remember(profile.id) { mutableStateOf(profile.name) }
     Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CenterLiquidDialog(backdrop = backdrop, config = config) {
-            Text("重命名课表", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            LiquidDialogHeader(
+                title = "重命名课表",
+                onDismiss = onCancel,
+                backdrop = backdrop,
+                config = config,
+                onConfirm = { onSave(name.trim().ifBlank { "未命名课表" }) }
+            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(18.dp))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.70f))
                     .padding(horizontal = 14.dp, vertical = 12.dp)
@@ -1009,16 +1012,6 @@ fun ScheduleRenameDialog(
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                     modifier = Modifier.fillMaxWidth()
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                DialogLiquidButton(backdrop, "取消", onCancel, modifier = Modifier.weight(1f), role = DialogButtonRole.Neutral)
-                DialogLiquidButton(
-                    backdrop = backdrop,
-                    label = "保存",
-                    onClick = { onSave(name.trim().ifBlank { "未命名课表" }) },
-                    modifier = Modifier.weight(1f),
-                    role = DialogButtonRole.Confirm
                 )
             }
         }

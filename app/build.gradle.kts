@@ -87,6 +87,7 @@ dependencies {
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("io.github.kyant0:backdrop:2.0.0-alpha03")
     implementation("io.github.kyant0:shapes:1.2.0")
+    implementation("top.yukonga.miuix.kmp:miuix-android:0.5.1")
     implementation("androidx.room:room-runtime:2.8.3")
     implementation("androidx.room:room-ktx:2.8.3")
     ksp("androidx.room:room-compiler:2.8.3")

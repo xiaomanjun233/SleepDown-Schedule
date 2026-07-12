@@ -386,23 +386,13 @@ fun CourseEditorScreen(
 
 @Composable
 fun DialogHeader(title: String, onCancel: () -> Unit, onSave: () -> Unit, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig()) {
-    val textColor = glassForegroundColor(config)
-    Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        DialogLiquidButton(backdrop, "取消", onCancel, role = DialogButtonRole.Cancel)
-        Text(title, modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = textColor)
-        DialogLiquidButton(backdrop, "\u4FDD\u5B58", onSave, role = DialogButtonRole.Confirm)
-    }
+    LiquidDialogHeader(title, onCancel, backdrop, config, onConfirm = onSave)
 }
 
 @Composable
 fun DialogScaffold(title: String, onCancel: () -> Unit, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), content: @Composable () -> Unit) {
-    val textColor = glassForegroundColor(config)
-    Column(modifier = Modifier.heightIn(max = 650.dp)) {
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            DialogLiquidButton(backdrop, "取消", onCancel, role = DialogButtonRole.Cancel)
-            Text(title, modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = textColor)
-            Spacer(Modifier.width(42.dp))
-        }
+    Column(Modifier.fillMaxSize()) {
+        LiquidDialogHeader(title, onCancel, backdrop, config)
         content()
     }
 }
@@ -415,12 +405,7 @@ fun NormalizedDialogHeader(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity
 ) {
-    val textColor = glassForegroundColor(config)
-    Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        DialogLiquidButton(backdrop, "\u53D6\u6D88", onCancel, role = DialogButtonRole.Cancel)
-        Text(title, modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = textColor)
-        DialogLiquidButton(backdrop, "\u4FDD\u5B58", onSave, role = DialogButtonRole.Confirm)
-    }
+    LiquidDialogHeader(title, onCancel, backdrop, config, onConfirm = onSave)
 }
 
 @Composable
@@ -432,12 +417,8 @@ fun NormalizedDialogScaffold(
     contentColor: ComposeColor = glassForegroundColor(config),
     content: @Composable () -> Unit
 ) {
-    Column(modifier = Modifier.heightIn(max = 650.dp)) {
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            DialogLiquidButton(backdrop, "\u53D6\u6D88", onCancel, role = DialogButtonRole.Cancel)
-            Text(title, modifier = Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium, color = contentColor)
-            Spacer(Modifier.width(42.dp))
-        }
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiquidDialogHeader(title, onCancel, backdrop, config)
         CompositionLocalProvider(LocalContentColor provides contentColor) {
             content()
         }
