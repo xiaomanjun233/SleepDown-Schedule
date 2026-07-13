@@ -21,6 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
@@ -424,11 +425,32 @@ private fun SupportSQLiteDatabase.hasColumn(table: String, column: String): Bool
 
 private fun ensureMultiScheduleSchema(db: SupportSQLiteDatabase) {
     db.execSQL("CREATE TABLE IF NOT EXISTS schedule_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, isActive INTEGER NOT NULL)")
-    db.execSQL("INSERT OR IGNORE INTO schedule_profiles (id, name, isActive) VALUES (1, '\u9ED8\u8BA4\u8BFE\u8868', 1)")
+    db.execSQL("INSERT INTO schedule_profiles (id, name, isActive) SELECT 1, '\u9ED8\u8BA4\u8BFE\u8868', 1 WHERE NOT EXISTS (SELECT 1 FROM schedule_profiles)")
     if (!db.hasColumn("courses", "scheduleId")) {
         db.execSQL("ALTER TABLE courses ADD COLUMN scheduleId INTEGER NOT NULL DEFAULT 1")
     }
     repairPeriodsForMultiSchedule(db)
+    ensureSingleActiveScheduleProfile(db)
+}
+
+private fun ensureSingleActiveScheduleProfile(db: SupportSQLiteDatabase) {
+    val activeCount = db.query("SELECT COUNT(*) FROM schedule_profiles WHERE isActive = 1").use { cursor ->
+        if (cursor.moveToFirst()) cursor.getInt(0) else 0
+    }
+    if (activeCount == 1) return
+    val selectedId = db.query(
+        """
+        SELECT p.id
+        FROM schedule_profiles p
+        LEFT JOIN courses c ON c.scheduleId = p.id
+        GROUP BY p.id
+        ORDER BY p.isActive DESC, COUNT(c.id) DESC, p.id DESC
+        LIMIT 1
+        """.trimIndent()
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else null }
+    selectedId?.let { id ->
+        db.execSQL("UPDATE schedule_profiles SET isActive = CASE WHEN id = ? THEN 1 ELSE 0 END", arrayOf(id))
+    }
 }
 
 private fun repairPeriodsForMultiSchedule(db: SupportSQLiteDatabase) {
@@ -498,7 +520,20 @@ private fun repairDatabaseFileBeforeRoomOpen(path: File) {
     if (!path.exists()) return
     runCatching {
         SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
-            repairSQLiteDatabase(db)
+            val needsStructuralRepair = db.version < 24 ||
+                !sqliteTableExists(db, "schedule_profiles") ||
+                !sqliteTableExists(db, "schedule_config") ||
+                !sqliteTableExists(db, "periods") ||
+                !sqliteTableExists(db, "courses") ||
+                !sqliteColumnExists(db, "courses", "scheduleId") ||
+                !sqliteColumnExists(db, "periods", "scheduleId") ||
+                !sqliteColumnExists(db, "schedule_config", "dockAlignment") ||
+                !sqliteColumnExists(db, "schedule_config", "notificationMode")
+            if (needsStructuralRepair) {
+                repairSQLiteDatabase(db)
+            } else {
+                repairActiveScheduleProfiles(db)
+            }
         }
     }
 }
@@ -507,12 +542,13 @@ private fun repairSQLiteDatabase(db: SQLiteDatabase) {
     db.beginTransaction()
     try {
         db.execSQL("CREATE TABLE IF NOT EXISTS schedule_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, isActive INTEGER NOT NULL)")
-        db.execSQL("INSERT OR IGNORE INTO schedule_profiles (id, name, isActive) VALUES (1, '\u9ED8\u8BA4\u8BFE\u8868', 1)")
+        db.execSQL("INSERT INTO schedule_profiles (id, name, isActive) SELECT 1, '\u9ED8\u8BA4\u8BFE\u8868', 1 WHERE NOT EXISTS (SELECT 1 FROM schedule_profiles)")
         if (!sqliteColumnExists(db, "courses", "scheduleId")) {
             db.execSQL("ALTER TABLE courses ADD COLUMN scheduleId INTEGER NOT NULL DEFAULT 1")
         }
         repairScheduleConfigTable(db)
         repairPeriodsTable(db)
+        repairActiveScheduleProfiles(db)
         db.execSQL("DROP TABLE IF EXISTS room_master_table")
         db.setVersion(24)
         db.setTransactionSuccessful()
@@ -682,7 +718,7 @@ private fun repairPeriodsTable(db: SQLiteDatabase) {
 data class AppState(
     val courses: List<CourseEntity> = emptyList(),
     val allCourses: List<CourseEntity> = emptyList(),
-    val schedules: List<ScheduleProfileEntity> = listOf(ScheduleProfileEntity(id = 1, name = "\u9ED8\u8BA4\u8BFE\u8868", isActive = true)),
+    val schedules: List<ScheduleProfileEntity> = emptyList(),
     val allConfigs: List<ScheduleConfigEntity> = emptyList(),
     val allPeriods: List<PeriodEntity> = emptyList(),
     val config: ScheduleConfigEntity = defaultConfig(),
@@ -716,12 +752,10 @@ class ScheduleRepository(private val database: AppDatabase) {
         configDao.observeAllConfigs(),
         configDao.observeAllPeriods()
     ) { allCourses, schedules, allConfigs, allPeriods ->
-        val profiles = schedules.ifEmpty {
-            listOf(ScheduleProfileEntity(id = 1, name = "\u9ED8\u8BA4\u8BFE\u8868", isActive = true))
-        }
-        val activeId = profiles.firstOrNull { it.isActive }?.id ?: profiles.first().id
+        val profiles = schedules
+        val activeId = profiles.firstOrNull { it.isActive }?.id ?: profiles.firstOrNull()?.id
         MultiScheduleSnapshot(
-            courses = allCourses.filter { it.scheduleId == activeId },
+            courses = if (activeId == null) emptyList() else allCourses.filter { it.scheduleId == activeId },
             allCourses = allCourses,
             schedules = profiles,
             allConfigs = allConfigs,
@@ -730,9 +764,12 @@ class ScheduleRepository(private val database: AppDatabase) {
     }
 
     val allSchedulesState = multiScheduleState.map { snapshot ->
-        val activeId = snapshot.schedules.firstOrNull { it.isActive }?.id ?: 1
-        val config = snapshot.allConfigs.firstOrNull { it.id == activeId } ?: defaultConfig(activeId)
-        val periods = snapshot.allPeriods.filter { it.scheduleId == activeId }.ifEmpty { defaultPeriods(activeId) }
+        val activeId = snapshot.schedules.firstOrNull { it.isActive }?.id
+            ?: snapshot.schedules.firstOrNull()?.id
+        val storedConfig = activeId?.let { id -> snapshot.allConfigs.firstOrNull { it.id == id } }
+        val config = storedConfig ?: defaultConfig(activeId ?: 1)
+        val storedPeriods = activeId?.let { id -> snapshot.allPeriods.filter { it.scheduleId == id } }.orEmpty()
+        val periods = storedPeriods.ifEmpty { defaultPeriods(activeId ?: 1) }
         AppState(
             courses = snapshot.courses,
             allCourses = snapshot.allCourses,
@@ -741,13 +778,13 @@ class ScheduleRepository(private val database: AppDatabase) {
             allPeriods = snapshot.allPeriods,
             config = config,
             periods = periods,
-            loaded = true
+            loaded = activeId != null && storedConfig != null && storedPeriods.isNotEmpty()
         )
     }.distinctUntilChanged()
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val state = profileDao.observeActiveProfileId()
-        .map { it ?: 1 }
+        .filterNotNull()
         .distinctUntilChanged()
         .flatMapLatest { activeId ->
             combine(
@@ -755,27 +792,30 @@ class ScheduleRepository(private val database: AppDatabase) {
                 configDao.observeConfig(activeId).distinctUntilChanged(),
                 configDao.observePeriods(activeId).distinctUntilChanged()
             ) { courses, config, periods ->
+                val storedConfig = config?.copy(id = activeId)
                 AppState(
                     courses = courses,
                     schedules = emptyList(),
-                    config = config?.copy(id = activeId) ?: defaultConfig(activeId),
+                    config = storedConfig ?: defaultConfig(activeId),
                     periods = periods.ifEmpty { defaultPeriods(activeId) },
-                    loaded = true
+                    loaded = storedConfig != null && periods.isNotEmpty()
                 )
             }
         }
         .distinctUntilChanged()
 
     suspend fun ensureDefaults() {
-        if (profileDao.getProfiles().isEmpty()) {
-            profileDao.upsertProfile(ScheduleProfileEntity(id = 1, name = "\u9ED8\u8BA4\u8BFE\u8868", isActive = true))
+        database.withTransaction {
+            if (profileDao.getProfiles().isEmpty()) {
+                profileDao.upsertProfile(ScheduleProfileEntity(id = 1, name = "\u9ED8\u8BA4\u8BFE\u8868", isActive = true))
+            }
+            if (profileDao.getActiveProfile() == null) {
+                profileDao.getProfiles().firstOrNull()?.let { profileDao.activateProfile(it.id) }
+            }
+            val scheduleId = activeScheduleId()
+            if (configDao.getConfig(scheduleId) == null) configDao.upsertConfig(defaultConfig(scheduleId))
+            if (configDao.getPeriods().isEmpty()) configDao.upsertPeriods(defaultPeriods(scheduleId))
         }
-        if (profileDao.getActiveProfile() == null) {
-            profileDao.getProfiles().firstOrNull()?.let { profileDao.activateProfile(it.id) }
-        }
-        val scheduleId = activeScheduleId()
-        if (configDao.getConfig() == null) configDao.upsertConfig(defaultConfig(scheduleId))
-        if (configDao.getPeriods().isEmpty()) configDao.upsertPeriods(defaultPeriods(scheduleId))
     }
 
     suspend fun addCourse(course: CourseEntity) {
@@ -1009,6 +1049,40 @@ class ScheduleRepository(private val database: AppDatabase) {
                 }
                 ordered.drop(1).forEach { courseDao.deleteCourse(it.id) }
             }
+    }
+}
+
+private fun repairActiveScheduleProfiles(db: SQLiteDatabase) {
+    if (!sqliteTableExists(db, "schedule_profiles")) return
+    val profileCount = db.rawQuery("SELECT COUNT(*) FROM schedule_profiles", null).use { cursor ->
+        if (cursor.moveToFirst()) cursor.getInt(0) else 0
+    }
+    if (profileCount == 0) {
+        db.execSQL("INSERT INTO schedule_profiles (id, name, isActive) VALUES (1, '\u9ED8\u8BA4\u8BFE\u8868', 1)")
+        return
+    }
+    val activeCount = db.rawQuery("SELECT COUNT(*) FROM schedule_profiles WHERE isActive = 1", null).use { cursor ->
+        if (cursor.moveToFirst()) cursor.getInt(0) else 0
+    }
+    if (activeCount == 1) return
+    val canRankByCourses = sqliteTableExists(db, "courses") && sqliteColumnExists(db, "courses", "scheduleId")
+    val selectionSql = if (canRankByCourses) {
+        """
+        SELECT p.id
+        FROM schedule_profiles p
+        LEFT JOIN courses c ON c.scheduleId = p.id
+        GROUP BY p.id
+        ORDER BY p.isActive DESC, COUNT(c.id) DESC, p.id DESC
+        LIMIT 1
+        """.trimIndent()
+    } else {
+        "SELECT id FROM schedule_profiles ORDER BY isActive DESC, id DESC LIMIT 1"
+    }
+    val selectedId = db.rawQuery(selectionSql, null).use { cursor ->
+        if (cursor.moveToFirst()) cursor.getInt(0) else null
+    }
+    selectedId?.let { id ->
+        db.execSQL("UPDATE schedule_profiles SET isActive = CASE WHEN id = ? THEN 1 ELSE 0 END", arrayOf(id))
     }
 }
 

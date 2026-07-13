@@ -14,7 +14,7 @@ interaction styling.
 ## compose-miuix-ui/miuix
 
 The settings and education-import page structure uses components from
-[compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix), version 0.5.1.
+[compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix), version 0.9.3.
 
 License: Apache License, Version 2.0.
 

@@ -252,6 +252,7 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -623,13 +624,13 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             containerColor = ComposeColor.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                TopBarEntranceContainer(
+                if (screen !is Screen.Config) TopBarEntranceContainer(
                     phase = startupPhase,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(rootTopBarLayoutHeight(screen))
                 ) {
-                    if (screen is Screen.Home || screen is Screen.Config) {
+                    if (screen is Screen.Home) {
                         AnimatedVisibility(
                             visible = screen is Screen.Config || homeContentUnderTopBar,
                             modifier = Modifier
@@ -639,8 +640,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                             exit = fadeOut(animationSpec = spring(dampingRatio = 0.95f, stiffness = 560f))
                         ) {
                             HomeTopGradientBlur(
-                                config = if (screen is Screen.Config) settingsVisualConfig(state.config) else state.config,
-                                backdrop = if (screen is Screen.Config) contentBackdrop else chromeBackdrop,
+                                config = state.config,
+                                backdrop = chromeBackdrop,
                                 height = rootTopGradientHeight(screen),
                                 modifier = Modifier
                             )
@@ -651,7 +652,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                             .align(Alignment.TopCenter)
                             .zIndex(11f)
                     ) {
-                        if (screen !is Screen.Config) AppTopBar(
+                        AppTopBar(
                             screen = screen,
                             state = state,
                             settingsPage = SettingsPage.Root,
@@ -1172,6 +1173,7 @@ fun DetailActivityScaffold(
     onBack: () -> Unit,
     showTopGradientBlur: Boolean = true,
     isolateContentFromBackdrop: Boolean = false,
+    compactTopBar: Boolean = false,
     content: @Composable (Backdrop?) -> Unit
 ) {
     GlassMiuixDetailActivityScaffold(
@@ -1180,6 +1182,7 @@ fun DetailActivityScaffold(
         onBack = onBack,
         showTopGradientBlur = showTopGradientBlur,
         isolateContentFromBackdrop = isolateContentFromBackdrop,
+        compactTopBar = compactTopBar,
         content = content
     )
 }
@@ -1599,9 +1602,9 @@ fun TopBackButton(backdrop: Backdrop?, config: ScheduleConfigEntity, onClick: ()
             height = 42.dp,
             surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.26f) else ComposeColor(0xFF121212).copy(alpha = 0.28f),
             contentPadding = PaddingValues(0.dp),
-            blurRadius = 10.dp,
-            lensHeight = 30.dp,
-            lensAmount = 38.dp,
+            blurRadius = 3.dp,
+            lensHeight = 16.dp,
+            lensAmount = 24.dp,
             chromaticAberration = false
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -2965,7 +2968,8 @@ class EduImportActivity : ComponentActivity() {
                     DetailActivityScaffold(
                         title = adapter?.school?.name ?: "教务导入",
                         config = state.config,
-                        onBack = { finish() }
+                        onBack = { finish() },
+                        compactTopBar = true
                     ) { backdrop ->
                         if (adapter == null) {
                             Box(
@@ -3301,9 +3305,14 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
             context.packageManager.getApplicationLabel(context.applicationInfo).toString()
         }.getOrDefault("SleepDown课程表")
     }
-
-    GlassMiuixRootSettingsScaffold(title = "设置", config = state.config) { innerPadding ->
+    GlassMiuixRootSettingsScaffold(
+        title = "设置",
+        config = state.config
+    ) { innerPadding ->
         LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .overScrollVertical(),
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
@@ -3314,11 +3323,10 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
         ) {
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                top.yukonga.miuix.kmp.extra.SuperArrow(
+                top.yukonga.miuix.kmp.preference.ArrowPreference(
                     title = appName,
                     summary = "开发者：小漫君",
-                    rightText = "版本 $versionName",
-                    leftAction = {
+                    startAction = {
                         Image(
                             painter = painterResource(R.mipmap.ic_launcher),
                             contentDescription = null,
@@ -3328,31 +3336,48 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
                                 .clip(RoundedCornerShape(16.dp))
                         )
                     },
+                    endActions = {
+                        Text(
+                            "版本 $versionName",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
+                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                     onClick = { onPageChange(SettingsPage.Changelog) }
+                )
+                SettingsNavigationRow(
+                    "下载新版",
+                    "打开备用下载页面",
+                    onClick = { onPageChange(SettingsPage.Download) }
                 )
             }
         }
-        item { GlassPreferenceCategory("应用") }
         item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsNavigationRow("通用设置", "深色模式与系统外观", onClick = { onPageChange(SettingsPage.General) })
-                SettingsDivider()
-                SettingsNavigationRow("课表设置", "管理多个课表", onClick = { context.startActivity(Intent(context, ScheduleManagerActivity::class.java)) })
-                SettingsDivider()
-                SettingsNavigationRow("通知设置", "上课提醒与实时活动", onClick = { onPageChange(SettingsPage.Notifications) })
+            GlassPreferenceSection("应用") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsNavigationRow("通用设置", "深色模式与系统外观", onClick = { onPageChange(SettingsPage.General) })
+                    SettingsDivider()
+                    SettingsNavigationRow("课表设置", "管理多个课表", onClick = { context.startActivity(Intent(context, ScheduleManagerActivity::class.java)) })
+                    SettingsDivider()
+                    SettingsNavigationRow("通知设置", "上课提醒与实时活动", onClick = { onPageChange(SettingsPage.Notifications) })
+                }
             }
         }
-        item { GlassPreferenceCategory("导入") }
         item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsNavigationRow("AI 导入设置", "配置 API Key、服务商和模型。", onClick = { onPageChange(SettingsPage.AiImport) })
+            GlassPreferenceSection("导入") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsNavigationRow("AI 导入设置", "配置 API Key、服务商和模型。", onClick = { onPageChange(SettingsPage.AiImport) })
+                }
             }
         }
-        item { GlassPreferenceCategory("其他") }
         item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsNavigationRow("关于", "软件信息与开源引用", onClick = { onPageChange(SettingsPage.About) })
+            GlassPreferenceSection("其他") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsNavigationRow("关于", "软件信息与开源引用", onClick = { onPageChange(SettingsPage.About) })
+                }
             }
         }
         }
@@ -3558,6 +3583,8 @@ fun AboutSettingsScreen(state: AppState, backdrop: Backdrop?) {
                 SettingsValueRow("AndroidLiquidGlass", "Kyant")
                 SettingsDivider()
                 SettingsValueRow("shiguang_warehouse", "XingHeYuZhuan")
+                SettingsDivider()
+                SettingsValueRow("MIUIX", "compose-miuix-ui")
             }
         }
     }
@@ -3587,6 +3614,7 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.0", "优化二级页面排版。")
                 SettingsInfoRow("1.10 beta", "优化页面切换与周视图渲染性能；新增快速编辑当前周卡片功能，长按卡片会弹出角标和删除按钮，拖拽把手可以修改课程持续时间，按住卡片拖拽可以修改上课时间，编辑体验更顺畅；修复了导入未来学期课表时，无法正确映射第一周的问题。")
                 SettingsDivider()
                 SettingsInfoRow("1.09 beta", "新增 AI 导入功能，绑定 API Key 之后，可以在原有教务导入无法识别网页课表结构时调用大模型来组织课表结构；无法抓取网页时，可以通过识屏进行强制抓取。此导入方法作为兜底方案，课表导入准确度取决于学校网站结构、选用大模型能力等。目前仅 DeepSeek 和小米 MIMO 经过了全流程测试，DeepSeek 不支持多模态，所以无法使用图片导入功能；优化各项玻璃参数，视觉效果更透亮；优化了个性化弹窗和加号菜单打开的动画。")

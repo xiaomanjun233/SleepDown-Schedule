@@ -31,39 +31,74 @@ fun ProgressiveBackdropBlur(
     blurRadius: Dp = 16.dp,
     tintIntensity: Float = 0.18f,
     direction: ProgressiveBlurDirection = ProgressiveBlurDirection.TopToBottom,
+    topMaskFadeStart: Float = 0.45f,
+    topMaskFadeEnd: Float = 1f,
+    topTintFadeStart: Float = 0.35f,
+    topTintFadeEnd: Float = 1f,
     fallbackTintStops: List<Pair<Float, Color>>
 ) {
-    val baseModifier = modifier.fillMaxWidth().height(height)
-    val fallbackBrush = Brush.verticalGradient(*fallbackTintStops.toTypedArray())
     Box(
-        modifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backdrop != null) {
-            baseModifier.drawPlainBackdrop(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .progressiveBackdropBlur(
                 backdrop = backdrop,
-                shape = { RectangleShape },
-                effects = {
-                    blur(blurRadius.toPx())
-                    runtimeShaderEffect(
-                        "ProgressiveBackdropBlur_${direction.name}",
-                        progressiveBlurShaderSource(direction),
-                        "content"
-                    ) {
-                        setFloatUniform("size", size.width, size.height)
-                        setColorUniform("tint", tintColor)
-                        setFloatUniform("tintIntensity", tintIntensity.coerceIn(0f, 1f))
-                    }
-                }
+                tintColor = tintColor,
+                blurRadius = blurRadius,
+                tintIntensity = tintIntensity,
+                direction = direction,
+                topMaskFadeStart = topMaskFadeStart,
+                topMaskFadeEnd = topMaskFadeEnd,
+                topTintFadeStart = topTintFadeStart,
+                topTintFadeEnd = topTintFadeEnd,
+                fallbackTintStops = fallbackTintStops
             )
-        } else {
-            baseModifier.background(fallbackBrush)
-        }
     )
+}
+
+fun Modifier.progressiveBackdropBlur(
+    backdrop: Backdrop?,
+    tintColor: Color,
+    blurRadius: Dp = 16.dp,
+    tintIntensity: Float = 0.18f,
+    direction: ProgressiveBlurDirection = ProgressiveBlurDirection.TopToBottom,
+    topMaskFadeStart: Float = 0.45f,
+    topMaskFadeEnd: Float = 1f,
+    topTintFadeStart: Float = 0.35f,
+    topTintFadeEnd: Float = 1f,
+    fallbackTintStops: List<Pair<Float, Color>>
+): Modifier {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backdrop != null) {
+        drawPlainBackdrop(
+            backdrop = backdrop,
+            shape = { RectangleShape },
+            effects = {
+                blur(blurRadius.toPx())
+                runtimeShaderEffect(
+                    "ProgressiveBackdropBlur_${direction.name}",
+                    progressiveBlurShaderSource(direction),
+                    "content"
+                ) {
+                    setFloatUniform("size", size.width, size.height)
+                    setColorUniform("tint", tintColor)
+                    setFloatUniform("tintIntensity", tintIntensity.coerceIn(0f, 1f))
+                    setFloatUniform("maskFadeStart", topMaskFadeStart.coerceIn(0f, 1f))
+                    setFloatUniform("maskFadeEnd", topMaskFadeEnd.coerceAtLeast(topMaskFadeStart + 0.01f))
+                    setFloatUniform("tintFadeStart", topTintFadeStart.coerceIn(0f, 1f))
+                    setFloatUniform("tintFadeEnd", topTintFadeEnd.coerceAtLeast(topTintFadeStart + 0.01f))
+                }
+            }
+        )
+    } else {
+        background(Brush.verticalGradient(*fallbackTintStops.toTypedArray()))
+    }
 }
 
 private fun progressiveBlurShaderSource(direction: ProgressiveBlurDirection): String {
     val maskExpression = when (direction) {
         ProgressiveBlurDirection.TopToBottom -> """
-            float mask = 1.0 - smoothstep(0.45, 1.0, y);
-            float tintMask = 1.0 - smoothstep(0.35, 1.0, y);
+            float mask = 1.0 - smoothstep(maskFadeStart, maskFadeEnd, y);
+            float tintMask = 1.0 - smoothstep(tintFadeStart, tintFadeEnd, y);
         """.trimIndent()
 
         ProgressiveBlurDirection.BottomToTop -> """
@@ -76,6 +111,10 @@ private fun progressiveBlurShaderSource(direction: ProgressiveBlurDirection): St
         uniform float2 size;
         layout(color) uniform half4 tint;
         uniform float tintIntensity;
+        uniform float maskFadeStart;
+        uniform float maskFadeEnd;
+        uniform float tintFadeStart;
+        uniform float tintFadeEnd;
 
         half4 main(float2 coord) {
             float y = coord.y / size.y;

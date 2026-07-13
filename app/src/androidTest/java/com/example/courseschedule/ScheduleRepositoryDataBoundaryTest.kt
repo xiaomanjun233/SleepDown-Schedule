@@ -146,6 +146,43 @@ class ScheduleRepositoryDataBoundaryTest {
         assertTrue(manager.allConfigs.any { it.id == secondId })
     }
 
+    @Test
+    fun ensureDefaultsDoesNotCreateScheduleOneWhenAnotherScheduleAlreadyExists() = runBlocking {
+        database.scheduleProfileDao().upsertProfile(
+            ScheduleProfileEntity(id = 7, name = "Existing", isActive = true)
+        )
+
+        repository.ensureDefaults()
+
+        val profiles = database.scheduleProfileDao().getProfiles()
+        assertEquals(listOf(7), profiles.map { it.id })
+        assertEquals(7, database.scheduleProfileDao().getActiveProfile()!!.id)
+        assertEquals(7, database.configDao().getConfig(7)!!.id)
+    }
+
+    @Test
+    fun globalNotificationAndDockSettingsSurviveScheduleCreationAndSwitching() = runBlocking {
+        repository.ensureDefaults()
+        repository.saveConfigOnly(
+            repository.snapshot().config.copy(
+                notificationMode = NotificationMode.LIVE_UPDATE,
+                dockAlignment = DockAlignment.CENTER
+            )
+        )
+
+        val secondId = repository.createSchedule("Second")
+        repository.activateSchedule(secondId)
+
+        var snapshot = repository.snapshot()
+        assertEquals(NotificationMode.LIVE_UPDATE, snapshot.config.notificationMode)
+        assertEquals(DockAlignment.CENTER, snapshot.config.dockAlignment)
+
+        repository.activateSchedule(1)
+        snapshot = repository.snapshot()
+        assertEquals(NotificationMode.LIVE_UPDATE, snapshot.config.notificationMode)
+        assertEquals(DockAlignment.CENTER, snapshot.config.dockAlignment)
+    }
+
     private fun sampleDraft(totalWeeks: Int, periodCount: Int): ImportDraft {
         return ImportDraft(
             config = defaultConfig().copy(totalWeeks = totalWeeks),

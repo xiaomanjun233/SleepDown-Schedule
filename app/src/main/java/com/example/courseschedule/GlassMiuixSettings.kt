@@ -4,28 +4,36 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
@@ -66,19 +74,31 @@ fun GlassMiuixRootSettingsScaffold(
     config: ScheduleConfigEntity,
     content: @Composable (PaddingValues) -> Unit
 ) {
-    val scrollBehavior = MiuixScrollBehavior()
-    GlassMiuixSettingsTheme(config) {
+    val pageConfig = settingsVisualConfig(config)
+    val pageColor = settingsPageBackground(pageConfig)
+    val contentBackdrop = rememberLayerBackdrop {
+        drawRect(pageColor)
+        drawContent()
+    }
+    val scrollBehavior = rememberSettingsScrollBehavior()
+    GlassMiuixSettingsTheme(pageConfig) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                TopAppBar(
-                    title = title,
-                    largeTitle = title,
-                    color = Color.Transparent,
-                    scrollBehavior = scrollBehavior
-                )
+                SettingsGradientTopBar(
+                    config = pageConfig,
+                    backdrop = contentBackdrop,
+                    enabled = true
+                ) {
+                    TopAppBar(
+                        title = title,
+                        largeTitle = title,
+                        color = Color.Transparent,
+                        scrollBehavior = scrollBehavior
+                    )
+                }
             }
         ) { innerPadding ->
             CompositionLocalProvider(
@@ -88,6 +108,7 @@ fun GlassMiuixRootSettingsScaffold(
                     Modifier
                         .fillMaxSize()
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
+                        .layerBackdrop(contentBackdrop)
                 ) {
                     content(innerPadding)
                 }
@@ -103,14 +124,19 @@ internal fun GlassMiuixDetailActivityScaffold(
     onBack: () -> Unit,
     showTopGradientBlur: Boolean,
     isolateContentFromBackdrop: Boolean,
+    compactTopBar: Boolean,
     content: @Composable (Backdrop?) -> Unit
 ) {
     val pageConfig = settingsVisualConfig(config)
+    val pageColor = settingsPageBackground(pageConfig)
     val backgroundBackdrop = rememberLayerBackdrop()
-    val contentBackdrop = rememberLayerBackdrop()
-    val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
-    val scrollBehavior = MiuixScrollBehavior()
+    val contentBackdrop = rememberLayerBackdrop {
+        drawRect(pageColor)
+        drawContent()
+    }
+    val scrollBehavior = rememberSettingsScrollBehavior()
     val logRecording = DiagnosticLogCapture.recording.collectAsStateWithLifecycle().value
+    val compactTopBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 58.dp
 
     GlassMiuixSettingsTheme(pageConfig) {
         Box(
@@ -129,33 +155,42 @@ internal fun GlassMiuixDetailActivityScaffold(
                 containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
-                    Box(Modifier.fillMaxWidth()) {
-                        if (showTopGradientBlur) {
-                            HomeTopGradientBlur(
-                                config = pageConfig,
-                                backdrop = contentBackdrop,
-                                height = detailTopOverlayHeight(),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .align(Alignment.TopCenter)
-                            )
-                        }
-                        TopAppBar(
-                            title = title,
-                            largeTitle = title,
-                            color = Color.Transparent,
-                            scrollBehavior = scrollBehavior,
-                            navigationIcon = {
-                                TopBackButton(
-                                    backdrop = chromeBackdrop,
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .then(if (compactTopBar) Modifier.height(compactTopBarHeight) else Modifier)
+                    ) {
+                        SettingsGradientTopBar(
+                            config = pageConfig,
+                            backdrop = contentBackdrop,
+                            enabled = showTopGradientBlur
+                        ) {
+                            if (compactTopBar) {
+                                DetailTopBar(
+                                    title = title,
                                     config = pageConfig,
-                                    onClick = onBack,
-                                    modifier = Modifier
-                                        .padding(start = 8.dp)
-                                        .size(42.dp)
+                                    backdrop = contentBackdrop,
+                                    onBack = onBack
+                                )
+                            } else {
+                                TopAppBar(
+                                    title = title,
+                                    largeTitle = title,
+                                    color = Color.Transparent,
+                                    scrollBehavior = scrollBehavior,
+                                    navigationIcon = {
+                                        TopBackButton(
+                                            backdrop = contentBackdrop,
+                                            config = pageConfig,
+                                            onClick = onBack,
+                                            modifier = Modifier
+                                                .padding(start = 8.dp)
+                                                .size(42.dp)
+                                        )
+                                    }
                                 )
                             }
-                        )
+                        }
                     }
                 }
             ) { innerPadding ->
@@ -177,11 +212,83 @@ internal fun GlassMiuixDetailActivityScaffold(
             DiagnosticLogStopOverlay(
                 visible = logRecording,
                 config = pageConfig,
-                backdrop = chromeBackdrop,
+                backdrop = contentBackdrop,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .zIndex(40f)
             )
+        }
+    }
+}
+
+@Composable
+private fun SettingsGradientTopBar(
+    config: ScheduleConfigEntity,
+    backdrop: Backdrop?,
+    enabled: Boolean,
+    content: @Composable () -> Unit
+) {
+    val tintColor = if (glassUsesLightStyle(config)) Color.White else Color(0xFF111111)
+    val blurModifier = if (enabled) {
+        Modifier.progressiveBackdropBlur(
+            backdrop = backdrop,
+            tintColor = tintColor,
+            blurRadius = 18.dp,
+            tintIntensity = 0.18f,
+            direction = ProgressiveBlurDirection.TopToBottom,
+            topMaskFadeStart = 0.68f,
+            topMaskFadeEnd = 1.14f,
+            topTintFadeStart = 0.58f,
+            topTintFadeEnd = 1.10f,
+            fallbackTintStops = listOf(
+                0f to tintColor.copy(alpha = 0.42f),
+                0.68f to tintColor.copy(alpha = 0.18f),
+                1f to tintColor.copy(alpha = 0.04f)
+            )
+        )
+    } else {
+        Modifier
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(blurModifier)
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun rememberSettingsScrollBehavior(): ScrollBehavior {
+    val base = MiuixScrollBehavior()
+    return remember(base) {
+        object : ScrollBehavior by base {
+            override val nestedScrollConnection: NestedScrollConnection =
+                object : NestedScrollConnection {
+                    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                        if (available.y < 0f) {
+                            base.state.heightOffset += available.y
+                        }
+                        // The page keeps the full delta so content and the large title move together.
+                        return Offset.Zero
+                    }
+
+                    override fun onPostScroll(
+                        consumed: Offset,
+                        available: Offset,
+                        source: NestedScrollSource
+                    ): Offset {
+                        base.state.contentOffset += consumed.y
+                        if (available.y > 0f) {
+                            base.state.heightOffset += available.y
+                        }
+                        return Offset.Zero
+                    }
+
+                    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                        return base.nestedScrollConnection.onPostFling(consumed, available)
+                    }
+                }
         }
     }
 }

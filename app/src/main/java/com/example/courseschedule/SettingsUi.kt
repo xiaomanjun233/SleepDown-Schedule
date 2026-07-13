@@ -239,7 +239,8 @@ import com.kyant.backdrop.catalog.components.LiquidSlider
 import com.kyant.backdrop.catalog.components.LiquidToggle
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
 import top.yukonga.miuix.kmp.basic.SmallTitle as MiuixSmallTitle
-import top.yukonga.miuix.kmp.extra.SuperArrow as MiuixSuperArrow
+import top.yukonga.miuix.kmp.preference.ArrowPreference as MiuixArrowPreference
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference as MiuixOverlayDropdownPreference
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
@@ -331,8 +332,8 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
-            if (dirty) {
+        if (dirty) {
+            item(key = "general-save-actions") {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                     SettingsActionButton("重置", backdrop, onClick = { resetDraft() }, destructive = true)
                     Spacer(Modifier.width(8.dp))
@@ -340,44 +341,45 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                 }
             }
         }
-        item { GlassPreferenceCategory("外观与布局") }
-        item {
-            SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
-                SettingsToggleRow(
-                    title = "跟随系统",
-                    subtitle = "开启后将跟随系统切换浅色或深色模式。",
-                    checked = draft.followSystemDarkMode,
-                    backdrop = backdrop,
-                    onCheckedChange = { draft = draft.copy(followSystemDarkMode = it) }
-                )
-                SettingsDivider()
-                SettingsToggleRow(
-                    title = "深色模式",
-                    subtitle = if (draft.followSystemDarkMode) "当前由系统外观决定。" else "手动切换应用外观。",
-                    checked = draft.darkMode,
-                    backdrop = backdrop,
-                    enabled = !draft.followSystemDarkMode,
-                    onCheckedChange = { draft = draft.copy(darkMode = it, followSystemDarkMode = false) }
-                )
-                SettingsDivider()
-                SettingsDockAlignmentRow(
-                    selected = draft.dockAlignment,
-                    backdrop = backdrop,
-                    config = visualConfig,
-                    onSelected = { draft = draft.copy(dockAlignment = it) }
-                )
-                SettingsDivider()
-                SettingsHomeStartModeRow(
-                    selected = draft.defaultHomeMode,
-                    backdrop = backdrop,
-                    config = visualConfig,
-                    onSelected = { draft = draft.copy(defaultHomeMode = it) }
-                )
+        item(key = "general-appearance") {
+            GlassPreferenceSection("外观与布局") {
+                SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
+                    SettingsToggleRow(
+                        title = "跟随系统",
+                        subtitle = "开启后将跟随系统切换浅色或深色模式。",
+                        checked = draft.followSystemDarkMode,
+                        backdrop = backdrop,
+                        onCheckedChange = { draft = draft.copy(followSystemDarkMode = it) }
+                    )
+                    SettingsDivider()
+                    SettingsToggleRow(
+                        title = "深色模式",
+                        subtitle = if (draft.followSystemDarkMode) "当前由系统外观决定。" else "手动切换应用外观。",
+                        checked = draft.darkMode,
+                        backdrop = backdrop,
+                        enabled = !draft.followSystemDarkMode,
+                        onCheckedChange = { draft = draft.copy(darkMode = it, followSystemDarkMode = false) }
+                    )
+                    SettingsDivider()
+                    SettingsDockAlignmentRow(
+                        selected = draft.dockAlignment,
+                        backdrop = backdrop,
+                        config = visualConfig,
+                        onSelected = { draft = draft.copy(dockAlignment = it) }
+                    )
+                    SettingsDivider()
+                    SettingsHomeStartModeRow(
+                        selected = draft.defaultHomeMode,
+                        backdrop = backdrop,
+                        config = visualConfig,
+                        onSelected = { draft = draft.copy(defaultHomeMode = it) }
+                    )
+                }
             }
         }
-        item { GlassPreferenceCategory("首页与系统") }
-        item {
-            SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
+        item(key = "general-home-system") {
+            GlassPreferenceSection("首页与系统") {
+                SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
                 SettingsDefaultWallpaperRow(
                     selected = draft.defaultWallpaperStyle,
                     backdrop = backdrop,
@@ -400,29 +402,31 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                     backdrop = backdrop,
                     onCheckedChange = { draft = draft.copy(hideFromRecents = it) }
                 )
+                }
             }
         }
-        item { GlassPreferenceCategory("诊断") }
-        item {
-            SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
-                SettingsActionRow(
-                    title = "抓取日志",
-                    subtitle = "点击后开始记录，复现问题后点悬浮按钮停止。",
-                    buttonText = "开始",
-                    iconRes = R.drawable.ic_download,
-                    backdrop = backdrop,
-                    onClick = {
-                        scope.launch {
-                            DiagnosticLogCapture.start(context, state.config)
-                                .onSuccess {
-                                    Toast.makeText(context, "已开始抓取日志", Toast.LENGTH_SHORT).show()
+        item(key = "general-diagnostics") {
+            GlassPreferenceSection("诊断") {
+                SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
+                    SettingsActionRow(
+                        title = "抓取日志",
+                        subtitle = "点击后开始记录，复现问题后点悬浮按钮停止。",
+                        buttonText = "开始",
+                        iconRes = R.drawable.ic_download,
+                        backdrop = backdrop,
+                        onClick = {
+                            scope.launch {
+                                DiagnosticLogCapture.start(context, state.config)
+                                    .onSuccess {
+                                        Toast.makeText(context, "已开始抓取日志", Toast.LENGTH_SHORT).show()
+                                    }
+                                    .onFailure {
+                                        Toast.makeText(context, "日志抓取失败：${it.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
+                                    }
                                 }
-                                .onFailure {
-                                    Toast.makeText(context, "日志抓取失败：${it.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                    }
-                )
+                        }
+                    )
+                }
             }
         }
     }
@@ -435,9 +439,10 @@ fun AiImportSettingsScreen(state: AppState, backdrop: Backdrop?) {
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { GlassPreferenceCategory("模型服务") }
         item {
-            AiImportSettingsSection(state = state, backdrop = backdrop)
+            GlassPreferenceSection("模型服务") {
+                AiImportSettingsSection(state = state, backdrop = backdrop)
+            }
         }
     }
 }
@@ -733,6 +738,22 @@ private fun AiProviderPickerRow(
     onExpandedChange: (Boolean) -> Unit,
     onSelected: (String) -> Unit
 ) {
+    if (LocalGlassMiuixEnabled.current) {
+        val selectedIndex = presets.indexOfFirst { it.id == selectedProviderId }.coerceAtLeast(0)
+        MiuixOverlayDropdownPreference(
+            items = presets.map { it.displayName },
+            selectedIndex = selectedIndex,
+            title = "服务商",
+            modifier = Modifier.fillMaxWidth(),
+            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            maxHeight = 318.dp,
+            onExpandedChange = onExpandedChange,
+            onSelectedIndexChange = { index ->
+                presets.getOrNull(index)?.let { onSelected(it.id) }
+            }
+        )
+        return
+    }
     val density = LocalDensity.current
     val popupOffsetY = with(density) { 54.dp.roundToPx() }
     var renderMenu by remember { mutableStateOf(false) }
@@ -1075,6 +1096,16 @@ fun SettingsDockAlignmentRow(
     config: ScheduleConfigEntity,
     onSelected: (DockAlignment) -> Unit
 ) {
+    if (LocalGlassMiuixEnabled.current) {
+        GlassMiuixInteractivePreference(
+            title = "Dock 栏位置",
+            summary = "调整首页底部切换栏对齐方式",
+            controlWidth = 132.dp
+        ) {
+            DockAlignmentTabs(selected, backdrop, config, onSelected)
+        }
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1102,6 +1133,23 @@ fun SettingsHomeStartModeRow(
     config: ScheduleConfigEntity,
     onSelected: (HomeStartMode) -> Unit
 ) {
+    if (LocalGlassMiuixEnabled.current) {
+        GlassMiuixInteractivePreference(
+            title = "默认首页视图",
+            summary = "选择每次打开应用时显示日视图或周视图",
+            controlWidth = 104.dp
+        ) {
+            LiquidOptionTabs(
+                selectedIndex = if (selected == HomeStartMode.DAY) 0 else 1,
+                labels = listOf("日", "周"),
+                backdrop = backdrop,
+                config = config,
+                width = 104.dp,
+                onSelected = { index -> onSelected(if (index == 0) HomeStartMode.DAY else HomeStartMode.WEEK) }
+            )
+        }
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1212,6 +1260,16 @@ fun SettingsDefaultWallpaperRow(
     config: ScheduleConfigEntity,
     onSelected: (DefaultWallpaperStyle) -> Unit
 ) {
+    if (LocalGlassMiuixEnabled.current) {
+        GlassMiuixInteractivePreference(
+            title = "默认壁纸",
+            summary = "未设置自定义壁纸时使用",
+            controlWidth = 140.dp
+        ) {
+            DefaultWallpaperTabs(selected = selected, backdrop = backdrop, config = config, onSelected = onSelected)
+        }
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1301,19 +1359,26 @@ fun LegacyGeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateCo
 @Composable
 fun SettingsGroup(backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     val miuixLayout = LocalGlassMiuixEnabled.current
-    val shape = RoundedCornerShape(if (miuixLayout) 16.dp else 30.dp)
+    val shape = RoundedCornerShape(if (miuixLayout) 24.dp else 30.dp)
     val darkTheme = appUsesDarkTheme(config)
     val contentColor = if (darkTheme) ComposeColor.White else ComposeColor(0xFF111111)
+    if (miuixLayout) {
+        CompositionLocalProvider(LocalContentColor provides contentColor) {
+            Column(
+                modifier = modifier
+                    .clip(shape)
+                    .background(if (darkTheme) ComposeColor(0xFF1C1C1E) else ComposeColor(0xFFF7F7F7)),
+                content = content
+            )
+        }
+        return
+    }
     if (backdrop != null) {
         LiquidPanel(
             backdrop = backdrop,
             modifier = modifier,
             shape = shape,
-            surfaceColor = if (miuixLayout) {
-                if (darkTheme) ComposeColor(0xFF121212).copy(alpha = 0.30f) else ComposeColor.White.copy(alpha = 0.18f)
-            } else {
-                if (darkTheme) ComposeColor(0xFF1C1C1E).copy(alpha = 0.78f) else ComposeColor.White.copy(alpha = 0.94f)
-            }
+            surfaceColor = if (darkTheme) ComposeColor(0xFF1C1C1E).copy(alpha = 0.78f) else ComposeColor.White.copy(alpha = 0.94f)
         ) {
             CompositionLocalProvider(LocalContentColor provides contentColor) {
                 Column(Modifier.padding(vertical = if (miuixLayout) 0.dp else 4.dp), content = content)
@@ -1335,10 +1400,11 @@ fun SettingsGroup(backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: M
 @Composable
 fun SettingsNavigationRow(title: String, subtitle: String, onClick: () -> Unit) {
     if (LocalGlassMiuixEnabled.current) {
-        MiuixSuperArrow(
+        MiuixArrowPreference(
             title = title,
             summary = subtitle,
             modifier = Modifier.fillMaxWidth(),
+            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
             onClick = onClick
         )
         return
@@ -1365,19 +1431,19 @@ fun SettingsNavigationRow(title: String, subtitle: String, onClick: () -> Unit) 
 @Composable
 fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdrop: Backdrop?, enabled: Boolean = true, onCheckedChange: (Boolean) -> Unit) {
     if (LocalGlassMiuixEnabled.current) {
-        MiuixBasicComponent(
+        GlassMiuixInteractivePreference(
             title = title,
             summary = subtitle,
-            enabled = enabled,
-            modifier = Modifier.fillMaxWidth(),
-            rightActions = {
-                if (enabled) {
-                    LiquidControlToggle(checked, onCheckedChange, backdrop)
-                } else {
-                    LiquidControlToggle(checked, {}, backdrop)
-                }
+            controlWidth = 64.dp,
+            controlHeight = 28.dp,
+            enabled = enabled
+        ) {
+            if (enabled) {
+                LiquidControlToggle(checked, onCheckedChange, backdrop)
+            } else {
+                LiquidControlToggle(checked, {}, backdrop)
             }
-        )
+        }
         return
     }
     Row(
@@ -1420,7 +1486,8 @@ fun SettingsActionRow(
             title = title,
             summary = subtitle,
             modifier = Modifier.fillMaxWidth(),
-            rightActions = {
+            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            endActions = {
                 DialogLiquidButton(
                     backdrop = backdrop,
                     label = buttonText,
@@ -1461,6 +1528,7 @@ fun SettingsActionRow(
 
 @Composable
 fun SettingsDivider() {
+    if (LocalGlassMiuixEnabled.current) return
     Box(
         Modifier
             .fillMaxWidth()
@@ -1504,7 +1572,8 @@ fun SettingsTextFieldRow(
             title = title,
             enabled = enabled,
             modifier = Modifier.fillMaxWidth(),
-            rightActions = {
+            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            endActions = {
                 BasicTextField(
                     value = value,
                     onValueChange = onValueChange,
@@ -1560,7 +1629,8 @@ fun SettingsValueRow(title: String, value: String) {
         MiuixBasicComponent(
             title = title,
             modifier = Modifier.fillMaxWidth(),
-            rightActions = {
+            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            endActions = {
                 Text(
                     value,
                     style = MaterialTheme.typography.bodyMedium,
@@ -1594,12 +1664,21 @@ fun SettingsValueRow(title: String, value: String) {
 @Composable
 fun SettingsPickerValueRow(title: String, value: String, onClick: () -> Unit, enabled: Boolean = true) {
     if (LocalGlassMiuixEnabled.current) {
-        MiuixSuperArrow(
+        MiuixArrowPreference(
             title = title,
-            rightText = value.ifBlank { "未设置" },
+            endActions = {
+                Text(
+                    value.ifBlank { "未设置" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
             onClick = onClick,
             enabled = enabled,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
         )
         return
     }
@@ -1667,7 +1746,8 @@ fun SettingsInfoRow(title: String, body: String) {
         MiuixBasicComponent(
             title = title,
             summary = body,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
         )
         return
     }
@@ -1685,7 +1765,11 @@ fun SettingsInfoRow(title: String, body: String) {
 @Composable
 fun GlassPreferenceCategory(text: String, modifier: Modifier = Modifier) {
     if (LocalGlassMiuixEnabled.current) {
-        MiuixSmallTitle(text = text, modifier = modifier)
+        MiuixSmallTitle(
+            text = text,
+            modifier = modifier.fillMaxWidth(),
+            insideMargin = PaddingValues(start = 6.dp, top = 8.dp, bottom = 8.dp)
+        )
     } else {
         Text(
             text = text,
@@ -1697,7 +1781,79 @@ fun GlassPreferenceCategory(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
+private fun GlassMiuixInteractivePreference(
+    title: String,
+    summary: String? = null,
+    controlWidth: Dp,
+    controlHeight: Dp = 42.dp,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer(alpha = if (enabled) 1f else 0.48f)
+    ) {
+        MiuixBasicComponent(
+            title = title,
+            summary = summary,
+            enabled = enabled,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(end = controlWidth + 12.dp),
+            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 14.dp)
+                .size(controlWidth, controlHeight),
+            contentAlignment = Alignment.Center
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+fun GlassPreferenceSection(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.Start
+    ) {
+        GlassPreferenceCategory(title)
+        content()
+    }
+}
+
+@Composable
 fun SettingsChoiceRow(title: String, selected: NotificationMode, backdrop: Backdrop?, config: ScheduleConfigEntity, onSelected: (NotificationMode) -> Unit) {
+    if (LocalGlassMiuixEnabled.current) {
+        val modes = NotificationMode.entries
+        GlassMiuixInteractivePreference(
+            title = title,
+            controlWidth = 188.dp
+        ) {
+            LiquidOptionTabs(
+                selectedIndex = modes.indexOf(selected).coerceAtLeast(0),
+                labels = modes.map {
+                    when (it) {
+                        NotificationMode.STANDARD -> "普通通知"
+                        NotificationMode.LIVE_UPDATE -> "实时活动"
+                    }
+                },
+                backdrop = backdrop,
+                config = config,
+                width = 188.dp,
+                onSelected = { index -> onSelected(modes[index.coerceIn(modes.indices)]) }
+            )
+        }
+        return
+    }
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
         val modes = NotificationMode.entries
@@ -1730,6 +1886,34 @@ fun SettingsLiveUpdateChipTextRow(
         LiveUpdateChipTextMode.SHORT
     )
     val labels = listOf("地点", "倒计时", "短标")
+    if (LocalGlassMiuixEnabled.current) {
+        Column(Modifier.fillMaxWidth()) {
+            MiuixBasicComponent(
+                title = "岛上缩略态",
+                summary = "可显示上课地点、剩余时间或短标签；原生安卓建议选择短标签或倒计时。",
+                modifier = Modifier.fillMaxWidth(),
+                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(Modifier.size(268.dp, 42.dp)) {
+                    LiquidOptionTabs(
+                        selectedIndex = options.indexOf(selected).coerceAtLeast(0),
+                        labels = labels,
+                        backdrop = backdrop,
+                        config = config,
+                        width = 268.dp,
+                        onSelected = { index -> onSelected(options[index.coerceIn(options.indices)]) }
+                    )
+                }
+            }
+        }
+        return
+    }
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("岛上缩略态", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
         LiquidOptionTabs(
@@ -1855,15 +2039,13 @@ fun ScheduleSettingsContent(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (section == SettingsSection.Schedule) "课表设置" else "通知设置",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
-                )
-                if (dirty) {
+        if (dirty) {
+            item(key = "notification-save-actions") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     SettingsActionButton("重置", backdrop, onClick = onReset, destructive = true)
                     Spacer(Modifier.width(8.dp))
                     SettingsActionButton("保存", backdrop, onClick = onSave)
@@ -1909,7 +2091,7 @@ fun ScheduleSettingsContent(
                 }
             }
         } else {
-            item {
+            item(key = "notification-options") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsToggleRow(
                         title = "课程提醒",
@@ -1928,7 +2110,7 @@ fun ScheduleSettingsContent(
                     }
                 }
             }
-            item {
+            item(key = "notification-compatibility") {
                 Text(
                     "实时活动目前仅支持原生安卓系统、ColorOS16、HyperOS 3.0.300以上版本、荣耀 MagicOS 10。原生安卓机型请选择短标签或者倒计时。",
                     style = MaterialTheme.typography.bodySmall,
@@ -1936,7 +2118,7 @@ fun ScheduleSettingsContent(
                     modifier = Modifier.padding(horizontal = 4.dp)
                 )
             }
-            item {
+            item(key = "notification-permissions") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsInfoRow("保活权限", "为保证课程提醒和实时活动稳定弹出，请允许电池优化例外，并在系统权限管理中允许后台运行或自启动。不同厂商的入口可能不同。")
                     SettingsDivider()
@@ -1955,10 +2137,10 @@ fun ScheduleSettingsContent(
                     }
                 }
             }
-            item { SettingsActionButton("测试实时活动", backdrop, onClick = onPreviewLiveUpdate, modifier = Modifier.fillMaxWidth()) }
+            item(key = "notification-preview") { SettingsActionButton("测试实时活动", backdrop, onClick = onPreviewLiveUpdate, modifier = Modifier.fillMaxWidth()) }
         }
         error?.let {
-            item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 4.dp)) }
+            item(key = "notification-error") { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 4.dp)) }
         }
     }
 }
