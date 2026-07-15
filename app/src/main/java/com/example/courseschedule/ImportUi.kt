@@ -310,32 +310,60 @@ fun NormalizedAiManualImportScreen(
     var selectedMode by remember { mutableIntStateOf(0) }
     var aiSettings by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
     val textColor = glassForegroundColor(state.config)
-    val fileUploadVisible = aiSettings.profile.id != AiProviderPresets.deepSeek.id
-    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) launcher@{ uri ->
+    val aiFileUploadVisible = aiSettings.profile.id != AiProviderPresets.deepSeek.id
+    val icsFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) launcher@{ uri ->
         if (uri == null) return@launcher
-        val settings = AiImportSettingsStore.load(context)
-        aiSettings = settings
-        if (settings.profile.id == AiProviderPresets.deepSeek.id) {
-            error = "当前 DeepSeek 仅支持文本导入。请粘贴可复制的课表文本，或到 AI 导入设置切换 OpenAI / MiMo / 自定义视觉模型。"
-            return@launcher
-        }
         selectedFileName = null
         routeMessage = null
         error = null
-        aiParsing = true
-        AiEduImportProgressSession.clearActions()
-        AiEduImportProgressSession.update(
-            AiEduImportProgress(
-                routeLabel = "AI 手动导入",
-                steps = listOf("准备读取文件"),
-                requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n输入：用户选择的 PDF 或图片文件\n密钥：已从本机安全存储读取，未显示"
-            )
-        )
-        context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
         scope.launch {
             loadAiImportFile(context, uri)
                 .onSuccess { file ->
                     selectedFileName = file.displayName
+                    if (!file.isIcs) {
+                        error = "所选文件不是有效的 ICS 日历文件"
+                        return@onSuccess
+                    }
+                    routeMessage = "ICS 将在本机解析，不会调用 AI，也不会消耗模型额度。"
+                    IcsScheduleCodec.parse(file.bytes, state.config)
+                        .onSuccess { draft ->
+                            error = null
+                            onParsed(draft)
+                        }
+                        .onFailure { error = it.message ?: "ICS 解析失败" }
+                }
+                .onFailure { error = it.message ?: "ICS 文件读取失败" }
+        }
+    }
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) launcher@{ uri ->
+        if (uri == null) return@launcher
+        val settings = AiImportSettingsStore.load(context)
+        aiSettings = settings
+        selectedFileName = null
+        routeMessage = null
+        error = null
+        aiParsing = true
+        scope.launch {
+            loadAiImportFile(context, uri)
+                .onSuccess fileLoaded@{ file ->
+                    selectedFileName = file.displayName
+                    if (file.isIcs) {
+                        error = "请在“导入 ICS”栏选择日历文件"
+                        return@fileLoaded
+                    }
+                    if (settings.profile.id == AiProviderPresets.deepSeek.id) {
+                        error = "当前 DeepSeek 仅支持文本和 ICS 导入。PDF 或图片请切换 OpenAI / MiMo / 自定义视觉模型。"
+                        return@fileLoaded
+                    }
+                    AiEduImportProgressSession.clearActions()
+                    AiEduImportProgressSession.update(
+                        AiEduImportProgress(
+                            routeLabel = "AI 手动导入",
+                            steps = listOf("准备读取文件"),
+                            requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n输入：用户选择的 PDF 或图片文件\n密钥：已从本机安全存储读取，未显示"
+                        )
+                    )
+                    context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
                     val fileSummary = buildString {
                         appendLine("文件名：${file.displayName}")
                         appendLine("类型：${file.mimeType}")
@@ -451,14 +479,25 @@ fun NormalizedAiManualImportScreen(
             clipboard.setPrimaryClip(ClipData.newPlainText("SleepDown 课表口令提示词", SchedulePromptBuilder.buildTokenPrompt()))
         },
         onCleanText = { jsonText = ScheduleImportParser.cleanMarkdown(jsonText) },
-        fileUploadVisible = fileUploadVisible,
+        fileUploadVisible = aiFileUploadVisible,
         selectedFileName = selectedFileName,
         routeMessage = routeMessage,
         error = error,
         aiParsing = aiParsing,
         onPrimaryAction = {
-            if (selectedMode == 0) parseDraft()
-            else if (fileUploadVisible && !aiParsing) fileLauncher.launch(arrayOf("application/pdf", "image/*"))
+            when (selectedMode) {
+                0 -> parseDraft()
+                1 -> icsFileLauncher.launch(
+                    arrayOf("text/calendar", "application/ics", "application/octet-stream")
+                )
+                else -> if (!aiParsing) {
+                    if (aiFileUploadVisible) {
+                        fileLauncher.launch(arrayOf("application/pdf", "image/*"))
+                    } else {
+                        error = "当前 DeepSeek 不支持 PDF 或图片输入，请切换 OpenAI、MiMo 或自定义视觉模型。"
+                    }
+                }
+            }
         }
     )
 }
@@ -486,33 +525,54 @@ private fun AiManualImportDialogContent(
     val textColor = glassForegroundColor(state.config)
     Column(Modifier.fillMaxSize()) {
         LiquidDialogHeader("手动导入课表", onCancel, backdrop, state.config)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(22.dp))
-                .background(ComposeColor.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.18f else 0.08f))
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("当前 AI", color = textColor.copy(alpha = 0.62f), style = MaterialTheme.typography.labelSmall)
-                Text(
-                    "${aiSettings.profile.displayName} / ${aiSettings.profile.defaultModel}",
-                    color = textColor,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+        if (selectedMode == 1) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(ComposeColor.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.18f else 0.08f))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("ICS 本地导入", color = textColor, style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        "无需 API Key，不会调用 AI",
+                        color = textColor.copy(alpha = 0.62f),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
             }
-            DialogLiquidButton(backdrop, "刷新", onRefreshSettings)
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(ComposeColor.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.18f else 0.08f))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("当前 AI", color = textColor.copy(alpha = 0.62f), style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        "${aiSettings.profile.displayName} / ${aiSettings.profile.defaultModel}",
+                        color = textColor,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                DialogLiquidButton(backdrop, "刷新", onRefreshSettings)
+            }
         }
         BoxWithConstraints(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             LiquidOptionTabs(
                 selectedIndex = selectedMode,
-                labels = listOf("粘贴口令", "上传 PDF/图片"),
+                labels = listOf("粘贴口令", "导入 ICS", "PDF/图片"),
                 backdrop = backdrop,
                 config = state.config,
                 width = maxWidth,
@@ -536,6 +596,22 @@ private fun AiManualImportDialogContent(
                         modifier = Modifier.fillMaxSize()
                     )
                 }
+            } else if (selectedMode == 1) {
+                Column(
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "选择标准 .ics 日历文件后，应用会在本机识别课程时间、重复规则和时区，并直接进入导入预览。",
+                        color = textColor.copy(alpha = 0.76f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        lineHeight = 21.sp
+                    )
+                    selectedFileName?.let { Text("已选择：$it", color = textColor) }
+                    routeMessage?.let {
+                        Text(it, color = textColor.copy(alpha = 0.72f), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             } else {
                 Column(
                     modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
@@ -543,9 +619,9 @@ private fun AiManualImportDialogContent(
                 ) {
                     Text(
                         if (fileUploadVisible) {
-                            "选择 PDF 或课表图片后，将使用当前模型解析并进入导入预览。"
+                            "选择 PDF 或课表图片，文件将使用当前模型解析。ICS 请使用独立的本地导入栏。"
                         } else {
-                            "当前 DeepSeek 配置仅支持文本输入。请切换 OpenAI、MiMo 或自定义视觉模型后上传文件。"
+                            "当前 DeepSeek 不支持 PDF 或图片输入，请切换 OpenAI、MiMo 或自定义视觉模型。"
                         },
                         color = textColor.copy(alpha = 0.76f),
                         style = MaterialTheme.typography.bodyMedium,
@@ -571,8 +647,9 @@ private fun AiManualImportDialogContent(
                 backdrop = backdrop,
                 label = when {
                     selectedMode == 0 -> "解析并预览"
+                    selectedMode == 1 -> "选择 ICS 文件"
                     aiParsing -> "解析中..."
-                    else -> "选择文件并解析"
+                    else -> "选择 PDF/图片并解析"
                 },
                 role = DialogButtonRole.Confirm,
                 iconRes = R.drawable.ic_download,

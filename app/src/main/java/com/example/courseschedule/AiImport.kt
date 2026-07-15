@@ -252,6 +252,10 @@ data class AiImportFile(
     val isText: Boolean get() = mimeType.startsWith("text/", ignoreCase = true) ||
         displayName.endsWith(".txt", ignoreCase = true) ||
         displayName.endsWith(".csv", ignoreCase = true)
+    val isIcs: Boolean get() = mimeType.equals("text/calendar", ignoreCase = true) ||
+        mimeType.equals("application/ics", ignoreCase = true) ||
+        displayName.endsWith(".ics", ignoreCase = true) ||
+        bytes.copyOfRange(0, minOf(bytes.size, 256)).toString(Charsets.UTF_8).contains("BEGIN:VCALENDAR", ignoreCase = true)
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

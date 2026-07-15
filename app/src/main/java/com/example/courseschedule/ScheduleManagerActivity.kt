@@ -1,7 +1,6 @@
 package com.example.courseschedule
 
 import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -86,6 +85,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
@@ -173,6 +173,7 @@ fun ScheduleManagerScreen(
     val chromeBackdrop = backgroundBackdrop
     var deleteCandidate by remember { mutableStateOf<ScheduleProfileEntity?>(null) }
     var renameCandidate by remember { mutableStateOf<ScheduleProfileEntity?>(null) }
+    var showShareOptions by remember { mutableStateOf(false) }
     var deleteReveal by remember { mutableFloatStateOf(0f) }
     var selectedProfileId by remember { mutableIntStateOf(profiles[activeIndex].id) }
     var pendingActivationId by remember { mutableStateOf<Int?>(null) }
@@ -439,12 +440,7 @@ fun ScheduleManagerScreen(
             val buttonSize = if (compact) 48.dp else 52.dp
             val plusOffset = customizeWidth / 2 + if (compact) 52.dp else 58.dp
             LiquidButton(
-                onClick = {
-                    val token = buildSleepDownScheduleToken(centeredConfig, centeredPeriods, centeredCourses)
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("SleepDown 课程表口令", token))
-                    Toast.makeText(context, "课表口令已复制", Toast.LENGTH_SHORT).show()
-                },
+                onClick = { showShareOptions = true },
                 backdrop = chromeBackdrop,
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -536,6 +532,65 @@ fun ScheduleManagerScreen(
             }
         )
     }
+
+    if (showShareOptions) {
+        LiquidAlertDialog(
+            title = "分享课表",
+            message = "选择分享 SleepDown 课表口令，或导出可被日历应用识别的 ICS 文件。随后可在系统分享器中选择发送或保存。",
+            actions = listOf(
+                LiquidAlertAction("分享课表口令", LiquidAlertActionStyle.Primary) {
+                    showShareOptions = false
+                    val token = buildSleepDownScheduleToken(centeredConfig, centeredPeriods, centeredCourses)
+                    shareScheduleToken(context, centeredProfile.name, token)
+                },
+                LiquidAlertAction("分享 ICS 文件", LiquidAlertActionStyle.Secondary) {
+                    showShareOptions = false
+                    scope.launch {
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                IcsScheduleCodec.writeShareFile(
+                                    context = context,
+                                    calendarName = centeredProfile.name,
+                                    config = centeredConfig,
+                                    periods = centeredPeriods,
+                                    courses = centeredCourses
+                                )
+                            }
+                        }.onSuccess { file ->
+                            shareScheduleIcs(context, centeredProfile.name, file)
+                        }.onFailure { error ->
+                            Toast.makeText(context, error.message ?: "ICS 文件生成失败", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) { showShareOptions = false }
+            ),
+            backdrop = chromeBackdrop,
+            config = settingsVisualConfig(state.config),
+            onDismissRequest = { showShareOptions = false }
+        )
+    }
+}
+
+private fun shareScheduleToken(context: Context, scheduleName: String, token: String) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, "$scheduleName - SleepDown 课表口令")
+        putExtra(Intent.EXTRA_TEXT, token)
+    }
+    context.startActivity(Intent.createChooser(intent, "分享课表口令"))
+}
+
+private fun shareScheduleIcs(context: Context, scheduleName: String, file: java.io.File) {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/calendar"
+        putExtra(Intent.EXTRA_SUBJECT, "$scheduleName - SleepDown 课表")
+        putExtra(Intent.EXTRA_STREAM, uri)
+        clipData = ClipData.newRawUri("SleepDown ICS 课表", uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "分享或保存 ICS 课表"))
 }
 
 @Composable
