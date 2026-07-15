@@ -2,6 +2,7 @@ package com.example.courseschedule
 
 import android.graphics.Bitmap
 import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import android.view.View
 import androidx.activity.ComponentActivity
@@ -11,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -40,6 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.LinkedHashMap
 import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 enum class StartupPhase {
@@ -78,7 +81,9 @@ fun StartupJankStats(
     animation: String
 ) {
     val view = LocalView.current
-    val activity = LocalContext.current as? ComponentActivity
+    val context = LocalContext.current
+    val activity = context as? ComponentActivity
+    var courseEditorOpenCount by remember { mutableIntStateOf(0) }
     DisposableEffect(view, activity) {
         var jankStats: JankStats? = null
         fun startTracking() {
@@ -111,10 +116,26 @@ fun StartupJankStats(
 
     LaunchedEffect(view, phase, screen, animation) {
         runCatching {
+            if (animation == "CourseEditorPrepare") {
+                courseEditorOpenCount += 1
+            }
+            val thermalStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                context.getSystemService(PowerManager::class.java)?.currentThermalStatus
+                    ?: PowerManager.THERMAL_STATUS_NONE
+            } else {
+                PowerManager.THERMAL_STATUS_NONE
+            }
             val state = PerformanceMetricsState.getHolderForHierarchy(view).state
             state?.putState("startup_phase", phase.name)
             state?.putState("screen", screen)
             state?.putState("animation", animation)
+            state?.putState("thermal_status", thermalStatus.toString())
+            if (animation.startsWith("CourseEditor")) {
+                state?.putState(
+                    "course_editor_open_kind",
+                    if (courseEditorOpenCount <= 1) "First" else "Repeat"
+                )
+            }
         }
     }
 }
@@ -226,12 +247,14 @@ data class HomeWallpaperImages(
     val source: Bitmap?,
     val reducedSource: Bitmap?,
     val blurredSource: Bitmap?,
-    val blurBucket: Int
+    val blurBucket: Int,
+    val representativeColors: List<Long> = DefaultCourseCardPalette
 )
 
 private data class WallpaperSourceImages(
     val source: Bitmap,
-    val reducedSource: Bitmap?
+    val reducedSource: Bitmap?,
+    val representativeColors: List<Long>
 )
 
 private val wallpaperSourceCache = object : LinkedHashMap<String, WallpaperSourceImages>(6, 0.75f, true) {
@@ -240,6 +263,12 @@ private val wallpaperSourceCache = object : LinkedHashMap<String, WallpaperSourc
 
 private val wallpaperRenderCache = object : LinkedHashMap<String, HomeWallpaperImages>(8, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, HomeWallpaperImages>?): Boolean = size > 4
+}
+
+private fun HomeWallpaperImages.prepareToDraw() = apply {
+    source?.prepareToDraw()
+    reducedSource?.prepareToDraw()
+    blurredSource?.prepareToDraw()
 }
 
 @Composable
@@ -265,7 +294,8 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
             val sourceEntry = cachedSource ?: loadWallpaperBitmap(context, config, useDarkDefaultWallpaper)?.let { source ->
                 WallpaperSourceImages(
                     source = source,
-                    reducedSource = createReducedWallpaperBitmap(source)
+                    reducedSource = createReducedWallpaperBitmap(source),
+                    representativeColors = extractRepresentativeWallpaperColors(source)
                 ).also { entry ->
                     synchronized(wallpaperSourceCache) { wallpaperSourceCache[sourceKey] = entry }
                 }
@@ -274,8 +304,9 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
                 source = sourceEntry?.source,
                 reducedSource = sourceEntry?.reducedSource,
                 blurredSource = createBlurredWallpaperBitmap(sourceEntry?.source, blurBucket),
-                blurBucket = blurBucket
-            )
+                blurBucket = blurBucket,
+                representativeColors = sourceEntry?.representativeColors ?: DefaultCourseCardPalette
+            ).prepareToDraw()
         }
         synchronized(wallpaperRenderCache) { wallpaperRenderCache[renderKey] = loaded }
         images.value = loaded
@@ -284,8 +315,8 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
 }
 
 fun bucketWallpaperBlur(blur: Float): Int {
-    val buckets = intArrayOf(0, 4, 8, 12, 18, 24, 30)
-    return buckets.minBy { kotlin.math.abs(it - blur.toInt()) }
+    val clampedBlur = blur.coerceIn(0f, WallpaperBlurMaxDp)
+    return clampedBlur.roundToInt()
 }
 
 @Composable

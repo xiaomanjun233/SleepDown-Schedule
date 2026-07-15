@@ -686,7 +686,12 @@ fun ScheduleHomeSnapshotPreview(
             loaded = true
         )
     }
-    val cardColor = Color(config.cardColorArgb.toInt()).copy(alpha = if (config.courseCardGlassEnabled) 0.66f else config.cardAlpha)
+    val previewBaseColor = if (config.cardColorArgb == MulticolorCourseCardArgb) {
+        Color(DefaultCourseCardPalette.first().toInt())
+    } else {
+        Color(config.cardColorArgb.toInt())
+    }
+    val cardColor = previewBaseColor.copy(alpha = if (config.courseCardGlassEnabled) 0.66f else config.cardAlpha)
     val textColor = homeForegroundColor(config)
     Box(modifier = modifier.background(if (appUsesDarkTheme(config)) Color(0xFF050505) else Color.White)) {
         if (wallpaperBitmap != null) {
@@ -705,7 +710,7 @@ fun ScheduleHomeSnapshotPreview(
                         Brush.verticalGradient(
                             listOf(
                                 if (appUsesDarkTheme(config)) Color(0xFF101014) else Color(0xFFF7FAFF),
-                                Color(config.cardColorArgb.toInt()).copy(alpha = if (appUsesDarkTheme(config)) 0.22f else 0.30f),
+                                previewBaseColor.copy(alpha = if (appUsesDarkTheme(config)) 0.22f else 0.30f),
                                 if (appUsesDarkTheme(config)) Color(0xFF050505) else Color.White
                             )
                         )
@@ -948,10 +953,11 @@ fun SnapshotCourseBlock(
     CourseGlassCard(
         backdrop = null,
         config = config,
+        course = course,
         modifier = modifier,
         shape = RoundedCornerShape(7.dp)
     ) {
-        val textColor = readableOn(cardColor)
+        val textColor = readableOn(courseCardBaseColor(config, course))
         BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 3.dp, vertical = 2.dp)) {
             val tiny = maxHeight < 28.dp
             Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {

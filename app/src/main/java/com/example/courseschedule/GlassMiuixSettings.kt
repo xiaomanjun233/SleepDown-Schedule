@@ -1,6 +1,7 @@
 package com.example.courseschedule
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -63,8 +64,13 @@ fun GlassMiuixSettingsTheme(
             surfaceVariant = Color.Transparent
         )
     }
+    val overscrollFactory = rememberHapticMiuixOverscrollFactory()
     MiuixTheme(colors = colors) {
-        CompositionLocalProvider(LocalGlassMiuixEnabled provides true, content = content)
+        CompositionLocalProvider(
+            LocalGlassMiuixEnabled provides true,
+            LocalOverscrollFactory provides overscrollFactory,
+            content = content
+        )
     }
 }
 

@@ -113,6 +113,32 @@ data class PeriodEntity(
     val scheduleId: Int = 1
 )
 
+@Entity(tableName = "agent_daily_sessions", primaryKeys = ["scheduleId", "date"])
+@Immutable
+data class AgentDailySessionEntity(
+    val scheduleId: Int,
+    val date: String,
+    val dailyPackJson: String,
+    val providerId: String,
+    val model: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val generationStatus: String,
+    val lastError: String? = null
+)
+
+@Entity(tableName = "agent_messages")
+@Immutable
+data class AgentMessageEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val scheduleId: Int,
+    val sessionDate: String,
+    val role: String,
+    val content: String,
+    val createdAt: Long,
+    val status: String
+)
+
 class ScheduleConverters {
     private val json = Json
 
@@ -277,12 +303,48 @@ interface ScheduleProfileDao {
     suspend fun deleteProfile(profileId: Int)
 }
 
-@Database(entities = [CourseEntity::class, ScheduleProfileEntity::class, ScheduleConfigEntity::class, PeriodEntity::class], version = 24, exportSchema = false)
+@Dao
+interface AgentDao {
+    @Query("SELECT * FROM agent_daily_sessions WHERE scheduleId = :scheduleId AND date = :date LIMIT 1")
+    fun observeSession(scheduleId: Int, date: String): Flow<AgentDailySessionEntity?>
+
+    @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId AND sessionDate = :date ORDER BY createdAt, id")
+    fun observeMessages(scheduleId: Int, date: String): Flow<List<AgentMessageEntity>>
+
+    @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId AND sessionDate = :date ORDER BY createdAt DESC, id DESC LIMIT :limit")
+    suspend fun getRecentMessages(scheduleId: Int, date: String, limit: Int): List<AgentMessageEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSession(session: AgentDailySessionEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMessage(message: AgentMessageEntity): Long
+
+    @Query("DELETE FROM agent_daily_sessions WHERE date < :oldestDate")
+    suspend fun deleteSessionsBefore(oldestDate: String)
+
+    @Query("DELETE FROM agent_messages WHERE sessionDate < :oldestDate")
+    suspend fun deleteMessagesBefore(oldestDate: String)
+}
+
+@Database(
+    entities = [
+        CourseEntity::class,
+        ScheduleProfileEntity::class,
+        ScheduleConfigEntity::class,
+        PeriodEntity::class,
+        AgentDailySessionEntity::class,
+        AgentMessageEntity::class
+    ],
+    version = 25,
+    exportSchema = false
+)
 @TypeConverters(ScheduleConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun courseDao(): CourseDao
     abstract fun configDao(): ConfigDao
     abstract fun scheduleProfileDao(): ScheduleProfileDao
+    abstract fun agentDao(): AgentDao
 }
 
 private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -495,6 +557,17 @@ private val MIGRATION_23_24 = object : Migration(23, 24) {
     }
 }
 
+private fun createAgentTables(db: SupportSQLiteDatabase) {
+    db.execSQL("CREATE TABLE IF NOT EXISTS agent_daily_sessions (scheduleId INTEGER NOT NULL, date TEXT NOT NULL, dailyPackJson TEXT NOT NULL, providerId TEXT NOT NULL, model TEXT NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, generationStatus TEXT NOT NULL, lastError TEXT, PRIMARY KEY(scheduleId, date))")
+    db.execSQL("CREATE TABLE IF NOT EXISTS agent_messages (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, scheduleId INTEGER NOT NULL, sessionDate TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, createdAt INTEGER NOT NULL, status TEXT NOT NULL)")
+}
+
+private val MIGRATION_24_25 = object : Migration(24, 25) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        createAgentTables(db)
+    }
+}
+
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
     if (!db.hasColumn("schedule_config", "wallpaperPortraitCenterX")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperPortraitCenterX REAL DEFAULT 0.5")
     if (!db.hasColumn("schedule_config", "wallpaperPortraitCenterY")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperPortraitCenterY REAL DEFAULT 0.5")
@@ -510,7 +583,7 @@ class CourseScheduleApp : Application() {
     val database: AppDatabase by lazy {
         repairDatabaseFileBeforeRoomOpen(getDatabasePath("course_schedule.db"))
         Room.databaseBuilder(this, AppDatabase::class.java, "course_schedule.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25)
             .build()
     }
     val repository: ScheduleRepository by lazy { ScheduleRepository(database) }
@@ -520,11 +593,13 @@ private fun repairDatabaseFileBeforeRoomOpen(path: File) {
     if (!path.exists()) return
     runCatching {
         SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
-            val needsStructuralRepair = db.version < 24 ||
+            val needsStructuralRepair = db.version < 25 ||
                 !sqliteTableExists(db, "schedule_profiles") ||
                 !sqliteTableExists(db, "schedule_config") ||
                 !sqliteTableExists(db, "periods") ||
                 !sqliteTableExists(db, "courses") ||
+                !sqliteTableExists(db, "agent_daily_sessions") ||
+                !sqliteTableExists(db, "agent_messages") ||
                 !sqliteColumnExists(db, "courses", "scheduleId") ||
                 !sqliteColumnExists(db, "periods", "scheduleId") ||
                 !sqliteColumnExists(db, "schedule_config", "dockAlignment") ||
@@ -548,9 +623,10 @@ private fun repairSQLiteDatabase(db: SQLiteDatabase) {
         }
         repairScheduleConfigTable(db)
         repairPeriodsTable(db)
+        repairAgentTables(db)
         repairActiveScheduleProfiles(db)
         db.execSQL("DROP TABLE IF EXISTS room_master_table")
-        db.setVersion(24)
+        db.setVersion(25)
         db.setTransactionSuccessful()
     } finally {
         db.endTransaction()
@@ -1050,6 +1126,11 @@ class ScheduleRepository(private val database: AppDatabase) {
                 ordered.drop(1).forEach { courseDao.deleteCourse(it.id) }
             }
     }
+}
+
+private fun repairAgentTables(db: SQLiteDatabase) {
+    db.execSQL("CREATE TABLE IF NOT EXISTS agent_daily_sessions (scheduleId INTEGER NOT NULL, date TEXT NOT NULL, dailyPackJson TEXT NOT NULL, providerId TEXT NOT NULL, model TEXT NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, generationStatus TEXT NOT NULL, lastError TEXT, PRIMARY KEY(scheduleId, date))")
+    db.execSQL("CREATE TABLE IF NOT EXISTS agent_messages (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, scheduleId INTEGER NOT NULL, sessionDate TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, createdAt INTEGER NOT NULL, status TEXT NOT NULL)")
 }
 
 private fun repairActiveScheduleProfiles(db: SQLiteDatabase) {

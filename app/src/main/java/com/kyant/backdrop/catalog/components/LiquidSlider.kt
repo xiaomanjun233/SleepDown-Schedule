@@ -128,9 +128,10 @@ fun LiquidSlider(
                                 (if (isLtr) valueRange.start + delta
                                 else valueRange.endInclusive - delta)
                                     .coerceIn(valueRange)
-                            dampedDragAnimation.animateToValue(targetValue)
-                            currentOnValueChange(targetValue)
-                            currentOnValueChangeFinished()
+                            dampedDragAnimation.animateToValueAndThen(targetValue) {
+                                currentOnValueChange(targetValue)
+                                currentOnValueChangeFinished()
+                            }
                         }
                     }
                     .height(6f.dp)

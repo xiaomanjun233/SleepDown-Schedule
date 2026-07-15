@@ -21,11 +21,11 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Base64
 import android.os.Build
+import android.view.WindowManager
 import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
 import android.view.HapticFeedbackConstants
@@ -185,8 +185,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.BlurredEdgeTreatment
-import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.asImageBitmap
@@ -225,6 +225,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.viewinterop.AndroidView
@@ -269,6 +270,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
@@ -301,7 +303,7 @@ sealed interface Screen {
 
 enum class HomeMode { Day, Week }
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, AiImport, Schedule, Notifications, ScheduleManager, About, Changelog, Download, Donate }
+enum class SettingsPage { Root, General, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, About, Changelog, Download, Donate }
 sealed interface EduImportPage {
     data object SelectSchool : EduImportPage
     data class Import(val adapter: EduAdapter) : EduImportPage
@@ -314,6 +316,7 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.Root -> "设置"
     SettingsPage.General -> "通用设置"
     SettingsPage.AiImport -> "AI 导入设置"
+    SettingsPage.DayAgent -> "今日 Agent"
     SettingsPage.Schedule -> "课表设置"
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
@@ -377,8 +380,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var homeDialogVisible by remember { mutableStateOf(false) }
     var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var courseEditorRenderedCourseId by remember { mutableStateOf<Long?>(null) }
-    var courseEditorOverlayPhase by remember { mutableStateOf(CourseEditorOverlayPhase.Idle) }
-    val courseEditorMotionProgress = remember { mutableFloatStateOf(0f) }
+    val courseEditorMotionState = rememberCourseEditorMotionState()
+    val courseEditorOverlayPhase = courseEditorMotionState.phase
     fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?) {
         courseEditorRequest = CourseEditorOverlayRequest(course, targetWeek, sourceBounds)
     }
@@ -548,6 +551,32 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     } else {
         homeDisplayWeek
     }
+    val homeTitleDate = if (homeMode == HomeMode.Day) {
+        homeDisplayDate
+    } else {
+        todayDate
+    }
+    val homeReturnTargetWeek = if (beforeScheduleTerm) 1 else homeCurrentWeek
+    val homeShowingAnotherWeek = homeMode == HomeMode.Week && homeDisplayWeek != homeReturnTargetWeek
+    val visibleHomeCoursesForColor = remember(state.courses, homeMode, homeDisplayDate, homeDisplayWeek) {
+        if (homeMode == HomeMode.Day) {
+            val week = effectiveCurrentWeek(state.config, homeDisplayDate)
+            weekCourseBuckets(state.courses, week)
+                .byWeekday[homeDisplayDate.dayOfWeek.toChineseWeekday()]
+                .orEmpty()
+        } else {
+            coursesVisibleInWeek(state.courses, homeDisplayWeek)
+        }
+    }
+    val homeCourseColorAssignments = remember(
+        visibleHomeCoursesForColor,
+        wallpaperImages.representativeColors
+    ) {
+        buildCourseCardColorAssignments(
+            visibleHomeCoursesForColor,
+            wallpaperImages.representativeColors
+        )
+    }
     val returnHomeToCurrentDateAndWeek = {
         if (beforeScheduleTerm) {
             homeDisplayDate = parseScheduleDate(state.config.termStartDate) ?: LocalDate.now()
@@ -609,13 +638,15 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         LocalStartupPhase provides startupPhase,
         LocalGlassQuality provides glassQuality,
         LocalStartupEntranceSpec provides startupEntranceSpec,
-        LocalAdaptiveGlass provides adaptiveGlassState
+        LocalAdaptiveGlass provides adaptiveGlassState,
+        LocalCourseCardPalette provides wallpaperImages.representativeColors,
+        LocalCourseCardColorAssignments provides homeCourseColorAssignments
     ) {
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
         CourseEditorBackgroundBlurLayer(
-            progress = courseEditorMotionProgress,
+            motionState = courseEditorMotionState,
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
@@ -660,9 +691,10 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                             backdrop = chromeBackdrop,
                             homeMode = homeMode,
                             onHomeModeChange = { homeMode = it },
-                            homeDisplayDate = homeDisplayDate,
+                            homeDisplayDate = homeTitleDate,
                             homeDisplayWeek = homeTitleWeek,
                             beforeScheduleTerm = beforeScheduleTerm,
+                            homeShowingAnotherWeek = homeShowingAnotherWeek,
                             onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
                             addMenuExpanded = addMenuExpanded,
                             onAddButtonPositioned = { addButtonBounds = it },
@@ -744,6 +776,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     onCourseClick = { course, week, sourceBounds ->
                                         openCourseEditor(course, week, sourceBounds)
                                     },
+                                    onAddCourse = viewModel::addCourse,
                                     onUpdateCourseSingleWeek = viewModel::updateCourseSingleWeek,
                                     onDeleteCourseSingleWeek = viewModel::deleteCourseSingleWeek,
                                     onScheduleLongPress = {
@@ -950,15 +983,26 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             closeCourseEditor()
             homeDialog = HomeDialog.ApplyCourseDelete(course, targetWeek ?: effectiveCurrentWeek(state.config))
         },
+        motionState = courseEditorMotionState,
         onRenderedCourseIdChange = { courseEditorRenderedCourseId = it },
-        onPhaseChange = { courseEditorOverlayPhase = it },
-        onMotionProgressChange = { courseEditorMotionProgress.floatValue = it }
+        onPhaseChange = {}
     )
 
     // Dialog-based dialogs for all other types (including EditCourse without a source card)
     renderedHomeDialog?.let { dialog ->
         if (dialog !is HomeDialog.EditCourse || dialog.course == null) {
         Dialog(onDismissRequest = { dismissHomeDialog() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            if (dialog is HomeDialog.ImportSchedule) {
+                val dialogView = LocalView.current
+                DisposableEffect(dialogView) {
+                    val dialogWindow = (dialogView.parent as? DialogWindowProvider)?.window
+                    val previousSoftInputMode = dialogWindow?.attributes?.softInputMode
+                    dialogWindow?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+                    onDispose {
+                        previousSoftInputMode?.let { dialogWindow.setSoftInputMode(it) }
+                    }
+                }
+            }
             AnimatedVisibility(
                 visible = homeDialogVisible,
                 enter = popEnterTransition(),
@@ -1093,22 +1137,22 @@ internal val HomeInitialTopInset = 122.dp
 
 @Composable
 private fun CourseEditorBackgroundBlurLayer(
-    progress: androidx.compose.runtime.State<Float>,
+    motionState: CourseEditorMotionState,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val radius = 16.dp * progress.value.coerceIn(0f, 1f)
+    val density = LocalDensity.current
+    val maxRadiusPx = with(density) { 16.dp.toPx() }
     Box(
-        modifier = modifier.then(
-            if (radius > 0.dp) {
-                Modifier.blur(
-                    radius = radius,
-                    edgeTreatment = BlurredEdgeTreatment.Unbounded
-                )
+        modifier = modifier.graphicsLayer {
+            val radiusPx = maxRadiusPx * motionState.progress.value.coerceIn(0f, 1f)
+            renderEffect = if (radiusPx > 0.01f) {
+                BlurEffect(radiusPx, radiusPx, TileMode.Decal)
             } else {
-                Modifier
+                null
             }
-        ),
+            clip = false
+        },
         content = content
     )
 }
@@ -1342,6 +1386,7 @@ fun AppTopBar(
     homeDisplayDate: LocalDate,
     homeDisplayWeek: Int,
     beforeScheduleTerm: Boolean,
+    homeShowingAnotherWeek: Boolean,
     onReturnHomeToCurrentWeek: () -> Unit,
     addMenuExpanded: Boolean,
     onAddButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
@@ -1370,6 +1415,7 @@ fun AppTopBar(
                     displayDate = homeDisplayDate,
                     displayWeek = homeDisplayWeek,
                     beforeScheduleTerm = beforeScheduleTerm,
+                    showReturnToCurrentWeekHint = homeShowingAnotherWeek,
                     onReturnCurrent = onReturnHomeToCurrentWeek
                 )
             } else {
@@ -1386,6 +1432,7 @@ fun AppTopBar(
                                 SettingsPage.Root -> "设置"
                                 SettingsPage.General -> "通用设置"
                                 SettingsPage.AiImport -> "AI 导入设置"
+                                SettingsPage.DayAgent -> "今日 Agent"
                                 SettingsPage.Schedule -> "课表设置"
                                 SettingsPage.Notifications -> "通知设置"
                                 SettingsPage.ScheduleManager -> "课表设置"
@@ -2431,15 +2478,17 @@ fun PersonalizePanel(
     onUpdateConfig: (ScheduleConfigEntity) -> Unit
 ) {
     val adaptiveHeight = if (state.periods.size >= 10) 72f else 80f
-    var wallpaperBlurDisplay by remember { mutableFloatStateOf(state.config.wallpaperBlur) }
+    var wallpaperBlurDisplay by remember { mutableFloatStateOf(wallpaperBlurPercent(state.config.wallpaperBlur)) }
     var wallpaperBrightnessDisplay by remember { mutableFloatStateOf(state.config.wallpaperBrightness.coerceIn(0.35f, 1f)) }
-    var cardAlphaDisplay by remember { mutableFloatStateOf(state.config.cardAlpha) }
+    var cardAlphaDisplay by remember { mutableFloatStateOf(state.config.cardAlpha.coerceIn(0f, 1f)) }
     var courseCardBlurDisplay by remember { mutableFloatStateOf(state.config.courseCardBlur.coerceIn(0f, 10f) / 10f * 100f) }
     var courseCardFontDisplay by remember { mutableFloatStateOf(state.config.courseCardFontScale) }
     var sliderTouchActive by remember { mutableStateOf(false) }
-    LaunchedEffect(state.config.wallpaperBlur) { wallpaperBlurDisplay = state.config.wallpaperBlur }
+    LaunchedEffect(state.config.wallpaperBlur) {
+        wallpaperBlurDisplay = wallpaperBlurPercent(state.config.wallpaperBlur)
+    }
     LaunchedEffect(state.config.wallpaperBrightness) { wallpaperBrightnessDisplay = state.config.wallpaperBrightness.coerceIn(0.35f, 1f) }
-    LaunchedEffect(state.config.cardAlpha) { cardAlphaDisplay = state.config.cardAlpha }
+    LaunchedEffect(state.config.cardAlpha) { cardAlphaDisplay = state.config.cardAlpha.coerceIn(0f, 1f) }
     LaunchedEffect(state.config.courseCardBlur) { courseCardBlurDisplay = state.config.courseCardBlur.coerceIn(0f, 10f) / 10f * 100f }
     LaunchedEffect(state.config.courseCardFontScale) { courseCardFontDisplay = state.config.courseCardFontScale }
     @Composable
@@ -2496,8 +2545,18 @@ fun PersonalizePanel(
                         )
                     }
                 }
-                Text("壁纸模糊 ${wallpaperBlurDisplay.toInt()}dp", style = MaterialTheme.typography.labelMedium)
-                LiquidControlSlider(state.config.wallpaperBlur, { onUpdateConfig(state.config.copy(wallpaperBlur = it)) }, 0f..30f, backdrop, onLiveValueChange = { wallpaperBlurDisplay = it }, snapValue = 0f, onSliderTouchActiveChange = { sliderTouchActive = it })
+                Text("壁纸模糊 ${wallpaperBlurDisplay.roundToInt()}%", style = MaterialTheme.typography.labelMedium)
+                LiquidControlSlider(
+                    value = wallpaperBlurPercent(state.config.wallpaperBlur),
+                    onValueChange = { percent ->
+                        onUpdateConfig(state.config.copy(wallpaperBlur = wallpaperBlurDp(percent)))
+                    },
+                    valueRange = 0f..100f,
+                    backdrop = backdrop,
+                    onLiveValueChange = { wallpaperBlurDisplay = it },
+                    snapValue = 0f,
+                    onSliderTouchActiveChange = { sliderTouchActive = it }
+                )
                 Text("壁纸亮度 ${(wallpaperBrightnessDisplay.coerceIn(0.35f, 1f) * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
                 LiquidControlSlider(state.config.wallpaperBrightness.coerceIn(0.35f, 1f), { onUpdateConfig(state.config.copy(wallpaperBrightness = it)) }, 0.35f..1f, backdrop, onLiveValueChange = { wallpaperBrightnessDisplay = it }, snapValue = 1f, onSliderTouchActiveChange = { sliderTouchActive = it })
             }
@@ -2521,7 +2580,7 @@ fun PersonalizePanel(
                     listOf(
                         0xFFD6E9FF, 0xFFBFE0FF, 0xFF9ED4FF, 0xFFFFE1E8,
                         0xFFFFC4D6, 0xFFD8F3DC, 0xFFB7E4C7, 0xFFFFF0C2,
-                        0xFFFFD166, 0xFFE8D7FF, 0xFFD7C0FF, 0xFFE8EAED
+                        0xFFFFD166, 0xFFE8D7FF, 0xFFD7C0FF
                     ).forEach { color ->
                         val selected = state.config.cardColorArgb == color
                         Surface(
@@ -2535,11 +2594,39 @@ fun PersonalizePanel(
                             onClick = { onUpdateConfig(state.config.copy(cardColorArgb = color)) }
                         ) {}
                     }
+                    val multicolorSelected = state.config.cardColorArgb == MulticolorCourseCardArgb
+                    Surface(
+                        modifier = Modifier.size(34.dp),
+                        shape = RoundedCornerShape(50),
+                        color = ComposeColor.Transparent,
+                        border = BorderStroke(
+                            if (multicolorSelected) 2.dp else 1.dp,
+                            if (multicolorSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
+                        ),
+                        onClick = { onUpdateConfig(state.config.copy(cardColorArgb = MulticolorCourseCardArgb)) }
+                    ) {
+                        Box(
+                            modifier = Modifier.background(
+                                Brush.sweepGradient(
+                                    listOf(
+                                        ComposeColor(0xFFFF453A),
+                                        ComposeColor(0xFFFFD60A),
+                                        ComposeColor(0xFF30D158),
+                                        ComposeColor(0xFF64D2FF),
+                                        ComposeColor(0xFF0A84FF),
+                                        ComposeColor(0xFFBF5AF2),
+                                        ComposeColor(0xFFFF453A)
+                                    )
+                                )
+                            ),
+                            contentAlignment = Alignment.Center
+                        ) {}
+                    }
                 }
                 LiquidMenuButton(backdrop, "从壁纸取色", onClick = onSampleWallpaperColor)
                 val alphaLabel = if (state.config.courseCardGlassEnabled) "课程卡片着色强度" else "课程卡片不透明度"
                 Text("$alphaLabel ${(cardAlphaDisplay * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
-                LiquidControlSlider(state.config.cardAlpha, { onUpdateConfig(state.config.copy(cardAlpha = it)) }, 0.35f..1f, backdrop, onLiveValueChange = { cardAlphaDisplay = it }, snapValue = 0.5f, onSliderTouchActiveChange = { sliderTouchActive = it })
+                LiquidControlSlider(state.config.cardAlpha.coerceIn(0f, 1f), { onUpdateConfig(state.config.copy(cardAlpha = it)) }, 0f..1f, backdrop, onLiveValueChange = { cardAlphaDisplay = it }, snapValue = 0.5f, onSliderTouchActiveChange = { sliderTouchActive = it })
                 Text("课程卡片模糊 ${courseCardBlurDisplay.toInt()}%", style = MaterialTheme.typography.labelMedium)
                 LiquidControlSlider(
                     value = state.config.courseCardBlur.coerceIn(0f, 10f) / 10f * 100f,
@@ -2702,9 +2789,9 @@ fun DialogLiquidButton(
             height = if (useRoundIcon) 42.dp else 40.dp,
             surfaceColor = surfaceColor,
             contentPadding = if (useRoundIcon) PaddingValues(0.dp) else PaddingValues(horizontal = 15.dp),
-            blurRadius = if (useRoundIcon) 7.dp else 9.dp,
-            lensHeight = if (useRoundIcon) 18.dp else 26.dp,
-            lensAmount = if (useRoundIcon) 24.dp else 32.dp,
+            blurRadius = 3.dp,
+            lensHeight = 16.dp,
+            lensAmount = 24.dp,
             chromaticAberration = false
         ) {
             resolvedIconRes?.let {
@@ -2814,7 +2901,11 @@ fun <T> DialogOptionPicker(
     val textColor = glassForegroundColor(config)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall, color = textColor)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 2.dp)) {
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp)
+        ) {
             items(values.size) { index ->
                 val value = values[index]
                 val active = value == selected
@@ -2859,6 +2950,7 @@ class SettingsDetailActivity : ComponentActivity() {
                     when (section) {
                         SettingsPage.General -> GeneralSettingsScreen(state, backdrop, viewModel::savePersonalization)
                         SettingsPage.AiImport -> AiImportSettingsScreen(state, backdrop)
+                        SettingsPage.DayAgent -> DayAgentSettingsScreen(state, backdrop)
                         SettingsPage.Schedule -> ScheduleConfigScreen(
                             scheduleEditState,
                             backdrop,
@@ -3033,15 +3125,15 @@ fun LiquidControlSlider(
     @Composable
     fun SliderWithSnapMarker(currentValue: Float, onSnapClick: () -> Unit, content: @Composable () -> Unit) {
         val density = LocalDensity.current
+        val latestCurrentValue by rememberUpdatedState(currentValue)
+        val latestTouchActiveChange by rememberUpdatedState(onSliderTouchActiveChange)
         BoxWithConstraints(
             modifier = modifier
                 .fillMaxWidth()
-                .pointerInput(currentValue, valueRange, onSliderTouchActiveChange) {
+                .pointerInput(valueRange) {
                     val thumbInsetPx = with(density) { 10.dp.toPx() }
                     val thumbHitRadiusPx = with(density) { 18.dp.toPx() }
                     val dragLockThresholdPx = with(density) { 4.dp.toPx() }
-                    val thumbFraction = ((currentValue.coerceIn(valueRange) - valueRange.start) / (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
-                    val thumbCenterX = thumbInsetPx + (size.width - thumbInsetPx * 2f).coerceAtLeast(1f) * thumbFraction
                     try {
                         awaitPointerEventScope {
                             var pressed = false
@@ -3059,6 +3151,8 @@ fun LiquidControlSlider(
                                         downTimeMillis = eventTimeMillis
                                         val firstPressed = event.changes.firstOrNull { it.pressed }
                                         thumbPress = firstPressed?.let { change ->
+                                            val thumbFraction = ((latestCurrentValue.coerceIn(valueRange) - valueRange.start) / (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
+                                            val thumbCenterX = thumbInsetPx + (size.width - thumbInsetPx * 2f).coerceAtLeast(1f) * thumbFraction
                                             downX = change.position.x
                                             abs(change.position.x - thumbCenterX) <= thumbHitRadiusPx
                                         } ?: false
@@ -3067,7 +3161,7 @@ fun LiquidControlSlider(
                                     val draggedThumb = abs(currentX - downX) >= dragLockThresholdPx
                                     if (thumbPress && !scrollLocked && (eventTimeMillis - downTimeMillis >= 80L || draggedThumb)) {
                                         scrollLocked = true
-                                        onSliderTouchActiveChange(true)
+                                        latestTouchActiveChange(true)
                                     }
                                 } else if (pressed) {
                                     pressed = false
@@ -3076,13 +3170,13 @@ fun LiquidControlSlider(
                                     downX = 0f
                                     if (scrollLocked) {
                                         scrollLocked = false
-                                        onSliderTouchActiveChange(false)
+                                        latestTouchActiveChange(false)
                                     }
                                 }
                             }
                         }
                     } finally {
-                        onSliderTouchActiveChange(false)
+                        latestTouchActiveChange(false)
                     }
                 }
         ) {
@@ -3129,6 +3223,21 @@ fun LiquidControlSlider(
     if (backdrop != null) {
         var localValue by remember(valueRange) { mutableFloatStateOf(value.coerceIn(valueRange)) }
         var localEditPending by remember(valueRange) { mutableStateOf(false) }
+        val commitScope = rememberCoroutineScope()
+        var commitJob by remember(valueRange) { mutableStateOf<Job?>(null) }
+        fun commitAfterVisualSettle() {
+            if (!localEditPending) return
+            val settledValue = localValue.coerceIn(valueRange)
+            commitJob?.cancel()
+            commitJob = commitScope.launch {
+                withFrameNanos { }
+                withFrameNanos { }
+                if (localEditPending && abs(localValue - settledValue) <= visibilityThreshold) {
+                    onValueChange(settledValue)
+                    localEditPending = false
+                }
+            }
+        }
         LaunchedEffect(value, valueRange) {
             if (!localEditPending) {
                 val coerced = value.coerceIn(valueRange)
@@ -3146,11 +3255,13 @@ fun LiquidControlSlider(
                 localValue = snap
                 onLiveValueChange?.invoke(snap)
                 localEditPending = true
+                commitAfterVisualSettle()
             }
         ) {
             LiquidSlider(
                 value = { localValue },
                 onValueChange = {
+                    commitJob?.cancel()
                     localValue = it.coerceIn(valueRange)
                     onLiveValueChange?.invoke(localValue)
                     localEditPending = true
@@ -3159,17 +3270,27 @@ fun LiquidControlSlider(
                 visibilityThreshold = visibilityThreshold,
                 backdrop = backdrop,
                 modifier = Modifier.fillMaxWidth(),
-                onValueChangeFinished = {
-                    if (localEditPending) {
-                        onValueChange(localValue.coerceIn(valueRange))
-                        localEditPending = false
-                    }
-                }
+                onValueChangeFinished = { commitAfterVisualSettle() }
             )
         }
     } else {
         var localValue by remember(valueRange) { mutableFloatStateOf(value.coerceIn(valueRange)) }
         var localEditPending by remember(valueRange) { mutableStateOf(false) }
+        val commitScope = rememberCoroutineScope()
+        var commitJob by remember(valueRange) { mutableStateOf<Job?>(null) }
+        fun commitAfterVisualSettle() {
+            if (!localEditPending) return
+            val settledValue = localValue.coerceIn(valueRange)
+            commitJob?.cancel()
+            commitJob = commitScope.launch {
+                withFrameNanos { }
+                withFrameNanos { }
+                if (localEditPending && abs(localValue - settledValue) <= visibilityThreshold) {
+                    onValueChange(settledValue)
+                    localEditPending = false
+                }
+            }
+        }
         LaunchedEffect(value, valueRange) {
             if (!localEditPending) {
                 val coerced = value.coerceIn(valueRange)
@@ -3186,23 +3307,19 @@ fun LiquidControlSlider(
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 localValue = snap
                 onLiveValueChange?.invoke(snap)
-                onValueChange(snap)
-                localEditPending = false
+                localEditPending = true
+                commitAfterVisualSettle()
             }
         ) {
             Slider(
                 value = localValue,
                 onValueChange = {
+                    commitJob?.cancel()
                     localValue = it.coerceIn(valueRange)
                     onLiveValueChange?.invoke(localValue)
                     localEditPending = true
                 },
-                onValueChangeFinished = {
-                    if (localEditPending) {
-                        onValueChange(localValue.coerceIn(valueRange))
-                        localEditPending = false
-                    }
-                },
+                onValueChangeFinished = { commitAfterVisualSettle() },
                 valueRange = valueRange,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -3281,6 +3398,7 @@ fun SettingsScreen(
             SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange)
             SettingsPage.General -> GeneralSettingsScreen(state, backdrop, onUpdateConfig)
             SettingsPage.AiImport -> AiImportSettingsScreen(state, backdrop)
+            SettingsPage.DayAgent -> DayAgentSettingsScreen(state, backdrop)
             SettingsPage.Schedule -> ScheduleConfigScreen(state, backdrop, SettingsSection.Schedule, onSave, onPreviewLiveUpdate)
             SettingsPage.Notifications -> ScheduleConfigScreen(state, backdrop, SettingsSection.Notifications, onSave, onPreviewLiveUpdate)
             SettingsPage.ScheduleManager -> ScheduleManagerScreen(state, backdrop, onCreateSchedule, onActivateSchedule, onRenameSchedule, onDeleteSchedule)
@@ -3295,6 +3413,7 @@ fun SettingsScreen(
 @Composable
 fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (SettingsPage) -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val versionName = remember {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
@@ -3304,6 +3423,56 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
         runCatching {
             context.packageManager.getApplicationLabel(context.applicationInfo).toString()
         }.getOrDefault("SleepDown课程表")
+    }
+    var updateDialog by remember { mutableStateOf<SettingsUpdateDialog?>(null) }
+    var downloadedUpdate by remember { mutableStateOf<java.io.File?>(null) }
+    val installPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val apk = downloadedUpdate
+        if (apk != null && GiteeAppUpdater.canRequestPackageInstalls(context)) {
+            runCatching { GiteeAppUpdater.launchInstaller(context, apk) }
+                .onFailure { updateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
+        }
+    }
+
+    fun checkForUpdate() {
+        if (updateDialog is SettingsUpdateDialog.Checking || updateDialog is SettingsUpdateDialog.Downloading) return
+        updateDialog = SettingsUpdateDialog.Checking
+        scope.launch {
+            updateDialog = GiteeAppUpdater.checkForUpdate(versionName).fold(
+                onSuccess = { result ->
+                    when (result) {
+                        is GiteeUpdateCheckResult.UpdateAvailable -> SettingsUpdateDialog.Available(result.release)
+                        is GiteeUpdateCheckResult.UpToDate -> SettingsUpdateDialog.UpToDate(result.release.tagName)
+                    }
+                },
+                onFailure = { SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
+            )
+        }
+    }
+
+    fun downloadAndInstall(release: GiteeReleaseInfo) {
+        if (release.apkUrl == null) {
+            updateDialog = SettingsUpdateDialog.NoApk(release)
+            return
+        }
+        updateDialog = SettingsUpdateDialog.Downloading(release)
+        scope.launch {
+            GiteeAppUpdater.downloadApk(context, release).fold(
+                onSuccess = { apk ->
+                    downloadedUpdate = apk
+                    if (GiteeAppUpdater.canRequestPackageInstalls(context)) {
+                        runCatching { GiteeAppUpdater.launchInstaller(context, apk) }
+                            .onSuccess { updateDialog = null }
+                            .onFailure { updateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
+                    } else {
+                        updateDialog = SettingsUpdateDialog.InstallPermissionRequired
+                    }
+                },
+                onFailure = { updateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
+            )
+        }
     }
     GlassMiuixRootSettingsScaffold(
         title = "设置",
@@ -3350,8 +3519,12 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
                 )
                 SettingsNavigationRow(
                     "下载新版",
-                    "打开备用下载页面",
-                    onClick = { onPageChange(SettingsPage.Download) }
+                    when (updateDialog) {
+                        SettingsUpdateDialog.Checking -> "正在检查 Gitee Release…"
+                        is SettingsUpdateDialog.Downloading -> "正在下载 APK 安装包…"
+                        else -> "从 Gitee 检查更新"
+                    },
+                    onClick = ::checkForUpdate
                 )
             }
         }
@@ -3374,6 +3547,13 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
             }
         }
         item {
+            GlassPreferenceSection("智能助手") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsNavigationRow("今日 Agent", "管理日视图助手、每日文案与天气。", onClick = { onPageChange(SettingsPage.DayAgent) })
+                }
+            }
+        }
+        item {
             GlassPreferenceSection("其他") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow("关于", "软件信息与开源引用", onClick = { onPageChange(SettingsPage.About) })
@@ -3382,7 +3562,125 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
         }
         }
     }
+
+    SettingsUpdateDialogHost(
+        dialog = updateDialog,
+        backdrop = backdrop,
+        config = state.config,
+        onDismiss = { updateDialog = null },
+        onRetry = ::checkForUpdate,
+        onDownload = ::downloadAndInstall,
+        onOpenRelease = { release ->
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.releaseUrl)))
+        },
+        onOpenBackup = { onPageChange(SettingsPage.Download); updateDialog = null },
+        onRequestInstallPermission = {
+            installPermissionLauncher.launch(GiteeAppUpdater.unknownSourcesSettingsIntent(context))
+        }
+    )
 }
+
+private sealed interface SettingsUpdateDialog {
+    data object Checking : SettingsUpdateDialog
+    data class Available(val release: GiteeReleaseInfo) : SettingsUpdateDialog
+    data class UpToDate(val latestTag: String) : SettingsUpdateDialog
+    data class Downloading(val release: GiteeReleaseInfo) : SettingsUpdateDialog
+    data class NoApk(val release: GiteeReleaseInfo) : SettingsUpdateDialog
+    data class Error(val message: String) : SettingsUpdateDialog
+    data object InstallPermissionRequired : SettingsUpdateDialog
+}
+
+@Composable
+private fun SettingsUpdateDialogHost(
+    dialog: SettingsUpdateDialog?,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onDismiss: () -> Unit,
+    onRetry: () -> Unit,
+    onDownload: (GiteeReleaseInfo) -> Unit,
+    onOpenRelease: (GiteeReleaseInfo) -> Unit,
+    onOpenBackup: () -> Unit,
+    onRequestInstallPermission: () -> Unit
+) {
+    when (dialog) {
+        null -> Unit
+        SettingsUpdateDialog.Checking -> LiquidAlertDialog(
+            title = "正在检查更新",
+            message = "正在读取 Gitee 上最新的 SleepDown-Schedule Release。",
+            actions = listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onDismiss)),
+            backdrop = backdrop,
+            config = config,
+            onDismissRequest = onDismiss
+        )
+        is SettingsUpdateDialog.Available -> {
+            val release = dialog.release
+            val notes = release.notes.trim().take(520).ifBlank { "该版本没有填写更新说明。" }
+            LiquidAlertDialog(
+                title = "发现新版本 ${release.name}",
+                message = "$notes\n\n当前将从 Gitee 下载 APK，安装前仍会由系统向你确认。",
+                actions = listOf(
+                    LiquidAlertAction("稍后", LiquidAlertActionStyle.Secondary, onDismiss),
+                    LiquidAlertAction("下载并安装", LiquidAlertActionStyle.Primary) { onDownload(release) }
+                ),
+                backdrop = backdrop,
+                config = config,
+                onDismissRequest = onDismiss
+            )
+        }
+        is SettingsUpdateDialog.UpToDate -> LiquidAlertDialog(
+            title = "已是最新版本",
+            message = "当前安装版本已不低于 Gitee 最新 Release（${dialog.latestTag}）。",
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onDismiss)),
+            backdrop = backdrop,
+            config = config,
+            onDismissRequest = onDismiss
+        )
+        is SettingsUpdateDialog.Downloading -> LiquidAlertDialog(
+            title = "正在下载 ${dialog.release.name}",
+            message = "正在从 Gitee 下载 APK，请保持网络连接。下载完成后将打开系统安装确认页面。",
+            actions = listOf(LiquidAlertAction("请稍候", LiquidAlertActionStyle.Secondary) {}),
+            backdrop = backdrop,
+            config = config,
+            onDismissRequest = {}
+        )
+        is SettingsUpdateDialog.NoApk -> LiquidAlertDialog(
+            title = "Release 中没有 APK",
+            message = "已找到 ${dialog.release.name}，但该 Release 没有附带 APK 安装包。可以查看发行版，或使用备用下载页。",
+            actions = listOf(
+                LiquidAlertAction("备用下载", LiquidAlertActionStyle.Secondary, onOpenBackup),
+                LiquidAlertAction("查看发行版", LiquidAlertActionStyle.Primary) { onOpenRelease(dialog.release) }
+            ),
+            backdrop = backdrop,
+            config = config,
+            onDismissRequest = onDismiss
+        )
+        is SettingsUpdateDialog.Error -> LiquidAlertDialog(
+            title = "检查更新失败",
+            message = dialog.message,
+            actions = listOf(
+                LiquidAlertAction("备用下载", LiquidAlertActionStyle.Secondary, onOpenBackup),
+                LiquidAlertAction("重试", LiquidAlertActionStyle.Primary, onRetry)
+            ),
+            backdrop = backdrop,
+            config = config,
+            onDismissRequest = onDismiss
+        )
+        SettingsUpdateDialog.InstallPermissionRequired -> LiquidAlertDialog(
+            title = "允许安装更新",
+            message = "Android 需要你先允许 SleepDown 安装来自 Gitee 的更新。授权返回后会继续打开系统安装确认页面。",
+            actions = listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onDismiss),
+                LiquidAlertAction("去授权", LiquidAlertActionStyle.Primary, onRequestInstallPermission)
+            ),
+            backdrop = backdrop,
+            config = config,
+            onDismissRequest = onDismiss
+        )
+    }
+}
+
+private fun Throwable.readableUpdateMessage(): String =
+    message?.takeIf { it.isNotBlank() } ?: "网络请求或安装包处理失败，请稍后重试。"
 
 @Composable
 fun ScheduleManagerScreen(
@@ -3614,6 +3912,8 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.0.1", "新增今日助手，可结合当天课程与时间生成日程提醒，并支持快捷提问；新增课程卡片彩色模式，可从壁纸提取代表色并为同页课程分配不同配色；优化周视图课程卡片排版，课程名称、地点与教师信息层级更清晰。")
+                SettingsDivider()
                 SettingsInfoRow("1.0", "优化二级页面排版。")
                 SettingsInfoRow("1.10 beta", "优化页面切换与周视图渲染性能；新增快速编辑当前周卡片功能，长按卡片会弹出角标和删除按钮，拖拽把手可以修改课程持续时间，按住卡片拖拽可以修改上课时间，编辑体验更顺畅；修复了导入未来学期课表时，无法正确映射第一周的问题。")
                 SettingsDivider()

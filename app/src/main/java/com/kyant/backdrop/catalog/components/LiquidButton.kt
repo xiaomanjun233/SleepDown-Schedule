@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -129,4 +130,38 @@ fun LiquidButton(
         verticalAlignment = Alignment.CenterVertically,
         content = content
     )
+}
+
+@Composable
+fun Modifier.liquidButtonInteraction(
+    onClick: () -> Unit,
+    isInteractive: Boolean = true,
+    showHighlight: Boolean = true
+): Modifier {
+    if (!isInteractive) {
+        return clickable(role = Role.Button, onClick = onClick)
+    }
+    val animationScope = rememberCoroutineScope()
+    val interactiveHighlight = remember(animationScope) {
+        InteractiveHighlight(animationScope = animationScope)
+    }
+    return graphicsLayer {
+        val progress = interactiveHighlight.pressProgress
+        val height = size.height.coerceAtLeast(1f)
+        val width = size.width.coerceAtLeast(1f)
+        val scale = lerp(1f, 1f + 4f.dp.toPx() / height, progress)
+        val maxOffset = size.minDimension.coerceAtLeast(1f)
+        val offset = interactiveHighlight.offset
+        translationX = maxOffset * tanh(0.05f * offset.x / maxOffset)
+        translationY = maxOffset * tanh(0.05f * offset.y / maxOffset)
+        val maxDragScale = 4f.dp.toPx() / height
+        val offsetAngle = atan2(offset.y, offset.x)
+        scaleX = scale + maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension.coerceAtLeast(1f)) *
+            (width / height).fastCoerceAtMost(1f)
+        scaleY = scale + maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension.coerceAtLeast(1f)) *
+            (height / width).fastCoerceAtMost(1f)
+    }
+        .clickable(interactionSource = null, indication = null, role = Role.Button, onClick = onClick)
+        .then(if (showHighlight) interactiveHighlight.modifier else Modifier)
+        .then(interactiveHighlight.gestureModifier)
 }

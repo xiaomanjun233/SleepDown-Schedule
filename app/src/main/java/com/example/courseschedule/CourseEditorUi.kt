@@ -161,6 +161,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -315,7 +316,7 @@ fun CourseEditorScreen(
     val dialogTextColor = glassForegroundColor(state.config)
 
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
+        item(key = "header", contentType = "header") {
             NormalizedDialogHeader(
                 title = if (initialCourse == null) "添加单节课" else "编辑单节课",
                 onCancel = onCancel,
@@ -350,7 +351,7 @@ fun CourseEditorScreen(
         item { OutlinedTextField(teacher, { teacher = it }, label = { Text("教师") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodyLarge.copy(color = dialogTextColor)) }
         item { OutlinedTextField(location, { location = it }, label = { Text("地点") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodyLarge.copy(color = dialogTextColor)) }
         item { WheelPicker("星期", (1..7).toList(), weekday, { weekday = it }) { "周" + weekdayLabel(it) } }
-        item {
+        item(key = "period-range", contentType = "range-picker") {
             RangeWheelPicker(
                 title = "节次",
                 values = periodValues,
@@ -362,7 +363,7 @@ fun CourseEditorScreen(
                 onInputValidChange = { periodInputValid = it }
             ) { "第" + it + "节" }
         }
-        item {
+        item(key = "week-range", contentType = "range-picker") {
             RangeWheelPicker(
                 title = "周次",
                 values = (1..state.config.totalWeeks).toList(),
@@ -434,32 +435,64 @@ fun NormalizedCourseEditorScreen(
     onDelete: (CourseEntity) -> Unit,
     backdrop: Backdrop?
 ) {
+    val formData = remember(state.config, state.periods) {
+        CourseEditorFormData(
+            config = state.config,
+            periods = state.periods
+        )
+    }
+    NormalizedCourseEditorScreen(
+        formData = formData,
+        initialCourse = initialCourse,
+        onCancel = onCancel,
+        onSave = onSave,
+        onDelete = onDelete,
+        backdrop = backdrop
+    )
+}
+
+@Immutable
+data class CourseEditorFormData(
+    val config: ScheduleConfigEntity,
+    val periods: List<PeriodEntity>
+)
+
+@Composable
+fun NormalizedCourseEditorScreen(
+    formData: CourseEditorFormData,
+    initialCourse: CourseEntity?,
+    onCancel: () -> Unit,
+    onSave: (CourseEntity) -> Unit,
+    onDelete: (CourseEntity) -> Unit,
+    backdrop: Backdrop?
+) {
+    val config = formData.config
     var name by remember(initialCourse) { mutableStateOf(initialCourse?.name.orEmpty()) }
     var teacher by remember(initialCourse) { mutableStateOf(initialCourse?.teacher.orEmpty()) }
     var location by remember(initialCourse) { mutableStateOf(initialCourse?.location.orEmpty()) }
     var weekday by remember(initialCourse) { mutableIntStateOf(initialCourse?.weekday ?: 1) }
-    val rawPeriodValues = state.periods.map { it.periodIndex }
+    val rawPeriodValues = remember(formData.periods) { formData.periods.map { it.periodIndex } }
     val coursePeriodValues = initialCourse?.periods.orEmpty()
     val periodValues = (rawPeriodValues + coursePeriodValues).distinct().sorted()
     var periodStart by remember(initialCourse, periodValues) { mutableIntStateOf(initialCourse?.periods?.minOrNull() ?: (periodValues.firstOrNull() ?: 1)) }
     var periodEnd by remember(initialCourse, periodValues) { mutableIntStateOf(initialCourse?.periods?.maxOrNull() ?: periodStart) }
-    var weekStart by remember(initialCourse, state.config.totalWeeks) { mutableIntStateOf(initialCourse?.weeks?.minOrNull() ?: 1) }
-    var weekEnd by remember(initialCourse, state.config.totalWeeks) { mutableIntStateOf(initialCourse?.weeks?.maxOrNull() ?: state.config.totalWeeks) }
+    var weekStart by remember(initialCourse, config.totalWeeks) { mutableIntStateOf(initialCourse?.weeks?.minOrNull() ?: 1) }
+    var weekEnd by remember(initialCourse, config.totalWeeks) { mutableIntStateOf(initialCourse?.weeks?.maxOrNull() ?: config.totalWeeks) }
     var parity by remember(initialCourse) { mutableStateOf(initialCourse?.weekParity ?: WeekParity.ALL) }
     var note by remember(initialCourse) { mutableStateOf(initialCourse?.note.orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
     var periodInputValid by remember(initialCourse, periodValues) { mutableStateOf(true) }
-    var weekInputValid by remember(initialCourse, state.config.totalWeeks) { mutableStateOf(true) }
+    var weekInputValid by remember(initialCourse, config.totalWeeks) { mutableStateOf(true) }
     val selectedPeriods = if (periodStart <= periodEnd) periodValues.filter { it in periodStart..periodEnd } else emptyList()
     val selectedWeeks = if (weekStart <= weekEnd) (weekStart..weekEnd).toList() else emptyList()
 
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
+        item(key = "header", contentType = "header") {
             DialogHeader(
                 title = if (initialCourse == null) "\u6DFB\u52A0\u5355\u8282\u8BFE" else "\u7F16\u8F91\u5355\u8282\u8BFE",
                 onCancel = onCancel,
                 backdrop = backdrop,
-                config = state.config,
+                config = config,
                 onSave = {
                     when {
                         name.isBlank() -> error = "\u8BFE\u7A0B\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A"
@@ -485,11 +518,11 @@ fun NormalizedCourseEditorScreen(
                 }
             )
         }
-        item { DialogCapsuleField(name, { name = it }, "\u8BFE\u7A0B\u540D\u79F0", state.config, Modifier.fillMaxWidth()) }
-        item { DialogCapsuleField(teacher, { teacher = it }, "\u6559\u5E08", state.config, Modifier.fillMaxWidth()) }
-        item { DialogCapsuleField(location, { location = it }, "\u5730\u70B9", state.config, Modifier.fillMaxWidth()) }
-        item { WheelPicker("\u661F\u671F", (1..7).toList(), weekday, { weekday = it }, backdrop, state.config) { "\u5468" + weekdayLabel(it) } }
-        item {
+        item(key = "course-name", contentType = "field") { DialogCapsuleField(name, { name = it }, "\u8BFE\u7A0B\u540D\u79F0", config, Modifier.fillMaxWidth()) }
+        item(key = "teacher", contentType = "field") { DialogCapsuleField(teacher, { teacher = it }, "\u6559\u5E08", config, Modifier.fillMaxWidth()) }
+        item(key = "location", contentType = "field") { DialogCapsuleField(location, { location = it }, "\u5730\u70B9", config, Modifier.fillMaxWidth()) }
+        item(key = "weekday", contentType = "picker") { WheelPicker("\u661F\u671F", (1..7).toList(), weekday, { weekday = it }, backdrop, config) { "\u5468" + weekdayLabel(it) } }
+        item(key = "period-range", contentType = "range-picker") {
             DialogRangePicker(
                 title = "\u8282\u6B21",
                 values = periodValues,
@@ -498,32 +531,34 @@ fun NormalizedCourseEditorScreen(
                 onStart = { periodStart = it },
                 onEnd = { periodEnd = it },
                 backdrop = backdrop,
-                config = state.config,
+                config = config,
                 enforceOrderedInput = true,
                 onInputValidChange = { periodInputValid = it }
             ) { "\u7B2C" + it + "\u8282" }
         }
-        item {
+        item(key = "week-range", contentType = "range-picker") {
             DialogRangePicker(
                 title = "\u5468\u6B21",
-                values = (1..state.config.totalWeeks).toList(),
+                values = remember(config.totalWeeks) { (1..config.totalWeeks).toList() },
                 start = weekStart,
                 end = weekEnd,
                 onStart = { weekStart = it },
                 onEnd = { weekEnd = it },
                 backdrop = backdrop,
-                config = state.config,
+                config = config,
                 enforceOrderedInput = true,
                 onInputValidChange = { weekInputValid = it },
                 invalidRangeMessage = "\u5F53\u524D\u7ED3\u675F\u5468\u65E9\u4E8E\u5F00\u59CB\u5468"
             ) { "\u7B2C" + it + "\u5468" }
         }
-        item { WheelPicker("\u5355\u53CC\u5468", WeekParity.entries, parity, { parity = it }, backdrop, state.config) { parityLabel(it) } }
-        item { DialogCapsuleField(note, { note = it }, "\u5907\u6CE8", state.config, Modifier.fillMaxWidth()) }
+        item(key = "parity", contentType = "picker") { WheelPicker("\u5355\u53CC\u5468", WeekParity.entries, parity, { parity = it }, backdrop, config) { parityLabel(it) } }
+        item(key = "note", contentType = "field") { DialogCapsuleField(note, { note = it }, "\u5907\u6CE8", config, Modifier.fillMaxWidth()) }
         if (initialCourse != null) {
-            item { DialogLiquidButton(backdrop, "\u5220\u9664\u8BFE\u7A0B", { onDelete(initialCourse) }, role = DialogButtonRole.Cancel) }
+            item(key = "delete", contentType = "action") { DialogLiquidButton(backdrop, "\u5220\u9664\u8BFE\u7A0B", { onDelete(initialCourse) }, role = DialogButtonRole.Cancel) }
         }
-        error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+        error?.let { message ->
+            item(key = "error", contentType = "message") { Text(message, color = MaterialTheme.colorScheme.error) }
+        }
     }
 }
 
@@ -676,7 +711,11 @@ fun DialogRangePicker(
 fun MultiWheelPicker(title: String, values: List<Int>, selected: Set<Int>, onSelected: (Set<Int>) -> Unit, label: (Int) -> String) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 2.dp)) {
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp)
+        ) {
             items(values.size) { index ->
                 val value = values[index]
                 val active = value in selected

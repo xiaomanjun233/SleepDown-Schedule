@@ -304,9 +304,9 @@ private fun LiquidAlertActionButton(
             height = 50.dp,
             surfaceColor = surfaceColor,
             contentPadding = PaddingValues(horizontal = 16.dp),
-            blurRadius = 8.dp,
-            lensHeight = 24.dp,
-            lensAmount = 28.dp,
+            blurRadius = 3.dp,
+            lensHeight = 16.dp,
+            lensAmount = 24.dp,
             chromaticAberration = false
         ) {
             Text(

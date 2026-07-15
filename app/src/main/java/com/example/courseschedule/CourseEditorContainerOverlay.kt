@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -23,7 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.TextUnit
@@ -71,6 +73,16 @@ enum class CourseEditorOverlayPhase {
     Disposing
 }
 
+@Stable
+class CourseEditorMotionState internal constructor() {
+    val progress = Animatable(0f)
+    var phase by mutableStateOf(CourseEditorOverlayPhase.Idle)
+        internal set
+}
+
+@Composable
+fun rememberCourseEditorMotionState(): CourseEditorMotionState = remember { CourseEditorMotionState() }
+
 data class CourseEditorOverlayRequest(
     val course: CourseEntity,
     val targetWeek: Int?,
@@ -87,24 +99,22 @@ fun CourseEditorContainerOverlayHost(
     onDismissRequest: () -> Unit,
     onSave: (original: CourseEntity, edited: CourseEntity, targetWeek: Int?) -> Unit,
     onDelete: (course: CourseEntity, targetWeek: Int?) -> Unit,
+    motionState: CourseEditorMotionState,
     onRenderedCourseIdChange: (Long?) -> Unit = {},
-    onPhaseChange: (CourseEditorOverlayPhase) -> Unit = {},
-    onMotionProgressChange: (Float) -> Unit = {}
+    onPhaseChange: (CourseEditorOverlayPhase) -> Unit = {}
 ) {
     var renderedRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     var editorContentMounted by remember { mutableStateOf(false) }
     var editorContentReady by remember { mutableStateOf(false) }
-    var overlayPhase by remember { mutableStateOf(CourseEditorOverlayPhase.Idle) }
-    val progress = remember { Animatable(0f) }
+    val progress = motionState.progress
     val editorContentAlpha = remember { Animatable(0f) }
     val editorContentReveal = remember { Animatable(0f) }
     val latestOnRenderedCourseIdChange by rememberUpdatedState(onRenderedCourseIdChange)
     val latestOnPhaseChange by rememberUpdatedState(onPhaseChange)
-    val latestOnMotionProgressChange by rememberUpdatedState(onMotionProgressChange)
 
     fun updatePhase(phase: CourseEditorOverlayPhase) {
-        overlayPhase = phase
+        motionState.phase = phase
         latestOnPhaseChange(phase)
     }
 
@@ -175,10 +185,9 @@ fun CourseEditorContainerOverlayHost(
             updatePhase(CourseEditorOverlayPhase.Disposing)
             renderedRequest = null
             latestOnRenderedCourseIdChange(null)
-            latestOnMotionProgressChange(0f)
             updatePhase(CourseEditorOverlayPhase.Idle)
         } else {
-            if (overlayPhase != CourseEditorOverlayPhase.Idle || editorContentMounted || renderedRequest != null) {
+            if (motionState.phase != CourseEditorOverlayPhase.Idle || editorContentMounted || renderedRequest != null) {
                 updatePhase(CourseEditorOverlayPhase.Disposing)
             }
             editorContentMounted = false
@@ -186,15 +195,27 @@ fun CourseEditorContainerOverlayHost(
             editorContentAlpha.snapTo(0f)
             editorContentReveal.snapTo(0f)
             latestOnRenderedCourseIdChange(null)
-            latestOnMotionProgressChange(0f)
-            if (overlayPhase != CourseEditorOverlayPhase.Idle) {
+            if (motionState.phase != CourseEditorOverlayPhase.Idle) {
                 updatePhase(CourseEditorOverlayPhase.Idle)
             }
         }
     }
 
+    val overlayPhase = motionState.phase
     val isOverlayActive = overlayPhase != CourseEditorOverlayPhase.Idle
     val shownRequest = request ?: renderedRequest ?: return
+    val formData = remember(state.config, state.periods) {
+        CourseEditorFormData(
+            config = state.config,
+            periods = state.periods
+        )
+    }
+    val saveEditedCourse = remember(shownRequest.course, shownRequest.targetWeek, onSave) {
+        { edited: CourseEntity -> onSave(shownRequest.course, edited, shownRequest.targetWeek) }
+    }
+    val deleteEditedCourse = remember(shownRequest.targetWeek, onDelete) {
+        { deleteCourse: CourseEntity -> onDelete(deleteCourse, shownRequest.targetWeek) }
+    }
     BackHandler(enabled = isOverlayActive) {
         onDismissRequest()
     }
@@ -248,13 +269,10 @@ fun CourseEditorContainerOverlayHost(
             .toDp()
     }
     val backgroundDepthProgress = smoothStep(0.04f, 0.86f, alphaProgress)
-    SideEffect {
-        latestOnMotionProgressChange(backgroundDepthProgress)
-    }
     val contentAlpha = if (editorContentMounted) editorContentAlpha.value else 0f
     val contentReveal = if (editorContentMounted) editorContentReveal.value.coerceIn(0f, 1f) else 0f
     val morphSurfaceAlpha = 1f
-    val editorFormBackdrop = if (overlayPhase == CourseEditorOverlayPhase.Open) backdrop else null
+    val editorFormBackdrop = backdrop
     val sourceCoverAlpha = if (hasSourceTransform) {
         when (overlayPhase) {
             CourseEditorOverlayPhase.Opening,
@@ -291,6 +309,7 @@ fun CourseEditorContainerOverlayHost(
         CourseEditorAnimatedContainer(
             backdrop = backdrop,
             config = config,
+            course = shownRequest.course,
             corner = corner,
             progress = alphaProgress,
             alpha = morphSurfaceAlpha,
@@ -309,14 +328,13 @@ fun CourseEditorContainerOverlayHost(
                         contentReveal = contentReveal,
                         revealPath = revealPath,
                         textColor = textColor,
-                        state = state,
+                        formData = formData,
                         course = shownRequest.course,
-                        targetWeek = shownRequest.targetWeek,
                         backdrop = editorFormBackdrop,
                         onContentLaidOut = { editorContentReady = true },
                         onDismissRequest = onDismissRequest,
-                        onSave = onSave,
-                        onDelete = onDelete
+                        onSave = saveEditedCourse,
+                        onDelete = deleteEditedCourse
                     )
                 }
                 if (sourceCoverAlpha > 0.001f) {
@@ -343,14 +361,13 @@ private fun CourseEditorScaledContentLayer(
     contentReveal: Float,
     revealPath: Path,
     textColor: Color,
-    state: AppState,
+    formData: CourseEditorFormData,
     course: CourseEntity,
-    targetWeek: Int?,
     backdrop: Backdrop?,
     onContentLaidOut: () -> Unit,
     onDismissRequest: () -> Unit,
-    onSave: (original: CourseEntity, edited: CourseEntity, targetWeek: Int?) -> Unit,
-    onDelete: (course: CourseEntity, targetWeek: Int?) -> Unit
+    onSave: (CourseEntity) -> Unit,
+    onDelete: (CourseEntity) -> Unit
 ) {
     if (targetRect.width <= 1f || targetRect.height <= 1f || animatedRect.width <= 1f || animatedRect.height <= 1f) {
         return
@@ -406,11 +423,11 @@ private fun CourseEditorScaledContentLayer(
         ) {
             CompositionLocalProvider(LocalContentColor provides textColor) {
                 NormalizedCourseEditorScreen(
-                    state = state,
+                    formData = formData,
                     initialCourse = course,
                     onCancel = onDismissRequest,
-                    onSave = { edited -> onSave(course, edited, targetWeek) },
-                    onDelete = { deleteCourse -> onDelete(deleteCourse, targetWeek) },
+                    onSave = onSave,
+                    onDelete = onDelete,
                     backdrop = backdrop
                 )
             }
@@ -422,6 +439,7 @@ private fun CourseEditorScaledContentLayer(
 private fun CourseEditorAnimatedContainer(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
+    course: CourseEntity,
     corner: androidx.compose.ui.unit.Dp,
     progress: Float,
     alpha: Float,
@@ -440,6 +458,7 @@ private fun CourseEditorAnimatedContainer(
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
+        course = course,
         modifier = modifier.graphicsLayer { this.alpha = alpha },
         shape = shape,
         blurOverride = editorBlur
@@ -531,7 +550,7 @@ private fun CourseEditorDaySourceContent(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity
 ) {
-    val cardColor = Color(config.cardColorArgb.toInt()).copy(alpha = config.cardAlpha.coerceIn(0.28f, 1f))
+    val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
         else readableOn(cardColor)
@@ -572,7 +591,7 @@ private fun CourseEditorWeekSourceContent(
     val locationText = course.location.orEmpty()
     val hasLocation = locationText.isNotBlank()
     val hasTeacher = !course.teacher.isNullOrBlank()
-    val cardColor = Color(config.cardColorArgb.toInt()).copy(alpha = config.cardAlpha.coerceIn(0.28f, 1f))
+    val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
         else readableOn(cardColor)
@@ -609,7 +628,7 @@ private fun CourseEditorWeekSourceContent(
             return ceil(text.length.toFloat() / charsPerLine).toInt().coerceAtLeast(1)
         }
 
-        val canShowTeacher = hasTeacher && heightDp >= 104f
+        val canShowTeacher = hasTeacher && heightDp >= 52f
         val teacherLines = if (canShowTeacher) 1 else 0
         val teacherPx = if (teacherLines > 0) with(density) { teacherLineHeight.toPx() } else 0f
         val usablePx = (availableTextPx - teacherPx).coerceAtLeast(0f)
@@ -660,36 +679,65 @@ private fun CourseEditorWeekSourceContent(
             nameLines = (totalSlots - locationLines).coerceAtLeast(1)
         }
 
-        Column(modifier = Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-            Text(
-                course.name,
-                fontSize = nameFont,
-                lineHeight = nameLineHeight,
-                fontWeight = FontWeight.SemiBold,
-                color = textColor,
-                maxLines = nameLines,
-                overflow = TextOverflow.Ellipsis
-            )
+        val renderedLocationLines = minOf(locationLines, wantedLocationLines).coerceAtLeast(0)
+        val locationReserve = if (hasLocation && renderedLocationLines > 0) {
+            with(density) { (locationLineHeight.toPx() * renderedLocationLines).toDp() }
+        } else {
+            0.dp
+        }
+        val teacherReserve = if (canShowTeacher) {
+            with(density) { teacherLineHeight.toPx().toDp() }
+        } else {
+            0.dp
+        }
+        val centerReserve = maxOf(locationReserve, teacherReserve) + 1.dp
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = horizontalPadding, vertical = verticalPadding)
+        ) {
             if (hasLocation && locationLines > 0) {
                 Text(
                     locationText,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth(),
                     fontSize = locationFont,
                     lineHeight = locationLineHeight,
                     fontWeight = FontWeight.Medium,
                     color = textColor.copy(alpha = 0.78f),
                     maxLines = locationLines,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
                 )
             }
+            Text(
+                course.name,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .padding(vertical = centerReserve),
+                fontSize = nameFont,
+                lineHeight = nameLineHeight,
+                fontWeight = FontWeight.SemiBold,
+                color = textColor,
+                maxLines = nameLines,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
             if (canShowTeacher) {
                 Text(
                     course.teacher,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth(),
                     fontSize = teacherFont,
                     lineHeight = teacherLineHeight,
                     fontWeight = FontWeight.Normal,
                     color = textColor.copy(alpha = 0.58f),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
                 )
             }
         }

@@ -823,6 +823,7 @@ private fun WeekEditOverlayHost(
             CourseGlassCard(
                 backdrop = backdrop,
                 config = config,
+                course = req.course,
                 modifier = Modifier.fillMaxSize(),
                 shape = RoundedCornerShape(8.dp),
                 onClick = null
@@ -887,7 +888,7 @@ private fun WeekCourseOverlayCardContent(course: CourseEntity, config: ScheduleC
             return ceil(text.length.toFloat() / charsPerLine).toInt().coerceAtLeast(1)
         }
 
-        val canShowTeacher = hasTeacher && heightDp >= 104f
+        val canShowTeacher = hasTeacher && heightDp >= 52f
         val teacherPx = if (canShowTeacher) with(density) { teacherLineHeight.toPx() } else 0f
         val usablePx = (availableTextPx - teacherPx).coerceAtLeast(0f)
         val averageLinePx = minOf(
@@ -939,39 +940,65 @@ private fun WeekCourseOverlayCardContent(course: CourseEntity, config: ScheduleC
             locationLines = 1
             nameLines = (totalSlots - locationLines).coerceAtLeast(1)
         }
-        Column(
-            modifier = Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
+        val renderedLocationLines = minOf(locationLines, wantedLocationLines).coerceAtLeast(0)
+        val locationReserve = if (hasLocation && renderedLocationLines > 0) {
+            with(density) { (locationLineHeight.toPx() * renderedLocationLines).toDp() }
+        } else {
+            0.dp
+        }
+        val teacherReserve = if (canShowTeacher) {
+            with(density) { teacherLineHeight.toPx().toDp() }
+        } else {
+            0.dp
+        }
+        val centerReserve = maxOf(locationReserve, teacherReserve) + 1.dp
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = horizontalPadding, vertical = verticalPadding)
         ) {
-            Text(
-                course.name,
-                fontSize = nameFont,
-                lineHeight = nameLineHeight,
-                fontWeight = FontWeight.SemiBold,
-                color = textColor,
-                maxLines = nameLines,
-                overflow = TextOverflow.Ellipsis
-            )
             if (hasLocation && locationLines > 0) {
                 Text(
                     locationText,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth(),
                     fontSize = locationFont,
                     lineHeight = locationLineHeight,
                     fontWeight = FontWeight.Medium,
                     color = textColor.copy(alpha = 0.78f),
                     maxLines = locationLines,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
                 )
             }
+            Text(
+                course.name,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .padding(vertical = centerReserve),
+                fontSize = nameFont,
+                lineHeight = nameLineHeight,
+                fontWeight = FontWeight.SemiBold,
+                color = textColor,
+                maxLines = nameLines,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
             if (canShowTeacher) {
                 Text(
                     course.teacher,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth(),
                     fontSize = teacherFont,
                     lineHeight = teacherLineHeight,
                     fontWeight = FontWeight.Normal,
                     color = textColor.copy(alpha = 0.58f),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
                 )
             }
         }
@@ -1896,9 +1923,10 @@ fun WeekCourseBlock(
     val locationText = course.location.orEmpty()
     val hasLocation = locationText.isNotBlank()
     val hasTeacher = !course.teacher.isNullOrBlank()
+    val resolvedCardColor = if (config.cardColorArgb == MulticolorCourseCardArgb) courseCardBaseColor(config, course) else cardColor
     val courseTextColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else readableOn(cardColor)
+        else readableOn(resolvedCardColor)
     val density = LocalDensity.current
     val tailDirection = if (weekMotionOutgoing) -weekMotionDirection else weekMotionDirection
     val tailBase = with(density) { (32.dp + ((periodIndex - 1).coerceAtLeast(0).coerceAtMost(9) * 9f).dp + (stackIndex * 16f).dp).toPx() }
@@ -2191,6 +2219,7 @@ fun WeekCourseBlock(
             CourseGlassCard(
                 backdrop = activeCardBackdrop,
                 config = config,
+                course = course,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(resizeGlassShellHeight),
@@ -2228,7 +2257,7 @@ fun WeekCourseBlock(
                 return ceil(text.length.toFloat() / charsPerLine).toInt().coerceAtLeast(1)
             }
 
-            val canShowTeacher = hasTeacher && heightDp >= 104f
+            val canShowTeacher = hasTeacher && heightDp >= 52f
             val teacherLines = if (canShowTeacher) 1 else 0
             val teacherPx = if (teacherLines > 0) with(density) { teacherLineHeight.toPx() } else 0f
             val usablePx = (availableTextPx - teacherPx).coerceAtLeast(0f)
@@ -2279,36 +2308,65 @@ fun WeekCourseBlock(
                 nameLines = (totalSlots - locationLines).coerceAtLeast(1)
             }
 
-            Column(modifier = Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                Text(
-                    course.name,
-                    fontSize = nameFont,
-                    lineHeight = nameLineHeight,
-                    fontWeight = FontWeight.SemiBold,
-                    color = courseTextColor,
-                    maxLines = nameLines,
-                    overflow = TextOverflow.Ellipsis
-                )
+            val renderedLocationLines = minOf(locationLines, wantedLocationLines).coerceAtLeast(0)
+            val locationReserve = if (hasLocation && renderedLocationLines > 0) {
+                with(density) { (locationLineHeight.toPx() * renderedLocationLines).toDp() }
+            } else {
+                0.dp
+            }
+            val teacherReserve = if (canShowTeacher) {
+                with(density) { teacherLineHeight.toPx().toDp() }
+            } else {
+                0.dp
+            }
+            val centerReserve = maxOf(locationReserve, teacherReserve) + 1.dp
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = horizontalPadding, vertical = verticalPadding)
+            ) {
                 if (hasLocation && locationLines > 0) {
                     Text(
                         locationText,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth(),
                         fontSize = locationFont,
                         lineHeight = locationLineHeight,
                         fontWeight = FontWeight.Medium,
                         color = courseTextColor.copy(alpha = 0.78f),
                         maxLines = locationLines,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
                     )
                 }
+                Text(
+                    course.name,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth()
+                        .padding(vertical = centerReserve),
+                    fontSize = nameFont,
+                    lineHeight = nameLineHeight,
+                    fontWeight = FontWeight.SemiBold,
+                    color = courseTextColor,
+                    maxLines = nameLines,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
                 if (canShowTeacher) {
                     Text(
                         course.teacher,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth(),
                         fontSize = teacherFont,
                         lineHeight = teacherLineHeight,
                         fontWeight = FontWeight.Normal,
                         color = courseTextColor.copy(alpha = 0.58f),
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
                     )
                 }
             }

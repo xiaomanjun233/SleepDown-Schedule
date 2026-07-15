@@ -448,6 +448,66 @@ fun AiImportSettingsScreen(state: AppState, backdrop: Backdrop?) {
 }
 
 @Composable
+fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
+    val context = LocalContext.current
+    var enabled by remember { mutableStateOf(DayAgentPreferences.isEnabled(context)) }
+    var dailyAiEnabled by remember { mutableStateOf(DayAgentPreferences.isDailyAiEnabled(context)) }
+    var weatherEnabled by remember { mutableStateOf(DayAgentPreferences.isWeatherEnabled(context)) }
+    val topPadding = detailContentTopPadding()
+
+    LazyColumn(
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            GlassPreferenceSection("今日助手") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsInfoRow(
+                        "今日 Agent",
+                        "仅在日视图的今天显示。倒计时与课程状态由本地计算；个性化文案每天最多自动调用一次已配置的 AI。"
+                    )
+                    SettingsDivider()
+                    SettingsToggleRow(
+                        title = "启用今日 Agent",
+                        subtitle = "显示课程、空档、天气与问答入口。",
+                        checked = enabled,
+                        backdrop = backdrop,
+                        onCheckedChange = {
+                            enabled = it
+                            DayAgentPreferences.setEnabled(context, it)
+                        }
+                    )
+                    SettingsDivider()
+                    SettingsToggleRow(
+                        title = "每日 AI 个性化文案",
+                        subtitle = "关闭后完全使用本地模板，不自动调用 AI。",
+                        checked = dailyAiEnabled,
+                        backdrop = backdrop,
+                        enabled = enabled,
+                        onCheckedChange = {
+                            dailyAiEnabled = it
+                            DayAgentPreferences.saveOptions(context, it, weatherEnabled)
+                        }
+                    )
+                    SettingsDivider()
+                    SettingsToggleRow(
+                        title = "天气提醒",
+                        subtitle = "使用设备粗略位置查询天气。",
+                        checked = weatherEnabled,
+                        backdrop = backdrop,
+                        enabled = enabled,
+                        onCheckedChange = {
+                            weatherEnabled = it
+                            DayAgentPreferences.saveOptions(context, dailyAiEnabled, it)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -565,7 +625,6 @@ fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
             "AI 导入设置",
             "配置用于 AI 教务导入的模型服务。API Key 只保存在本机，不会写入课表数据库或诊断日志。除 DeepSeek 外，目前其他 AI 未经全链路测试，推荐优先使用 DeepSeek；如遇到使用问题，请和开发者反馈。"
         )
-        SettingsDivider()
         AiProviderPickerRow(
             value = selectedPreset.displayName,
             expanded = providerMenuExpanded,

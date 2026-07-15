@@ -11,6 +11,46 @@ import java.io.File
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+const val WallpaperBlurMaxDp = 12f
+
+fun wallpaperBlurPercent(blurDp: Float): Float =
+    blurDp.coerceIn(0f, WallpaperBlurMaxDp) / WallpaperBlurMaxDp * 100f
+
+fun wallpaperBlurDp(percent: Float): Float =
+    percent.coerceIn(0f, 100f) / 100f * WallpaperBlurMaxDp
+
+fun extractRepresentativeWallpaperColors(bitmap: Bitmap?): List<Long> {
+    if (bitmap == null || bitmap.width <= 0 || bitmap.height <= 0) return DefaultCourseCardPalette
+    val palette = runCatching {
+        Palette.from(bitmap)
+            .maximumColorCount(12)
+            .resizeBitmapArea(96 * 96)
+            .generate()
+    }.getOrNull() ?: return DefaultCourseCardPalette
+    val candidates = buildList {
+        palette.vibrantSwatch?.rgb?.let(::add)
+        palette.lightVibrantSwatch?.rgb?.let(::add)
+        palette.darkVibrantSwatch?.rgb?.let(::add)
+        palette.mutedSwatch?.rgb?.let(::add)
+        palette.lightMutedSwatch?.rgb?.let(::add)
+        palette.darkMutedSwatch?.rgb?.let(::add)
+        palette.swatches.sortedByDescending { it.population }.forEach { add(it.rgb) }
+    }
+    val distinct = mutableListOf<Int>()
+    candidates.forEach { color ->
+        val sufficientlyDifferent = distinct.all { existing ->
+            val dr = android.graphics.Color.red(color) - android.graphics.Color.red(existing)
+            val dg = android.graphics.Color.green(color) - android.graphics.Color.green(existing)
+            val db = android.graphics.Color.blue(color) - android.graphics.Color.blue(existing)
+            dr * dr + dg * dg + db * db >= 42 * 42
+        }
+        if (sufficientlyDifferent) distinct += color
+    }
+    return distinct.take(8).map { it.toLong() and 0xFFFFFFFFL }
+        .takeIf { it.size >= 3 }
+        ?: DefaultCourseCardPalette
+}
+
 data class WallpaperSourceSize(val width: Int, val height: Int)
 
 fun persistWallpaperUriPermission(context: Context, uri: Uri) {

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -30,6 +31,72 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.backdrop.shadow.InnerShadow
+
+const val MulticolorCourseCardArgb = 0x00000000L
+
+val DefaultCourseCardPalette = listOf(
+    0xFF64B5F6L,
+    0xFFF48FB1L,
+    0xFF81C784L,
+    0xFFFFD166L,
+    0xFFB39DDBL,
+    0xFF4DD0E1L
+)
+
+val LocalCourseCardPalette = compositionLocalOf { DefaultCourseCardPalette }
+val LocalCourseCardColorAssignments = compositionLocalOf<Map<String, Long>> { emptyMap() }
+
+fun courseCardColorKey(course: CourseEntity): String =
+    if (course.id > 0L) {
+        "id:${course.id}"
+    } else {
+        listOf(
+            course.name,
+            course.teacher.orEmpty(),
+            course.location.orEmpty(),
+            course.weekday.toString(),
+            course.periods.joinToString(","),
+            course.weeks.joinToString(",")
+        ).joinToString("|")
+    }
+
+fun buildCourseCardColorAssignments(
+    courses: List<CourseEntity>,
+    representativeColors: List<Long>
+): Map<String, Long> {
+    val keys = courses.map(::courseCardColorKey).distinct()
+    if (keys.isEmpty()) return emptyMap()
+    val bases = representativeColors.ifEmpty { DefaultCourseCardPalette }
+    val generated = ArrayList<Long>(keys.size)
+    val used = HashSet<Long>()
+    keys.indices.forEach { index ->
+        val base = bases[index % bases.size].toInt()
+        val cycle = index / bases.size
+        val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(base, it) }
+        hsv[0] = (hsv[0] + cycle * 31f) % 360f
+        hsv[1] = (hsv[1].coerceAtLeast(0.34f) + cycle * 0.04f).coerceAtMost(0.88f)
+        hsv[2] = hsv[2].coerceIn(0.76f, 0.96f)
+        var color = android.graphics.Color.HSVToColor(hsv).toLong() and 0xFFFFFFFFL
+        var attempts = 0
+        while (color in used && attempts < 12) {
+            hsv[0] = (hsv[0] + 19f) % 360f
+            color = android.graphics.Color.HSVToColor(hsv).toLong() and 0xFFFFFFFFL
+            attempts++
+        }
+        used += color
+        generated += color
+    }
+    return keys.zip(generated).toMap()
+}
+
+@Composable
+fun courseCardBaseColor(config: ScheduleConfigEntity, course: CourseEntity? = null): Color {
+    if (config.cardColorArgb != MulticolorCourseCardArgb) return Color(config.cardColorArgb.toInt())
+    val palette = LocalCourseCardPalette.current.ifEmpty { DefaultCourseCardPalette }
+    val stableKey = course?.let(::courseCardColorKey) ?: "default"
+    LocalCourseCardColorAssignments.current[stableKey]?.let { return Color(it.toInt()) }
+    return Color(palette[(stableKey.hashCode() and Int.MAX_VALUE) % palette.size].toInt())
+}
 
 data class GlassTokens(
     val blur: Dp,
@@ -284,6 +351,7 @@ fun GlassDialogSurface(
 fun CourseGlassCard(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
+    course: CourseEntity? = null,
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(12.dp),
     blurOverride: Float? = null,
@@ -293,11 +361,17 @@ fun CourseGlassCard(
     val glassBackdrop = if (config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
     val useGlass = glassBackdrop != null
     val quality = LocalGlassQuality.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val pressProgress by animateFloatAsState(if (pressed) 1f else 0f, label = "course-card-press")
-    val glassTint = Color(config.cardColorArgb.toInt()).copy(alpha = ((config.cardAlpha * 0.34f).coerceIn(0.10f, 0.42f) * quality).coerceIn(0.06f, 0.42f))
-    val solidColor = Color(config.cardColorArgb.toInt()).copy(alpha = config.cardAlpha.coerceIn(0.28f, 1f))
+    val interactionSource = if (onClick != null) remember { MutableInteractionSource() } else null
+    val pressProgress = if (interactionSource != null) {
+        val pressed by interactionSource.collectIsPressedAsState()
+        val animatedPressProgress by animateFloatAsState(if (pressed) 1f else 0f, label = "course-card-press")
+        animatedPressProgress
+    } else {
+        0f
+    }
+    val baseColor = courseCardBaseColor(config, course)
+    val glassTint = baseColor.copy(alpha = ((config.cardAlpha.coerceIn(0f, 1f) * 0.68f) * quality).coerceIn(0f, 0.68f))
+    val solidColor = baseColor.copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
     val glassModifier = if (useGlass) {
@@ -340,7 +414,7 @@ fun CourseGlassCard(
     }
         .then(
             if (onClick == null) Modifier else Modifier.clickable(
-                interactionSource = interactionSource,
+                interactionSource = requireNotNull(interactionSource),
                 indication = null,
                 role = Role.Button,
                 onClick = onClick

@@ -18,5 +18,10 @@ class BaselineProfileGenerator {
     ) {
         pressHome()
         startActivityAndWait()
+        ensureBenchmarkCourse()
+        openBenchmarkCourseEditor()
+        closeBenchmarkCourseEditor()
+        openBenchmarkCourseEditor()
+        closeBenchmarkCourseEditor()
     }
 }

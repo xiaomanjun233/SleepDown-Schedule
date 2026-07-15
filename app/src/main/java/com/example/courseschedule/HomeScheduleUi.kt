@@ -86,6 +86,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
@@ -115,6 +117,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -179,7 +182,6 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -220,7 +222,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
@@ -270,6 +271,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
+import java.time.ZoneId
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URLDecoder
@@ -291,6 +293,7 @@ fun HomeDateTitle(
     displayDate: LocalDate,
     displayWeek: Int,
     beforeScheduleTerm: Boolean,
+    showReturnToCurrentWeekHint: Boolean,
     onReturnCurrent: () -> Unit
 ) {
     val color = homeForegroundColor(state.config)
@@ -311,7 +314,11 @@ fun HomeDateTitle(
             overflow = TextOverflow.Clip
         )
         Text(
-            if (beforeScheduleTerm) "当前暂未开学" else "第${displayWeek}周",
+            when {
+                beforeScheduleTerm -> "当前暂未开学"
+                showReturnToCurrentWeekHint -> "点击此处回到本周"
+                else -> "第${displayWeek}周"
+            },
             style = MaterialTheme.typography.labelMedium,
             color = color.copy(alpha = 0.78f),
             maxLines = 1,
@@ -324,40 +331,55 @@ fun HomeDateTitle(
 fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: HomeMode, onModeChange: (HomeMode) -> Unit) {
     val lightGlass = LocalAdaptiveGlass.current.lightGlass
     if (backdrop != null) {
-        LiquidBottomTabs(
-            selectedTabIndex = { if (mode == HomeMode.Day) 0 else 1 },
-            onTabSelected = { index -> onModeChange(if (index == 0) HomeMode.Day else HomeMode.Week) },
-            backdrop = backdrop,
-            tabsCount = 2,
-            modifier = Modifier.padding(end = 12.dp).width(104.dp),
-            containerHeight = 42.dp,
-            indicatorHeight = 34.dp,
-            horizontalPadding = 4.dp,
-            blurRadius = HomeHeaderGlassBlur,
-            containerAlpha = HomeHeaderGlassSurfaceAlpha,
-            lensHeight = HomeHeaderGlassLensHeight,
-            lensAmount = HomeHeaderGlassLensAmount,
-            indicatorWidthOverflow = 4.dp,
-            indicatorHeightOverflow = 2.dp,
-            indicatorLensHeight = HomeHeaderGlassLensHeight,
-            indicatorLensAmount = HomeHeaderGlassLensAmount,
-            officialHighlightAlpha = HomeHeaderGlassHighlightAlpha,
-            officialShadowAlpha = HomeHeaderGlassOuterShadowAlpha,
-            officialInnerShadowAlpha = HomeHeaderGlassInnerShadowAlpha,
-            chromaticAberrationEnabled = true,
-            isLightThemeOverride = lightGlass,
-            useOfficialGlassParameters = true
+        Box(
+            modifier = Modifier
+                .padding(end = 12.dp)
+                .width(104.dp)
+                .height(42.dp),
+            contentAlignment = Alignment.Center
         ) {
-            LiquidBottomTab(onClick = { onModeChange(HomeMode.Day) }) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(painterResource(R.drawable.ic_day_view), contentDescription = null, modifier = Modifier.size(16.dp))
-                    Text("\u65E5", style = MaterialTheme.typography.labelLarge)
-                }
-            }
-            LiquidBottomTab(onClick = { onModeChange(HomeMode.Week) }) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(painterResource(R.drawable.ic_week_view), contentDescription = null, modifier = Modifier.size(16.dp))
-                    Text("\u5468", style = MaterialTheme.typography.labelLarge)
+            Box(
+                modifier = Modifier
+                    .requiredSize(width = 112.dp, height = 50.dp)
+                    .clip(RoundedCornerShape(50)),
+                contentAlignment = Alignment.Center
+            ) {
+                LiquidBottomTabs(
+                    selectedTabIndex = { if (mode == HomeMode.Day) 0 else 1 },
+                    onTabSelected = { index -> onModeChange(if (index == 0) HomeMode.Day else HomeMode.Week) },
+                    backdrop = backdrop,
+                    tabsCount = 2,
+                    modifier = Modifier.size(width = 104.dp, height = 42.dp),
+                    containerHeight = 42.dp,
+                    indicatorHeight = 34.dp,
+                    horizontalPadding = 4.dp,
+                    blurRadius = HomeHeaderGlassBlur,
+                    containerAlpha = HomeHeaderGlassSurfaceAlpha,
+                    lensHeight = HomeHeaderGlassLensHeight,
+                    lensAmount = HomeHeaderGlassLensAmount,
+                    indicatorWidthOverflow = 4.dp,
+                    indicatorHeightOverflow = 2.dp,
+                    indicatorLensHeight = HomeHeaderGlassLensHeight,
+                    indicatorLensAmount = HomeHeaderGlassLensAmount,
+                    officialHighlightAlpha = HomeHeaderGlassHighlightAlpha,
+                    officialShadowAlpha = 0f,
+                    officialInnerShadowAlpha = HomeHeaderGlassInnerShadowAlpha,
+                    chromaticAberrationEnabled = true,
+                    isLightThemeOverride = lightGlass,
+                    useOfficialGlassParameters = true
+                ) {
+                    LiquidBottomTab(onClick = { onModeChange(HomeMode.Day) }) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(painterResource(R.drawable.ic_day_view), contentDescription = null, modifier = Modifier.size(16.dp))
+                            Text("\u65E5", style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                    LiquidBottomTab(onClick = { onModeChange(HomeMode.Week) }) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(painterResource(R.drawable.ic_week_view), contentDescription = null, modifier = Modifier.size(16.dp))
+                            Text("\u5468", style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
                 }
             }
         }
@@ -401,7 +423,7 @@ fun HomeModePill(backdrop: Backdrop?, config: ScheduleConfigEntity, iconRes: Int
     }
 }
 
-@OptIn(ExperimentalAnimationApi::class)
+@OptIn(ExperimentalAnimationApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     state: AppState,
@@ -416,10 +438,12 @@ fun HomeScreen(
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
+    onAddCourse: (CourseEntity) -> Unit = {},
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onScheduleLongPress: () -> Unit = {},
 ) {
+    val homeOverscrollFactory = rememberHapticMiuixOverscrollFactory()
     val cardColor = remember(state.config.cardColorArgb, state.config.cardAlpha) {
         ComposeColor(state.config.cardColorArgb.toInt()).copy(alpha = state.config.cardAlpha)
     }
@@ -460,36 +484,41 @@ fun HomeScreen(
             label = "home-mode"
         ) { targetMode ->
             when (targetMode) {
-                HomeMode.Day -> DayScheduleScreen(
-                    state = state,
-                    displayDate = displayDate,
-                    displayWeek = effectiveCurrentWeek(state.config, displayDate),
-                    cardColor = cardColor,
-                    textColor = textColor,
-                    backdrop = backdrop,
-                    onSwipeDay = onSwipeDay,
-                    onContentUnderTopBarChange = onContentUnderTopBarChange,
-                    onCourseClick = onCourseClick
-                )
-                HomeMode.Week -> SinglePillWeekScheduleScreen(
-                    state = state,
-                    displayWeek = displayWeek,
-                    cardHeight = weekCardHeight,
-                    cardColor = cardColor,
-                    textColor = textColor,
-                    backdrop = backdrop,
-                    floatingCourseBackdrop = floatingCourseBackdrop,
-                    headerBackdrop = weekHeaderBackdrop,
-                    onSwipeWeek = onSwipeWeek,
-                    onContentUnderTopBarChange = onContentUnderTopBarChange,
-                    weekEditMode = weekEditMode,
-                    onEnterWeekEditMode = { weekEditMode = true },
-                    onUpdateCourseSingleWeek = onUpdateCourseSingleWeek,
-                    onDeleteCourseSingleWeek = { course, week ->
-                        pendingSingleWeekDelete = course to week
-                    },
-                    onCourseClick = { course, week, sourceBounds -> onCourseClick(course, week, sourceBounds) }
-                )
+                HomeMode.Day -> CompositionLocalProvider(LocalOverscrollFactory provides homeOverscrollFactory) {
+                    DayScheduleScreen(
+                        state = state,
+                        displayDate = displayDate,
+                        displayWeek = effectiveCurrentWeek(state.config, displayDate),
+                        cardColor = cardColor,
+                        textColor = textColor,
+                        backdrop = backdrop,
+                        onSwipeDay = onSwipeDay,
+                        onContentUnderTopBarChange = onContentUnderTopBarChange,
+                        onCourseClick = onCourseClick,
+                        onAddCourse = onAddCourse
+                    )
+                }
+                HomeMode.Week -> CompositionLocalProvider(LocalOverscrollFactory provides homeOverscrollFactory) {
+                    SinglePillWeekScheduleScreen(
+                        state = state,
+                        displayWeek = displayWeek,
+                        cardHeight = weekCardHeight,
+                        cardColor = cardColor,
+                        textColor = textColor,
+                        backdrop = backdrop,
+                        floatingCourseBackdrop = floatingCourseBackdrop,
+                        headerBackdrop = weekHeaderBackdrop,
+                        onSwipeWeek = onSwipeWeek,
+                        onContentUnderTopBarChange = onContentUnderTopBarChange,
+                        weekEditMode = weekEditMode,
+                        onEnterWeekEditMode = { weekEditMode = true },
+                        onUpdateCourseSingleWeek = onUpdateCourseSingleWeek,
+                        onDeleteCourseSingleWeek = { course, week ->
+                            pendingSingleWeekDelete = course to week
+                        },
+                        onCourseClick = { course, week, sourceBounds -> onCourseClick(course, week, sourceBounds) }
+                    )
+                }
             }
         }
         pendingSingleWeekDelete?.let { (course, week) ->
@@ -987,6 +1016,7 @@ fun appPanelForegroundColor(config: ScheduleConfigEntity): ComposeColor {
     return if (appUsesDarkTheme(config)) ComposeColor.White else ComposeColor(0xFF111111)
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DayScheduleScreen(
     state: AppState,
@@ -997,7 +1027,8 @@ fun DayScheduleScreen(
     backdrop: Backdrop?,
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
-    onCourseClick: (CourseEntity, Int, Rect?) -> Unit
+    onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
+    onAddCourse: (CourseEntity) -> Unit
 ) {
     var horizontalDrag by remember { mutableFloatStateOf(0f) }
     Box(
@@ -1045,10 +1076,17 @@ fun DayScheduleScreen(
             val contentUnderTopBar by remember {
                 derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 }
             }
+            val agentCollapsed by remember {
+                // The agent card changes height when it collapses. Using its pixel offset as the
+                // threshold makes a long message move the list back across that threshold, which
+                // repeatedly expands/collapses the sticky header during overscroll.
+                derivedStateOf { listState.firstVisibleItemIndex > 0 }
+            }
             LaunchedEffect(contentUnderTopBar) {
                 onContentUnderTopBarChange(contentUnderTopBar)
             }
             LazyColumn(
+                modifier = Modifier.fillMaxSize(),
                 state = listState,
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = HomeInitialTopInset, bottom = DayDockScrollPadding),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1059,6 +1097,18 @@ fun DayScheduleScreen(
                         style = MaterialTheme.typography.titleMedium,
                         color = textColor
                     )
+                }
+                if (targetDate == LocalDate.now(ZoneId.of("Asia/Shanghai"))) {
+                    stickyHeader(key = "today-agent-${state.config.id}") {
+                        TodayAgentHost(
+                            state = state,
+                            date = targetDate,
+                            backdrop = backdrop,
+                            textColor = textColor,
+                            collapsed = agentCollapsed,
+                            onAddCourse = onAddCourse
+                        )
+                    }
                 }
                 if (dayCourses.isEmpty()) item { Text("这一天没有课程", color = textColor) }
                 itemsIndexed(dayCourses, key = { _, it -> it.id }) { index, course ->
@@ -1071,7 +1121,8 @@ fun DayScheduleScreen(
 
 @Composable
 fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, entranceIndex: Int = 0) {
-    val timePillColor = deepenColor(ComposeColor(config.cardColorArgb.toInt()), 0.16f)
+    val resolvedCardColor = courseCardBaseColor(config, course)
+    val timePillColor = deepenColor(resolvedCardColor, 0.16f)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         GlassSurface(
             backdrop = backdrop,
@@ -1095,9 +1146,10 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
 
 @Composable
 fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null, enableSharedTransition: Boolean = true) {
+    val resolvedCardColor = if (config.cardColorArgb == MulticolorCourseCardArgb) courseCardBaseColor(config, course) else cardColor
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else readableOn(cardColor)
+        else readableOn(resolvedCardColor)
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
     val editId = LocalEditingCourseId.current
     val startupPhase = LocalStartupPhase.current
@@ -1137,6 +1189,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
+        course = course,
         modifier = sharedModifier.then(entranceModifier),
         shape = RoundedCornerShape(16.dp),
         onClick = if (onClick != null) ({ onClick(ownBounds) }) else null
@@ -1159,11 +1212,12 @@ fun ImportPreviewCourseCard(
     periods: List<PeriodEntity>,
     config: ScheduleConfigEntity = defaultConfig()
 ) {
-    val cardColor = ComposeColor(config.cardColorArgb.toInt()).copy(alpha = config.cardAlpha.coerceIn(0.28f, 1f))
+    val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val textColor = readableOn(cardColor)
     CourseGlassCard(
         backdrop = null,
         config = config,
+        course = course,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp)
     ) {
