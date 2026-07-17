@@ -72,9 +72,9 @@ fun persistWallpaperSource(context: Context, uri: Uri): Uri? {
         context.contentResolver.openInputStream(uri)?.use { input ->
             output.outputStream().use { outputStream -> input.copyTo(outputStream) }
         } ?: return null
-        wallpaperDir.listFiles()
-            ?.filter { it.name.startsWith("source_wallpaper_") && it != output }
-            ?.forEach { it.delete() }
+        // Every schedule persists its own wallpaper URI. Deleting the other source files here
+        // leaves those database rows pointing at missing files and makes inactive schedules fall
+        // back to the bundled wallpaper when they are opened later.
         Uri.fromFile(output)
     }.getOrNull()
 }

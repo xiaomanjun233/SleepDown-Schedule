@@ -176,6 +176,7 @@ import androidx.compose.runtime.remember
 
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.key
@@ -190,12 +191,14 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -273,8 +276,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URLDecoder
@@ -332,7 +340,7 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.General -> "通用设置"
     SettingsPage.AiImport -> "AI 设置"
     SettingsPage.DayAgent -> "今日 Agent"
-    SettingsPage.Schedule -> "课表设置"
+    SettingsPage.Schedule -> "课表详细设置"
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
     SettingsPage.About -> "关于"
@@ -347,8 +355,8 @@ internal val DockScrollPadding = 132.dp
 internal val HomeHeaderGlassBlur = 2.dp
 internal val HomeHeaderGlassLensHeight = 12.dp
 internal val HomeHeaderGlassLensAmount = 24.dp
-internal const val HomeHeaderGlassSurfaceAlpha = 0.45f
-internal const val HomeHeaderGlassHighlightAlpha = 0.07f
+internal const val HomeHeaderGlassSurfaceAlpha = 0.56f
+internal const val HomeHeaderGlassHighlightAlpha = 0.09f
 internal const val HomeHeaderGlassShadowAlpha = 0.05f
 internal const val HomeHeaderGlassOuterShadowAlpha = 0.018f
 internal const val HomeHeaderGlassInnerShadowAlpha = 0.08f
@@ -362,7 +370,7 @@ private enum class AddMenuPhase {
     Closing
 }
 
-internal fun homeHeaderGlassTokens(): GlassTokens = GlassTokens.pill(intensity = 0.95f).copy(surfaceAlpha = 0.20f)
+internal fun homeHeaderGlassTokens(): GlassTokens = GlassTokens.pill(intensity = 0.95f).copy(surfaceAlpha = 0.56f)
 
 sealed interface HomeDialog {
     data object ImportSchedule : HomeDialog
@@ -384,7 +392,22 @@ internal var hideFromRecentsEnabled = false
 @Composable
 fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val allSchedulesState by viewModel.allSchedulesState.collectAsStateWithLifecycle()
     val message by viewModel.snackbar.collectAsStateWithLifecycle()
+    val pickerState = rememberSchedulePickerState()
+    var previewScheduleId by remember { mutableStateOf<Int?>(null) }
+    var pendingPickerEditorScheduleId by remember { mutableStateOf<Int?>(null) }
+    var quickScheduleDraft by remember { mutableStateOf<QuickScheduleDraft?>(null) }
+    var pendingQuickDetailScheduleId by remember { mutableStateOf<Int?>(null) }
+    val visualState = previewScheduleId?.let(allSchedulesState::forSchedule) ?: state
+    val screenGraphicsLayer = rememberGraphicsLayer()
+    val recordedScheduleId = remember { AtomicInteger(-1) }
+    val recordedHomeGeneration = remember { AtomicLong(0L) }
+    var captureRenderToken by remember { mutableIntStateOf(0) }
+    var snapshotGeneration by remember { mutableIntStateOf(0) }
+    var snapshotJob by remember { mutableStateOf<Job?>(null) }
+    var cacheHydrationJob by remember { mutableStateOf<Job?>(null) }
+    var entryPrewarmJob by remember { mutableStateOf<Job?>(null) }
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var homeMode by remember { mutableStateOf(if (state.config.defaultHomeMode == HomeStartMode.DAY) HomeMode.Day else HomeMode.Week) }
     LaunchedEffect(state.config.defaultHomeMode) {
@@ -455,8 +478,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         -(screenHeightPx / 2 + panelHeight / 2 + personalizePanelOffscreenMarginPx)
     }
     var homeContentUnderTopBar by remember { mutableStateOf(false) }
-    val adaptiveWeekCardHeight = if (state.periods.size >= 10) 72f else 80f
-    var weekCardHeight by remember(state.periods.size, state.config.weekCardHeightDp) { mutableFloatStateOf(state.config.weekCardHeightDp ?: adaptiveWeekCardHeight) }
+    val adaptiveWeekCardHeight = if (visualState.periods.size >= 10) 72f else 80f
+    var weekCardHeight by remember(visualState.periods.size, visualState.config.weekCardHeightDp) { mutableFloatStateOf(visualState.config.weekCardHeightDp ?: adaptiveWeekCardHeight) }
     val context = LocalContext.current
     val appScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -514,7 +537,10 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         }
     }
     val logRecording by DiagnosticLogCapture.recording.collectAsStateWithLifecycle()
-    val wallpaperImages by rememberHomeWallpaperImages(state.config)
+    val wallpaperImages by rememberHomeWallpaperImages(visualState.config)
+    val latestVisualState = rememberUpdatedState(visualState)
+    val latestWallpaperImages = rememberUpdatedState(wallpaperImages)
+    val latestAllSchedulesState = rememberUpdatedState(allSchedulesState)
     val startupAnimationsEnabled = remember(context) { animationsEnabled(context) }
 
     var startupPhase by remember {
@@ -549,7 +575,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         }
     }
     val glassQuality = animatedGlassQuality(startupPhase)
-    val adaptiveGlassState = rememberFallbackAdaptiveGlassState(state.config)
+    val adaptiveGlassState = rememberFallbackAdaptiveGlassState(visualState.config)
     val startupAnimation = when {
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing -> "CourseEditorPrepare"
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening -> "CourseEditorOpen"
@@ -604,24 +630,24 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         }
     }
     val todayDate = LocalDate.now()
-    val homeCurrentWeek = effectiveCurrentWeek(state.config)
-    val beforeScheduleTerm = isBeforeScheduleTerm(state.config, todayDate)
-    var homeDisplayWeek by remember(state.config.id) { mutableIntStateOf(1) }
-    var homeWeekInitialized by remember(state.config.id) { mutableStateOf(false) }
-    var homeDisplayDate by remember(state.config.id) { mutableStateOf(todayDate) }
-    LaunchedEffect(state.loaded, state.config.id, state.config.totalWeeks, homeCurrentWeek, state.config.autoCurrentWeek, beforeScheduleTerm) {
-        if (!state.loaded) return@LaunchedEffect
+    val homeCurrentWeek = effectiveCurrentWeek(visualState.config)
+    val beforeScheduleTerm = isBeforeScheduleTerm(visualState.config, todayDate)
+    var homeDisplayWeek by remember(visualState.config.id) { mutableIntStateOf(1) }
+    var homeWeekInitialized by remember(visualState.config.id) { mutableStateOf(false) }
+    var homeDisplayDate by remember(visualState.config.id) { mutableStateOf(todayDate) }
+    LaunchedEffect(visualState.loaded, visualState.config.id, visualState.config.totalWeeks, homeCurrentWeek, visualState.config.autoCurrentWeek, beforeScheduleTerm) {
+        if (!visualState.loaded) return@LaunchedEffect
         val currentTargetWeek = if (beforeScheduleTerm) 1 else homeCurrentWeek
         if (!homeWeekInitialized) {
             homeDisplayWeek = currentTargetWeek
             homeWeekInitialized = true
             return@LaunchedEffect
         }
-        homeDisplayWeek = homeDisplayWeek.coerceIn(1, state.config.totalWeeks.coerceAtLeast(1))
-        if (state.config.autoCurrentWeek) homeDisplayWeek = currentTargetWeek
+        homeDisplayWeek = homeDisplayWeek.coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1))
+        if (visualState.config.autoCurrentWeek) homeDisplayWeek = currentTargetWeek
     }
     val homeTitleWeek = if (homeMode == HomeMode.Day) {
-        effectiveCurrentWeek(state.config, homeDisplayDate)
+        effectiveCurrentWeek(visualState.config, homeDisplayDate)
     } else {
         homeDisplayWeek
     }
@@ -633,18 +659,294 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val homeReturnTargetWeek = if (beforeScheduleTerm) 1 else homeCurrentWeek
     val homeShowingAnotherWeek = homeMode == HomeMode.Week && homeDisplayWeek != homeReturnTargetWeek
     val homeCourseColorAssignments = remember(
-        state.config.id,
-        state.courses,
+        visualState.config.id,
+        visualState.courses,
         wallpaperImages.representativeColors
     ) {
         buildCourseCardColorAssignments(
-            state.courses,
+            visualState.courses,
             wallpaperImages.representativeColors
         )
     }
+
+    suspend fun awaitRenderedSchedule(scheduleId: Int): Boolean {
+        val generationBeforeSwitch = recordedHomeGeneration.get()
+        Log.d("SchedulePicker", "await start requested=$scheduleId recorded=${recordedScheduleId.get()} generation=$generationBeforeSwitch")
+        previewScheduleId = scheduleId
+        captureRenderToken += 1
+        snapshotFlow { latestVisualState.value.config.id }.first { it == scheduleId }
+        Log.d("SchedulePicker", "visual state ready requested=$scheduleId token=$captureRenderToken")
+        val target = latestAllSchedulesState.value.allConfigs.firstOrNull { it.id == scheduleId }
+            ?: defaultConfig(scheduleId)
+        if (target.hasAnyWallpaper()) {
+            // The wallpaper loader currently exposes no terminal error state. Bound this wait
+            // so an unreadable URI degrades to the same loading/fallback layer as the real home.
+            withTimeoutOrNull(2_500L) {
+                snapshotFlow {
+                    latestVisualState.value.config.id to (latestWallpaperImages.value.source != null)
+                }.first { (renderedId, wallpaperReady) -> renderedId == scheduleId && wallpaperReady }
+            }
+        }
+        val ready = withTimeoutOrNull(900L) {
+            while (
+                recordedScheduleId.get() != scheduleId ||
+                recordedHomeGeneration.get() == generationBeforeSwitch
+            ) {
+                withFrameNanos { }
+            }
+            // The marker is written after graphicsLayer.record completes. Cross one more
+            // frame boundary so capture never races the frame that produced the marker.
+            withFrameNanos { }
+            true
+        } ?: false
+        Log.d(
+            "SchedulePicker",
+            "await end requested=$scheduleId ready=$ready recorded=${recordedScheduleId.get()} generation=${recordedHomeGeneration.get()}"
+        )
+        return ready
+    }
+
+    suspend fun captureRenderedSchedule(scheduleId: Int): Bitmap? {
+        if (!awaitRenderedSchedule(scheduleId)) return null
+        val bitmap = runCatching { screenGraphicsLayer.toImageBitmap().asAndroidBitmap() }
+            .onFailure { Log.e("SchedulePicker", "capture failed for schedule=$scheduleId", it) }
+            .getOrNull()
+        Log.d("SchedulePicker", "capture result requested=$scheduleId bitmap=${bitmap?.width}x${bitmap?.height}")
+        if (bitmap != null) {
+            appScope.launch { ScheduleSnapshotStore.save(context, scheduleId, bitmap) }
+        }
+        return bitmap
+    }
+
+    fun hydratePersistedSnapshots(generation: Int) {
+        cacheHydrationJob?.cancel()
+        cacheHydrationJob = appScope.launch {
+            val selectedId = pickerState.selectedScheduleId ?: return@launch
+            val selectedIndex = pickerState.orderIds.indexOf(selectedId)
+            val neighborIds = listOf(selectedIndex - 1, selectedIndex + 1)
+                .mapNotNull(pickerState.orderIds::getOrNull)
+            val orderedTargets = (neighborIds + pickerState.orderIds)
+                .distinct()
+                .filter { it != selectedId && pickerState.snapshots[it] == null }
+            for (targetId in orderedTargets) {
+                if (generation != snapshotGeneration || !pickerState.overlayVisible) break
+                ScheduleSnapshotStore.load(context, targetId)?.let { persisted ->
+                    pickerState.snapshots[targetId] = persisted
+                }
+            }
+        }
+    }
+
+    fun prewarmCurrentScheduleSnapshot() {
+        entryPrewarmJob?.cancel()
+        val requestedId = state.config.id
+        entryPrewarmJob = appScope.launch {
+            val snapshot = captureRenderedSchedule(requestedId) ?: return@launch
+            if (
+                pickerState.phase is CustomizeUiState.ShowingEntryButton &&
+                state.config.id == requestedId
+            ) {
+                pickerState.currentSnapshot = snapshot
+                pickerState.currentSnapshotScheduleId = requestedId
+                pickerState.snapshots[requestedId] = snapshot
+            }
+        }
+    }
+
+    fun enterCustomizePage() {
+        if (pickerState.phase !is CustomizeUiState.Home && pickerState.phase !is CustomizeUiState.ShowingEntryButton) return
+        snapshotJob?.cancel()
+        val generation = ++snapshotGeneration
+        appScope.launch {
+            showScheduleEntryPill = false
+            pickerState.phase = CustomizeUiState.CapturingSnapshots
+            val entryExitStartedAt = withFrameNanos { it }
+            var frameTime: Long
+            do {
+                frameTime = withFrameNanos { it }
+            } while (frameTime - entryExitStartedAt < 120_000_000L)
+            val currentId = state.config.id
+            pickerState.selectedScheduleId = currentId
+            pickerState.originalScheduleId = currentId
+            pickerState.orderIds.clear()
+            pickerState.orderIds += currentId
+            pickerState.orderIds += allSchedulesState.schedules.map { it.id }.filter { it != currentId }
+            val prewarmed = pickerState.currentSnapshot
+                ?.takeIf { pickerState.currentSnapshotScheduleId == currentId }
+            val recordedNow = if (prewarmed == null && recordedScheduleId.get() == currentId) {
+                runCatching { screenGraphicsLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+            } else null
+            val currentSnapshot = prewarmed
+                ?: recordedNow
+                ?: ScheduleSnapshotStore.load(context, currentId)
+                ?: ScheduleSnapshotStore.createEmptySchedulePlaceholder(
+                    context,
+                    (configuration.screenWidthDp * density.density).roundToInt(),
+                    (configuration.screenHeightDp * density.density).roundToInt(),
+                    if (state.config.followSystemDarkMode) systemDark else state.config.darkMode
+                )
+            pickerState.currentSnapshot = currentSnapshot
+            pickerState.snapshots[currentId] = currentSnapshot
+            pickerState.currentSnapshotScheduleId = currentId
+            if (recordedNow != null) {
+                appScope.launch { ScheduleSnapshotStore.save(context, currentId, recordedNow) }
+            }
+            pickerState.enterProgress.snapTo(0f)
+            pickerState.chromeProgress.snapTo(0f)
+            pickerState.pageSpacingProgress.snapTo(0f)
+            pickerState.cornerProgress.snapTo(0f)
+            pickerState.realHomeRevealProgress.snapTo(0f)
+            pickerState.phase = CustomizeUiState.EnteringPicker
+            withFrameNanos { }
+            coroutineScope {
+                launch { pickerState.enterProgress.animateTo(1f, tween(450, easing = CubicBezierEasing(0.3f, 0.72f, 0.2f, 1f))) }
+                launch { pickerState.cornerProgress.animateTo(1f, tween(450, easing = CubicBezierEasing(0.3f, 0.72f, 0.2f, 1f))) }
+                launch {
+                    val titleDelayStart = withFrameNanos { it }
+                    var titleFrameTime: Long
+                    do {
+                        titleFrameTime = withFrameNanos { it }
+                    } while (titleFrameTime - titleDelayStart < 100_000_000L)
+                    pickerState.chromeProgress.animateTo(1f, tween(350))
+                }
+                launch { pickerState.pageSpacingProgress.animateTo(1f, tween(500)) }
+            }
+            if (generation != snapshotGeneration) return@launch
+            pickerState.phase = CustomizeUiState.Picker
+            hydratePersistedSnapshots(generation)
+        }
+    }
+
+    fun switchPickerSchedule(scheduleId: Int) {
+        if (pickerState.phase !is CustomizeUiState.Picker || scheduleId == pickerState.selectedScheduleId) return
+        snapshotJob?.cancel()
+        val generation = ++snapshotGeneration
+        pickerState.selectedScheduleId = scheduleId
+        pickerState.snapshots[scheduleId]?.let {
+            pickerState.currentSnapshot = it
+            pickerState.currentSnapshotScheduleId = scheduleId
+        }
+        snapshotJob = appScope.launch {
+            val requestedId = scheduleId
+            val cached = pickerState.snapshots[requestedId]
+                ?: ScheduleSnapshotStore.load(context, requestedId)
+            if (cached != null && generation == snapshotGeneration && pickerState.selectedScheduleId == requestedId) {
+                pickerState.snapshots[requestedId] = cached
+                pickerState.currentSnapshot = cached
+                pickerState.currentSnapshotScheduleId = requestedId
+            }
+            // Pager navigation is visual-only. Do not switch or recapture the hidden real
+            // homepage here; doing so rebuilt the entire schedule on every settled swipe and
+            // competed with the Pager animation for both main-thread and GPU time.
+            if (generation == snapshotGeneration && pickerState.selectedScheduleId == requestedId) {
+                hydratePersistedSnapshots(generation)
+            }
+        }
+    }
+
+    fun quickDraftFor(scheduleId: Int): QuickScheduleDraft {
+        val config = latestAllSchedulesState.value.allConfigs.firstOrNull { it.id == scheduleId }
+            ?: defaultConfig(scheduleId)
+        val totalWeeks = config.totalWeeks.coerceIn(1, 60)
+        return QuickScheduleDraft(
+            scheduleId = scheduleId,
+            totalWeeks = totalWeeks,
+            currentWeek = config.currentWeek.coerceIn(1, totalWeeks),
+            autoCurrentWeek = config.autoCurrentWeek,
+            hideEmptyWeekends = config.hideEmptyWeekends,
+            termStartDate = config.termStartDate.orEmpty()
+        )
+    }
+
+    fun exitPicker(
+        apply: Boolean,
+        targetOverride: Int? = null,
+        commitTarget: Boolean = apply,
+        crossfadeToTarget: Boolean = !apply,
+        onFinished: (() -> Unit)? = null
+    ) {
+        if (pickerState.interactionsLocked) return
+        snapshotJob?.cancel()
+        ++snapshotGeneration
+        val targetId = targetOverride
+            ?: if (apply) pickerState.selectedScheduleId ?: state.config.id else state.config.id
+        appScope.launch {
+            // Always start from exactly what the centered card is currently showing, even when
+            // Cancel is returning to a different, previously-applied schedule.
+            val centeredId = pickerState.selectedScheduleId
+            val cachedCardSnapshot = centeredId?.let { id ->
+                pickerState.currentSnapshot
+                    ?.takeIf { pickerState.currentSnapshotScheduleId == id }
+                    ?: pickerState.snapshots[id]
+            }
+            pickerState.phase = if (commitTarget) CustomizeUiState.Applying else CustomizeUiState.ExitingPicker
+            pickerState.preparingExit = true
+            val cancelTargetSnapshot = if (crossfadeToTarget) {
+                pickerState.snapshots[targetId] ?: ScheduleSnapshotStore.load(context, targetId)
+            } else {
+                null
+            }
+            // Prepare the actual live destination, but do not turn it into the second visual
+            // layer. The cached centered card will later fade away to reveal this real home.
+            awaitRenderedSchedule(targetId)
+            pickerState.currentSnapshot = cachedCardSnapshot ?: pickerState.currentSnapshot
+            // Cancel visually dissolves the original/applied schedule's persisted card directly
+            // over the currently centered card while it grows. Apply continues to enlarge the
+            // selected card and hands it directly to the live destination.
+            pickerState.transitionFromSnapshot = cancelTargetSnapshot
+            pickerState.snapshotCoverBitmap = null
+            if (commitTarget) {
+                val activationFinished = kotlinx.coroutines.CompletableDeferred<Unit>()
+                viewModel.activateSchedule(targetId) { activationFinished.complete(Unit) }
+                activationFinished.await()
+                withTimeoutOrNull(1_200L) {
+                    snapshotFlow { latestVisualState.value.config.id }.first { it == targetId }
+                }
+            }
+            // Force the fully loaded destination through two additional draw/vsync boundaries.
+            // The loading indicator remains visible throughout this preparation window.
+            captureRenderToken += 1
+            withFrameNanos { }
+            withFrameNanos { }
+            pickerState.preparingExit = false
+            coroutineScope {
+                launch { pickerState.enterProgress.animateTo(0f, tween(420, easing = CubicBezierEasing(0.3f, 0.72f, 0.2f, 1f))) }
+                launch { pickerState.chromeProgress.animateTo(0f, tween(220)) }
+                launch { pickerState.pageSpacingProgress.animateTo(0f, tween(320)) }
+            }
+            // Geometry is now fully screen-sized. Only now flatten the corner radius so no
+            // square card edge can be exposed while the card is still floating over the home.
+            pickerState.cornerProgress.animateTo(0f, tween(90))
+            // The cached card is now fully screen-sized and square. Reveal the already-rendered
+            // real home underneath instead of crossfading to another bitmap.
+            pickerState.realHomeRevealProgress.animateTo(1f, tween(190))
+            withFrameNanos { }
+            val temporaryToDelete = pickerState.temporaryIds.filter { !commitTarget || it != targetId }
+            previewScheduleId = null
+            pickerState.reset()
+            temporaryToDelete.forEach(viewModel::deleteSchedule)
+            withFrameNanos { }
+            onFinished?.invoke()
+        }
+    }
+
+    val latestPickerBackAction by rememberUpdatedState(newValue = {
+        if (pickerState.phase is CustomizeUiState.Picker) {
+            if (pickerState.deletingScheduleId != null) {
+                pickerState.deletingScheduleId = null
+                pickerState.deleteReveal = 0f
+            } else {
+                // System Back is deliberately identical to the visible Cancel action.
+                exitPicker(apply = false)
+            }
+        }
+    })
+    BackHandler(enabled = pickerState.overlayVisible) {
+        latestPickerBackAction()
+    }
     val returnHomeToCurrentDateAndWeek = {
         if (beforeScheduleTerm) {
-            homeDisplayDate = parseScheduleDate(state.config.termStartDate) ?: LocalDate.now()
+            homeDisplayDate = parseScheduleDate(visualState.config.termStartDate) ?: LocalDate.now()
             homeDisplayWeek = 1
         } else {
             homeDisplayDate = LocalDate.now()
@@ -656,12 +958,31 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         hideFromRecentsEnabled = state.config.hideFromRecents
     }
 
-    var initialLifecycleStartSeen by remember { mutableStateOf(false) }
+    var initialLifecycleStartSeen by remember {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+    }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) {
                 if (initialLifecycleStartSeen) {
                     viewModel.refreshNotifications()
+                    pendingPickerEditorScheduleId?.let { scheduleId ->
+                        pendingPickerEditorScheduleId = null
+                        val generation = ++snapshotGeneration
+                        appScope.launch {
+                            pickerState.phase = CustomizeUiState.ExitingEditor
+                            val snap = captureRenderedSchedule(scheduleId)
+                            if (generation == snapshotGeneration && pickerState.selectedScheduleId == scheduleId) {
+                                if (snap != null) {
+                                    pickerState.snapshots[scheduleId] = snap
+                                    pickerState.currentSnapshot = snap
+                                    pickerState.currentSnapshotScheduleId = scheduleId
+                                }
+                                pickerState.phase = CustomizeUiState.Picker
+                                hydratePersistedSnapshots(generation)
+                            }
+                        }
+                    }
                 } else {
                     initialLifecycleStartSeen = true
                 }
@@ -710,6 +1031,17 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithContent {
+                    captureRenderToken // Reading the token explicitly invalidates this draw node for capture.
+                    screenGraphicsLayer.record { this@drawWithContent.drawContent() }
+                    recordedScheduleId.set(visualState.config.id)
+                    recordedHomeGeneration.incrementAndGet()
+                    drawContent()
+                }
+        ) {
         CourseEditorBackgroundBlurLayer(
             motionState = courseEditorMotionState,
             modifier = Modifier
@@ -736,7 +1068,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                             exit = fadeOut(animationSpec = spring(dampingRatio = 0.95f, stiffness = 560f))
                         ) {
                             HomeTopGradientBlur(
-                                config = state.config,
+                                config = visualState.config,
                                 backdrop = chromeBackdrop,
                                 height = rootTopGradientHeight(screen),
                                 modifier = Modifier
@@ -750,7 +1082,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     ) {
                         AppTopBar(
                             screen = screen,
-                            state = state,
+                            state = if (screen is Screen.Home) visualState else state,
                             settingsPage = SettingsPage.Root,
                             eduImportPage = EduImportPage.SelectSchool,
                             backdrop = chromeBackdrop,
@@ -795,18 +1127,18 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         .layerBackdrop(backgroundBackdrop)
                 ) {
                     if (screen is Screen.Home) {
-                        if (!state.loaded) {
-                            HomeWallpaperLoadingMask(state.config)
+                        if (!visualState.loaded) {
+                            HomeWallpaperLoadingMask(visualState.config)
                         } else {
                             HomeWallpaper(
-                                state.config,
+                                visualState.config,
                                 wallpaperImages,
                                 startupPhase,
                                 reduceQuality = reduceWallpaperQualityForCourseEditor
                             )
-                            if (state.config.hasAnyWallpaper() && wallpaperImages.source == null) {
-                                HomeWallpaperLoadingMask(state.config)
-                            } else if (!state.config.hasAnyWallpaper()) {
+                            if (visualState.config.hasAnyWallpaper() && wallpaperImages.source == null) {
+                                HomeWallpaperLoadingMask(visualState.config)
+                            } else if (!visualState.config.hasAnyWallpaper()) {
                                 HomeBackdropFallback()
                             }
                         }
@@ -825,7 +1157,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         when (val current = screen) {
                             Screen.Home -> {
                                 HomeScreen(
-                                    state = state,
+                                    state = visualState,
                                     mode = homeMode,
                                     weekCardHeight = weekCardHeight.dp,
                                     displayWeek = homeDisplayWeek,
@@ -835,7 +1167,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     // they live inside contentBackdrop, so sampling it can recursively include themselves.
                                     floatingCourseBackdrop = backgroundBackdrop,
                                     weekHeaderBackdrop = backgroundBackdrop,
-                                    onSwipeWeek = { delta -> homeDisplayWeek = (homeDisplayWeek + delta).coerceIn(1, state.config.totalWeeks.coerceAtLeast(1)) },
+                                    onSwipeWeek = { delta -> homeDisplayWeek = (homeDisplayWeek + delta).coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1)) },
                                     onSwipeDay = { delta -> homeDisplayDate = homeDisplayDate.plusDays(delta.toLong()) },
                                     onContentUnderTopBarChange = { homeContentUnderTopBar = it },
                                     onCourseClick = { course, week, sourceBounds ->
@@ -899,9 +1231,13 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     onUpdateCourseSingleWeek = viewModel::updateCourseSingleWeek,
                                     onDeleteCourseSingleWeek = viewModel::deleteCourseSingleWeek,
                                     onScheduleLongPress = {
-                                        addMenuExpanded = false
-                                        showPersonalizePanel = false
-                                        showScheduleEntryPill = true
+                                        if (pickerState.phase is CustomizeUiState.Home) {
+                                            addMenuExpanded = false
+                                            showPersonalizePanel = false
+                                            pickerState.phase = CustomizeUiState.ShowingEntryButton
+                                            showScheduleEntryPill = true
+                                            prewarmCurrentScheduleSnapshot()
+                                        }
                                     }
                                 )
                             }
@@ -937,7 +1273,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         }
                         if (screen is Screen.Home) {
                             DockBackdropContinuityPatch(
-                                config = state.config,
+                                config = visualState.config,
                                 modifier = Modifier.align(Alignment.BottomCenter)
                             )
                         }
@@ -997,28 +1333,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     }
                 }
             }
-            if (screen is Screen.Home) {
-                ScheduleManagerEntryPill(
-                    visible = showScheduleEntryPill,
-                    backdrop = chromeBackdrop,
-                    config = state.config,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .zIndex(22f),
-                    onClick = {
-                        showScheduleEntryPill = false
-                        val intent = Intent(context, ScheduleManagerActivity::class.java)
-                        val activity = context as? android.app.Activity
-                        if (activity != null) {
-                            activity.startActivityWithScheduleDepthTransition(intent)
-                        } else {
-                            context.startActivity(intent)
-                        }
-                    },
-                    onDismiss = { showScheduleEntryPill = false }
-                )
-            } else {
+            if (screen !is Screen.Home) {
                 showScheduleEntryPill = false
+                if (pickerState.phase is CustomizeUiState.ShowingEntryButton) pickerState.phase = CustomizeUiState.Home
             }
             if (screen is Screen.Home || screen is Screen.Config) {
                 DockEntranceContainer(
@@ -1028,7 +1345,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     FloatingDock(
                         selected = screen,
                         backdrop = chromeBackdrop,
-                        config = state.config,
+                        config = if (screen is Screen.Home) visualState.config else state.config,
                         onHome = { screen = Screen.Home },
                         onConfig = {
                             screen = Screen.Config
@@ -1079,7 +1396,202 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 modifier = Modifier.align(Alignment.BottomCenter).zIndex(40f)
             )
         }
+        }
+
+        // This control intentionally lives outside the recorded home layer. It can be visible
+        // while the real home is pre-captured without becoming part of its own preview bitmap.
+        if (screen is Screen.Home) {
+            ScheduleManagerEntryPill(
+                visible = showScheduleEntryPill,
+                backdrop = chromeBackdrop,
+                config = visualState.config,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .zIndex(89f),
+                onClick = ::enterCustomizePage,
+                onDismiss = {
+                    entryPrewarmJob?.cancel()
+                    showScheduleEntryPill = false
+                    if (pickerState.phase is CustomizeUiState.ShowingEntryButton) {
+                        pickerState.phase = CustomizeUiState.Home
+                    }
+                }
+            )
+        }
+
+        pickerState.snapshotCoverBitmap?.let { cover ->
+            Image(
+                bitmap = cover.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize().zIndex(90f)
+            )
+        }
+
+        SchedulePickerOverlay(
+            pickerState = pickerState,
+            allState = allSchedulesState,
+            backdrop = chromeBackdrop,
+            onPageSelected = ::switchPickerSchedule,
+            onApply = { exitPicker(apply = true) },
+            onClose = { exitPicker(apply = false) },
+            onBack = { centeredId ->
+                exitPicker(apply = false)
+            },
+            onCreate = {
+                if (pickerState.phase is CustomizeUiState.Picker) {
+                    snapshotJob?.cancel()
+                    pickerState.phase = CustomizeUiState.CreatingCombination
+                    viewModel.createSchedule(activate = false) { newId ->
+                        appScope.launch {
+                            snapshotFlow {
+                                val latest = latestAllSchedulesState.value
+                                latest.schedules.any { it.id == newId } &&
+                                    latest.allConfigs.any { it.id == newId } &&
+                                    latest.allPeriods.any { it.scheduleId == newId }
+                            }.first { it }
+                            pickerState.temporaryIds += newId
+                            // Keep the currently centered card as the transition source. The new
+                            // schedule is rendered underneath and revealed by the same crossfade
+                            // hand-off used by Cancel, so no fake card or Pager insertion is needed.
+                            pickerState.phase = CustomizeUiState.Picker
+                            exitPicker(
+                                apply = true,
+                                targetOverride = newId,
+                                commitTarget = true,
+                                crossfadeToTarget = true,
+                                onFinished = {
+                                    pendingQuickDetailScheduleId = null
+                                    quickScheduleDraft = quickDraftFor(newId)
+                                }
+                            )
+                        }
+                    }
+                }
+            },
+            onShare = { scheduleId, shareType ->
+                val profile = allSchedulesState.schedules.firstOrNull { it.id == scheduleId }
+                val config = allSchedulesState.allConfigs.firstOrNull { it.id == scheduleId } ?: defaultConfig(scheduleId)
+                val periods = allSchedulesState.allPeriods.filter { it.scheduleId == scheduleId }.ifEmpty { defaultPeriods(scheduleId) }
+                val courses = allSchedulesState.allCourses.filter { it.scheduleId == scheduleId }
+                val scheduleName = profile?.name ?: "课表"
+                when (shareType) {
+                    ScheduleShareType.TOKEN -> shareScheduleToken(
+                        context,
+                        scheduleName,
+                        buildSleepDownScheduleToken(config, periods, courses)
+                    )
+                    ScheduleShareType.ICS -> appScope.launch {
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                IcsScheduleCodec.writeShareFile(context, scheduleName, config, periods, courses)
+                            }
+                        }.onSuccess { shareScheduleIcs(context, scheduleName, it) }
+                            .onFailure { Toast.makeText(context, it.message ?: "ICS 文件生成失败", Toast.LENGTH_SHORT).show() }
+                    }
+                }
+            },
+            onCustomize = { scheduleId ->
+                if (pickerState.phase is CustomizeUiState.Picker) {
+                    exitPicker(
+                        apply = true,
+                        targetOverride = scheduleId,
+                        commitTarget = true,
+                        crossfadeToTarget = true,
+                        onFinished = {
+                            pendingQuickDetailScheduleId = null
+                            quickScheduleDraft = quickDraftFor(scheduleId)
+                        }
+                    )
+                }
+            },
+            onRename = viewModel::renameSchedule,
+            onDeleteRequest = { scheduleId ->
+                if (pickerState.phase is CustomizeUiState.Picker && pickerState.orderIds.size > 1) {
+                    snapshotJob?.cancel()
+                    pickerState.phase = CustomizeUiState.DeletingCombination
+                    appScope.launch {
+                        val animation = Animatable(0f)
+                        animation.animateTo(1f, tween(280)) {
+                            pickerState.deleteScale = 1f - value * 0.4f
+                            pickerState.deleteAlpha = 1f - value
+                        }
+                        val deletedIndex = pickerState.orderIds.indexOf(scheduleId)
+                        pickerState.orderIds.remove(scheduleId)
+                        pickerState.temporaryIds.remove(scheduleId)
+                        pickerState.snapshots.remove(scheduleId)
+                        appScope.launch { ScheduleSnapshotStore.delete(context, scheduleId) }
+                        viewModel.deleteSchedule(scheduleId)
+                        val nextId = pickerState.orderIds.getOrNull(deletedIndex.coerceAtMost(pickerState.orderIds.lastIndex))
+                            ?: pickerState.orderIds.firstOrNull()
+                        pickerState.deletingScheduleId = null
+                        pickerState.deleteReveal = 0f
+                        pickerState.deleteScale = 1f
+                        pickerState.deleteAlpha = 1f
+                        pickerState.phase = CustomizeUiState.Picker
+                        nextId?.let(::switchPickerSchedule)
+                    }
+                }
+            }
+        )
     }
+    }
+
+    GlassMiuixSettingsTheme(settingsVisualConfig(state.config)) {
+        QuickScheduleSettingsSheets(
+            draft = quickScheduleDraft,
+            config = state.config,
+            backdrop = chromeBackdrop,
+            onDraftChange = { quickScheduleDraft = it },
+            onDismiss = { quickScheduleDraft = null },
+            onDismissFinished = {
+                val detailScheduleId = pendingQuickDetailScheduleId
+                pendingQuickDetailScheduleId = null
+                if (detailScheduleId != null) {
+                    context.startActivity(
+                        Intent(context, SettingsDetailActivity::class.java)
+                            .putExtra(SettingsDetailPageExtra, SettingsPage.Schedule.name)
+                            .putExtra(ScheduleCustomizeIdExtra, detailScheduleId)
+                    )
+                } else {
+                    // Re-enter through the normal home-to-picker morph. It captures the now-real
+                    // homepage first, so both Apply and Cancel shrink back without a fake card.
+                    pickerState.phase = CustomizeUiState.Home
+                    enterCustomizePage()
+                }
+            },
+            onSave = { draft, onSaved ->
+                val latest = latestAllSchedulesState.value
+                val baseConfig = latest.allConfigs.firstOrNull { it.id == draft.scheduleId }
+                    ?: return@QuickScheduleSettingsSheets
+                val totalWeeks = draft.totalWeeks.coerceIn(1, 60)
+                val manualWeek = draft.currentWeek.coerceIn(1, totalWeeks)
+                val datedConfig = baseConfig.copy(
+                    totalWeeks = totalWeeks,
+                    currentWeek = manualWeek,
+                    termStartDate = draft.termStartDate.ifBlank { null },
+                    autoCurrentWeek = draft.autoCurrentWeek,
+                    hideEmptyWeekends = draft.hideEmptyWeekends
+                )
+                val effectiveWeek = if (draft.autoCurrentWeek && draft.termStartDate.isNotBlank()) {
+                    effectiveCurrentWeek(datedConfig)
+                } else {
+                    manualWeek
+                }
+                val periods = latest.allPeriods.filter { it.scheduleId == draft.scheduleId }
+                    .ifEmpty { defaultPeriods(draft.scheduleId) }
+                viewModel.saveConfigForSchedule(
+                    draft.scheduleId,
+                    datedConfig.copy(currentWeek = effectiveWeek.coerceIn(1, totalWeeks)),
+                    periods,
+                    onSaved
+                )
+            },
+            onDetailedSettings = { scheduleId ->
+                pendingQuickDetailScheduleId = scheduleId
+            }
+        )
+        top.yukonga.miuix.kmp.utils.MiuixPopupUtils.MiuixPopupHost()
     }
 
     CourseEditorContainerOverlayHost(
@@ -1585,7 +2097,7 @@ fun AppTopBar(
                                 SettingsPage.General -> "通用设置"
                                 SettingsPage.AiImport -> "AI 设置"
                                 SettingsPage.DayAgent -> "今日 Agent"
-                                SettingsPage.Schedule -> "课表设置"
+                                SettingsPage.Schedule -> "课表详细设置"
                                 SettingsPage.Notifications -> "通知设置"
                                 SettingsPage.ScheduleManager -> "课表设置"
                                 SettingsPage.About -> "关于"
@@ -1840,7 +2352,7 @@ fun HomeIconButton(
     val lightGlass = adaptiveGlass.lightGlass
     val baseSurfaceColor = if (lightGlass) ComposeColor.White else ComposeColor(0xFF121212)
     val buttonSurfaceColor = if (accentColor.isSpecified) {
-        accentColor.copy(alpha = if (lightGlass) 0.20f else 0.24f)
+        accentColor.copy(alpha = if (lightGlass) 0.28f else 0.32f)
     } else {
         baseSurfaceColor.copy(alpha = HomeHeaderGlassSurfaceAlpha)
     }
@@ -2536,12 +3048,10 @@ fun ScheduleManagerEntryPill(
     ) {
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = spring(dampingRatio = 0.82f, stiffness = 560f)) +
-                scaleIn(initialScale = 0.86f, animationSpec = spring(dampingRatio = 0.62f, stiffness = 620f)) +
-                slideInVertically(initialOffsetY = { it / 2 }, animationSpec = spring(dampingRatio = 0.70f, stiffness = 640f)),
-            exit = fadeOut(animationSpec = spring(dampingRatio = 0.92f, stiffness = 620f)) +
-                scaleOut(targetScale = 0.88f, animationSpec = spring(dampingRatio = 0.82f, stiffness = 620f)) +
-                slideOutVertically(targetOffsetY = { it / 2 }, animationSpec = spring(dampingRatio = 0.86f, stiffness = 620f))
+            enter = fadeIn(animationSpec = tween(320)) +
+                scaleIn(initialScale = 0.4f, animationSpec = tween(320, easing = CubicBezierEasing(0.2f, 0.75f, 0.2f, 1f))),
+            exit = fadeOut(animationSpec = tween(120)) +
+                scaleOut(targetScale = 0.4f, animationSpec = tween(120))
         ) {
             val lightGlass = glassUsesLightStyle(config)
             if (backdrop != null) {
@@ -3094,6 +3604,18 @@ class SettingsDetailActivity : ComponentActivity() {
                 val scheduleEditState = remember(state, customizeScheduleId) {
                     if (customizeScheduleId != null) scheduleConfigStateForEdit(state, customizeScheduleId) else state
                 }
+                val editEntrySnapshot = remember(customizeScheduleId) {
+                    customizeScheduleId?.let { BitmapFactory.decodeFile(ScheduleSnapshotStore.file(this, it).absolutePath) }
+                }
+                var editEntrySnapshotVisible by remember(editEntrySnapshot) { mutableStateOf(editEntrySnapshot != null) }
+                LaunchedEffect(editEntrySnapshot) {
+                    if (editEntrySnapshot != null) {
+                        withFrameNanos { }
+                        withFrameNanos { }
+                        editEntrySnapshotVisible = false
+                    }
+                }
+                Box(Modifier.fillMaxSize()) {
                 DetailActivityScaffold(
                     title = section.title(),
                     config = state.config,
@@ -3124,13 +3646,13 @@ class SettingsDetailActivity : ComponentActivity() {
                             backdrop = backdrop,
                             onDownload = {
                                 startActivity(
-                                    Intent(this, SettingsDetailActivity::class.java)
+                                    Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                                         .putExtra(SettingsDetailPageExtra, SettingsPage.Download.name)
                                 )
                             },
                             onDonate = {
                                 startActivity(
-                                    Intent(this, SettingsDetailActivity::class.java)
+                                    Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                                         .putExtra(SettingsDetailPageExtra, SettingsPage.Donate.name)
                                 )
                             }
@@ -3146,6 +3668,22 @@ class SettingsDetailActivity : ComponentActivity() {
                         )
                         SettingsPage.Root -> SettingsRootScreen(state, backdrop) {}
                     }
+                }
+                AnimatedVisibility(
+                    visible = editEntrySnapshotVisible,
+                    enter = EnterTransition.None,
+                    exit = fadeOut(tween(220)),
+                    modifier = Modifier.fillMaxSize().zIndex(200f)
+                ) {
+                    editEntrySnapshot?.let { snapshot ->
+                        Image(
+                            bitmap = snapshot.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = ContentScale.FillBounds,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
                 }
             }
         }
@@ -3576,6 +4114,7 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
             context.packageManager.getApplicationLabel(context.applicationInfo).toString()
         }.getOrDefault("SleepDown课程表")
     }
+
     val updateAvailable by GiteeAppUpdater.updateAvailable.collectAsStateWithLifecycle()
     LaunchedEffect(versionName) {
         GiteeAppUpdater.restoreCachedStatus(context, versionName)
@@ -3692,7 +4231,11 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow("通用设置", "深色模式与系统外观", onClick = { onPageChange(SettingsPage.General) })
                     SettingsDivider()
-                    SettingsNavigationRow("课表设置", "管理多个课表", onClick = { context.startActivity(Intent(context, ScheduleManagerActivity::class.java)) })
+                    SettingsNavigationRow(
+                        "当前课表详细设置",
+                        "编辑当前课表的周数、节次与显示规则",
+                        onClick = { onPageChange(SettingsPage.Schedule) }
+                    )
                     SettingsDivider()
                     SettingsNavigationRow("通知设置", "上课提醒与实时活动", onClick = { onPageChange(SettingsPage.Notifications) })
                 }

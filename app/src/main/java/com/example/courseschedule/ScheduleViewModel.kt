@@ -100,23 +100,30 @@ class ScheduleViewModel(
     fun saveConfigForSchedule(
         scheduleId: Int,
         config: ScheduleConfigEntity,
-        periods: List<PeriodEntity>
+        periods: List<PeriodEntity>,
+        finish: (() -> Unit)? = null
     ) = viewModelScope.launch {
         repository.saveConfigForSchedule(scheduleId, config, periods)
         refreshCoordinator.request()
         snackbar.value = "设置已保存"
+        finish?.invoke()
     }
 
     fun savePersonalization(config: ScheduleConfigEntity) = viewModelScope.launch {
         repository.saveConfigOnly(config)
     }
 
-    fun createSchedule(name: String = "\u65B0\u8BFE\u8868") = viewModelScope.launch {
+    fun createSchedule(
+        name: String = "\u65B0\u8BFE\u8868",
+        activate: Boolean = true,
+        onCreated: ((Int) -> Unit)? = null
+    ) = viewModelScope.launch {
         Log.d("ScheduleManager", "viewModel.createSchedule name=$name")
         val scheduleId = repository.createSchedule(name)
         Log.d("ScheduleManager", "repository.createSchedule created id=$scheduleId")
-        repository.activateSchedule(scheduleId)
+        if (activate) repository.activateSchedule(scheduleId)
         refreshCoordinator.request()
+        onCreated?.invoke(scheduleId)
     }
 
     fun activateSchedule(scheduleId: Int, finish: (() -> Unit)? = null) = viewModelScope.launch {

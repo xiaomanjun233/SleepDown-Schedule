@@ -281,7 +281,17 @@ object TodayAgentTimelineEngine {
 
         val values = placeholderValues(facts, current, next, previous)
         val main = renderTemplate(pack.templates[kind.name] ?: defaultAgentTemplates().getValue(kind.name), values)
-        val alert = if (facts.weather?.hasAlert == true && kind != AgentTemplateKind.WEATHER_ALERT) {
+        val weather = facts.weather
+        val mainAlreadyContainsWeather = weather != null && (
+            main.contains(weather.summary, ignoreCase = true) ||
+                (main.contains("${weather.temperature}°") &&
+                    main.contains("${weather.precipitationProbability}%"))
+            )
+        val alert = if (
+            weather?.hasAlert == true &&
+            kind != AgentTemplateKind.WEATHER_ALERT &&
+            !mainAlreadyContainsWeather
+        ) {
             renderTemplate(
                 pack.templates[AgentTemplateKind.WEATHER_ALERT.name]
                     ?: defaultAgentTemplates().getValue(AgentTemplateKind.WEATHER_ALERT.name),

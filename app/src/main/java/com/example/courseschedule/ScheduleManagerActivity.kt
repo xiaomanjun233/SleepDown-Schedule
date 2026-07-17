@@ -78,7 +78,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -572,7 +571,7 @@ fun ScheduleManagerScreen(
     }
 }
 
-private fun shareScheduleToken(context: Context, scheduleName: String, token: String) {
+internal fun shareScheduleToken(context: Context, scheduleName: String, token: String) {
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_SUBJECT, "$scheduleName - SleepDown 课表口令")
@@ -581,7 +580,7 @@ private fun shareScheduleToken(context: Context, scheduleName: String, token: St
     context.startActivity(Intent.createChooser(intent, "分享课表口令"))
 }
 
-private fun shareScheduleIcs(context: Context, scheduleName: String, file: java.io.File) {
+internal fun shareScheduleIcs(context: Context, scheduleName: String, file: java.io.File) {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/calendar"
@@ -604,6 +603,7 @@ fun ScheduleCarouselCard(
     selected: Boolean,
     isCentered: Boolean,
     deleteReveal: Float,
+    snapshotFallbackOnly: Boolean = false,
     modifier: Modifier,
     onTap: () -> Unit,
     onLongPress: () -> Unit,
@@ -618,10 +618,10 @@ fun ScheduleCarouselCard(
         bitmap = withContext(Dispatchers.IO) { loadWallpaperBitmap(context, config, dark) }
     }
     val deleteVisible = deleteReveal > 0.05f
-    val animatedPressOffset by animateDpAsState(
-        targetValue = if (deleteVisible) 14.dp else 0.dp,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = 520f),
-        label = "schedule-delete-press"
+    val animatedDepthScale by animateFloatAsState(
+        targetValue = if (deleteVisible) 0.94f else 1f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 480f),
+        label = "schedule-delete-depth"
     )
     val overlayAlpha by animateFloatAsState(
         targetValue = if (deleteVisible) 0.46f else 0f,
@@ -631,7 +631,10 @@ fun ScheduleCarouselCard(
     val shape = RoundedCornerShape(34.dp)
     Box(
         modifier = modifier
-            .offset { IntOffset(0, animatedPressOffset.roundToPx()) }
+            .graphicsLayer {
+                scaleX = animatedDepthScale
+                scaleY = animatedDepthScale
+            }
             .clip(shape)
             .background(Color(0xFF111111))
             .then(
@@ -657,9 +660,9 @@ fun ScheduleCarouselCard(
                 bitmap = snapshot.asImageBitmap(),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.FillBounds
             )
-        } else {
+        } else if (!snapshotFallbackOnly) {
             ScheduleHomeSnapshotPreview(
                 config = config,
                 courses = courses,
@@ -667,6 +670,19 @@ fun ScheduleCarouselCard(
                 wallpaperBitmap = bitmap,
                 selected = selected,
                 modifier = Modifier.fillMaxSize()
+            )
+        } else if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(if (dark) Color(0xFF09090B) else Color(0xFFF2F2F7))
             )
         }
         if (overlayAlpha > 0.01f) {

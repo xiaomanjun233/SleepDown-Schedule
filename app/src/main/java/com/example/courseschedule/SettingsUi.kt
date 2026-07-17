@@ -1412,7 +1412,14 @@ fun LegacyGeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateCo
 }
 
 @Composable
-fun SettingsGroup(backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun SettingsGroup(
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    modifier: Modifier = Modifier,
+    surfaceModifier: Modifier = Modifier,
+    surfaceColorOverride: ComposeColor? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
     val miuixLayout = LocalGlassMiuixEnabled.current
     val shape = RoundedCornerShape(if (miuixLayout) 24.dp else 30.dp)
     val darkTheme = appUsesDarkTheme(config)
@@ -1421,8 +1428,12 @@ fun SettingsGroup(backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: M
         CompositionLocalProvider(LocalContentColor provides contentColor) {
             Column(
                 modifier = modifier
+                    .then(surfaceModifier)
                     .clip(shape)
-                    .background(if (darkTheme) ComposeColor(0xFF1C1C1E) else ComposeColor(0xFFF7F7F7)),
+                    .background(
+                        surfaceColorOverride
+                            ?: if (darkTheme) ComposeColor(0xFF1C1C1E) else ComposeColor(0xFFF7F7F7)
+                    ),
                 content = content
             )
         }
@@ -2265,7 +2276,7 @@ fun ScheduleSettingsContentFixed(
         item {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "课表设置",
+                    "课表详细设置",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
