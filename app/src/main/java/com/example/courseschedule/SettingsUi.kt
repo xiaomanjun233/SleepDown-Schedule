@@ -1827,13 +1827,77 @@ fun showNativeTimePicker(context: Context, currentValue: String, onPicked: (Stri
 
 @Composable
 fun SettingsDatePickerRow(title: String, value: String, onValueChange: (String) -> Unit, enabled: Boolean = true) {
-    val context = LocalContext.current
+    var showPicker by remember { mutableStateOf(false) }
+    val initialDate = remember(value, showPicker) { parseScheduleDate(value) ?: LocalDate.now() }
+    var pickerYear by remember(initialDate, showPicker) { mutableIntStateOf(initialDate.year) }
+    var pickerMonth by remember(initialDate, showPicker) { mutableIntStateOf(initialDate.monthValue) }
+    var pickerDay by remember(initialDate, showPicker) { mutableIntStateOf(initialDate.dayOfMonth) }
     SettingsPickerValueRow(
         title = title,
         value = value,
         enabled = enabled,
-        onClick = { showNativeDatePicker(context, value, onValueChange) }
+        onClick = { showPicker = true }
     )
+    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
+        show = showPicker,
+        title = title,
+        startAction = {
+            top.yukonga.miuix.kmp.basic.TextButton(
+                text = "取消",
+                onClick = { showPicker = false },
+                minWidth = 64.dp,
+                minHeight = 38.dp
+            )
+        },
+        endAction = {
+            top.yukonga.miuix.kmp.basic.TextButton(
+                text = "确定",
+                onClick = {
+                    val maxDay = java.time.YearMonth.of(pickerYear, pickerMonth).lengthOfMonth()
+                    onValueChange(formatScheduleDate(LocalDate.of(pickerYear, pickerMonth, pickerDay.coerceAtMost(maxDay))))
+                    showPicker = false
+                },
+                minWidth = 64.dp,
+                minHeight = 38.dp
+            )
+        },
+        onDismissRequest = { showPicker = false },
+        modifier = Modifier.heightIn(max = 330.dp)
+    ) {
+        val maxDay = java.time.YearMonth.of(pickerYear, pickerMonth).lengthOfMonth()
+        LaunchedEffect(maxDay) {
+            if (pickerDay > maxDay) pickerDay = maxDay
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            top.yukonga.miuix.kmp.basic.NumberPicker(
+                value = pickerYear,
+                onValueChange = { pickerYear = it },
+                range = 2000..2100,
+                visibleItemCount = 3,
+                label = { "${it}年" },
+                modifier = Modifier.weight(1.25f)
+            )
+            top.yukonga.miuix.kmp.basic.NumberPicker(
+                value = pickerMonth,
+                onValueChange = { pickerMonth = it },
+                range = 1..12,
+                visibleItemCount = 3,
+                label = { "${it}月" },
+                modifier = Modifier.weight(1f)
+            )
+            top.yukonga.miuix.kmp.basic.NumberPicker(
+                value = pickerDay.coerceAtMost(maxDay),
+                onValueChange = { pickerDay = it },
+                range = 1..maxDay,
+                visibleItemCount = 3,
+                label = { "${it}日" },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
 }
 
 @Composable

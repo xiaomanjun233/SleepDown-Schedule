@@ -52,6 +52,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
@@ -268,7 +269,8 @@ fun QuickScheduleSettingsSheets(
     onDismiss: () -> Unit,
     onDismissFinished: () -> Unit,
     onSave: (QuickScheduleDraft, () -> Unit) -> Unit,
-    onDetailedSettings: (Int) -> Unit
+    suppressDetailedButton: Boolean = false,
+    onDetailedSettings: (Int, Rect, ((() -> Unit) -> Unit)) -> Unit
 ) {
     var saving by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
@@ -277,6 +279,8 @@ fun QuickScheduleSettingsSheets(
     var dateDay by remember { mutableIntStateOf(LocalDate.now().dayOfMonth) }
     var totalWeeksText by remember(draft?.scheduleId) { mutableStateOf(draft?.totalWeeks?.toString().orEmpty()) }
     var currentWeekText by remember(draft?.scheduleId) { mutableStateOf(draft?.currentWeek?.toString().orEmpty()) }
+    var detailButtonBounds by remember(draft?.scheduleId) { mutableStateOf<Rect?>(null) }
+    var detailLaunching by remember(draft?.scheduleId) { mutableStateOf(false) }
 
     fun beginDateSelection(value: String) {
         val date = runCatching { LocalDate.parse(value) }.getOrNull() ?: LocalDate.now()
@@ -286,7 +290,7 @@ fun QuickScheduleSettingsSheets(
         showDatePicker = true
     }
 
-    fun saveAndThen(openDetails: Boolean) {
+    fun saveAndDismiss() {
         val raw = draft ?: return
         if (saving) return
         val total = totalWeeksText.toIntOrNull()?.coerceIn(1, 60) ?: raw.totalWeeks
@@ -295,7 +299,6 @@ fun QuickScheduleSettingsSheets(
         saving = true
         onSave(value) {
             saving = false
-            if (openDetails) onDetailedSettings(value.scheduleId)
             onDismiss()
         }
     }
@@ -319,7 +322,7 @@ fun QuickScheduleSettingsSheets(
                 backdrop = backdrop,
                 config = config,
                 primary = true,
-                onClick = { saveAndThen(openDetails = false) }
+                onClick = ::saveAndDismiss
             )
         },
         onDismissRequest = { if (!saving) onDismiss() },
@@ -396,10 +399,38 @@ fun QuickScheduleSettingsSheets(
                     )
                 }
                 if (backdrop != null) {
-                    LiquidButton(
-                        onClick = { saveAndThen(openDetails = true) },
+                    if (!detailLaunching && !suppressDetailedButton) LiquidButton(
+                        onClick = {
+                            val raw = draft ?: return@LiquidButton
+                            val bounds = detailButtonBounds ?: return@LiquidButton
+                            if (saving || detailLaunching) return@LiquidButton
+                            val total = totalWeeksText.toIntOrNull()?.coerceIn(1, 60) ?: raw.totalWeeks
+                            val current = currentWeekText.toIntOrNull()?.coerceIn(1, total)
+                                ?: raw.currentWeek.coerceIn(1, total)
+                            val value = raw.copy(totalWeeks = total, currentWeek = current)
+                            detailLaunching = true
+                            onDetailedSettings(value.scheduleId, bounds) { afterSaved ->
+                                saving = true
+                                onSave(value) {
+                                    saving = false
+                                    detailLaunching = false
+                                    afterSaved()
+                                }
+                            }
+                        },
                         backdrop = backdrop,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onGloballyPositioned { coordinates ->
+                                val position = coordinates.localToRoot(Offset.Zero)
+                                val size = coordinates.size
+                                detailButtonBounds = Rect(
+                                    left = position.x,
+                                    top = position.y,
+                                    right = position.x + size.width,
+                                    bottom = position.y + size.height
+                                )
+                            },
                         height = 52.dp,
                         blurRadius = 12.dp,
                         lensHeight = 30.dp,
@@ -407,7 +438,7 @@ fun QuickScheduleSettingsSheets(
                         contentPadding = PaddingValues(horizontal = 24.dp)
                     ) {
                         Text("详细设置", color = glassForegroundColor(config), fontWeight = FontWeight.SemiBold)
-                    }
+                    } else Spacer(Modifier.fillMaxWidth().height(52.dp))
                 }
             }
         }

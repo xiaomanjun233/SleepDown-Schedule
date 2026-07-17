@@ -133,16 +133,24 @@ fun LiquidDialogHeader(
     modifier: Modifier = Modifier,
     onConfirm: (() -> Unit)? = null
 ) {
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .height(66.dp)
+            .padding(horizontal = 12.dp)
     ) {
-        DialogLiquidButton(backdrop, "取消", onDismiss, role = DialogButtonRole.Cancel)
+        DialogLiquidButton(
+            backdrop,
+            "取消",
+            onDismiss,
+            modifier = Modifier.align(Alignment.CenterStart),
+            role = DialogButtonRole.Cancel
+        )
         Text(
             text = title,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 58.dp),
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
@@ -150,9 +158,13 @@ fun LiquidDialogHeader(
             maxLines = 1
         )
         if (onConfirm != null) {
-            DialogLiquidButton(backdrop, "保存", onConfirm, role = DialogButtonRole.Confirm)
-        } else {
-            Spacer(Modifier.size(42.dp))
+            DialogLiquidButton(
+                backdrop,
+                "保存",
+                onConfirm,
+                modifier = Modifier.align(Alignment.CenterEnd),
+                role = DialogButtonRole.Confirm
+            )
         }
     }
 }

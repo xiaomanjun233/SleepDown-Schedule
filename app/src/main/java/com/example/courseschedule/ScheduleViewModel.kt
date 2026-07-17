@@ -94,7 +94,6 @@ class ScheduleViewModel(
     fun saveConfig(config: ScheduleConfigEntity, periods: List<PeriodEntity>) = viewModelScope.launch {
         repository.saveConfig(config, periods)
         refreshCoordinator.request()
-        snackbar.value = "设置已保存"
     }
 
     fun saveConfigForSchedule(
@@ -105,7 +104,6 @@ class ScheduleViewModel(
     ) = viewModelScope.launch {
         repository.saveConfigForSchedule(scheduleId, config, periods)
         refreshCoordinator.request()
-        snackbar.value = "设置已保存"
         finish?.invoke()
     }
 

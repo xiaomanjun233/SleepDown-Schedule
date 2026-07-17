@@ -698,8 +698,8 @@ fun DonateSettingsScreen(state: AppState, backdrop: Backdrop?) {
         }
         item {
             Image(
-                painter = painterResource(R.drawable.donate_alipay),
-                contentDescription = "支付宝捐赠二维码",
+                painter = painterResource(R.drawable.donate_reward),
+                contentDescription = "微信赞赏码",
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(28.dp)),
@@ -708,7 +708,7 @@ fun DonateSettingsScreen(state: AppState, backdrop: Backdrop?) {
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsInfoRow("使用方式", "打开支付宝扫一扫，识别上方二维码即可。谢谢你愿意支持这个小小的课程表继续变好。")
+                SettingsInfoRow("使用方式", "打开微信扫一扫，识别上方赞赏码即可。谢谢你愿意支持这个小小的课程表继续变好。")
             }
         }
     }

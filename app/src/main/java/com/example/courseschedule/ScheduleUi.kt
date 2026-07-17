@@ -283,6 +283,7 @@ import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URLDecoder
@@ -398,9 +399,14 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var previewScheduleId by remember { mutableStateOf<Int?>(null) }
     var pendingPickerEditorScheduleId by remember { mutableStateOf<Int?>(null) }
     var quickScheduleDraft by remember { mutableStateOf<QuickScheduleDraft?>(null) }
-    var pendingQuickDetailScheduleId by remember { mutableStateOf<Int?>(null) }
+    var detailMorphState by remember { mutableStateOf<DetailMorphState>(DetailMorphState.Idle) }
+    var detailMorphRequest by remember { mutableStateOf<DetailMorphRequest?>(null) }
+    var detailCaptureCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var detailCaptureRecordCleanFrame by remember { mutableStateOf(false) }
+    val detailCaptureMaskActive = remember { AtomicBoolean(false) }
     val visualState = previewScheduleId?.let(allSchedulesState::forSchedule) ?: state
     val screenGraphicsLayer = rememberGraphicsLayer()
+    val detailScreenGraphicsLayer = rememberGraphicsLayer()
     val recordedScheduleId = remember { AtomicInteger(-1) }
     val recordedHomeGeneration = remember { AtomicLong(0L) }
     var captureRenderToken by remember { mutableIntStateOf(0) }
@@ -1029,7 +1035,23 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         LocalCourseCardColorAssignments provides homeCourseColorAssignments
     ) {
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .drawWithContent {
+                val recordCleanFrame =
+                    detailMorphState is DetailMorphState.Capturing && detailCaptureRecordCleanFrame
+                if (detailMorphState is DetailMorphState.Idle || recordCleanFrame) {
+                    detailCaptureMaskActive.set(recordCleanFrame)
+                    try {
+                        detailScreenGraphicsLayer.record {
+                            this@drawWithContent.drawContent()
+                        }
+                    } finally {
+                        detailCaptureMaskActive.set(false)
+                    }
+                }
+                drawContent()
+            }
     ) {
         Box(
             modifier = Modifier
@@ -1461,7 +1483,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                 commitTarget = true,
                                 crossfadeToTarget = true,
                                 onFinished = {
-                                    pendingQuickDetailScheduleId = null
                                     quickScheduleDraft = quickDraftFor(newId)
                                 }
                             )
@@ -1499,7 +1520,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         commitTarget = true,
                         crossfadeToTarget = true,
                         onFinished = {
-                            pendingQuickDetailScheduleId = null
                             quickScheduleDraft = quickDraftFor(scheduleId)
                         }
                     )
@@ -1545,20 +1565,10 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             onDraftChange = { quickScheduleDraft = it },
             onDismiss = { quickScheduleDraft = null },
             onDismissFinished = {
-                val detailScheduleId = pendingQuickDetailScheduleId
-                pendingQuickDetailScheduleId = null
-                if (detailScheduleId != null) {
-                    context.startActivity(
-                        Intent(context, SettingsDetailActivity::class.java)
-                            .putExtra(SettingsDetailPageExtra, SettingsPage.Schedule.name)
-                            .putExtra(ScheduleCustomizeIdExtra, detailScheduleId)
-                    )
-                } else {
-                    // Re-enter through the normal home-to-picker morph. It captures the now-real
-                    // homepage first, so both Apply and Cancel shrink back without a fake card.
-                    pickerState.phase = CustomizeUiState.Home
-                    enterCustomizePage()
-                }
+                // Re-enter through the normal home-to-picker morph. It captures the now-real
+                // homepage first, so both Apply and Cancel shrink back without a fake card.
+                pickerState.phase = CustomizeUiState.Home
+                enterCustomizePage()
             },
             onSave = { draft, onSaved ->
                 val latest = latestAllSchedulesState.value
@@ -1587,11 +1597,108 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     onSaved
                 )
             },
-            onDetailedSettings = { scheduleId ->
-                pendingQuickDetailScheduleId = scheduleId
+            suppressDetailedButton = detailMorphState !is DetailMorphState.Idle,
+            onDetailedSettings = { scheduleId, sourceBounds, saveBeforeOpening ->
+                if (detailMorphState !is DetailMorphState.Idle) {
+                    return@QuickScheduleSettingsSheets
+                }
+                appScope.launch {
+                    val fullSnapshot = runCatching {
+                        detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                    }.getOrNull()
+                    if (fullSnapshot == null || fullSnapshot.width <= 0 || fullSnapshot.height <= 0) {
+                        detailMorphState = DetailMorphState.Idle
+                        saveBeforeOpening { }
+                        return@launch
+                    }
+                    val x = sourceBounds.left.toInt().coerceIn(0, fullSnapshot.width - 1)
+                    val y = sourceBounds.top.toInt().coerceIn(0, fullSnapshot.height - 1)
+                    val width = sourceBounds.width.toInt().coerceIn(1, fullSnapshot.width - x)
+                    val height = sourceBounds.height.toInt().coerceIn(1, fullSnapshot.height - y)
+                    val sourceCardSnapshot = runCatching {
+                        Bitmap.createBitmap(fullSnapshot, x, y, width, height)
+                    }.getOrNull()
+                    if (sourceCardSnapshot == null) {
+                        detailMorphState = DetailMorphState.Idle
+                        saveBeforeOpening { }
+                        return@launch
+                    }
+                    // Freeze the old frame for the display, then record one clean frame after the
+                    // real source button has been removed (its fixed-size spacer keeps sheet layout
+                    // stable). The cover itself is suppressed only inside the recording pass below.
+                    detailCaptureCoverBitmap = fullSnapshot
+                    detailMorphState = DetailMorphState.Capturing
+                    detailCaptureRecordCleanFrame = true
+                    withFrameNanos { }
+                    withFrameNanos { }
+                    val cleanBackgroundSnapshot = runCatching {
+                        detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                    }.getOrNull()
+                    detailCaptureRecordCleanFrame = false
+                    if (cleanBackgroundSnapshot == null) {
+                        detailMorphState = DetailMorphState.Idle
+                        saveBeforeOpening { }
+                        return@launch
+                    }
+                    val request = DetailMorphRequest(
+                        scheduleId = scheduleId,
+                        sourceBounds = sourceBounds,
+                        backgroundSnapshot = cleanBackgroundSnapshot,
+                        sourceCardSnapshot = sourceCardSnapshot
+                    )
+                    saveBeforeOpening {
+                        detailMorphRequest = request
+                        detailCaptureCoverBitmap = null
+                    }
+                }
             }
         )
         top.yukonga.miuix.kmp.utils.MiuixPopupUtils.MiuixPopupHost()
+    }
+
+    detailCaptureCoverBitmap?.let { cover ->
+        Box(
+            Modifier
+                .fillMaxSize()
+                .zIndex(259f)
+                .drawWithContent {
+                    if (!detailCaptureMaskActive.get()) drawContent()
+                }
+                .pointerInput(cover) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            awaitPointerEvent().changes.forEach { it.consume() }
+                        }
+                    }
+                }
+        ) {
+            Image(
+                bitmap = cover.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+
+    detailMorphRequest?.let { request ->
+        val detailState = allSchedulesState.forSchedule(request.scheduleId)
+        DetailScheduleMorphOverlay(
+            request = request,
+            detailState = detailState,
+            onMorphStateChange = { detailMorphState = it },
+            onSave = { config, periods ->
+                viewModel.saveConfigForSchedule(request.scheduleId, config, periods)
+            },
+            onPreviewLiveUpdate = viewModel::previewLiveUpdate,
+            onFinished = {
+                detailMorphRequest = null
+                detailCaptureCoverBitmap = null
+                detailCaptureRecordCleanFrame = false
+                detailMorphState = DetailMorphState.Idle
+            },
+            modifier = Modifier.zIndex(260f)
+        )
     }
 
     CourseEditorContainerOverlayHost(
@@ -3684,6 +3791,7 @@ class SettingsDetailActivity : ComponentActivity() {
                         )
                     }
                 }
+                top.yukonga.miuix.kmp.utils.MiuixPopupUtils.MiuixPopupHost()
                 }
             }
         }
@@ -4609,6 +4717,8 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.0.3", "重构多课表管理页，提供堆叠式卡片效果和更灵动的无缝动画；新增从快速设置按钮连续展开至详细设置页的 Morph 动画，并优化返回衔接、快照层级与交互性能；继续优化液态玻璃参数、层次和文字可读性；课表日期选择器改用 MIUIX 样式，优化课程编辑弹窗顶栏布局。")
+                SettingsDivider()
                 SettingsInfoRow("1.0.2", "扩展今日 Agent 能力边界，支持结合当前课表理解更多课程与设置需求，并可引导进入对应功能；优化设置分类与信息层级，常用配置更易查找；优化首页日视图与周视图的跟手切换动画，日期、周次及课程内容衔接更自然；调整日视图课程卡片圆角，使卡片层级与整体界面更加协调；新增 ICS 课表文件导入与导出分享，可通过系统分享器保存或发送课表；通用教务导入会保存曾打开的教务站地址与登录状态，方便下次快速进入；新增每日自动检查更新功能，发现新版本时展示版本号和更新日志；通用设置与通知设置改为修改后直接保存，不再需要二次确认。")
                 SettingsDivider()
                 SettingsInfoRow("1.0.1", "新增今日助手，可结合当天课程与时间生成日程提醒，并支持快捷提问；新增课程卡片彩色模式，可从壁纸提取代表色并为同页课程分配不同配色；优化周视图课程卡片排版，课程名称、地点与教师信息层级更清晰。")
