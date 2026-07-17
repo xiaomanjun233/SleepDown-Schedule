@@ -137,6 +137,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -174,6 +177,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.key
@@ -258,6 +262,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
@@ -441,10 +446,59 @@ fun SinglePillWeekScheduleScreen(
     val outgoingDirection = remember { mutableIntStateOf(0) }
     val incomingLayerOffset = remember { Animatable(0f) }
     val outgoingLayerOffset = remember { Animatable(0f) }
+    var gestureCommittedWeek by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val pagerState = rememberPagerState(
+        initialPage = (displayWeek - 1).coerceAtLeast(0),
+        pageCount = { state.config.totalWeeks.coerceAtLeast(1) }
+    )
+    LaunchedEffect(pagerState.settledPage, state.config.totalWeeks) {
+        val settledWeek = (pagerState.settledPage + 1).coerceIn(1, state.config.totalWeeks.coerceAtLeast(1))
+        if (settledWeek != displayWeek) {
+            gestureCommittedWeek = settledWeek
+            onSwipeWeek(settledWeek - displayWeek)
+        }
+    }
+    LaunchedEffect(pagerState, displayWeek, state.config.totalWeeks) {
+        snapshotFlow {
+            Triple(
+                pagerState.isScrollInProgress,
+                pagerState.settledPage,
+                pagerState.currentPage + pagerState.currentPageOffsetFraction
+            )
+        }.distinctUntilChanged().collect { (scrolling, settledPage, pagePosition) ->
+            if (!scrolling) return@collect
+            val delta = pagePosition - settledPage
+            val desiredPage = when {
+                delta >= 0.75f -> settledPage + 1
+                delta <= -0.75f -> settledPage - 1
+                else -> settledPage
+            }.coerceIn(0, state.config.totalWeeks.coerceAtLeast(1) - 1)
+            val desiredWeek = desiredPage + 1
+            if (desiredWeek != displayWeek) {
+                gestureCommittedWeek = desiredWeek
+                onSwipeWeek(desiredWeek - displayWeek)
+            }
+        }
+    }
+    LaunchedEffect(displayWeek, state.config.totalWeeks) {
+        val targetPage = (displayWeek - 1).coerceIn(0, state.config.totalWeeks.coerceAtLeast(1) - 1)
+        if (pagerState.settledPage != targetPage && gestureCommittedWeek == 0) {
+            pagerState.scrollToPage(targetPage)
+        }
+    }
     LaunchedEffect(displayWeek) {
         val direction = (displayWeek - previousDisplayWeek).coerceIn(-1, 1)
+        if (direction != 0 && displayWeek == gestureCommittedWeek) {
+            outgoingCourses.value = null
+            incomingLayerOffset.snapTo(0f)
+            outgoingLayerOffset.snapTo(0f)
+            weekMotionDirection = 0
+            previousDisplayWeek = displayWeek
+            gestureCommittedWeek = 0
+            return@LaunchedEffect
+        }
         if (direction != 0) {
             val oldWeek = previousDisplayWeek
             val oldBuckets = weekCourseBuckets(state.courses, oldWeek)
@@ -484,7 +538,6 @@ fun SinglePillWeekScheduleScreen(
             outgoingLayerOffset.snapTo(0f)
         }
     }
-    var horizontalDrag by remember { mutableFloatStateOf(0f) }
     val scrollState = rememberScrollState()
     val contentUnderTopBar by remember {
         derivedStateOf { scrollState.value > 0 }
@@ -516,20 +569,6 @@ fun SinglePillWeekScheduleScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(displayWeek, state.config.totalWeeks) {
-                detectHorizontalDragGestures(
-                    onDragStart = { horizontalDrag = 0f },
-                    onHorizontalDrag = { _, dragAmount -> horizontalDrag += dragAmount },
-                    onDragEnd = {
-                        when {
-                            horizontalDrag <= -80f -> onSwipeWeek(1)
-                            horizontalDrag >= 80f -> onSwipeWeek(-1)
-                        }
-                        horizontalDrag = 0f
-                    },
-                    onDragCancel = { horizontalDrag = 0f }
-                )
-            }
             .verticalScroll(scrollState)
     ) {
         Column {
@@ -562,14 +601,9 @@ fun SinglePillWeekScheduleScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     WeekHeaderPill(headerBackdrop, state.config, selected = false) {
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                             Box(
-                                modifier = Modifier
-                                    .width(rowHeaderWidth - 4.dp)
-                                    .fillMaxHeight(),
+                                modifier = Modifier.width(rowHeaderWidth - 4.dp).fillMaxHeight(),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -580,49 +614,31 @@ fun SinglePillWeekScheduleScreen(
                                     textAlign = TextAlign.Center
                                 )
                             }
-                            weekdays.forEach { day ->
-                                val isToday = day == today.dayOfWeek.toChineseWeekday()
-                                val date = weekStart.plusDays((day - 1).toLong())
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxSize()
-                                        .then(
-                                             if (isToday) Modifier
-                                                .padding(vertical = 2.dp, horizontal = 2.dp)
-                                                .clip(RoundedCornerShape(50))
-                                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                                            else Modifier.padding(vertical = 2.dp, horizontal = 2.dp)
-                                        ),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = "周${weekdayLabel(day)}",
-                                        fontSize = 11.sp,
-                                        lineHeight = 12.sp,
-                                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.SemiBold,
-                                        color = textColor,
-                                        textAlign = TextAlign.Center,
-                                        maxLines = 1
-                                    )
-                                    Text(
-                                        text = "${date.monthValue}/${date.dayOfMonth}",
-                                        fontSize = 9.sp,
-                                        lineHeight = 10.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = textColor.copy(alpha = 0.72f),
-                                        textAlign = TextAlign.Center,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
+                            WeekPagerHeaderLabels(
+                                pagerState = pagerState,
+                                displayWeek = displayWeek,
+                                courses = state.courses,
+                                config = state.config,
+                                today = today,
+                                textColor = textColor,
+                                modifier = Modifier.weight(1f).fillMaxHeight()
+                            )
                         }
                     }
                 }
 
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.width(rowHeaderWidth)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(cardHeight * state.periods.size)
+                        .clipToBounds()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .width(rowHeaderWidth)
+                            .fillMaxHeight()
+                            .zIndex(2f)
+                    ) {
                         state.periods.forEach { period ->
                             Box(
                                 modifier = Modifier
@@ -660,9 +676,10 @@ fun SinglePillWeekScheduleScreen(
                         }
                     }
 
-                    Box(modifier = Modifier.weight(1f)) {
+                    Box(modifier = Modifier.fillMaxSize()) {
                         outgoingCourses.value?.let { oldCourses ->
                             WeekCourseColumnsLayer(
+                                modifier = Modifier.padding(start = rowHeaderWidth),
                                 courses = oldCourses,
                                 weekdays = outgoingWeekdays.value,
                                 periods = state.periods,
@@ -681,52 +698,79 @@ fun SinglePillWeekScheduleScreen(
                             onCourseClick = { course, sourceBounds -> onCourseClick(course, outgoingWeekKey.intValue, sourceBounds) }
                             )
                         }
-                        WeekCourseColumnsLayer(
-                            courses = visibleCourses,
-                            weekdays = weekdays,
-                            periods = state.periods,
-                            cardHeight = cardHeight,
-                            cardColor = cardColor,
-                            backdrop = backdrop,
-                            floatingBackdrop = floatingCourseBackdrop,
-                            config = state.config,
-                            weekMotionDirection = weekMotionDirection,
-                            outgoing = false,
-                            layerOffset = incomingLayerOffset,
-                            editMode = weekEditMode,
-                            editWeek = displayWeek,
-                            allWeekCourses = visibleCourses,
-                            editScrollState = scrollState,
-                            onEnterEditMode = onEnterWeekEditMode,
-                            onUpdateSingleWeekCourse = { original, edited -> onUpdateCourseSingleWeek(original, edited, displayWeek) },
-                            onDeleteSingleWeekCourse = { course -> onDeleteCourseSingleWeek(course, displayWeek) },
-                            activeOverlayCourseId = weekEditOverlay.request?.course?.id,
-                            activeOverlayTargetKey = weekEditOverlay.committedTargetKey,
-                            activeOverlayTargetWeek = weekEditOverlay.committedTargetWeek,
-                            onStartWeekEditOverlay = weekEditOverlay::start,
-                            onDragWeekEditOverlay = { delta ->
-                                weekEditOverlay.drag(delta, overlayScreenHeightPx, overlayEdgePx, with(density) { 4.dp.toPx() })
-                            },
-                            onFinishMoveOverlay = { velocity ->
-                                weekEditOverlay.finishMove(
-                                    velocity = velocity,
-                                    periodIndexes = periodIndexes,
-                                    weekdayCount = weekdays.size,
-                                    onUpdateCourseSingleWeek = onUpdateCourseSingleWeek
-                                )
-                            },
-                            onFinishResizeOverlay = { velocity ->
-                                weekEditOverlay.finishResize(
-                                    velocity = velocity,
-                                    periodIndexes = periodIndexes,
-                                    weekdayCount = weekdays.size,
-                                    resizePaddingPx = with(density) { 4.dp.toPx() },
-                                    onUpdateCourseSingleWeek = onUpdateCourseSingleWeek
-                                )
-                            },
-                            onCancelWeekEditOverlay = weekEditOverlay::clear,
-                            onCourseClick = { course, sourceBounds -> onCourseClick(course, displayWeek, sourceBounds) }
-                        )
+                        val pagerZeroOffset = remember { Animatable(0f) }
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(cardHeight * state.periods.size),
+                            userScrollEnabled = !weekEditMode,
+                            beyondViewportPageCount = 1,
+                            key = { it }
+                        ) { page ->
+                            val pageWeek = page + 1
+                            val pageBuckets = remember(state.courses, pageWeek) {
+                                weekCourseBuckets(state.courses, pageWeek)
+                            }
+                            val pageCourses = pageBuckets.visibleCourses
+                            val pageWeekdays = remember(pageBuckets, state.config.hideEmptyWeekends) {
+                                visibleWeekdaysForBuckets(pageBuckets, state.config.hideEmptyWeekends)
+                            }
+                            val isActivePage = pageWeek == displayWeek && pagerState.settledPage == page
+                            WeekCourseColumnsLayer(
+                                modifier = Modifier.padding(start = rowHeaderWidth),
+                                courses = pageCourses,
+                                weekdays = pageWeekdays,
+                                periods = state.periods,
+                                cardHeight = cardHeight,
+                                cardColor = cardColor,
+                                backdrop = backdrop,
+                                floatingBackdrop = floatingCourseBackdrop,
+                                config = state.config,
+                                weekMotionDirection = if (isActivePage) weekMotionDirection else 0,
+                                outgoing = false,
+                                layerOffset = if (isActivePage) incomingLayerOffset else pagerZeroOffset,
+                                editMode = weekEditMode && isActivePage,
+                                editWeek = pageWeek,
+                                allWeekCourses = pageCourses,
+                                editScrollState = scrollState,
+                                onEnterEditMode = onEnterWeekEditMode,
+                                onUpdateSingleWeekCourse = { original, edited ->
+                                    onUpdateCourseSingleWeek(original, edited, pageWeek)
+                                },
+                                onDeleteSingleWeekCourse = { course ->
+                                    onDeleteCourseSingleWeek(course, pageWeek)
+                                },
+                                activeOverlayCourseId = weekEditOverlay.request?.course?.id,
+                                activeOverlayTargetKey = weekEditOverlay.committedTargetKey,
+                                activeOverlayTargetWeek = weekEditOverlay.committedTargetWeek,
+                                onStartWeekEditOverlay = weekEditOverlay::start,
+                                onDragWeekEditOverlay = { delta ->
+                                    weekEditOverlay.drag(delta, overlayScreenHeightPx, overlayEdgePx, with(density) { 4.dp.toPx() })
+                                },
+                                onFinishMoveOverlay = { velocity ->
+                                    weekEditOverlay.finishMove(
+                                        velocity = velocity,
+                                        periodIndexes = periodIndexes,
+                                        weekdayCount = pageWeekdays.size,
+                                        onUpdateCourseSingleWeek = onUpdateCourseSingleWeek
+                                    )
+                                },
+                                onFinishResizeOverlay = { velocity ->
+                                    weekEditOverlay.finishResize(
+                                        velocity = velocity,
+                                        periodIndexes = periodIndexes,
+                                        weekdayCount = pageWeekdays.size,
+                                        resizePaddingPx = with(density) { 4.dp.toPx() },
+                                        onUpdateCourseSingleWeek = onUpdateCourseSingleWeek
+                                    )
+                                },
+                                onCancelWeekEditOverlay = weekEditOverlay::clear,
+                                onCourseClick = { course, sourceBounds ->
+                                    onCourseClick(course, pageWeek, sourceBounds)
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -1272,6 +1316,194 @@ fun WeekSwitchButton(label: String, config: ScheduleConfigEntity, backdrop: Back
 }
 
 @Composable
+private fun WeekScheduleHeaderLabels(
+    weekdays: List<Int>,
+    weekStart: LocalDate,
+    today: LocalDate,
+    rowHeaderWidth: Dp,
+    textColor: ComposeColor,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxSize(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.width(rowHeaderWidth - 4.dp).fillMaxHeight(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "节次",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = textColor,
+                textAlign = TextAlign.Center
+            )
+        }
+        weekdays.forEach { day ->
+            val date = weekStart.plusDays((day - 1).toLong())
+            val isToday = date == today
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxSize()
+                    .padding(vertical = 2.dp, horizontal = 2.dp)
+                    .then(
+                        if (isToday) Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                        else Modifier
+                    ),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "周${weekdayLabel(day)}",
+                    fontSize = 11.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
+                    color = textColor,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
+                )
+                Text(
+                    text = "${date.monthValue}/${date.dayOfMonth}",
+                    fontSize = 9.sp,
+                    lineHeight = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = textColor.copy(alpha = 0.72f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeekPagerHeaderLabels(
+    pagerState: PagerState,
+    displayWeek: Int,
+    courses: List<CourseEntity>,
+    config: ScheduleConfigEntity,
+    today: LocalDate,
+    textColor: ComposeColor,
+    modifier: Modifier = Modifier
+) {
+    val maxPage = (config.totalWeeks - 1).coerceAtLeast(0)
+    val currentPage = pagerState.currentPage.coerceIn(0, maxPage)
+    val settledPage = pagerState.settledPage.coerceIn(0, maxPage)
+    val pageOffset = pagerState.currentPageOffsetFraction
+    val adjacentPage = when {
+        pageOffset > 0f -> (currentPage + 1).coerceAtMost(maxPage)
+        pageOffset < 0f -> (currentPage - 1).coerceAtLeast(0)
+        else -> currentPage
+    }
+
+    fun weekdaysForPage(page: Int): List<Int> {
+        val buckets = weekCourseBuckets(courses, page + 1)
+        return visibleWeekdaysForBuckets(buckets, config.hideEmptyWeekends)
+    }
+
+    val currentWeekdays = remember(courses, currentPage, config.hideEmptyWeekends) {
+        weekdaysForPage(currentPage)
+    }
+    val adjacentWeekdays = remember(courses, adjacentPage, config.hideEmptyWeekends) {
+        weekdaysForPage(adjacentPage)
+    }
+    val slideHeader = abs(pageOffset) > 0.0001f &&
+        adjacentPage != currentPage &&
+        currentWeekdays != adjacentWeekdays
+
+    BoxWithConstraints(modifier = modifier.clipToBounds()) {
+        val widthPx = with(LocalDensity.current) { maxWidth.toPx() }
+        if (slideHeader) {
+            val pages = if (currentPage < adjacentPage) {
+                currentPage..adjacentPage
+            } else {
+                adjacentPage..currentPage
+            }
+            pages.forEach { page ->
+                key(page) {
+                    val pageWeekdays = if (page == currentPage) currentWeekdays else adjacentWeekdays
+                    val translation = ((page - currentPage) - pageOffset) * widthPx
+                    WeekdayHeaderLabels(
+                        weekdays = pageWeekdays,
+                        weekStart = scheduleWeekStartDate(config, page + 1, today),
+                        today = today,
+                        textColor = textColor,
+                        modifier = Modifier.graphicsLayer { translationX = translation }
+                    )
+                }
+            }
+        } else {
+            val displayedPage = (displayWeek - 1).coerceIn(0, maxPage)
+            val displayedWeekdays = remember(courses, displayedPage, config.hideEmptyWeekends) {
+                weekdaysForPage(displayedPage)
+            }
+            WeekdayHeaderLabels(
+                weekdays = displayedWeekdays,
+                weekStart = scheduleWeekStartDate(config, displayedPage + 1, today),
+                today = today,
+                textColor = textColor
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeekdayHeaderLabels(
+    weekdays: List<Int>,
+    weekStart: LocalDate,
+    today: LocalDate,
+    textColor: ComposeColor,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxSize(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        weekdays.forEach { day ->
+            val date = weekStart.plusDays((day - 1).toLong())
+            val isToday = day == today.dayOfWeek.toChineseWeekday()
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxSize()
+                    .then(
+                        if (isToday) Modifier
+                            .padding(vertical = 2.dp, horizontal = 2.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                        else Modifier.padding(vertical = 2.dp, horizontal = 2.dp)
+                    ),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "周${weekdayLabel(day)}",
+                    fontSize = 11.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
+                    color = textColor,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
+                )
+                Text(
+                    text = "${date.monthValue}/${date.dayOfMonth}",
+                    fontSize = 9.sp,
+                    lineHeight = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = textColor.copy(alpha = 0.72f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun WeekHeaderPill(backdrop: Backdrop?, config: ScheduleConfigEntity, selected: Boolean, content: @Composable () -> Unit) {
     GlassSurface(
         backdrop = backdrop,
@@ -1377,6 +1609,7 @@ fun WeekDayColumn(
 
 @Composable
 fun WeekCourseColumnsLayer(
+    modifier: Modifier = Modifier,
     courses: List<CourseEntity>,
     weekdays: List<Int>,
     periods: List<PeriodEntity>,
@@ -1388,6 +1621,7 @@ fun WeekCourseColumnsLayer(
     weekMotionDirection: Int,
     outgoing: Boolean,
     layerOffset: Animatable<Float, AnimationVector1D>,
+    gestureOffset: () -> Float = { 0f },
     editMode: Boolean = false,
     editWeek: Int = 1,
     allWeekCourses: List<CourseEntity> = emptyList(),
@@ -1409,9 +1643,9 @@ fun WeekCourseColumnsLayer(
     val travel = with(density) { (LocalConfiguration.current.screenWidthDp.dp + 96.dp).toPx() }
     val coursesByWeekday = remember(courses) { courses.groupBy { it.weekday } }
     BoxWithConstraints(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .graphicsLayer { translationX = layerOffset.value }
+            .graphicsLayer { translationX = layerOffset.value + gestureOffset() }
     ) {
         val dayColumnWidth = maxWidth / weekdays.size.coerceAtLeast(1)
         var draggingDayIndex by remember { mutableStateOf<Int?>(null) }
@@ -1535,6 +1769,7 @@ private class WeekEditOverlayController(
     private val overlayScale = Animatable(1f)
     private var scrollCompensationY by mutableFloatStateOf(0f)
     private var autoScrollDirection by mutableIntStateOf(0)
+    private var dragPointerY by mutableFloatStateOf(0f)
 
     val offsetX: Float get() = overlayX.value
     val offsetY: Float get() = overlayY.value
@@ -1550,6 +1785,7 @@ private class WeekEditOverlayController(
         request = null
         scrollCompensationY = 0f
         autoScrollDirection = 0
+        dragPointerY = 0f
     }
 
     fun start(nextRequest: WeekEditOverlayRequest) {
@@ -1564,6 +1800,7 @@ private class WeekEditOverlayController(
             overlayScale.snapTo(1.035f)
             scrollCompensationY = 0f
             autoScrollDirection = 0
+            dragPointerY = nextRequest.sourceBounds.center.y
         }
     }
 
@@ -1579,6 +1816,7 @@ private class WeekEditOverlayController(
                 WeekEditOverlayMode.Move -> {
                     overlayX.snapTo(overlayX.value + delta.x)
                     overlayY.snapTo(overlayY.value + delta.y)
+                    dragPointerY += delta.y
                     autoScroll(activeRequest, screenHeightPx, edgePx)
                 }
                 WeekEditOverlayMode.Resize -> {
@@ -1712,25 +1950,23 @@ private class WeekEditOverlayController(
             autoScrollDirection = 0
             return
         }
-        val top = activeRequest.sourceBounds.top + overlayY.value
-        val bottom = top + overlayHeight.value
         val deadZone = edgePx * 0.22f
         val bottomLimit = screenHeightPx - edgePx
         val topLimit = edgePx
         val wantedDirection = when {
-            bottom > bottomLimit + deadZone -> 1
-            top < topLimit - deadZone -> -1
-            bottom < bottomLimit - deadZone && top > topLimit + deadZone -> 0
+            dragPointerY > bottomLimit + deadZone -> 1
+            dragPointerY < topLimit - deadZone -> -1
+            dragPointerY < bottomLimit - deadZone && dragPointerY > topLimit + deadZone -> 0
             else -> autoScrollDirection
         }
         autoScrollDirection = wantedDirection
         val delta = when {
             wantedDirection > 0 -> {
-                val pressure = ((bottom - bottomLimit) / edgePx).coerceIn(0f, 1f)
+                val pressure = ((dragPointerY - bottomLimit) / edgePx).coerceIn(0f, 1f)
                 1.2f + 6.5f * pressure
             }
             wantedDirection < 0 -> {
-                val pressure = ((topLimit - top) / edgePx).coerceIn(0f, 1f)
+                val pressure = ((topLimit - dragPointerY) / edgePx).coerceIn(0f, 1f)
                 -(1.2f + 6.5f * pressure)
             }
             else -> 0f
@@ -2059,38 +2295,6 @@ fun WeekCourseBlock(
             weekCourses = allWeekCourses,
             editWeek = editWeek
         )
-    }
-    fun autoScrollDeltaPx(): Float {
-        val bounds = ownBounds ?: return 0f
-        if (bounds.height >= screenHeightPx - edgeScrollThresholdPx * 1.25f) return 0f
-        val draggedTop = bounds.top + moveDragY
-        val draggedBottom = bounds.bottom + moveDragY
-        return when {
-            draggedBottom > screenHeightPx - edgeScrollThresholdPx -> {
-                val pressure = ((draggedBottom - (screenHeightPx - edgeScrollThresholdPx)) / edgeScrollThresholdPx).coerceIn(0f, 1f)
-                4f + 14f * pressure
-            }
-            draggedTop < edgeScrollThresholdPx -> {
-                val pressure = ((edgeScrollThresholdPx - draggedTop) / edgeScrollThresholdPx).coerceIn(0f, 1f)
-                -(4f + 14f * pressure)
-            }
-            else -> 0f
-        }
-    }
-    LaunchedEffect(bodyDragging, editScrollState) {
-        val scroll = editScrollState ?: return@LaunchedEffect
-        while (bodyDragging) {
-            val delta = autoScrollDeltaPx()
-            if (delta != 0f) {
-                val before = scroll.value
-                val next = (before + delta).roundToInt().coerceIn(0, scroll.maxValue)
-                if (next != before) {
-                    scroll.scrollTo(next)
-                    moveDragY += (scroll.value - before).toFloat()
-                }
-            }
-            delay(16)
-        }
     }
     val dragActive = bodyDragging || handleDragging || settlingResizeTarget != null
     LaunchedEffect(dragActive) {

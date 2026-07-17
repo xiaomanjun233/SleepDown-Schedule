@@ -47,24 +47,14 @@ val LocalCourseCardPalette = compositionLocalOf { DefaultCourseCardPalette }
 val LocalCourseCardColorAssignments = compositionLocalOf<Map<String, Long>> { emptyMap() }
 
 fun courseCardColorKey(course: CourseEntity): String =
-    if (course.id > 0L) {
-        "id:${course.id}"
-    } else {
-        listOf(
-            course.name,
-            course.teacher.orEmpty(),
-            course.location.orEmpty(),
-            course.weekday.toString(),
-            course.periods.joinToString(","),
-            course.weeks.joinToString(",")
-        ).joinToString("|")
-    }
+    course.name.trim().lowercase().ifBlank { "course:${course.id}" }
 
 fun buildCourseCardColorAssignments(
     courses: List<CourseEntity>,
     representativeColors: List<Long>
 ): Map<String, Long> {
-    val keys = courses.map(::courseCardColorKey).distinct()
+    // Keep the mapping independent from the currently visible day/week and Room row order.
+    val keys = courses.map(::courseCardColorKey).distinct().sorted()
     if (keys.isEmpty()) return emptyMap()
     val bases = representativeColors.ifEmpty { DefaultCourseCardPalette }
     val generated = ArrayList<Long>(keys.size)

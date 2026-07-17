@@ -108,6 +108,94 @@ class DayAgentTimelineEngineTest {
         assertEquals(listOf(1, 2), parsed.course?.periods)
     }
 
+    @Test
+    fun usesGeneratedQuickQuestionsWhenPackProvidesThem() {
+        val facts = factsAt(9, 0, emptyList())
+        val rendered = TodayAgentTimelineEngine.render(
+            DailyAgentPack(quickQuestions = listOf("上午怎么安排", "帮我调整课程")),
+            facts
+        )
+
+        assertEquals(listOf("上午怎么安排", "帮我调整课程"), rendered.quickQuestions)
+    }
+
+    @Test
+    fun parsesAndValidatesCourseAndSettingsActions() {
+        val original = slot("数据库原理", "一教 203", 8, 0, 8, 45).course.copy(
+            id = 42,
+            periods = listOf(1),
+            weeks = (1..18).toList(),
+            scheduleId = 7
+        )
+        val facts = factsAt(9, 0, emptyList()).copy(
+            week = listOf(AgentCourseSlot(original, date, LocalTime.of(8, 0), LocalTime.of(8, 45))),
+            periodDefinitions = listOf(
+                PeriodEntity(1, "08:00", "08:45", 7),
+                PeriodEntity(2, "08:55", "09:40", 7)
+            ),
+            totalWeeks = 18,
+            scheduleId = 7,
+            currentWeek = 3
+        )
+        val response = "可以。<agent_actions>[" +
+            "{\"type\":\"UPDATE_COURSE\",\"courseId\":42,\"scope\":\"CURRENT_WEEK\",\"course\":{\"weekday\":2,\"periods\":[2]},\"summary\":\"移动数据库原理\"}," +
+            "{\"type\":\"OPEN_SETTINGS\",\"settingsPage\":\"SCHEDULE\",\"summary\":\"打开课表设置\"}" +
+            "]</agent_actions>"
+
+        val parsed = parseAgentActions(response, facts)
+
+        assertEquals("可以。", parsed.displayText)
+        assertEquals(2, parsed.actions.size)
+        assertEquals(AgentValidatedActionType.UPDATE, parsed.actions[0].type)
+        assertEquals(2, parsed.actions[0].edited?.weekday)
+        assertEquals(listOf(2), parsed.actions[0].edited?.periods)
+        assertEquals(7, parsed.actions[0].edited?.scheduleId)
+        assertEquals(AgentValidatedActionType.OPEN_SETTINGS, parsed.actions[1].type)
+        assertEquals("SCHEDULE", parsed.actions[1].settingsPage)
+    }
+
+    @Test
+    fun recognizesRealtimeActivityAsAConfirmableSetting() {
+        val facts = factsAt(9, 0, emptyList())
+        val response = "我可以帮你开启。<agent_actions>[" +
+            "{\"type\":\"SET_SETTING\",\"settingKey\":\"REALTIME_ACTIVITY\",\"settingValue\":\"true\",\"summary\":\"开启实时活动\"}" +
+            "]</agent_actions>"
+
+        val action = parseAgentActions(response, facts).actions.single()
+
+        assertEquals(AgentValidatedActionType.SET_SETTING, action.type)
+        assertEquals("REALTIME_ACTIVITY", action.settingKey)
+        assertEquals("TRUE", action.settingValue)
+    }
+
+    @Test
+    fun recognizesScheduleRenameAndKeepsChineseName() {
+        val facts = factsAt(9, 0, emptyList())
+        val response = "可以修改，确认后生效。<agent_actions>[" +
+            "{\"type\":\"SET_SETTING\",\"settingKey\":\"SCHEDULE_NAME\",\"settingValue\":\"大三下\",\"summary\":\"重命名当前课表\"}" +
+            "]</agent_actions>"
+
+        val action = parseAgentActions(response, facts).actions.single()
+
+        assertEquals(AgentValidatedActionType.SET_SETTING, action.type)
+        assertEquals("SCHEDULE_NAME", action.settingKey)
+        assertEquals("大三下", action.settingValue)
+    }
+
+    @Test
+    fun appliesValidatedPercentageSetting() {
+        val next = AgentSettingRegistry.apply(defaultConfig(), "WALLPAPER_BLUR_PERCENT", "75")
+
+        assertEquals(75f, wallpaperBlurPercent(next!!.wallpaperBlur), 0.01f)
+    }
+
+    @Test
+    fun expandsContextOnlyForSemesterQuestions() {
+        assertTrue(needsSemesterCourseContext("帮我总结整个学期的课程安排"))
+        assertTrue(needsSemesterCourseContext("哪几周最忙"))
+        assertFalse(needsSemesterCourseContext("今天有什么课"))
+    }
+
     private fun factsAt(
         hour: Int,
         minute: Int,

@@ -140,6 +140,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -177,6 +179,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.key
@@ -259,6 +262,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
@@ -272,6 +276,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URLDecoder
@@ -335,12 +340,12 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
             modifier = Modifier
                 .padding(end = 12.dp)
                 .width(104.dp)
-                .height(42.dp),
+                .height(44.dp),
             contentAlignment = Alignment.Center
         ) {
             Box(
                 modifier = Modifier
-                    .requiredSize(width = 112.dp, height = 50.dp)
+                    .requiredSize(width = 112.dp, height = 52.dp)
                     .clip(RoundedCornerShape(50)),
                 contentAlignment = Alignment.Center
             ) {
@@ -349,9 +354,9 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
                     onTabSelected = { index -> onModeChange(if (index == 0) HomeMode.Day else HomeMode.Week) },
                     backdrop = backdrop,
                     tabsCount = 2,
-                    modifier = Modifier.size(width = 104.dp, height = 42.dp),
-                    containerHeight = 42.dp,
-                    indicatorHeight = 34.dp,
+                    modifier = Modifier.size(width = 104.dp, height = 44.dp),
+                    containerHeight = 44.dp,
+                    indicatorHeight = 36.dp,
                     horizontalPadding = 4.dp,
                     blurRadius = HomeHeaderGlassBlur,
                     containerAlpha = HomeHeaderGlassSurfaceAlpha,
@@ -384,8 +389,8 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
             }
         }
     } else {
-        GlassPill(backdrop = null, config = config, modifier = Modifier.padding(end = 12.dp).height(42.dp).padding(4.dp)) {
-            Row(Modifier.width(104.dp).height(34.dp), verticalAlignment = Alignment.CenterVertically) {
+        GlassPill(backdrop = null, config = config, modifier = Modifier.padding(end = 12.dp).height(44.dp).padding(4.dp)) {
+            Row(Modifier.width(104.dp).height(36.dp), verticalAlignment = Alignment.CenterVertically) {
                 HomeModePill(null, config, R.drawable.ic_day_view, "\u65E5") { onModeChange(HomeMode.Day) }
                 HomeModePill(null, config, R.drawable.ic_week_view, "\u5468") { onModeChange(HomeMode.Week) }
             }
@@ -439,6 +444,7 @@ fun HomeScreen(
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit = {},
+    onAgentAction: (AgentValidatedAction) -> Unit = {},
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onScheduleLongPress: () -> Unit = {},
@@ -495,7 +501,8 @@ fun HomeScreen(
                         onSwipeDay = onSwipeDay,
                         onContentUnderTopBarChange = onContentUnderTopBarChange,
                         onCourseClick = onCourseClick,
-                        onAddCourse = onAddCourse
+                        onAddCourse = onAddCourse,
+                        onAgentAction = onAgentAction
                     )
                 }
                 HomeMode.Week -> CompositionLocalProvider(LocalOverscrollFactory provides homeOverscrollFactory) {
@@ -1028,42 +1035,77 @@ fun DayScheduleScreen(
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
-    onAddCourse: (CourseEntity) -> Unit
+    onAddCourse: (CourseEntity) -> Unit,
+    onAgentAction: (AgentValidatedAction) -> Unit
 ) {
-    var horizontalDrag by remember { mutableFloatStateOf(0f) }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(displayDate) {
-                detectHorizontalDragGestures(
-                    onDragStart = { horizontalDrag = 0f },
-                    onHorizontalDrag = { _, dragAmount -> horizontalDrag += dragAmount },
-                    onDragEnd = {
-                        when {
-                            horizontalDrag <= -80f -> onSwipeDay(1)
-                            horizontalDrag >= 80f -> onSwipeDay(-1)
-                        }
-                        horizontalDrag = 0f
-                    },
-                    onDragCancel = { horizontalDrag = 0f }
-                )
+    val centerPage = 10_000
+    val anchorDate = remember { displayDate }
+    val pagerState = rememberPagerState(
+        initialPage = centerPage,
+        pageCount = { centerPage * 2 + 1 }
+    )
+    var gestureCommittedDate by remember { mutableStateOf<LocalDate?>(null) }
+    var programmaticDayScroll by remember { mutableStateOf(false) }
+
+    fun dateForPage(page: Int): LocalDate = anchorDate.plusDays((page - centerPage).toLong())
+
+    LaunchedEffect(pagerState, displayDate) {
+        snapshotFlow {
+            Triple(
+                pagerState.isScrollInProgress,
+                pagerState.settledPage,
+                pagerState.currentPage + pagerState.currentPageOffsetFraction
+            )
+        }.distinctUntilChanged().collect { (scrolling, settledPage, pagePosition) ->
+            if (!scrolling || programmaticDayScroll) return@collect
+            val delta = pagePosition - settledPage
+            val desiredPage = when {
+                delta >= 0.75f -> settledPage + 1
+                delta <= -0.75f -> settledPage - 1
+                else -> settledPage
+            }.coerceIn(0, centerPage * 2)
+            val desiredDate = dateForPage(desiredPage)
+            if (desiredDate != displayDate) {
+                gestureCommittedDate = desiredDate
+                onSwipeDay(ChronoUnit.DAYS.between(displayDate, desiredDate).toInt())
             }
-    ) {
-        AnimatedContent(
-            targetState = displayDate,
-            modifier = Modifier.fillMaxSize(),
-            transitionSpec = {
-                val direction = if (targetState.isAfter(initialState)) 1 else -1
-                (
-                    fadeIn(tween(170, delayMillis = 35)) +
-                        slideInHorizontally(tween(240)) { direction * it / 4 }
-                    ) togetherWith (
-                    fadeOut(tween(120)) +
-                        slideOutHorizontally(tween(220)) { -direction * it / 5 }
-                    ) using SizeTransform(clip = false)
-            },
-            label = "day-date-switch"
-        ) { targetDate ->
+        }
+    }
+    LaunchedEffect(pagerState.settledPage) {
+        if (programmaticDayScroll) return@LaunchedEffect
+        val settledDate = dateForPage(pagerState.settledPage)
+        if (settledDate != displayDate) {
+            gestureCommittedDate = settledDate
+            onSwipeDay(ChronoUnit.DAYS.between(displayDate, settledDate).toInt())
+        } else {
+            gestureCommittedDate = null
+        }
+    }
+    LaunchedEffect(displayDate) {
+        if (gestureCommittedDate == displayDate) return@LaunchedEffect
+        val dayOffset = ChronoUnit.DAYS.between(anchorDate, displayDate).toInt()
+        val targetPage = (centerPage + dayOffset).coerceIn(0, centerPage * 2)
+        if (pagerState.settledPage != targetPage) {
+            programmaticDayScroll = true
+            try {
+                pagerState.animateScrollToPage(
+                    page = targetPage,
+                    animationSpec = tween(durationMillis = 240)
+                )
+            } finally {
+                programmaticDayScroll = false
+                gestureCommittedDate = null
+            }
+        }
+    }
+
+    HorizontalPager(
+        state = pagerState,
+        modifier = Modifier.fillMaxSize(),
+        beyondViewportPageCount = 1,
+        key = { it }
+    ) { page ->
+            val targetDate = dateForPage(page)
             val targetWeek = effectiveCurrentWeek(state.config, targetDate)
             val targetWeekday = targetDate.dayOfWeek.toChineseWeekday()
             val dayCourses = remember(state.courses, targetWeek, targetWeekday) {
@@ -1083,7 +1125,9 @@ fun DayScheduleScreen(
                 derivedStateOf { listState.firstVisibleItemIndex > 0 }
             }
             LaunchedEffect(contentUnderTopBar) {
-                onContentUnderTopBarChange(contentUnderTopBar)
+                if (page == pagerState.settledPage) {
+                    onContentUnderTopBarChange(contentUnderTopBar)
+                }
             }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -1098,7 +1142,10 @@ fun DayScheduleScreen(
                         color = textColor
                     )
                 }
-                if (targetDate == LocalDate.now(ZoneId.of("Asia/Shanghai"))) {
+                if (
+                    targetDate == LocalDate.now(ZoneId.of("Asia/Shanghai")) &&
+                    abs(page - pagerState.currentPage) <= 1
+                ) {
                     stickyHeader(key = "today-agent-${state.config.id}") {
                         TodayAgentHost(
                             state = state,
@@ -1106,7 +1153,7 @@ fun DayScheduleScreen(
                             backdrop = backdrop,
                             textColor = textColor,
                             collapsed = agentCollapsed,
-                            onAddCourse = onAddCourse
+                            onAgentAction = onAgentAction
                         )
                     }
                 }
@@ -1115,7 +1162,6 @@ fun DayScheduleScreen(
                     DayTimelineCourse(course, targetWeek, state.periods, cardColor, backdrop, state.config, onCourseClick, entranceIndex = index)
                 }
             }
-        }
     }
 }
 
@@ -1184,14 +1230,14 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         visible = editId != course.id,
         sharedScope = sharedScope,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(24.dp)
     ) { sharedModifier ->
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
         course = course,
         modifier = sharedModifier.then(entranceModifier),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(24.dp),
         onClick = if (onClick != null) ({ onClick(ownBounds) }) else null
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

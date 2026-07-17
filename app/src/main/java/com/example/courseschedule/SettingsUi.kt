@@ -302,28 +302,8 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
         }
         lastSaved = state.config
     }
-    val dirty = draft.followSystemDarkMode != state.config.followSystemDarkMode ||
-        draft.darkMode != state.config.darkMode ||
-        draft.dockAlignment != state.config.dockAlignment ||
-        draft.defaultWallpaperStyle != state.config.defaultWallpaperStyle ||
-        draft.defaultHomeMode != state.config.defaultHomeMode ||
-        draft.liveUpdateActionsEnabled != state.config.liveUpdateActionsEnabled ||
-        draft.hideFromRecents != state.config.hideFromRecents
     val visualConfig = settingsVisualConfig(draft)
-    fun resetDraft() {
-        draft = state.config
-        lastSaved = state.config
-    }
-    fun saveDraft() {
-        val next = state.config.copy(
-            followSystemDarkMode = draft.followSystemDarkMode,
-            darkMode = draft.darkMode,
-            dockAlignment = draft.dockAlignment,
-            defaultWallpaperStyle = draft.defaultWallpaperStyle,
-            defaultHomeMode = draft.defaultHomeMode,
-            liveUpdateActionsEnabled = draft.liveUpdateActionsEnabled,
-            hideFromRecents = draft.hideFromRecents
-        )
+    fun applyChange(next: ScheduleConfigEntity) {
         draft = next
         lastSaved = next
         onUpdateConfig(next)
@@ -332,15 +312,6 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        if (dirty) {
-            item(key = "general-save-actions") {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    SettingsActionButton("重置", backdrop, onClick = { resetDraft() }, destructive = true)
-                    Spacer(Modifier.width(8.dp))
-                    SettingsActionButton("保存", backdrop, onClick = { saveDraft() })
-                }
-            }
-        }
         item(key = "general-appearance") {
             GlassPreferenceSection("外观与布局") {
                 SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
@@ -349,7 +320,7 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                         subtitle = "开启后将跟随系统切换浅色或深色模式。",
                         checked = draft.followSystemDarkMode,
                         backdrop = backdrop,
-                        onCheckedChange = { draft = draft.copy(followSystemDarkMode = it) }
+                        onCheckedChange = { applyChange(draft.copy(followSystemDarkMode = it)) }
                     )
                     SettingsDivider()
                     SettingsToggleRow(
@@ -358,21 +329,21 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                         checked = draft.darkMode,
                         backdrop = backdrop,
                         enabled = !draft.followSystemDarkMode,
-                        onCheckedChange = { draft = draft.copy(darkMode = it, followSystemDarkMode = false) }
+                        onCheckedChange = { applyChange(draft.copy(darkMode = it, followSystemDarkMode = false)) }
                     )
                     SettingsDivider()
                     SettingsDockAlignmentRow(
                         selected = draft.dockAlignment,
                         backdrop = backdrop,
                         config = visualConfig,
-                        onSelected = { draft = draft.copy(dockAlignment = it) }
+                        onSelected = { applyChange(draft.copy(dockAlignment = it)) }
                     )
                     SettingsDivider()
                     SettingsHomeStartModeRow(
                         selected = draft.defaultHomeMode,
                         backdrop = backdrop,
                         config = visualConfig,
-                        onSelected = { draft = draft.copy(defaultHomeMode = it) }
+                        onSelected = { applyChange(draft.copy(defaultHomeMode = it)) }
                     )
                 }
             }
@@ -384,7 +355,7 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                     selected = draft.defaultWallpaperStyle,
                     backdrop = backdrop,
                     config = visualConfig,
-                    onSelected = { draft = draft.copy(defaultWallpaperStyle = it) }
+                    onSelected = { applyChange(draft.copy(defaultWallpaperStyle = it)) }
                 )
                 SettingsDivider()
                 SettingsToggleRow(
@@ -392,7 +363,7 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                     subtitle = "在实时活动中显示取消提醒和勿扰按钮。",
                     checked = draft.liveUpdateActionsEnabled,
                     backdrop = backdrop,
-                    onCheckedChange = { draft = draft.copy(liveUpdateActionsEnabled = it) }
+                    onCheckedChange = { applyChange(draft.copy(liveUpdateActionsEnabled = it)) }
                 )
                 SettingsDivider()
                 SettingsToggleRow(
@@ -400,7 +371,15 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                     subtitle = "返回桌面后，从最近任务列表中移除本应用，更无感。",
                     checked = draft.hideFromRecents,
                     backdrop = backdrop,
-                    onCheckedChange = { draft = draft.copy(hideFromRecents = it) }
+                    onCheckedChange = { applyChange(draft.copy(hideFromRecents = it)) }
+                )
+                SettingsDivider()
+                SettingsToggleRow(
+                    title = "自动检查更新",
+                    subtitle = "每天首次打开应用时检查 Gitee 上的新版本。",
+                    checked = draft.autoCheckUpdates,
+                    backdrop = backdrop,
+                    onCheckedChange = { applyChange(draft.copy(autoCheckUpdates = it)) }
                 )
                 }
             }
@@ -536,6 +515,7 @@ fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
     }
     val presets = AiProviderPresets.selectable
     val selectedPreset = presets.firstOrNull { it.id == selectedProviderId } ?: AiProviderPresets.openAI
+    val aiDisabled = selectedProviderId == AiProviderPresets.none.id
     val modelOptions = AiProviderPresets.modelOptions(selectedProviderId)
     val modelEditable = modelOptions.isEmpty() || modelUsesCustomInput
     val selectedModelOptionIndex = if (modelUsesCustomInput) {
@@ -611,19 +591,19 @@ fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
     }
     fun save() {
         val nextKey = apiKeyInput.ifBlank { saved.apiKey }
-        if (profile.baseUrl.isBlank() || profile.defaultModel.isBlank()) {
+        if (!aiDisabled && (profile.baseUrl.isBlank() || profile.defaultModel.isBlank())) {
             message = "请先填写接口地址和模型名称"
             return
         }
-        AiImportSettingsStore.save(context, AiImportSettings(profile, nextKey))
+        AiImportSettingsStore.save(context, AiImportSettings(profile, nextKey.takeUnless { aiDisabled }.orEmpty()))
         reload()
-        message = "AI 导入设置已保存"
+        message = if (aiDisabled) "AI 功能已关闭" else "AI 设置已保存"
     }
 
     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
         SettingsInfoRow(
-            "AI 导入设置",
-            "配置用于 AI 教务导入的模型服务。API Key 只保存在本机，不会写入课表数据库或诊断日志。除 DeepSeek 外，目前其他 AI 未经全链路测试，推荐优先使用 DeepSeek；如遇到使用问题，请和开发者反馈。"
+            "AI 设置",
+            "配置今日助手、AI 对话、教务课表解析等智能功能共用的模型服务。API Key 按服务商分别加密保存在本机，不会写入课表数据库或诊断日志。选择“无”可停用所有联网 AI 能力，本地课表功能不受影响。"
         )
         AiProviderPickerRow(
             value = selectedPreset.displayName,
@@ -635,6 +615,13 @@ fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
             onExpandedChange = { providerMenuExpanded = it },
             onSelected = { selectProvider(it) }
         )
+        if (aiDisabled) {
+            SettingsDivider()
+            SettingsInfoRow(
+                "AI 功能已停用",
+                "今日助手将使用本地时间与课程模板，AI 对话和 AI 教务解析入口不会发起模型请求。已保存的其他服务商 Key 会保留，重新选择后可继续使用。"
+            )
+        } else {
         SettingsDivider()
         SettingsTextFieldRow("接口地址", baseUrl, { baseUrl = it }, KeyboardType.Uri)
         SettingsDivider()
@@ -774,6 +761,15 @@ fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
                 modifier = Modifier.weight(1f),
                 destructive = true
             )
+        }
+        }
+        if (aiDisabled) {
+            SettingsDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)
+            ) {
+                SettingsActionButton("保存", backdrop, onClick = { save() }, modifier = Modifier.fillMaxWidth())
+            }
         }
         message?.let {
             Text(
@@ -1457,13 +1453,31 @@ fun SettingsGroup(backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: M
 }
 
 @Composable
-fun SettingsNavigationRow(title: String, subtitle: String, onClick: () -> Unit) {
+fun SettingsNavigationRow(
+    title: String,
+    subtitle: String,
+    badgeText: String? = null,
+    onClick: () -> Unit
+) {
     if (LocalGlassMiuixEnabled.current) {
         MiuixArrowPreference(
             title = title,
             summary = subtitle,
             modifier = Modifier.fillMaxWidth(),
             insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            endActions = {
+                if (badgeText != null) {
+                    Text(
+                        badgeText,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                            .padding(horizontal = 9.dp, vertical = 4.dp)
+                    )
+                }
+            },
             onClick = onClick
         )
         return
@@ -1482,6 +1496,18 @@ fun SettingsNavigationRow(title: String, subtitle: String, onClick: () -> Unit) 
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (badgeText != null) {
+            Text(
+                badgeText,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                    .padding(horizontal = 9.dp, vertical = 4.dp)
+            )
+            Spacer(Modifier.width(8.dp))
         }
         Text(">", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -2460,6 +2486,19 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
         }
     }
 
+    LaunchedEffect(
+        section,
+        leadMinutes,
+        notificationsEnabled,
+        notificationMode,
+        liveUpdateChipTextMode
+    ) {
+        if (section == SettingsSection.Notifications && computeDirty()) {
+            delay(250)
+            saveConfigDraft()
+        }
+    }
+
     ScheduleSettingsContent(
         section = section,
         state = visualState,
@@ -2494,7 +2533,7 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
         periods = periods,
         onPeriodsChange = { periods = it },
         detectedWeek = detectedWeek,
-        dirty = dirty,
+        dirty = dirty && section != SettingsSection.Notifications,
         error = error,
         onReset = { resetConfigDraft() },
         onSave = { saveConfigDraft() },

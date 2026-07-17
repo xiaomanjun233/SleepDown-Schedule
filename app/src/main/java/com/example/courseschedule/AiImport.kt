@@ -276,6 +276,19 @@ data class AiImportFile(
 }
 
 object AiProviderPresets {
+    val none = AiProviderProfile(
+        id = "none",
+        displayName = "无",
+        providerType = AiProviderType.OpenAIChatCompatible,
+        baseUrl = "",
+        defaultModel = "",
+        capabilities = AiProviderCapabilities(
+            supportsTextInput = false
+        ),
+        endpointStyle = AiEndpointStyle.CHAT_COMPLETIONS,
+        structuredOutputMode = StructuredOutputMode.PROMPT_ONLY
+    )
+
     val openAI = AiProviderProfile(
         id = "openai",
         displayName = "OpenAI",
@@ -475,9 +488,9 @@ object AiProviderPresets {
         structuredOutputMode = StructuredOutputMode.PROMPT_ONLY
     )
 
-    val selectable = listOf(openAI, deepSeek, mimo, custom)
+    val selectable = listOf(none, openAI, deepSeek, mimo, custom)
 
-    val all = listOf(openAI, deepSeek, dashScope, kimi, zhipu, qianfan, doubao, hunyuan, siliconFlow, miniMax, mimo, mimoTokenPlan, custom)
+    val all = listOf(none, openAI, deepSeek, dashScope, kimi, zhipu, qianfan, doubao, hunyuan, siliconFlow, miniMax, mimo, mimoTokenPlan, custom)
 
     fun byId(id: String): AiProviderProfile = all.firstOrNull { it.id == id } ?: openAI
 
@@ -914,7 +927,7 @@ private suspend fun sendDeepSeekChatMessage(
     return withContext(Dispatchers.IO) {
         runCatching {
             val settings = AiImportSettingsStore.loadProvider(context, AiProviderPresets.deepSeek.id)
-            require(settings.apiKey.isNotBlank()) { "请先在 AI 导入设置中配置 DeepSeek API Key" }
+            require(settings.apiKey.isNotBlank()) { "请先在 AI 设置中配置 DeepSeek API Key" }
             val config = settings.toProviderConfig().normalizedForRequest().copy(
                 providerId = AiProviderPresets.deepSeek.id,
                 endpointStyle = AiEndpointStyle.CHAT_COMPLETIONS

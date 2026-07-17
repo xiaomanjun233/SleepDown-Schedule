@@ -304,6 +304,21 @@ sealed interface Screen {
 enum class HomeMode { Day, Week }
 enum class SettingsSection { Schedule, Notifications }
 enum class SettingsPage { Root, General, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, About, Changelog, Download, Donate }
+
+private fun agentSettingsPage(value: String?): SettingsPage? = when (value) {
+    "GENERAL" -> SettingsPage.General
+    "AI_IMPORT" -> SettingsPage.AiImport
+    "DAY_AGENT" -> SettingsPage.DayAgent
+    "SCHEDULE" -> SettingsPage.Schedule
+    "NOTIFICATIONS" -> SettingsPage.Notifications
+    "SCHEDULE_MANAGER" -> SettingsPage.ScheduleManager
+    "ABOUT" -> SettingsPage.About
+    "CHANGELOG" -> SettingsPage.Changelog
+    "DOWNLOAD" -> SettingsPage.Download
+    "DONATE" -> SettingsPage.Donate
+    else -> null
+}
+
 sealed interface EduImportPage {
     data object SelectSchool : EduImportPage
     data class Import(val adapter: EduAdapter) : EduImportPage
@@ -315,7 +330,7 @@ private const val EduAdapterExtra = "edu_adapter"
 private fun SettingsPage.title(): String = when (this) {
     SettingsPage.Root -> "设置"
     SettingsPage.General -> "通用设置"
-    SettingsPage.AiImport -> "AI 导入设置"
+    SettingsPage.AiImport -> "AI 设置"
     SettingsPage.DayAgent -> "今日 Agent"
     SettingsPage.Schedule -> "课表设置"
     SettingsPage.Notifications -> "通知设置"
@@ -443,10 +458,61 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val adaptiveWeekCardHeight = if (state.periods.size >= 10) 72f else 80f
     var weekCardHeight by remember(state.periods.size, state.config.weekCardHeightDp) { mutableFloatStateOf(state.config.weekCardHeightDp ?: adaptiveWeekCardHeight) }
     val context = LocalContext.current
+    val appScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val backgroundBackdrop = rememberLayerBackdrop()
     val contentBackdrop = rememberLayerBackdrop()
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
+    val currentVersionName = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
+        }.getOrDefault("1.0")
+    }
+    var automaticUpdateDialog by remember { mutableStateOf<SettingsUpdateDialog?>(null) }
+    var automaticDownloadedUpdate by remember { mutableStateOf<java.io.File?>(null) }
+    val automaticInstallPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val apk = automaticDownloadedUpdate
+        if (apk != null && GiteeAppUpdater.canRequestPackageInstalls(context)) {
+            runCatching { GiteeAppUpdater.launchInstaller(context, apk) }
+                .onFailure { automaticUpdateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
+        }
+    }
+    fun downloadAutomaticUpdate(release: GiteeReleaseInfo) {
+        if (release.apkUrl == null) {
+            automaticUpdateDialog = SettingsUpdateDialog.NoApk(release)
+            return
+        }
+        automaticUpdateDialog = SettingsUpdateDialog.Downloading(release)
+        appScope.launch {
+            GiteeAppUpdater.downloadApk(context, release).fold(
+                onSuccess = { apk ->
+                    automaticDownloadedUpdate = apk
+                    if (GiteeAppUpdater.canRequestPackageInstalls(context)) {
+                        runCatching { GiteeAppUpdater.launchInstaller(context, apk) }
+                            .onSuccess { automaticUpdateDialog = null }
+                            .onFailure { automaticUpdateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
+                    } else {
+                        automaticUpdateDialog = SettingsUpdateDialog.InstallPermissionRequired
+                    }
+                },
+                onFailure = { automaticUpdateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
+            )
+        }
+    }
+    LaunchedEffect(state.loaded, state.config.autoCheckUpdates, currentVersionName) {
+        if (!state.loaded) return@LaunchedEffect
+        GiteeAppUpdater.restoreCachedStatus(context, currentVersionName)
+        if (!state.config.autoCheckUpdates || !GiteeAppUpdater.shouldRunDailyCheck(context)) return@LaunchedEffect
+        GiteeAppUpdater.markDailyCheckStarted(context)
+        GiteeAppUpdater.checkForUpdate(currentVersionName).onSuccess { result ->
+            GiteeAppUpdater.recordCheckResult(context, result)
+            if (result is GiteeUpdateCheckResult.UpdateAvailable) {
+                automaticUpdateDialog = SettingsUpdateDialog.Available(result.release)
+            }
+        }
+    }
     val logRecording by DiagnosticLogCapture.recording.collectAsStateWithLifecycle()
     val wallpaperImages by rememberHomeWallpaperImages(state.config)
     val startupAnimationsEnabled = remember(context) { animationsEnabled(context) }
@@ -540,11 +606,19 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val todayDate = LocalDate.now()
     val homeCurrentWeek = effectiveCurrentWeek(state.config)
     val beforeScheduleTerm = isBeforeScheduleTerm(state.config, todayDate)
-    var homeDisplayWeek by remember(state.config.id, state.config.totalWeeks, homeCurrentWeek) { mutableIntStateOf(homeCurrentWeek) }
+    var homeDisplayWeek by remember(state.config.id) { mutableIntStateOf(1) }
+    var homeWeekInitialized by remember(state.config.id) { mutableStateOf(false) }
     var homeDisplayDate by remember(state.config.id) { mutableStateOf(todayDate) }
-    LaunchedEffect(state.config.id, state.config.totalWeeks, homeCurrentWeek, state.config.autoCurrentWeek, beforeScheduleTerm) {
+    LaunchedEffect(state.loaded, state.config.id, state.config.totalWeeks, homeCurrentWeek, state.config.autoCurrentWeek, beforeScheduleTerm) {
+        if (!state.loaded) return@LaunchedEffect
+        val currentTargetWeek = if (beforeScheduleTerm) 1 else homeCurrentWeek
+        if (!homeWeekInitialized) {
+            homeDisplayWeek = currentTargetWeek
+            homeWeekInitialized = true
+            return@LaunchedEffect
+        }
         homeDisplayWeek = homeDisplayWeek.coerceIn(1, state.config.totalWeeks.coerceAtLeast(1))
-        if (state.config.autoCurrentWeek) homeDisplayWeek = if (beforeScheduleTerm) 1 else homeCurrentWeek
+        if (state.config.autoCurrentWeek) homeDisplayWeek = currentTargetWeek
     }
     val homeTitleWeek = if (homeMode == HomeMode.Day) {
         effectiveCurrentWeek(state.config, homeDisplayDate)
@@ -558,22 +632,13 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     }
     val homeReturnTargetWeek = if (beforeScheduleTerm) 1 else homeCurrentWeek
     val homeShowingAnotherWeek = homeMode == HomeMode.Week && homeDisplayWeek != homeReturnTargetWeek
-    val visibleHomeCoursesForColor = remember(state.courses, homeMode, homeDisplayDate, homeDisplayWeek) {
-        if (homeMode == HomeMode.Day) {
-            val week = effectiveCurrentWeek(state.config, homeDisplayDate)
-            weekCourseBuckets(state.courses, week)
-                .byWeekday[homeDisplayDate.dayOfWeek.toChineseWeekday()]
-                .orEmpty()
-        } else {
-            coursesVisibleInWeek(state.courses, homeDisplayWeek)
-        }
-    }
     val homeCourseColorAssignments = remember(
-        visibleHomeCoursesForColor,
+        state.config.id,
+        state.courses,
         wallpaperImages.representativeColors
     ) {
         buildCourseCardColorAssignments(
-            visibleHomeCoursesForColor,
+            state.courses,
             wallpaperImages.representativeColors
         )
     }
@@ -777,6 +842,60 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                         openCourseEditor(course, week, sourceBounds)
                                     },
                                     onAddCourse = viewModel::addCourse,
+                                    onAgentAction = { action ->
+                                        when (action.type) {
+                                            AgentValidatedActionType.ADD -> action.edited?.let(viewModel::addCourse)
+                                            AgentValidatedActionType.UPDATE -> {
+                                                val original = action.original
+                                                val edited = action.edited
+                                                if (original != null && edited != null) {
+                                                    if (action.scope == AgentActionScope.CURRENT_WEEK) {
+                                                        viewModel.updateCourseSingleWeek(original, edited, action.targetWeek)
+                                                    } else {
+                                                        viewModel.updateCourse(edited)
+                                                    }
+                                                }
+                                            }
+                                            AgentValidatedActionType.DELETE -> action.original?.let { course ->
+                                                if (action.scope == AgentActionScope.CURRENT_WEEK) {
+                                                    viewModel.deleteCourseSingleWeek(course, action.targetWeek)
+                                                } else {
+                                                    viewModel.deleteCourse(course)
+                                                }
+                                            }
+                                            AgentValidatedActionType.OPEN_SETTINGS -> {
+                                                if (action.settingsPage == "PERSONALIZATION") {
+                                                    addMenuExpanded = false
+                                                    showPersonalizePanel = true
+                                                } else agentSettingsPage(action.settingsPage)?.let { page ->
+                                                    val intent = Intent(context, SettingsDetailActivity::class.java)
+                                                        .putExtra(SettingsDetailPageExtra, page.name)
+                                                    if (page == SettingsPage.Schedule) {
+                                                        intent.putExtra(ScheduleCustomizeIdExtra, state.config.id)
+                                                    }
+                                                    context.startActivity(intent)
+                                                }
+                                            }
+                                            AgentValidatedActionType.SET_SETTING -> {
+                                                when {
+                                                    action.settingKey == "SCHEDULE_NAME" -> action.settingValue
+                                                        ?.let { name -> viewModel.renameSchedule(state.config.id, name) }
+                                                    AgentSettingRegistry.isPreferenceSetting(action.settingKey) -> {
+                                                        AgentSettingRegistry.applyPreference(
+                                                            context,
+                                                            action.settingKey,
+                                                            action.settingValue
+                                                        )
+                                                    }
+                                                    else -> AgentSettingRegistry.apply(
+                                                        state.config,
+                                                        action.settingKey,
+                                                        action.settingValue
+                                                    )?.let(viewModel::savePersonalization)
+                                                }
+                                            }
+                                        }
+                                    },
                                     onUpdateCourseSingleWeek = viewModel::updateCourseSingleWeek,
                                     onDeleteCourseSingleWeek = viewModel::deleteCourseSingleWeek,
                                     onScheduleLongPress = {
@@ -1117,6 +1236,39 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         }
         }
 
+        SettingsUpdateDialogHost(
+            dialog = automaticUpdateDialog,
+            backdrop = chromeBackdrop,
+            config = state.config,
+            onDismiss = { automaticUpdateDialog = null },
+            onRetry = {
+                automaticUpdateDialog = SettingsUpdateDialog.Checking
+                appScope.launch {
+                    automaticUpdateDialog = GiteeAppUpdater.checkForUpdate(currentVersionName).fold(
+                        onSuccess = { result ->
+                            GiteeAppUpdater.recordCheckResult(context, result)
+                            when (result) {
+                                is GiteeUpdateCheckResult.UpdateAvailable -> SettingsUpdateDialog.Available(result.release)
+                                is GiteeUpdateCheckResult.UpToDate -> SettingsUpdateDialog.UpToDate(result.release.tagName)
+                            }
+                        },
+                        onFailure = { SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
+                    )
+                }
+            },
+            onDownload = ::downloadAutomaticUpdate,
+            onOpenRelease = { release ->
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.releaseUrl)))
+            },
+            onOpenBackup = {
+                automaticUpdateDialog = null
+                screen = Screen.Config
+            },
+            onRequestInstallPermission = {
+                automaticInstallPermissionLauncher.launch(GiteeAppUpdater.unknownSourcesSettingsIntent(context))
+            }
+        )
+
         // Startup splash — covers content until config loaded, then circular reveal
         StartupRevealOverlay(
             phase = startupPhase,
@@ -1431,7 +1583,7 @@ fun AppTopBar(
                             Screen.Config -> when (settingsPage) {
                                 SettingsPage.Root -> "设置"
                                 SettingsPage.General -> "通用设置"
-                                SettingsPage.AiImport -> "AI 导入设置"
+                                SettingsPage.AiImport -> "AI 设置"
                                 SettingsPage.DayAgent -> "今日 Agent"
                                 SettingsPage.Schedule -> "课表设置"
                                 SettingsPage.Notifications -> "通知设置"
@@ -3424,6 +3576,10 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
             context.packageManager.getApplicationLabel(context.applicationInfo).toString()
         }.getOrDefault("SleepDown课程表")
     }
+    val updateAvailable by GiteeAppUpdater.updateAvailable.collectAsStateWithLifecycle()
+    LaunchedEffect(versionName) {
+        GiteeAppUpdater.restoreCachedStatus(context, versionName)
+    }
     var updateDialog by remember { mutableStateOf<SettingsUpdateDialog?>(null) }
     var downloadedUpdate by remember { mutableStateOf<java.io.File?>(null) }
     val installPermissionLauncher = rememberLauncherForActivityResult(
@@ -3439,9 +3595,11 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
     fun checkForUpdate() {
         if (updateDialog is SettingsUpdateDialog.Checking || updateDialog is SettingsUpdateDialog.Downloading) return
         updateDialog = SettingsUpdateDialog.Checking
+        GiteeAppUpdater.markDailyCheckStarted(context)
         scope.launch {
             updateDialog = GiteeAppUpdater.checkForUpdate(versionName).fold(
                 onSuccess = { result ->
+                    GiteeAppUpdater.recordCheckResult(context, result)
                     when (result) {
                         is GiteeUpdateCheckResult.UpdateAvailable -> SettingsUpdateDialog.Available(result.release)
                         is GiteeUpdateCheckResult.UpToDate -> SettingsUpdateDialog.UpToDate(result.release.tagName)
@@ -3518,12 +3676,13 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
                     onClick = { onPageChange(SettingsPage.Changelog) }
                 )
                 SettingsNavigationRow(
-                    "下载新版",
+                    "检查更新",
                     when (updateDialog) {
                         SettingsUpdateDialog.Checking -> "正在检查 Gitee Release…"
                         is SettingsUpdateDialog.Downloading -> "正在下载 APK 安装包…"
-                        else -> "从 Gitee 检查更新"
+                        else -> if (updateAvailable) "发现新版本，点击查看" else "从 Gitee 检查新版本"
                     },
+                    badgeText = if (updateAvailable) "有新版" else null,
                     onClick = ::checkForUpdate
                 )
             }
@@ -3540,15 +3699,10 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
             }
         }
         item {
-            GlassPreferenceSection("导入") {
-                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                    SettingsNavigationRow("AI 导入设置", "配置 API Key、服务商和模型。", onClick = { onPageChange(SettingsPage.AiImport) })
-                }
-            }
-        }
-        item {
             GlassPreferenceSection("智能助手") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsNavigationRow("AI 设置", "配置智能功能共用的服务商、模型和 API Key。", onClick = { onPageChange(SettingsPage.AiImport) })
+                    SettingsDivider()
                     SettingsNavigationRow("今日 Agent", "管理日视图助手、每日文案与天气。", onClick = { onPageChange(SettingsPage.DayAgent) })
                 }
             }
@@ -3912,6 +4066,8 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.0.2", "扩展今日 Agent 能力边界，支持结合当前课表理解更多课程与设置需求，并可引导进入对应功能；优化设置分类与信息层级，常用配置更易查找；优化首页日视图与周视图的跟手切换动画，日期、周次及课程内容衔接更自然；调整日视图课程卡片圆角，使卡片层级与整体界面更加协调；新增 ICS 课表文件导入与导出分享，可通过系统分享器保存或发送课表；通用教务导入会保存曾打开的教务站地址与登录状态，方便下次快速进入；新增每日自动检查更新功能，发现新版本时展示版本号和更新日志；通用设置与通知设置改为修改后直接保存，不再需要二次确认。")
+                SettingsDivider()
                 SettingsInfoRow("1.0.1", "新增今日助手，可结合当天课程与时间生成日程提醒，并支持快捷提问；新增课程卡片彩色模式，可从壁纸提取代表色并为同页课程分配不同配色；优化周视图课程卡片排版，课程名称、地点与教师信息层级更清晰。")
                 SettingsDivider()
                 SettingsInfoRow("1.0", "优化二级页面排版。")

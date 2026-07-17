@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.sync.Mutex
@@ -42,6 +43,8 @@ private val DayAgentJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 object DayAgentPreferences {
     private const val Prefs = "day_agent_preferences"
+    private val mutableChanges = MutableStateFlow(0L)
+    val changes: Flow<Long> = mutableChanges
 
     fun hasDecision(context: Context): Boolean = prefs(context).getBoolean("has_decision", false)
     fun isEnabled(context: Context): Boolean = prefs(context).getBoolean("enabled", false)
@@ -53,6 +56,7 @@ object DayAgentPreferences {
             .putBoolean("enabled", enabled)
             .putBoolean("has_decision", markDecided)
             .apply()
+        mutableChanges.value += 1
     }
 
     fun saveOptions(context: Context, dailyAiEnabled: Boolean, weatherEnabled: Boolean) {
@@ -60,6 +64,7 @@ object DayAgentPreferences {
             .putBoolean("daily_ai_enabled", dailyAiEnabled)
             .putBoolean("weather_enabled", weatherEnabled)
             .apply()
+        mutableChanges.value += 1
     }
 
     private fun prefs(context: Context) = context.getSharedPreferences(Prefs, Context.MODE_PRIVATE)
@@ -150,7 +155,8 @@ class DayAgentWeatherRepository(private val context: Context) {
 class DayAgentService(private val context: Context) {
     suspend fun generateDailyPack(facts: DayAgentFacts): DailyAgentPack = withContext(Dispatchers.IO) {
         val settings = AiImportSettingsStore.load(context)
-        require(settings.apiKey.isNotBlank()) { "请先在 AI 导入设置中配置 API Key" }
+        require(settings.profile.id != AiProviderPresets.none.id) { "请先在 AI 设置中选择服务商" }
+        require(settings.apiKey.isNotBlank()) { "请先在 AI 设置中配置 API Key" }
         val prompt = dailyPackPrompt(facts)
         val body = chatBody(settings, listOf("system" to DayAgentPrompts.DailySystem, "user" to prompt), stream = false)
         val response = postChat(settings, body)
@@ -163,6 +169,12 @@ class DayAgentService(private val context: Context) {
         val templates = root["templates"]?.jsonObject
             ?.mapValues { it.value.jsonPrimitive.content }
             .orEmpty()
+        val quickQuestions = root["quickQuestions"]?.jsonArray
+            ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
+            ?.filter { it.isNotBlank() && it.length <= 24 }
+            ?.distinct()
+            ?.take(3)
+            .orEmpty()
         val valid = validateAgentTemplates(templates)
         require(valid.isNotEmpty()) { "AI 没有返回可用的文案模板" }
         DailyAgentPack(
@@ -171,6 +183,8 @@ class DayAgentService(private val context: Context) {
             model = settings.profile.defaultModel,
             sourceHash = facts.sourceHash,
             templates = defaultAgentTemplates() + valid,
+            quickQuestions = quickQuestions.takeIf { it.size >= 2 }
+                ?: defaultAgentQuickQuestions(facts),
             generationStatus = "READY"
         )
     }
@@ -182,10 +196,15 @@ class DayAgentService(private val context: Context) {
         onDelta: (String) -> Unit
     ): String = withContext(Dispatchers.IO) {
         val settings = AiImportSettingsStore.load(context)
-        require(settings.apiKey.isNotBlank()) { "请先在 AI 导入设置中配置 API Key" }
+        require(settings.profile.id != AiProviderPresets.none.id) { "请先在 AI 设置中选择服务商" }
+        require(settings.apiKey.isNotBlank()) { "请先在 AI 设置中配置 API Key" }
         val messages = buildList {
             add("system" to DayAgentPrompts.ChatSystem)
+            add("system" to AgentSettingRegistry.promptCatalog())
             add("system" to conversationContext(facts))
+            if (needsSemesterCourseContext(question)) {
+                add("system" to semesterCourseContext(facts))
+            }
             history.sortedBy { it.createdAt }.takeLast(20).forEach { message ->
                 add((if (message.role == "assistant") "assistant" else "user") to message.content)
             }
@@ -380,8 +399,18 @@ class DayAgentRepository(private val context: Context) {
 }
 
 private object DayAgentPrompts {
-    const val DailySystem = """你是课程表应用的日程文案助手。你只负责生成简洁、自然的中文文案模板，不计算时间，不编造课程、地点、教师或天气。只返回 JSON 对象，格式为 {\"templates\":{\"MORNING_OVERVIEW\":\"...\"}}。模板键只能使用请求给出的枚举，占位符只能使用请求给出的白名单。每条文案按“天气与体感；当前或下一节课程；一条可执行建议；一句自然关心”的固定顺序组织，控制在 35 到 100 个汉字。每次生成随机选择休息、饮水、饮食、出行、情绪或学习节奏等关怀角度，避免所有模板重复同一句套话。"""
-    const val ChatSystem = """你是 SleepDown 课程表的今日助手。每次回答只能依据本次请求提供的最新本周课程、节次定义、今日/明日安排、天气和当前时间，不得沿用旧课表事实。不得编造课程、教室、教师、天气或时间。缺少信息时直接说明。回答简洁、可执行。用户希望新增课程时，先追问缺失的课程名、星期、节次和周次；信息完整后给出简短确认说明，并在正文末尾额外输出且只输出一个机器标记：<course_draft>{\"name\":\"课程名\",\"teacher\":null,\"location\":null,\"weekday\":1,\"periods\":[1,2],\"weeks\":[1,2],\"weekParity\":\"ALL\",\"note\":null}</course_draft>。星期一为1、星期日为7，节次和周次必须来自请求提供的有效范围。不要声称已经写入课表，必须等待用户在应用内确认。"""
+    const val DailySystem = """你是课程表应用的日程文案助手。你只负责生成简洁、自然的中文文案模板和快捷问题，不计算时间，不编造课程、地点、教师或天气。只返回 JSON 对象，格式为 {\"templates\":{\"MORNING_OVERVIEW\":\"...\"},\"quickQuestions\":[\"...\",\"...\"]}。模板键只能使用请求给出的枚举，占位符只能使用请求给出的白名单。每条文案按“天气与体感；当前或下一节课程；一条可执行建议；一句自然关心”的固定顺序组织，控制在 35 到 100 个汉字。快捷问题生成2至3条，每条不超过12个汉字，必须结合当天课程或空档且适合用户直接点击。"""
+    const val ChatSystem = """你是 SleepDown 课程表的今日助手。每次回答只能依据本次请求提供的最新本周课程、课程ID、节次定义、今日/明日安排、天气和当前时间；当用户询问整个学期时，还会提供仅限本次请求使用的全学期课程。不得沿用旧课表事实，不得编造课程、教室、教师、天气或时间。缺少信息时直接追问。回答简洁、可执行。
+你可以准备课程操作和设置跳转，但绝不能声称已经执行。操作必须放在正文末尾的唯一机器标记 <agent_actions>[...]</agent_actions> 中，等待用户在应用内确认。
+支持的操作：
+1. 新增：{\"type\":\"ADD_COURSE\",\"scope\":\"ALL_WEEKS\",\"course\":{\"name\":\"课程名\",\"teacher\":null,\"location\":null,\"weekday\":1,\"periods\":[1,2],\"weeks\":[1,2],\"weekParity\":\"ALL\",\"note\":null},\"summary\":\"添加课程\"}
+2. 修改或移动：{\"type\":\"UPDATE_COURSE\",\"courseId\":123,\"scope\":\"CURRENT_WEEK\",\"course\":{\"weekday\":2,\"periods\":[3,4]},\"summary\":\"移动课程\"}
+3. 删除：{\"type\":\"DELETE_COURSE\",\"courseId\":123,\"scope\":\"CURRENT_WEEK\",\"summary\":\"删除课程\"}
+4. 打开设置：{\"type\":\"OPEN_SETTINGS\",\"settingsPage\":\"SCHEDULE\",\"summary\":\"打开课表设置\"}
+5. 修改设置：{\"type\":\"SET_SETTING\",\"settingKey\":\"REALTIME_ACTIVITY\",\"settingValue\":\"TRUE\",\"summary\":\"开启实时活动\"}
+交换两门课程必须输出两条 UPDATE_COURSE。courseId 只能使用请求中提供的真实ID。scope 可为 CURRENT_WEEK 或 ALL_WEEKS。星期一为1、星期日为7。
+设置目录：GENERAL=通用与深色模式；PERSONALIZATION=首页个性化弹窗（壁纸、玻璃、课程卡片外观、字体和行高）；AI_IMPORT=模型与API；DAY_AGENT=今日助手；SCHEDULE=周数、开学日期、节次；NOTIFICATIONS=课程提醒、提前分钟、通知样式、实时活动、实时活动缩略文字、保活权限与测试；SCHEDULE_MANAGER=多课表；ABOUT/CHANGELOG/DOWNLOAD/DONATE=关于、日志、更新、捐赠。
+可修改设置的完整键、类型、范围和当前值由后续系统消息中的设置注册表提供。用户说“打开/开启实时活动”时使用 SET_SETTING，而用户问“在哪里/怎么设置”时使用 OPEN_SETTINGS 指向 NOTIFICATIONS。若只是回答问题，不输出机器标记。"""
 }
 
 private fun dailyPackPrompt(facts: DayAgentFacts): String = buildString {
@@ -389,6 +418,7 @@ private fun dailyPackPrompt(facts: DayAgentFacts): String = buildString {
     appendLine("每条模板必须依次包含天气或体感、当前/下一节课程状态、具体建议和一句自然关心；无课程时明确写无课再给建议。不同模板尽量使用不同关怀角度。")
     appendLine("模板键：${AgentTemplateKind.entries.joinToString { it.name }}")
     appendLine("占位符白名单：${AgentAllowedPlaceholders.joinToString { "{{$it}}" }}")
+    appendLine("另生成2至3条适合此刻直接点击的快捷问题，写入 quickQuestions 数组。")
     appendLine(conversationContext(facts))
 }
 
@@ -399,7 +429,29 @@ private fun conversationContext(facts: DayAgentFacts): String = buildString {
     appendLine("明日课程：${facts.tomorrow.joinToString("；") { "${it.start}-${it.end} ${it.course.name}，地点 ${it.course.location ?: "待确认"}" }.ifBlank { "无" }}")
     appendLine("课表ID：${facts.scheduleId}；当前教学周：第${facts.currentWeek}周；本学期总周数：${facts.totalWeeks}")
     appendLine("节次定义：${facts.periodDefinitions.joinToString("；") { "第${it.periodIndex}节 ${it.startTime}-${it.endTime}" }.ifBlank { "不可用" }}")
-    appendLine("本周课程（这是发送请求时重新读取的最新数据）：${facts.week.joinToString("；") { "${it.date.dayOfWeek} ${it.start}-${it.end} ${it.course.name}，节次 ${it.course.periods.joinToString(",")}，周次 ${it.course.weeks.joinToString(",")}，地点 ${it.course.location ?: "待确认"}，教师 ${it.course.teacher ?: "待确认"}" }.ifBlank { "无" }}")
+    appendLine("本周课程（这是发送请求时重新读取的最新数据）：${facts.week.joinToString("；") { "课程ID ${it.course.id}，${it.date.dayOfWeek} ${it.start}-${it.end} ${it.course.name}，节次 ${it.course.periods.joinToString(",")}，周次 ${it.course.weeks.joinToString(",")}，地点 ${it.course.location ?: "待确认"}，教师 ${it.course.teacher ?: "待确认"}" }.ifBlank { "无" }}")
+    appendLine("当前应用设置：${facts.settingSnapshot.entries.joinToString("；") { "${it.key}=${it.value}" }}")
+}
+
+internal fun needsSemesterCourseContext(question: String): Boolean {
+    val normalized = question.lowercase()
+    return listOf(
+        "整个学期", "全学期", "本学期", "这学期", "所有课程", "全部课程",
+        "课程总览", "学期安排", "哪几周", "哪一周", "最忙的周", "学期课表",
+        "semester", "all courses"
+    ).any(normalized::contains)
+}
+
+private fun semesterCourseContext(facts: DayAgentFacts): String = buildString {
+    appendLine("用户的问题涉及整个学期，已临时授权读取当前课表的全学期课程。以下数据只用于本次回答：")
+    appendLine("当前课表ID：${facts.scheduleId}；总周数：${facts.totalWeeks}；课程记录数：${facts.semesterCourses.size}")
+    facts.semesterCourses.forEach { course ->
+        append("课程ID ${course.id}；名称 ${course.name}；星期${course.weekday}；节次 ${course.periods.joinToString(",")}")
+        append("；周次 ${course.weeks.joinToString(",")}；单双周 ${course.weekParity}")
+        append("；地点 ${course.location ?: "待确认"}；教师 ${course.teacher ?: "待确认"}")
+        course.note?.takeIf { it.isNotBlank() }?.let { append("；备注 $it") }
+        appendLine()
+    }
 }
 
 private fun parseFullChatContent(response: String): String {

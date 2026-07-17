@@ -101,7 +101,8 @@ data class ScheduleConfigEntity(
     val liveUpdateChipTextMode: LiveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION,
     val classDurationMinutes: Int = 45,
     val breakDurationMinutes: Int = 10,
-    val hideFromRecents: Boolean = false
+    val hideFromRecents: Boolean = false,
+    val autoCheckUpdates: Boolean = true
 )
 
 @Entity(tableName = "periods", primaryKeys = ["scheduleId", "periodIndex"])
@@ -336,7 +337,7 @@ interface AgentDao {
         AgentDailySessionEntity::class,
         AgentMessageEntity::class
     ],
-    version = 25,
+    version = 26,
     exportSchema = false
 )
 @TypeConverters(ScheduleConverters::class)
@@ -568,6 +569,12 @@ private val MIGRATION_24_25 = object : Migration(24, 25) {
     }
 }
 
+private val MIGRATION_25_26 = object : Migration(25, 26) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE schedule_config ADD COLUMN autoCheckUpdates INTEGER NOT NULL DEFAULT 1")
+    }
+}
+
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
     if (!db.hasColumn("schedule_config", "wallpaperPortraitCenterX")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperPortraitCenterX REAL DEFAULT 0.5")
     if (!db.hasColumn("schedule_config", "wallpaperPortraitCenterY")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperPortraitCenterY REAL DEFAULT 0.5")
@@ -583,7 +590,7 @@ class CourseScheduleApp : Application() {
     val database: AppDatabase by lazy {
         repairDatabaseFileBeforeRoomOpen(getDatabasePath("course_schedule.db"))
         Room.databaseBuilder(this, AppDatabase::class.java, "course_schedule.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26)
             .build()
     }
     val repository: ScheduleRepository by lazy { ScheduleRepository(database) }
@@ -593,7 +600,7 @@ private fun repairDatabaseFileBeforeRoomOpen(path: File) {
     if (!path.exists()) return
     runCatching {
         SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
-            val needsStructuralRepair = db.version < 25 ||
+            val needsStructuralRepair = db.version < 26 ||
                 !sqliteTableExists(db, "schedule_profiles") ||
                 !sqliteTableExists(db, "schedule_config") ||
                 !sqliteTableExists(db, "periods") ||
@@ -603,7 +610,8 @@ private fun repairDatabaseFileBeforeRoomOpen(path: File) {
                 !sqliteColumnExists(db, "courses", "scheduleId") ||
                 !sqliteColumnExists(db, "periods", "scheduleId") ||
                 !sqliteColumnExists(db, "schedule_config", "dockAlignment") ||
-                !sqliteColumnExists(db, "schedule_config", "notificationMode")
+                !sqliteColumnExists(db, "schedule_config", "notificationMode") ||
+                !sqliteColumnExists(db, "schedule_config", "autoCheckUpdates")
             if (needsStructuralRepair) {
                 repairSQLiteDatabase(db)
             } else {
@@ -626,7 +634,7 @@ private fun repairSQLiteDatabase(db: SQLiteDatabase) {
         repairAgentTables(db)
         repairActiveScheduleProfiles(db)
         db.execSQL("DROP TABLE IF EXISTS room_master_table")
-        db.setVersion(25)
+        db.setVersion(26)
         db.setTransactionSuccessful()
     } finally {
         db.endTransaction()
@@ -700,6 +708,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "classDurationMinutes", "INTEGER NOT NULL DEFAULT 45")
     ensureSqliteColumn(db, "schedule_config", "breakDurationMinutes", "INTEGER NOT NULL DEFAULT 10")
     ensureSqliteColumn(db, "schedule_config", "hideFromRecents", "INTEGER NOT NULL DEFAULT 0")
+    ensureSqliteColumn(db, "schedule_config", "autoCheckUpdates", "INTEGER NOT NULL DEFAULT 1")
     db.execSQL(scheduleConfigCreateSql("schedule_config_room_fix"))
     db.execSQL(
         """
@@ -712,7 +721,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale, weekCardHeightDp,
             homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
-            classDurationMinutes, breakDurationMinutes, hideFromRecents
+            classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates
         )
         SELECT
             id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek,
@@ -723,7 +732,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale, weekCardHeightDp,
             homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
-            classDurationMinutes, breakDurationMinutes, hideFromRecents
+            classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates
         FROM schedule_config
         """.trimIndent()
     )
@@ -770,7 +779,8 @@ private fun scheduleConfigCreateSql(table: String): String =
         liveUpdateChipTextMode TEXT NOT NULL,
         classDurationMinutes INTEGER NOT NULL,
         breakDurationMinutes INTEGER NOT NULL,
-        hideFromRecents INTEGER NOT NULL
+        hideFromRecents INTEGER NOT NULL,
+        autoCheckUpdates INTEGER NOT NULL DEFAULT 1
     )
     """.trimIndent()
 
@@ -1011,6 +1021,7 @@ class ScheduleRepository(private val database: AppDatabase) {
                         defaultHomeMode = config.defaultHomeMode,
                         liveUpdateActionsEnabled = config.liveUpdateActionsEnabled,
                         hideFromRecents = config.hideFromRecents,
+                        autoCheckUpdates = config.autoCheckUpdates,
                         notificationLeadMinutes = config.notificationLeadMinutes,
                         notificationsEnabled = config.notificationsEnabled,
                         notificationMode = config.notificationMode,
@@ -1211,6 +1222,7 @@ private fun ScheduleConfigEntity.withGlobalSettingsFrom(global: ScheduleConfigEn
         defaultHomeMode = global.defaultHomeMode,
         liveUpdateActionsEnabled = global.liveUpdateActionsEnabled,
         hideFromRecents = global.hideFromRecents,
+        autoCheckUpdates = global.autoCheckUpdates,
         notificationLeadMinutes = global.notificationLeadMinutes,
         notificationsEnabled = global.notificationsEnabled,
         notificationMode = global.notificationMode,
@@ -1218,7 +1230,7 @@ private fun ScheduleConfigEntity.withGlobalSettingsFrom(global: ScheduleConfigEn
     )
 }
 
-fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, wallpaperPortraitCenterX = 0.5f, wallpaperPortraitCenterY = 0.5f, wallpaperPortraitScale = 1f, wallpaperLandscapeCenterX = 0.5f, wallpaperLandscapeCenterY = 0.5f, wallpaperLandscapeScale = 1f, wallpaperSourceWidth = null, wallpaperSourceHeight = null, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, weekCardHeightDp = null, homeTextLight = false, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.KANBAN, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false)
+fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, wallpaperPortraitCenterX = 0.5f, wallpaperPortraitCenterY = 0.5f, wallpaperPortraitScale = 1f, wallpaperLandscapeCenterX = 0.5f, wallpaperLandscapeCenterY = 0.5f, wallpaperLandscapeScale = 1f, wallpaperSourceWidth = null, wallpaperSourceHeight = null, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, weekCardHeightDp = null, homeTextLight = false, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.KANBAN, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false, autoCheckUpdates = true)
 
 fun defaultPeriods(scheduleId: Int = 1) = listOf(
     PeriodEntity(1, "08:00", "08:45", scheduleId), PeriodEntity(2, "08:55", "09:40", scheduleId),

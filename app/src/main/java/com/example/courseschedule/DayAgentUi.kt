@@ -101,12 +101,18 @@ fun TodayAgentHost(
     backdrop: Backdrop?,
     textColor: Color,
     collapsed: Boolean,
-    onAddCourse: (CourseEntity) -> Unit = {}
+    onAgentAction: (AgentValidatedAction) -> Unit = {}
 ) {
     val context = LocalContext.current
     var hasApiKey by remember { mutableStateOf(AiImportSettingsStore.load(context).apiKey.isNotBlank()) }
     var enabled by remember(date, state.config.id) { mutableStateOf(DayAgentPreferences.isEnabled(context)) }
     var hasDecision by remember(date, state.config.id) { mutableStateOf(DayAgentPreferences.hasDecision(context)) }
+    val preferenceVersion by DayAgentPreferences.changes.collectAsStateWithLifecycle(initialValue = 0L)
+
+    LaunchedEffect(preferenceVersion) {
+        enabled = DayAgentPreferences.isEnabled(context)
+        hasDecision = DayAgentPreferences.hasDecision(context)
+    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         enabled = DayAgentPreferences.isEnabled(context)
@@ -150,7 +156,7 @@ fun TodayAgentHost(
             dailyAiEnabled = DayAgentPreferences.isDailyAiEnabled(context),
             weatherEnabled = DayAgentPreferences.isWeatherEnabled(context),
             hasApiKey = hasApiKey,
-            onAddCourse = onAddCourse
+            onAgentAction = onAgentAction
         )
     }
 }
@@ -165,10 +171,11 @@ fun TodayAgentCard(
     dailyAiEnabled: Boolean,
     weatherEnabled: Boolean,
     hasApiKey: Boolean,
-    onAddCourse: (CourseEntity) -> Unit
+    onAgentAction: (AgentValidatedAction) -> Unit
 ) {
     val context = LocalContext.current
     val scheduleId = state.config.id
+    val scheduleName = state.schedules.firstOrNull { it.id == scheduleId }?.name
     val repository = remember(context) { DayAgentRepository(context.applicationContext) }
     val weatherRepository = remember(context) { DayAgentWeatherRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
@@ -203,14 +210,22 @@ fun TodayAgentCard(
         delay(280)
         repository.cleanup(date)
         weather = if (weatherEnabled) weatherRepository.getWeather() else null
-        val initialFacts = buildDayAgentFacts(state.courses, state.periods, state.config, date, weather)
+        val initialFacts = buildDayAgentFacts(
+            state.courses,
+            state.periods,
+            state.config,
+            date,
+            weather,
+            scheduleName,
+            settingContext = context
+        )
         if (dailyAiEnabled) {
             repository.ensureDailyPack(scheduleId, initialFacts).onFailure { generationError = it.message }
         }
     }
 
-    val facts = remember(state.courses, state.periods, state.config, date, weather, now) {
-        buildDayAgentFacts(state.courses, state.periods, state.config, date, weather, now)
+    val facts = remember(state.courses, state.periods, state.config, scheduleName, date, weather, now) {
+        buildDayAgentFacts(state.courses, state.periods, state.config, date, weather, scheduleName, now, context)
     }
     val pack = DailyAgentPack.decodeOrDefault(session?.dailyPackJson)
     val rendered = TodayAgentTimelineEngine.render(pack, facts)
@@ -329,7 +344,7 @@ fun TodayAgentCard(
             initialText = rendered.text,
             initialQuestion = pendingQuestion,
             sourceBounds = cardBounds,
-            onAddCourse = onAddCourse,
+            onAgentAction = onAgentAction,
             onDismiss = {
                 dialogOpen = false
                 pendingQuestion = null
@@ -418,7 +433,7 @@ private fun DayAgentConversationDialog(
     initialText: String,
     initialQuestion: String?,
     sourceBounds: Rect?,
-    onAddCourse: (CourseEntity) -> Unit,
+    onAgentAction: (AgentValidatedAction) -> Unit,
     onDismiss: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -431,7 +446,7 @@ private fun DayAgentConversationDialog(
     var error by remember { mutableStateOf<String?>(null) }
     var answerBounds by remember { mutableStateOf<Rect?>(null) }
     var dialogWindow by remember { mutableStateOf<Window?>(null) }
-    var addedDraftMessageIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var appliedActionKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     val expansion = remember { Animatable(0f) }
     val conversationListState = rememberLazyListState()
     val conversationBackdrop = rememberLayerBackdrop()
@@ -590,13 +605,14 @@ private fun DayAgentConversationDialog(
                                 }
                             } else {
                                 val parsed = remember(message.content, facts.sourceHash) {
-                                    parseAgentCourseDraft(message.content, facts)
+                                    parseAgentActions(message.content, facts)
                                 }
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     if (parsed.displayText.isNotBlank()) {
                                         AgentMarkdownText(parsed.displayText, foreground, MaterialTheme.typography.bodyMedium)
                                     }
-                                    parsed.course?.let { draft ->
+                                    parsed.actions.forEachIndexed { actionIndex, action ->
+                                        val actionKey = "${message.id}:$actionIndex"
                                         AgentSimplePressSurface(
                                             backdrop = backdrop,
                                             config = state.config,
@@ -604,20 +620,19 @@ private fun DayAgentConversationDialog(
                                             shape = RoundedCornerShape(18.dp),
                                             tokens = GlassTokens.pill(intensity = 0.92f).copy(blur = 4.dp, surfaceAlpha = 0.22f),
                                             onClick = {
-                                                if (message.id !in addedDraftMessageIds) {
-                                                    onAddCourse(draft)
-                                                    addedDraftMessageIds = addedDraftMessageIds + message.id
+                                                if (actionKey !in appliedActionKeys) {
+                                                    onAgentAction(action)
+                                                    appliedActionKeys = appliedActionKeys + actionKey
                                                 }
                                             }
                                         ) {
                                             Text(
-                                                if (message.id in addedDraftMessageIds) {
-                                                    "已添加到当前课表"
-                                                } else {
-                                                    "确认添加：${draft.name} · 周${draft.weekday} · 第${draft.periods.joinToString(",")}节"
-                                                },
+                                                if (actionKey in appliedActionKeys) "已执行：${action.summary}"
+                                                else agentActionButtonLabel(action),
                                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                                color = if (message.id in addedDraftMessageIds) foreground.copy(alpha = 0.62f) else Color(0xFF168CFF),
+                                                color = if (actionKey in appliedActionKeys) foreground.copy(alpha = 0.62f)
+                                                else if (action.type == AgentValidatedActionType.DELETE) Color(0xFFFF453A)
+                                                else Color(0xFF168CFF),
                                                 style = MaterialTheme.typography.labelLarge
                                             )
                                         }
@@ -627,7 +642,7 @@ private fun DayAgentConversationDialog(
                         }
                         if (streamingText.isNotBlank()) item {
                             AgentMarkdownText(
-                                parseAgentCourseDraft(streamingText, facts).displayText,
+                                parseAgentActions(streamingText, facts).displayText,
                                 foreground,
                                 MaterialTheme.typography.bodyMedium
                             )
@@ -721,6 +736,14 @@ private fun DayAgentConversationDialog(
             initialQuestion?.takeIf { it.isNotBlank() }?.let(::send)
         }
     }
+}
+
+private fun agentActionButtonLabel(action: AgentValidatedAction): String = when (action.type) {
+    AgentValidatedActionType.ADD -> "确认添加：${action.edited?.name ?: action.summary}"
+    AgentValidatedActionType.UPDATE -> "确认修改：${action.summary}"
+    AgentValidatedActionType.DELETE -> "确认删除：${action.original?.name ?: action.summary}"
+    AgentValidatedActionType.OPEN_SETTINGS -> action.summary
+    AgentValidatedActionType.SET_SETTING -> "确认设置：${action.summary}"
 }
 
 private val ShanghaiZone = ZoneId.of("Asia/Shanghai")

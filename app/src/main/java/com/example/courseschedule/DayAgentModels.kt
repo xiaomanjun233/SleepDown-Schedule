@@ -31,6 +31,7 @@ data class DailyAgentPack(
     val model: String = "local",
     val sourceHash: String = "",
     val templates: Map<String, String> = defaultAgentTemplates(),
+    val quickQuestions: List<String> = emptyList(),
     val generationStatus: String = "LOCAL",
     val lastError: String? = null
 ) {
@@ -76,7 +77,9 @@ data class DayAgentFacts(
     val periodDefinitions: List<PeriodEntity> = emptyList(),
     val totalWeeks: Int = 20,
     val scheduleId: Int = 1,
-    val currentWeek: Int = 1
+    val currentWeek: Int = 1,
+    val settingSnapshot: Map<String, String> = emptyMap(),
+    val semesterCourses: List<CourseEntity> = emptyList()
 )
 
 @Serializable
@@ -94,6 +97,55 @@ data class AgentCourseDraft(
 data class ParsedAgentCourseDraft(
     val displayText: String,
     val course: CourseEntity?
+)
+
+@Serializable
+enum class AgentActionType { ADD_COURSE, UPDATE_COURSE, DELETE_COURSE, OPEN_SETTINGS, SET_SETTING }
+
+@Serializable
+enum class AgentActionScope { CURRENT_WEEK, ALL_WEEKS }
+
+@Serializable
+data class AgentCoursePatch(
+    val name: String? = null,
+    val teacher: String? = null,
+    val location: String? = null,
+    val weekday: Int? = null,
+    val periods: List<Int>? = null,
+    val weeks: List<Int>? = null,
+    val weekParity: String? = null,
+    val note: String? = null
+)
+
+@Serializable
+data class AgentActionDraft(
+    val type: AgentActionType,
+    val courseId: Long? = null,
+    val scope: AgentActionScope = AgentActionScope.CURRENT_WEEK,
+    val course: AgentCoursePatch? = null,
+    val settingsPage: String? = null,
+    val settingKey: String? = null,
+    val settingValue: String? = null,
+    val summary: String = ""
+)
+
+enum class AgentValidatedActionType { ADD, UPDATE, DELETE, OPEN_SETTINGS, SET_SETTING }
+
+data class AgentValidatedAction(
+    val type: AgentValidatedActionType,
+    val original: CourseEntity? = null,
+    val edited: CourseEntity? = null,
+    val scope: AgentActionScope = AgentActionScope.CURRENT_WEEK,
+    val targetWeek: Int = 1,
+    val settingsPage: String? = null,
+    val settingKey: String? = null,
+    val settingValue: String? = null,
+    val summary: String
+)
+
+data class ParsedAgentActions(
+    val displayText: String,
+    val actions: List<AgentValidatedAction>
 )
 
 data class RenderedAgentMessage(
@@ -146,7 +198,9 @@ fun buildDayAgentFacts(
     config: ScheduleConfigEntity,
     date: LocalDate,
     weather: AgentWeatherSnapshot?,
-    now: LocalDateTime = LocalDateTime.now(ZoneId.of("Asia/Shanghai"))
+    scheduleName: String? = null,
+    now: LocalDateTime = LocalDateTime.now(ZoneId.of("Asia/Shanghai")),
+    settingContext: android.content.Context? = null
 ): DayAgentFacts {
     val periodMap = periods.associateBy { it.periodIndex }
     val currentWeek = effectiveCurrentWeek(config, date)
@@ -189,7 +243,11 @@ fun buildDayAgentFacts(
         periodDefinitions = periods.sortedBy { it.periodIndex },
         totalWeeks = config.totalWeeks,
         scheduleId = config.id,
-        currentWeek = currentWeek
+        currentWeek = currentWeek,
+        settingSnapshot = AgentSettingRegistry.snapshot(config, scheduleName, settingContext),
+        semesterCourses = courses
+            .filter { it.scheduleId == config.id }
+            .sortedWith(compareBy<CourseEntity> { it.name }.thenBy { it.weekday }.thenBy { it.periods.minOrNull() ?: Int.MAX_VALUE })
     )
 }
 
@@ -241,10 +299,148 @@ object TodayAgentTimelineEngine {
             kind = kind,
             text = text,
             compactText = compact,
-            quickQuestions = listOf("今天有什么安排", "帮我添加新的课", "帮我安排复习")
+            quickQuestions = pack.quickQuestions.takeIf { it.size >= 2 }
+                ?: defaultAgentQuickQuestions(facts)
         )
     }
 }
+
+fun defaultAgentQuickQuestions(facts: DayAgentFacts): List<String> = when {
+    facts.today.isEmpty() -> listOf("今天怎么安排更合适", "帮我添加新的课")
+    facts.tomorrow.isEmpty() -> listOf("今天还有什么安排", "帮我调整一门课")
+    else -> listOf("今天有什么安排", "明天要准备什么")
+}
+
+fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions {
+    val actionMarker = Regex("<agent_actions>([\\s\\S]*?)</agent_actions>")
+    val legacy = parseAgentCourseDraft(content, facts)
+    val displayText = legacy.displayText.replace(actionMarker, "").trim()
+    val actions = mutableListOf<AgentValidatedAction>()
+    legacy.course?.let { course ->
+        actions += AgentValidatedAction(
+            type = AgentValidatedActionType.ADD,
+            edited = course,
+            targetWeek = facts.currentWeek,
+            scope = AgentActionScope.ALL_WEEKS,
+            summary = "添加 ${course.name}"
+        )
+    }
+    val payload = actionMarker.find(content)?.groupValues?.getOrNull(1)
+    val drafts = payload?.let {
+        runCatching { AgentJson.decodeFromString<List<AgentActionDraft>>(it) }.getOrNull()
+    }.orEmpty()
+    val knownCourses = (facts.week.map { it.course } + facts.semesterCourses)
+        .distinctBy { it.id }
+        .associateBy { it.id }
+    val validPeriods = facts.periodDefinitions.mapTo(hashSetOf()) { it.periodIndex }
+    drafts.forEach { draft ->
+        when (draft.type) {
+            AgentActionType.ADD_COURSE -> validateAgentCoursePatch(
+                patch = draft.course,
+                base = null,
+                facts = facts,
+                validPeriods = validPeriods
+            )?.let { course ->
+                actions += AgentValidatedAction(
+                    AgentValidatedActionType.ADD,
+                    edited = course.copy(id = 0, scheduleId = facts.scheduleId),
+                    scope = draft.scope,
+                    targetWeek = facts.currentWeek,
+                    summary = draft.summary.ifBlank { "添加 ${course.name}" }
+                )
+            }
+            AgentActionType.UPDATE_COURSE -> knownCourses[draft.courseId]?.let { original ->
+                validateAgentCoursePatch(draft.course, original, facts, validPeriods)?.let { edited ->
+                    actions += AgentValidatedAction(
+                        AgentValidatedActionType.UPDATE,
+                        original = original,
+                        edited = edited.copy(id = original.id, scheduleId = facts.scheduleId),
+                        scope = draft.scope,
+                        targetWeek = facts.currentWeek,
+                        summary = draft.summary.ifBlank { "修改 ${original.name}" }
+                    )
+                }
+            }
+            AgentActionType.DELETE_COURSE -> knownCourses[draft.courseId]?.let { original ->
+                actions += AgentValidatedAction(
+                    AgentValidatedActionType.DELETE,
+                    original = original,
+                    scope = draft.scope,
+                    targetWeek = facts.currentWeek,
+                    summary = draft.summary.ifBlank { "删除 ${original.name}" }
+                )
+            }
+            AgentActionType.OPEN_SETTINGS -> normalizeAgentSettingsPage(draft.settingsPage)?.let { page ->
+                actions += AgentValidatedAction(
+                    AgentValidatedActionType.OPEN_SETTINGS,
+                    settingsPage = page,
+                    targetWeek = facts.currentWeek,
+                    summary = draft.summary.ifBlank { "打开相关设置" }
+                )
+            }
+            AgentActionType.SET_SETTING -> normalizeAgentSetting(draft.settingKey, draft.settingValue)?.let { (key, value) ->
+                actions += AgentValidatedAction(
+                    AgentValidatedActionType.SET_SETTING,
+                    settingKey = key,
+                    settingValue = value,
+                    targetWeek = facts.currentWeek,
+                    summary = draft.summary.ifBlank { "修改应用设置" }
+                )
+            }
+        }
+    }
+    return ParsedAgentActions(displayText, actions)
+}
+
+private fun validateAgentCoursePatch(
+    patch: AgentCoursePatch?,
+    base: CourseEntity?,
+    facts: DayAgentFacts,
+    validPeriods: Set<Int>
+): CourseEntity? {
+    patch ?: return null
+    val name = patch.name?.trim()?.takeIf { it.isNotBlank() } ?: base?.name ?: return null
+    val weekday = patch.weekday ?: base?.weekday ?: return null
+    val periods = (patch.periods ?: base?.periods.orEmpty()).distinct().sorted().filter { it in validPeriods }
+    val weeks = (patch.weeks ?: base?.weeks.orEmpty()).distinct().sorted().filter { it in 1..facts.totalWeeks }
+    if (weekday !in 1..7 || periods.isEmpty() || weeks.isEmpty()) return null
+    val parity = patch.weekParity?.let { runCatching { WeekParity.valueOf(it.uppercase()) }.getOrNull() }
+        ?: base?.weekParity ?: WeekParity.ALL
+    return if (base != null) {
+        base.copy(
+            name = name,
+            teacher = patch.teacher?.trim()?.takeIf { it.isNotBlank() } ?: base.teacher,
+            location = patch.location?.trim()?.takeIf { it.isNotBlank() } ?: base.location,
+            weekday = weekday,
+            periods = periods,
+            weeks = weeks,
+            weekParity = parity,
+            note = patch.note?.trim()?.takeIf { it.isNotBlank() } ?: base.note,
+            scheduleId = facts.scheduleId
+        )
+    } else {
+        CourseEntity(
+            name = name,
+            teacher = patch.teacher?.trim()?.takeIf { it.isNotBlank() },
+            location = patch.location?.trim()?.takeIf { it.isNotBlank() },
+            weekday = weekday,
+            periods = periods,
+            weeks = weeks,
+            weekParity = parity,
+            note = patch.note?.trim()?.takeIf { it.isNotBlank() },
+            scheduleId = facts.scheduleId
+        )
+    }
+}
+
+private fun normalizeAgentSettingsPage(value: String?): String? = when (value?.trim()?.uppercase()) {
+    "GENERAL", "AI_IMPORT", "DAY_AGENT", "SCHEDULE", "NOTIFICATIONS",
+    "SCHEDULE_MANAGER", "ABOUT", "CHANGELOG", "DOWNLOAD", "DONATE" -> value.trim().uppercase()
+    else -> null
+}
+
+private fun normalizeAgentSetting(keyValue: String?, rawValue: String?): Pair<String, String>? =
+    AgentSettingRegistry.normalize(keyValue, rawValue)
 
 fun parseAgentCourseDraft(content: String, facts: DayAgentFacts): ParsedAgentCourseDraft {
     val marker = Regex("<course_draft>([\\s\\S]*?)</course_draft>")

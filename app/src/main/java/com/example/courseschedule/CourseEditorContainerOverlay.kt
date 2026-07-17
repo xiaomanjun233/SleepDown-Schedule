@@ -261,7 +261,7 @@ fun CourseEditorContainerOverlayHost(
             height = with(density) { animatedRect.height.toDp() }
         )
     val sourceCornerPx = remember(sourceRect, density) {
-        with(density) { if (sourceRect.width >= 220.dp.toPx()) 16.dp.toPx() else 8.dp.toPx() }
+        with(density) { if (sourceRect.width >= 220.dp.toPx()) 24.dp.toPx() else 8.dp.toPx() }
     }
     val corner = with(density) {
         interpolateFloatUnbounded(sourceCornerPx, 32.dp.toPx(), motionProgress)

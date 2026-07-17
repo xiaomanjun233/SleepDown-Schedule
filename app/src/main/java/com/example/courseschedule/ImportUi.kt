@@ -985,6 +985,7 @@ fun EduImportActivityScreen(
                 GeneralEduUrlDialog(
                     config = state.config,
                     backdrop = backdrop,
+                    adapter = adapter,
                     initialUrl = currentUrl,
                     helperText = if (adapter.isAiEduImportTool()) {
                         "AI教务导入需要先打开学校教务系统网址。登录后进入课表页面，后续可使用 AI 解析当前页面。"
@@ -993,6 +994,7 @@ fun EduImportActivityScreen(
                     },
                     onCancel = { showGeneralUrlDialog = false },
                     onConfirm = {
+                        EduLoginHistoryStore.remember(context, adapter, it)
                         currentUrl = it
                         showGeneralUrlDialog = false
                         webView?.loadUrl(it)
@@ -1021,13 +1023,16 @@ fun EduImportActivityScreen(
 fun GeneralEduUrlDialog(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
+    adapter: EduAdapter,
     initialUrl: String,
     helperText: String = "通用教务需要先填写学校教务系统网址，进入后可继续在顶部网址栏修改。",
     onCancel: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
+    val context = LocalContext.current
     var url by remember(initialUrl) { mutableStateOf(initialUrl.ifBlank { "https://" }) }
     var error by remember { mutableStateOf<String?>(null) }
+    var history by remember(adapter.adapterId) { mutableStateOf(EduLoginHistoryStore.load(context)) }
     fun submit() {
         val normalized = normalizeEduUrl(url)
         if (normalized.isBlank()) error = "请输入教务系统网址" else onConfirm(normalized)
@@ -1049,6 +1054,69 @@ fun GeneralEduUrlDialog(
             color = if (error == null) glassForegroundColor(config).copy(alpha = 0.72f) else MaterialTheme.colorScheme.error,
             lineHeight = 18.sp
         )
+        if (history.isNotEmpty()) {
+            Text(
+                "最近使用",
+                modifier = Modifier.padding(start = 18.dp, top = 2.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = glassForegroundColor(config).copy(alpha = 0.76f)
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                history.take(4).forEach { entry ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(glassForegroundColor(config).copy(alpha = 0.08f))
+                            .clickable {
+                                EduLoginHistoryStore.restoreCookies(entry)
+                                url = entry.url
+                                onConfirm(entry.url)
+                            }
+                            .padding(start = 14.dp, top = 10.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                entry.title,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = glassForegroundColor(config)
+                            )
+                            Text(
+                                entry.url,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = glassForegroundColor(config).copy(alpha = 0.58f)
+                            )
+                        }
+                        IconButton(onClick = {
+                            EduLoginHistoryStore.remove(context, entry.id)
+                            history = EduLoginHistoryStore.load(context)
+                        }) {
+                            Icon(
+                                painterResource(android.R.drawable.ic_menu_delete),
+                                contentDescription = "删除登录记录",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            }
+            Text(
+                "网址与登录 Cookie 使用设备密钥加密，仅保存在本机。",
+                modifier = Modifier.padding(horizontal = 18.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = glassForegroundColor(config).copy(alpha = 0.52f)
+            )
+        }
     }
 }
 
@@ -1762,6 +1830,13 @@ fun EduImportBrowserScreen(
                     if (!url.isNullOrBlank()) {
                         addressText = url
                         onUrlChange(url)
+                        EduLoginHistoryStore.remember(
+                            context,
+                            adapter,
+                            url,
+                            CookieManager.getInstance().getCookie(url)
+                        )
+                        CookieManager.getInstance().flush()
                     }
                 }
             }

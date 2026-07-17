@@ -7,6 +7,9 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -18,12 +21,16 @@ import kotlinx.serialization.json.contentOrNull
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.LocalDate
 
 private const val GiteeOwner = "xiaomanjun233"
 private const val GiteeRepository = "SleepDown-Schedule"
 private const val GiteeApiBase = "https://gitee.com/api/v5"
 private const val GiteeRepositoryUrl = "https://gitee.com/$GiteeOwner/$GiteeRepository"
 private const val ApkMimeType = "application/vnd.android.package-archive"
+private const val UpdatePreferences = "app_update_state"
+private const val LastCheckDateKey = "last_check_date"
+private const val LatestTagKey = "latest_tag"
 
 data class GiteeReleaseInfo(
     val name: String,
@@ -42,6 +49,29 @@ sealed interface GiteeUpdateCheckResult {
 
 object GiteeAppUpdater {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val _updateAvailable = MutableStateFlow(false)
+    val updateAvailable: StateFlow<Boolean> = _updateAvailable.asStateFlow()
+
+    fun restoreCachedStatus(context: Context, currentVersionName: String) {
+        val latestTag = preferences(context).getString(LatestTagKey, null)
+        _updateAvailable.value = latestTag?.let { isVersionNewer(it, currentVersionName) } == true
+    }
+
+    fun shouldRunDailyCheck(context: Context, date: LocalDate = LocalDate.now()): Boolean =
+        preferences(context).getString(LastCheckDateKey, null) != date.toString()
+
+    fun markDailyCheckStarted(context: Context, date: LocalDate = LocalDate.now()) {
+        preferences(context).edit().putString(LastCheckDateKey, date.toString()).apply()
+    }
+
+    fun recordCheckResult(context: Context, result: GiteeUpdateCheckResult) {
+        val release = when (result) {
+            is GiteeUpdateCheckResult.UpdateAvailable -> result.release
+            is GiteeUpdateCheckResult.UpToDate -> result.release
+        }
+        preferences(context).edit().putString(LatestTagKey, release.tagName).apply()
+        _updateAvailable.value = result is GiteeUpdateCheckResult.UpdateAvailable
+    }
 
     suspend fun checkForUpdate(currentVersionName: String): Result<GiteeUpdateCheckResult> =
         withContext(Dispatchers.IO) {
@@ -111,6 +141,9 @@ object GiteeAppUpdater {
         }
         return false
     }
+
+    private fun preferences(context: Context) =
+        context.applicationContext.getSharedPreferences(UpdatePreferences, Context.MODE_PRIVATE)
 
     private fun JsonObject.toReleaseInfo(): GiteeReleaseInfo {
         val tag = string("tag_name").ifBlank { string("name") }
