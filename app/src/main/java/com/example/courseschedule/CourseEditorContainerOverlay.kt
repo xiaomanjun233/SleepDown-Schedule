@@ -40,10 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -60,8 +57,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
@@ -104,25 +99,6 @@ data class CourseEditorOverlayRequest(
     val backgroundSnapshot: Bitmap? = null,
     val sourceCardSnapshot: Bitmap? = null
 )
-
-private class CourseEditorMorphClipShape(
-    private val radiusX: Float,
-    private val radiusY: Float
-) : Shape {
-    override fun createOutline(
-        size: androidx.compose.ui.geometry.Size,
-        layoutDirection: LayoutDirection,
-        density: Density
-    ): Outline = Outline.Rounded(
-        RoundRect(
-            left = 0f,
-            top = 0f,
-            right = size.width,
-            bottom = size.height,
-            cornerRadius = CornerRadius(radiusX, radiusY)
-        )
-    )
-}
 
 @Composable
 fun CourseEditorContainerOverlayHost(
@@ -285,12 +261,13 @@ fun CourseEditorContainerOverlayHost(
     }
     val targetCornerPx = with(density) { 32.dp.toPx() }
     val visualCornerPx = sourceCornerPx + (targetCornerPx - sourceCornerPx) * p
-    val morphShape = remember(visualCornerPx, scaleX, scaleY) {
-        CourseEditorMorphClipShape(
-            radiusX = visualCornerPx / scaleX.coerceAtLeast(0.001f),
-            radiusY = visualCornerPx / scaleY.coerceAtLeast(0.001f)
-        )
-    }
+    // Backdrop lens only supports RoundedRectangularShape/CornerBasedShape. A custom
+    // anisotropic outline crashes inside LensKt, so compensate with the smaller axis while
+    // retaining a native RoundedCornerShape throughout the morph.
+    val cornerScale = minOf(scaleX, scaleY).coerceAtLeast(0.001f)
+    val morphShape = RoundedCornerShape(
+        with(density) { (visualCornerPx / cornerScale).toDp() }
+    )
     val contentAlpha = ((p - 0.1f) / 0.5f).coerceIn(0f, 1f)
     val sourceCoverAlpha = (1f - p * 3f).coerceIn(0f, 1f)
     val editorFormBackdrop = backdrop
