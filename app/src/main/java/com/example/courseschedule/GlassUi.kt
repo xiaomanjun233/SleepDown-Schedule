@@ -1,7 +1,9 @@
 package com.example.courseschedule
 
 import android.os.Build
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.background
@@ -345,6 +347,7 @@ fun CourseGlassCard(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(12.dp),
     blurOverride: Float? = null,
+    forcePressed: Boolean = false,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
@@ -352,13 +355,21 @@ fun CourseGlassCard(
     val useGlass = glassBackdrop != null
     val quality = LocalGlassQuality.current
     val interactionSource = if (onClick != null) remember { MutableInteractionSource() } else null
-    val pressProgress = if (interactionSource != null) {
-        val pressed by interactionSource.collectIsPressedAsState()
-        val animatedPressProgress by animateFloatAsState(if (pressed) 1f else 0f, label = "course-card-press")
-        animatedPressProgress
+    val pressed = if (interactionSource != null) {
+        val isPressed by interactionSource.collectIsPressedAsState()
+        isPressed
     } else {
-        0f
+        false
     }
+    val active = pressed || forcePressed
+    val pressProgress by animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (active) 70 else 150,
+            easing = CubicBezierEasing(0.2f, 0f, 0.1f, 1f)
+        ),
+        label = "course-card-press"
+    )
     val baseColor = courseCardBaseColor(config, course)
     val glassTint = baseColor.copy(alpha = ((config.cardAlpha.coerceIn(0f, 1f) * 0.68f) * quality).coerceIn(0f, 0.68f))
     val solidColor = baseColor.copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
@@ -382,7 +393,7 @@ fun CourseGlassCard(
             shadow = { Shadow(alpha = (tokens.shadowAlpha * (1f - 0.35f * pressProgress)).coerceAtLeast(0.04f)) },
             innerShadow = { InnerShadow(radius = 5.dp + 2.dp * pressProgress, alpha = tokens.innerShadowAlpha + 0.10f * pressProgress) },
             layerBlock = {
-                val scale = 1f - 0.024f * pressProgress
+                val scale = 1f - 0.034f * pressProgress
                 scaleX = scale
                 scaleY = scale
             },
@@ -397,7 +408,7 @@ fun CourseGlassCard(
             .clip(shape)
             .background(solidColor.copy(alpha = solidColor.alpha.coerceAtLeast(0.86f)))
             .graphicsLayer {
-                val scale = 1f - 0.020f * pressProgress
+                val scale = 1f - 0.030f * pressProgress
                 scaleX = scale
                 scaleY = scale
             }

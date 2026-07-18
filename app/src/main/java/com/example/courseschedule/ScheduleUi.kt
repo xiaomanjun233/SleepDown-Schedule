@@ -387,6 +387,7 @@ sealed interface HomeDialog {
 
 private var splashEntranceDone = false
 internal val LocalEditingCourseId = compositionLocalOf<Long?> { null }
+internal val LocalLaunchingCourseId = compositionLocalOf<Long?> { null }
 internal val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope?> { null }
 internal var hideFromRecentsEnabled = false
 
@@ -1095,6 +1096,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     CompositionLocalProvider(
         LocalSharedTransitionScope provides activeSharedTransitionScope,
         LocalEditingCourseId provides editingCourseId,
+        LocalLaunchingCourseId provides pendingCourseEditorCapture?.course?.id,
         LocalStartupPhase provides startupPhase,
         LocalGlassQuality provides glassQuality,
         LocalStartupEntranceSpec provides startupEntranceSpec,

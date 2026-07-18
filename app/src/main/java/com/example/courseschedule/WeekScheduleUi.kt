@@ -2335,6 +2335,7 @@ fun WeekCourseBlock(
         }
     }
     val editingId = LocalEditingCourseId.current
+    val launchingId = LocalLaunchingCourseId.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && course.id > 0L) LocalSharedTransitionScope.current else null
     val baseModifier = Modifier
         .fillMaxWidth()
@@ -2428,6 +2429,7 @@ fun WeekCourseBlock(
                     .fillMaxWidth()
                     .height(resizeGlassShellHeight),
                 shape = RoundedCornerShape(8.dp),
+                forcePressed = launchingId == course.id,
                 onClick = null
             ) {}
             BoxWithConstraints(Modifier.fillMaxWidth().height(displayedHeight).clipToBounds()) {

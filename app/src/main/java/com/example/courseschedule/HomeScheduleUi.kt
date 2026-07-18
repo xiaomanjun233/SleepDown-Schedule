@@ -1198,6 +1198,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         else readableOn(resolvedCardColor)
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
     val editId = LocalEditingCourseId.current
+    val launchingId = LocalLaunchingCourseId.current
     val startupPhase = LocalStartupPhase.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && enableSharedTransition && course.id > 0L) LocalSharedTransitionScope.current else null
     val startIndex = entranceIndex ?: 0
@@ -1238,6 +1239,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         course = course,
         modifier = sharedModifier.then(entranceModifier),
         shape = RoundedCornerShape(24.dp),
+        forcePressed = launchingId == course.id,
         onClick = if (onClick != null) ({ onClick(ownBounds) }) else null
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
