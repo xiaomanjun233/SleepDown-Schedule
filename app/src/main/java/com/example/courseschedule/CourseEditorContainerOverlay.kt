@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CornerBasedShape
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalContentColor
@@ -40,7 +42,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -57,6 +62,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
@@ -99,6 +105,51 @@ data class CourseEditorOverlayRequest(
     val backgroundSnapshot: Bitmap? = null,
     val sourceCardSnapshot: Bitmap? = null
 )
+
+/**
+ * An elliptically compensated outline that still advertises itself as CornerBasedShape, which is
+ * the contract required by the liquid lens shader. The clip uses independent X/Y radii so a tall
+ * week card and a wide day card both meet their source snapshot without a one-frame corner jump.
+ */
+private class CourseEditorMorphCornerShape(
+    private val radiusX: Float,
+    private val radiusY: Float,
+    topStart: CornerSize = CornerSize(minOf(radiusX, radiusY)),
+    topEnd: CornerSize = topStart,
+    bottomEnd: CornerSize = topStart,
+    bottomStart: CornerSize = topStart
+) : CornerBasedShape(topStart, topEnd, bottomEnd, bottomStart) {
+    override fun createOutline(
+        size: androidx.compose.ui.geometry.Size,
+        topStart: Float,
+        topEnd: Float,
+        bottomEnd: Float,
+        bottomStart: Float,
+        layoutDirection: LayoutDirection
+    ): Outline = Outline.Rounded(
+        RoundRect(
+            left = 0f,
+            top = 0f,
+            right = size.width,
+            bottom = size.height,
+            cornerRadius = CornerRadius(radiusX, radiusY)
+        )
+    )
+
+    override fun copy(
+        topStart: CornerSize,
+        topEnd: CornerSize,
+        bottomEnd: CornerSize,
+        bottomStart: CornerSize
+    ): CornerBasedShape = CourseEditorMorphCornerShape(
+        radiusX = radiusX,
+        radiusY = radiusY,
+        topStart = topStart,
+        topEnd = topEnd,
+        bottomEnd = bottomEnd,
+        bottomStart = bottomStart
+    )
+}
 
 @Composable
 fun CourseEditorContainerOverlayHost(
@@ -261,19 +312,20 @@ fun CourseEditorContainerOverlayHost(
     }
     val targetCornerPx = with(density) { 32.dp.toPx() }
     val visualCornerPx = sourceCornerPx + (targetCornerPx - sourceCornerPx) * p
-    // Backdrop lens only supports RoundedRectangularShape/CornerBasedShape. A custom
-    // anisotropic outline crashes inside LensKt, so compensate with the smaller axis while
-    // retaining a native RoundedCornerShape throughout the morph.
-    val cornerScale = minOf(scaleX, scaleY).coerceAtLeast(0.001f)
-    val morphShape = RoundedCornerShape(
-        with(density) { (visualCornerPx / cornerScale).toDp() }
-    )
+    val morphShape = remember(visualCornerPx, scaleX, scaleY) {
+        CourseEditorMorphCornerShape(
+            radiusX = visualCornerPx / scaleX.coerceAtLeast(0.001f),
+            radiusY = visualCornerPx / scaleY.coerceAtLeast(0.001f)
+        )
+    }
     val contentAlpha = ((p - 0.1f) / 0.5f).coerceIn(0f, 1f)
     val sourceCoverAlpha = (1f - p * 3f).coerceIn(0f, 1f)
     val editorFormBackdrop = backdrop
     val textColor = glassForegroundColor(config)
     val blurProgress = ((1f - backgroundScale.value) / 0.08f).coerceIn(0f, 1f)
     val blurPx = blurProgress * 6f * density.density
+    val edgeFillBlurPx = blurProgress * 14f * density.density
+    val edgeFillScale = 1f + blurProgress * 0.06f
 
     Box(
         modifier = modifier
@@ -281,6 +333,29 @@ fun CourseEditorContainerOverlayHost(
             .onSizeChanged { rootSize = it }
     ) {
         shownRequest.backgroundSnapshot?.let { background ->
+            // The primary snapshot shrinks to 0.92, so a live home would otherwise be exposed
+            // around it. Reuse the same frozen pixels in a slightly enlarged, strongly blurred
+            // underlay to extend the outermost content into those gutters without sampling any
+            // Compose/Backdrop layer again.
+            Image(
+                bitmap = background.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        this.scaleX = edgeFillScale
+                        this.scaleY = edgeFillScale
+                        alpha = 1f
+                        renderEffect = if (edgeFillBlurPx > 0.01f) {
+                            RenderEffect.createBlurEffect(
+                                edgeFillBlurPx,
+                                edgeFillBlurPx,
+                                Shader.TileMode.CLAMP
+                            ).asComposeRenderEffect()
+                        } else null
+                    }
+            )
             Image(
                 bitmap = background.asImageBitmap(),
                 contentDescription = null,
@@ -306,13 +381,7 @@ fun CourseEditorContainerOverlayHost(
                     interactionSource = remember { MutableInteractionSource() }
                 ) { dismiss(useToolbarDuration = false) }
         )
-        CourseEditorAnimatedContainer(
-            backdrop = backdrop,
-            config = config,
-            course = shownRequest.course,
-            shape = morphShape,
-            progress = p,
-            alpha = 1f,
+        Box(
             modifier = Modifier
                 .offset { IntOffset(targetRect.left.roundToInt(), targetRect.top.roundToInt()) }
                 .size(
@@ -326,33 +395,44 @@ fun CourseEditorContainerOverlayHost(
                     this.translationX = translationX
                     this.translationY = translationY
                 }
+                .clip(morphShape)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(morphShape)
+            // Render the liquid editor once at its final, stationary coordinates and transform
+            // that composed layer as a whole. Passing the moving morph shape directly into
+            // drawBackdrop makes its wallpaper sample window move every frame, producing the
+            // impression that the wallpaper is sliced and dragged inside the glass.
+            CourseEditorAnimatedContainer(
+                backdrop = backdrop,
+                config = config,
+                course = shownRequest.course,
+                shape = RoundedCornerShape(32.dp),
+                progress = 1f,
+                alpha = 1f,
+                modifier = Modifier.fillMaxSize()
             ) {
-                Box(Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }) {
-                    CompositionLocalProvider(LocalContentColor provides textColor) {
-                        NormalizedCourseEditorScreen(
-                            formData = formData,
-                            initialCourse = shownRequest.course,
-                            onCancel = { dismiss(useToolbarDuration = true) },
-                            onSave = saveEditedCourse,
-                            onDelete = deleteEditedCourse,
-                            backdrop = editorFormBackdrop
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }) {
+                        CompositionLocalProvider(LocalContentColor provides textColor) {
+                            NormalizedCourseEditorScreen(
+                                formData = formData,
+                                initialCourse = shownRequest.course,
+                                onCancel = { dismiss(useToolbarDuration = true) },
+                                onSave = saveEditedCourse,
+                                onDelete = deleteEditedCourse,
+                                backdrop = editorFormBackdrop
+                            )
+                        }
+                    }
+                    if (shownRequest.sourceCardSnapshot != null && sourceCoverAlpha > 0.001f) {
+                        Image(
+                            bitmap = shownRequest.sourceCardSnapshot.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = ContentScale.FillBounds,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { alpha = sourceCoverAlpha }
                         )
                     }
-                }
-                if (shownRequest.sourceCardSnapshot != null && sourceCoverAlpha > 0.001f) {
-                    Image(
-                        bitmap = shownRequest.sourceCardSnapshot.asImageBitmap(),
-                        contentDescription = null,
-                        contentScale = ContentScale.FillBounds,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { alpha = sourceCoverAlpha }
-                    )
                 }
             }
         }

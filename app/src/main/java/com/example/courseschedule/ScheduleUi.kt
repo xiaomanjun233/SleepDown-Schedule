@@ -533,7 +533,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         val cleanBackground = runCatching {
             screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
         }.getOrNull() ?: fullSnapshot
-        pendingCourseEditorCapture = null
         courseEditorRequest = pending.copy(
             backgroundSnapshot = cleanBackground,
             sourceCardSnapshot = sourceSnapshot
@@ -541,6 +540,21 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         withFrameNanos { }
         courseEditorCaptureCoverBitmap = null
         courseEditorCaptureCourseId = null
+        // Clear the LaunchedEffect key last. Clearing it before the frame wait cancels this
+        // coroutine and leaves the full-screen pointer-consuming cover mounted forever.
+        pendingCourseEditorCapture = null
+    }
+    LaunchedEffect(courseEditorOverlayPhase, courseEditorRequest, pendingCourseEditorCapture) {
+        if (
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Idle &&
+            courseEditorRequest == null &&
+            pendingCourseEditorCapture == null
+        ) {
+            // Defensive terminal cleanup: an interrupted capture/close must never leave an
+            // invisible full-screen input layer or a permanently hidden course card behind.
+            courseEditorCaptureCoverBitmap = null
+            courseEditorCaptureCourseId = null
+        }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     val backgroundBackdrop = rememberLayerBackdrop()
@@ -1094,7 +1108,15 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             .drawWithContent {
                 val recordCleanFrame =
                     detailMorphState is DetailMorphState.Capturing && detailCaptureRecordCleanFrame
-                if (detailMorphState is DetailMorphState.Idle || recordCleanFrame) {
+                val courseEditorOwnsFrame =
+                    pendingCourseEditorCapture != null ||
+                        courseEditorCaptureCoverBitmap != null ||
+                        courseEditorRequest != null ||
+                        courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
+                // Never record the course editor into the detail-page capture layer. It contains
+                // several backdrop consumers and recording that entire overlay on every animation
+                // frame causes an explosive offscreen-render workload after the first use.
+                if ((detailMorphState is DetailMorphState.Idle && !courseEditorOwnsFrame) || recordCleanFrame) {
                     detailCaptureMaskActive.set(recordCleanFrame)
                     try {
                         detailScreenGraphicsLayer.record {
@@ -1111,10 +1133,15 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithContent {
-                    captureRenderToken // Reading the token explicitly invalidates this draw node for capture.
-                    screenGraphicsLayer.record { this@drawWithContent.drawContent() }
-                    recordedScheduleId.set(visualState.config.id)
-                    recordedHomeGeneration.incrementAndGet()
+                    val mayRecordHome =
+                        courseEditorRequest == null &&
+                            courseEditorOverlayPhase == CourseEditorOverlayPhase.Idle
+                    if (mayRecordHome) {
+                        captureRenderToken // Reading the token explicitly invalidates this draw node for capture.
+                        screenGraphicsLayer.record { this@drawWithContent.drawContent() }
+                        recordedScheduleId.set(visualState.config.id)
+                        recordedHomeGeneration.incrementAndGet()
+                    }
                     drawContent()
                 }
         ) {
