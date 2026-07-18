@@ -356,7 +356,7 @@ internal val DockScrollPadding = 132.dp
 internal val HomeHeaderGlassBlur = 2.dp
 internal val HomeHeaderGlassLensHeight = 12.dp
 internal val HomeHeaderGlassLensAmount = 24.dp
-internal const val HomeHeaderGlassSurfaceAlpha = 0.56f
+internal fun homeChromeGlassSurfaceAlpha(lightGlass: Boolean): Float = if (lightGlass) 0.68f else 0.45f
 internal const val HomeHeaderGlassHighlightAlpha = 0.09f
 internal const val HomeHeaderGlassShadowAlpha = 0.05f
 internal const val HomeHeaderGlassOuterShadowAlpha = 0.018f
@@ -371,7 +371,8 @@ private enum class AddMenuPhase {
     Closing
 }
 
-internal fun homeHeaderGlassTokens(): GlassTokens = GlassTokens.pill(intensity = 0.95f).copy(surfaceAlpha = 0.56f)
+internal fun homeHeaderGlassTokens(lightGlass: Boolean): GlassTokens =
+    GlassTokens.pill(intensity = 0.95f).copy(surfaceAlpha = homeChromeGlassSurfaceAlpha(lightGlass))
 
 sealed interface HomeDialog {
     data object ImportSchedule : HomeDialog
@@ -2461,7 +2462,7 @@ fun HomeIconButton(
     val buttonSurfaceColor = if (accentColor.isSpecified) {
         accentColor.copy(alpha = if (lightGlass) 0.28f else 0.32f)
     } else {
-        baseSurfaceColor.copy(alpha = HomeHeaderGlassSurfaceAlpha)
+        baseSurfaceColor.copy(alpha = homeChromeGlassSurfaceAlpha(lightGlass))
     }
     if (backdrop != null) {
         LiquidButton(
@@ -3082,7 +3083,7 @@ fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEn
                     containerHeight = 54.dp,
                     indicatorHeight = 46.dp,
                     blurRadius = 1.3.dp,
-                    containerAlpha = 0.56f,
+                    containerAlpha = homeChromeGlassSurfaceAlpha(lightGlass),
                     lensHeight = 10.dp,
                     lensAmount = 40.dp,
                     indicatorWidthOverflow = 8.dp,

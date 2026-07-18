@@ -206,6 +206,10 @@ fun DetailScheduleMorphOverlay(
         val screenWidth = with(density) { maxWidth.toPx() }
         val screenHeight = with(density) { maxHeight.toPx() }
         val source = request.sourceBounds
+        val initialContainerScale = (source.width / screenWidth).coerceAtLeast(0.001f)
+        val sourceSnapshotCorner = (
+            source.height / 2f / initialContainerScale / density.density
+            ).dp
         val morphValues = remember(request, screenWidth, screenHeight) {
             derivedStateOf {
                 val p = morphProgress.value
@@ -239,7 +243,7 @@ fun DetailScheduleMorphOverlay(
             DetailMorphClipShape(
                 screenWidth = screenWidth,
                 screenCornerRadiusPx = with(density) { 32.dp.toPx() },
-                sourceCornerRadiusPx = 20f * density.density,
+                sourceCornerRadiusPx = source.height / 2f,
                 morphValues = morphValues
             )
         }
@@ -306,7 +310,7 @@ fun DetailScheduleMorphOverlay(
                         .align(Alignment.TopStart)
                         .fillMaxWidth()
                         .graphicsLayer {
-                            shape = RoundedCornerShape(22.dp)
+                            shape = RoundedCornerShape(sourceSnapshotCorner)
                             clip = true
                         }
                         .graphicsLayer { alpha = values.sourceSnapshotAlpha },

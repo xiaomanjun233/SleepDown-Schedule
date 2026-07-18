@@ -359,7 +359,7 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
                     indicatorHeight = 36.dp,
                     horizontalPadding = 4.dp,
                     blurRadius = HomeHeaderGlassBlur,
-                    containerAlpha = HomeHeaderGlassSurfaceAlpha,
+                    containerAlpha = homeChromeGlassSurfaceAlpha(lightGlass),
                     lensHeight = HomeHeaderGlassLensHeight,
                     lensAmount = HomeHeaderGlassLensAmount,
                     indicatorWidthOverflow = 4.dp,

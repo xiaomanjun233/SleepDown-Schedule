@@ -152,17 +152,17 @@ private fun quickSheetBackdropModifier(
         onDrawSurface = {
             drawRect(
                 when {
-                    inner && dark -> Color(0xFF20242C).copy(alpha = 0.68f)
-                    inner -> Color(0xFFE8EEF8).copy(alpha = 0.66f)
-                    dark -> Color(0xFF111113).copy(alpha = 0.66f)
-                    else -> Color.White.copy(alpha = 0.64f)
+                    inner && dark -> Color(0xFF252B35).copy(alpha = 0.88f)
+                    inner -> Color(0xFFE7EDF7).copy(alpha = 0.86f)
+                    dark -> Color(0xFF111318).copy(alpha = 0.74f)
+                    else -> Color(0xFFF8FAFD).copy(alpha = 0.72f)
                 }
             )
             drawRect(
                 brush = Brush.radialGradient(
                     colors = if (inner) {
-                        if (dark) listOf(Color(0xFF8CB8FF).copy(alpha = 0.16f), Color.Transparent)
-                        else listOf(Color.White.copy(alpha = 0.38f), Color.Transparent)
+                        if (dark) listOf(Color(0xFF8CB8FF).copy(alpha = 0.12f), Color.Transparent)
+                        else listOf(Color.White.copy(alpha = 0.28f), Color.Transparent)
                     } else {
                         if (dark) listOf(Color.White.copy(alpha = 0.14f), Color.Transparent)
                         else listOf(Color.White.copy(alpha = 0.34f), Color.Transparent)
@@ -185,6 +185,12 @@ private fun QuickSheetLiquidAction(
     onClick: () -> Unit
 ) {
     if (backdrop != null) {
+        val dark = appUsesDarkTheme(config)
+        val neutralSurface = if (dark) {
+            Color(0xFF272C36).copy(alpha = 0.84f)
+        } else {
+            Color(0xFFF3F6FB).copy(alpha = 0.82f)
+        }
         LiquidButton(
             onClick = { if (enabled) onClick() },
             backdrop = backdrop,
@@ -194,12 +200,12 @@ private fun QuickSheetLiquidAction(
             lensHeight = 24.dp,
             lensAmount = 34.dp,
             tint = if (primary) Color(0xFF0A84FF) else Color.Unspecified,
-            surfaceColor = if (primary) Color(0xFF0A84FF).copy(alpha = 0.42f) else Color.Unspecified,
+            surfaceColor = if (primary) Color(0xFF0A84FF).copy(alpha = 0.68f) else neutralSurface,
             contentPadding = PaddingValues(horizontal = 14.dp)
         ) {
             Text(
                 label,
-                color = if (primary) Color.White else glassForegroundColor(config),
+                color = if (primary) Color.White else MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 14.sp
             )
@@ -435,9 +441,14 @@ fun QuickScheduleSettingsSheets(
                         blurRadius = 12.dp,
                         lensHeight = 30.dp,
                         lensAmount = 42.dp,
+                        surfaceColor = if (appUsesDarkTheme(config)) {
+                            Color(0xFF272C36).copy(alpha = 0.86f)
+                        } else {
+                            Color(0xFFF3F6FB).copy(alpha = 0.84f)
+                        },
                         contentPadding = PaddingValues(horizontal = 24.dp)
                     ) {
-                        Text("详细设置", color = glassForegroundColor(config), fontWeight = FontWeight.SemiBold)
+                        Text("详细设置", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
                     } else Spacer(Modifier.fillMaxWidth().height(52.dp))
                 }
             }

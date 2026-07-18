@@ -1284,7 +1284,7 @@ fun WeekSwitchButton(label: String, config: ScheduleConfigEntity, backdrop: Back
                 .size(34.dp)
                 .graphicsLayer(alpha = if (enabled) 1f else 0.35f),
             isInteractive = enabled,
-            surfaceColor = surfaceColor.copy(alpha = HomeHeaderGlassSurfaceAlpha),
+            surfaceColor = surfaceColor.copy(alpha = homeChromeGlassSurfaceAlpha(lightGlass)),
             height = 34.dp,
             contentPadding = PaddingValues(0.dp),
             blurRadius = HomeHeaderGlassBlur,
@@ -1510,7 +1510,7 @@ fun WeekHeaderPill(backdrop: Backdrop?, config: ScheduleConfigEntity, selected: 
         config = config,
         modifier = Modifier.fillMaxSize(),
         shape = RoundedCornerShape(50),
-        tokens = homeHeaderGlassTokens(),
+        tokens = homeHeaderGlassTokens(glassUsesLightStyle(config)),
         selected = selected,
         content = content
     )
