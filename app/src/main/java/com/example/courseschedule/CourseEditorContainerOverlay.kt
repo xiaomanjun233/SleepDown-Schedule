@@ -1,6 +1,10 @@
 package com.example.courseschedule
 
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import androidx.activity.compose.BackHandler
@@ -41,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
@@ -59,6 +64,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -78,6 +84,60 @@ private val CourseEditorPrimaryEasing = CubicBezierEasing(0.20f, 0.0f, 0.10f, 1.
 private val CourseEditorSettleEasing = CubicBezierEasing(0.24f, 0.0f, 0.30f, 1.0f)
 private const val CourseEditorOpenDurationMillis = 340
 private const val CourseEditorCloseDurationMillis = 350
+
+@Composable
+private fun MirroredEdgeSnapshot(
+    bitmap: Bitmap,
+    insetFraction: Float,
+    blurPx: Float,
+    alpha: Float,
+    modifier: Modifier = Modifier
+) {
+    val shader = remember(bitmap) {
+        BitmapShader(bitmap, Shader.TileMode.MIRROR, Shader.TileMode.MIRROR)
+    }
+    val paint = remember(shader) {
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            this.shader = shader
+        }
+    }
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                this.alpha = alpha
+                renderEffect = if (blurPx > 0.01f) {
+                    RenderEffect.createBlurEffect(
+                        blurPx,
+                        blurPx,
+                        Shader.TileMode.CLAMP
+                    ).asComposeRenderEffect()
+                } else {
+                    null
+                }
+            }
+            .drawWithCache {
+                val insetX = size.width * insetFraction.coerceIn(0f, 0.49f)
+                val insetY = size.height * insetFraction.coerceIn(0f, 0.49f)
+                val shaderMatrix = Matrix().apply {
+                    setRectToRect(
+                        RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat()),
+                        RectF(insetX, insetY, size.width - insetX, size.height - insetY),
+                        Matrix.ScaleToFit.FILL
+                    )
+                }
+                shader.setLocalMatrix(shaderMatrix)
+                onDrawBehind {
+                    drawContext.canvas.nativeCanvas.drawRect(
+                        0f,
+                        0f,
+                        size.width,
+                        size.height,
+                        paint
+                    )
+                }
+            }
+    )
+}
 
 enum class CourseEditorOverlayPhase {
     Idle,
@@ -324,8 +384,7 @@ fun CourseEditorContainerOverlayHost(
     val textColor = glassForegroundColor(config)
     val blurProgress = ((1f - backgroundScale.value) / 0.08f).coerceIn(0f, 1f)
     val blurPx = blurProgress * 6f * density.density
-    val edgeFillBlurPx = blurProgress * 14f * density.density
-    val edgeFillScale = 1f + blurProgress * 0.06f
+    val edgeFillBlurPx = 14f * density.density
     val backgroundCorner = (24f * blurProgress).dp
     val glassUniformScale = maxOf(scaleX, scaleY)
     val glassCounterScaleX = glassUniformScale / scaleX.coerceAtLeast(0.001f)
@@ -337,28 +396,16 @@ fun CourseEditorContainerOverlayHost(
             .onSizeChanged { rootSize = it }
     ) {
         shownRequest.backgroundSnapshot?.let { background ->
-            // The primary snapshot shrinks to 0.92, so a live home would otherwise be exposed
-            // around it. Reuse the same frozen pixels in a slightly enlarged, strongly blurred
-            // underlay to extend the outermost content into those gutters without sampling any
-            // Compose/Backdrop layer again.
-            Image(
-                bitmap = background.asImageBitmap(),
-                contentDescription = null,
-                contentScale = ContentScale.FillBounds,
+            // Map the snapshot into exactly the same inset rect as the shrinking primary image.
+            // MIRROR tiling reflects its innermost edge ring out into the uncovered gutters, so
+            // the rounded boundary stays continuous instead of exposing a scaled copy's seams.
+            MirroredEdgeSnapshot(
+                bitmap = background,
+                insetFraction = 0.04f,
+                blurPx = edgeFillBlurPx,
+                alpha = blurProgress,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        this.scaleX = edgeFillScale
-                        this.scaleY = edgeFillScale
-                        alpha = 1f
-                        renderEffect = if (edgeFillBlurPx > 0.01f) {
-                            RenderEffect.createBlurEffect(
-                                edgeFillBlurPx,
-                                edgeFillBlurPx,
-                                Shader.TileMode.CLAMP
-                            ).asComposeRenderEffect()
-                        } else null
-                    }
             )
             Image(
                 bitmap = background.asImageBitmap(),

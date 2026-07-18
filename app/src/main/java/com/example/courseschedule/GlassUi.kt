@@ -367,14 +367,14 @@ fun CourseGlassCard(
     val pressScale = remember { Animatable(1f) }
     LaunchedEffect(pressed, forcePressed) {
         when {
-            pressed -> pressScale.animateTo(0.975f, tween(durationMillis = 55))
+            pressed -> pressScale.animateTo(0.96f, tween(durationMillis = 55))
             forcePressed -> {
-                pressScale.animateTo(0.975f, tween(durationMillis = 45))
+                pressScale.animateTo(0.96f, tween(durationMillis = 45))
                 pressScale.animateTo(
                     1f,
                     spring(
                         dampingRatio = 0.58f,
-                        stiffness = Spring.StiffnessMediumLow
+                        stiffness = Spring.StiffnessMedium
                     )
                 )
             }
@@ -382,7 +382,7 @@ fun CourseGlassCard(
                 1f,
                 spring(
                     dampingRatio = 0.58f,
-                    stiffness = Spring.StiffnessMediumLow
+                    stiffness = Spring.StiffnessMedium
                 )
             )
         }
@@ -392,43 +392,11 @@ fun CourseGlassCard(
     val solidColor = baseColor.copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
-    val glassModifier = if (useGlass) {
-        modifier
-            .graphicsLayer {
-                scaleX = pressScale.value
-                scaleY = pressScale.value
-            }
-            .drawBackdrop(
-            backdrop = glassBackdrop,
-            shape = { shape },
-            effects = {
-                if (tokens.useVibrancy) vibrancy()
-                blur((tokens.blur * quality).toPx())
-                lens(
-                    (tokens.lensHeight * quality).toPx(),
-                    (tokens.lensAmount * quality).toPx(),
-                    depthEffect = tokens.depthEffect,
-                    chromaticAberration = tokens.chromaticAberration
-                )
-            },
-            highlight = { Highlight.Default.copy(alpha = tokens.highlightAlpha) },
-            shadow = { Shadow(alpha = tokens.shadowAlpha) },
-            innerShadow = { InnerShadow(radius = 5.dp, alpha = tokens.innerShadowAlpha) },
-            onDrawSurface = {
-                drawRect(glassTint)
-                drawRect(Color.White.copy(alpha = if (lightGlass) 0.012f else 0.008f), blendMode = BlendMode.Screen)
-                drawRect(Color.Black.copy(alpha = if (lightGlass) 0.004f else 0.014f))
-            }
-        )
-    } else {
-        modifier
-            .graphicsLayer {
-                scaleX = pressScale.value
-                scaleY = pressScale.value
-            }
-            .clip(shape)
-            .background(solidColor.copy(alpha = solidColor.alpha.coerceAtLeast(0.86f)))
-    }
+    val cardModifier = modifier
+        .graphicsLayer {
+            scaleX = pressScale.value
+            scaleY = pressScale.value
+        }
         .then(
             if (onClick == null) Modifier else Modifier.clickable(
                 interactionSource = requireNotNull(interactionSource),
@@ -437,7 +405,42 @@ fun CourseGlassCard(
                 onClick = onClick
             )
         )
-    Box(modifier = glassModifier) {
+    Box(modifier = cardModifier) {
+        val surfaceModifier = if (useGlass) {
+            Modifier
+                .matchParentSize()
+                .drawBackdrop(
+                    backdrop = glassBackdrop,
+                    shape = { shape },
+                    effects = {
+                        if (tokens.useVibrancy) vibrancy()
+                        blur((tokens.blur * quality).toPx())
+                        lens(
+                            (tokens.lensHeight * quality).toPx(),
+                            (tokens.lensAmount * quality).toPx(),
+                            depthEffect = tokens.depthEffect,
+                            chromaticAberration = tokens.chromaticAberration
+                        )
+                    },
+                    highlight = { Highlight.Default.copy(alpha = tokens.highlightAlpha) },
+                    shadow = { Shadow(alpha = tokens.shadowAlpha) },
+                    innerShadow = { InnerShadow(radius = 5.dp, alpha = tokens.innerShadowAlpha) },
+                    onDrawSurface = {
+                        drawRect(glassTint)
+                        drawRect(
+                            Color.White.copy(alpha = if (lightGlass) 0.012f else 0.008f),
+                            blendMode = BlendMode.Screen
+                        )
+                        drawRect(Color.Black.copy(alpha = if (lightGlass) 0.004f else 0.014f))
+                    }
+                )
+        } else {
+            Modifier
+                .matchParentSize()
+                .clip(shape)
+                .background(solidColor.copy(alpha = solidColor.alpha.coerceAtLeast(0.86f)))
+        }
+        Box(surfaceModifier)
         content()
     }
 }

@@ -499,6 +499,10 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     LaunchedEffect(pendingCourseEditorCapture) {
         val pending = pendingCourseEditorCapture ?: return@LaunchedEffect
         val sourceBounds = pending.sourceBoundsInRoot
+        // Let the lightweight card press/rebound become visible before the synchronous bitmap
+        // readback begins. The home recorder is already frozen while this request is pending, so
+        // the source snapshot remains the last stable, unscaled card frame.
+        delay(95)
         val fullSnapshot = runCatching {
             screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
         }.getOrNull()
