@@ -50,11 +50,14 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -397,7 +400,7 @@ fun CourseEditorContainerOverlayHost(
     val blurPx = blurProgress * 6f * density.density
     // Keep the reflected edge close to the primary 6dp blur. A large radius difference creates
     // a visible contour exactly where the hard rounded clip hands off to the edge extension.
-    val edgeFillBlurPx = 7f * density.density
+    val edgeFillBlurPx = 6f * density.density
     val backgroundCorner = (24f * blurProgress).dp
     val glassUniformScale = maxOf(scaleX, scaleY)
     val glassCounterScaleX = glassUniformScale / scaleX.coerceAtLeast(0.001f)
@@ -434,7 +437,36 @@ fun CourseEditorContainerOverlayHost(
                                 .asComposeRenderEffect()
                         } else null
                     }
-                    .clip(RoundedCornerShape(backgroundCorner))
+                    .drawWithContent {
+                        drawContent()
+                        if (blurProgress > 0.001f) {
+                            val radiusPx = backgroundCorner.toPx()
+                            val outside = Path().apply {
+                                fillType = PathFillType.EvenOdd
+                                addRect(Rect(0f, 0f, size.width, size.height))
+                                addRoundRect(
+                                    RoundRect(
+                                        rect = Rect(0f, 0f, size.width, size.height),
+                                        cornerRadius = CornerRadius(radiusPx, radiusPx)
+                                    )
+                                )
+                            }
+                            drawPath(outside, Color.Black, blendMode = BlendMode.Clear)
+
+                            // Feather the inside of the rounded boundary instead of handing the
+                            // primary image to the mirrored gutter with a one-pixel hard clip.
+                            val featherPx = 10.dp.toPx() * blurProgress
+                            repeat(6) { index ->
+                                val remaining = 1f - index / 6f
+                                drawRoundRect(
+                                    color = Color.Black.copy(alpha = 0.18f),
+                                    cornerRadius = CornerRadius(radiusPx, radiusPx),
+                                    style = Stroke(width = featherPx * 2f * remaining),
+                                    blendMode = BlendMode.DstOut
+                                )
+                            }
+                        }
+                    }
             )
         }
         Box(

@@ -372,6 +372,10 @@ fun CourseGlassCard(
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
     val cardModifier = modifier
+        .graphicsLayer {
+            scaleX = pressScale
+            scaleY = pressScale
+        }
         .then(
             if (onClick == null) Modifier else Modifier.clickable(
                 interactionSource = requireNotNull(interactionSource),
@@ -381,16 +385,10 @@ fun CourseGlassCard(
             )
         )
     Box(modifier = cardModifier) {
-        Box(
-            modifier = Modifier.graphicsLayer {
-                scaleX = pressScale
-                scaleY = pressScale
-            }
-        ) {
-            val surfaceModifier = if (useGlass) {
-                Modifier
-                    .matchParentSize()
-                    .drawBackdrop(
+        val surfaceModifier = if (useGlass) {
+            Modifier
+                .matchParentSize()
+                .drawBackdrop(
                         backdrop = glassBackdrop,
                         shape = { shape },
                         effects = {
@@ -414,16 +412,15 @@ fun CourseGlassCard(
                             )
                             drawRect(Color.Black.copy(alpha = if (lightGlass) 0.004f else 0.014f))
                         }
-                    )
-            } else {
-                Modifier
-                    .matchParentSize()
-                    .clip(shape)
-                    .background(solidColor.copy(alpha = solidColor.alpha.coerceAtLeast(0.86f)))
-            }
-            Box(surfaceModifier)
-            content()
+                )
+        } else {
+            Modifier
+                .matchParentSize()
+                .clip(shape)
+                .background(solidColor.copy(alpha = solidColor.alpha.coerceAtLeast(0.86f)))
         }
+        Box(surfaceModifier)
+        content()
     }
 }
 
