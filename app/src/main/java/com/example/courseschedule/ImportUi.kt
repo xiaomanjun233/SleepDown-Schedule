@@ -522,6 +522,8 @@ private fun AiManualImportDialogContent(
     aiParsing: Boolean,
     onPrimaryAction: () -> Unit
 ) {
+    // Let the Liquid selector finish its own damped travel before changing layout size.
+    var renderedMode by remember { mutableIntStateOf(selectedMode) }
     val textColor = glassForegroundColor(state.config)
     val configuration = LocalConfiguration.current
     val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
@@ -533,7 +535,7 @@ private fun AiManualImportDialogContent(
         ).coerceAtLeast(280.dp)
     val expandedHeight = (safeHeight * 0.82f).coerceAtMost(600.dp)
     AnimatedContent(
-        targetState = selectedMode,
+        targetState = renderedMode,
         modifier = Modifier.fillMaxWidth(),
         transitionSpec = {
             (fadeIn(tween(durationMillis = 180, delayMillis = 60)) togetherWith
@@ -607,12 +609,15 @@ private fun AiManualImportDialogContent(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             LiquidOptionTabs(
-                selectedIndex = mode,
+                selectedIndex = selectedMode,
                 labels = listOf("粘贴口令", "导入 ICS", "PDF/图片"),
                 backdrop = backdrop,
                 config = state.config,
                 width = maxWidth,
-                onSelected = onModeSelected
+                onSelected = onModeSelected,
+                onSelectionSettled = { settledMode ->
+                    if (settledMode == selectedMode) renderedMode = settledMode
+                }
             )
         }
         if (mode == 0) {

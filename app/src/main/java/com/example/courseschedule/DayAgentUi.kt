@@ -2,6 +2,7 @@ package com.example.courseschedule
 
 import android.Manifest
 import android.graphics.Bitmap
+import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -589,9 +590,14 @@ private fun DayAgentConversationDialog(
     ) {
          val dialogView = LocalView.current
          SideEffect {
-             // The geometry below is the only entrance/exit animation. Suppress the platform
-             // Dialog window scale animation so it cannot multiply the hand-authored Morph.
-             (dialogView.parent as? DialogWindowProvider)?.window?.setWindowAnimations(0)
+             (dialogView.parent as? DialogWindowProvider)?.window?.apply {
+                 // The hand-authored frozen-background Morph owns all depth treatment. Android's
+                 // Dialog dim flag was the actual full-screen darkening seen behind the Agent.
+                 clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                 setDimAmount(0f)
+                 // The geometry below is the only entrance/exit animation.
+                 setWindowAnimations(0)
+             }
          }
          Box(
              Modifier
@@ -649,7 +655,10 @@ private fun DayAgentConversationDialog(
                                 translationY = -outerTranslationY / outerScaleY.coerceAtLeast(0.001f)
                             }
                         },
-                    shape = morphShape,
+                    // The outer container already owns the compensated Morph clip. Giving the
+                    // lens that same inverse-scaled shape creates a second SDF outline and exposes
+                    // dark corner wedges. Keep the lens on its stable final geometry instead.
+                    shape = RoundedCornerShape(32.dp),
                     tokens = GlassTokens.dialog(intensity = 0.90f).copy(
                         blur = 5.dp,
                         surfaceAlpha = 0.30f

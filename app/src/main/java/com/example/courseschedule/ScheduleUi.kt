@@ -402,6 +402,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var quickScheduleDraft by remember { mutableStateOf<QuickScheduleDraft?>(null) }
     var dayAgentBackgroundProgress by remember { mutableFloatStateOf(0f) }
     var dayAgentEdgeSnapshot by remember { mutableStateOf<Bitmap?>(null) }
+    var dayAgentSnapshotKey by remember { mutableStateOf<String?>(null) }
     var detailMorphState by remember { mutableStateOf<DetailMorphState>(DetailMorphState.Idle) }
     var detailMorphRequest by remember { mutableStateOf<DetailMorphRequest?>(null) }
     var detailCaptureCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -494,17 +495,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var weekCardHeight by remember(visualState.periods.size, visualState.config.weekCardHeightDp) { mutableFloatStateOf(visualState.config.weekCardHeightDp ?: adaptiveWeekCardHeight) }
     val context = LocalContext.current
     val appScope = rememberCoroutineScope()
-    LaunchedEffect(state.loaded, visualState.config.id, pickerState.overlayVisible) {
-        if (!state.loaded || pickerState.overlayVisible) return@LaunchedEffect
-        delay(420)
-        withFrameNanos { }
-        withFrameNanos { }
-        if (dayAgentBackgroundProgress <= 0.001f && !pickerState.overlayVisible) {
-            dayAgentEdgeSnapshot = runCatching {
-                screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
-            }.getOrNull()
-        }
-    }
     LaunchedEffect(pendingCourseEditorCapture) {
         val pending = pendingCourseEditorCapture ?: return@LaunchedEffect
         val sourceBounds = pending.sourceBoundsInRoot
@@ -693,6 +683,30 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var homeDisplayWeek by remember(visualState.config.id) { mutableIntStateOf(1) }
     var homeWeekInitialized by remember(visualState.config.id) { mutableStateOf(false) }
     var homeDisplayDate by remember(visualState.config.id) { mutableStateOf(todayDate) }
+    val currentDayAgentSnapshotKey = "${visualState.config.id}:${homeMode.name}:$homeDisplayDate"
+    LaunchedEffect(
+        state.loaded,
+        visualState.config.id,
+        pickerState.overlayVisible,
+        homeMode,
+        homeDisplayDate
+    ) {
+        if (!state.loaded || pickerState.overlayVisible || homeMode != HomeMode.Day) {
+            dayAgentSnapshotKey = null
+            return@LaunchedEffect
+        }
+        // Preload the exact day-view frame. This moves the expensive GPU readback off the tap path,
+        // while the two frame barrier matches the course-card morph's precompose contract.
+        repeat(2) { withFrameNanos { } }
+        if (dayAgentBackgroundProgress <= 0.001f && !pickerState.overlayVisible) {
+            runCatching { screenGraphicsLayer.toImageBitmap().asAndroidBitmap() }
+                .getOrNull()
+                ?.let {
+                    dayAgentEdgeSnapshot = it
+                    dayAgentSnapshotKey = currentDayAgentSnapshotKey
+                }
+        }
+    }
     LaunchedEffect(visualState.loaded, visualState.config.id, visualState.config.totalWeeks, homeCurrentWeek, visualState.config.autoCurrentWeek, beforeScheduleTerm) {
         if (!visualState.loaded) return@LaunchedEffect
         val currentTargetWeek = if (beforeScheduleTerm) 1 else homeCurrentWeek
@@ -1296,13 +1310,18 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     onContentUnderTopBarChange = { homeContentUnderTopBar = it },
                                     onAgentBackgroundProgress = { dayAgentBackgroundProgress = it },
                                     onAgentPrepareOpen = {
-                                        // Capture on the click path, after the day card is actually
-                                        // visible. The old prewarm snapshot may still be a week-view
-                                        // frame left over from before the mode transition.
-                                        withFrameNanos { }
-                                        runCatching {
-                                            screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
-                                        }.getOrNull()?.let { dayAgentEdgeSnapshot = it }
+                                        // Normal path is already preloaded with this exact day frame.
+                                        // Only a tap during the first two layout frames needs the same
+                                        // synchronous capture fallback used by the course-card morph.
+                                        if (dayAgentSnapshotKey != currentDayAgentSnapshotKey) {
+                                            withFrameNanos { }
+                                            runCatching {
+                                                screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                                            }.getOrNull()?.let {
+                                                dayAgentEdgeSnapshot = it
+                                                dayAgentSnapshotKey = currentDayAgentSnapshotKey
+                                            }
+                                        }
                                     },
                                     onCourseClick = { course, week, sourceBounds ->
                                         openCourseEditor(course, week, sourceBounds)

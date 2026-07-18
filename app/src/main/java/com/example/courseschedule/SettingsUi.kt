@@ -1268,7 +1268,8 @@ fun LiquidOptionTabs(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     width: Dp,
-    onSelected: (Int) -> Unit
+    onSelected: (Int) -> Unit,
+    onSelectionSettled: (Int) -> Unit = {}
 ) {
     if (backdrop != null) {
         CompositionLocalProvider(LocalContentColor provides appPanelForegroundColor(config)) {
@@ -1278,6 +1279,7 @@ fun LiquidOptionTabs(
                 backdrop = backdrop,
                 tabsCount = labels.size,
                 modifier = Modifier.width(width),
+                onSelectionSettled = { index -> onSelectionSettled(index.coerceIn(labels.indices)) },
                 containerHeight = 42.dp,
                 indicatorHeight = 34.dp,
                 horizontalPadding = 4.dp,
@@ -1302,7 +1304,10 @@ fun LiquidOptionTabs(
     } else {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             labels.forEachIndexed { index, label ->
-                SettingsFallbackChip(label, selectedIndex == index) { onSelected(index) }
+                SettingsFallbackChip(label, selectedIndex == index) {
+                    onSelected(index)
+                    onSelectionSettled(index)
+                }
             }
         }
     }

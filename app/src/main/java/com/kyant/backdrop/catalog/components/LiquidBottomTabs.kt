@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -68,6 +69,7 @@ fun LiquidBottomTabs(
     backdrop: Backdrop,
     tabsCount: Int,
     modifier: Modifier = Modifier,
+    onSelectionSettled: (index: Int) -> Unit = {},
     containerHeight: Dp = 64f.dp,
     indicatorHeight: Dp = 56f.dp,
     horizontalPadding: Dp = 4f.dp,
@@ -89,6 +91,7 @@ fun LiquidBottomTabs(
     useOfficialGlassParameters: Boolean = false,
     content: @Composable RowScope.() -> Unit
 ) {
+    val latestOnSelectionSettled by rememberUpdatedState(onSelectionSettled)
     val isLightTheme = isLightThemeOverride ?: !isSystemInDarkTheme()
     val accentColor =
         if (isLightTheme) Color(0xFF0088FF)
@@ -156,16 +159,23 @@ fun LiquidBottomTabs(
         LaunchedEffect(selectedTabIndex()) {
             val index = selectedTabIndex().fastCoerceIn(0, tabsCount - 1)
             if (currentIndex != index || abs(dampedDragAnimation.targetValue - index.toFloat()) > 0.01f) {
-                currentIndex = index
-                dampedDragAnimation.animateToValue(index.toFloat())
+                // currentIndex is the drag channel. Writing it here would wake snapshotFlow and
+                // start a second animation that cancels this completion callback.
+                dampedDragAnimation.animateToValueAndThen(index.toFloat()) {
+                    latestOnSelectionSettled(index)
+                }
+            } else {
+                latestOnSelectionSettled(index)
             }
         }
         LaunchedEffect(dampedDragAnimation) {
             snapshotFlow { currentIndex }
                 .drop(1)
                 .collectLatest { index ->
-                    dampedDragAnimation.animateToValue(index.toFloat())
-                    onTabSelected(index)
+                    dampedDragAnimation.animateToValueAndThen(index.toFloat()) {
+                        onTabSelected(index)
+                        latestOnSelectionSettled(index)
+                    }
                 }
         }
 
