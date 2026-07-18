@@ -192,6 +192,7 @@ fun TodayAgentCard(
     }
     var now by remember(date) { mutableStateOf(LocalDateTime.now(ShanghaiZone)) }
     var dialogOpen by remember(date, scheduleId) { mutableStateOf(false) }
+    var sourceCardHidden by remember(date, scheduleId) { mutableStateOf(false) }
     var pendingQuestion by remember(date, scheduleId) { mutableStateOf<String?>(null) }
     var generationError by remember(date, scheduleId) { mutableStateOf<String?>(null) }
     var cardBounds by remember(date, scheduleId) { mutableStateOf<Rect?>(null) }
@@ -262,6 +263,7 @@ fun TodayAgentCard(
         if (!hasApiKey || dialogOpen) return
         sourceCardSnapshot = cachedCardSnapshot
         pendingQuestion = question
+        sourceCardHidden = true
         dialogOpen = true
     }
 
@@ -276,7 +278,7 @@ fun TodayAgentCard(
                 drawContent()
             }
             .graphicsLayer {
-                alpha = if (dialogOpen) 0f else 1f
+                alpha = if (sourceCardHidden) 0f else 1f
             }
              .liquidButtonInteraction(
                   onClick = {
@@ -374,8 +376,15 @@ fun TodayAgentCard(
             sourceCardSnapshot = sourceCardSnapshot,
             onBackgroundProgress = onBackgroundProgress,
             onAgentAction = onAgentAction,
+            onPrepareDismiss = {
+                // Restore the real source card under the opaque p=0 snapshot first. The overlay
+                // remains mounted for two more frames, so its removal cannot expose an unmeasured
+                // or not-yet-drawn glass card.
+                sourceCardHidden = false
+            },
             onDismiss = {
                 dialogOpen = false
+                sourceCardHidden = false
                 pendingQuestion = null
                 sourceCardSnapshot = null
             }
@@ -466,6 +475,7 @@ private fun DayAgentConversationDialog(
     sourceCardSnapshot: Bitmap?,
     onBackgroundProgress: (Float) -> Unit,
     onAgentAction: (AgentValidatedAction) -> Unit,
+    onPrepareDismiss: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -513,6 +523,9 @@ private fun DayAgentConversationDialog(
                 }
             }
             onBackgroundProgress(0f)
+            onPrepareDismiss()
+            withFrameNanos { }
+            withFrameNanos { }
             onDismiss()
         }
     }
@@ -811,8 +824,8 @@ private fun DayAgentConversationDialog(
                      ) { onBackgroundProgress(value) }
                  }
              }
-             focusRequester.requestFocus()
-             keyboard?.show()
+             // Do not trigger an IME/insets relayout on the Morph's final frame. The input bar
+             // already requests focus and opens the keyboard when the user taps it.
              initialQuestion?.takeIf { it.isNotBlank() }?.let(::send)
          }
         LaunchedEffect(messages.size, streamingText.length, sending, error) {

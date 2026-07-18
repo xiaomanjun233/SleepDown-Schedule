@@ -494,15 +494,15 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var weekCardHeight by remember(visualState.periods.size, visualState.config.weekCardHeightDp) { mutableFloatStateOf(visualState.config.weekCardHeightDp ?: adaptiveWeekCardHeight) }
     val context = LocalContext.current
     val appScope = rememberCoroutineScope()
-    LaunchedEffect(state.loaded, visualState.config.id) {
-        if (!state.loaded) return@LaunchedEffect
+    LaunchedEffect(state.loaded, visualState.config.id, pickerState.overlayVisible) {
+        if (!state.loaded || pickerState.overlayVisible) return@LaunchedEffect
         delay(420)
         withFrameNanos { }
         withFrameNanos { }
-        if (dayAgentBackgroundProgress <= 0.001f) {
+        if (dayAgentBackgroundProgress <= 0.001f && !pickerState.overlayVisible) {
             dayAgentEdgeSnapshot = runCatching {
                 screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
-            }.getOrNull() ?: ScheduleSnapshotStore.load(context, visualState.config.id)
+            }.getOrNull()
         }
     }
     LaunchedEffect(pendingCourseEditorCapture) {
