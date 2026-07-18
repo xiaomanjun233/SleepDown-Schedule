@@ -444,11 +444,13 @@ fun CourseEditorContainerOverlayHost(
 
                             // Feather the inside of the rounded boundary instead of handing the
                             // primary image to the mirrored gutter with a one-pixel hard clip.
-                            val featherPx = 10.dp.toPx() * blurProgress
-                            repeat(6) { index ->
-                                val remaining = 1f - index / 6f
+                            val featherPx = 18.dp.toPx() * blurProgress
+                            val featherSteps = 10
+                            repeat(featherSteps) { index ->
+                                val linear = 1f - index / featherSteps.toFloat()
+                                val remaining = linear * linear * (3f - 2f * linear)
                                 drawRoundRect(
-                                    color = Color.Black.copy(alpha = 0.18f),
+                                    color = Color.Black.copy(alpha = 0.115f),
                                     cornerRadius = CornerRadius(radiusPx, radiusPx),
                                     style = Stroke(width = featherPx * 2f * remaining),
                                     blendMode = BlendMode.DstOut

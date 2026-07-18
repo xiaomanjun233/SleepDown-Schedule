@@ -12,7 +12,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -472,8 +471,12 @@ private fun DayAgentConversationDialog(
     }
 
     fun dismissAnimated() {
+        keyboard?.hide()
         scope.launch {
-            expansion.animateTo(0f, tween(210, easing = FastOutSlowInEasing)) {
+            expansion.animateTo(
+                0f,
+                tween(DETAIL_SYSTEM_BACK_DURATION, easing = DetailExitEasing)
+            ) {
                 updateWindowBlur(value)
             }
             onDismiss()
@@ -527,8 +530,7 @@ private fun DayAgentConversationDialog(
          Box(
              Modifier
                  .fillMaxSize()
-                 .graphicsLayer { alpha = expansion.value }
-                 .background(Color.Black.copy(alpha = 0.30f))
+                 .background(Color.Black.copy(alpha = 0.30f * expansion.value))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -662,6 +664,14 @@ private fun DayAgentConversationDialog(
                         .imePadding()
                         .navigationBarsPadding()
                         .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .graphicsLayer {
+                            val p = expansion.value
+                            alpha = ((p - 0.12f) / 0.58f).coerceIn(0f, 1f)
+                            val scale = 0.94f + 0.06f * p
+                            scaleX = scale
+                            scaleY = scale
+                            translationY = 18.dp.toPx() * (1f - p)
+                        }
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
@@ -718,11 +728,14 @@ private fun DayAgentConversationDialog(
                     }
             }
         }
-        LaunchedEffect(answerBounds) {
-             if (answerBounds != null && expansion.value == 0f) {
-                 expansion.animateTo(1f, tween(300, easing = FastOutSlowInEasing)) {
-                     updateWindowBlur(value)
-                 }
+         LaunchedEffect(answerBounds) {
+              if (answerBounds != null && expansion.value == 0f) {
+                  expansion.animateTo(
+                      1f,
+                      tween(DETAIL_OPEN_DURATION, easing = DetailOpenEasing)
+                  ) {
+                      updateWindowBlur(value)
+                  }
              }
         }
         LaunchedEffect(messages.size, streamingText.length, sending, error) {
