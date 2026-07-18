@@ -284,7 +284,6 @@ import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URLDecoder
@@ -388,7 +387,6 @@ sealed interface HomeDialog {
 
 private var splashEntranceDone = false
 internal val LocalEditingCourseId = compositionLocalOf<Long?> { null }
-internal val LocalLaunchingCourseId = compositionLocalOf<Long?> { null }
 internal val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope?> { null }
 internal var hideFromRecentsEnabled = false
 
@@ -412,9 +410,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val detailScreenGraphicsLayer = rememberGraphicsLayer()
     val recordedScheduleId = remember { AtomicInteger(-1) }
     val recordedHomeGeneration = remember { AtomicLong(0L) }
-    val homeFrameAwaiter = remember {
-        AtomicReference<kotlinx.coroutines.CompletableDeferred<Unit>?>(null)
-    }
     var captureRenderToken by remember { mutableIntStateOf(0) }
     var snapshotGeneration by remember { mutableIntStateOf(0) }
     var snapshotJob by remember { mutableStateOf<Job?>(null) }
@@ -430,8 +425,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var homeDialogVisible by remember { mutableStateOf(false) }
     var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var pendingCourseEditorCapture by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
-    var courseEditorCaptureCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var courseEditorCaptureCourseId by remember { mutableStateOf<Long?>(null) }
     var courseEditorRenderedCourseId by remember { mutableStateOf<Long?>(null) }
     val courseEditorMotionState = rememberCourseEditorMotionState()
     val courseEditorOverlayPhase = courseEditorMotionState.phase
@@ -462,8 +455,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var addMenuPhase by remember { mutableStateOf(AddMenuPhase.Idle) }
     var addButtonBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var showScheduleEntryPill by remember { mutableStateOf(false) }
-    val editingCourseId: Long? =
-        courseEditorCaptureCourseId ?: courseEditorRequest?.course?.id ?: courseEditorRenderedCourseId
+    val editingCourseId: Long? = courseEditorRequest?.course?.id ?: courseEditorRenderedCourseId
     LaunchedEffect(addMenuExpanded) {
         if (addMenuExpanded) {
             renderAddMenu = true
@@ -503,10 +495,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     LaunchedEffect(pendingCourseEditorCapture) {
         val pending = pendingCourseEditorCapture ?: return@LaunchedEffect
         val sourceBounds = pending.sourceBoundsInRoot
-        // Let the lightweight card press/rebound become visible before the synchronous bitmap
-        // readback begins. The home recorder is already frozen while this request is pending, so
-        // the source snapshot remains the last stable, unscaled card frame.
-        delay(42)
         val fullSnapshot = runCatching {
             screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
         }.getOrNull()
@@ -533,48 +521,11 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             return@LaunchedEffect
         }
 
-        // Keep the exact visible frame on screen while the real card is hidden only in the
-        // home recording layer. The editor overlay is outside that layer, so it cannot recurse.
-        val cleanFrameReady = kotlinx.coroutines.CompletableDeferred<Unit>()
-        homeFrameAwaiter.getAndSet(cleanFrameReady)?.cancel()
-        courseEditorCaptureCoverBitmap = fullSnapshot
-        courseEditorCaptureCourseId = pending.course.id
-        captureRenderToken++
-        val cleanFrameRecorded = withTimeoutOrNull(80L) {
-            cleanFrameReady.await()
-            true
-        } ?: false
-        if (!cleanFrameRecorded) {
-            // Rare fallback for a paused or heavily delayed render loop.
-            withFrameNanos { }
-            withFrameNanos { }
-        }
-        homeFrameAwaiter.compareAndSet(cleanFrameReady, null)
-        val cleanBackground = runCatching {
-            screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
-        }.getOrNull() ?: fullSnapshot
         courseEditorRequest = pending.copy(
-            backgroundSnapshot = cleanBackground,
+            backgroundSnapshot = fullSnapshot,
             sourceCardSnapshot = sourceSnapshot
         )
-        withFrameNanos { }
-        courseEditorCaptureCoverBitmap = null
-        courseEditorCaptureCourseId = null
-        // Clear the LaunchedEffect key last. Clearing it before the frame wait cancels this
-        // coroutine and leaves the full-screen pointer-consuming cover mounted forever.
         pendingCourseEditorCapture = null
-    }
-    LaunchedEffect(courseEditorOverlayPhase, courseEditorRequest, pendingCourseEditorCapture) {
-        if (
-            courseEditorOverlayPhase == CourseEditorOverlayPhase.Idle &&
-            courseEditorRequest == null &&
-            pendingCourseEditorCapture == null
-        ) {
-            // Defensive terminal cleanup: an interrupted capture/close must never leave an
-            // invisible full-screen input layer or a permanently hidden course card behind.
-            courseEditorCaptureCoverBitmap = null
-            courseEditorCaptureCourseId = null
-        }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     val backgroundBackdrop = rememberLayerBackdrop()
@@ -1115,7 +1066,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     CompositionLocalProvider(
         LocalSharedTransitionScope provides activeSharedTransitionScope,
         LocalEditingCourseId provides editingCourseId,
-        LocalLaunchingCourseId provides pendingCourseEditorCapture?.course?.id,
         LocalStartupPhase provides startupPhase,
         LocalGlassQuality provides glassQuality,
         LocalStartupEntranceSpec provides startupEntranceSpec,
@@ -1131,7 +1081,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     detailMorphState is DetailMorphState.Capturing && detailCaptureRecordCleanFrame
                 val courseEditorOwnsFrame =
                     pendingCourseEditorCapture != null ||
-                        courseEditorCaptureCoverBitmap != null ||
                         courseEditorRequest != null ||
                         courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
                 // Never record the course editor into the detail-page capture layer. It contains
@@ -1162,7 +1111,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         screenGraphicsLayer.record { this@drawWithContent.drawContent() }
                         recordedScheduleId.set(visualState.config.id)
                         recordedHomeGeneration.incrementAndGet()
-                        homeFrameAwaiter.getAndSet(null)?.complete(Unit)
                     }
                     drawContent()
                 }
@@ -1802,28 +1750,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             },
             modifier = Modifier.zIndex(260f)
         )
-    }
-
-    courseEditorCaptureCoverBitmap?.let { cover ->
-        Box(
-            Modifier
-                .fillMaxSize()
-                .zIndex(99f)
-                .pointerInput(cover) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            awaitPointerEvent().changes.forEach { it.consume() }
-                        }
-                    }
-                }
-        ) {
-            Image(
-                bitmap = cover.asImageBitmap(),
-                contentDescription = null,
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
     }
 
     CourseEditorContainerOverlayHost(

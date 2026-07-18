@@ -1,12 +1,7 @@
 package com.example.courseschedule
 
 import android.os.Build
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.background
@@ -15,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -351,7 +345,6 @@ fun CourseGlassCard(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(12.dp),
     blurOverride: Float? = null,
-    forcePressed: Boolean = false,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
@@ -359,23 +352,12 @@ fun CourseGlassCard(
     val useGlass = glassBackdrop != null
     val quality = LocalGlassQuality.current
     val interactionSource = if (onClick != null) remember { MutableInteractionSource() } else null
-    val pressed = if (interactionSource != null) {
-        val isPressed by interactionSource.collectIsPressedAsState()
-        isPressed
-    } else {
-        false
-    }
-    val pressScale = rememberCoursePressScale(pressed = pressed, forcePressed = forcePressed)
     val baseColor = courseCardBaseColor(config, course)
     val glassTint = baseColor.copy(alpha = ((config.cardAlpha.coerceIn(0f, 1f) * 0.68f) * quality).coerceIn(0f, 0.68f))
     val solidColor = baseColor.copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
     val cardModifier = modifier
-        .graphicsLayer {
-            scaleX = pressScale
-            scaleY = pressScale
-        }
         .then(
             if (onClick == null) Modifier else Modifier.clickable(
                 interactionSource = requireNotNull(interactionSource),
@@ -422,47 +404,4 @@ fun CourseGlassCard(
         Box(surfaceModifier)
         content()
     }
-}
-
-@Composable
-internal fun rememberCoursePressScale(
-    pressed: Boolean,
-    forcePressed: Boolean
-): Float {
-    val pressScale = remember { Animatable(1f) }
-    LaunchedEffect(pressed, forcePressed) {
-        when {
-            pressed -> pressScale.animateTo(
-                0.955f,
-                tween(
-                    durationMillis = 52,
-                    easing = CubicBezierEasing(0.18f, 0f, 0.08f, 1f)
-                )
-            )
-            forcePressed -> {
-                pressScale.animateTo(
-                    0.955f,
-                    tween(
-                        durationMillis = 42,
-                        easing = CubicBezierEasing(0.18f, 0f, 0.08f, 1f)
-                    )
-                )
-                pressScale.animateTo(
-                    1f,
-                    spring(
-                        dampingRatio = 0.58f,
-                        stiffness = Spring.StiffnessMedium
-                    )
-                )
-            }
-            else -> pressScale.animateTo(
-                1f,
-                spring(
-                    dampingRatio = 0.58f,
-                    stiffness = Spring.StiffnessMedium
-                )
-            )
-        }
-    }
-    return pressScale.value
 }
