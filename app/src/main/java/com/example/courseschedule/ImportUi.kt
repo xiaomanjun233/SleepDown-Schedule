@@ -52,6 +52,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColor
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -532,19 +533,25 @@ private fun AiManualImportDialogContent(
             32.dp
         ).coerceAtLeast(280.dp)
     val expandedHeight = (safeHeight * 0.82f).coerceAtMost(600.dp)
-    val compactHeight = if (selectedMode == 1) 300.dp else 330.dp
-    val dialogHeight by animateDpAsState(
-        targetValue = if (selectedMode == 0) expandedHeight else compactHeight.coerceAtMost(safeHeight),
-        animationSpec = tween(
-            durationMillis = 320,
-            easing = CubicBezierEasing(0.3f, 0.72f, 0.2f, 1f)
-        ),
-        label = "manual-import-dialog-height"
-    )
     Column(
         Modifier
             .fillMaxWidth()
-            .height(dialogHeight)
+            .animateContentSize(
+                animationSpec = tween(
+                    durationMillis = 320,
+                    easing = CubicBezierEasing(0.3f, 0.72f, 0.2f, 1f)
+                ),
+                alignment = Alignment.Center
+            )
+            .then(
+                if (selectedMode == 0) {
+                    Modifier.height(expandedHeight)
+                } else {
+                    // ICS/PDF panels are measured from their actual header, copy, status and
+                    // action content. This remains correct with font scaling or extra messages.
+                    Modifier.heightIn(max = safeHeight)
+                }
+            )
     ) {
         LiquidDialogHeader("手动导入课表", onCancel, backdrop, state.config)
         if (selectedMode == 1) {
@@ -601,8 +608,8 @@ private fun AiManualImportDialogContent(
                 onSelected = onModeSelected
             )
         }
-        LiquidDialogBody {
-            if (selectedMode == 0) {
+        if (selectedMode == 0) {
+            LiquidDialogBody {
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         DialogLiquidButton(backdrop, "复制提示词", onCopyPrompt, modifier = Modifier.weight(1f))
@@ -618,9 +625,16 @@ private fun AiManualImportDialogContent(
                         modifier = Modifier.fillMaxSize()
                     )
                 }
-            } else if (selectedMode == 1) {
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            ) {
+                if (selectedMode == 1) {
                 Column(
-                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
@@ -634,9 +648,9 @@ private fun AiManualImportDialogContent(
                         Text(it, color = textColor.copy(alpha = 0.72f), style = MaterialTheme.typography.bodySmall)
                     }
                 }
-            } else {
+                } else {
                 Column(
-                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
@@ -655,6 +669,7 @@ private fun AiManualImportDialogContent(
                     }
                 }
             }
+        }
         }
         error?.let {
             Text(

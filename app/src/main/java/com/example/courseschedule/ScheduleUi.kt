@@ -1117,36 +1117,14 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             }
     ) {
         dayAgentEdgeSnapshot?.let { background ->
-            MirroredEdgeSnapshot(
+            val agentBackgroundScale = 1f - 0.08f * dayAgentBackgroundProgress.coerceIn(0f, 1f)
+            MorphSnapshotBackground(
                 bitmap = background,
-                insetFraction = 0.04f,
-                blurPx = 12f * density.density,
-                alphaProvider = {
-                    if (dayAgentBackgroundProgress > 0.001f) 1f else 0f
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-            Image(
-                bitmap = background.asImageBitmap(),
-                contentDescription = null,
-                contentScale = ContentScale.FillBounds,
+                backgroundScale = agentBackgroundScale,
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        val p = dayAgentBackgroundProgress.coerceIn(0f, 1f)
-                        // Switch from the identical live frame to its frozen copy immediately;
-                        // crossfading the two hid the 1 -> 0.92 depth motion for half the curve.
-                        alpha = if (p > 0.001f) 1f else 0f
-                        val scale = 1f - 0.08f * p
-                        scaleX = scale
-                        scaleY = scale
-                        // Use the same stable 12dp effect as the edge extension. Keeping the
-                        // radius constant avoids rebuilding a RenderEffect on every Morph frame;
-                        // the shared alpha/progress makes both layers arrive together.
-                        val blurPx = with(density) { 12.dp.toPx() }
-                        renderEffect = BlurEffect(blurPx, blurPx, TileMode.Clamp)
-                        shape = RoundedCornerShape(20.dp)
-                        clip = p > 0.001f
+                        alpha = if (dayAgentBackgroundProgress > 0.001f) 1f else 0f
                     }
             )
         }

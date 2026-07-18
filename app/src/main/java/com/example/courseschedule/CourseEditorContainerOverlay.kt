@@ -142,6 +142,80 @@ internal fun MirroredEdgeSnapshot(
     )
 }
 
+/**
+ * The single frozen-home background used by every card-to-overlay Morph.
+ * Keeping this here prevents Agent/editor variants from drifting in blur timing, edge fill,
+ * corner feathering, or scale geometry.
+ */
+@Composable
+internal fun MorphSnapshotBackground(
+    bitmap: Bitmap,
+    backgroundScale: Float,
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val scale = backgroundScale.coerceIn(0.92f, 1f)
+    val blurProgress = ((1f - scale) / 0.08f).coerceIn(0f, 1f)
+    val blurPx = blurProgress * 12f * density.density
+    val edgeFillBlurPx = 12f * density.density
+    val backgroundCorner = (24f * blurProgress).dp
+
+    Box(modifier) {
+        MirroredEdgeSnapshot(
+            bitmap = bitmap,
+            insetFraction = 0.04f,
+            blurPx = edgeFillBlurPx,
+            alphaProvider = { blurProgress },
+            modifier = Modifier.fillMaxSize()
+        )
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.FillBounds,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    renderEffect = if (blurPx > 0.01f) {
+                        RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP)
+                            .asComposeRenderEffect()
+                    } else null
+                }
+                .drawWithContent {
+                    drawContent()
+                    if (blurProgress > 0.001f) {
+                        val radiusPx = backgroundCorner.toPx()
+                        val outside = Path().apply {
+                            fillType = PathFillType.EvenOdd
+                            addRect(Rect(0f, 0f, size.width, size.height))
+                            addRoundRect(
+                                RoundRect(
+                                    rect = Rect(0f, 0f, size.width, size.height),
+                                    cornerRadius = CornerRadius(radiusPx, radiusPx)
+                                )
+                            )
+                        }
+                        drawPath(outside, Color.Black, blendMode = BlendMode.Clear)
+
+                        val featherPx = 18.dp.toPx() * blurProgress
+                        val featherSteps = 10
+                        repeat(featherSteps) { index ->
+                            val linear = 1f - index / featherSteps.toFloat()
+                            val remaining = linear * linear * (3f - 2f * linear)
+                            drawRoundRect(
+                                color = Color.Black.copy(alpha = 0.115f),
+                                cornerRadius = CornerRadius(radiusPx, radiusPx),
+                                style = Stroke(width = featherPx * 2f * remaining),
+                                blendMode = BlendMode.DstOut
+                            )
+                        }
+                    }
+                }
+        )
+    }
+}
+
 enum class CourseEditorOverlayPhase {
     Idle,
     Preparing,
@@ -385,12 +459,6 @@ fun CourseEditorContainerOverlayHost(
     val sourceCoverAlpha = (1f - p * 3f).coerceIn(0f, 1f)
     val editorFormBackdrop = backdrop
     val textColor = glassForegroundColor(config)
-    val blurProgress = ((1f - backgroundScale.value) / 0.08f).coerceIn(0f, 1f)
-    val blurPx = blurProgress * 12f * density.density
-    // Keep the reflected edge equal to the primary 12dp blur. A radius difference creates
-    // a visible contour exactly where the hard rounded clip hands off to the edge extension.
-    val edgeFillBlurPx = 12f * density.density
-    val backgroundCorner = (24f * blurProgress).dp
     // The morph window itself scales independently on X/Y, but the live glass must remain in
     // final-screen coordinates. Fully invert both the scale and translation so the moving clip
     // reveals a stationary backdrop instead of stretching or zooming it. This is required for
@@ -406,63 +474,10 @@ fun CourseEditorContainerOverlayHost(
             .onSizeChanged { rootSize = it }
     ) {
         shownRequest.backgroundSnapshot?.let { background ->
-            // Map the snapshot into exactly the same inset rect as the shrinking primary image.
-            // MIRROR tiling reflects its innermost edge ring out into the uncovered gutters, so
-            // the rounded boundary stays continuous instead of exposing a scaled copy's seams.
-            MirroredEdgeSnapshot(
+            MorphSnapshotBackground(
                 bitmap = background,
-                insetFraction = 0.04f,
-                blurPx = edgeFillBlurPx,
-                alphaProvider = { blurProgress },
-                modifier = Modifier
-                    .fillMaxSize()
-            )
-            Image(
-                bitmap = background.asImageBitmap(),
-                contentDescription = null,
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        this.scaleX = backgroundScale.value
-                        this.scaleY = backgroundScale.value
-                        renderEffect = if (blurPx > 0.01f) {
-                            RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP)
-                                .asComposeRenderEffect()
-                        } else null
-                    }
-                    .drawWithContent {
-                        drawContent()
-                        if (blurProgress > 0.001f) {
-                            val radiusPx = backgroundCorner.toPx()
-                            val outside = Path().apply {
-                                fillType = PathFillType.EvenOdd
-                                addRect(Rect(0f, 0f, size.width, size.height))
-                                addRoundRect(
-                                    RoundRect(
-                                        rect = Rect(0f, 0f, size.width, size.height),
-                                        cornerRadius = CornerRadius(radiusPx, radiusPx)
-                                    )
-                                )
-                            }
-                            drawPath(outside, Color.Black, blendMode = BlendMode.Clear)
-
-                            // Feather the inside of the rounded boundary instead of handing the
-                            // primary image to the mirrored gutter with a one-pixel hard clip.
-                            val featherPx = 18.dp.toPx() * blurProgress
-                            val featherSteps = 10
-                            repeat(featherSteps) { index ->
-                                val linear = 1f - index / featherSteps.toFloat()
-                                val remaining = linear * linear * (3f - 2f * linear)
-                                drawRoundRect(
-                                    color = Color.Black.copy(alpha = 0.115f),
-                                    cornerRadius = CornerRadius(radiusPx, radiusPx),
-                                    style = Stroke(width = featherPx * 2f * remaining),
-                                    blendMode = BlendMode.DstOut
-                                )
-                            }
-                        }
-                    }
+                backgroundScale = backgroundScale.value,
+                modifier = Modifier.fillMaxSize()
             )
         }
         Box(
