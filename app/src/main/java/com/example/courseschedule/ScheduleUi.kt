@@ -284,6 +284,7 @@ import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URLDecoder
@@ -411,6 +412,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val detailScreenGraphicsLayer = rememberGraphicsLayer()
     val recordedScheduleId = remember { AtomicInteger(-1) }
     val recordedHomeGeneration = remember { AtomicLong(0L) }
+    val homeFrameAwaiter = remember {
+        AtomicReference<kotlinx.coroutines.CompletableDeferred<Unit>?>(null)
+    }
     var captureRenderToken by remember { mutableIntStateOf(0) }
     var snapshotGeneration by remember { mutableIntStateOf(0) }
     var snapshotJob by remember { mutableStateOf<Job?>(null) }
@@ -502,7 +506,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         // Let the lightweight card press/rebound become visible before the synchronous bitmap
         // readback begins. The home recorder is already frozen while this request is pending, so
         // the source snapshot remains the last stable, unscaled card frame.
-        delay(95)
+        delay(42)
         val fullSnapshot = runCatching {
             screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
         }.getOrNull()
@@ -531,10 +535,21 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
 
         // Keep the exact visible frame on screen while the real card is hidden only in the
         // home recording layer. The editor overlay is outside that layer, so it cannot recurse.
+        val cleanFrameReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+        homeFrameAwaiter.getAndSet(cleanFrameReady)?.cancel()
         courseEditorCaptureCoverBitmap = fullSnapshot
         courseEditorCaptureCourseId = pending.course.id
-        withFrameNanos { }
-        withFrameNanos { }
+        captureRenderToken++
+        val cleanFrameRecorded = withTimeoutOrNull(80L) {
+            cleanFrameReady.await()
+            true
+        } ?: false
+        if (!cleanFrameRecorded) {
+            // Rare fallback for a paused or heavily delayed render loop.
+            withFrameNanos { }
+            withFrameNanos { }
+        }
+        homeFrameAwaiter.compareAndSet(cleanFrameReady, null)
         val cleanBackground = runCatching {
             screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
         }.getOrNull() ?: fullSnapshot
@@ -1147,6 +1162,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         screenGraphicsLayer.record { this@drawWithContent.drawContent() }
                         recordedScheduleId.set(visualState.config.id)
                         recordedHomeGeneration.incrementAndGet()
+                        homeFrameAwaiter.getAndSet(null)?.complete(Unit)
                     }
                     drawContent()
                 }

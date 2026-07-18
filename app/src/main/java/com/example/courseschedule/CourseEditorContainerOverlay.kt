@@ -359,7 +359,18 @@ fun CourseEditorContainerOverlayHost(
     }
 
     val validSource = validSourceRect(shownRequest.sourceBoundsInRoot, rootSize)
-    val sourceRect = validSource ?: targetRect
+    val sourceRect = validSource?.let { source ->
+        // The live course card first settles into a 0.955 depth press. Start the editor geometry
+        // from that same inset rectangle so the Morph grows directly out of the down state.
+        val insetX = source.width * 0.0225f
+        val insetY = source.height * 0.0225f
+        Rect(
+            left = source.left + insetX,
+            top = source.top + insetY,
+            right = source.right - insetX,
+            bottom = source.bottom - insetY
+        )
+    } ?: targetRect
     val p = progress.value.coerceIn(0f, 1f)
     val initialScaleX = (sourceRect.width / targetRect.width).coerceAtLeast(0.001f)
     val initialScaleY = (sourceRect.height / targetRect.height).coerceAtLeast(0.001f)
@@ -384,7 +395,9 @@ fun CourseEditorContainerOverlayHost(
     val textColor = glassForegroundColor(config)
     val blurProgress = ((1f - backgroundScale.value) / 0.08f).coerceIn(0f, 1f)
     val blurPx = blurProgress * 6f * density.density
-    val edgeFillBlurPx = 14f * density.density
+    // Keep the reflected edge close to the primary 6dp blur. A large radius difference creates
+    // a visible contour exactly where the hard rounded clip hands off to the edge extension.
+    val edgeFillBlurPx = 7f * density.density
     val backgroundCorner = (24f * blurProgress).dp
     val glassUniformScale = maxOf(scaleX, scaleY)
     val glassCounterScaleX = glassUniformScale / scaleX.coerceAtLeast(0.001f)

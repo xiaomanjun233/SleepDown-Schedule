@@ -2336,6 +2336,10 @@ fun WeekCourseBlock(
     }
     val editingId = LocalEditingCourseId.current
     val launchingId = LocalLaunchingCourseId.current
+    val launchPressScale = rememberCoursePressScale(
+        pressed = false,
+        forcePressed = launchingId == course.id
+    )
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && course.id > 0L) LocalSharedTransitionScope.current else null
     val baseModifier = Modifier
         .fillMaxWidth()
@@ -2406,7 +2410,11 @@ fun WeekCourseBlock(
                     .fillMaxWidth()
                     .height(resizeRevealHeight)
                     .graphicsLayer {
-                        val activeScale = if (bodyDragging || handleDragging) 1.035f else pressScale
+                        val activeScale = if (bodyDragging || handleDragging) {
+                            1.035f
+                        } else {
+                            pressScale * launchPressScale
+                        }
                         translationX = if (bodyDragging) moveDragX else 0f
                         translationY = if (bodyDragging) moveDragY else 0f
                         rotationZ = if (bodyDragging || handleDragging) 0f else editJitter
@@ -2429,7 +2437,7 @@ fun WeekCourseBlock(
                     .fillMaxWidth()
                     .height(resizeGlassShellHeight),
                 shape = RoundedCornerShape(8.dp),
-                forcePressed = launchingId == course.id,
+                forcePressed = false,
                 onClick = null
             ) {}
             BoxWithConstraints(Modifier.fillMaxWidth().height(displayedHeight).clipToBounds()) {
