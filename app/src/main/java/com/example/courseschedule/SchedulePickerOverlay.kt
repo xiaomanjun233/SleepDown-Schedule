@@ -35,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -579,6 +580,7 @@ fun SchedulePickerOverlay(
     onCustomize: (Int) -> Unit,
     onRename: (Int, String) -> Unit,
     onDeleteRequest: (Int) -> Unit,
+    onSheetBackdropChanged: (Backdrop?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (!pickerState.overlayVisible) return
@@ -595,6 +597,7 @@ fun SchedulePickerOverlay(
         ?: selectedConfig
     val scope = rememberCoroutineScope()
     val managerBackdrop = rememberLayerBackdrop()
+    val sheetBackdrop = rememberLayerBackdrop()
     var deleteConfirmTarget by remember { mutableStateOf<ScheduleProfileEntity?>(null) }
     var showShareOptions by remember { mutableStateOf(false) }
     var targetCardBounds by remember { mutableStateOf<Rect?>(null) }
@@ -603,6 +606,11 @@ fun SchedulePickerOverlay(
     val renameEditing = pickerState.renamingScheduleId != null
     val phaseInputEnabled = !pickerState.interactionsLocked
     val pagerInputEnabled = phaseInputEnabled && pickerState.deletingScheduleId == null && !renameEditing
+
+    DisposableEffect(sheetBackdrop) {
+        onSheetBackdropChanged(sheetBackdrop)
+        onDispose { onSheetBackdropChanged(null) }
+    }
 
     fun cancelRename() {
         pickerState.renamingScheduleId = null
@@ -677,7 +685,12 @@ fun SchedulePickerOverlay(
             clippingEnabled = false
         )
     ) {
-    BoxWithConstraints(modifier.fillMaxSize().zIndex(100f)) {
+    BoxWithConstraints(
+        modifier
+            .fillMaxSize()
+            .zIndex(100f)
+            .layerBackdrop(sheetBackdrop)
+    ) {
         val density = LocalDensity.current
         val screenWidth = maxWidth
         val screenHeight = maxHeight

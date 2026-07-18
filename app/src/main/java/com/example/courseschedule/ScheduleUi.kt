@@ -400,6 +400,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var previewScheduleId by remember { mutableStateOf<Int?>(null) }
     var pendingPickerEditorScheduleId by remember { mutableStateOf<Int?>(null) }
     var quickScheduleDraft by remember { mutableStateOf<QuickScheduleDraft?>(null) }
+    var pickerSheetBackdrop by remember { mutableStateOf<Backdrop?>(null) }
+    var dayAgentBackgroundProgress by remember { mutableFloatStateOf(0f) }
+    var dayAgentEdgeSnapshot by remember { mutableStateOf<Bitmap?>(null) }
     var detailMorphState by remember { mutableStateOf<DetailMorphState>(DetailMorphState.Idle) }
     var detailMorphRequest by remember { mutableStateOf<DetailMorphRequest?>(null) }
     var detailCaptureCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -492,6 +495,17 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var weekCardHeight by remember(visualState.periods.size, visualState.config.weekCardHeightDp) { mutableFloatStateOf(visualState.config.weekCardHeightDp ?: adaptiveWeekCardHeight) }
     val context = LocalContext.current
     val appScope = rememberCoroutineScope()
+    LaunchedEffect(state.loaded, visualState.config.id) {
+        if (!state.loaded) return@LaunchedEffect
+        delay(420)
+        withFrameNanos { }
+        withFrameNanos { }
+        if (dayAgentBackgroundProgress <= 0.001f) {
+            dayAgentEdgeSnapshot = runCatching {
+                screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+            }.getOrNull() ?: ScheduleSnapshotStore.load(context, visualState.config.id)
+        }
+    }
     LaunchedEffect(pendingCourseEditorCapture) {
         val pending = pendingCourseEditorCapture ?: return@LaunchedEffect
         val sourceBounds = pending.sourceBoundsInRoot
@@ -531,6 +545,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val backgroundBackdrop = rememberLayerBackdrop()
     val contentBackdrop = rememberLayerBackdrop()
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
+    val quickSheetBackdrop = rememberLayerBackdrop()
     val currentVersionName = remember(context) {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
@@ -964,8 +979,12 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             pickerState.cornerProgress.animateTo(0f, tween(90))
             // The cached card is now fully screen-sized and square. Reveal the already-rendered
             // real home underneath instead of crossfading to another bitmap.
-            pickerState.realHomeRevealProgress.animateTo(1f, tween(190))
-            withFrameNanos { }
+            pickerState.realHomeRevealProgress.animateTo(1f, tween(250))
+            val handoffHoldStart = withFrameNanos { it }
+            var handoffFrame: Long
+            do {
+                handoffFrame = withFrameNanos { it }
+            } while (handoffFrame - handoffHoldStart < 64_000_000L)
             val temporaryToDelete = pickerState.temporaryIds.filter { !commitTarget || it != targetId }
             previewScheduleId = null
             pickerState.reset()
@@ -1076,6 +1095,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .layerBackdrop(quickSheetBackdrop)
             .drawWithContent {
                 val recordCleanFrame =
                     detailMorphState is DetailMorphState.Capturing && detailCaptureRecordCleanFrame
@@ -1099,9 +1119,32 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 drawContent()
             }
     ) {
+        dayAgentEdgeSnapshot?.let { background ->
+            MirroredEdgeSnapshot(
+                bitmap = background,
+                insetFraction = 0.04f,
+                blurPx = 12f * density.density,
+                alphaProvider = { dayAgentBackgroundProgress },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer {
+                    val p = dayAgentBackgroundProgress.coerceIn(0f, 1f)
+                    val scale = 1f - 0.08f * p
+                    scaleX = scale
+                    scaleY = scale
+                    val blurPx = with(density) { 12.dp.toPx() } * p
+                    renderEffect = if (blurPx > 0.01f) {
+                        BlurEffect(blurPx, blurPx, TileMode.Clamp)
+                    } else {
+                        null
+                    }
+                    shape = RoundedCornerShape(20.dp)
+                    clip = p > 0.001f
+                }
                 .drawWithContent {
                     val mayRecordHome =
                         courseEditorRequest == null &&
@@ -1243,6 +1286,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     onSwipeWeek = { delta -> homeDisplayWeek = (homeDisplayWeek + delta).coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1)) },
                                     onSwipeDay = { delta -> homeDisplayDate = homeDisplayDate.plusDays(delta.toLong()) },
                                     onContentUnderTopBarChange = { homeContentUnderTopBar = it },
+                                    onAgentBackgroundProgress = { dayAgentBackgroundProgress = it },
                                     onCourseClick = { course, week, sourceBounds ->
                                         openCourseEditor(course, week, sourceBounds)
                                     },
@@ -1565,15 +1609,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             },
             onCustomize = { scheduleId ->
                 if (pickerState.phase is CustomizeUiState.Picker) {
-                    exitPicker(
-                        apply = true,
-                        targetOverride = scheduleId,
-                        commitTarget = true,
-                        crossfadeToTarget = true,
-                        onFinished = {
-                            quickScheduleDraft = quickDraftFor(scheduleId)
-                        }
-                    )
+                    quickScheduleDraft = quickDraftFor(scheduleId)
                 }
             },
             onRename = viewModel::renameSchedule,
@@ -1603,7 +1639,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         nextId?.let(::switchPickerSchedule)
                     }
                 }
-            }
+            },
+            onSheetBackdropChanged = { pickerSheetBackdrop = it }
         )
     }
     }
@@ -1612,14 +1649,16 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         QuickScheduleSettingsSheets(
             draft = quickScheduleDraft,
             config = state.config,
-            backdrop = chromeBackdrop,
+            backdrop = pickerSheetBackdrop ?: quickSheetBackdrop,
             onDraftChange = { quickScheduleDraft = it },
             onDismiss = { quickScheduleDraft = null },
             onDismissFinished = {
-                // Re-enter through the normal home-to-picker morph. It captures the now-real
-                // homepage first, so both Apply and Cancel shrink back without a fake card.
-                pickerState.phase = CustomizeUiState.Home
-                enterCustomizePage()
+                // Direct customization leaves the manager below the sheet. New-schedule setup
+                // still returns through the existing home-to-picker Morph after its sheet closes.
+                if (!pickerState.overlayVisible) {
+                    pickerState.phase = CustomizeUiState.Home
+                    enterCustomizePage()
+                }
             },
             onSave = { draft, onSaved ->
                 val latest = latestAllSchedulesState.value
@@ -1896,7 +1935,12 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     CenterLiquidDialog(
                         backdrop = chromeBackdrop,
                         config = state.config,
-                        modifier = Modifier
+                        modifier = Modifier,
+                        size = if (dialog is HomeDialog.ImportSchedule) {
+                            LiquidDialogSize.Compact
+                        } else {
+                            LiquidDialogSize.Standard
+                        }
                     ) {
                         dialogContent()
                     }
@@ -2007,12 +2051,14 @@ fun CenterLiquidDialog(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
+    size: LiquidDialogSize = LiquidDialogSize.Standard,
     content: @Composable ColumnScope.() -> Unit
 ) {
     LiquidDialogSurface(
         backdrop = backdrop,
         config = config,
-        modifier = modifier
+        modifier = modifier,
+        size = size
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),

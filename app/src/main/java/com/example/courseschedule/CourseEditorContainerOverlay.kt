@@ -89,11 +89,11 @@ private const val CourseEditorOpenDurationMillis = 340
 private const val CourseEditorCloseDurationMillis = 350
 
 @Composable
-private fun MirroredEdgeSnapshot(
+internal fun MirroredEdgeSnapshot(
     bitmap: Bitmap,
     insetFraction: Float,
     blurPx: Float,
-    alpha: Float,
+    alphaProvider: () -> Float,
     modifier: Modifier = Modifier
 ) {
     val shader = remember(bitmap) {
@@ -107,7 +107,7 @@ private fun MirroredEdgeSnapshot(
     Box(
         modifier = modifier
             .graphicsLayer {
-                this.alpha = alpha
+                this.alpha = alphaProvider().coerceIn(0f, 1f)
                 renderEffect = if (blurPx > 0.01f) {
                     RenderEffect.createBlurEffect(
                         blurPx,
@@ -386,14 +386,19 @@ fun CourseEditorContainerOverlayHost(
     val editorFormBackdrop = backdrop
     val textColor = glassForegroundColor(config)
     val blurProgress = ((1f - backgroundScale.value) / 0.08f).coerceIn(0f, 1f)
-    val blurPx = blurProgress * 6f * density.density
-    // Keep the reflected edge close to the primary 6dp blur. A large radius difference creates
+    val blurPx = blurProgress * 12f * density.density
+    // Keep the reflected edge equal to the primary 12dp blur. A radius difference creates
     // a visible contour exactly where the hard rounded clip hands off to the edge extension.
-    val edgeFillBlurPx = 6f * density.density
+    val edgeFillBlurPx = 12f * density.density
     val backgroundCorner = (24f * blurProgress).dp
-    val glassUniformScale = maxOf(scaleX, scaleY)
-    val glassCounterScaleX = glassUniformScale / scaleX.coerceAtLeast(0.001f)
-    val glassCounterScaleY = glassUniformScale / scaleY.coerceAtLeast(0.001f)
+    // The morph window itself scales independently on X/Y, but the live glass must remain in
+    // final-screen coordinates. Fully invert both the scale and translation so the moving clip
+    // reveals a stationary backdrop instead of stretching or zooming it. This is required for
+    // both tall cards and short/wide cards; a uniform max-axis scale only fixed the tall case.
+    val glassCounterScaleX = 1f / scaleX.coerceAtLeast(0.001f)
+    val glassCounterScaleY = 1f / scaleY.coerceAtLeast(0.001f)
+    val glassCounterTranslationX = -translationX / scaleX.coerceAtLeast(0.001f)
+    val glassCounterTranslationY = -translationY / scaleY.coerceAtLeast(0.001f)
 
     Box(
         modifier = modifier
@@ -408,7 +413,7 @@ fun CourseEditorContainerOverlayHost(
                 bitmap = background,
                 insetFraction = 0.04f,
                 blurPx = edgeFillBlurPx,
-                alpha = blurProgress,
+                alphaProvider = { blurProgress },
                 modifier = Modifier
                     .fillMaxSize()
             )
@@ -499,12 +504,13 @@ fun CourseEditorContainerOverlayHost(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        // The outer layer changes width and height independently to hit the exact
-                        // source bounds. Counter-scale the real glass to a uniform cover scale so
-                        // its sampled wallpaper is cropped by the morph window instead of stretched.
-                        transformOrigin = TransformOrigin.Center
+                        // Keep the real glass locked to its final coordinates while only the outer
+                        // clip window morphs from the source card rectangle.
+                        transformOrigin = TransformOrigin(0f, 0f)
                         this.scaleX = glassCounterScaleX
                         this.scaleY = glassCounterScaleY
+                        this.translationX = glassCounterTranslationX
+                        this.translationY = glassCounterTranslationY
                     }
             ) {
                 Box(Modifier.fillMaxSize()) {

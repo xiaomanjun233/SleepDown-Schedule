@@ -523,7 +523,29 @@ private fun AiManualImportDialogContent(
     onPrimaryAction: () -> Unit
 ) {
     val textColor = glassForegroundColor(state.config)
-    Column(Modifier.fillMaxSize()) {
+    val configuration = LocalConfiguration.current
+    val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
+    val safeHeight = (
+        configuration.screenHeightDp.dp -
+            safeInsets.calculateTopPadding() -
+            safeInsets.calculateBottomPadding() -
+            32.dp
+        ).coerceAtLeast(280.dp)
+    val expandedHeight = (safeHeight * 0.82f).coerceAtMost(600.dp)
+    val compactHeight = if (selectedMode == 1) 380.dp else 420.dp
+    val dialogHeight by animateDpAsState(
+        targetValue = if (selectedMode == 0) expandedHeight else compactHeight.coerceAtMost(safeHeight),
+        animationSpec = tween(
+            durationMillis = 320,
+            easing = CubicBezierEasing(0.3f, 0.72f, 0.2f, 1f)
+        ),
+        label = "manual-import-dialog-height"
+    )
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .height(dialogHeight)
+    ) {
         LiquidDialogHeader("手动导入课表", onCancel, backdrop, state.config)
         if (selectedMode == 1) {
             Row(

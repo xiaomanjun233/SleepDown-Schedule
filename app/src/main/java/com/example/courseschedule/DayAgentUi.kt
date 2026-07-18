@@ -89,6 +89,7 @@ import com.kyant.backdrop.catalog.components.liquidButtonInteraction
 import com.kyant.backdrop.catalog.components.LiquidButton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -101,6 +102,7 @@ fun TodayAgentHost(
     backdrop: Backdrop?,
     textColor: Color,
     collapsed: Boolean,
+    onBackgroundProgress: (Float) -> Unit = {},
     onAgentAction: (AgentValidatedAction) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -156,6 +158,7 @@ fun TodayAgentHost(
             dailyAiEnabled = DayAgentPreferences.isDailyAiEnabled(context),
             weatherEnabled = DayAgentPreferences.isWeatherEnabled(context),
             hasApiKey = hasApiKey,
+            onBackgroundProgress = onBackgroundProgress,
             onAgentAction = onAgentAction
         )
     }
@@ -171,6 +174,7 @@ fun TodayAgentCard(
     dailyAiEnabled: Boolean,
     weatherEnabled: Boolean,
     hasApiKey: Boolean,
+    onBackgroundProgress: (Float) -> Unit,
     onAgentAction: (AgentValidatedAction) -> Unit
 ) {
     val context = LocalContext.current
@@ -368,6 +372,7 @@ fun TodayAgentCard(
             initialQuestion = pendingQuestion,
             sourceBounds = cardBounds,
             sourceCardSnapshot = sourceCardSnapshot,
+            onBackgroundProgress = onBackgroundProgress,
             onAgentAction = onAgentAction,
             onDismiss = {
                 dialogOpen = false
@@ -459,6 +464,7 @@ private fun DayAgentConversationDialog(
     initialQuestion: String?,
     sourceBounds: Rect?,
     sourceCardSnapshot: Bitmap?,
+    onBackgroundProgress: (Float) -> Unit,
     onAgentAction: (AgentValidatedAction) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -471,10 +477,9 @@ private fun DayAgentConversationDialog(
     var requestJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var closing by remember { mutableStateOf(false) }
-    var liveBackdropReady by remember { mutableStateOf(false) }
     var appliedActionKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     val expansion = remember { Animatable(0f) }
-    val liveBackdropAlpha = remember { Animatable(0f) }
+    val backgroundProgress = remember { Animatable(0f) }
     val conversationListState = rememberLazyListState()
     val foreground = LocalAdaptiveGlass.current.contentColor
     val configuration = LocalConfiguration.current
@@ -493,12 +498,21 @@ private fun DayAgentConversationDialog(
         closing = true
         keyboard?.hide()
         scope.launch {
-            liveBackdropAlpha.snapTo(0f)
-            liveBackdropReady = false
-            expansion.animateTo(
-                0f,
-                tween(DETAIL_SYSTEM_BACK_DURATION, easing = DetailExitEasing)
-            )
+            coroutineScope {
+                launch {
+                    expansion.animateTo(
+                        0f,
+                        tween(DETAIL_SYSTEM_BACK_DURATION, easing = DetailExitEasing)
+                    )
+                }
+                launch {
+                    backgroundProgress.animateTo(
+                        0f,
+                        tween(BACKGROUND_EXIT_DURATION, easing = BackgroundExitEasing)
+                    ) { onBackgroundProgress(value) }
+                }
+            }
+            onBackgroundProgress(0f)
             onDismiss()
         }
     }
@@ -538,7 +552,7 @@ private fun DayAgentConversationDialog(
             Box(
                 Modifier
                     .matchParentSize()
-                    .graphicsLayer { alpha = expansion.value }
+                    .graphicsLayer { alpha = backgroundProgress.value }
                     .background(Color.Black.copy(alpha = 0.30f))
             )
             Box(
@@ -574,20 +588,16 @@ private fun DayAgentConversationDialog(
                         }
                         .background(panelColor)
                 )
-                if (liveBackdropReady && backdrop != null) {
-                    GlassSurface(
-                        backdrop = backdrop,
-                        config = state.config,
-                        modifier = Modifier
-                            .matchParentSize()
-                            .graphicsLayer { alpha = liveBackdropAlpha.value },
-                        shape = RoundedCornerShape(32.dp),
-                        tokens = GlassTokens.dialog(intensity = 0.90f).copy(
-                            blur = 5.dp,
-                            surfaceAlpha = 0.30f
-                        )
-                    ) {}
-                }
+                GlassSurface(
+                    backdrop = backdrop,
+                    config = state.config,
+                    modifier = Modifier.matchParentSize(),
+                    shape = RoundedCornerShape(32.dp),
+                    tokens = GlassTokens.dialog(intensity = 0.90f).copy(
+                        blur = 5.dp,
+                        surfaceAlpha = 0.30f
+                    )
+                ) {}
                 Box(
                     Modifier
                         .matchParentSize()
@@ -701,7 +711,7 @@ private fun DayAgentConversationDialog(
             }
 
              GlassSurface(
-                     backdrop = null,
+                     backdrop = backdrop,
                     config = state.config,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -748,7 +758,7 @@ private fun DayAgentConversationDialog(
                             }
                         )
                         AgentSimplePressSurface(
-                            backdrop = null,
+                            backdrop = backdrop,
                             config = state.config,
                             modifier = Modifier.size(40.dp),
                             shape = CircleShape,
@@ -781,17 +791,19 @@ private fun DayAgentConversationDialog(
         }
          LaunchedEffect(Unit) {
              withFrameNanos { }
-             expansion.animateTo(
-                 1f,
-                 tween(DETAIL_OPEN_DURATION, easing = DetailOpenEasing)
-             )
-             if (backdrop != null) {
-                 liveBackdropReady = true
-                 withFrameNanos { }
-                 liveBackdropAlpha.animateTo(
-                     1f,
-                     tween(durationMillis = 160)
-                 )
+             coroutineScope {
+                 launch {
+                     expansion.animateTo(
+                         1f,
+                         tween(DETAIL_OPEN_DURATION, easing = DetailOpenEasing)
+                     )
+                 }
+                 launch {
+                     backgroundProgress.animateTo(
+                         1f,
+                         tween(BACKGROUND_OPEN_DURATION, easing = BackgroundOpenEasing)
+                     ) { onBackgroundProgress(value) }
+                 }
              }
              focusRequester.requestFocus()
              keyboard?.show()
