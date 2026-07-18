@@ -248,7 +248,7 @@ data class CourseEditorOverlayRequest(
  * the contract required by the liquid lens shader. The clip uses independent X/Y radii so a tall
  * week card and a wide day card both meet their source snapshot without a one-frame corner jump.
  */
-private class CourseEditorMorphCornerShape(
+internal class CourseEditorMorphCornerShape(
     private val radiusX: Float,
     private val radiusY: Float,
     topStart: CornerSize = CornerSize(minOf(radiusX, radiusY)),

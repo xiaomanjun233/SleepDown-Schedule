@@ -37,8 +37,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.CornerBasedShape
-import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -48,7 +46,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.State
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,10 +61,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -80,6 +75,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -88,6 +84,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.Lifecycle
@@ -101,58 +98,6 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
-
-private class AgentMorphCornerShape(
-    private val progress: State<Float>,
-    private val startScaleX: Float,
-    private val startScaleY: Float,
-    private val sourceRadiusPx: Float,
-    private val targetRadiusPx: Float,
-    topStart: CornerSize = CornerSize(0f),
-    topEnd: CornerSize = topStart,
-    bottomEnd: CornerSize = topStart,
-    bottomStart: CornerSize = topStart
-) : CornerBasedShape(topStart, topEnd, bottomEnd, bottomStart) {
-    override fun createOutline(
-        size: androidx.compose.ui.geometry.Size,
-        topStart: Float,
-        topEnd: Float,
-        bottomEnd: Float,
-        bottomStart: Float,
-        layoutDirection: androidx.compose.ui.unit.LayoutDirection
-    ): Outline {
-        val p = progress.value.coerceIn(0f, 1f)
-        val scaleX = startScaleX + (1f - startScaleX) * p
-        val scaleY = startScaleY + (1f - startScaleY) * p
-        val visualRadius = sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * p
-        return Outline.Rounded(
-            RoundRect(
-                rect = androidx.compose.ui.geometry.Rect(0f, 0f, size.width, size.height),
-                cornerRadius = CornerRadius(
-                    visualRadius / scaleX.coerceAtLeast(0.001f),
-                    visualRadius / scaleY.coerceAtLeast(0.001f)
-                )
-            )
-        )
-    }
-
-    override fun copy(
-        topStart: CornerSize,
-        topEnd: CornerSize,
-        bottomEnd: CornerSize,
-        bottomStart: CornerSize
-    ): CornerBasedShape = AgentMorphCornerShape(
-        progress = progress,
-        startScaleX = startScaleX,
-        startScaleY = startScaleY,
-        sourceRadiusPx = sourceRadiusPx,
-        targetRadiusPx = targetRadiusPx,
-        topStart = topStart,
-        topEnd = topEnd,
-        bottomEnd = bottomEnd,
-        bottomStart = bottomStart
-    )
-}
 
 @Composable
 fun TodayAgentHost(
@@ -576,13 +521,19 @@ private fun DayAgentConversationDialog(
     val screenCenterXPx = with(density) { configuration.screenWidthDp.dp.toPx() / 2f }
     val startScaleX = ((sourceBounds?.width ?: targetWidthPx) / targetWidthPx).coerceIn(0.16f, 1f)
     val startScaleY = ((sourceBounds?.height ?: targetHeightPx) / targetHeightPx).coerceIn(0.12f, 1f)
-    val morphShape = remember(sourceBounds, targetWidthPx, targetHeightPx, sourceCornerRadius, density) {
-        AgentMorphCornerShape(
-            progress = expansion.asState(),
-            startScaleX = startScaleX,
-            startScaleY = startScaleY,
-            sourceRadiusPx = with(density) { sourceCornerRadius.toPx() },
-            targetRadiusPx = with(density) { 32.dp.toPx() }
+    // This is deliberately the same per-frame shape replacement used by the course editor.
+    // Backdrop observes the Shape value used by its lens effect, not mutable state hidden inside
+    // createOutline, so keeping one dynamic Shape instance leaves its cached SDF out of date.
+    val shapeProgress = expansion.value.coerceIn(0f, 1f)
+    val currentScaleX = startScaleX + (1f - startScaleX) * shapeProgress
+    val currentScaleY = startScaleY + (1f - startScaleY) * shapeProgress
+    val sourceRadiusPx = with(density) { sourceCornerRadius.toPx() }
+    val targetRadiusPx = with(density) { 32.dp.toPx() }
+    val visualRadiusPx = sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * shapeProgress
+    val morphShape = remember(visualRadiusPx, currentScaleX, currentScaleY) {
+        CourseEditorMorphCornerShape(
+            radiusX = visualRadiusPx / currentScaleX.coerceAtLeast(0.001f),
+            radiusY = visualRadiusPx / currentScaleY.coerceAtLeast(0.001f)
         )
     }
     val panelColor = if (appUsesDarkTheme(state.config)) Color(0xFF202124) else Color(0xFFF4F4F6)
@@ -638,6 +589,12 @@ private fun DayAgentConversationDialog(
         onDismissRequest = ::dismissAnimated,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
+         val dialogView = LocalView.current
+         SideEffect {
+             // The geometry below is the only entrance/exit animation. Suppress the platform
+             // Dialog window scale animation so it cannot multiply the hand-authored Morph.
+             (dialogView.parent as? DialogWindowProvider)?.window?.setWindowAnimations(0)
+         }
          Box(
              Modifier
                  .fillMaxSize()
