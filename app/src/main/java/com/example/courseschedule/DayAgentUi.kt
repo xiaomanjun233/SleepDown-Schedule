@@ -25,7 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -70,16 +70,15 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -361,7 +360,6 @@ fun TodayAgentCard(
     if (dialogOpen && hasApiKey) {
         DayAgentConversationDialog(
             state = state,
-            backdrop = backdrop,
             facts = facts,
             messages = messages,
             repository = repository,
@@ -452,7 +450,6 @@ private fun AgentSimplePressSurface(
 @Composable
 private fun DayAgentConversationDialog(
     state: AppState,
-    backdrop: Backdrop?,
     facts: DayAgentFacts,
     messages: List<AgentMessageEntity>,
     repository: DayAgentRepository,
@@ -471,18 +468,21 @@ private fun DayAgentConversationDialog(
     var sending by remember { mutableStateOf(false) }
     var requestJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    var rootSize by remember { mutableStateOf(IntSize.Zero) }
-    var answerSize by remember { mutableStateOf(IntSize.Zero) }
-    var openingStarted by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
     var appliedActionKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     val expansion = remember { Animatable(0f) }
     val conversationListState = rememberLazyListState()
     val foreground = LocalAdaptiveGlass.current.contentColor
     val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val answerTopPadding = statusBarTop + (configuration.screenHeightDp.dp * 0.018f).coerceIn(10.dp, 20.dp)
     val answerMaxHeight = (configuration.screenHeightDp.dp * 0.58f).coerceIn(280.dp, 560.dp)
+    val targetWidthPx = with(density) { (configuration.screenWidthDp.dp - 28.dp).toPx() }
+    val targetHeightPx = with(density) { answerMaxHeight.toPx() }
+    val targetTopPx = with(density) { answerTopPadding.toPx() }
+    val screenCenterXPx = with(density) { configuration.screenWidthDp.dp.toPx() / 2f }
+    val panelColor = if (appUsesDarkTheme(state.config)) Color(0xFF202124) else Color(0xFFF4F4F6)
 
     fun dismissAnimated() {
         if (closing) return
@@ -523,52 +523,47 @@ private fun DayAgentConversationDialog(
          Box(
              Modifier
                  .fillMaxSize()
-                 .onSizeChanged { rootSize = it }
-                 .background(Color.Black.copy(alpha = 0.30f * expansion.value))
+                  .background(Color.Black.copy(alpha = 0.30f * expansion.value))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = ::dismissAnimated
                 )
         ) {
-            GlassSurface(
-                backdrop = null,
-                config = state.config,
+            Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                     .padding(start = 14.dp, top = answerTopPadding, end = 14.dp)
-                      .heightIn(min = 150.dp, max = answerMaxHeight)
-                       .onSizeChanged { answerSize = it }
-                     .graphicsLayer {
-                         val source = sourceBounds
-                         val p = expansion.value
-                         if (rootSize.width <= 0 || answerSize.width <= 0 || answerSize.height <= 0) {
-                             alpha = 0f
-                         } else {
-                             alpha = 1f
-                             if (source != null && source.width > 0f && source.height > 0f) {
-                                 val targetCenterX = rootSize.width / 2f
-                                 val targetTop = answerTopPadding.toPx()
-                                 val targetCenterY = targetTop + answerSize.height / 2f
-                                 val startScaleX = (source.width / answerSize.width).coerceIn(0.16f, 1f)
-                                 val startScaleY = (source.height / answerSize.height).coerceIn(0.12f, 1f)
-                                 scaleX = startScaleX + (1f - startScaleX) * p
-                                 scaleY = startScaleY + (1f - startScaleY) * p
-                                 translationX = (source.center.x - targetCenterX) * (1f - p)
-                                 translationY = (source.center.y - targetCenterY) * (1f - p)
-                             }
-                         }
-                    }
+                    .padding(start = 14.dp, top = answerTopPadding, end = 14.dp)
+                    .height(answerMaxHeight)
+                    .graphicsLayer {
+                        val source = sourceBounds
+                        val p = expansion.value
+                        if (source != null && source.width > 0f && source.height > 0f) {
+                            val startScaleX = (source.width / targetWidthPx).coerceIn(0.16f, 1f)
+                            val startScaleY = (source.height / targetHeightPx).coerceIn(0.12f, 1f)
+                            scaleX = startScaleX + (1f - startScaleX) * p
+                            scaleY = startScaleY + (1f - startScaleY) * p
+                            translationX = (source.center.x - screenCenterXPx) * (1f - p)
+                            translationY = (source.center.y - (targetTopPx + targetHeightPx / 2f)) * (1f - p)
+                        }
+                     }
+                    .clip(RoundedCornerShape(32.dp))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = {}
-                    ),
-                shape = RoundedCornerShape(28.dp),
-                tokens = GlassTokens.dialog(intensity = 0.90f).copy(blur = 5.dp)
+                    )
             ) {
-                Box {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .background(
+                            panelColor.copy(
+                                alpha = ((expansion.value - 0.06f) / 0.42f).coerceIn(0f, 1f)
+                            )
+                        )
+                )
                   Column(
                       Modifier
                           .graphicsLayer {
@@ -615,7 +610,7 @@ private fun DayAgentConversationDialog(
                                      parsed.actions.forEachIndexed { actionIndex, action ->
                                          val actionKey = "${message.id}:$actionIndex"
                                          AgentSimplePressSurface(
-                                             backdrop = backdrop,
+                                             backdrop = null,
                                              config = state.config,
                                              modifier = Modifier.fillMaxWidth(),
                                              shape = RoundedCornerShape(18.dp),
@@ -667,12 +662,11 @@ private fun DayAgentConversationDialog(
                              contentScale = ContentScale.FillBounds,
                              modifier = Modifier
                                  .matchParentSize()
-                                 .clip(RoundedCornerShape(28.dp))
+                                  .clip(RoundedCornerShape(32.dp))
                                  .graphicsLayer { alpha = snapshotAlpha }
                          )
                      }
                  }
-             }
             }
 
              GlassSurface(
@@ -754,23 +748,15 @@ private fun DayAgentConversationDialog(
                     }
             }
         }
-         LaunchedEffect(rootSize, answerSize) {
-               if (
-                   !openingStarted &&
-                   rootSize.width > 0 &&
-                   rootSize.height > 0 &&
-                   answerSize.width > 0 &&
-                   answerSize.height > 0
-               ) {
-                   openingStarted = true
-                    expansion.animateTo(
-                        1f,
-                        tween(DETAIL_OPEN_DURATION, easing = DetailOpenEasing)
-                    )
-                   focusRequester.requestFocus()
-                   keyboard?.show()
-                   initialQuestion?.takeIf { it.isNotBlank() }?.let(::send)
-              }
+         LaunchedEffect(Unit) {
+             withFrameNanos { }
+             expansion.animateTo(
+                 1f,
+                 tween(DETAIL_OPEN_DURATION, easing = DetailOpenEasing)
+             )
+             focusRequester.requestFocus()
+             keyboard?.show()
+             initialQuestion?.takeIf { it.isNotBlank() }?.let(::send)
          }
         LaunchedEffect(messages.size, streamingText.length, sending, error) {
             delay(24)
