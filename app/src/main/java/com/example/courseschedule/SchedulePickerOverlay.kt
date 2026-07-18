@@ -78,8 +78,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -667,24 +665,10 @@ fun SchedulePickerOverlay(
         }
     }
 
-    Popup(
-        onDismissRequest = {
-            if (renameEditing) {
-                cancelRename()
-            } else if (pickerState.phase is CustomizeUiState.Picker && !cancelDeleteReveal() && phaseInputEnabled) {
-                onBack(selectedId)
-            }
-        },
-        alignment = Alignment.TopStart,
-        properties = PopupProperties(
-            // Let the host Activity own system Back/predictive Back. A focusable Popup creates
-            // a second window-level back dispatcher which swallowed the edge gesture.
-            focusable = renameEditing,
-            dismissOnBackPress = false,
-            dismissOnClickOutside = false,
-            clippingEnabled = false
-        )
-    ) {
+    // Keep the picker in the Activity's root composition. A platform Popup is a separate window:
+    // the MIUIX sheet was consequently inserted below it, became invisible, and still consumed
+    // every touch. Keeping both overlays in one root also makes the sheet backdrop sample the
+    // complete picker without crossing a window boundary.
     BoxWithConstraints(
         modifier
             .fillMaxSize()
@@ -1071,7 +1055,6 @@ fun SchedulePickerOverlay(
             }
         }
 
-    }
     }
 
     deleteConfirmTarget?.let { profile ->

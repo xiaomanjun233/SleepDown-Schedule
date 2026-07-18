@@ -1127,20 +1127,49 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 alphaProvider = { dayAgentBackgroundProgress },
                 modifier = Modifier.fillMaxSize()
             )
+            Image(
+                bitmap = background.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val p = dayAgentBackgroundProgress.coerceIn(0f, 1f)
+                        alpha = p
+                        val scale = 1f - 0.08f * p
+                        scaleX = scale
+                        scaleY = scale
+                        // Use the same stable 12dp effect as the edge extension. Keeping the
+                        // radius constant avoids rebuilding a RenderEffect on every Morph frame;
+                        // the shared alpha/progress makes both layers arrive together.
+                        val blurPx = with(density) { 12.dp.toPx() }
+                        renderEffect = BlurEffect(blurPx, blurPx, TileMode.Clamp)
+                        shape = RoundedCornerShape(20.dp)
+                        clip = p > 0.001f
+                    }
+            )
         }
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
                     val p = dayAgentBackgroundProgress.coerceIn(0f, 1f)
-                    val scale = 1f - 0.08f * p
-                    scaleX = scale
-                    scaleY = scale
-                    val blurPx = with(density) { 12.dp.toPx() } * p
-                    renderEffect = if (blurPx > 0.01f) {
-                        BlurEffect(blurPx, blurPx, TileMode.Clamp)
+                    if (dayAgentEdgeSnapshot != null) {
+                        // The frozen snapshot owns the whole background transition. Do not keep
+                        // transforming the live, backdrop-heavy home underneath it.
+                        alpha = 1f - p
+                        scaleX = 1f
+                        scaleY = 1f
+                        renderEffect = null
                     } else {
-                        null
+                        // Safe fallback for the very first frame before prewarm completes.
+                        val scale = 1f - 0.08f * p
+                        scaleX = scale
+                        scaleY = scale
+                        val blurPx = with(density) { 12.dp.toPx() }
+                        renderEffect = if (p > 0.001f) {
+                            BlurEffect(blurPx, blurPx, TileMode.Clamp)
+                        } else null
                     }
                     shape = RoundedCornerShape(20.dp)
                     clip = p > 0.001f

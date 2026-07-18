@@ -591,7 +591,28 @@ private fun DayAgentConversationDialog(
                 GlassSurface(
                     backdrop = backdrop,
                     config = state.config,
-                    modifier = Modifier.matchParentSize(),
+                    modifier = Modifier
+                        .matchParentSize()
+                        .graphicsLayer {
+                            // The outer node owns the geometry Morph. Apply its exact inverse to
+                            // the live glass layer so the sampled wallpaper stays fixed in screen
+                            // coordinates instead of stretching with short/tall source cards.
+                            val source = sourceBounds
+                            val p = expansion.value
+                            if (source != null && source.width > 0f && source.height > 0f) {
+                                val outerScaleX = (source.width / targetWidthPx).coerceIn(0.16f, 1f) +
+                                    (1f - (source.width / targetWidthPx).coerceIn(0.16f, 1f)) * p
+                                val outerScaleY = (source.height / targetHeightPx).coerceIn(0.12f, 1f) +
+                                    (1f - (source.height / targetHeightPx).coerceIn(0.12f, 1f)) * p
+                                val outerTranslationX = (source.center.x - screenCenterXPx) * (1f - p)
+                                val outerTranslationY =
+                                    (source.center.y - (targetTopPx + targetHeightPx / 2f)) * (1f - p)
+                                scaleX = 1f / outerScaleX.coerceAtLeast(0.001f)
+                                scaleY = 1f / outerScaleY.coerceAtLeast(0.001f)
+                                translationX = -outerTranslationX / outerScaleX.coerceAtLeast(0.001f)
+                                translationY = -outerTranslationY / outerScaleY.coerceAtLeast(0.001f)
+                            }
+                        },
                     shape = RoundedCornerShape(32.dp),
                     tokens = GlassTokens.dialog(intensity = 0.90f).copy(
                         blur = 5.dp,
