@@ -37,6 +37,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CornerBasedShape
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -105,12 +107,19 @@ private class AgentMorphCornerShape(
     private val startScaleX: Float,
     private val startScaleY: Float,
     private val sourceRadiusPx: Float,
-    private val targetRadiusPx: Float
-) : Shape {
+    private val targetRadiusPx: Float,
+    topStart: CornerSize = CornerSize(0f),
+    topEnd: CornerSize = topStart,
+    bottomEnd: CornerSize = topStart,
+    bottomStart: CornerSize = topStart
+) : CornerBasedShape(topStart, topEnd, bottomEnd, bottomStart) {
     override fun createOutline(
         size: androidx.compose.ui.geometry.Size,
-        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
-        density: androidx.compose.ui.unit.Density
+        topStart: Float,
+        topEnd: Float,
+        bottomEnd: Float,
+        bottomStart: Float,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection
     ): Outline {
         val p = progress.value.coerceIn(0f, 1f)
         val scaleX = startScaleX + (1f - startScaleX) * p
@@ -126,6 +135,23 @@ private class AgentMorphCornerShape(
             )
         )
     }
+
+    override fun copy(
+        topStart: CornerSize,
+        topEnd: CornerSize,
+        bottomEnd: CornerSize,
+        bottomStart: CornerSize
+    ): CornerBasedShape = AgentMorphCornerShape(
+        progress = progress,
+        startScaleX = startScaleX,
+        startScaleY = startScaleY,
+        sourceRadiusPx = sourceRadiusPx,
+        targetRadiusPx = targetRadiusPx,
+        topStart = topStart,
+        topEnd = topEnd,
+        bottomEnd = bottomEnd,
+        bottomStart = bottomStart
+    )
 }
 
 @Composable
