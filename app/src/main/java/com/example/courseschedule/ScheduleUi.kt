@@ -424,11 +424,16 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var renderedHomeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     var homeDialogVisible by remember { mutableStateOf(false) }
     var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
+    var pendingCourseEditorCapture by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
+    var courseEditorCaptureCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var courseEditorCaptureCourseId by remember { mutableStateOf<Long?>(null) }
     var courseEditorRenderedCourseId by remember { mutableStateOf<Long?>(null) }
     val courseEditorMotionState = rememberCourseEditorMotionState()
     val courseEditorOverlayPhase = courseEditorMotionState.phase
     fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?) {
-        courseEditorRequest = CourseEditorOverlayRequest(course, targetWeek, sourceBounds)
+        if (courseEditorRequest != null || pendingCourseEditorCapture != null) return
+        val request = CourseEditorOverlayRequest(course, targetWeek, sourceBounds)
+        if (sourceBounds != null) pendingCourseEditorCapture = request else courseEditorRequest = request
     }
     fun closeCourseEditor() {
         courseEditorRequest = null
@@ -452,7 +457,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var addMenuPhase by remember { mutableStateOf(AddMenuPhase.Idle) }
     var addButtonBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var showScheduleEntryPill by remember { mutableStateOf(false) }
-    val editingCourseId: Long? = courseEditorRequest?.course?.id ?: courseEditorRenderedCourseId
+    val editingCourseId: Long? =
+        courseEditorCaptureCourseId ?: courseEditorRequest?.course?.id ?: courseEditorRenderedCourseId
     LaunchedEffect(addMenuExpanded) {
         if (addMenuExpanded) {
             renderAddMenu = true
@@ -489,6 +495,53 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var weekCardHeight by remember(visualState.periods.size, visualState.config.weekCardHeightDp) { mutableFloatStateOf(visualState.config.weekCardHeightDp ?: adaptiveWeekCardHeight) }
     val context = LocalContext.current
     val appScope = rememberCoroutineScope()
+    LaunchedEffect(pendingCourseEditorCapture) {
+        val pending = pendingCourseEditorCapture ?: return@LaunchedEffect
+        val sourceBounds = pending.sourceBoundsInRoot
+        val fullSnapshot = runCatching {
+            screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+        }.getOrNull()
+        if (
+            sourceBounds == null ||
+            fullSnapshot == null ||
+            fullSnapshot.width <= 0 ||
+            fullSnapshot.height <= 0
+        ) {
+            pendingCourseEditorCapture = null
+            courseEditorRequest = pending
+            return@LaunchedEffect
+        }
+        val x = sourceBounds.left.toInt().coerceIn(0, fullSnapshot.width - 1)
+        val y = sourceBounds.top.toInt().coerceIn(0, fullSnapshot.height - 1)
+        val width = sourceBounds.width.toInt().coerceIn(1, fullSnapshot.width - x)
+        val height = sourceBounds.height.toInt().coerceIn(1, fullSnapshot.height - y)
+        val sourceSnapshot = runCatching {
+            Bitmap.createBitmap(fullSnapshot, x, y, width, height)
+        }.getOrNull()
+        if (sourceSnapshot == null) {
+            pendingCourseEditorCapture = null
+            courseEditorRequest = pending
+            return@LaunchedEffect
+        }
+
+        // Keep the exact visible frame on screen while the real card is hidden only in the
+        // home recording layer. The editor overlay is outside that layer, so it cannot recurse.
+        courseEditorCaptureCoverBitmap = fullSnapshot
+        courseEditorCaptureCourseId = pending.course.id
+        withFrameNanos { }
+        withFrameNanos { }
+        val cleanBackground = runCatching {
+            screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+        }.getOrNull() ?: fullSnapshot
+        pendingCourseEditorCapture = null
+        courseEditorRequest = pending.copy(
+            backgroundSnapshot = cleanBackground,
+            sourceCardSnapshot = sourceSnapshot
+        )
+        withFrameNanos { }
+        courseEditorCaptureCoverBitmap = null
+        courseEditorCaptureCourseId = null
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val backgroundBackdrop = rememberLayerBackdrop()
     val contentBackdrop = rememberLayerBackdrop()
@@ -1702,6 +1755,28 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         )
     }
 
+    courseEditorCaptureCoverBitmap?.let { cover ->
+        Box(
+            Modifier
+                .fillMaxSize()
+                .zIndex(99f)
+                .pointerInput(cover) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            awaitPointerEvent().changes.forEach { it.consume() }
+                        }
+                    }
+                }
+        ) {
+            Image(
+                bitmap = cover.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+
     CourseEditorContainerOverlayHost(
         request = courseEditorRequest,
         state = state,
@@ -1913,20 +1988,10 @@ private fun CourseEditorBackgroundBlurLayer(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val density = LocalDensity.current
-    val maxRadiusPx = with(density) { 16.dp.toPx() }
-    Box(
-        modifier = modifier.graphicsLayer {
-            val radiusPx = maxRadiusPx * motionState.progress.value.coerceIn(0f, 1f)
-            renderEffect = if (radiusPx > 0.01f) {
-                BlurEffect(radiusPx, radiusPx, TileMode.Decal)
-            } else {
-                null
-            }
-            clip = false
-        },
-        content = content
-    )
+    // The editor now animates a frozen home snapshot. Keeping the old live-home blur here
+    // would render the entire schedule twice and can make the hidden layer hitch or tear.
+    @Suppress("UNUSED_VARIABLE") val keepMotionStateStable = motionState
+    Box(modifier = modifier, content = content)
 }
 
 @Composable
