@@ -360,6 +360,7 @@ fun TodayAgentCard(
     if (dialogOpen && hasApiKey) {
         DayAgentConversationDialog(
             state = state,
+            backdrop = backdrop,
             facts = facts,
             messages = messages,
             repository = repository,
@@ -450,6 +451,7 @@ private fun AgentSimplePressSurface(
 @Composable
 private fun DayAgentConversationDialog(
     state: AppState,
+    backdrop: Backdrop?,
     facts: DayAgentFacts,
     messages: List<AgentMessageEntity>,
     repository: DayAgentRepository,
@@ -469,8 +471,10 @@ private fun DayAgentConversationDialog(
     var requestJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var closing by remember { mutableStateOf(false) }
+    var liveBackdropReady by remember { mutableStateOf(false) }
     var appliedActionKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     val expansion = remember { Animatable(0f) }
+    val liveBackdropAlpha = remember { Animatable(0f) }
     val conversationListState = rememberLazyListState()
     val foreground = LocalAdaptiveGlass.current.contentColor
     val configuration = LocalConfiguration.current
@@ -489,6 +493,8 @@ private fun DayAgentConversationDialog(
         closing = true
         keyboard?.hide()
         scope.launch {
+            liveBackdropAlpha.snapTo(0f)
+            liveBackdropReady = false
             expansion.animateTo(
                 0f,
                 tween(DETAIL_SYSTEM_BACK_DURATION, easing = DetailExitEasing)
@@ -523,13 +529,18 @@ private fun DayAgentConversationDialog(
          Box(
              Modifier
                  .fillMaxSize()
-                  .background(Color.Black.copy(alpha = 0.30f * expansion.value))
-                .clickable(
+                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = ::dismissAnimated
                 )
         ) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .graphicsLayer { alpha = expansion.value }
+                    .background(Color.Black.copy(alpha = 0.30f))
+            )
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -558,9 +569,31 @@ private fun DayAgentConversationDialog(
                 Box(
                     Modifier
                         .matchParentSize()
+                        .graphicsLayer {
+                            alpha = ((expansion.value - 0.06f) / 0.42f).coerceIn(0f, 1f)
+                        }
+                        .background(panelColor)
+                )
+                if (liveBackdropReady && backdrop != null) {
+                    GlassSurface(
+                        backdrop = backdrop,
+                        config = state.config,
+                        modifier = Modifier
+                            .matchParentSize()
+                            .graphicsLayer { alpha = liveBackdropAlpha.value },
+                        shape = RoundedCornerShape(32.dp),
+                        tokens = GlassTokens.dialog(intensity = 0.90f).copy(
+                            blur = 5.dp,
+                            surfaceAlpha = 0.30f
+                        )
+                    ) {}
+                }
+                Box(
+                    Modifier
+                        .matchParentSize()
                         .background(
-                            panelColor.copy(
-                                alpha = ((expansion.value - 0.06f) / 0.42f).coerceIn(0f, 1f)
+                            Color.Black.copy(
+                                alpha = if (appUsesDarkTheme(state.config)) 0.18f else 0.08f
                             )
                         )
                 )
@@ -569,8 +602,7 @@ private fun DayAgentConversationDialog(
                           .graphicsLayer {
                               alpha = ((expansion.value - 0.10f) / 0.50f).coerceIn(0f, 1f)
                           }
-                          .background(Color.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.18f else 0.08f))
-                         .padding(start = 16.dp, top = 16.dp, end = 16.dp),
+                          .padding(start = 16.dp, top = 16.dp, end = 16.dp),
                      verticalArrangement = Arrangement.spacedBy(10.dp)
                  ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -653,20 +685,19 @@ private fun DayAgentConversationDialog(
                          }
                      }
                  }
-                 sourceCardSnapshot?.let { snapshot ->
-                     val snapshotAlpha = (1f - expansion.value * 3f).coerceIn(0f, 1f)
-                     if (snapshotAlpha > 0.001f) {
-                         Image(
-                             bitmap = snapshot.asImageBitmap(),
-                             contentDescription = null,
-                             contentScale = ContentScale.FillBounds,
-                             modifier = Modifier
-                                 .matchParentSize()
-                                  .clip(RoundedCornerShape(32.dp))
-                                 .graphicsLayer { alpha = snapshotAlpha }
-                         )
-                     }
-                 }
+                sourceCardSnapshot?.let { snapshot ->
+                    Image(
+                        bitmap = snapshot.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.FillBounds,
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clip(RoundedCornerShape(32.dp))
+                            .graphicsLayer {
+                                alpha = (1f - expansion.value * 3f).coerceIn(0f, 1f)
+                            }
+                    )
+                }
             }
 
              GlassSurface(
@@ -754,6 +785,14 @@ private fun DayAgentConversationDialog(
                  1f,
                  tween(DETAIL_OPEN_DURATION, easing = DetailOpenEasing)
              )
+             if (backdrop != null) {
+                 liveBackdropReady = true
+                 withFrameNanos { }
+                 liveBackdropAlpha.animateTo(
+                     1f,
+                     tween(durationMillis = 160)
+                 )
+             }
              focusRequester.requestFocus()
              keyboard?.show()
              initialQuestion?.takeIf { it.isNotBlank() }?.let(::send)
