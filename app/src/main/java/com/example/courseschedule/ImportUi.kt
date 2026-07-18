@@ -532,7 +532,7 @@ private fun AiManualImportDialogContent(
             32.dp
         ).coerceAtLeast(280.dp)
     val expandedHeight = (safeHeight * 0.82f).coerceAtMost(600.dp)
-    val compactHeight = if (selectedMode == 1) 380.dp else 420.dp
+    val compactHeight = if (selectedMode == 1) 300.dp else 330.dp
     val dialogHeight by animateDpAsState(
         targetValue = if (selectedMode == 0) expandedHeight else compactHeight.coerceAtMost(safeHeight),
         animationSpec = tween(

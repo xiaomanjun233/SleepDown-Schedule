@@ -2094,7 +2094,13 @@ fun CenterLiquidDialog(
         size = size
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = if (size == LiquidDialogSize.Standard) {
+                Modifier.fillMaxSize()
+            } else {
+                // Let compact content determine the real LiquidPanel height. fillMaxSize forced
+                // it back to the 600dp maximum and merely moved the action into the middle.
+                Modifier.fillMaxWidth()
+            },
             verticalArrangement = Arrangement.spacedBy(10.dp),
             content = content
         )

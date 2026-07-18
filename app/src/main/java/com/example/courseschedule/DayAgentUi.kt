@@ -46,6 +46,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -94,6 +95,9 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
+
+private const val AGENT_BACKGROUND_HANDOFF_PROGRESS = 0.0015f
+private const val AGENT_LIVE_GLASS_MIN_PROGRESS = 0.32f
 
 @Composable
 fun TodayAgentHost(
@@ -490,6 +494,9 @@ private fun DayAgentConversationDialog(
     var appliedActionKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     val expansion = remember { Animatable(0f) }
     val backgroundProgress = remember { Animatable(0f) }
+    val renderLiveGlass by remember {
+        derivedStateOf { expansion.value > AGENT_LIVE_GLASS_MIN_PROGRESS }
+    }
     val conversationListState = rememberLazyListState()
     val foreground = LocalAdaptiveGlass.current.contentColor
     val configuration = LocalConfiguration.current
@@ -517,14 +524,19 @@ private fun DayAgentConversationDialog(
                 }
                 launch {
                     backgroundProgress.animateTo(
-                        0f,
+                        AGENT_BACKGROUND_HANDOFF_PROGRESS,
                         tween(BACKGROUND_EXIT_DURATION, easing = BackgroundExitEasing)
                     ) { onBackgroundProgress(value) }
                 }
             }
-            onBackgroundProgress(0f)
             onPrepareDismiss()
             withFrameNanos { }
+            withFrameNanos { }
+            // Keep the heavy frozen 12dp background out of the Morph's last frame. At this
+            // epsilon its geometry is already visually identical to the home frame; unload it
+            // only after the real card has settled underneath the source snapshot.
+            backgroundProgress.snapTo(0f)
+            onBackgroundProgress(0f)
             withFrameNanos { }
             onDismiss()
         }
@@ -595,7 +607,7 @@ private fun DayAgentConversationDialog(
                         }
                         .background(panelColor)
                 )
-                GlassSurface(
+                if (renderLiveGlass) GlassSurface(
                     backdrop = backdrop,
                     config = state.config,
                     modifier = Modifier
@@ -824,8 +836,8 @@ private fun DayAgentConversationDialog(
                      ) { onBackgroundProgress(value) }
                  }
              }
-             // Do not trigger an IME/insets relayout on the Morph's final frame. The input bar
-             // already requests focus and opens the keyboard when the user taps it.
+             focusRequester.requestFocus()
+             keyboard?.show()
              initialQuestion?.takeIf { it.isNotBlank() }?.let(::send)
          }
         LaunchedEffect(messages.size, streamingText.length, sending, error) {
