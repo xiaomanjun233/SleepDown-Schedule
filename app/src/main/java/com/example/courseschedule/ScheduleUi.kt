@@ -400,7 +400,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var previewScheduleId by remember { mutableStateOf<Int?>(null) }
     var pendingPickerEditorScheduleId by remember { mutableStateOf<Int?>(null) }
     var quickScheduleDraft by remember { mutableStateOf<QuickScheduleDraft?>(null) }
-    var pickerSheetBackdrop by remember { mutableStateOf<Backdrop?>(null) }
     var dayAgentBackgroundProgress by remember { mutableFloatStateOf(0f) }
     var dayAgentEdgeSnapshot by remember { mutableStateOf<Bitmap?>(null) }
     var detailMorphState by remember { mutableStateOf<DetailMorphState>(DetailMorphState.Idle) }
@@ -545,7 +544,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val backgroundBackdrop = rememberLayerBackdrop()
     val contentBackdrop = rememberLayerBackdrop()
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
-    val quickSheetBackdrop = rememberLayerBackdrop()
     val currentVersionName = remember(context) {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
@@ -1095,7 +1093,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .layerBackdrop(quickSheetBackdrop)
             .drawWithContent {
                 val recordCleanFrame =
                     detailMorphState is DetailMorphState.Capturing && detailCaptureRecordCleanFrame
@@ -1124,7 +1121,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 bitmap = background,
                 insetFraction = 0.04f,
                 blurPx = 12f * density.density,
-                alphaProvider = { dayAgentBackgroundProgress },
+                alphaProvider = {
+                    if (dayAgentBackgroundProgress > 0.001f) 1f else 0f
+                },
                 modifier = Modifier.fillMaxSize()
             )
             Image(
@@ -1135,7 +1134,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     .fillMaxSize()
                     .graphicsLayer {
                         val p = dayAgentBackgroundProgress.coerceIn(0f, 1f)
-                        alpha = p
+                        // Switch from the identical live frame to its frozen copy immediately;
+                        // crossfading the two hid the 1 -> 0.92 depth motion for half the curve.
+                        alpha = if (p > 0.001f) 1f else 0f
                         val scale = 1f - 0.08f * p
                         scaleX = scale
                         scaleY = scale
@@ -1157,7 +1158,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     if (dayAgentEdgeSnapshot != null) {
                         // The frozen snapshot owns the whole background transition. Do not keep
                         // transforming the live, backdrop-heavy home underneath it.
-                        alpha = 1f - p
+                        alpha = if (p > 0.001f) 0f else 1f
                         scaleX = 1f
                         scaleY = 1f
                         renderEffect = null
@@ -1669,7 +1670,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     }
                 }
             },
-            onSheetBackdropChanged = { pickerSheetBackdrop = it }
         )
     }
     }
@@ -1678,7 +1678,11 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         QuickScheduleSettingsSheets(
             draft = quickScheduleDraft,
             config = state.config,
-            backdrop = pickerSheetBackdrop ?: quickSheetBackdrop,
+            // The home/chrome producers are siblings below the sheet, so this remains a real
+            // liquid backdrop without ever recording the dialog that consumes it. In particular,
+            // do not restore the former root-level quickSheetBackdrop: it caused the native
+            // RenderThread recursion when the new-schedule sheet opened after Picker exit.
+            backdrop = chromeBackdrop,
             onDraftChange = { quickScheduleDraft = it },
             onDismiss = { quickScheduleDraft = null },
             onDismissFinished = {

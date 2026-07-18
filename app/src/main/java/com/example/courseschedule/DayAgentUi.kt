@@ -550,12 +550,6 @@ private fun DayAgentConversationDialog(
                 )
         ) {
             Box(
-                Modifier
-                    .matchParentSize()
-                    .graphicsLayer { alpha = backgroundProgress.value }
-                    .background(Color.Black.copy(alpha = 0.30f))
-            )
-            Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
@@ -619,15 +613,6 @@ private fun DayAgentConversationDialog(
                         surfaceAlpha = 0.30f
                     )
                 ) {}
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .background(
-                            Color.Black.copy(
-                                alpha = if (appUsesDarkTheme(state.config)) 0.18f else 0.08f
-                            )
-                        )
-                )
                   Column(
                       Modifier
                           .graphicsLayer {

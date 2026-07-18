@@ -209,6 +209,29 @@ private fun QuickSheetLiquidAction(
                 fontSize = 14.sp
             )
         }
+    } else {
+        val dark = appUsesDarkTheme(config)
+        val background = when {
+            primary -> Color(0xFF0A84FF)
+            dark -> Color(0xFF30343D)
+            else -> Color(0xFFE8ECF3)
+        }
+        Box(
+            modifier = Modifier
+                .width(84.dp)
+                .height(38.dp)
+                .clip(RoundedCornerShape(50))
+                .background(background.copy(alpha = if (enabled) 0.94f else 0.46f))
+                .clickable(enabled = enabled, onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                label,
+                color = if (primary) Color.White else MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp
+            )
+        }
     }
 }
 
@@ -403,8 +426,8 @@ fun QuickScheduleSettingsSheets(
                         onClick = { beginDateSelection(value.termStartDate) }
                     )
                 }
-                if (backdrop != null) {
-                    if (!detailLaunching && !suppressDetailedButton) LiquidButton(
+                if (!detailLaunching && !suppressDetailedButton) {
+                    if (backdrop != null) LiquidButton(
                         onClick = {
                             val raw = draft ?: return@LiquidButton
                             val bounds = detailButtonBounds ?: return@LiquidButton
@@ -448,8 +471,49 @@ fun QuickScheduleSettingsSheets(
                         contentPadding = PaddingValues(horizontal = 24.dp)
                     ) {
                         Text("详细设置", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-                    } else Spacer(Modifier.fillMaxWidth().height(52.dp))
-                }
+                    } else Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .onGloballyPositioned { coordinates ->
+                                val position = coordinates.localToRoot(Offset.Zero)
+                                val size = coordinates.size
+                                detailButtonBounds = Rect(
+                                    position.x,
+                                    position.y,
+                                    position.x + size.width,
+                                    position.y + size.height
+                                )
+                            }
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (appUsesDarkTheme(config)) Color(0xFF30343D)
+                                else Color(0xFFE8ECF3)
+                            )
+                            .clickable {
+                                val raw = draft ?: return@clickable
+                                val bounds = detailButtonBounds ?: return@clickable
+                                if (saving || detailLaunching) return@clickable
+                                val total = totalWeeksText.toIntOrNull()?.coerceIn(1, 60) ?: raw.totalWeeks
+                                val current = totalWeeksText.toIntOrNull()?.let {
+                                    currentWeekText.toIntOrNull()?.coerceIn(1, total)
+                                } ?: raw.currentWeek.coerceIn(1, total)
+                                val updated = raw.copy(totalWeeks = total, currentWeek = current)
+                                detailLaunching = true
+                                onDetailedSettings(updated.scheduleId, bounds) { afterSaved ->
+                                    saving = true
+                                    onSave(updated) {
+                                        saving = false
+                                        detailLaunching = false
+                                        afterSaved()
+                                    }
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("详细设置", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                    }
+                } else Spacer(Modifier.fillMaxWidth().height(52.dp))
             }
         }
     }
@@ -578,7 +642,6 @@ fun SchedulePickerOverlay(
     onCustomize: (Int) -> Unit,
     onRename: (Int, String) -> Unit,
     onDeleteRequest: (Int) -> Unit,
-    onSheetBackdropChanged: (Backdrop?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (!pickerState.overlayVisible) return
@@ -595,7 +658,6 @@ fun SchedulePickerOverlay(
         ?: selectedConfig
     val scope = rememberCoroutineScope()
     val managerBackdrop = rememberLayerBackdrop()
-    val sheetBackdrop = rememberLayerBackdrop()
     var deleteConfirmTarget by remember { mutableStateOf<ScheduleProfileEntity?>(null) }
     var showShareOptions by remember { mutableStateOf(false) }
     var targetCardBounds by remember { mutableStateOf<Rect?>(null) }
@@ -604,11 +666,6 @@ fun SchedulePickerOverlay(
     val renameEditing = pickerState.renamingScheduleId != null
     val phaseInputEnabled = !pickerState.interactionsLocked
     val pagerInputEnabled = phaseInputEnabled && pickerState.deletingScheduleId == null && !renameEditing
-
-    DisposableEffect(sheetBackdrop) {
-        onSheetBackdropChanged(sheetBackdrop)
-        onDispose { onSheetBackdropChanged(null) }
-    }
 
     fun cancelRename() {
         pickerState.renamingScheduleId = null
@@ -673,7 +730,6 @@ fun SchedulePickerOverlay(
         modifier
             .fillMaxSize()
             .zIndex(100f)
-            .layerBackdrop(sheetBackdrop)
     ) {
         val density = LocalDensity.current
         val screenWidth = maxWidth
