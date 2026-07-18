@@ -443,6 +443,7 @@ fun HomeScreen(
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onAgentBackgroundProgress: (Float) -> Unit = {},
+    onAgentPrepareOpen: suspend () -> Unit = {},
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit = {},
     onAgentAction: (AgentValidatedAction) -> Unit = {},
@@ -502,6 +503,7 @@ fun HomeScreen(
                         onSwipeDay = onSwipeDay,
                         onContentUnderTopBarChange = onContentUnderTopBarChange,
                         onAgentBackgroundProgress = onAgentBackgroundProgress,
+                        onAgentPrepareOpen = onAgentPrepareOpen,
                         onCourseClick = onCourseClick,
                         onAddCourse = onAddCourse,
                         onAgentAction = onAgentAction
@@ -1037,6 +1039,7 @@ fun DayScheduleScreen(
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onAgentBackgroundProgress: (Float) -> Unit,
+    onAgentPrepareOpen: suspend () -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit,
     onAgentAction: (AgentValidatedAction) -> Unit
@@ -1157,6 +1160,7 @@ fun DayScheduleScreen(
                             textColor = textColor,
                             collapsed = agentCollapsed,
                             onBackgroundProgress = onAgentBackgroundProgress,
+                            onPrepareOpen = onAgentPrepareOpen,
                             onAgentAction = onAgentAction
                         )
                     }

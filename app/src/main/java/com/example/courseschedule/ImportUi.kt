@@ -52,7 +52,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColor
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -536,13 +535,6 @@ private fun AiManualImportDialogContent(
     Column(
         Modifier
             .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = tween(
-                    durationMillis = 320,
-                    easing = CubicBezierEasing(0.3f, 0.72f, 0.2f, 1f)
-                ),
-                alignment = Alignment.Center
-            )
             .then(
                 if (selectedMode == 0) {
                     Modifier.height(expandedHeight)

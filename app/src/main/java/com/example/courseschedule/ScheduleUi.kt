@@ -1295,6 +1295,15 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     onSwipeDay = { delta -> homeDisplayDate = homeDisplayDate.plusDays(delta.toLong()) },
                                     onContentUnderTopBarChange = { homeContentUnderTopBar = it },
                                     onAgentBackgroundProgress = { dayAgentBackgroundProgress = it },
+                                    onAgentPrepareOpen = {
+                                        // Capture on the click path, after the day card is actually
+                                        // visible. The old prewarm snapshot may still be a week-view
+                                        // frame left over from before the mode transition.
+                                        withFrameNanos { }
+                                        runCatching {
+                                            screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                                        }.getOrNull()?.let { dayAgentEdgeSnapshot = it }
+                                    },
                                     onCourseClick = { course, week, sourceBounds ->
                                         openCourseEditor(course, week, sourceBounds)
                                     },

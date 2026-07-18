@@ -46,6 +46,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,7 +61,10 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -79,6 +83,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -95,6 +100,34 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 
+private class AgentMorphCornerShape(
+    private val progress: State<Float>,
+    private val startScaleX: Float,
+    private val startScaleY: Float,
+    private val sourceRadiusPx: Float,
+    private val targetRadiusPx: Float
+) : Shape {
+    override fun createOutline(
+        size: androidx.compose.ui.geometry.Size,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        density: androidx.compose.ui.unit.Density
+    ): Outline {
+        val p = progress.value.coerceIn(0f, 1f)
+        val scaleX = startScaleX + (1f - startScaleX) * p
+        val scaleY = startScaleY + (1f - startScaleY) * p
+        val visualRadius = sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * p
+        return Outline.Rounded(
+            RoundRect(
+                rect = androidx.compose.ui.geometry.Rect(0f, 0f, size.width, size.height),
+                cornerRadius = CornerRadius(
+                    visualRadius / scaleX.coerceAtLeast(0.001f),
+                    visualRadius / scaleY.coerceAtLeast(0.001f)
+                )
+            )
+        )
+    }
+}
+
 @Composable
 fun TodayAgentHost(
     state: AppState,
@@ -103,6 +136,7 @@ fun TodayAgentHost(
     textColor: Color,
     collapsed: Boolean,
     onBackgroundProgress: (Float) -> Unit = {},
+    onPrepareOpen: suspend () -> Unit = {},
     onAgentAction: (AgentValidatedAction) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -159,6 +193,7 @@ fun TodayAgentHost(
             weatherEnabled = DayAgentPreferences.isWeatherEnabled(context),
             hasApiKey = hasApiKey,
             onBackgroundProgress = onBackgroundProgress,
+            onPrepareOpen = onPrepareOpen,
             onAgentAction = onAgentAction
         )
     }
@@ -175,6 +210,7 @@ fun TodayAgentCard(
     weatherEnabled: Boolean,
     hasApiKey: Boolean,
     onBackgroundProgress: (Float) -> Unit,
+    onPrepareOpen: suspend () -> Unit,
     onAgentAction: (AgentValidatedAction) -> Unit
 ) {
     val context = LocalContext.current
@@ -192,6 +228,7 @@ fun TodayAgentCard(
     }
     var now by remember(date) { mutableStateOf(LocalDateTime.now(ShanghaiZone)) }
     var dialogOpen by remember(date, scheduleId) { mutableStateOf(false) }
+    var dialogOpening by remember(date, scheduleId) { mutableStateOf(false) }
     var sourceCardHidden by remember(date, scheduleId) { mutableStateOf(false) }
     var pendingQuestion by remember(date, scheduleId) { mutableStateOf<String?>(null) }
     var generationError by remember(date, scheduleId) { mutableStateOf<String?>(null) }
@@ -260,11 +297,19 @@ fun TodayAgentCard(
     }
 
     fun openConversation(question: String?) {
-        if (!hasApiKey || dialogOpen) return
-        sourceCardSnapshot = cachedCardSnapshot
-        pendingQuestion = question
-        sourceCardHidden = true
-        dialogOpen = true
+        if (!hasApiKey || dialogOpen || dialogOpening) return
+        dialogOpening = true
+        scope.launch {
+            try {
+                onPrepareOpen()
+                sourceCardSnapshot = cachedCardSnapshot
+                pendingQuestion = question
+                sourceCardHidden = true
+                dialogOpen = true
+            } finally {
+                dialogOpening = false
+            }
+        }
     }
 
     GlassSurface(
@@ -374,6 +419,7 @@ fun TodayAgentCard(
             initialQuestion = pendingQuestion,
             sourceBounds = cardBounds,
             sourceCardSnapshot = sourceCardSnapshot,
+            sourceCornerRadius = if (collapsed) 26.dp else 28.dp,
             onBackgroundProgress = onBackgroundProgress,
             onAgentAction = onAgentAction,
             onPrepareDismiss = {
@@ -473,6 +519,7 @@ private fun DayAgentConversationDialog(
     initialQuestion: String?,
     sourceBounds: Rect?,
     sourceCardSnapshot: Bitmap?,
+    sourceCornerRadius: Dp,
     onBackgroundProgress: (Float) -> Unit,
     onAgentAction: (AgentValidatedAction) -> Unit,
     onPrepareDismiss: () -> Unit,
@@ -501,6 +548,17 @@ private fun DayAgentConversationDialog(
     val targetHeightPx = with(density) { answerMaxHeight.toPx() }
     val targetTopPx = with(density) { answerTopPadding.toPx() }
     val screenCenterXPx = with(density) { configuration.screenWidthDp.dp.toPx() / 2f }
+    val startScaleX = ((sourceBounds?.width ?: targetWidthPx) / targetWidthPx).coerceIn(0.16f, 1f)
+    val startScaleY = ((sourceBounds?.height ?: targetHeightPx) / targetHeightPx).coerceIn(0.12f, 1f)
+    val morphShape = remember(sourceBounds, targetWidthPx, targetHeightPx, sourceCornerRadius, density) {
+        AgentMorphCornerShape(
+            progress = expansion.asState(),
+            startScaleX = startScaleX,
+            startScaleY = startScaleY,
+            sourceRadiusPx = with(density) { sourceCornerRadius.toPx() },
+            targetRadiusPx = with(density) { 32.dp.toPx() }
+        )
+    }
     val panelColor = if (appUsesDarkTheme(state.config)) Color(0xFF202124) else Color(0xFFF4F4F6)
 
     fun dismissAnimated() {
@@ -524,6 +582,9 @@ private fun DayAgentConversationDialog(
             }
             onBackgroundProgress(0f)
             onPrepareDismiss()
+            // The p=0 source snapshot stays opaque while the real card is restored underneath.
+            // Wait for that card to be measured and drawn before removing the Dialog window.
+            repeat(2) { withFrameNanos { } }
             onDismiss()
         }
     }
@@ -570,15 +631,14 @@ private fun DayAgentConversationDialog(
                         val source = sourceBounds
                         val p = expansion.value
                         if (source != null && source.width > 0f && source.height > 0f) {
-                            val startScaleX = (source.width / targetWidthPx).coerceIn(0.16f, 1f)
-                            val startScaleY = (source.height / targetHeightPx).coerceIn(0.12f, 1f)
                             scaleX = startScaleX + (1f - startScaleX) * p
                             scaleY = startScaleY + (1f - startScaleY) * p
                             translationX = (source.center.x - screenCenterXPx) * (1f - p)
                             translationY = (source.center.y - (targetTopPx + targetHeightPx / 2f)) * (1f - p)
                         }
-                     }
-                    .clip(RoundedCornerShape(32.dp))
+                        shape = morphShape
+                        clip = true
+                      }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -605,10 +665,8 @@ private fun DayAgentConversationDialog(
                             val source = sourceBounds
                             val p = expansion.value
                             if (source != null && source.width > 0f && source.height > 0f) {
-                                val outerScaleX = (source.width / targetWidthPx).coerceIn(0.16f, 1f) +
-                                    (1f - (source.width / targetWidthPx).coerceIn(0.16f, 1f)) * p
-                                val outerScaleY = (source.height / targetHeightPx).coerceIn(0.12f, 1f) +
-                                    (1f - (source.height / targetHeightPx).coerceIn(0.12f, 1f)) * p
+                                val outerScaleX = startScaleX + (1f - startScaleX) * p
+                                val outerScaleY = startScaleY + (1f - startScaleY) * p
                                 val outerTranslationX = (source.center.x - screenCenterXPx) * (1f - p)
                                 val outerTranslationY =
                                     (source.center.y - (targetTopPx + targetHeightPx / 2f)) * (1f - p)
@@ -618,7 +676,7 @@ private fun DayAgentConversationDialog(
                                 translationY = -outerTranslationY / outerScaleY.coerceAtLeast(0.001f)
                             }
                         },
-                    shape = RoundedCornerShape(32.dp),
+                    shape = morphShape,
                     tokens = GlassTokens.dialog(intensity = 0.90f).copy(
                         blur = 5.dp,
                         surfaceAlpha = 0.30f
@@ -719,7 +777,6 @@ private fun DayAgentConversationDialog(
                         contentScale = ContentScale.FillBounds,
                         modifier = Modifier
                             .matchParentSize()
-                            .clip(RoundedCornerShape(32.dp))
                             .graphicsLayer {
                                 alpha = (1f - expansion.value * 3f).coerceIn(0f, 1f)
                             }
