@@ -532,21 +532,36 @@ private fun AiManualImportDialogContent(
             32.dp
         ).coerceAtLeast(280.dp)
     val expandedHeight = (safeHeight * 0.82f).coerceAtMost(600.dp)
+    AnimatedContent(
+        targetState = selectedMode,
+        modifier = Modifier.fillMaxWidth(),
+        transitionSpec = {
+            (fadeIn(tween(durationMillis = 180, delayMillis = 60)) togetherWith
+                fadeOut(tween(durationMillis = 120))) using
+                SizeTransform(clip = false) { _, _ ->
+                    tween(
+                        durationMillis = 320,
+                        easing = CubicBezierEasing(0.3f, 0.72f, 0.2f, 1f)
+                    )
+                }
+        },
+        label = "manual-import-mode-size"
+    ) { mode ->
     Column(
         Modifier
             .fillMaxWidth()
             .then(
-                if (selectedMode == 0) {
+                if (mode == 0) {
                     Modifier.height(expandedHeight)
                 } else {
-                    // ICS/PDF panels are measured from their actual header, copy, status and
-                    // action content. This remains correct with font scaling or extra messages.
+                    // Each target is measured at its real content height before SizeTransform
+                    // interpolates. Animated intermediate sizes never feed back as new targets.
                     Modifier.heightIn(max = safeHeight)
                 }
             )
     ) {
         LiquidDialogHeader("手动导入课表", onCancel, backdrop, state.config)
-        if (selectedMode == 1) {
+        if (mode == 1) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -592,7 +607,7 @@ private fun AiManualImportDialogContent(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             LiquidOptionTabs(
-                selectedIndex = selectedMode,
+                selectedIndex = mode,
                 labels = listOf("粘贴口令", "导入 ICS", "PDF/图片"),
                 backdrop = backdrop,
                 config = state.config,
@@ -600,7 +615,7 @@ private fun AiManualImportDialogContent(
                 onSelected = onModeSelected
             )
         }
-        if (selectedMode == 0) {
+        if (mode == 0) {
             LiquidDialogBody {
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -624,7 +639,7 @@ private fun AiManualImportDialogContent(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
             ) {
-                if (selectedMode == 1) {
+                if (mode == 1) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -675,8 +690,8 @@ private fun AiManualImportDialogContent(
             DialogLiquidButton(
                 backdrop = backdrop,
                 label = when {
-                    selectedMode == 0 -> "解析并预览"
-                    selectedMode == 1 -> "选择 ICS 文件"
+                    mode == 0 -> "解析并预览"
+                    mode == 1 -> "选择 ICS 文件"
                     aiParsing -> "解析中..."
                     else -> "选择 PDF/图片并解析"
                 },
@@ -686,6 +701,7 @@ private fun AiManualImportDialogContent(
                 onClick = onPrimaryAction
             )
         }
+    }
     }
 }
 

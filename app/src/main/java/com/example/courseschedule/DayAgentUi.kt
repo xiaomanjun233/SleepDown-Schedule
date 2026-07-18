@@ -536,8 +536,6 @@ private fun DayAgentConversationDialog(
             radiusY = visualRadiusPx / currentScaleY.coerceAtLeast(0.001f)
         )
     }
-    val panelColor = if (appUsesDarkTheme(state.config)) Color(0xFF202124) else Color(0xFFF4F4F6)
-
     fun dismissAnimated() {
         if (closing) return
         closing = true
@@ -628,14 +626,6 @@ private fun DayAgentConversationDialog(
                         onClick = {}
                     )
             ) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .graphicsLayer {
-                            alpha = ((expansion.value - 0.06f) / 0.42f).coerceIn(0f, 1f)
-                        }
-                        .background(panelColor)
-                )
                 GlassSurface(
                     backdrop = backdrop,
                     config = state.config,
