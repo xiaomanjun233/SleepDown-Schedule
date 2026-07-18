@@ -1,9 +1,7 @@
 package com.example.courseschedule
 
 import android.Manifest
-import android.os.Build
-import android.view.Window
-import android.view.WindowManager
+import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -14,6 +12,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -47,15 +46,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -63,27 +64,28 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.Lifecycle
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.components.liquidButtonInteraction
 import com.kyant.backdrop.catalog.components.LiquidButton
 import kotlinx.coroutines.delay
@@ -190,6 +192,9 @@ fun TodayAgentCard(
     var pendingQuestion by remember(date, scheduleId) { mutableStateOf<String?>(null) }
     var generationError by remember(date, scheduleId) { mutableStateOf<String?>(null) }
     var cardBounds by remember(date, scheduleId) { mutableStateOf<Rect?>(null) }
+    var cachedCardSnapshot by remember(date, scheduleId) { mutableStateOf<Bitmap?>(null) }
+    var sourceCardSnapshot by remember(date, scheduleId) { mutableStateOf<Bitmap?>(null) }
+    val cardGraphicsLayer = rememberGraphicsLayer()
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -240,18 +245,39 @@ fun TodayAgentCard(
         }
     }
 
+    LaunchedEffect(rendered.text, rendered.compactText, collapsed, status, hasApiKey) {
+        // Prepare the small source snapshot outside the click path. Two frames ensure
+        // the graphics layer contains the latest text/layout before the GPU readback.
+        withFrameNanos { }
+        withFrameNanos { }
+        cachedCardSnapshot = runCatching {
+            cardGraphicsLayer.toImageBitmap().asAndroidBitmap()
+        }.getOrNull()
+    }
+
+    fun openConversation(question: String?) {
+        if (!hasApiKey || dialogOpen) return
+        sourceCardSnapshot = cachedCardSnapshot
+        pendingQuestion = question
+        dialogOpen = true
+    }
+
     GlassSurface(
         backdrop = backdrop,
         config = state.config,
         modifier = Modifier
             .fillMaxWidth()
             .onGloballyPositioned { cardBounds = it.boundsInWindow() }
+            .drawWithContent {
+                cardGraphicsLayer.record { this@drawWithContent.drawContent() }
+                drawContent()
+            }
+            .graphicsLayer {
+                alpha = if (dialogOpen) 0f else 1f
+            }
              .liquidButtonInteraction(
-                 onClick = {
-                     if (hasApiKey) {
-                         pendingQuestion = null
-                         dialogOpen = true
-                     }
+                  onClick = {
+                      openConversation(null)
                  },
                  isInteractive = hasApiKey,
                  showHighlight = false
@@ -312,8 +338,7 @@ fun TodayAgentCard(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         rendered.quickQuestions.take(2).forEach { question ->
                             AgentSuggestionPill(question, backdrop, state.config, Modifier.weight(1f)) {
-                                pendingQuestion = question
-                                dialogOpen = true
+                                openConversation(question)
                             }
                         }
                     }
@@ -343,10 +368,12 @@ fun TodayAgentCard(
             initialText = rendered.text,
             initialQuestion = pendingQuestion,
             sourceBounds = cardBounds,
+            sourceCardSnapshot = sourceCardSnapshot,
             onAgentAction = onAgentAction,
             onDismiss = {
                 dialogOpen = false
                 pendingQuestion = null
+                sourceCardSnapshot = null
             }
         )
     }
@@ -432,6 +459,7 @@ private fun DayAgentConversationDialog(
     initialText: String,
     initialQuestion: String?,
     sourceBounds: Rect?,
+    sourceCardSnapshot: Bitmap?,
     onAgentAction: (AgentValidatedAction) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -443,42 +471,28 @@ private fun DayAgentConversationDialog(
     var sending by remember { mutableStateOf(false) }
     var requestJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    var answerBounds by remember { mutableStateOf<Rect?>(null) }
-    var dialogWindow by remember { mutableStateOf<Window?>(null) }
+    var rootSize by remember { mutableStateOf(IntSize.Zero) }
+    var answerSize by remember { mutableStateOf(IntSize.Zero) }
+    var openingStarted by remember { mutableStateOf(false) }
+    var closing by remember { mutableStateOf(false) }
     var appliedActionKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     val expansion = remember { Animatable(0f) }
     val conversationListState = rememberLazyListState()
-    val conversationBackdrop = rememberLayerBackdrop()
-    val inputBackdrop = if (backdrop != null) {
-        rememberCombinedBackdrop(backdrop, conversationBackdrop)
-    } else {
-        conversationBackdrop
-    }
     val foreground = LocalAdaptiveGlass.current.contentColor
     val configuration = LocalConfiguration.current
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val answerTopPadding = statusBarTop + (configuration.screenHeightDp.dp * 0.018f).coerceIn(10.dp, 20.dp)
     val answerMaxHeight = (configuration.screenHeightDp.dp * 0.58f).coerceIn(280.dp, 560.dp)
 
-    fun updateWindowBlur(progress: Float) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            dialogWindow?.let { window ->
-                window.attributes = window.attributes.apply {
-                    blurBehindRadius = (56f * progress.coerceIn(0f, 1f)).toInt()
-                }
-            }
-        }
-    }
-
     fun dismissAnimated() {
+        if (closing) return
+        closing = true
         keyboard?.hide()
         scope.launch {
             expansion.animateTo(
                 0f,
                 tween(DETAIL_SYSTEM_BACK_DURATION, easing = DetailExitEasing)
-            ) {
-                updateWindowBlur(value)
-            }
+            )
             onDismiss()
         }
     }
@@ -506,30 +520,10 @@ private fun DayAgentConversationDialog(
         onDismissRequest = ::dismissAnimated,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
-        val dialogView = LocalView.current
-        DisposableEffect(dialogView) {
-            val window = (dialogView.parent as? DialogWindowProvider)?.window
-            dialogWindow = window
-            val previousBlurRadius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                window?.attributes?.blurBehindRadius
-            } else {
-                null
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                window?.let { it.attributes = it.attributes.apply { blurBehindRadius = 0 } }
-            }
-            onDispose {
-                dialogWindow = null
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    window?.let { it.attributes = it.attributes.apply { blurBehindRadius = previousBlurRadius ?: 0 } }
-                    window?.clearFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                }
-            }
-        }
          Box(
              Modifier
                  .fillMaxSize()
+                 .onSizeChanged { rootSize = it }
                  .background(Color.Black.copy(alpha = 0.30f * expansion.value))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -538,32 +532,33 @@ private fun DayAgentConversationDialog(
                 )
         ) {
             GlassSurface(
-                backdrop = backdrop,
+                backdrop = null,
                 config = state.config,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                      .padding(start = 14.dp, top = answerTopPadding, end = 14.dp)
-                     .heightIn(min = 150.dp, max = answerMaxHeight)
-                     .layerBackdrop(conversationBackdrop)
-                     .onGloballyPositioned { answerBounds = it.boundsInWindow() }
-                    .graphicsLayer {
-                        val target = answerBounds
-                        val source = sourceBounds
-                        val p = expansion.value
-                        if (target == null) {
-                            alpha = 0f
-                        } else {
-                            alpha = p
-                            if (source != null && source.width > 0f && source.height > 0f) {
-                                val startScaleX = (source.width / target.width).coerceIn(0.16f, 1f)
-                                val startScaleY = (source.height / target.height).coerceIn(0.12f, 1f)
-                                scaleX = startScaleX + (1f - startScaleX) * p
-                                scaleY = startScaleY + (1f - startScaleY) * p
-                                translationX = (source.center.x - target.center.x) * (1f - p)
-                                translationY = (source.center.y - target.center.y) * (1f - p)
-                            }
-                        }
+                      .heightIn(min = 150.dp, max = answerMaxHeight)
+                       .onSizeChanged { answerSize = it }
+                     .graphicsLayer {
+                         val source = sourceBounds
+                         val p = expansion.value
+                         if (rootSize.width <= 0 || answerSize.width <= 0 || answerSize.height <= 0) {
+                             alpha = 0f
+                         } else {
+                             alpha = 1f
+                             if (source != null && source.width > 0f && source.height > 0f) {
+                                 val targetCenterX = rootSize.width / 2f
+                                 val targetTop = answerTopPadding.toPx()
+                                 val targetCenterY = targetTop + answerSize.height / 2f
+                                 val startScaleX = (source.width / answerSize.width).coerceIn(0.16f, 1f)
+                                 val startScaleY = (source.height / answerSize.height).coerceIn(0.12f, 1f)
+                                 scaleX = startScaleX + (1f - startScaleX) * p
+                                 scaleY = startScaleY + (1f - startScaleY) * p
+                                 translationX = (source.center.x - targetCenterX) * (1f - p)
+                                 translationY = (source.center.y - targetCenterY) * (1f - p)
+                             }
+                         }
                     }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -573,9 +568,13 @@ private fun DayAgentConversationDialog(
                 shape = RoundedCornerShape(28.dp),
                 tokens = GlassTokens.dialog(intensity = 0.90f).copy(blur = 5.dp)
             ) {
-                 Column(
-                     Modifier
-                         .background(Color.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.18f else 0.08f))
+                Box {
+                  Column(
+                      Modifier
+                          .graphicsLayer {
+                              alpha = ((expansion.value - 0.10f) / 0.50f).coerceIn(0f, 1f)
+                          }
+                          .background(Color.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.18f else 0.08f))
                          .padding(start = 16.dp, top = 16.dp, end = 16.dp),
                      verticalArrangement = Arrangement.spacedBy(10.dp)
                  ) {
@@ -588,75 +587,96 @@ private fun DayAgentConversationDialog(
                          modifier = Modifier.weight(1f, fill = false),
                          contentPadding = PaddingValues(bottom = 16.dp),
                          verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        if (messages.isEmpty() && streamingText.isBlank()) {
-                            item { AgentMarkdownText(initialText, foreground, MaterialTheme.typography.bodyMedium) }
-                        }
-                        items(messages, key = { it.id }) { message ->
-                            val isUser = message.role == "user"
-                            if (isUser) {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                    Text(
-                                        text = message.content,
-                                        modifier = Modifier
-                                            .background(Color(0xFF168CFF).copy(alpha = 0.88f), RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp))
-                                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                }
-                            } else {
-                                val parsed = remember(message.content, facts.sourceHash) {
-                                    parseAgentActions(message.content, facts)
-                                }
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    if (parsed.displayText.isNotBlank()) {
-                                        AgentMarkdownText(parsed.displayText, foreground, MaterialTheme.typography.bodyMedium)
-                                    }
-                                    parsed.actions.forEachIndexed { actionIndex, action ->
-                                        val actionKey = "${message.id}:$actionIndex"
-                                        AgentSimplePressSurface(
-                                            backdrop = backdrop,
-                                            config = state.config,
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(18.dp),
-                                            tokens = GlassTokens.pill(intensity = 0.92f).copy(blur = 4.dp, surfaceAlpha = 0.22f),
-                                            onClick = {
-                                                if (actionKey !in appliedActionKeys) {
-                                                    onAgentAction(action)
-                                                    appliedActionKeys = appliedActionKeys + actionKey
-                                                }
-                                            }
-                                        ) {
-                                            Text(
-                                                if (actionKey in appliedActionKeys) "已执行：${action.summary}"
-                                                else agentActionButtonLabel(action),
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                                color = if (actionKey in appliedActionKeys) foreground.copy(alpha = 0.62f)
-                                                else if (action.type == AgentValidatedActionType.DELETE) Color(0xFFFF453A)
-                                                else Color(0xFF168CFF),
-                                                style = MaterialTheme.typography.labelLarge
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if (streamingText.isNotBlank()) item {
-                            AgentMarkdownText(
-                                parseAgentActions(streamingText, facts).displayText,
-                                foreground,
-                                MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                        if (sending && streamingText.isBlank()) item { Text("正在思考…", color = foreground.copy(alpha = 0.6f)) }
-                        error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium) } }
-                    }
-                }
+                     ) {
+                         if (messages.isEmpty() && streamingText.isBlank()) {
+                             item { AgentMarkdownText(initialText, foreground, MaterialTheme.typography.bodyMedium) }
+                         }
+                         items(messages, key = { it.id }) { message ->
+                             val isUser = message.role == "user"
+                             if (isUser) {
+                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                     Text(
+                                         text = message.content,
+                                         modifier = Modifier
+                                             .background(Color(0xFF168CFF).copy(alpha = 0.88f), RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp))
+                                             .padding(horizontal = 12.dp, vertical = 8.dp),
+                                         color = Color.White,
+                                         style = MaterialTheme.typography.bodyMedium
+                                     )
+                                 }
+                             } else {
+                                 val parsed = remember(message.content, facts.sourceHash) {
+                                     parseAgentActions(message.content, facts)
+                                 }
+                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                     if (parsed.displayText.isNotBlank()) {
+                                         AgentMarkdownText(parsed.displayText, foreground, MaterialTheme.typography.bodyMedium)
+                                     }
+                                     parsed.actions.forEachIndexed { actionIndex, action ->
+                                         val actionKey = "${message.id}:$actionIndex"
+                                         AgentSimplePressSurface(
+                                             backdrop = backdrop,
+                                             config = state.config,
+                                             modifier = Modifier.fillMaxWidth(),
+                                             shape = RoundedCornerShape(18.dp),
+                                             tokens = GlassTokens.pill(intensity = 0.92f).copy(blur = 4.dp, surfaceAlpha = 0.22f),
+                                             onClick = {
+                                                 if (actionKey !in appliedActionKeys) {
+                                                     onAgentAction(action)
+                                                     appliedActionKeys = appliedActionKeys + actionKey
+                                                 }
+                                             }
+                                         ) {
+                                             Text(
+                                                 if (actionKey in appliedActionKeys) "已执行：${action.summary}"
+                                                 else agentActionButtonLabel(action),
+                                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                                 color = if (actionKey in appliedActionKeys) foreground.copy(alpha = 0.62f)
+                                                 else if (action.type == AgentValidatedActionType.DELETE) Color(0xFFFF453A)
+                                                 else Color(0xFF168CFF),
+                                                 style = MaterialTheme.typography.labelLarge
+                                             )
+                                         }
+                                     }
+                                 }
+                             }
+                         }
+                         if (streamingText.isNotBlank()) {
+                             item {
+                                 AgentMarkdownText(
+                                     parseAgentActions(streamingText, facts).displayText,
+                                     foreground,
+                                     MaterialTheme.typography.bodyMedium
+                                 )
+                             }
+                         }
+                         if (sending && streamingText.isBlank()) {
+                             item { Text("正在思考…", color = foreground.copy(alpha = 0.6f)) }
+                         }
+                         error?.let { message ->
+                             item { Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium) }
+                         }
+                     }
+                 }
+                 sourceCardSnapshot?.let { snapshot ->
+                     val snapshotAlpha = (1f - expansion.value * 3f).coerceIn(0f, 1f)
+                     if (snapshotAlpha > 0.001f) {
+                         Image(
+                             bitmap = snapshot.asImageBitmap(),
+                             contentDescription = null,
+                             contentScale = ContentScale.FillBounds,
+                             modifier = Modifier
+                                 .matchParentSize()
+                                 .clip(RoundedCornerShape(28.dp))
+                                 .graphicsLayer { alpha = snapshotAlpha }
+                         )
+                     }
+                 }
+             }
             }
 
              GlassSurface(
-                     backdrop = inputBackdrop,
+                     backdrop = null,
                     config = state.config,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -702,7 +722,15 @@ private fun DayAgentConversationDialog(
                                 inner()
                             }
                         )
-                        LiquidButton(
+                        AgentSimplePressSurface(
+                            backdrop = null,
+                            config = state.config,
+                            modifier = Modifier.size(40.dp),
+                            shape = CircleShape,
+                            tokens = GlassTokens.pill(intensity = 0.90f).copy(
+                                blur = 0.dp,
+                                surfaceAlpha = 0.82f
+                            ),
                             onClick = {
                                 if (sending) {
                                     requestJob?.cancel()
@@ -712,41 +740,42 @@ private fun DayAgentConversationDialog(
                                 } else {
                                     send()
                                 }
-                            },
-                            backdrop = inputBackdrop,
-                            modifier = Modifier.size(40.dp),
-                            height = 40.dp,
-                            contentPadding = PaddingValues(0.dp),
-                            blurRadius = 4.dp,
-                            lensHeight = 12.dp,
-                            lensAmount = 24.dp,
-                            surfaceColor = Color(0xFF168CFF).copy(alpha = 0.82f),
-                            chromaticAberration = false
+                            }
                         ) {
-                            Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFF168CFF).copy(alpha = 0.82f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
             }
         }
-         LaunchedEffect(answerBounds) {
-              if (answerBounds != null && expansion.value == 0f) {
-                  expansion.animateTo(
-                      1f,
-                      tween(DETAIL_OPEN_DURATION, easing = DetailOpenEasing)
-                  ) {
-                      updateWindowBlur(value)
-                  }
-             }
-        }
+         LaunchedEffect(rootSize, answerSize) {
+               if (
+                   !openingStarted &&
+                   rootSize.width > 0 &&
+                   rootSize.height > 0 &&
+                   answerSize.width > 0 &&
+                   answerSize.height > 0
+               ) {
+                   openingStarted = true
+                    expansion.animateTo(
+                        1f,
+                        tween(DETAIL_OPEN_DURATION, easing = DetailOpenEasing)
+                    )
+                   focusRequester.requestFocus()
+                   keyboard?.show()
+                   initialQuestion?.takeIf { it.isNotBlank() }?.let(::send)
+              }
+         }
         LaunchedEffect(messages.size, streamingText.length, sending, error) {
             delay(24)
             val lastIndex = conversationListState.layoutInfo.totalItemsCount - 1
             if (lastIndex >= 0) conversationListState.scrollToItem(lastIndex)
-        }
-        LaunchedEffect(Unit) {
-            focusRequester.requestFocus()
-            keyboard?.show()
-            initialQuestion?.takeIf { it.isNotBlank() }?.let(::send)
         }
     }
 }
