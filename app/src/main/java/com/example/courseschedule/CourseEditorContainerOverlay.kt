@@ -326,6 +326,10 @@ fun CourseEditorContainerOverlayHost(
     val blurPx = blurProgress * 6f * density.density
     val edgeFillBlurPx = blurProgress * 14f * density.density
     val edgeFillScale = 1f + blurProgress * 0.06f
+    val backgroundCorner = (24f * blurProgress).dp
+    val glassUniformScale = maxOf(scaleX, scaleY)
+    val glassCounterScaleX = glassUniformScale / scaleX.coerceAtLeast(0.001f)
+    val glassCounterScaleY = glassUniformScale / scaleY.coerceAtLeast(0.001f)
 
     Box(
         modifier = modifier
@@ -370,6 +374,7 @@ fun CourseEditorContainerOverlayHost(
                                 .asComposeRenderEffect()
                         } else null
                     }
+                    .clip(RoundedCornerShape(backgroundCorner))
             )
         }
         Box(
@@ -408,7 +413,16 @@ fun CourseEditorContainerOverlayHost(
                 shape = RoundedCornerShape(32.dp),
                 progress = 1f,
                 alpha = 1f,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        // The outer layer changes width and height independently to hit the exact
+                        // source bounds. Counter-scale the real glass to a uniform cover scale so
+                        // its sampled wallpaper is cropped by the morph window instead of stretched.
+                        transformOrigin = TransformOrigin.Center
+                        this.scaleX = glassCounterScaleX
+                        this.scaleY = glassCounterScaleY
+                    }
             ) {
                 Box(Modifier.fillMaxSize()) {
                     Box(Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }) {
@@ -423,17 +437,19 @@ fun CourseEditorContainerOverlayHost(
                             )
                         }
                     }
-                    if (shownRequest.sourceCardSnapshot != null && sourceCoverAlpha > 0.001f) {
-                        Image(
-                            bitmap = shownRequest.sourceCardSnapshot.asImageBitmap(),
-                            contentDescription = null,
-                            contentScale = ContentScale.FillBounds,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer { alpha = sourceCoverAlpha }
-                        )
-                    }
                 }
+            }
+            if (shownRequest.sourceCardSnapshot != null && sourceCoverAlpha > 0.001f) {
+                // Keep the source pixels on the geometry transform only. They must remain an
+                // exact FillBounds match and must not inherit the glass counter-scale above.
+                Image(
+                    bitmap = shownRequest.sourceCardSnapshot.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.FillBounds,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = sourceCoverAlpha }
+                )
             }
         }
     }

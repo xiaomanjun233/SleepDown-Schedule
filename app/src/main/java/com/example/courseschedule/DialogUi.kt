@@ -136,8 +136,8 @@ fun LiquidDialogHeader(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(66.dp)
-            .padding(horizontal = 12.dp)
+            .height(70.dp)
+            .padding(horizontal = 14.dp)
     ) {
         DialogLiquidButton(
             backdrop,
