@@ -1,8 +1,10 @@
 package com.example.courseschedule
 
 import android.os.Build
-import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -361,42 +364,56 @@ fun CourseGlassCard(
     } else {
         false
     }
-    val active = pressed || forcePressed
-    val pressProgress by animateFloatAsState(
-        targetValue = if (active) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (active) 70 else 150,
-            easing = CubicBezierEasing(0.2f, 0f, 0.1f, 1f)
-        ),
-        label = "course-card-press"
-    )
+    val pressScale = remember { Animatable(1f) }
+    LaunchedEffect(pressed, forcePressed) {
+        when {
+            pressed -> pressScale.animateTo(0.975f, tween(durationMillis = 55))
+            forcePressed -> {
+                pressScale.animateTo(0.975f, tween(durationMillis = 45))
+                pressScale.animateTo(
+                    1f,
+                    spring(
+                        dampingRatio = 0.58f,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+            else -> pressScale.animateTo(
+                1f,
+                spring(
+                    dampingRatio = 0.58f,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+    }
     val baseColor = courseCardBaseColor(config, course)
     val glassTint = baseColor.copy(alpha = ((config.cardAlpha.coerceIn(0f, 1f) * 0.68f) * quality).coerceIn(0f, 0.68f))
     val solidColor = baseColor.copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
     val glassModifier = if (useGlass) {
-        modifier.drawBackdrop(
+        modifier
+            .graphicsLayer {
+                scaleX = pressScale.value
+                scaleY = pressScale.value
+            }
+            .drawBackdrop(
             backdrop = glassBackdrop,
             shape = { shape },
             effects = {
                 if (tokens.useVibrancy) vibrancy()
                 blur((tokens.blur * quality).toPx())
                 lens(
-                    (tokens.lensHeight * quality).toPx() * (0.85f + 0.15f * pressProgress),
-                    (tokens.lensAmount * quality).toPx() * (0.9f + 0.2f * pressProgress),
+                    (tokens.lensHeight * quality).toPx(),
+                    (tokens.lensAmount * quality).toPx(),
                     depthEffect = tokens.depthEffect,
                     chromaticAberration = tokens.chromaticAberration
                 )
             },
-            highlight = { Highlight.Default.copy(alpha = tokens.highlightAlpha + 0.09f * pressProgress) },
-            shadow = { Shadow(alpha = (tokens.shadowAlpha * (1f - 0.35f * pressProgress)).coerceAtLeast(0.04f)) },
-            innerShadow = { InnerShadow(radius = 5.dp + 2.dp * pressProgress, alpha = tokens.innerShadowAlpha + 0.10f * pressProgress) },
-            layerBlock = {
-                val scale = 1f - 0.034f * pressProgress
-                scaleX = scale
-                scaleY = scale
-            },
+            highlight = { Highlight.Default.copy(alpha = tokens.highlightAlpha) },
+            shadow = { Shadow(alpha = tokens.shadowAlpha) },
+            innerShadow = { InnerShadow(radius = 5.dp, alpha = tokens.innerShadowAlpha) },
             onDrawSurface = {
                 drawRect(glassTint)
                 drawRect(Color.White.copy(alpha = if (lightGlass) 0.012f else 0.008f), blendMode = BlendMode.Screen)
@@ -405,13 +422,12 @@ fun CourseGlassCard(
         )
     } else {
         modifier
+            .graphicsLayer {
+                scaleX = pressScale.value
+                scaleY = pressScale.value
+            }
             .clip(shape)
             .background(solidColor.copy(alpha = solidColor.alpha.coerceAtLeast(0.86f)))
-            .graphicsLayer {
-                val scale = 1f - 0.030f * pressProgress
-                scaleX = scale
-                scaleY = scale
-            }
     }
         .then(
             if (onClick == null) Modifier else Modifier.clickable(

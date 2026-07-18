@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -143,13 +144,16 @@ fun LiquidDialogHeader(
             backdrop,
             "取消",
             onDismiss,
-            modifier = Modifier.align(Alignment.CenterStart),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(y = 4.dp),
             role = DialogButtonRole.Cancel
         )
         Text(
             text = title,
             modifier = Modifier
                 .align(Alignment.Center)
+                .offset(y = 4.dp)
                 .padding(horizontal = 58.dp),
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.titleMedium,
@@ -162,7 +166,9 @@ fun LiquidDialogHeader(
                 backdrop,
                 "保存",
                 onConfirm,
-                modifier = Modifier.align(Alignment.CenterEnd),
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(y = 4.dp),
                 role = DialogButtonRole.Confirm
             )
         }
