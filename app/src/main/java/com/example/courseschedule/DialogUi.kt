@@ -28,7 +28,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,8 +40,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidPanel
@@ -57,6 +60,7 @@ enum class LiquidAlertActionStyle {
 data class LiquidAlertAction(
     val label: String,
     val style: LiquidAlertActionStyle,
+    val dismissOnClick: Boolean = true,
     val onClick: () -> Unit
 )
 
@@ -66,6 +70,7 @@ fun LiquidDialogSurface(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     size: LiquidDialogSize = LiquidDialogSize.Standard,
+    blurRadius: Dp = 10.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
     val configuration = LocalConfiguration.current
@@ -113,6 +118,7 @@ fun LiquidDialogSurface(
             modifier = panelModifier,
             shape = shape,
             surfaceColor = surfaceColor,
+            blurRadius = blurRadius,
             content = panelContent
         )
     } else {
@@ -218,26 +224,46 @@ fun LiquidAlertSurface(
         backdrop = backdrop,
         config = config,
         modifier = modifier,
-        size = LiquidDialogSize.Compact
+        size = LiquidDialogSize.Compact,
+        blurRadius = 28.dp
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = glassForegroundColor(config)
-            )
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
-                color = glassForegroundColor(config).copy(alpha = 0.68f)
-            )
-            LiquidAlertActions(actions, backdrop, config)
-        }
+        LiquidAlertContent(
+            title = title,
+            message = message,
+            actions = actions,
+            backdrop = backdrop,
+            config = config,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)
+        )
+    }
+}
+
+@Composable
+private fun LiquidAlertContent(
+    title: String,
+    message: String,
+    actions: List<LiquidAlertAction>,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = glassForegroundColor(config)
+        )
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
+            color = glassForegroundColor(config).copy(alpha = 0.68f)
+        )
+        LiquidAlertActions(actions, backdrop, config)
     }
 }
 
@@ -279,21 +305,65 @@ fun LiquidAlertDialog(
     config: ScheduleConfigEntity,
     onDismissRequest: () -> Unit
 ) {
-    Dialog(
-        onDismissRequest = onDismissRequest,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            dismissOnClickOutside = false
-        )
-    ) {
-        LiquidAlertSurface(
-            title = title,
-            message = message,
-            actions = actions,
-            backdrop = backdrop,
-            config = config
-        )
+    var visible by remember { mutableStateOf(true) }
+    var completion by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    fun closeThen(action: () -> Unit) {
+        if (!visible) return
+        completion = action
+        visible = false
     }
+
+    val animatedActions = actions.map { action ->
+        action.copy(onClick = {
+            if (action.dismissOnClick) closeThen(action.onClick) else action.onClick()
+        })
+    }
+
+    top.yukonga.miuix.kmp.overlay.OverlayDialog(
+        show = visible,
+        title = null,
+        enableWindowDim = true,
+        backgroundColor = Color.Transparent,
+        forceCenter = true,
+        surfaceModifier = quickSheetBackdropModifier(
+            backdrop = backdrop,
+            config = config,
+            blurRadius = 28.dp,
+            centered = true
+        ),
+        outsideMargin = DpSize(18.dp, 18.dp),
+        insideMargin = DpSize(20.dp, 18.dp),
+        onDismissRequest = { closeThen(onDismissRequest) },
+        onDismissFinished = {
+            val action = completion
+            completion = null
+            action?.invoke()
+        }
+    ) {
+        LiquidAlertContent(title, message, animatedActions, backdrop, config)
+    }
+}
+
+/** Same-window alert used when the glass must sample a Compose layer below it. */
+@Composable
+fun LiquidAlertOverlay(
+    title: String,
+    message: String,
+    actions: List<LiquidAlertAction>,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LiquidAlertDialog(
+        title = title,
+        message = message,
+        actions = actions,
+        backdrop = backdrop,
+        config = config,
+        onDismissRequest = onDismissRequest
+    )
 }
 
 @Composable
@@ -308,10 +378,19 @@ private fun LiquidAlertActionButton(
         LiquidAlertActionStyle.Secondary -> glassForegroundColor(config)
         LiquidAlertActionStyle.Destructive -> Color(0xFFFF453A)
     }
+    val dark = appUsesDarkTheme(config)
     val surfaceColor = when (action.style) {
-        LiquidAlertActionStyle.Primary -> Color(0xFF0A84FF).copy(alpha = 0.84f)
-        LiquidAlertActionStyle.Secondary -> Color.White.copy(alpha = 0.10f)
-        LiquidAlertActionStyle.Destructive -> Color(0xFFFF453A).copy(alpha = 0.16f)
+        LiquidAlertActionStyle.Primary -> Color(0xFF0A84FF).copy(alpha = 0.90f)
+        LiquidAlertActionStyle.Secondary -> if (dark) {
+            Color(0xFF252A33).copy(alpha = 0.88f)
+        } else {
+            Color(0xFFF0F3F8).copy(alpha = 0.86f)
+        }
+        LiquidAlertActionStyle.Destructive -> if (dark) {
+            Color(0xFF4A2024).copy(alpha = 0.82f)
+        } else {
+            Color(0xFFFFE7E5).copy(alpha = 0.88f)
+        }
     }
     val shape = RoundedCornerShape(50)
     if (backdrop != null) {
@@ -322,9 +401,9 @@ private fun LiquidAlertActionButton(
             height = 50.dp,
             surfaceColor = surfaceColor,
             contentPadding = PaddingValues(horizontal = 16.dp),
-            blurRadius = 3.dp,
-            lensHeight = 16.dp,
-            lensAmount = 24.dp,
+            blurRadius = 18.dp,
+            lensHeight = 7.dp,
+            lensAmount = 10.dp,
             chromaticAberration = false
         ) {
             Text(

@@ -42,6 +42,7 @@ import top.yukonga.miuix.kmp.theme.lightColorScheme
 
 internal val LocalGlassMiuixEnabled = compositionLocalOf { false }
 internal val LocalGlassSettingsContentTopPadding = compositionLocalOf<Dp?> { null }
+internal val LocalSettingsPopupBackdrop = compositionLocalOf<Backdrop?> { null }
 
 @Composable
 fun GlassMiuixSettingsTheme(
@@ -210,7 +211,14 @@ internal fun GlassMiuixDetailActivityScaffold(
                         Box(contentModifier) { content(null) }
                     } else {
                         Box(contentModifier.layerBackdrop(contentBackdrop)) {
-                            content(backgroundBackdrop)
+                            CompositionLocalProvider(
+                                LocalSettingsPopupBackdrop provides contentBackdrop
+                            ) {
+                                // Normal settings glass samples the plain page producer. Root
+                                // overlays sample this complete page producer, which excludes the
+                                // popup hosted later by the MIUIX root scaffold.
+                                content(backgroundBackdrop)
+                            }
                         }
                     }
                 }

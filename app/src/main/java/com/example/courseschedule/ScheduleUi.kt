@@ -403,6 +403,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var dayAgentBackgroundProgress by remember { mutableFloatStateOf(0f) }
     var dayAgentEdgeSnapshot by remember { mutableStateOf<Bitmap?>(null) }
     var dayAgentSnapshotKey by remember { mutableStateOf<String?>(null) }
+    var dayAgentPagerSettled by remember { mutableStateOf(false) }
+    var dayAgentCaptureRecordCleanFrame by remember { mutableStateOf(false) }
+    val dayAgentCaptureMaskActive = remember { AtomicBoolean(false) }
     var detailMorphState by remember { mutableStateOf<DetailMorphState>(DetailMorphState.Idle) }
     var detailMorphRequest by remember { mutableStateOf<DetailMorphRequest?>(null) }
     var detailCaptureCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -410,6 +413,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val detailCaptureMaskActive = remember { AtomicBoolean(false) }
     val visualState = previewScheduleId?.let(allSchedulesState::forSchedule) ?: state
     val screenGraphicsLayer = rememberGraphicsLayer()
+    val dayAgentBackgroundGraphicsLayer = rememberGraphicsLayer()
     val detailScreenGraphicsLayer = rememberGraphicsLayer()
     val recordedScheduleId = remember { AtomicInteger(-1) }
     val recordedHomeGeneration = remember { AtomicLong(0L) }
@@ -533,6 +537,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val backgroundBackdrop = rememberLayerBackdrop()
     val contentBackdrop = rememberLayerBackdrop()
+    val pickerSceneBackdrop = rememberLayerBackdrop()
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
     val currentVersionName = remember(context) {
         runCatching {
@@ -691,20 +696,14 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         homeMode,
         homeDisplayDate
     ) {
-        if (!state.loaded || pickerState.overlayVisible || homeMode != HomeMode.Day) {
+        // A full-screen GPU readback here used to run as soon as the day pager settled.
+        // That made merely arriving on a date containing the Agent card visibly hitch.
+        // Keep only cache invalidation here; capture once, on demand, after the pager's
+        // exact final frame is confirmed in onAgentPrepareOpen below.
+        if (!state.loaded || pickerState.overlayVisible || homeMode != HomeMode.Day ||
+            dayAgentSnapshotKey != currentDayAgentSnapshotKey
+        ) {
             dayAgentSnapshotKey = null
-            return@LaunchedEffect
-        }
-        // Preload the exact day-view frame. This moves the expensive GPU readback off the tap path,
-        // while the two frame barrier matches the course-card morph's precompose contract.
-        repeat(2) { withFrameNanos { } }
-        if (dayAgentBackgroundProgress <= 0.001f && !pickerState.overlayVisible) {
-            runCatching { screenGraphicsLayer.toImageBitmap().asAndroidBitmap() }
-                .getOrNull()
-                ?.let {
-                    dayAgentEdgeSnapshot = it
-                    dayAgentSnapshotKey = currentDayAgentSnapshotKey
-                }
         }
     }
     LaunchedEffect(visualState.loaded, visualState.config.id, visualState.config.totalWeeks, homeCurrentWeek, visualState.config.autoCurrentWeek, beforeScheduleTerm) {
@@ -1102,7 +1101,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         LocalStartupEntranceSpec provides startupEntranceSpec,
         LocalAdaptiveGlass provides adaptiveGlassState,
         LocalCourseCardPalette provides wallpaperImages.representativeColors,
-        LocalCourseCardColorAssignments provides homeCourseColorAssignments
+        LocalCourseCardColorAssignments provides homeCourseColorAssignments,
+        LocalAgentBackgroundCaptureMask provides { dayAgentCaptureMaskActive.get() }
     ) {
     Box(
         modifier = Modifier
@@ -1173,6 +1173,16 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                             courseEditorOverlayPhase == CourseEditorOverlayPhase.Idle
                     if (mayRecordHome) {
                         captureRenderToken // Reading the token explicitly invalidates this draw node for capture.
+                        if (dayAgentCaptureRecordCleanFrame) {
+                            dayAgentCaptureMaskActive.set(true)
+                            try {
+                                dayAgentBackgroundGraphicsLayer.record {
+                                    this@drawWithContent.drawContent()
+                                }
+                            } finally {
+                                dayAgentCaptureMaskActive.set(false)
+                            }
+                        }
                         screenGraphicsLayer.record { this@drawWithContent.drawContent() }
                         recordedScheduleId.set(visualState.config.id)
                         recordedHomeGeneration.incrementAndGet()
@@ -1309,17 +1319,31 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     onSwipeDay = { delta -> homeDisplayDate = homeDisplayDate.plusDays(delta.toLong()) },
                                     onContentUnderTopBarChange = { homeContentUnderTopBar = it },
                                     onAgentBackgroundProgress = { dayAgentBackgroundProgress = it },
+                                    onAgentPagerSettledChange = { settled ->
+                                        dayAgentPagerSettled = settled
+                                        if (!settled) dayAgentSnapshotKey = null
+                                    },
                                     onAgentPrepareOpen = {
-                                        // Normal path is already preloaded with this exact day frame.
-                                        // Only a tap during the first two layout frames needs the same
-                                        // synchronous capture fallback used by the course-card morph.
+                                        // Never freeze a partially swiped day page. The clean capture must
+                                        // correspond to the exact final frame that is visible before opening.
+                                        if (!dayAgentPagerSettled) {
+                                            snapshotFlow { dayAgentPagerSettled }.first { it }
+                                        }
+                                        // Reuse a valid snapshot when reopening the unchanged day; otherwise
+                                        // capture on demand, matching the course-card morph instead of stalling
+                                        // the pager with an eager full-screen GPU readback.
                                         if (dayAgentSnapshotKey != currentDayAgentSnapshotKey) {
-                                            withFrameNanos { }
-                                            runCatching {
-                                                screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
-                                            }.getOrNull()?.let {
-                                                dayAgentEdgeSnapshot = it
-                                                dayAgentSnapshotKey = currentDayAgentSnapshotKey
+                                            dayAgentCaptureRecordCleanFrame = true
+                                            try {
+                                                repeat(2) { withFrameNanos { } }
+                                                runCatching {
+                                                    dayAgentBackgroundGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                                                }.getOrNull()?.let {
+                                                    dayAgentEdgeSnapshot = it
+                                                    dayAgentSnapshotKey = currentDayAgentSnapshotKey
+                                                }
+                                            } finally {
+                                                dayAgentCaptureRecordCleanFrame = false
                                             }
                                         }
                                     },
@@ -1585,6 +1609,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             pickerState = pickerState,
             allState = allSchedulesState,
             backdrop = chromeBackdrop,
+            dialogBackdrop = pickerSceneBackdrop,
             onPageSelected = ::switchPickerSchedule,
             onApply = { exitPicker(apply = true) },
             onClose = { exitPicker(apply = false) },
@@ -1676,6 +1701,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     }
                 }
             },
+            // Capture the complete manager (cards, title, indicators and actions) in a producer
+            // that does not contain the later quick-settings sheet consumer.
+            modifier = Modifier.layerBackdrop(pickerSceneBackdrop)
         )
     }
     }
@@ -1688,7 +1716,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             // liquid backdrop without ever recording the dialog that consumes it. In particular,
             // do not restore the former root-level quickSheetBackdrop: it caused the native
             // RenderThread recursion when the new-schedule sheet opened after Picker exit.
-            backdrop = chromeBackdrop,
+            backdrop = if (pickerState.overlayVisible) pickerSceneBackdrop else chromeBackdrop,
             onDraftChange = { quickScheduleDraft = it },
             onDismiss = { quickScheduleDraft = null },
             onDismissFinished = {
@@ -1858,6 +1886,41 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     // Dialog-based dialogs for all other types (including EditCourse without a source card)
     renderedHomeDialog?.let { dialog ->
         if (dialog !is HomeDialog.EditCourse || dialog.course == null) {
+        if (dialog is HomeDialog.ApplyCourseEdit) {
+            ApplyCourseEditDialog(
+                original = dialog.original,
+                edited = dialog.edited,
+                backdrop = chromeBackdrop,
+                config = state.config,
+                onSingle = {
+                    viewModel.updateCourseSingleWeek(dialog.original, dialog.edited, dialog.targetWeek)
+                    dismissHomeDialog()
+                },
+                onAll = {
+                    viewModel.updateCourse(dialog.edited)
+                    dismissHomeDialog()
+                },
+                onCancel = { dismissHomeDialog() }
+            )
+        } else if (dialog is HomeDialog.ApplyCourseDelete) {
+            ApplyCourseDeleteDialog(
+                course = dialog.course,
+                backdrop = chromeBackdrop,
+                config = state.config,
+                onSingle = {
+                    viewModel.deleteCourseSingleWeek(dialog.course, dialog.targetWeek)
+                    dismissHomeDialog()
+                },
+                onAll = {
+                    viewModel.deleteCourse(dialog.course)
+                    dismissHomeDialog()
+                },
+                onCancel = {
+                    dismissHomeDialog()
+                    openCourseEditor(dialog.course, dialog.targetWeek, null)
+                }
+            )
+        } else {
         Dialog(onDismissRequest = { dismissHomeDialog() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             if (dialog is HomeDialog.ImportSchedule) {
                 val dialogView = LocalView.current
@@ -1875,7 +1938,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 enter = popEnterTransition(),
                 exit = popExitTransition()
             ) {
-                val useAlertDialog = dialog is HomeDialog.ApplyCourseEdit || dialog is HomeDialog.ApplyCourseDelete
                 val dialogContent: @Composable () -> Unit = {
                     when (dialog) {
                     is HomeDialog.EditCourse ->
@@ -1946,7 +2008,6 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         },
                         onCancel = {
                             dismissHomeDialog()
-                            openCourseEditor(dialog.original, dialog.targetWeek, null)
                         }
                     )
                     is HomeDialog.ApplyCourseDelete -> ApplyCourseDeleteDialog(
@@ -1968,10 +2029,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     )
                     }
                 }
-                if (useAlertDialog) {
-                    dialogContent()
-                } else {
-                    CenterLiquidDialog(
+                CenterLiquidDialog(
                         backdrop = chromeBackdrop,
                         config = state.config,
                         modifier = Modifier,
@@ -1983,8 +2041,8 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     ) {
                         dialogContent()
                     }
-                }
             }
+        }
         }
         }
         }
@@ -3758,7 +3816,12 @@ fun DialogCapsuleField(
         decorationBox = { innerTextField ->
             Box {
                 if (value.isBlank()) {
-                    Text(placeholder, color = textColor.copy(alpha = 0.52f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        placeholder,
+                        color = textColor.copy(alpha = 0.52f),
+                        maxLines = if (minLines == 1) 1 else 2,
+                        overflow = TextOverflow.Clip
+                    )
                 }
                 innerTextField()
             }
@@ -4544,7 +4607,7 @@ private fun SettingsUpdateDialogHost(
         SettingsUpdateDialog.Checking -> LiquidAlertDialog(
             title = "正在检查更新",
             message = "正在读取 Gitee 上最新的 SleepDown-Schedule Release。",
-            actions = listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onDismiss)),
+            actions = listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = onDismiss)),
             backdrop = backdrop,
             config = config,
             onDismissRequest = onDismiss
@@ -4556,7 +4619,7 @@ private fun SettingsUpdateDialogHost(
                 title = "发现新版本 ${release.name}",
                 message = "$notes\n\n当前将从 Gitee 下载 APK，安装前仍会由系统向你确认。",
                 actions = listOf(
-                    LiquidAlertAction("稍后", LiquidAlertActionStyle.Secondary, onDismiss),
+                    LiquidAlertAction("稍后", LiquidAlertActionStyle.Secondary, onClick = onDismiss),
                     LiquidAlertAction("下载并安装", LiquidAlertActionStyle.Primary) { onDownload(release) }
                 ),
                 backdrop = backdrop,
@@ -4567,7 +4630,7 @@ private fun SettingsUpdateDialogHost(
         is SettingsUpdateDialog.UpToDate -> LiquidAlertDialog(
             title = "已是最新版本",
             message = "当前安装版本已不低于 Gitee 最新 Release（${dialog.latestTag}）。",
-            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onDismiss)),
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = onDismiss)),
             backdrop = backdrop,
             config = config,
             onDismissRequest = onDismiss
@@ -4575,7 +4638,14 @@ private fun SettingsUpdateDialogHost(
         is SettingsUpdateDialog.Downloading -> LiquidAlertDialog(
             title = "正在下载 ${dialog.release.name}",
             message = "正在从 Gitee 下载 APK，请保持网络连接。下载完成后将打开系统安装确认页面。",
-            actions = listOf(LiquidAlertAction("请稍候", LiquidAlertActionStyle.Secondary) {}),
+            actions = listOf(
+                LiquidAlertAction(
+                    "请稍候",
+                    LiquidAlertActionStyle.Secondary,
+                    onClick = {},
+                    dismissOnClick = false
+                )
+            ),
             backdrop = backdrop,
             config = config,
             onDismissRequest = {}
@@ -4584,7 +4654,7 @@ private fun SettingsUpdateDialogHost(
             title = "Release 中没有 APK",
             message = "已找到 ${dialog.release.name}，但该 Release 没有附带 APK 安装包。可以查看发行版，或使用备用下载页。",
             actions = listOf(
-                LiquidAlertAction("备用下载", LiquidAlertActionStyle.Secondary, onOpenBackup),
+                LiquidAlertAction("备用下载", LiquidAlertActionStyle.Secondary, onClick = onOpenBackup),
                 LiquidAlertAction("查看发行版", LiquidAlertActionStyle.Primary) { onOpenRelease(dialog.release) }
             ),
             backdrop = backdrop,
@@ -4595,8 +4665,8 @@ private fun SettingsUpdateDialogHost(
             title = "检查更新失败",
             message = dialog.message,
             actions = listOf(
-                LiquidAlertAction("备用下载", LiquidAlertActionStyle.Secondary, onOpenBackup),
-                LiquidAlertAction("重试", LiquidAlertActionStyle.Primary, onRetry)
+                LiquidAlertAction("备用下载", LiquidAlertActionStyle.Secondary, onClick = onOpenBackup),
+                LiquidAlertAction("重试", LiquidAlertActionStyle.Primary, onClick = onRetry)
             ),
             backdrop = backdrop,
             config = config,
@@ -4606,8 +4676,8 @@ private fun SettingsUpdateDialogHost(
             title = "允许安装更新",
             message = "Android 需要你先允许 SleepDown 安装来自 Gitee 的更新。授权返回后会继续打开系统安装确认页面。",
             actions = listOf(
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onDismiss),
-                LiquidAlertAction("去授权", LiquidAlertActionStyle.Primary, onRequestInstallPermission)
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = onDismiss),
+                LiquidAlertAction("去授权", LiquidAlertActionStyle.Primary, onClick = onRequestInstallPermission)
             ),
             backdrop = backdrop,
             config = config,
@@ -4849,6 +4919,8 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.0.4", "继续优化课程卡片、详细设置与今日助手的无缝 Morph 动画，改善打开和返回时的首尾帧衔接、背景缩放模糊、圆角过渡与交互响应，减少闪烁和等待感；优化课表设置弹窗逻辑，统一日期与时间选择器、确认取消按钮和浮层材质，并改善不同 DPI 与字体缩放下的排版适配和文字完整显示。")
+                SettingsDivider()
                 SettingsInfoRow("1.0.3", "重构多课表管理页，提供堆叠式卡片效果和更灵动的无缝动画；新增从快速设置按钮连续展开至详细设置页的 Morph 动画，并优化返回衔接、快照层级与交互性能；继续优化液态玻璃参数、层次和文字可读性；课表日期选择器改用 MIUIX 样式，优化课程编辑弹窗顶栏布局。")
                 SettingsDivider()
                 SettingsInfoRow("1.0.2", "扩展今日 Agent 能力边界，支持结合当前课表理解更多课程与设置需求，并可引导进入对应功能；优化设置分类与信息层级，常用配置更易查找；优化首页日视图与周视图的跟手切换动画，日期、周次及课程内容衔接更自然；调整日视图课程卡片圆角，使卡片层级与整体界面更加协调；新增 ICS 课表文件导入与导出分享，可通过系统分享器保存或发送课表；通用教务导入会保存曾打开的教务站地址与登录状态，方便下次快速进入；新增每日自动检查更新功能，发现新版本时展示版本号和更新日志；通用设置与通知设置改为修改后直接保存，不再需要二次确认。")

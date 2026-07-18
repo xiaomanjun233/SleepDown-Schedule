@@ -165,7 +165,9 @@ internal fun MorphSnapshotBackground(
             bitmap = bitmap,
             insetFraction = 0.04f,
             blurPx = edgeFillBlurPx,
-            alphaProvider = { blurProgress },
+            // The center snapshot starts shrinking on the first non-zero frame. Its rounded clear
+            // must always reveal an opaque blurred edge, never a partially transparent black gap.
+            alphaProvider = { 1f },
             modifier = Modifier.fillMaxSize()
         )
         Image(
@@ -326,8 +328,12 @@ fun CourseEditorContainerOverlayHost(
             progress.snapTo(0f)
             backgroundScale.snapTo(1f)
             while (rootSize.width <= 0 || rootSize.height <= 0) withFrameNanos { }
-            // Precompose and measure the backdrop-heavy editor while it is still transparent.
-            repeat(2) { withFrameNanos { } }
+            // One frame is enough to precompose/measure the final-size editor. The previous two
+            // unconditional frames were added before the real content got its progress-delayed
+            // alpha and created a visible pause after tapping. Geometry and the frozen background
+            // now start together on the next frame; the source snapshot covers the editor while
+            // its heavier content finishes warming behind it.
+            withFrameNanos { }
             updatePhase(CourseEditorOverlayPhase.Opening)
             coroutineScope {
                 launch {

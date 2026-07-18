@@ -122,14 +122,18 @@ private fun daysInMonth(year: Int, month: Int): Int =
     LocalDate.of(year, month, 1).lengthOfMonth()
 
 @Composable
-private fun quickSheetBackdropModifier(
+internal fun quickSheetBackdropModifier(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     blurRadius: androidx.compose.ui.unit.Dp,
-    inner: Boolean = false
+    inner: Boolean = false,
+    centered: Boolean = false
 ): Modifier {
-    val shape = if (inner) RoundedCornerShape(24.dp)
-        else RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    val shape = when {
+        inner -> RoundedCornerShape(24.dp)
+        centered -> RoundedCornerShape(28.dp)
+        else -> RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    }
     val dark = appUsesDarkTheme(config)
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
         return Modifier
@@ -175,31 +179,33 @@ private fun quickSheetBackdropModifier(
 }
 
 @Composable
-private fun QuickSheetLiquidAction(
+internal fun QuickSheetLiquidAction(
     label: String,
     enabled: Boolean,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     primary: Boolean = false,
+    modifier: Modifier = Modifier.width(84.dp),
+    height: androidx.compose.ui.unit.Dp = 38.dp,
     onClick: () -> Unit
 ) {
     if (backdrop != null) {
         val dark = appUsesDarkTheme(config)
         val neutralSurface = if (dark) {
-            Color(0xFF272C36).copy(alpha = 0.84f)
+            Color(0xFF272C36).copy(alpha = 0.92f)
         } else {
-            Color(0xFFF3F6FB).copy(alpha = 0.82f)
+            Color(0xFFF3F6FB).copy(alpha = 0.90f)
         }
         LiquidButton(
             onClick = { if (enabled) onClick() },
             backdrop = backdrop,
-            modifier = Modifier.width(84.dp),
-            height = 38.dp,
+            modifier = modifier,
+            height = height,
             blurRadius = 18.dp,
-            lensHeight = 24.dp,
-            lensAmount = 34.dp,
+            lensHeight = 8.dp,
+            lensAmount = 12.dp,
             tint = if (primary) Color(0xFF0A84FF) else Color.Unspecified,
-            surfaceColor = if (primary) Color(0xFF0A84FF).copy(alpha = 0.68f) else neutralSurface,
+            surfaceColor = if (primary) Color(0xFF0A84FF).copy(alpha = 0.88f) else neutralSurface,
             contentPadding = PaddingValues(horizontal = 14.dp)
         ) {
             Text(
@@ -217,9 +223,8 @@ private fun QuickSheetLiquidAction(
             else -> Color(0xFFE8ECF3)
         }
         Box(
-            modifier = Modifier
-                .width(84.dp)
-                .height(38.dp)
+            modifier = modifier
+                .height(height)
                 .clip(RoundedCornerShape(50))
                 .background(background.copy(alpha = if (enabled) 0.94f else 0.46f))
                 .clickable(enabled = enabled, onClick = onClick),
@@ -300,6 +305,7 @@ fun QuickScheduleSettingsSheets(
     suppressDetailedButton: Boolean = false,
     onDetailedSettings: (Int, Rect, ((() -> Unit) -> Unit)) -> Unit
 ) {
+    var retainedDraft by remember { mutableStateOf(draft) }
     var saving by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var dateYear by remember { mutableIntStateOf(LocalDate.now().year) }
@@ -309,6 +315,10 @@ fun QuickScheduleSettingsSheets(
     var currentWeekText by remember(draft?.scheduleId) { mutableStateOf(draft?.currentWeek?.toString().orEmpty()) }
     var detailButtonBounds by remember(draft?.scheduleId) { mutableStateOf<Rect?>(null) }
     var detailLaunching by remember(draft?.scheduleId) { mutableStateOf(false) }
+
+    LaunchedEffect(draft) {
+        if (draft != null) retainedDraft = draft
+    }
 
     fun beginDateSelection(value: String) {
         val date = runCatching { LocalDate.parse(value) }.getOrNull() ?: LocalDate.now()
@@ -354,13 +364,16 @@ fun QuickScheduleSettingsSheets(
             )
         },
         onDismissRequest = { if (!saving) onDismiss() },
-        onDismissFinished = onDismissFinished,
+        onDismissFinished = {
+            retainedDraft = null
+            onDismissFinished()
+        },
         allowDismiss = !saving,
         backgroundColor = Color.Transparent,
         modifier = Modifier.heightIn(max = 590.dp),
         surfaceModifier = quickSheetBackdropModifier(backdrop, config, blurRadius = 28.dp)
     ) {
-        draft?.let { value ->
+        retainedDraft?.let { value ->
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -520,7 +533,7 @@ fun QuickScheduleSettingsSheets(
 
     top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
         show = showDatePicker && draft != null,
-        title = "选择学期开始日期",
+        title = "选择日期",
         startAction = {
             QuickSheetLiquidAction(
                 label = "取消",
@@ -633,6 +646,7 @@ fun SchedulePickerOverlay(
     pickerState: SchedulePickerState,
     allState: AppState,
     backdrop: Backdrop?,
+    dialogBackdrop: Backdrop? = backdrop,
     onPageSelected: (Int) -> Unit,
     onApply: (Int) -> Unit,
     onClose: () -> Unit,
@@ -1114,7 +1128,7 @@ fun SchedulePickerOverlay(
     }
 
     deleteConfirmTarget?.let { profile ->
-        LiquidAlertDialog(
+        LiquidAlertOverlay(
             title = "删除课表",
             message = "确定要删除「${profile.name}」吗？该课表内的课程会一起删除。",
             actions = listOf(
@@ -1124,13 +1138,14 @@ fun SchedulePickerOverlay(
                     onDeleteRequest(profile.id)
                 }
             ),
-            backdrop = managerBackdrop,
+            backdrop = dialogBackdrop,
             config = allState.allConfigs.firstOrNull { it.id == profile.id } ?: defaultConfig(profile.id),
-            onDismissRequest = { deleteConfirmTarget = null }
+            onDismissRequest = { deleteConfirmTarget = null },
+            modifier = Modifier.zIndex(200f)
         )
     }
     if (showShareOptions) {
-        LiquidAlertDialog(
+        LiquidAlertOverlay(
             title = "分享课表",
             message = "选择分享 SleepDown 课表口令，或导出可被日历应用识别的 ICS 文件。",
             actions = listOf(
@@ -1144,9 +1159,10 @@ fun SchedulePickerOverlay(
                 },
                 LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) { showShareOptions = false }
             ),
-            backdrop = managerBackdrop,
+            backdrop = dialogBackdrop,
             config = allState.allConfigs.firstOrNull { it.id == selectedId } ?: defaultConfig(selectedId),
-            onDismissRequest = { showShareOptions = false }
+            onDismissRequest = { showShareOptions = false },
+            modifier = Modifier.zIndex(200f)
         )
     }
 }

@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
@@ -26,6 +27,7 @@ fun LiquidPanel(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedRectangle(28.dp),
     surfaceColor: Color = Color.White.copy(alpha = 0.20f),
+    blurRadius: Dp = 10.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
     Box(
@@ -34,7 +36,7 @@ fun LiquidPanel(
             shape = { shape },
             effects = {
                 vibrancy()
-                blur(10f.dp.toPx())
+                blur(blurRadius.toPx())
                 lens(24f.dp.toPx(), 34f.dp.toPx(), chromaticAberration = false)
             },
             highlight = { Highlight.Default.copy(alpha = 0.16f) },

@@ -50,19 +50,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColor
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.expandIn
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkOut
@@ -70,12 +66,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDp
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.keyframes
@@ -522,8 +515,6 @@ private fun AiManualImportDialogContent(
     aiParsing: Boolean,
     onPrimaryAction: () -> Unit
 ) {
-    // Let the Liquid selector finish its own damped travel before changing layout size.
-    var renderedMode by remember { mutableIntStateOf(selectedMode) }
     val textColor = glassForegroundColor(state.config)
     val configuration = LocalConfiguration.current
     val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
@@ -533,34 +524,14 @@ private fun AiManualImportDialogContent(
             safeInsets.calculateBottomPadding() -
             32.dp
         ).coerceAtLeast(280.dp)
-    val expandedHeight = (safeHeight * 0.82f).coerceAtMost(600.dp)
-    AnimatedContent(
-        targetState = renderedMode,
-        modifier = Modifier.fillMaxWidth(),
-        transitionSpec = {
-            (fadeIn(tween(durationMillis = 180, delayMillis = 60)) togetherWith
-                fadeOut(tween(durationMillis = 120))) using
-                SizeTransform(clip = false) { _, _ ->
-                    tween(
-                        durationMillis = 320,
-                        easing = CubicBezierEasing(0.3f, 0.72f, 0.2f, 1f)
-                    )
-                }
-        },
-        label = "manual-import-mode-size"
-    ) { mode ->
+    // All three modes share one stable middle-sized shell. Changing import mode now swaps only
+    // the inner content; the platform dialog and its expensive backdrop are never remeasured.
+    val panelHeight = minOf(safeHeight, 500.dp)
+    val mode = selectedMode
     Column(
         Modifier
             .fillMaxWidth()
-            .then(
-                if (mode == 0) {
-                    Modifier.height(expandedHeight)
-                } else {
-                    // Each target is measured at its real content height before SizeTransform
-                    // interpolates. Animated intermediate sizes never feed back as new targets.
-                    Modifier.heightIn(max = safeHeight)
-                }
-            )
+            .height(panelHeight)
     ) {
         LiquidDialogHeader("手动导入课表", onCancel, backdrop, state.config)
         if (mode == 1) {
@@ -614,10 +585,7 @@ private fun AiManualImportDialogContent(
                 backdrop = backdrop,
                 config = state.config,
                 width = maxWidth,
-                onSelected = onModeSelected,
-                onSelectionSettled = { settledMode ->
-                    if (settledMode == selectedMode) renderedMode = settledMode
-                }
+                onSelected = onModeSelected
             )
         }
         if (mode == 0) {
@@ -632,7 +600,7 @@ private fun AiManualImportDialogContent(
                         onValueChange = onJsonTextChange,
                         placeholder = "粘贴 SleepDown 课表口令或 AI 返回内容",
                         config = state.config,
-                        minLines = 8,
+                        minLines = 5,
                         cornerRadius = 16.dp,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -706,7 +674,6 @@ private fun AiManualImportDialogContent(
                 onClick = onPrimaryAction
             )
         }
-    }
     }
 }
 
@@ -2382,7 +2349,7 @@ fun ConfirmScheduleScreen(
                     actions = listOf(
                         LiquidAlertAction("创建新课表", LiquidAlertActionStyle.Primary) { onConfirm(true) },
                         LiquidAlertAction("覆盖当前课表", LiquidAlertActionStyle.Destructive) { onConfirm(false) },
-                        LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onCancel)
+                        LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = onCancel)
                     ),
                     backdrop = backdrop,
                     config = previewDraft.config

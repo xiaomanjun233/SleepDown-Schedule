@@ -443,6 +443,7 @@ fun HomeScreen(
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onAgentBackgroundProgress: (Float) -> Unit = {},
+    onAgentPagerSettledChange: (Boolean) -> Unit = {},
     onAgentPrepareOpen: suspend () -> Unit = {},
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit = {},
@@ -503,6 +504,7 @@ fun HomeScreen(
                         onSwipeDay = onSwipeDay,
                         onContentUnderTopBarChange = onContentUnderTopBarChange,
                         onAgentBackgroundProgress = onAgentBackgroundProgress,
+                        onAgentPagerSettledChange = onAgentPagerSettledChange,
                         onAgentPrepareOpen = onAgentPrepareOpen,
                         onCourseClick = onCourseClick,
                         onAddCourse = onAddCourse,
@@ -533,38 +535,22 @@ fun HomeScreen(
             }
         }
         pendingSingleWeekDelete?.let { (course, week) ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(80f)
-                    .background(ComposeColor.Black.copy(alpha = 0.28f))
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() }
-                    ) {},
-                contentAlignment = Alignment.Center
-            ) {
-                LiquidAlertSurface(
-                    title = "删除单周课程",
-                    message = "确定删除第${week}周的“${course.name}”吗？只会删除当前周这一次，不会删除其它周的同名课程。",
-                    actions = listOf(
-                        LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) {
-                            pendingSingleWeekDelete = null
-                        },
-                        LiquidAlertAction("确认删除", LiquidAlertActionStyle.Destructive) {
-                            pendingSingleWeekDelete = null
-                            onDeleteCourseSingleWeek(course, week)
-                        }
-                    ),
-                    backdrop = backdrop,
-                    config = state.config,
-                    modifier = Modifier
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() }
-                        ) {}
-                )
-            }
+            LiquidAlertDialog(
+                title = "删除单周课程",
+                message = "确定删除第${week}周的“${course.name}”吗？只会删除当前周这一次，不会删除其它周的同名课程。",
+                actions = listOf(
+                    LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) {
+                        pendingSingleWeekDelete = null
+                    },
+                    LiquidAlertAction("确认删除", LiquidAlertActionStyle.Destructive) {
+                        pendingSingleWeekDelete = null
+                        onDeleteCourseSingleWeek(course, week)
+                    }
+                ),
+                backdrop = backdrop,
+                config = state.config,
+                onDismissRequest = { pendingSingleWeekDelete = null }
+            )
         }
     }
 }
@@ -768,16 +754,17 @@ fun ApplyCourseEditDialog(
     onAll: () -> Unit,
     onCancel: () -> Unit
 ) {
-    LiquidAlertSurface(
+    LiquidAlertDialog(
         title = "应用修改",
         message = "要将“${original.name}”的修改应用到哪里？仅单次只修改当前周，应用全部会修改这门课的所有周。",
         actions = listOf(
-            LiquidAlertAction("仅单次", LiquidAlertActionStyle.Primary, onSingle),
-            LiquidAlertAction("应用全部", LiquidAlertActionStyle.Secondary, onAll),
-            LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onCancel)
+            LiquidAlertAction("仅单次", LiquidAlertActionStyle.Primary, onClick = onSingle),
+            LiquidAlertAction("应用全部", LiquidAlertActionStyle.Secondary, onClick = onAll),
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = onCancel)
         ),
         backdrop = backdrop,
-        config = config
+        config = config,
+        onDismissRequest = onCancel
     )
 }
 
@@ -790,16 +777,17 @@ fun ApplyCourseDeleteDialog(
     onAll: () -> Unit,
     onCancel: () -> Unit
 ) {
-    LiquidAlertSurface(
+    LiquidAlertDialog(
         title = "删除课程",
         message = "要将“${course.name}”从哪里删除？仅单次只删除当前周，删除全部会删除这门课的所有周。",
         actions = listOf(
-            LiquidAlertAction("仅删除本周", LiquidAlertActionStyle.Primary, onSingle),
-            LiquidAlertAction("删除全部", LiquidAlertActionStyle.Destructive, onAll),
-            LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onCancel)
+            LiquidAlertAction("仅删除本周", LiquidAlertActionStyle.Primary, onClick = onSingle),
+            LiquidAlertAction("删除全部", LiquidAlertActionStyle.Destructive, onClick = onAll),
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = onCancel)
         ),
         backdrop = backdrop,
-        config = config
+        config = config,
+        onDismissRequest = onCancel
     )
 }
 
@@ -1039,6 +1027,7 @@ fun DayScheduleScreen(
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onAgentBackgroundProgress: (Float) -> Unit,
+    onAgentPagerSettledChange: (Boolean) -> Unit,
     onAgentPrepareOpen: suspend () -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit,
@@ -1054,6 +1043,18 @@ fun DayScheduleScreen(
     var programmaticDayScroll by remember { mutableStateOf(false) }
 
     fun dateForPage(page: Int): LocalDate = anchorDate.plusDays((page - centerPage).toLong())
+
+    LaunchedEffect(pagerState, displayDate) {
+        snapshotFlow {
+            !pagerState.isScrollInProgress &&
+                pagerState.currentPage == pagerState.settledPage &&
+                kotlin.math.abs(pagerState.currentPageOffsetFraction) < 0.0005f &&
+                dateForPage(pagerState.settledPage) == displayDate
+        }.distinctUntilChanged().collect(onAgentPagerSettledChange)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onAgentPagerSettledChange(false) }
+    }
 
     LaunchedEffect(pagerState, displayDate) {
         snapshotFlow {

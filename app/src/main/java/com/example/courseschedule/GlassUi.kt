@@ -5,6 +5,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,7 +15,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
@@ -20,6 +25,8 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -351,7 +358,8 @@ fun CourseGlassCard(
     val glassBackdrop = if (config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
     val useGlass = glassBackdrop != null
     val quality = LocalGlassQuality.current
-    val interactionSource = if (onClick != null) remember { MutableInteractionSource() } else null
+    val clickInteractionSource = remember { MutableInteractionSource() }
+    var pressed by remember { mutableStateOf(false) }
     val baseColor = courseCardBaseColor(config, course)
     val glassTint = baseColor.copy(alpha = ((config.cardAlpha.coerceIn(0f, 1f) * 0.68f) * quality).coerceIn(0f, 0.68f))
     val solidColor = baseColor.copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
@@ -359,12 +367,27 @@ fun CourseGlassCard(
     val lightGlass = glassUsesLightStyle(config)
     val cardModifier = modifier
         .then(
-            if (onClick == null) Modifier else Modifier.clickable(
-                interactionSource = requireNotNull(interactionSource),
-                indication = null,
-                role = Role.Button,
-                onClick = onClick
-            )
+            if (onClick == null) Modifier else Modifier
+                .pointerInput(onClick) {
+                    awaitEachGesture {
+                        awaitFirstDown(
+                            requireUnconsumed = false,
+                            pass = PointerEventPass.Initial
+                        )
+                        pressed = true
+                        try {
+                            waitForUpOrCancellation(pass = PointerEventPass.Initial)
+                        } finally {
+                            pressed = false
+                        }
+                    }
+                }
+                .clickable(
+                    interactionSource = clickInteractionSource,
+                    indication = null,
+                    role = Role.Button,
+                    onClick = onClick
+                )
         )
     Box(modifier = cardModifier) {
         val surfaceModifier = if (useGlass) {
@@ -403,5 +426,13 @@ fun CourseGlassCard(
         }
         Box(surfaceModifier)
         content()
+        if (pressed) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .clip(shape)
+                    .background(Color.Black.copy(alpha = 0.13f))
+            )
+        }
     }
 }

@@ -1268,8 +1268,7 @@ fun LiquidOptionTabs(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     width: Dp,
-    onSelected: (Int) -> Unit,
-    onSelectionSettled: (Int) -> Unit = {}
+    onSelected: (Int) -> Unit
 ) {
     if (backdrop != null) {
         CompositionLocalProvider(LocalContentColor provides appPanelForegroundColor(config)) {
@@ -1279,7 +1278,6 @@ fun LiquidOptionTabs(
                 backdrop = backdrop,
                 tabsCount = labels.size,
                 modifier = Modifier.width(width),
-                onSelectionSettled = { index -> onSelectionSettled(index.coerceIn(labels.indices)) },
                 containerHeight = 42.dp,
                 indicatorHeight = 34.dp,
                 horizontalPadding = 4.dp,
@@ -1304,10 +1302,7 @@ fun LiquidOptionTabs(
     } else {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             labels.forEachIndexed { index, label ->
-                SettingsFallbackChip(label, selectedIndex == index) {
-                    onSelected(index)
-                    onSelectionSettled(index)
-                }
+                SettingsFallbackChip(label, selectedIndex == index) { onSelected(index) }
             }
         }
     }
@@ -1831,7 +1826,15 @@ fun showNativeTimePicker(context: Context, currentValue: String, onPicked: (Stri
 }
 
 @Composable
-fun SettingsDatePickerRow(title: String, value: String, onValueChange: (String) -> Unit, enabled: Boolean = true) {
+fun SettingsDatePickerRow(
+    title: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    enabled: Boolean = true
+) {
+    val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     var showPicker by remember { mutableStateOf(false) }
     val initialDate = remember(value, showPicker) { parseScheduleDate(value) ?: LocalDate.now() }
     var pickerYear by remember(initialDate, showPicker) { mutableIntStateOf(initialDate.year) }
@@ -1843,64 +1846,159 @@ fun SettingsDatePickerRow(title: String, value: String, onValueChange: (String) 
         enabled = enabled,
         onClick = { showPicker = true }
     )
-    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
+    top.yukonga.miuix.kmp.overlay.OverlayDialog(
         show = showPicker,
-        title = title,
-        startAction = {
-            top.yukonga.miuix.kmp.basic.TextButton(
-                text = "取消",
-                onClick = { showPicker = false },
-                minWidth = 64.dp,
-                minHeight = 38.dp
-            )
-        },
-        endAction = {
-            top.yukonga.miuix.kmp.basic.TextButton(
-                text = "确定",
-                onClick = {
-                    val maxDay = java.time.YearMonth.of(pickerYear, pickerMonth).lengthOfMonth()
-                    onValueChange(formatScheduleDate(LocalDate.of(pickerYear, pickerMonth, pickerDay.coerceAtMost(maxDay))))
-                    showPicker = false
-                },
-                minWidth = 64.dp,
-                minHeight = 38.dp
-            )
-        },
+        title = "选择日期",
         onDismissRequest = { showPicker = false },
-        modifier = Modifier.heightIn(max = 330.dp)
+        enableWindowDim = false,
+        backgroundColor = ComposeColor.Transparent,
+        forceCenter = true,
+        surfaceModifier = quickSheetBackdropModifier(
+            backdrop = popupBackdrop,
+            config = config,
+            blurRadius = 28.dp,
+            centered = true
+        )
     ) {
         val maxDay = java.time.YearMonth.of(pickerYear, pickerMonth).lengthOfMonth()
         LaunchedEffect(maxDay) {
             if (pickerDay > maxDay) pickerDay = maxDay
         }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Column(
+            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            top.yukonga.miuix.kmp.basic.NumberPicker(
-                value = pickerYear,
-                onValueChange = { pickerYear = it },
-                range = 2000..2100,
-                visibleItemCount = 3,
-                label = { "${it}年" },
-                modifier = Modifier.weight(1.25f)
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val fontScale = LocalDensity.current.fontScale
+            // NumberPicker defaults to MIUIX title1. Three equal columns make a four digit year
+            // ellipsize on narrow dialogs or when display/font scaling is raised. Keep the picker
+            // readable without changing the dialog width: reserve more width for the year and cap
+            // only this dense numeric control's effective size at the extreme DPI combinations.
+            val compactPicker = maxWidth < 300.dp || fontScale > 1.12f
+            val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                fontSize = when {
+                    maxWidth < 270.dp || fontScale > 1.32f -> 21.sp
+                    compactPicker -> 24.sp
+                    else -> 28.sp
+                }
             )
-            top.yukonga.miuix.kmp.basic.NumberPicker(
-                value = pickerMonth,
-                onValueChange = { pickerMonth = it },
-                range = 1..12,
-                visibleItemCount = 3,
-                label = { "${it}月" },
-                modifier = Modifier.weight(1f)
-            )
-            top.yukonga.miuix.kmp.basic.NumberPicker(
-                value = pickerDay.coerceAtMost(maxDay),
-                onValueChange = { pickerDay = it },
-                range = 1..maxDay,
-                visibleItemCount = 3,
-                label = { "${it}日" },
-                modifier = Modifier.weight(1f)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(if (compactPicker) 4.dp else 8.dp)
+            ) {
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = pickerYear,
+                    onValueChange = { pickerYear = it },
+                    range = 2000..2100,
+                    visibleItemCount = 3,
+                    label = { "${it}年" },
+                    textStyle = pickerTextStyle,
+                    modifier = Modifier.weight(if (compactPicker) 1.65f else 1.5f)
+                )
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = pickerMonth,
+                    onValueChange = { pickerMonth = it },
+                    range = 1..12,
+                    visibleItemCount = 3,
+                    label = { "${it}月" },
+                    textStyle = pickerTextStyle,
+                    modifier = Modifier.weight(1f)
+                )
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = pickerDay.coerceAtMost(maxDay),
+                    onValueChange = { pickerDay = it },
+                    range = 1..maxDay,
+                    visibleItemCount = 3,
+                    label = { "${it}日" },
+                    textStyle = pickerTextStyle,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            QuickSheetLiquidAction(
+                "取消", true, popupBackdrop, config,
+                modifier = Modifier.weight(1f), height = 50.dp
+            ) { showPicker = false }
+            QuickSheetLiquidAction(
+                "确定", true, popupBackdrop, config, primary = true,
+                modifier = Modifier.weight(1f), height = 50.dp
+            ) {
+                onValueChange(formatScheduleDate(LocalDate.of(pickerYear, pickerMonth, pickerDay.coerceAtMost(maxDay))))
+                showPicker = false
+            }
+        }
+        }
+    }
+}
+
+@Composable
+fun SettingsTimePickerRow(
+    title: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    enabled: Boolean = true
+) {
+    val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
+    var showPicker by remember { mutableStateOf(false) }
+    val initialTime = remember(value, showPicker) {
+        runCatching { ScheduleImportParser.parseTimeForUi(value) }.getOrNull()
+            ?: java.time.LocalTime.of(8, 0)
+    }
+    var pickerHour by remember(initialTime, showPicker) { mutableIntStateOf(initialTime.hour) }
+    var pickerMinute by remember(initialTime, showPicker) { mutableIntStateOf(initialTime.minute) }
+    SettingsPickerValueRow(title = title, value = value, enabled = enabled, onClick = { showPicker = true })
+    top.yukonga.miuix.kmp.overlay.OverlayDialog(
+        show = showPicker,
+        title = "选择时间",
+        onDismissRequest = { showPicker = false },
+        enableWindowDim = false,
+        backgroundColor = ComposeColor.Transparent,
+        forceCenter = true,
+        surfaceModifier = quickSheetBackdropModifier(
+            backdrop = popupBackdrop,
+            config = config,
+            blurRadius = 28.dp,
+            centered = true
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = pickerHour,
+                    onValueChange = { pickerHour = it },
+                    range = 0..23,
+                    visibleItemCount = 3,
+                    label = { "%02d时".format(it) },
+                    modifier = Modifier.weight(1f)
+                )
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = pickerMinute,
+                    onValueChange = { pickerMinute = it },
+                    range = 0..59,
+                    visibleItemCount = 3,
+                    label = { "%02d分".format(it) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                QuickSheetLiquidAction(
+                    "取消", true, popupBackdrop, config,
+                    modifier = Modifier.weight(1f), height = 50.dp
+                ) { showPicker = false }
+                QuickSheetLiquidAction(
+                    "确定", true, popupBackdrop, config, primary = true,
+                    modifier = Modifier.weight(1f), height = 50.dp
+                ) {
+                    onValueChange("%02d:%02d".format(pickerHour, pickerMinute))
+                    showPicker = false
+                }
+            }
         }
     }
 }
@@ -2226,7 +2324,7 @@ fun ScheduleSettingsContent(
                     SettingsDivider()
                     SettingsToggleRow("自动计算当前周", "根据学期开始日期计算，当前为第 $detectedWeek 周", autoCurrentWeek, backdrop, onCheckedChange = onAutoCurrentWeekChange)
                     SettingsDivider()
-                    SettingsTextFieldRow("学期开始日期", termStartDate, onTermStartDateChange)
+                    SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
                 }
             }
             item { Text("节次时间", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
@@ -2234,12 +2332,12 @@ fun ScheduleSettingsContent(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     periods.forEachIndexed { idx, period ->
                         SettingsValueRow("第 ${period.periodIndex} 节", "")
-                        SettingsTextFieldRow("开始时间", period.startTime, { value ->
+                        SettingsTimePickerRow("开始时间", period.startTime, { value ->
                             onPeriodsChange(periods.toMutableList().also { it[idx] = period.copy(startTime = value) })
-                        })
-                        SettingsTextFieldRow("结束时间", period.endTime, { value ->
+                        }, backdrop, state.config)
+                        SettingsTimePickerRow("结束时间", period.endTime, { value ->
                             onPeriodsChange(periods.toMutableList().also { it[idx] = period.copy(endTime = value) })
-                        })
+                        }, backdrop, state.config)
                         if (idx != periods.lastIndex) SettingsDivider()
                     }
                 }
@@ -2379,7 +2477,7 @@ fun ScheduleSettingsContentFixed(
                     onCheckedChange = onHideEmptyWeekendsChange
                 )
                 SettingsDivider()
-                SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange)
+                SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
             }
         }
         item { Text("节次时间", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
@@ -2403,12 +2501,12 @@ fun ScheduleSettingsContentFixed(
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 periods.forEachIndexed { idx, period ->
                     SettingsValueRow("第 ${period.periodIndex} 节", "")
-                    SettingsTextFieldRow("开始时间", period.startTime, { value ->
+                    SettingsTimePickerRow("开始时间", period.startTime, { value ->
                         onPeriodsChange(periods.toMutableList().also { it[idx] = period.copy(startTime = value) })
-                    })
-                    SettingsTextFieldRow("结束时间", period.endTime, { value ->
+                    }, backdrop, state.config)
+                    SettingsTimePickerRow("结束时间", period.endTime, { value ->
                         onPeriodsChange(periods.toMutableList().also { it[idx] = period.copy(endTime = value) })
-                    })
+                    }, backdrop, state.config)
                     if (idx != periods.lastIndex) SettingsDivider()
                 }
             }

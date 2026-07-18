@@ -54,6 +54,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,6 +84,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
@@ -90,7 +92,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.Lifecycle
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.catalog.components.liquidButtonInteraction
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
@@ -99,6 +103,9 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
+import kotlin.math.roundToInt
+
+internal val LocalAgentBackgroundCaptureMask = staticCompositionLocalOf<() -> Boolean> { { false } }
 
 @Composable
 fun TodayAgentHost(
@@ -205,9 +212,14 @@ fun TodayAgentCard(
     var pendingQuestion by remember(date, scheduleId) { mutableStateOf<String?>(null) }
     var generationError by remember(date, scheduleId) { mutableStateOf<String?>(null) }
     var cardBounds by remember(date, scheduleId) { mutableStateOf<Rect?>(null) }
-    var cachedCardSnapshot by remember(date, scheduleId) { mutableStateOf<Bitmap?>(null) }
     var sourceCardSnapshot by remember(date, scheduleId) { mutableStateOf<Bitmap?>(null) }
+    var sourceHandoffCover by remember(date, scheduleId) { mutableStateOf(false) }
+    val sourceHandoffAlpha = remember(date, scheduleId) { Animatable(1f) }
+    val sourceHandoffImage = remember(sourceCardSnapshot) { sourceCardSnapshot?.asImageBitmap() }
     val cardGraphicsLayer = rememberGraphicsLayer()
+    val suppressForAgentBackgroundCapture = LocalAgentBackgroundCaptureMask.current
+    val sourceCardInteractionSource = remember { MutableInteractionSource() }
+    val sourceCardPressed by sourceCardInteractionSource.collectIsPressedAsState()
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -258,25 +270,22 @@ fun TodayAgentCard(
         }
     }
 
-    LaunchedEffect(rendered.text, rendered.compactText, collapsed, status, hasApiKey) {
-        // Prepare the small source snapshot outside the click path. Two frames ensure
-        // the graphics layer contains the latest text/layout before the GPU readback.
-        withFrameNanos { }
-        withFrameNanos { }
-        cachedCardSnapshot = runCatching {
-            cardGraphicsLayer.toImageBitmap().asAndroidBitmap()
-        }.getOrNull()
-    }
-
     fun openConversation(question: String?) {
         if (!hasApiKey || dialogOpen || dialogOpening) return
         dialogOpening = true
         scope.launch {
             try {
+                sourceHandoffCover = false
+                sourceHandoffAlpha.snapTo(1f)
+                // onPrepareOpen waits until the day pager is fully settled. Capture the small
+                // source card only after that barrier; an eager card snapshot taken while the
+                // pager was between pages preserved a horizontally displaced glass sample even
+                // though the card's final geometry itself was correct.
                 onPrepareOpen()
-                sourceCardSnapshot = cachedCardSnapshot
+                sourceCardSnapshot = runCatching {
+                    cardGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                }.getOrNull()
                 pendingQuestion = question
-                sourceCardHidden = true
                 dialogOpen = true
             } finally {
                 dialogOpening = false
@@ -291,28 +300,45 @@ fun TodayAgentCard(
             .fillMaxWidth()
             .onGloballyPositioned { cardBounds = it.boundsInWindow() }
             .drawWithContent {
-                cardGraphicsLayer.record { this@drawWithContent.drawContent() }
-                drawContent()
+                if (!suppressForAgentBackgroundCapture()) {
+                    cardGraphicsLayer.record { this@drawWithContent.drawContent() }
+                    drawContent()
+                    if (sourceHandoffCover) {
+                        sourceHandoffImage?.let { cover ->
+                            drawImage(
+                                image = cover,
+                                dstSize = IntSize(
+                                    width = size.width.roundToInt().coerceAtLeast(1),
+                                    height = size.height.roundToInt().coerceAtLeast(1)
+                                ),
+                                alpha = sourceHandoffAlpha.value
+                            )
+                        }
+                    }
+                }
             }
             .graphicsLayer {
                 alpha = if (sourceCardHidden) 0f else 1f
             }
-             .liquidButtonInteraction(
-                  onClick = {
-                      openConversation(null)
-                 },
-                 isInteractive = hasApiKey,
-                 showHighlight = false
-             ),
+            // Keep source geometry stable for the first/last Morph frame. The generic Liquid
+            // interaction expands the card by 4dp while pressed, but layout bounds and the cached
+            // source bitmap remain unscaled, which creates a visible size jump at handoff.
+            .clickable(
+                interactionSource = sourceCardInteractionSource,
+                indication = null,
+                enabled = hasApiKey,
+                onClick = { openConversation(null) }
+            ),
         shape = RoundedCornerShape(if (collapsed) 26.dp else 28.dp),
         tokens = GlassTokens.dialog(intensity = 0.82f).copy(blur = 4.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .background(Color(state.config.cardColorArgb).copy(alpha = 0.10f))
-                .padding(horizontal = 16.dp, vertical = if (collapsed) 10.dp else 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+        Box {
+            Column(
+                modifier = Modifier
+                    .background(Color(state.config.cardColorArgb).copy(alpha = 0.10f))
+                    .padding(horizontal = 16.dp, vertical = if (collapsed) 10.dp else 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("✦", color = Color(0xFF168CFF), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.width(8.dp))
@@ -377,6 +403,17 @@ fun TodayAgentCard(
                     }
                 }
             }
+            }
+            if (sourceCardPressed) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .background(
+                            Color.Black.copy(alpha = 0.13f),
+                            RoundedCornerShape(if (collapsed) 26.dp else 28.dp)
+                        )
+                )
+            }
         }
     }
 
@@ -394,17 +431,26 @@ fun TodayAgentCard(
             sourceCornerRadius = if (collapsed) 26.dp else 28.dp,
             onBackgroundProgress = onBackgroundProgress,
             onAgentAction = onAgentAction,
+            onOverlayReady = { sourceCardHidden = true },
             onPrepareDismiss = {
-                // Restore the real source card under the opaque p=0 snapshot first. The overlay
-                // remains mounted for two more frames, so its removal cannot expose an unmeasured
-                // or not-yet-drawn glass card.
+                // Warm the real glass behind a pixel-aligned local cover. The cover lives in the
+                // source card's own coordinates, so Dialog/window offsets cannot affect handoff.
+                sourceHandoffCover = true
                 sourceCardHidden = false
             },
             onDismiss = {
                 dialogOpen = false
                 sourceCardHidden = false
                 pendingQuestion = null
-                sourceCardSnapshot = null
+                scope.launch {
+                    // Keep the cached card over the freshly restored backdrop until its sampling
+                    // has drawn twice, then cross-fade instead of exposing one displaced sample.
+                    repeat(2) { withFrameNanos { } }
+                    sourceHandoffAlpha.animateTo(0f, tween(durationMillis = 110))
+                    sourceHandoffCover = false
+                    sourceCardSnapshot = null
+                    sourceHandoffAlpha.snapTo(1f)
+                }
             }
         )
     }
@@ -494,6 +540,7 @@ private fun DayAgentConversationDialog(
     sourceCornerRadius: Dp,
     onBackgroundProgress: (Float) -> Unit,
     onAgentAction: (AgentValidatedAction) -> Unit,
+    onOverlayReady: () -> Unit,
     onPrepareDismiss: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -511,6 +558,10 @@ private fun DayAgentConversationDialog(
     val backgroundProgress = remember { Animatable(0f) }
     val conversationListState = rememberLazyListState()
     val foreground = LocalAdaptiveGlass.current.contentColor
+    val agentCardContentBackdrop = rememberLayerBackdrop()
+    val agentInputBackdrop = if (backdrop != null) {
+        rememberCombinedBackdrop(backdrop, agentCardContentBackdrop)
+    } else null
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -584,6 +635,17 @@ private fun DayAgentConversationDialog(
         }
     }
 
+    fun toggleSend() {
+        if (sending) {
+            requestJob?.cancel()
+            requestJob = null
+            sending = false
+            streamingText = ""
+        } else {
+            send()
+        }
+    }
+
     Dialog(
         onDismissRequest = ::dismissAnimated,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
@@ -631,6 +693,9 @@ private fun DayAgentConversationDialog(
                         indication = null,
                         onClick = {}
                     )
+                    // Record only the expanded card. Inputs below sample this plus the base home
+                    // layer; they must never fall through to wallpaper-only sampling.
+                    .layerBackdrop(agentCardContentBackdrop)
             ) {
                 GlassSurface(
                     backdrop = backdrop,
@@ -767,7 +832,7 @@ private fun DayAgentConversationDialog(
             }
 
              GlassSurface(
-                     backdrop = backdrop,
+                     backdrop = agentInputBackdrop,
                     config = state.config,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -813,30 +878,36 @@ private fun DayAgentConversationDialog(
                                 inner()
                             }
                         )
-                        AgentSimplePressSurface(
-                            backdrop = backdrop,
-                            config = state.config,
+                        if (agentInputBackdrop != null) LiquidButton(
+                            onClick = ::toggleSend,
+                            backdrop = agentInputBackdrop,
                             modifier = Modifier.size(40.dp),
-                            shape = CircleShape,
-                            tokens = GlassTokens.pill(intensity = 0.90f).copy(
-                                blur = 0.dp,
-                                surfaceAlpha = 0.82f
-                            ),
-                            onClick = {
-                                if (sending) {
-                                    requestJob?.cancel()
-                                    requestJob = null
-                                    sending = false
-                                    streamingText = ""
-                                } else {
-                                    send()
-                                }
-                            }
+                            surfaceColor = Color(0xFF168CFF).copy(alpha = 0.82f),
+                            height = 40.dp,
+                            contentPadding = PaddingValues(0.dp),
+                            blurRadius = 4.dp,
+                            lensHeight = 12.dp,
+                            lensAmount = 20.dp,
+                            chromaticAberration = false
                         ) {
                             Box(
                                 Modifier
                                     .fillMaxSize()
-                                    .background(Color(0xFF168CFF).copy(alpha = 0.82f), CircleShape),
+                                    .background(Color.Transparent, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        } else AgentSimplePressSurface(
+                            backdrop = null,
+                            config = state.config,
+                            modifier = Modifier.size(40.dp),
+                            shape = CircleShape,
+                            tokens = GlassTokens.pill(intensity = 0.90f).copy(blur = 0.dp, surfaceAlpha = 0.82f),
+                            onClick = ::toggleSend
+                        ) {
+                            Box(
+                                Modifier.fillMaxSize().background(Color(0xFF168CFF).copy(alpha = 0.82f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
@@ -846,8 +917,13 @@ private fun DayAgentConversationDialog(
             }
         }
          LaunchedEffect(Unit) {
-             repeat(2) { withFrameNanos { } }
-             coroutineScope {
+              // Commit the p=0 source snapshot to the Dialog window before hiding the real
+              // card below it. A second frame applies that hide while expansion is still zero,
+              // eliminating the one-frame hole between the two layers.
+              withFrameNanos { }
+              onOverlayReady()
+              withFrameNanos { }
+              coroutineScope {
                  launch {
                      expansion.animateTo(
                          1f,
