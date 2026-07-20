@@ -1,4 +1,4 @@
-package com.example.courseschedule
+﻿package com.example.courseschedule
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -127,6 +127,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -273,6 +274,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -283,6 +285,7 @@ import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicBoolean
 import java.io.File
 import java.net.HttpURLConnection
@@ -400,12 +403,13 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var previewScheduleId by remember { mutableStateOf<Int?>(null) }
     var pendingPickerEditorScheduleId by remember { mutableStateOf<Int?>(null) }
     var quickScheduleDraft by remember { mutableStateOf<QuickScheduleDraft?>(null) }
-    var dayAgentBackgroundProgress by remember { mutableFloatStateOf(0f) }
+    val dayAgentBackgroundMotionState = rememberDayAgentBackgroundMotionState()
     var dayAgentEdgeSnapshot by remember { mutableStateOf<Bitmap?>(null) }
     var dayAgentSnapshotKey by remember { mutableStateOf<String?>(null) }
     var dayAgentPagerSettled by remember { mutableStateOf(false) }
     var dayAgentCaptureRecordCleanFrame by remember { mutableStateOf(false) }
     val dayAgentCaptureMaskActive = remember { AtomicBoolean(false) }
+    val dayAgentCleanFrameSignal = remember { AtomicReference<CompletableDeferred<Unit>?>(null) }
     var detailMorphState by remember { mutableStateOf<DetailMorphState>(DetailMorphState.Idle) }
     var detailMorphRequest by remember { mutableStateOf<DetailMorphRequest?>(null) }
     var detailCaptureCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -431,14 +435,12 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     var renderedHomeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     var homeDialogVisible by remember { mutableStateOf(false) }
     var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
-    var pendingCourseEditorCapture by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var courseEditorRenderedCourseId by remember { mutableStateOf<Long?>(null) }
     val courseEditorMotionState = rememberCourseEditorMotionState()
     val courseEditorOverlayPhase = courseEditorMotionState.phase
     fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?) {
-        if (courseEditorRequest != null || pendingCourseEditorCapture != null) return
-        val request = CourseEditorOverlayRequest(course, targetWeek, sourceBounds)
-        if (sourceBounds != null) pendingCourseEditorCapture = request else courseEditorRequest = request
+        if (courseEditorRequest != null) return
+        courseEditorRequest = CourseEditorOverlayRequest(course, targetWeek, sourceBounds)
     }
     fun closeCourseEditor() {
         courseEditorRequest = null
@@ -496,44 +498,14 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     }
     var homeContentUnderTopBar by remember { mutableStateOf(false) }
     val adaptiveWeekCardHeight = if (visualState.periods.size >= 10) 72f else 80f
-    var weekCardHeight by remember(visualState.periods.size, visualState.config.weekCardHeightDp) { mutableFloatStateOf(visualState.config.weekCardHeightDp ?: adaptiveWeekCardHeight) }
-    val context = LocalContext.current
-    val appScope = rememberCoroutineScope()
-    LaunchedEffect(pendingCourseEditorCapture) {
-        val pending = pendingCourseEditorCapture ?: return@LaunchedEffect
-        val sourceBounds = pending.sourceBoundsInRoot
-        val fullSnapshot = runCatching {
-            screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
-        }.getOrNull()
-        if (
-            sourceBounds == null ||
-            fullSnapshot == null ||
-            fullSnapshot.width <= 0 ||
-            fullSnapshot.height <= 0
-        ) {
-            pendingCourseEditorCapture = null
-            courseEditorRequest = pending
-            return@LaunchedEffect
-        }
-        val x = sourceBounds.left.toInt().coerceIn(0, fullSnapshot.width - 1)
-        val y = sourceBounds.top.toInt().coerceIn(0, fullSnapshot.height - 1)
-        val width = sourceBounds.width.toInt().coerceIn(1, fullSnapshot.width - x)
-        val height = sourceBounds.height.toInt().coerceIn(1, fullSnapshot.height - y)
-        val sourceSnapshot = runCatching {
-            Bitmap.createBitmap(fullSnapshot, x, y, width, height)
-        }.getOrNull()
-        if (sourceSnapshot == null) {
-            pendingCourseEditorCapture = null
-            courseEditorRequest = pending
-            return@LaunchedEffect
-        }
-
-        courseEditorRequest = pending.copy(
-            backgroundSnapshot = fullSnapshot,
-            sourceCardSnapshot = sourceSnapshot
-        )
-        pendingCourseEditorCapture = null
+    var weekCardHeight by remember(visualState.periods.size, visualState.config.weekCardHeightDp) {
+        mutableFloatStateOf((visualState.config.weekCardHeightDp ?: adaptiveWeekCardHeight).coerceIn(38f, 80f))
     }
+    val context = LocalContext.current
+    var pendingImportedSetupId by remember(context) {
+        mutableStateOf(PendingImportSetupStore.consume(context))
+    }
+    val appScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val backgroundBackdrop = rememberLayerBackdrop()
     val contentBackdrop = rememberLayerBackdrop()
@@ -658,11 +630,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         animation = startupAnimation
     )
     val reduceWallpaperQualityForCourseEditor =
-        courseEditorRequest != null ||
-            courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing ||
+        courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening ||
-            courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing ||
-            courseEditorOverlayPhase == CourseEditorOverlayPhase.Disposing
+            (courseEditorRequest != null && courseEditorOverlayPhase == CourseEditorOverlayPhase.Open)
     val courseEditorBackdrop =
         if (
             reduceWallpaperQualityForCourseEditor ||
@@ -685,6 +655,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val todayDate = LocalDate.now()
     val homeCurrentWeek = effectiveCurrentWeek(visualState.config)
     val beforeScheduleTerm = isBeforeScheduleTerm(visualState.config, todayDate)
+    val afterScheduleTerm = isAfterScheduleTerm(visualState.config, todayDate)
     var homeDisplayWeek by remember(visualState.config.id) { mutableIntStateOf(1) }
     var homeWeekInitialized by remember(visualState.config.id) { mutableStateOf(false) }
     var homeDisplayDate by remember(visualState.config.id) { mutableStateOf(todayDate) }
@@ -919,14 +890,42 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         val config = latestAllSchedulesState.value.allConfigs.firstOrNull { it.id == scheduleId }
             ?: defaultConfig(scheduleId)
         val totalWeeks = config.totalWeeks.coerceIn(1, 60)
+        val resolvedWeek = resolveScheduleCurrentWeek(
+            config,
+            totalWeeks,
+            config.currentWeek,
+            config.termStartDate,
+            config.autoCurrentWeek
+        )
         return QuickScheduleDraft(
             scheduleId = scheduleId,
             totalWeeks = totalWeeks,
-            currentWeek = config.currentWeek.coerceIn(1, totalWeeks),
+            currentWeek = resolvedWeek,
             autoCurrentWeek = config.autoCurrentWeek,
             hideEmptyWeekends = config.hideEmptyWeekends,
             termStartDate = config.termStartDate.orEmpty()
         )
+    }
+
+    LaunchedEffect(pendingImportedSetupId) {
+        val scheduleId = pendingImportedSetupId ?: return@LaunchedEffect
+        screen = Screen.Home
+        dismissHomeDialog()
+        snapshotFlow {
+            val latest = latestAllSchedulesState.value
+            latest.schedules.any { it.id == scheduleId } &&
+                latest.allConfigs.any { it.id == scheduleId } &&
+                latestVisualState.value.config.id == scheduleId
+        }.first { it }
+        if (pickerState.overlayVisible) pickerState.reset()
+        withFrameNanos { }
+        enterCustomizePage()
+        snapshotFlow {
+            pickerState.phase is CustomizeUiState.Picker &&
+                pickerState.selectedScheduleId == scheduleId
+        }.first { it }
+        quickScheduleDraft = quickDraftFor(scheduleId)
+        pendingImportedSetupId = null
     }
 
     fun exitPicker(
@@ -1039,6 +1038,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) {
+                PendingImportSetupStore.consume(context)?.let { pendingImportedSetupId = it }
                 if (initialLifecycleStartSeen) {
                     viewModel.refreshNotifications()
                     pendingPickerEditorScheduleId?.let { scheduleId ->
@@ -1111,8 +1111,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 val recordCleanFrame =
                     detailMorphState is DetailMorphState.Capturing && detailCaptureRecordCleanFrame
                 val courseEditorOwnsFrame =
-                    pendingCourseEditorCapture != null ||
-                        courseEditorRequest != null ||
+                    courseEditorRequest != null ||
                         courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
                 // Never record the course editor into the detail-page capture layer. It contains
                 // several backdrop consumers and recording that entire overlay on every animation
@@ -1131,14 +1130,15 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             }
     ) {
         dayAgentEdgeSnapshot?.let { background ->
-            val agentBackgroundScale = 1f - 0.08f * dayAgentBackgroundProgress.coerceIn(0f, 1f)
             MorphSnapshotBackground(
                 bitmap = background,
-                backgroundScale = agentBackgroundScale,
+                backgroundScaleProvider = {
+                    1f - 0.08f * dayAgentBackgroundMotionState.progress.value.coerceIn(0f, 1f)
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = if (dayAgentBackgroundProgress > 0.001f) 1f else 0f
+                        alpha = if (dayAgentBackgroundMotionState.progress.value > 0.001f) 1f else 0f
                     }
             )
         }
@@ -1146,7 +1146,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    val p = dayAgentBackgroundProgress.coerceIn(0f, 1f)
+                    val p = dayAgentBackgroundMotionState.progress.value.coerceIn(0f, 1f)
                     if (dayAgentEdgeSnapshot != null) {
                         // The frozen snapshot owns the whole background transition. Do not keep
                         // transforming the live, backdrop-heavy home underneath it.
@@ -1182,6 +1182,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                             } finally {
                                 dayAgentCaptureMaskActive.set(false)
                             }
+                            dayAgentCleanFrameSignal.getAndSet(null)?.complete(Unit)
                         }
                         screenGraphicsLayer.record { this@drawWithContent.drawContent() }
                         recordedScheduleId.set(visualState.config.id)
@@ -1239,6 +1240,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                             homeDisplayDate = homeTitleDate,
                             homeDisplayWeek = homeTitleWeek,
                             beforeScheduleTerm = beforeScheduleTerm,
+                            afterScheduleTerm = afterScheduleTerm,
                             homeShowingAnotherWeek = homeShowingAnotherWeek,
                             onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
                             addMenuExpanded = addMenuExpanded,
@@ -1300,7 +1302,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     .fillMaxSize()
                     .layerBackdrop(contentBackdrop)
                 Column(modifier = contentModifier) {
-                    message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                    if (screen !is Screen.Home) {
+                        message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                    }
                     ContentEntranceContainer(phase = startupPhase, modifier = Modifier.weight(1f)) {
                         when (val current = screen) {
                             Screen.Home -> {
@@ -1316,9 +1320,14 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     floatingCourseBackdrop = backgroundBackdrop,
                                     weekHeaderBackdrop = backgroundBackdrop,
                                     onSwipeWeek = { delta -> homeDisplayWeek = (homeDisplayWeek + delta).coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1)) },
-                                    onSwipeDay = { delta -> homeDisplayDate = homeDisplayDate.plusDays(delta.toLong()) },
+                                    onSwipeDay = { delta ->
+                                        val requested = homeDisplayDate.plusDays(delta.toLong())
+                                        val range = scheduleDayNavigationRange(visualState.config, todayDate)
+                                        homeDisplayDate = if (range == null) requested
+                                        else requested.coerceIn(range.start, range.endInclusive)
+                                    },
                                     onContentUnderTopBarChange = { homeContentUnderTopBar = it },
-                                    onAgentBackgroundProgress = { dayAgentBackgroundProgress = it },
+                                    dayAgentBackgroundMotionState = dayAgentBackgroundMotionState,
                                     onAgentPagerSettledChange = { settled ->
                                         dayAgentPagerSettled = settled
                                         if (!settled) dayAgentSnapshotKey = null
@@ -1333,9 +1342,16 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                         // capture on demand, matching the course-card morph instead of stalling
                                         // the pager with an eager full-screen GPU readback.
                                         if (dayAgentSnapshotKey != currentDayAgentSnapshotKey) {
+                                            val cleanFrameReady = CompletableDeferred<Unit>()
+                                            dayAgentCleanFrameSignal.set(cleanFrameReady)
                                             dayAgentCaptureRecordCleanFrame = true
+                                            captureRenderToken += 1
                                             try {
-                                                repeat(2) { withFrameNanos { } }
+                                                // Wait for the draw node that actually recorded the clean frame.
+                                                // This replaces two unconditional frame delays with one explicit
+                                                // completion signal and keeps the capture tied to the final pager.
+                                                withTimeoutOrNull(250L) { cleanFrameReady.await() }
+                                                    ?: withFrameNanos { }
                                                 runCatching {
                                                     dayAgentBackgroundGraphicsLayer.toImageBitmap().asAndroidBitmap()
                                                 }.getOrNull()?.let {
@@ -1343,6 +1359,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                                     dayAgentSnapshotKey = currentDayAgentSnapshotKey
                                                 }
                                             } finally {
+                                                dayAgentCleanFrameSignal.compareAndSet(cleanFrameReady, null)
                                                 dayAgentCaptureRecordCleanFrame = false
                                             }
                                         }
@@ -1396,6 +1413,15 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                                             action.settingValue
                                                         )
                                                     }
+                                                    AgentSettingRegistry.isPeriodTimeSetting(action.settingKey) -> {
+                                                        AgentSettingRegistry.applyPeriodTime(
+                                                            state.periods,
+                                                            action.settingKey,
+                                                            action.settingValue
+                                                        )?.let { updatedPeriods ->
+                                                            viewModel.saveConfig(state.config, updatedPeriods)
+                                                        }
+                                                    }
                                                     else -> AgentSettingRegistry.apply(
                                                         state.config,
                                                         action.settingKey,
@@ -1445,7 +1471,12 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                     )
                             }
                             is Screen.Confirm -> Box(Modifier.fillMaxSize().padding(padding)) {
-                                ConfirmScheduleScreen(current.draft, onCancel = { screen = Screen.Home }, onConfirm = { createNewSchedule -> viewModel.importDraft(current.draft, createNewSchedule) { screen = Screen.Home } })
+                                ConfirmScheduleScreen(current.draft, onCancel = { screen = Screen.Home }, onConfirm = { createNewSchedule ->
+                                    viewModel.importDraft(current.draft, createNewSchedule) { scheduleId ->
+                                        screen = Screen.Home
+                                        pendingImportedSetupId = scheduleId
+                                    }
+                                })
                             }
                         }
                         if (screen is Screen.Home) {
@@ -1554,8 +1585,9 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                             mode = homeMode,
                             weekCardHeight = weekCardHeight,
                             onWeekCardHeight = {
-                                weekCardHeight = it
-                                viewModel.savePersonalization(state.config.copy(weekCardHeightDp = it))
+                                val safeHeight = it.coerceIn(38f, 80f)
+                                weekCardHeight = safeHeight
+                                viewModel.savePersonalization(state.config.copy(weekCardHeightDp = safeHeight))
                             },
                             onPickWallpaper = { wallpaperLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                             onSampleWallpaperColor = { homeDialog = HomeDialog.SampleWallpaperColor },
@@ -1982,7 +2014,12 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         draft = dialog.draft,
                         backdrop = chromeBackdrop,
                         onCancel = { homeDialog = dialog.returnDialog },
-                        onConfirm = { createNewSchedule -> viewModel.importDraft(dialog.draft, createNewSchedule) { dismissHomeDialog() } }
+                        onConfirm = { createNewSchedule ->
+                            viewModel.importDraft(dialog.draft, createNewSchedule) { scheduleId ->
+                                dismissHomeDialog()
+                                pendingImportedSetupId = scheduleId
+                            }
+                        }
                     )
                     HomeDialog.SampleWallpaperColor -> WallpaperColorSamplerScreen(
                         state = state,
@@ -2104,10 +2141,22 @@ private fun CourseEditorBackgroundBlurLayer(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    // The editor now animates a frozen home snapshot. Keeping the old live-home blur here
-    // would render the entire schedule twice and can make the hidden layer hitch or tear.
-    @Suppress("UNUSED_VARIABLE") val keepMotionStateStable = motionState
-    Box(modifier = modifier, content = content)
+    val density = LocalDensity.current
+    Box(
+        modifier = modifier.graphicsLayer {
+            // Read the Morph Animatable inside the layer block: Compose invalidates only this
+            // render layer instead of recomposing the home/Pagers on every animation frame.
+            val rawProgress = motionState.progress.value.coerceIn(0f, 1f)
+            val blurProgress = rawProgress * rawProgress * (3f - 2f * rawProgress)
+            val blurPx = with(density) { 12.dp.toPx() } * blurProgress
+            renderEffect = if (blurPx > 0.01f) {
+                BlurEffect(blurPx, blurPx, TileMode.Clamp)
+            } else {
+                null
+            }
+        },
+        content = content
+    )
 }
 
 @Composable
@@ -2347,6 +2396,7 @@ fun AppTopBar(
     homeDisplayDate: LocalDate,
     homeDisplayWeek: Int,
     beforeScheduleTerm: Boolean,
+    afterScheduleTerm: Boolean,
     homeShowingAnotherWeek: Boolean,
     onReturnHomeToCurrentWeek: () -> Unit,
     addMenuExpanded: Boolean,
@@ -2376,6 +2426,7 @@ fun AppTopBar(
                     displayDate = homeDisplayDate,
                     displayWeek = homeDisplayWeek,
                     beforeScheduleTerm = beforeScheduleTerm,
+                    afterScheduleTerm = afterScheduleTerm,
                     showReturnToCurrentWeekHint = homeShowingAnotherWeek,
                     onReturnCurrent = onReturnHomeToCurrentWeek
                 )
@@ -3532,7 +3583,7 @@ fun PersonalizePanel(
                             surfaceColorOverride = ComposeColor(0xFF0A84FF).copy(alpha = 0.58f)
                         )
                     }
-                    LiquidControlSlider(weekCardHeight, onWeekCardHeight, 44f..180f, backdrop, snapValue = adaptiveHeight, onSliderTouchActiveChange = { sliderTouchActive = it })
+                    LiquidControlSlider(weekCardHeight, onWeekCardHeight, 38f..80f, backdrop, snapValue = adaptiveHeight.coerceIn(38f, 80f), onSliderTouchActiveChange = { sliderTouchActive = it })
                 }
                 Text("课程卡片颜色", style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -3747,7 +3798,11 @@ fun DialogLiquidButton(
             modifier = if (useRoundIcon) modifier.size(42.dp) else modifier,
             height = if (useRoundIcon) 42.dp else 40.dp,
             surfaceColor = surfaceColor,
-            contentPadding = if (useRoundIcon) PaddingValues(0.dp) else PaddingValues(horizontal = 15.dp),
+            contentPadding = if (useRoundIcon) {
+                PaddingValues(0.dp)
+            } else {
+                PaddingValues(horizontal = 15.dp)
+            },
             blurRadius = 3.dp,
             lensHeight = 16.dp,
             lensAmount = 24.dp,
@@ -3757,7 +3812,14 @@ fun DialogLiquidButton(
                 Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
             }
             if (!useRoundIcon) {
-                Text(label, color = textColor, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                Text(
+                    label,
+                    color = textColor,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
         }
     } else {
@@ -3766,7 +3828,10 @@ fun DialogLiquidButton(
                 .clip(RoundedCornerShape(50))
                 .background(surfaceColor.copy(alpha = surfaceColor.alpha.coerceAtLeast(if (role == DialogButtonRole.Neutral) 0f else 0.16f)))
                 .clickable(onClick = onClick)
-                .then(if (useRoundIcon) Modifier else Modifier.padding(horizontal = 15.dp, vertical = 10.dp)),
+                .then(
+                    if (useRoundIcon) Modifier
+                    else Modifier.padding(horizontal = 15.dp, vertical = 10.dp)
+                ),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -3864,11 +3929,16 @@ fun <T> DialogOptionPicker(
 ) {
     val textColor = glassForegroundColor(config)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = textColor)
+        Text(
+            title,
+            modifier = Modifier.padding(horizontal = 16.dp),
+            style = MaterialTheme.typography.titleSmall,
+            color = textColor
+        )
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp)
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(values.size) { index ->
                 val value = values[index]
@@ -3906,6 +3976,8 @@ class SettingsDetailActivity : ComponentActivity() {
                 val scheduleEditState = remember(state, customizeScheduleId) {
                     if (customizeScheduleId != null) scheduleConfigStateForEdit(state, customizeScheduleId) else state
                 }
+                val scheduleEditReady = customizeScheduleId == null ||
+                    state.allConfigs.any { it.id == customizeScheduleId }
                 val editEntrySnapshot = remember(customizeScheduleId) {
                     customizeScheduleId?.let { BitmapFactory.decodeFile(ScheduleSnapshotStore.file(this, it).absolutePath) }
                 }
@@ -3917,30 +3989,41 @@ class SettingsDetailActivity : ComponentActivity() {
                         editEntrySnapshotVisible = false
                     }
                 }
+                var scheduleExitRequest by remember { mutableIntStateOf(0) }
                 Box(Modifier.fillMaxSize()) {
                 DetailActivityScaffold(
                     title = section.title(),
                     config = state.config,
-                    onBack = { finish() }
+                    onBack = {
+                        if (section == SettingsPage.Schedule) scheduleExitRequest++ else finish()
+                    }
                 ) { backdrop ->
                     when (section) {
                         SettingsPage.General -> GeneralSettingsScreen(state, backdrop, viewModel::savePersonalization)
                         SettingsPage.AiImport -> AiImportSettingsScreen(state, backdrop)
                         SettingsPage.DayAgent -> DayAgentSettingsScreen(state, backdrop)
-                        SettingsPage.Schedule -> ScheduleConfigScreen(
-                            scheduleEditState,
-                            backdrop,
-                            SettingsSection.Schedule,
-                            onSave = { config, periods ->
-                                val targetId = customizeScheduleId
-                                if (targetId != null) {
-                                    viewModel.saveConfigForSchedule(targetId, config, periods)
-                                } else {
-                                    viewModel.saveConfig(config, periods)
-                                }
-                            },
-                            onPreviewLiveUpdate = viewModel::previewLiveUpdate
-                        )
+                        SettingsPage.Schedule -> if (!scheduleEditReady) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                androidx.compose.material3.CircularProgressIndicator()
+                            }
+                        } else {
+                            ScheduleConfigScreen(
+                                scheduleEditState,
+                                backdrop,
+                                SettingsSection.Schedule,
+                                onSave = { config, periods ->
+                                    val targetId = customizeScheduleId
+                                    if (targetId != null) {
+                                        viewModel.saveConfigForSchedule(targetId, config, periods)
+                                    } else {
+                                        viewModel.saveConfig(config, periods)
+                                    }
+                                },
+                                onPreviewLiveUpdate = viewModel::previewLiveUpdate,
+                                exitCommitRequest = scheduleExitRequest,
+                                onExitCommitFinished = { saved -> if (saved) finish() }
+                            )
+                        }
                         SettingsPage.Notifications -> ScheduleConfigScreen(state, backdrop, SettingsSection.Notifications, viewModel::saveConfig, viewModel::previewLiveUpdate)
                         SettingsPage.About -> AboutSettingsScreen(state, backdrop)
                         SettingsPage.Changelog -> ChangelogSettingsScreen(
@@ -4090,7 +4173,12 @@ class EduImportActivity : ComponentActivity() {
                                 draft = pendingDraft!!,
                                 warning = if (adapter.isGeneralEduTool()) "可能部分节次信息会有误，请自行检查修改。" else null,
                                 onCancel = { pendingDraft = null },
-                                onConfirm = { createNewSchedule -> viewModel.importDraft(pendingDraft!!, createNewSchedule) { finish() } }
+                                onConfirm = { createNewSchedule ->
+                                    viewModel.importDraft(pendingDraft!!, createNewSchedule) { scheduleId ->
+                                        PendingImportSetupStore.put(this@EduImportActivity, scheduleId)
+                                        finish()
+                                    }
+                                }
                             )
                         }
                     }
@@ -4637,18 +4725,17 @@ private fun SettingsUpdateDialogHost(
         )
         is SettingsUpdateDialog.Downloading -> LiquidAlertDialog(
             title = "正在下载 ${dialog.release.name}",
-            message = "正在从 Gitee 下载 APK，请保持网络连接。下载完成后将打开系统安装确认页面。",
+            message = "正在从 Gitee 下载 APK。现在可以返回或退到桌面，下载会在后台继续，并通过实时活动显示进度。",
             actions = listOf(
                 LiquidAlertAction(
-                    "请稍候",
+                    "后台下载",
                     LiquidAlertActionStyle.Secondary,
-                    onClick = {},
-                    dismissOnClick = false
+                    onClick = onDismiss
                 )
             ),
             backdrop = backdrop,
             config = config,
-            onDismissRequest = {}
+            onDismissRequest = onDismiss
         )
         is SettingsUpdateDialog.NoApk -> LiquidAlertDialog(
             title = "Release 中没有 APK",
@@ -4919,9 +5006,13 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsInfoRow("1.0.4", "继续优化课程卡片、详细设置与今日助手的无缝 Morph 动画，改善打开和返回时的首尾帧衔接、背景缩放模糊、圆角过渡与交互响应，减少闪烁和等待感；优化课表设置弹窗逻辑，统一日期与时间选择器、确认取消按钮和浮层材质，并改善不同 DPI 与字体缩放下的排版适配和文字完整显示。")
+                SettingsInfoRow("1.0.6", "重构课表详细设置与节次时间管理，支持上午、下午、晚上分段配置、多套作息方案、自动匹配、特殊课间与手动微调，并完善保存确认、课程节次重映射和不同课表间的数据隔离；增强今日助手的课程与设置操作能力，修复操作按钮缺失、切换课表后当前节次不显示以及生成文案后首页卡顿等问题；优化日视图、周视图、课程卡片与多课表管理的动画性能和交接效果，补全开学前与学期结束后的日期边界处理；更新下载新增后台持续下载与原生实时进度通知。")
                 SettingsDivider()
-                SettingsInfoRow("1.0.3", "重构多课表管理页，提供堆叠式卡片效果和更灵动的无缝动画；新增从快速设置按钮连续展开至详细设置页的 Morph 动画，并优化返回衔接、快照层级与交互性能；继续优化液态玻璃参数、层次和文字可读性；课表日期选择器改用 MIUIX 样式，优化课程编辑弹窗顶栏布局。")
+                SettingsInfoRow("1.0.5", "优化今日助手样式与动画，修复日视图布局错误；重新设计桌面小组件，新增2x1样式；性能优化减少卡顿。日视图与周视图表头新增当前节次标识，上课时段一目了然。课表详细设置页面精简标题、取消二次确认、动画更流畅。节次时间编辑改版：可添加多条大课间，自动匹配一键重算，时间线合并展示。")
+                SettingsDivider()
+                SettingsInfoRow("1.0.4", "优化课程卡片、设置页面和今日助手的动画效果，切换更流畅，减少闪烁感；统一课表设置弹窗中的日期选择器、按钮和浮层样式；改进不同字体大小下的排版适配，文字显示更完整。")
+                SettingsDivider()
+                SettingsInfoRow("1.0.3", "多课表管理页面全新改版，卡片堆叠效果更灵动流畅；设置页跳转动画更连贯；整体玻璃质感优化，文字更清晰易读；日期选择器和课程编辑弹窗布局改进，操作更顺手。")
                 SettingsDivider()
                 SettingsInfoRow("1.0.2", "扩展今日 Agent 能力边界，支持结合当前课表理解更多课程与设置需求，并可引导进入对应功能；优化设置分类与信息层级，常用配置更易查找；优化首页日视图与周视图的跟手切换动画，日期、周次及课程内容衔接更自然；调整日视图课程卡片圆角，使卡片层级与整体界面更加协调；新增 ICS 课表文件导入与导出分享，可通过系统分享器保存或发送课表；通用教务导入会保存曾打开的教务站地址与登录状态，方便下次快速进入；新增每日自动检查更新功能，发现新版本时展示版本号和更新日志；通用设置与通知设置改为修改后直接保存，不再需要二次确认。")
                 SettingsDivider()

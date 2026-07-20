@@ -22,7 +22,7 @@ import java.time.ZonedDateTime
 
 class TodayCoursesWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        refresh(context, appWidgetManager, appWidgetIds)
+        MiuixTodayWidgetRenderer.refresh(context, appWidgetManager, appWidgetIds, TodayWidgetVariant.LARGE)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -36,9 +36,7 @@ class TodayCoursesWidgetProvider : AppWidgetProvider() {
         private const val ACTION_REFRESH = "com.example.courseschedule.action.REFRESH_TODAY_WIDGET"
 
         fun refreshAll(context: Context) {
-            val manager = AppWidgetManager.getInstance(context)
-            val ids = manager.getAppWidgetIds(ComponentName(context, TodayCoursesWidgetProvider::class.java))
-            if (ids.isNotEmpty()) refresh(context, manager, ids)
+            MiuixTodayWidgetRenderer.refreshAll(context)
         }
 
         private fun refresh(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {

@@ -247,6 +247,7 @@ private fun LiquidAlertContent(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier
 ) {
+    val foreground = appPanelForegroundColor(config)
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -255,13 +256,13 @@ private fun LiquidAlertContent(
             text = title,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
-            color = glassForegroundColor(config)
+            color = foreground
         )
         Text(
             text = message,
             style = MaterialTheme.typography.bodyMedium,
             lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
-            color = glassForegroundColor(config).copy(alpha = 0.68f)
+            color = foreground.copy(alpha = 0.68f)
         )
         LiquidAlertActions(actions, backdrop, config)
     }
@@ -307,6 +308,7 @@ fun LiquidAlertDialog(
 ) {
     var visible by remember { mutableStateOf(true) }
     var completion by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val dark = appUsesDarkTheme(config)
 
     fun closeThen(action: () -> Unit) {
         if (!visible) return
@@ -331,7 +333,12 @@ fun LiquidAlertDialog(
             config = config,
             blurRadius = 28.dp,
             centered = true
-        ),
+        )
+            .clip(RoundedCornerShape(28.dp))
+            .background(
+                if (dark) Color.Black.copy(alpha = 0.38f)
+                else Color.White.copy(alpha = 0.42f)
+            ),
         outsideMargin = DpSize(18.dp, 18.dp),
         insideMargin = DpSize(20.dp, 18.dp),
         onDismissRequest = { closeThen(onDismissRequest) },
@@ -375,7 +382,7 @@ private fun LiquidAlertActionButton(
 ) {
     val contentColor = when (action.style) {
         LiquidAlertActionStyle.Primary -> Color.White
-        LiquidAlertActionStyle.Secondary -> glassForegroundColor(config)
+        LiquidAlertActionStyle.Secondary -> appPanelForegroundColor(config)
         LiquidAlertActionStyle.Destructive -> Color(0xFFFF453A)
     }
     val dark = appUsesDarkTheme(config)

@@ -47,4 +47,123 @@
         <item name="android:textColor">#FF111111</item>
         <item name="android:textSize">11.5sp</item>
     </style>
+
+    <style name="WidgetCourseRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">0dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginTop">7dp</item>
+        <item name="android:background">@drawable/widget_course_background</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:paddingLeft">10dp</item>
+        <item name="android:paddingTop">7dp</item>
+        <item name="android:paddingRight">10dp</item>
+        <item name="android:paddingBottom">7dp</item>
+    </style>
+
+    <style name="WidgetCourseTimeColumn">
+        <item name="android:layout_width">58dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:orientation">vertical</item>
+    </style>
+
+    <style name="WidgetCourseTimePrimary">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">0dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:textColor">#AA111111</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <style name="WidgetCourseTimeSecondary" parent="WidgetCourseTimePrimary">
+        <item name="android:textColor">#66111111</item>
+    </style>
+
+    <style name="WidgetCourseIndicator">
+        <item name="android:layout_width">5dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_marginLeft">5dp</item>
+        <item name="android:layout_marginRight">10dp</item>
+        <item name="android:src">@drawable/widget_course_indicator</item>
+    </style>
+
+    <style name="WidgetCourseInfoColumn">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:orientation">vertical</item>
+    </style>
+
+    <style name="WidgetCourseName">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">0dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:textColor">#FF111111</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="WidgetCourseDetail">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">0dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:textColor">#66111111</item>
+        <item name="android:textSize">11sp</item>
+    </style>
+
+    <style name="WidgetCompactCourseRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">0dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginTop">5dp</item>
+        <item name="android:background">@drawable/widget_course_background_compact</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:paddingLeft">7dp</item>
+        <item name="android:paddingTop">5dp</item>
+        <item name="android:paddingRight">7dp</item>
+        <item name="android:paddingBottom">5dp</item>
+    </style>
+
+    <style name="WidgetCompactIndicator">
+        <item name="android:layout_width">4dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_marginRight">7dp</item>
+        <item name="android:src">@drawable/widget_course_indicator</item>
+    </style>
+
+    <style name="WidgetCourseGridCell">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:background">@drawable/widget_course_background_compact</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:paddingLeft">7dp</item>
+        <item name="android:paddingTop">5dp</item>
+        <item name="android:paddingRight">7dp</item>
+        <item name="android:paddingBottom">5dp</item>
+    </style>
+
+    <style name="WidgetCompactCourseName" parent="WidgetCourseName">
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <style name="WidgetCompactCourseDetail" parent="WidgetCourseDetail">
+        <item name="android:textSize">9.5sp</item>
+    </style>
 </resources>

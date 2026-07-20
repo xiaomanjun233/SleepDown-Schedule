@@ -119,6 +119,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
@@ -274,6 +275,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
+import java.time.LocalTime
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URLDecoder
@@ -1758,7 +1760,13 @@ fun SettingsValueRow(title: String, value: String) {
 }
 
 @Composable
-fun SettingsPickerValueRow(title: String, value: String, onClick: () -> Unit, enabled: Boolean = true) {
+fun SettingsPickerValueRow(
+    title: String,
+    value: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier
+) {
     if (LocalGlassMiuixEnabled.current) {
         MiuixArrowPreference(
             title = title,
@@ -1773,13 +1781,13 @@ fun SettingsPickerValueRow(title: String, value: String, onClick: () -> Unit, en
             },
             onClick = onClick,
             enabled = enabled,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = modifier.fillMaxWidth(),
             insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
         )
         return
     }
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(58.dp)
             .graphicsLayer(alpha = if (enabled) 1f else 0.48f)
@@ -1795,7 +1803,7 @@ fun SettingsPickerValueRow(title: String, value: String, onClick: () -> Unit, en
                 .weight(1f)
                 .offset(y = 1.dp)
         )
-        Text(value.ifBlank { "未设置" }, modifier = Modifier.offset(y = 1.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value.ifBlank { "未设置" }, modifier = Modifier.offset(y = 1.dp).widthIn(min = 88.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End, maxLines = 1)
     }
 }
 
@@ -2256,6 +2264,12 @@ fun ScheduleSettingsContent(
     onClassDurationMinutesChange: (String) -> Unit,
     breakDurationMinutes: String,
     onBreakDurationMinutesChange: (String) -> Unit,
+    morningPeriodCount: Int,
+    afternoonPeriodCount: Int,
+    eveningPeriodCount: Int,
+    onPeriodCountsChange: (Int, Int, Int) -> Unit,
+    schemeDraft: SchedulePeriodSchemesDraft?,
+    onSchemeDraftChange: (SchedulePeriodSchemesDraft) -> Unit,
     onAutoMatchPeriodEnds: () -> Unit,
     periods: List<PeriodEntity>,
     onPeriodsChange: (List<PeriodEntity>) -> Unit,
@@ -2286,6 +2300,12 @@ fun ScheduleSettingsContent(
             onClassDurationMinutesChange = onClassDurationMinutesChange,
             breakDurationMinutes = breakDurationMinutes,
             onBreakDurationMinutesChange = onBreakDurationMinutesChange,
+            morningPeriodCount = morningPeriodCount,
+            afternoonPeriodCount = afternoonPeriodCount,
+            eveningPeriodCount = eveningPeriodCount,
+            onPeriodCountsChange = onPeriodCountsChange,
+            schemeDraft = schemeDraft,
+            onSchemeDraftChange = onSchemeDraftChange,
             onAutoMatchPeriodEnds = onAutoMatchPeriodEnds,
             periods = periods,
             onPeriodsChange = onPeriodsChange,
@@ -2426,6 +2446,12 @@ fun ScheduleSettingsContentFixed(
     onClassDurationMinutesChange: (String) -> Unit,
     breakDurationMinutes: String,
     onBreakDurationMinutesChange: (String) -> Unit,
+    morningPeriodCount: Int,
+    afternoonPeriodCount: Int,
+    eveningPeriodCount: Int,
+    onPeriodCountsChange: (Int, Int, Int) -> Unit,
+    schemeDraft: SchedulePeriodSchemesDraft?,
+    onSchemeDraftChange: (SchedulePeriodSchemesDraft) -> Unit,
     onAutoMatchPeriodEnds: () -> Unit,
     periods: List<PeriodEntity>,
     onPeriodsChange: (List<PeriodEntity>) -> Unit,
@@ -2436,25 +2462,32 @@ fun ScheduleSettingsContentFixed(
     onSave: () -> Unit,
     topPadding: Dp = detailContentTopPadding()
 ) {
+    var longBreaks by remember { mutableStateOf(emptyList<Pair<Int, Int>>()) }
+    var showLongBreakEditor by remember { mutableStateOf(false) }
+    var editingLongBreakIndex by remember { mutableIntStateOf(-1) }
+    var lbAfter by remember { mutableIntStateOf(1) }
+    var lbMinutes by remember { mutableIntStateOf(15) }
+    // 节次时间编辑（四列时间选择器）
+    var showPeriodTimePicker by remember { mutableStateOf(false) }
+    var editingPeriodIndex by remember { mutableIntStateOf(-1) }
+    var pickerStartHour by remember { mutableIntStateOf(8) }
+    var pickerStartMinute by remember { mutableIntStateOf(0) }
+    var pickerEndHour by remember { mutableIntStateOf(8) }
+    var pickerEndMinute by remember { mutableIntStateOf(45) }
+    val currentPeriods by rememberUpdatedState(periods)
+    val currentLongBreaks by rememberUpdatedState(longBreaks)
+    var showAutoMatchConfirm by remember { mutableStateOf(false) }
+    val onAutoMatchAction = {
+        val cd = classDurationMinutes.toIntOrNull()
+        val bd = breakDurationMinutes.toIntOrNull()
+        if (cd != null && bd != null) {
+            onPeriodsChange(autoMatchPeriodTimes(periods, cd, bd, longBreaks))
+        }
+    }
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = DockScrollPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "课表详细设置",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
-                )
-                if (dirty) {
-                    SettingsActionButton("重置", backdrop, onClick = onReset, destructive = true)
-                    Spacer(Modifier.width(8.dp))
-                    SettingsActionButton("保存", backdrop, onClick = onSave)
-                }
-            }
-        }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 SettingsTextFieldRow("总周数", totalWeeks, { onTotalWeeksChange(it.filter(Char::isDigit)) }, KeyboardType.Number)
@@ -2481,56 +2514,1217 @@ fun ScheduleSettingsContentFixed(
             }
         }
         item { Text("节次时间", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
+        if (schemeDraft != null) {
+            item(key = "period-scheme-editor") {
+                PeriodSchemeEditor(
+                    state = state,
+                    backdrop = backdrop,
+                    config = state.config.copy(
+                        morningPeriodCount = morningPeriodCount,
+                        afternoonPeriodCount = afternoonPeriodCount,
+                        eveningPeriodCount = eveningPeriodCount
+                    ),
+                    draft = schemeDraft,
+                    onDraftChange = onSchemeDraftChange,
+                    onCountsChange = onPeriodCountsChange
+                )
+            }
+        }
+        if (schemeDraft == null) {
+        // 上方卡片：课时/课间/自动匹配/大课间
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 SettingsTextFieldRow("单节课分钟数", classDurationMinutes, { onClassDurationMinutesChange(it.filter(Char::isDigit)) }, KeyboardType.Number)
                 SettingsDivider()
                 SettingsTextFieldRow("课间分钟数", breakDurationMinutes, { onBreakDurationMinutesChange(it.filter(Char::isDigit)) }, KeyboardType.Number)
                 SettingsDivider()
-                SettingsInfoRow("自动匹配", "点击后按单节课时长和课间时长重新生成节次时间；手动修改的课间间隔不会被自动覆盖。")
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(58.dp).padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("自动匹配", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium, modifier = Modifier.offset(y = 1.dp))
+                    if (backdrop != null) {
+                        LiquidButton(
+                            onClick = { showAutoMatchConfirm = true },
+                            backdrop = backdrop,
+                            modifier = Modifier.height(34.dp),
+                            height = 34.dp,
+                            surfaceColor = ComposeColor(0xFF0A84FF).copy(alpha = 0.88f),
+                            tint = ComposeColor(0xFF0A84FF),
+                            contentPadding = PaddingValues(horizontal = 14.dp),
+                            blurRadius = 4.dp,
+                            lensHeight = 12.dp,
+                            lensAmount = 16.dp,
+                            chromaticAberration = false
+                        ) {
+                            Text("自动匹配", color = ComposeColor.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                    } else {
+                        SettingsActionButton("自动匹配", null, onClick = { showAutoMatchConfirm = true })
+                    }
+                }
+                // 大课间列表
+                if (longBreaks.isNotEmpty()) {
+                    longBreaks.forEachIndexed { idx, (after, mins) ->
+                        SettingsDivider()
+                        SettingsPickerValueRow(
+                            "大课间",
+                            "第 $after 节后 · ${mins} 分钟",
+                            onClick = {
+                                editingLongBreakIndex = idx
+                                lbAfter = after
+                                lbMinutes = mins
+                                showLongBreakEditor = true
+                            }
+                        )
+                    }
+                }
                 SettingsDivider()
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.End
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    SettingsActionButton("自动匹配", backdrop, onClick = onAutoMatchPeriodEnds)
+                    if (backdrop != null) {
+                        LiquidButton(
+                            onClick = {
+                                lbAfter = (periods.maxOfOrNull { it.periodIndex } ?: 2).coerceAtLeast(1)
+                                lbMinutes = 15
+                                editingLongBreakIndex = -1
+                                showLongBreakEditor = true
+                            },
+                            backdrop = backdrop,
+                            modifier = Modifier.weight(1f).height(42.dp),
+                            height = 42.dp,
+                            surfaceColor = ComposeColor(0xFF0A84FF).copy(alpha = 0.88f),
+                            tint = ComposeColor(0xFF0A84FF),
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            blurRadius = 4.dp,
+                            lensHeight = 12.dp,
+                            lensAmount = 16.dp,
+                            chromaticAberration = false
+                        ) {
+                            Text("+ 大课间", color = ComposeColor.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                    } else {
+                        SettingsActionButton("+ 大课间", null, onClick = {
+                            lbAfter = (periods.maxOfOrNull { it.periodIndex } ?: 2).coerceAtLeast(1)
+                            lbMinutes = 15
+                            editingLongBreakIndex = -1
+                            showLongBreakEditor = true
+                        }, modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }
+        // 下方卡片：节次时间线
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                periods.forEachIndexed { idx, period ->
-                    SettingsValueRow("第 ${period.periodIndex} 节", "")
-                    SettingsTimePickerRow("开始时间", period.startTime, { value ->
-                        onPeriodsChange(periods.toMutableList().also { it[idx] = period.copy(startTime = value) })
-                    }, backdrop, state.config)
-                    SettingsTimePickerRow("结束时间", period.endTime, { value ->
-                        onPeriodsChange(periods.toMutableList().also { it[idx] = period.copy(endTime = value) })
-                    }, backdrop, state.config)
-                    if (idx != periods.lastIndex) SettingsDivider()
+                periods.sortedBy { it.periodIndex }.forEachIndexed { idx, period ->
+                    if (idx > 0) SettingsDivider()
+                    SettingsPickerValueRow(
+                        "第 ${period.periodIndex} 节",
+                        "${period.startTime} - ${period.endTime}",
+                        onClick = {
+                            editingPeriodIndex = period.periodIndex
+                            val start = runCatching { ScheduleImportParser.parseTimeForUi(period.startTime) }.getOrNull() ?: LocalTime.of(8, 0)
+                            val end = runCatching { ScheduleImportParser.parseTimeForUi(period.endTime) }.getOrNull() ?: LocalTime.of(8, 45)
+                            pickerStartHour = start.hour
+                            pickerStartMinute = start.minute
+                            pickerEndHour = end.hour
+                            pickerEndMinute = end.minute
+                            showPeriodTimePicker = true
+                        }
+                    )
+                }
+                SettingsDivider()
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (backdrop != null) {
+                        LiquidButton(
+                            onClick = {
+                                val next = (periods.maxOfOrNull { it.periodIndex } ?: 0) + 1
+                                onPeriodsChange(periods + PeriodEntity(next, "08:00", "08:45"))
+                            },
+                            backdrop = backdrop,
+                            modifier = Modifier.weight(1f).height(42.dp),
+                            height = 42.dp,
+                            surfaceColor = ComposeColor(0xFF0A84FF).copy(alpha = 0.88f),
+                            tint = ComposeColor(0xFF0A84FF),
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            blurRadius = 4.dp,
+                            lensHeight = 12.dp,
+                            lensAmount = 16.dp,
+                            chromaticAberration = false
+                        ) {
+                            Text("+ 节次", color = ComposeColor.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                    } else {
+                        SettingsActionButton("+ 节次", null, onClick = {
+                            val next = (periods.maxOfOrNull { it.periodIndex } ?: 0) + 1
+                            onPeriodsChange(periods + PeriodEntity(next, "08:00", "08:45"))
+                        }, modifier = Modifier.weight(1f))
+                    }
+                    if (backdrop != null) {
+                        LiquidButton(
+                            onClick = {
+                                if (periods.isNotEmpty()) onPeriodsChange(periods.dropLast(1))
+                            },
+                            backdrop = backdrop,
+                            modifier = Modifier.weight(1f).height(42.dp),
+                            height = 42.dp,
+                            surfaceColor = ComposeColor(0xFFFF453A).copy(alpha = 0.88f),
+                            tint = ComposeColor(0xFFFF453A),
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            blurRadius = 4.dp,
+                            lensHeight = 12.dp,
+                            lensAmount = 16.dp,
+                            chromaticAberration = false
+                        ) {
+                            Text("删除末节", color = ComposeColor.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                    } else {
+                        SettingsActionButton("删除末节", null, onClick = {
+                            if (periods.isNotEmpty()) onPeriodsChange(periods.dropLast(1))
+                        }, modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SettingsActionButton("添加节次", backdrop, onClick = {
-                    val next = (periods.maxOfOrNull { it.periodIndex } ?: 0) + 1
-                    onPeriodsChange(periods + PeriodEntity(next, "08:00", "08:45"))
-                })
-                SettingsActionButton("删除末节", backdrop, onClick = {
-                    if (periods.isNotEmpty()) onPeriodsChange(periods.dropLast(1))
-                })
-            }
         }
         error?.let {
             item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 4.dp)) }
         }
     }
+    // 节次时间编辑弹窗（四列时间选择器）
+    val periodPickerBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
+    top.yukonga.miuix.kmp.overlay.OverlayDialog(
+        show = showPeriodTimePicker,
+        title = "编辑第 ${editingPeriodIndex} 节时间",
+        onDismissRequest = { showPeriodTimePicker = false },
+        enableWindowDim = false,
+        backgroundColor = ComposeColor.Transparent,
+        forceCenter = true,
+        surfaceModifier = quickSheetBackdropModifier(
+            backdrop = periodPickerBackdrop,
+            config = state.config,
+            blurRadius = 28.dp,
+            centered = true
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            val compactPickerStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(fontSize = 22.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = pickerStartHour,
+                    onValueChange = { pickerStartHour = it },
+                    range = 0..23,
+                    visibleItemCount = 3,
+                    label = { "%02d时".format(it) },
+                    textStyle = compactPickerStyle,
+                    modifier = Modifier.weight(1f)
+                )
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = pickerStartMinute,
+                    onValueChange = { pickerStartMinute = it },
+                    range = 0..59,
+                    visibleItemCount = 3,
+                    label = { "%02d分".format(it) },
+                    textStyle = compactPickerStyle,
+                    modifier = Modifier.weight(1f)
+                )
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = pickerEndHour,
+                    onValueChange = { pickerEndHour = it },
+                    range = 0..23,
+                    visibleItemCount = 3,
+                    label = { "%02d时".format(it) },
+                    textStyle = compactPickerStyle,
+                    modifier = Modifier.weight(1f)
+                )
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = pickerEndMinute,
+                    onValueChange = { pickerEndMinute = it },
+                    range = 0..59,
+                    visibleItemCount = 3,
+                    label = { "%02d分".format(it) },
+                    textStyle = compactPickerStyle,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                QuickSheetLiquidAction(
+                    "取消", true, periodPickerBackdrop, state.config,
+                    modifier = Modifier.weight(1f), height = 50.dp
+                ) { showPeriodTimePicker = false }
+                QuickSheetLiquidAction(
+                    "删除", true, periodPickerBackdrop, state.config, destructive = true,
+                    modifier = Modifier.weight(1f), height = 50.dp
+                ) {
+                    onPeriodsChange(currentPeriods.filter { it.periodIndex != editingPeriodIndex })
+                    showPeriodTimePicker = false
+                }
+                QuickSheetLiquidAction(
+                    "确定", true, periodPickerBackdrop, state.config, primary = true,
+                    modifier = Modifier.weight(1f), height = 50.dp
+                ) {
+                    val startStr = "%02d:%02d".format(pickerStartHour.coerceIn(0, 23), pickerStartMinute.coerceIn(0, 59))
+                    val endStr = "%02d:%02d".format(pickerEndHour.coerceIn(0, 23), pickerEndMinute.coerceIn(0, 59))
+                    onPeriodsChange(currentPeriods.map {
+                        if (it.periodIndex == editingPeriodIndex) it.copy(startTime = startStr, endTime = endStr) else it
+                    })
+                    showPeriodTimePicker = false
+                }
+            }
+        }
+    }
+    // 大课间编辑弹窗
+    val lbPickerBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
+    top.yukonga.miuix.kmp.overlay.OverlayDialog(
+        show = showLongBreakEditor,
+        title = "编辑大课间",
+        onDismissRequest = { showLongBreakEditor = false },
+        enableWindowDim = false,
+        backgroundColor = ComposeColor.Transparent,
+        forceCenter = true,
+        surfaceModifier = quickSheetBackdropModifier(
+            backdrop = lbPickerBackdrop,
+            config = state.config,
+            blurRadius = 28.dp,
+            centered = true
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("大课间位置", style = MaterialTheme.typography.titleSmall, color = LocalContentColor.current, modifier = Modifier.padding(horizontal = 8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = lbAfter,
+                    onValueChange = { lbAfter = it },
+                    range = 1..(periods.maxOfOrNull { it.periodIndex } ?: 12).coerceAtLeast(1),
+                    visibleItemCount = 3,
+                    label = { "第${it}节后" },
+                    modifier = Modifier.weight(1f)
+                )
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = lbMinutes,
+                    onValueChange = { lbMinutes = it },
+                    range = 5..60,
+                    visibleItemCount = 3,
+                    label = { "${it}分钟" },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                QuickSheetLiquidAction(
+                    "取消", true, lbPickerBackdrop, state.config,
+                    modifier = Modifier.weight(1f), height = 50.dp
+                ) { showLongBreakEditor = false }
+                QuickSheetLiquidAction(
+                    "删除", true, lbPickerBackdrop, state.config, destructive = true,
+                    modifier = Modifier.weight(1f), height = 50.dp
+                ) {
+                    if (editingLongBreakIndex >= 0) {
+                        longBreaks = longBreaks.toMutableList().also { it.removeAt(editingLongBreakIndex) }
+                    }
+                    showLongBreakEditor = false
+                }
+                QuickSheetLiquidAction(
+                    "确定", true, lbPickerBackdrop, state.config, primary = true,
+                    modifier = Modifier.weight(1f), height = 50.dp
+                ) {
+                    val list = longBreaks.toMutableList()
+                    if (editingLongBreakIndex >= 0) {
+                        list[editingLongBreakIndex] = lbAfter to lbMinutes
+                    } else {
+                        list.add(lbAfter to lbMinutes)
+                    }
+                    longBreaks = list
+                    showLongBreakEditor = false
+                }
+            }
+        }
+    }
+    if (showAutoMatchConfirm) {
+        LiquidAlertDialog(
+            title = "确认自动匹配",
+            message = "自动匹配将基于第一节课的开始时间和课时/课间设置重新计算所有节次时间，手动修改的节次会被覆盖。是否继续？",
+            actions = listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = { showAutoMatchConfirm = false }),
+                LiquidAlertAction("确定", LiquidAlertActionStyle.Primary, onClick = {
+                    onAutoMatchAction()
+                    showAutoMatchConfirm = false
+                })
+            ),
+            backdrop = backdrop,
+            config = state.config,
+            onDismissRequest = { showAutoMatchConfirm = false }
+        )
+    }
 }
 
 @Composable
-fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: SettingsSection, onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit, onPreviewLiveUpdate: () -> Unit) {
+private fun PeriodTimelineSeparator(label: String, tint: ComposeColor) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Box(Modifier.weight(1f).height(1.dp).background(tint.copy(alpha = 0.28f)))
+        Text(
+            text = label,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(tint.copy(alpha = 0.18f))
+                .padding(horizontal = 11.dp, vertical = 5.dp),
+            color = tint,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+        Box(Modifier.weight(1f).height(1.dp).background(tint.copy(alpha = 0.28f)))
+    }
+}
+
+@Composable
+private fun PeriodEditorActionButton(
+    label: String,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    modifier: Modifier = Modifier,
+    tint: ComposeColor = ComposeColor(0xFF0A84FF),
+    onClick: () -> Unit
+) {
+    val surface = tint.copy(alpha = if (appUsesDarkTheme(config)) 0.82f else 0.90f)
+    if (backdrop != null) {
+        LiquidButton(
+            onClick = onClick,
+            backdrop = backdrop,
+            modifier = modifier.height(44.dp),
+            height = 44.dp,
+            surfaceColor = surface,
+            tint = tint,
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            blurRadius = 3.dp,
+            lensHeight = 14.dp,
+            lensAmount = 18.dp,
+            chromaticAberration = false
+        ) {
+            Text(label, color = ComposeColor.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
+    } else {
+        Box(
+            modifier = modifier
+                .height(44.dp)
+                .clip(RoundedCornerShape(50))
+                .background(surface)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(label, color = ComposeColor.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun PeriodSchemeEditor(
+    state: AppState,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    draft: SchedulePeriodSchemesDraft,
+    onDraftChange: (SchedulePeriodSchemesDraft) -> Unit,
+    onCountsChange: (Int, Int, Int) -> Unit
+) {
+    val active = draft.schemes.firstOrNull { it.scheme.id == draft.activeSchemeId } ?: draft.schemes.first()
+    var localError by remember { mutableStateOf<String?>(null) }
+    var editingPeriod by remember { mutableIntStateOf(-1) }
+    var editingPart by remember { mutableStateOf<PeriodDayPart?>(null) }
+    var pickerStartHour by remember { mutableIntStateOf(8) }
+    var pickerStartMinute by remember { mutableIntStateOf(0) }
+    var pickerEndHour by remember { mutableIntStateOf(8) }
+    var pickerEndMinute by remember { mutableIntStateOf(45) }
+    var showTimePicker by remember { mutableStateOf(false) }
+    var showBreakPicker by remember { mutableStateOf(false) }
+    var showCountPicker by remember { mutableStateOf(false) }
+    var countPickerMorning by remember { mutableIntStateOf(config.morningPeriodCount.coerceAtLeast(1)) }
+    var countPickerAfternoon by remember { mutableIntStateOf(config.afternoonPeriodCount.coerceAtLeast(1)) }
+    var countPickerEvening by remember { mutableIntStateOf(config.eveningPeriodCount.coerceAtLeast(1)) }
+    var countPickerTotal by remember { mutableIntStateOf(config.totalPeriodCount().coerceAtLeast(1)) }
+    var showSegmentStartPicker by remember { mutableStateOf(false) }
+    var morningStartMinute by remember { mutableIntStateOf(8 * 60) }
+    var afternoonStartMinute by remember { mutableIntStateOf(14 * 60) }
+    var eveningStartMinute by remember { mutableIntStateOf(19 * 60) }
+    var breakAfter by remember { mutableIntStateOf(1) }
+    var breakPickerPosition by remember { mutableIntStateOf(0) }
+    var breakMinutes by remember { mutableIntStateOf(20) }
+    var pendingAutoSwitch by remember { mutableStateOf<PeriodSchemeDraft?>(null) }
+    var pendingAutoOverrides by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var timeConflictMessage by remember { mutableStateOf<String?>(null) }
+    val specialBreakCandidates = PeriodDayPart.entries.flatMap { part ->
+        config.periodRange(part).toList().dropLast(1)
+    }
+
+    fun updateActive(transform: (PeriodSchemeDraft) -> PeriodSchemeDraft) {
+        onDraftChange(draft.copy(schemes = draft.schemes.map { if (it.scheme.id == active.scheme.id) transform(it) else it }))
+    }
+
+    fun shiftedTimesForInsert(item: PeriodSchemeDraft, after: Int, newConfig: ScheduleConfigEntity): PeriodSchemeDraft {
+        val shifted = item.times.map {
+            if (it.periodIndex > after) it.copy(periodIndex = it.periodIndex + 1) else it
+        }.toMutableList()
+        if (item.scheme.mode == PeriodSchemeMode.MANUAL) {
+            val previous = shifted.firstOrNull { it.periodIndex == after }
+            val start = previous?.endTime?.let { runCatching { LocalTime.parse(it).plusMinutes(item.scheme.breakDurationMinutes.toLong()) }.getOrNull() }
+                ?: when {
+                    after < newConfig.morningPeriodCount -> LocalTime.parse(item.scheme.morningStartTime)
+                    after < newConfig.morningPeriodCount + newConfig.afternoonPeriodCount -> LocalTime.parse(item.scheme.afternoonStartTime)
+                    else -> LocalTime.parse(item.scheme.eveningStartTime)
+                }
+            val end = start.plusMinutes(item.scheme.classDurationMinutes.toLong())
+            shifted += PeriodSchemeTimeEntity(item.scheme.id, after + 1, start.toString(), end.toString())
+        }
+        return item.copy(
+            times = shifted.sortedBy { it.periodIndex },
+            specialBreaks = item.specialBreaks.mapKeys { (index, _) -> if (index > after) index + 1 else index },
+            overriddenPeriods = item.overriddenPeriods.map { if (it > after) it + 1 else it }.toSet()
+        ).let { if (it.scheme.mode == PeriodSchemeMode.AUTO_MATCH) it.copy(times = resolveSchemeTimes(newConfig, it)) else it }
+    }
+
+    fun addPeriod(part: PeriodDayPart) {
+        val range = config.periodRange(part)
+        val after = when {
+            !range.isEmpty() -> range.last
+            part == PeriodDayPart.MORNING -> 0
+            part == PeriodDayPart.AFTERNOON -> config.morningPeriodCount
+            else -> config.morningPeriodCount + config.afternoonPeriodCount
+        }
+        val newCounts = when (part) {
+            PeriodDayPart.MORNING -> Triple(config.morningPeriodCount + 1, config.afternoonPeriodCount, config.eveningPeriodCount)
+            PeriodDayPart.AFTERNOON -> Triple(config.morningPeriodCount, config.afternoonPeriodCount + 1, config.eveningPeriodCount)
+            PeriodDayPart.EVENING -> Triple(config.morningPeriodCount, config.afternoonPeriodCount, config.eveningPeriodCount + 1)
+        }
+        val newConfig = config.copy(
+            morningPeriodCount = newCounts.first,
+            afternoonPeriodCount = newCounts.second,
+            eveningPeriodCount = newCounts.third
+        )
+        onCountsChange(newCounts.first, newCounts.second, newCounts.third)
+        onDraftChange(
+            draft.copy(
+                schemes = draft.schemes.map { shiftedTimesForInsert(it, after, newConfig) },
+                topologyOperations = draft.topologyOperations + PeriodTopologyOperation.AddAfter(after)
+            )
+        )
+    }
+
+    fun deletePeriod(index: Int) {
+        val part = PeriodDayPart.entries.firstOrNull { index in config.periodRange(it) } ?: return
+        val newCounts = when (part) {
+            PeriodDayPart.MORNING -> Triple((config.morningPeriodCount - 1).coerceAtLeast(0), config.afternoonPeriodCount, config.eveningPeriodCount)
+            PeriodDayPart.AFTERNOON -> Triple(config.morningPeriodCount, (config.afternoonPeriodCount - 1).coerceAtLeast(0), config.eveningPeriodCount)
+            PeriodDayPart.EVENING -> Triple(config.morningPeriodCount, config.afternoonPeriodCount, (config.eveningPeriodCount - 1).coerceAtLeast(0))
+        }
+        if (newCounts.first + newCounts.second + newCounts.third == 0) {
+            localError = "至少需要保留一个节次"
+            return
+        }
+        onCountsChange(newCounts.first, newCounts.second, newCounts.third)
+        onDraftChange(
+            draft.copy(
+                schemes = draft.schemes.map { item ->
+                    item.copy(
+                        times = item.times.filter { it.periodIndex != index }.map { if (it.periodIndex > index) it.copy(periodIndex = it.periodIndex - 1) else it },
+                        specialBreaks = item.specialBreaks.filterKeys { it != index }.mapKeys { (key, _) -> if (key > index) key - 1 else key },
+                        overriddenPeriods = item.overriddenPeriods.filter { it != index }.map { if (it > index) it - 1 else it }.toSet()
+                    )
+                },
+                topologyOperations = draft.topologyOperations + PeriodTopologyOperation.Delete(index)
+            )
+        )
+    }
+
+    fun changePartCounts(requestedMorning: Int, requestedAfternoon: Int, requestedEvening: Int) {
+        val targets = mapOf(
+            PeriodDayPart.MORNING to requestedMorning.coerceIn(0, 20),
+            PeriodDayPart.AFTERNOON to requestedAfternoon.coerceIn(0, 20),
+            PeriodDayPart.EVENING to requestedEvening.coerceIn(0, 20)
+        )
+        if (targets.values.sum() == 0) {
+            localError = "上午、下午、晚上至少需要启用一个时段"
+            return
+        }
+        var workingConfig = config
+        var workingSchemes = draft.schemes
+        val operations = mutableListOf<PeriodTopologyOperation>()
+        PeriodDayPart.entries.forEach { part ->
+            val oldCount = workingConfig.periodCount(part)
+            val targetCount = targets.getValue(part)
+            if (targetCount > oldCount) repeat(targetCount - oldCount) {
+                val range = workingConfig.periodRange(part)
+                val after = when {
+                    !range.isEmpty() -> range.last
+                    part == PeriodDayPart.MORNING -> 0
+                    part == PeriodDayPart.AFTERNOON -> workingConfig.morningPeriodCount
+                    else -> workingConfig.morningPeriodCount + workingConfig.afternoonPeriodCount
+                }
+                workingConfig = when (part) {
+                    PeriodDayPart.MORNING -> workingConfig.copy(morningPeriodCount = workingConfig.morningPeriodCount + 1)
+                    PeriodDayPart.AFTERNOON -> workingConfig.copy(afternoonPeriodCount = workingConfig.afternoonPeriodCount + 1)
+                    PeriodDayPart.EVENING -> workingConfig.copy(eveningPeriodCount = workingConfig.eveningPeriodCount + 1)
+                }
+                workingSchemes = workingSchemes.map { shiftedTimesForInsert(it, after, workingConfig) }
+                operations += PeriodTopologyOperation.AddAfter(after)
+            }
+            if (targetCount < oldCount) repeat(oldCount - targetCount) {
+                val range = workingConfig.periodRange(part)
+                val index = range.last
+                workingSchemes = workingSchemes.map { item ->
+                    item.copy(
+                        times = item.times.filter { it.periodIndex != index }.map { if (it.periodIndex > index) it.copy(periodIndex = it.periodIndex - 1) else it },
+                        specialBreaks = item.specialBreaks.filterKeys { it != index }.mapKeys { (key, _) -> if (key > index) key - 1 else key },
+                        overriddenPeriods = item.overriddenPeriods.filter { it != index }.map { if (it > index) it - 1 else it }.toSet()
+                    )
+                }
+                workingConfig = when (part) {
+                    PeriodDayPart.MORNING -> workingConfig.copy(morningPeriodCount = workingConfig.morningPeriodCount - 1)
+                    PeriodDayPart.AFTERNOON -> workingConfig.copy(afternoonPeriodCount = workingConfig.afternoonPeriodCount - 1)
+                    PeriodDayPart.EVENING -> workingConfig.copy(eveningPeriodCount = workingConfig.eveningPeriodCount - 1)
+                }
+                operations += PeriodTopologyOperation.Delete(index)
+            }
+        }
+        onCountsChange(workingConfig.morningPeriodCount, workingConfig.afternoonPeriodCount, workingConfig.eveningPeriodCount)
+        onDraftChange(
+            draft.copy(
+                schemes = workingSchemes.map { item ->
+                    if (item.scheme.mode == PeriodSchemeMode.AUTO_MATCH) item.copy(times = resolveSchemeTimes(workingConfig, item)) else item
+                },
+                topologyOperations = draft.topologyOperations + operations
+            )
+        )
+    }
+
+    fun changePartCount(part: PeriodDayPart, requestedCount: Int) {
+        changePartCounts(
+            requestedMorning = if (part == PeriodDayPart.MORNING) requestedCount else config.morningPeriodCount,
+            requestedAfternoon = if (part == PeriodDayPart.AFTERNOON) requestedCount else config.afternoonPeriodCount,
+            requestedEvening = if (part == PeriodDayPart.EVENING) requestedCount else config.eveningPeriodCount
+        )
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+            val selectedIndex = draft.schemes.indexOfFirst { it.scheme.id == draft.activeSchemeId }.coerceAtLeast(0)
+            MiuixOverlayDropdownPreference(
+                items = draft.schemes.map { it.scheme.name },
+                selectedIndex = selectedIndex,
+                title = "当前作息方案",
+                modifier = Modifier.fillMaxWidth(),
+                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                maxHeight = 318.dp,
+                onExpandedChange = {},
+                onSelectedIndexChange = { index ->
+                    draft.schemes.getOrNull(index)?.let { item ->
+                        onDraftChange(draft.copy(activeSchemeId = item.scheme.id))
+                    }
+                }
+            )
+            SettingsDivider()
+            SettingsTextFieldRow(
+                "方案名称",
+                active.scheme.name,
+                { name -> updateActive { it.copy(scheme = it.scheme.copy(name = name.ifBlank { "未命名作息" })) } }
+            )
+            SettingsDivider()
+            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PeriodEditorActionButton("新建", backdrop, state.config, modifier = Modifier.weight(1f), onClick = {
+                    val tempId = (draft.schemes.minOfOrNull { it.scheme.id } ?: 0L).coerceAtMost(0L) - 1L
+                    val newScheme = PeriodSchemeEntity(
+                        id = tempId,
+                        scheduleId = config.id,
+                        name = "新作息",
+                        mode = PeriodSchemeMode.AUTO_MATCH,
+                        classDurationMinutes = active.scheme.classDurationMinutes,
+                        breakDurationMinutes = active.scheme.breakDurationMinutes,
+                        morningStartTime = active.scheme.morningStartTime,
+                        afternoonStartTime = active.scheme.afternoonStartTime,
+                        eveningStartTime = active.scheme.eveningStartTime
+                    )
+                    val newItem = PeriodSchemeDraft(newScheme, emptyList()).let {
+                        it.copy(times = resolveSchemeTimes(config, it))
+                    }
+                    onDraftChange(draft.copy(schemes = draft.schemes + newItem, activeSchemeId = tempId))
+                })
+                PeriodEditorActionButton("复制", backdrop, state.config, modifier = Modifier.weight(1f), tint = ComposeColor(0xFF6750A4), onClick = {
+                    val tempId = (draft.schemes.minOfOrNull { it.scheme.id } ?: 0L).coerceAtMost(0L) - 1L
+                    val copy = active.copy(
+                        scheme = active.scheme.copy(id = tempId, name = "${active.scheme.name} 副本", isActive = false),
+                        times = active.times.map { it.copy(schemeId = tempId) }
+                    )
+                    onDraftChange(draft.copy(schemes = draft.schemes + copy, activeSchemeId = tempId))
+                })
+                PeriodEditorActionButton("删除", backdrop, state.config, modifier = Modifier.weight(1f), tint = ComposeColor(0xFFFF453A), onClick = {
+                    if (draft.schemes.size <= 1) localError = "至少需要保留一套作息方案"
+                    else {
+                        val removedIndex = draft.schemes.indexOfFirst { it.scheme.id == active.scheme.id }
+                        val remaining = draft.schemes.filterNot { it.scheme.id == active.scheme.id }
+                        val adjacent = remaining[removedIndex.coerceAtMost(remaining.lastIndex)]
+                        onDraftChange(draft.copy(schemes = remaining, activeSchemeId = adjacent.scheme.id))
+                    }
+                })
+            }
+        }
+
+        SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+            BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+                LiquidOptionTabs(
+                    selectedIndex = if (active.scheme.mode == PeriodSchemeMode.MANUAL) 0 else 1,
+                    labels = listOf("手动模式", "自动匹配"),
+                    backdrop = backdrop,
+                    config = state.config,
+                    width = maxWidth,
+                    onSelected = { selected ->
+                        if (selected == 0 && active.scheme.mode != PeriodSchemeMode.MANUAL) {
+                            val frozen = resolveSchemeTimes(config, active)
+                            updateActive { it.copy(scheme = it.scheme.copy(mode = PeriodSchemeMode.MANUAL), times = frozen) }
+                        } else if (selected == 1 && active.scheme.mode != PeriodSchemeMode.AUTO_MATCH) {
+                            val times = active.times.sortedBy { it.periodIndex }
+                            val partForIndex: (Int) -> PeriodDayPart? = { index ->
+                                PeriodDayPart.entries.firstOrNull { index in config.periodRange(it) }
+                            }
+                            val detectedSpecialBreaks = times.zipWithNext().mapNotNull { (left, right) ->
+                                if (partForIndex(left.periodIndex) != partForIndex(right.periodIndex)) return@mapNotNull null
+                                val leftEnd = runCatching { LocalTime.parse(left.endTime) }.getOrNull() ?: return@mapNotNull null
+                                val rightStart = runCatching { LocalTime.parse(right.startTime) }.getOrNull() ?: return@mapNotNull null
+                                val gap = java.time.Duration.between(leftEnd, rightStart).toMinutes().toInt()
+                                if (gap >= 0 && gap != active.scheme.breakDurationMinutes) left.periodIndex to gap else null
+                            }.toMap()
+                            val autoCandidate = active.copy(
+                                scheme = active.scheme.copy(
+                                    mode = PeriodSchemeMode.AUTO_MATCH,
+                                    morningStartTime = times.firstOrNull { t -> t.periodIndex in config.periodRange(PeriodDayPart.MORNING) }?.startTime ?: active.scheme.morningStartTime,
+                                    afternoonStartTime = times.firstOrNull { t -> t.periodIndex in config.periodRange(PeriodDayPart.AFTERNOON) }?.startTime ?: active.scheme.afternoonStartTime,
+                                    eveningStartTime = times.firstOrNull { t -> t.periodIndex in config.periodRange(PeriodDayPart.EVENING) }?.startTime ?: active.scheme.eveningStartTime
+                                ),
+                                specialBreaks = detectedSpecialBreaks,
+                                overriddenPeriods = emptySet()
+                            )
+                            val generatedByIndex = resolveSchemeTimes(config, autoCandidate).associateBy { it.periodIndex }
+                            val changedIndices = times.filter { manual ->
+                                val generated = generatedByIndex[manual.periodIndex]
+                                generated == null || generated.startTime != manual.startTime || generated.endTime != manual.endTime
+                            }.mapTo(mutableSetOf()) { it.periodIndex }
+                            if (changedIndices.isEmpty()) {
+                                updateActive { autoCandidate.copy(times = generatedByIndex.values.sortedBy { it.periodIndex }) }
+                            } else {
+                                pendingAutoSwitch = autoCandidate
+                                pendingAutoOverrides = changedIndices
+                            }
+                        }
+                    }
+                )
+            }
+            if (active.scheme.mode == PeriodSchemeMode.AUTO_MATCH) {
+                SettingsDivider()
+                SettingsTextFieldRow("单节课分钟数", active.scheme.classDurationMinutes.toString(), { value ->
+                    value.toIntOrNull()?.let { minutes -> updateActive { it.copy(scheme = it.scheme.copy(classDurationMinutes = minutes.coerceIn(1, 300))) } }
+                }, KeyboardType.Number)
+                SettingsDivider()
+                SettingsTextFieldRow("普通课间分钟数", active.scheme.breakDurationMinutes.toString(), { value ->
+                    value.toIntOrNull()?.let { minutes -> updateActive { it.copy(scheme = it.scheme.copy(breakDurationMinutes = minutes.coerceIn(0, 300))) } }
+                }, KeyboardType.Number)
+            }
+            PeriodDayPart.entries.forEach { part ->
+                val title = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
+                val count = config.periodCount(part)
+                val range = config.periodRange(part)
+                SettingsDivider()
+                SettingsToggleRow(
+                    title = "启用$title",
+                    subtitle = if (count == 0) "已关闭" else "${count} 节 · 第 ${range.first}-${range.last} 节",
+                    checked = count > 0,
+                    backdrop = backdrop,
+                    onCheckedChange = { enabled -> changePartCount(part, if (enabled) 1 else 0) }
+                )
+            }
+            SettingsDivider()
+            SettingsPickerValueRow(
+                title = "节数分配",
+                value = PeriodDayPart.entries.filter { config.periodCount(it) > 0 }.joinToString(" · ") { part ->
+                    val name = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
+                    "$name ${config.periodCount(part)}"
+                },
+                onClick = {
+                    countPickerMorning = config.morningPeriodCount.coerceAtLeast(1)
+                    countPickerAfternoon = config.afternoonPeriodCount.coerceAtLeast(1)
+                    countPickerEvening = config.eveningPeriodCount.coerceAtLeast(1)
+                    countPickerTotal = config.totalPeriodCount().coerceAtLeast(1)
+                    showCountPicker = true
+                }
+            )
+            if (active.scheme.mode == PeriodSchemeMode.AUTO_MATCH) {
+                SettingsDivider()
+                SettingsPickerValueRow(
+                    title = "时段起点",
+                    value = PeriodDayPart.entries.filter { config.periodCount(it) > 0 }.joinToString(" · ") { part ->
+                        when (part) {
+                            PeriodDayPart.MORNING -> active.scheme.morningStartTime
+                            PeriodDayPart.AFTERNOON -> active.scheme.afternoonStartTime
+                            PeriodDayPart.EVENING -> active.scheme.eveningStartTime
+                        }
+                    },
+                    onClick = {
+                        morningStartMinute = runCatching { LocalTime.parse(active.scheme.morningStartTime) }.getOrDefault(LocalTime.of(8, 0)).let { it.hour * 60 + it.minute }
+                        afternoonStartMinute = runCatching { LocalTime.parse(active.scheme.afternoonStartTime) }.getOrDefault(LocalTime.of(14, 0)).let { it.hour * 60 + it.minute }
+                        eveningStartMinute = runCatching { LocalTime.parse(active.scheme.eveningStartTime) }.getOrDefault(LocalTime.of(19, 0)).let { it.hour * 60 + it.minute }
+                        showSegmentStartPicker = true
+                    }
+                )
+            }
+            if (active.scheme.mode == PeriodSchemeMode.AUTO_MATCH) {
+                active.specialBreaks.toSortedMap().forEach { (after, minutes) ->
+                    SettingsDivider()
+                    SettingsPickerValueRow("特殊课间", "第 $after 节后 · ${minutes} 分钟", onClick = {
+                        breakAfter = after
+                        breakPickerPosition = specialBreakCandidates.indexOf(after).coerceAtLeast(0)
+                        breakMinutes = minutes
+                        showBreakPicker = true
+                    })
+                }
+                SettingsDivider()
+                Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PeriodEditorActionButton("+特殊课间", backdrop, state.config, modifier = Modifier.weight(1f), tint = ComposeColor(0xFF6750A4), onClick = {
+                        val candidate = specialBreakCandidates.firstOrNull { it !in active.specialBreaks }
+                        if (candidate == null) {
+                            localError = "当前时段内没有可插入特殊课间的位置"
+                        } else {
+                            breakAfter = candidate
+                            breakPickerPosition = specialBreakCandidates.indexOf(candidate)
+                            breakMinutes = 20
+                            showBreakPicker = true
+                        }
+                    })
+                    PeriodEditorActionButton("应用自动匹配", backdrop, state.config, modifier = Modifier.weight(1.35f), onClick = {
+                        updateActive { item -> item.copy(times = resolveSchemeTimes(config, item)) }
+                        localError = null
+                    })
+                }
+            }
+        }
+
+        val resolved = resolveSchemeTimes(config, active)
+        SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+            resolved.forEachIndexed { position, time ->
+                if (position > 0) {
+                    val previous = resolved[position - 1]
+                    val dayPartLabel = when {
+                        config.afternoonPeriodCount > 0 && time.periodIndex == config.morningPeriodCount + 1 -> "下午时段"
+                        config.eveningPeriodCount > 0 && time.periodIndex == config.morningPeriodCount + config.afternoonPeriodCount + 1 -> "晚上时段"
+                        else -> null
+                    }
+                    val specialBreak = active.specialBreaks[previous.periodIndex]
+                    when {
+                        dayPartLabel != null -> PeriodTimelineSeparator(dayPartLabel, ComposeColor(0xFF0A84FF))
+                        specialBreak != null -> PeriodTimelineSeparator("特殊课间 · ${specialBreak}分钟", ComposeColor(0xFF6750A4))
+                        else -> SettingsDivider()
+                    }
+                }
+                SettingsPickerValueRow(
+                    if (time.periodIndex in active.overriddenPeriods) "第 ${time.periodIndex} 节 · 已覆盖" else "第 ${time.periodIndex} 节",
+                    "${time.startTime} - ${time.endTime}",
+                    onClick = {
+                        editingPart = null
+                        editingPeriod = time.periodIndex
+                        val start = LocalTime.parse(time.startTime)
+                        val end = LocalTime.parse(time.endTime)
+                        pickerStartHour = start.hour; pickerStartMinute = start.minute
+                        pickerEndHour = end.hour; pickerEndMinute = end.minute
+                        showTimePicker = true
+                    }
+                )
+            }
+        }
+
+        localError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 4.dp)) }
+    }
+
+    val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
+    val enabledParts = PeriodDayPart.entries.filter { config.periodCount(it) > 0 }
+    top.yukonga.miuix.kmp.overlay.OverlayDialog(
+        show = showCountPicker,
+        title = "节数分配",
+        onDismissRequest = { showCountPicker = false },
+        enableWindowDim = false,
+        backgroundColor = ComposeColor.Transparent,
+        forceCenter = true,
+        surfaceModifier = quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val fontScale = LocalDensity.current.fontScale
+                val columnWidth = maxWidth / enabledParts.size.coerceAtLeast(1)
+                val pickerStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                    fontSize = when {
+                        columnWidth < 100.dp || fontScale > 1.3f -> 17.sp
+                        columnWidth < 140.dp || fontScale > 1.1f -> 20.sp
+                        else -> 28.sp
+                    }
+                )
+                Row(Modifier.fillMaxWidth()) {
+                    enabledParts.forEach { part ->
+                        val value = when (part) {
+                            PeriodDayPart.MORNING -> countPickerMorning
+                            PeriodDayPart.AFTERNOON -> countPickerAfternoon
+                            PeriodDayPart.EVENING -> countPickerEvening
+                        }
+                        val name = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (part == PeriodDayPart.EVENING) {
+                                Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) {
+                                    Text("${countPickerEvening}节", style = pickerStyle, fontWeight = FontWeight.SemiBold)
+                                }
+                            } else {
+                                val eveningEnabled = PeriodDayPart.EVENING in enabledParts
+                                val allocatedMorning = if (PeriodDayPart.MORNING in enabledParts) countPickerMorning else 0
+                                val allocatedAfternoon = if (PeriodDayPart.AFTERNOON in enabledParts) countPickerAfternoon else 0
+                                val maxCount = when (part) {
+                                    PeriodDayPart.MORNING -> if (eveningEnabled) countPickerTotal - allocatedAfternoon - 1 else 20
+                                    PeriodDayPart.AFTERNOON -> if (eveningEnabled) countPickerTotal - allocatedMorning - 1 else 20
+                                    PeriodDayPart.EVENING -> 20
+                                }.coerceAtLeast(1)
+                                top.yukonga.miuix.kmp.basic.NumberPicker(
+                                    value = value.coerceIn(1, maxCount),
+                                    onValueChange = { changed ->
+                                        when (part) {
+                                            PeriodDayPart.MORNING -> countPickerMorning = changed
+                                            PeriodDayPart.AFTERNOON -> countPickerAfternoon = changed
+                                            PeriodDayPart.EVENING -> Unit
+                                        }
+                                        if (eveningEnabled) {
+                                            val morning = if (PeriodDayPart.MORNING in enabledParts) countPickerMorning else 0
+                                            val afternoon = if (PeriodDayPart.AFTERNOON in enabledParts) countPickerAfternoon else 0
+                                            countPickerEvening = (countPickerTotal - morning - afternoon).coerceAtLeast(1)
+                                        }
+                                    },
+                                    range = 1..maxCount,
+                                    visibleItemCount = 3,
+                                    label = { "${it}节" },
+                                    textStyle = pickerStyle,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                QuickSheetLiquidAction("取消", true, popupBackdrop, state.config, modifier = Modifier.weight(1f), height = 48.dp) {
+                    showCountPicker = false
+                }
+                QuickSheetLiquidAction("确定", true, popupBackdrop, state.config, primary = true, modifier = Modifier.weight(1f), height = 48.dp) {
+                    changePartCounts(
+                        if (PeriodDayPart.MORNING in enabledParts) countPickerMorning else 0,
+                        if (PeriodDayPart.AFTERNOON in enabledParts) countPickerAfternoon else 0,
+                        if (PeriodDayPart.EVENING in enabledParts) countPickerEvening else 0
+                    )
+                    showCountPicker = false
+                }
+            }
+        }
+    }
+
+    top.yukonga.miuix.kmp.overlay.OverlayDialog(
+        show = showSegmentStartPicker,
+        title = "时段起点",
+        onDismissRequest = { showSegmentStartPicker = false },
+        enableWindowDim = false,
+        backgroundColor = ComposeColor.Transparent,
+        forceCenter = true,
+        surfaceModifier = quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val fontScale = LocalDensity.current.fontScale
+                val columnWidth = maxWidth / enabledParts.size.coerceAtLeast(1)
+                val pickerStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                    fontSize = when {
+                        columnWidth < 100.dp || fontScale > 1.3f -> 16.sp
+                        columnWidth < 140.dp || fontScale > 1.1f -> 19.sp
+                        else -> 24.sp
+                    }
+                )
+                Row(Modifier.fillMaxWidth()) {
+                    enabledParts.forEach { part ->
+                        val value = when (part) {
+                            PeriodDayPart.MORNING -> morningStartMinute
+                            PeriodDayPart.AFTERNOON -> afternoonStartMinute
+                            PeriodDayPart.EVENING -> eveningStartMinute
+                        }
+                        val name = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            top.yukonga.miuix.kmp.basic.NumberPicker(
+                                value = value,
+                                onValueChange = { changed ->
+                                    when (part) {
+                                        PeriodDayPart.MORNING -> morningStartMinute = changed
+                                        PeriodDayPart.AFTERNOON -> afternoonStartMinute = changed
+                                        PeriodDayPart.EVENING -> eveningStartMinute = changed
+                                    }
+                                },
+                                range = 0..1439,
+                                visibleItemCount = 3,
+                                label = { minute -> "%02d:%02d".format(minute / 60, minute % 60) },
+                                textStyle = pickerStyle,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                QuickSheetLiquidAction("取消", true, popupBackdrop, state.config, modifier = Modifier.weight(1f), height = 48.dp) {
+                    showSegmentStartPicker = false
+                }
+                QuickSheetLiquidAction("确定", true, popupBackdrop, state.config, primary = true, modifier = Modifier.weight(1f), height = 48.dp) {
+                    fun formatMinute(value: Int) = "%02d:%02d".format(value / 60, value % 60)
+                    val candidate = active.copy(
+                        scheme = active.scheme.copy(
+                            morningStartTime = formatMinute(morningStartMinute),
+                            afternoonStartTime = formatMinute(afternoonStartMinute),
+                            eveningStartTime = formatMinute(eveningStartMinute)
+                        )
+                    ).let { changed -> changed.copy(times = resolveSchemeTimes(config, changed)) }
+                    val conflict = validateResolvedPeriodTimes(candidate.times)
+                    if (conflict != null) timeConflictMessage = conflict else {
+                        updateActive { candidate }
+                        showSegmentStartPicker = false
+                    }
+                }
+            }
+        }
+    }
+
+    top.yukonga.miuix.kmp.overlay.OverlayDialog(
+        show = showTimePicker,
+        title = if (editingPeriod > 0) "编辑第 $editingPeriod 节" else "设置时段起点",
+        onDismissRequest = { showTimePicker = false },
+        enableWindowDim = false,
+        backgroundColor = ComposeColor.Transparent,
+        forceCenter = true,
+        surfaceModifier = quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val columnCount = if (editingPeriod > 0) 4 else 2
+                val fontScale = LocalDensity.current.fontScale
+                val columnWidth = maxWidth / columnCount
+                val pickerStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                    fontSize = when {
+                        columnWidth < 68.dp || fontScale > 1.3f -> 17.sp
+                        columnWidth < 84.dp || fontScale > 1.12f -> 20.sp
+                        else -> 25.sp
+                    }
+                )
+                if (editingPeriod > 0) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("开始时间", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(Modifier.fillMaxWidth()) {
+                                top.yukonga.miuix.kmp.basic.NumberPicker(value = pickerStartHour, onValueChange = { pickerStartHour = it }, range = 0..23, visibleItemCount = 3, label = { "%02d时".format(it) }, textStyle = pickerStyle, modifier = Modifier.weight(1f))
+                                top.yukonga.miuix.kmp.basic.NumberPicker(value = pickerStartMinute, onValueChange = { pickerStartMinute = it }, range = 0..59, visibleItemCount = 3, label = { "%02d分".format(it) }, textStyle = pickerStyle, modifier = Modifier.weight(1f))
+                            }
+                        }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("结束时间", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(Modifier.fillMaxWidth()) {
+                                top.yukonga.miuix.kmp.basic.NumberPicker(value = pickerEndHour, onValueChange = { pickerEndHour = it }, range = 0..23, visibleItemCount = 3, label = { "%02d时".format(it) }, textStyle = pickerStyle, modifier = Modifier.weight(1f))
+                                top.yukonga.miuix.kmp.basic.NumberPicker(value = pickerEndMinute, onValueChange = { pickerEndMinute = it }, range = 0..59, visibleItemCount = 3, label = { "%02d分".format(it) }, textStyle = pickerStyle, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth()) {
+                        top.yukonga.miuix.kmp.basic.NumberPicker(value = pickerStartHour, onValueChange = { pickerStartHour = it }, range = 0..23, visibleItemCount = 3, label = { "%02d时".format(it) }, textStyle = pickerStyle, modifier = Modifier.weight(1f))
+                        top.yukonga.miuix.kmp.basic.NumberPicker(value = pickerStartMinute, onValueChange = { pickerStartMinute = it }, range = 0..59, visibleItemCount = 3, label = { "%02d分".format(it) }, textStyle = pickerStyle, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                QuickSheetLiquidAction("取消", true, popupBackdrop, state.config, modifier = Modifier.weight(1f), height = 48.dp) { showTimePicker = false }
+                if (editingPeriod > 0 && editingPeriod in active.overriddenPeriods) {
+                    QuickSheetLiquidAction("恢复自动", true, popupBackdrop, state.config, modifier = Modifier.weight(1f), height = 48.dp) {
+                        updateActive { it.copy(overriddenPeriods = it.overriddenPeriods - editingPeriod).let { changed -> changed.copy(times = resolveSchemeTimes(config, changed)) } }
+                        showTimePicker = false
+                    }
+                }
+                if (editingPeriod > 0) {
+                    QuickSheetLiquidAction("删除", true, popupBackdrop, state.config, destructive = true, modifier = Modifier.weight(1f), height = 48.dp) {
+                        deletePeriod(editingPeriod); showTimePicker = false
+                    }
+                }
+                QuickSheetLiquidAction("确定", true, popupBackdrop, state.config, primary = true, modifier = Modifier.weight(1f), height = 48.dp) {
+                    val start = "%02d:%02d".format(pickerStartHour, pickerStartMinute)
+                    if (editingPeriod > 0) {
+                        val end = "%02d:%02d".format(pickerEndHour, pickerEndMinute)
+                        val updated = active.times.filterNot { it.periodIndex == editingPeriod } +
+                            PeriodSchemeTimeEntity(active.scheme.id, editingPeriod, start, end)
+                        val candidate = active.copy(
+                            times = updated.sortedBy { it.periodIndex },
+                            overriddenPeriods = if (active.scheme.mode == PeriodSchemeMode.AUTO_MATCH) active.overriddenPeriods + editingPeriod else active.overriddenPeriods
+                        )
+                        val conflict = validateResolvedPeriodTimes(resolveSchemeTimes(config, candidate))
+                        if (conflict != null) {
+                            timeConflictMessage = conflict
+                        } else {
+                            updateActive { candidate }
+                            showTimePicker = false
+                        }
+                    } else editingPart?.let { part ->
+                        val scheme = when (part) {
+                            PeriodDayPart.MORNING -> active.scheme.copy(morningStartTime = start)
+                            PeriodDayPart.AFTERNOON -> active.scheme.copy(afternoonStartTime = start)
+                            PeriodDayPart.EVENING -> active.scheme.copy(eveningStartTime = start)
+                        }
+                        val candidate = active.copy(scheme = scheme).let { changed -> changed.copy(times = resolveSchemeTimes(config, changed)) }
+                        val conflict = validateResolvedPeriodTimes(candidate.times)
+                        if (conflict != null) {
+                            timeConflictMessage = conflict
+                        } else {
+                            updateActive { candidate }
+                            showTimePicker = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    top.yukonga.miuix.kmp.overlay.OverlayDialog(
+        show = showBreakPicker,
+        title = "特殊课间",
+        onDismissRequest = { showBreakPicker = false },
+        enableWindowDim = false,
+        backgroundColor = ComposeColor.Transparent,
+        forceCenter = true,
+        surfaceModifier = quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val fontScale = LocalDensity.current.fontScale
+                val columnWidth = maxWidth / 2
+                val pickerStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                    fontSize = when {
+                        columnWidth < 120.dp || fontScale > 1.3f -> 19.sp
+                        columnWidth < 150.dp || fontScale > 1.12f -> 22.sp
+                        else -> 27.sp
+                    }
+                )
+                Row(Modifier.fillMaxWidth()) {
+                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                        value = breakPickerPosition.coerceIn(0, specialBreakCandidates.lastIndex.coerceAtLeast(0)),
+                        onValueChange = { position ->
+                            breakPickerPosition = position
+                            specialBreakCandidates.getOrNull(position)?.let { breakAfter = it }
+                        },
+                        range = 0..specialBreakCandidates.lastIndex.coerceAtLeast(0),
+                        visibleItemCount = 3,
+                        label = { position -> specialBreakCandidates.getOrNull(position)?.let { "第${it}节后" } ?: "无可用位置" },
+                        textStyle = pickerStyle,
+                        modifier = Modifier.weight(1f)
+                    )
+                    top.yukonga.miuix.kmp.basic.NumberPicker(value = breakMinutes, onValueChange = { breakMinutes = it }, range = 0..120, visibleItemCount = 3, label = { "${it}分钟" }, textStyle = pickerStyle, modifier = Modifier.weight(1f))
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                QuickSheetLiquidAction("删除", true, popupBackdrop, state.config, destructive = true, modifier = Modifier.weight(1f), height = 48.dp) {
+                    updateActive { it.copy(specialBreaks = it.specialBreaks - breakAfter).let { changed -> changed.copy(times = resolveSchemeTimes(config, changed)) } }
+                    showBreakPicker = false
+                }
+                QuickSheetLiquidAction("确定", true, popupBackdrop, state.config, primary = true, modifier = Modifier.weight(1f), height = 48.dp) {
+                    updateActive { it.copy(specialBreaks = it.specialBreaks + (breakAfter to breakMinutes)).let { changed -> changed.copy(times = resolveSchemeTimes(config, changed)) } }
+                    showBreakPicker = false
+                }
+            }
+        }
+    }
+
+    pendingAutoSwitch?.let { candidate ->
+        LiquidAlertDialog(
+            title = "保留手动调整？",
+            message = "检测到 ${pendingAutoOverrides.size} 个节次与自动匹配结果不同。你可以把它们保留为局部微调，之后自动匹配只重算其余节次；也可以按当前自动参数重新生成整套时间。",
+            actions = listOf(
+                LiquidAlertAction("取消切换", LiquidAlertActionStyle.Secondary) {
+                    pendingAutoSwitch = null
+                    pendingAutoOverrides = emptySet()
+                },
+                LiquidAlertAction("重新匹配", LiquidAlertActionStyle.Destructive) {
+                    val rebuilt = candidate.copy(
+                        overriddenPeriods = emptySet(),
+                        times = resolveSchemeTimes(config, candidate.copy(overriddenPeriods = emptySet()))
+                    )
+                    updateActive { rebuilt }
+                    pendingAutoSwitch = null
+                    pendingAutoOverrides = emptySet()
+                },
+                LiquidAlertAction("保留为微调", LiquidAlertActionStyle.Primary) {
+                    val preserved = candidate.copy(
+                        times = active.times,
+                        overriddenPeriods = pendingAutoOverrides
+                    )
+                    updateActive { preserved }
+                    pendingAutoSwitch = null
+                    pendingAutoOverrides = emptySet()
+                }
+            ),
+            backdrop = popupBackdrop,
+            config = state.config,
+            onDismissRequest = {
+                pendingAutoSwitch = null
+                pendingAutoOverrides = emptySet()
+            }
+        )
+    }
+
+    timeConflictMessage?.let { conflict ->
+        LiquidAlertDialog(
+            title = "节次时间冲突",
+            message = "$conflict。请调整当前节次或相邻节次后再确认。",
+            actions = listOf(
+                LiquidAlertAction("继续调整", LiquidAlertActionStyle.Primary) {
+                    timeConflictMessage = null
+                }
+            ),
+            backdrop = popupBackdrop,
+            config = state.config,
+            onDismissRequest = { timeConflictMessage = null }
+        )
+    }
+}
+
+@Composable
+fun ScheduleConfigScreen(
+    state: AppState,
+    backdrop: Backdrop?,
+    section: SettingsSection,
+    onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
+    onPreviewLiveUpdate: () -> Unit,
+    exitCommitRequest: Int = 0,
+    onExitCommitFinished: (Boolean) -> Unit = {}
+) {
+    val context = LocalContext.current
+    val repository = remember(context) { (context.applicationContext as CourseScheduleApp).repository }
+    val saveScope = rememberCoroutineScope()
     val visualState = state.copy(config = settingsVisualConfig(state.config))
+    val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     var totalWeeks by remember { mutableStateOf(state.config.totalWeeks.toString()) }
     var currentWeek by remember { mutableStateOf(state.config.currentWeek.toString()) }
     var leadMinutes by remember { mutableStateOf(state.config.notificationLeadMinutes.toString()) }
@@ -2542,8 +3736,17 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
     var termStartDate by remember { mutableStateOf(state.config.termStartDate.orEmpty()) }
     var classDurationMinutes by remember { mutableStateOf(state.config.classDurationMinutes.toString()) }
     var breakDurationMinutes by remember { mutableStateOf(state.config.breakDurationMinutes.toString()) }
+    var morningPeriodCount by remember { mutableIntStateOf(state.config.morningPeriodCount) }
+    var afternoonPeriodCount by remember { mutableIntStateOf(state.config.afternoonPeriodCount) }
+    var eveningPeriodCount by remember { mutableIntStateOf(state.config.eveningPeriodCount) }
     var periods by remember { mutableStateOf(state.periods) }
+    var schemeDraft by remember(state.config.id) { mutableStateOf<SchedulePeriodSchemesDraft?>(null) }
+    var lastSavedSchemeDraft by remember(state.config.id) { mutableStateOf<SchedulePeriodSchemesDraft?>(null) }
+    var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showExitSaveConfirm by remember { mutableStateOf(false) }
+    var showCourseRemapConfirm by remember { mutableStateOf(false) }
+    var pendingRemapSaveCompletion by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
     var lastSavedConfig by remember { mutableStateOf(state.config) }
     var lastSavedPeriods by remember { mutableStateOf(state.periods) }
     var currentDraftScheduleId by remember { mutableIntStateOf(state.config.id) }
@@ -2561,6 +3764,9 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
         termStartDate = state.config.termStartDate.orEmpty()
         classDurationMinutes = state.config.classDurationMinutes.toString()
         breakDurationMinutes = state.config.breakDurationMinutes.toString()
+        morningPeriodCount = state.config.morningPeriodCount
+        afternoonPeriodCount = state.config.afternoonPeriodCount
+        eveningPeriodCount = state.config.eveningPeriodCount
         periods = state.periods
         error = null
         lastSavedConfig = state.config
@@ -2579,6 +3785,10 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
             termStartDate != lastSavedConfig.termStartDate.orEmpty() ||
             classDurationMinutes != lastSavedConfig.classDurationMinutes.toString() ||
             breakDurationMinutes != lastSavedConfig.breakDurationMinutes.toString() ||
+            morningPeriodCount != lastSavedConfig.morningPeriodCount ||
+            afternoonPeriodCount != lastSavedConfig.afternoonPeriodCount ||
+            eveningPeriodCount != lastSavedConfig.eveningPeriodCount ||
+            schemeDraft != lastSavedSchemeDraft ||
             periods != lastSavedPeriods
     }
 
@@ -2586,6 +3796,25 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
         if (state.config.id != currentDraftScheduleId || !computeDirty()) {
             resetConfigDraftFromState()
         }
+    }
+    LaunchedEffect(state.config.id) {
+        runCatching { repository.loadPeriodSchemes(state.config.id) }
+            .onSuccess {
+                schemeDraft = it
+                lastSavedSchemeDraft = it
+                val active = it.schemes.firstOrNull { scheme -> scheme.scheme.id == it.activeSchemeId }
+                if (active != null) {
+                    periods = resolveSchemeTimes(
+                        state.config.copy(
+                            morningPeriodCount = morningPeriodCount,
+                            afternoonPeriodCount = afternoonPeriodCount,
+                            eveningPeriodCount = eveningPeriodCount
+                        ),
+                        active
+                    ).map { time -> PeriodEntity(time.periodIndex, time.startTime, time.endTime, state.config.id) }
+                }
+            }
+            .onFailure { error = it.message ?: "作息方案加载失败" }
     }
     val detectedWeek = remember(autoCurrentWeek, termStartDate, totalWeeks, currentWeek) {
         val total = totalWeeks.toIntOrNull() ?: state.config.totalWeeks
@@ -2597,9 +3826,24 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
 
     fun resetConfigDraft() {
         resetConfigDraftFromState()
+        schemeDraft = lastSavedSchemeDraft
     }
 
-    fun saveConfigDraft() {
+    fun saveConfigDraft(
+        onFinished: ((Boolean) -> Unit)? = null,
+        remapConfirmed: Boolean = false
+    ) {
+        if (saving) {
+            onFinished?.invoke(false)
+            return
+        }
+        val needsCourseRemap = schemeDraft?.topologyOperations?.isNotEmpty() == true &&
+            state.courses.any { it.periods.isNotEmpty() }
+        if (needsCourseRemap && !remapConfirmed) {
+            pendingRemapSaveCompletion = onFinished
+            showCourseRemapConfirm = true
+            return
+        }
         val total = totalWeeks.toIntOrNull()
         val current = currentWeek.toIntOrNull()
         val lead = leadMinutes.toIntOrNull()
@@ -2653,14 +3897,57 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
                 liveUpdateChipTextMode = liveUpdateChipTextMode,
                 classDurationMinutes = classDuration,
                 breakDurationMinutes = breakDuration
+                ,morningPeriodCount = morningPeriodCount
+                ,afternoonPeriodCount = afternoonPeriodCount
+                ,eveningPeriodCount = eveningPeriodCount
             )
             currentWeek = effectiveWeekForSave.toString()
             periods = nextPeriods
-            onSave(nextConfig, nextPeriods)
-            lastSavedConfig = nextConfig
-            lastSavedPeriods = nextPeriods
+            val currentSchemes = schemeDraft
+            if (currentSchemes != null) {
+                val active = currentSchemes.schemes.firstOrNull { it.scheme.id == currentSchemes.activeSchemeId }
+                    ?: currentSchemes.schemes.first()
+                val activePeriods = resolveSchemeTimes(nextConfig, active).map {
+                    PeriodEntity(it.periodIndex, it.startTime, it.endTime, nextConfig.id)
+                }
+                currentSchemes.schemes.forEach { item ->
+                    validateResolvedPeriodTimes(resolveSchemeTimes(nextConfig, item))?.let {
+                        throw IllegalArgumentException("${item.scheme.name}：$it")
+                    }
+                }
+                saving = true
+                saveScope.launch {
+                    runCatching { repository.saveScheduleDetail(nextConfig, currentSchemes) }
+                        .onSuccess {
+                            periods = activePeriods
+                            onSave(nextConfig, activePeriods)
+                            lastSavedConfig = nextConfig
+                            lastSavedPeriods = activePeriods
+                            lastSavedSchemeDraft = currentSchemes.copy(topologyOperations = emptyList())
+                            schemeDraft = currentSchemes.copy(topologyOperations = emptyList())
+                            onFinished?.invoke(true)
+                        }
+                        .onFailure {
+                            error = it.message ?: "设置保存失败"
+                            onFinished?.invoke(false)
+                        }
+                    saving = false
+                }
+            } else {
+                onSave(nextConfig, nextPeriods)
+                lastSavedConfig = nextConfig
+                lastSavedPeriods = nextPeriods
+                onFinished?.invoke(true)
+            }
         } catch (t: Throwable) {
             error = t.message ?: "设置保存失败"
+            onFinished?.invoke(false)
+        }
+    }
+
+    LaunchedEffect(exitCommitRequest) {
+        if (exitCommitRequest > 0 && section == SettingsSection.Schedule) {
+            if (computeDirty()) showExitSaveConfirm = true else onExitCommitFinished(true)
         }
     }
 
@@ -2703,6 +3990,29 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
         onClassDurationMinutesChange = { classDurationMinutes = it },
         breakDurationMinutes = breakDurationMinutes,
         onBreakDurationMinutesChange = { breakDurationMinutes = it },
+        morningPeriodCount = morningPeriodCount,
+        afternoonPeriodCount = afternoonPeriodCount,
+        eveningPeriodCount = eveningPeriodCount,
+        onPeriodCountsChange = { morning, afternoon, evening ->
+            morningPeriodCount = morning
+            afternoonPeriodCount = afternoon
+            eveningPeriodCount = evening
+        },
+        schemeDraft = schemeDraft,
+        onSchemeDraftChange = { updated ->
+            schemeDraft = updated
+            val active = updated.schemes.firstOrNull { it.scheme.id == updated.activeSchemeId }
+            if (active != null) {
+                val draftConfig = state.config.copy(
+                    morningPeriodCount = morningPeriodCount,
+                    afternoonPeriodCount = afternoonPeriodCount,
+                    eveningPeriodCount = eveningPeriodCount
+                )
+                periods = resolveSchemeTimes(draftConfig, active).map {
+                    PeriodEntity(it.periodIndex, it.startTime, it.endTime, state.config.id)
+                }
+            }
+        },
         onAutoMatchPeriodEnds = {
             val classDuration = classDurationMinutes.toIntOrNull() ?: state.config.classDurationMinutes
             val breakDuration = breakDurationMinutes.toIntOrNull() ?: state.config.breakDurationMinutes
@@ -2711,17 +4021,72 @@ fun ScheduleConfigScreen(state: AppState, backdrop: Backdrop?, section: Settings
         periods = periods,
         onPeriodsChange = { periods = it },
         detectedWeek = detectedWeek,
-        dirty = dirty && section != SettingsSection.Notifications,
+        dirty = false,
         error = error,
-        onReset = { resetConfigDraft() },
-        onSave = { saveConfigDraft() },
+        onReset = {},
+        onSave = {},
         onPreviewLiveUpdate = onPreviewLiveUpdate
     )
+
+    if (showExitSaveConfirm) {
+        LiquidAlertDialog(
+            title = "保存课表设置？",
+            message = "你修改了节次结构或作息时间。保存完成后才会退出详细设置。",
+            actions = listOf(
+                LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Secondary) {
+                    showExitSaveConfirm = false
+                },
+                LiquidAlertAction("不保存", LiquidAlertActionStyle.Destructive) {
+                    showExitSaveConfirm = false
+                    onExitCommitFinished(true)
+                },
+                LiquidAlertAction("保存并退出", LiquidAlertActionStyle.Primary) {
+                    showExitSaveConfirm = false
+                    saveConfigDraft(onExitCommitFinished)
+                }
+            ),
+            backdrop = popupBackdrop,
+            config = visualState.config,
+            onDismissRequest = { showExitSaveConfirm = false }
+        )
+    }
+
+    if (showCourseRemapConfirm) {
+        val affectedCourseCount = state.courses.count { it.periods.isNotEmpty() }
+        LiquidAlertDialog(
+            title = "重映射课程节次？",
+            message = "节次结构已经改变。保存后会按照 $affectedCourseCount 门课程在修改前作息中的实际时间，映射到新时间线中重叠或时间最接近的节次；课程名称、星期和周次不会改变。",
+            actions = listOf(
+                LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Secondary) {
+                    showCourseRemapConfirm = false
+                    pendingRemapSaveCompletion = null
+                },
+                LiquidAlertAction("确认并保存", LiquidAlertActionStyle.Primary) {
+                    val completion = pendingRemapSaveCompletion
+                    pendingRemapSaveCompletion = null
+                    showCourseRemapConfirm = false
+                    saveConfigDraft(completion, remapConfirmed = true)
+                }
+            ),
+            backdrop = popupBackdrop,
+            config = visualState.config,
+            onDismissRequest = {
+                showCourseRemapConfirm = false
+                pendingRemapSaveCompletion = null
+            }
+        )
+    }
 }
 
-private fun autoMatchPeriodTimes(periods: List<PeriodEntity>, classDurationMinutes: Int, breakDurationMinutes: Int): List<PeriodEntity> {
+private fun autoMatchPeriodTimes(
+    periods: List<PeriodEntity>,
+    classDurationMinutes: Int,
+    breakDurationMinutes: Int,
+    longBreaks: List<Pair<Int, Int>> = emptyList()
+): List<PeriodEntity> {
     val duration = classDurationMinutes.coerceIn(1, 300).toLong()
-    val breakDuration = breakDurationMinutes.coerceIn(0, 300).toLong()
+    val defaultBreak = breakDurationMinutes.coerceIn(0, 300).toLong()
+    val lbMap = longBreaks.toMap()
     val formatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
     var cursor = periods.firstOrNull()?.startTime?.let {
         runCatching { ScheduleImportParser.parseTimeForUi(it) }.getOrNull()
@@ -2730,7 +4095,8 @@ private fun autoMatchPeriodTimes(periods: List<PeriodEntity>, classDurationMinut
         val start = cursor ?: runCatching { ScheduleImportParser.parseTimeForUi(period.startTime) }.getOrNull()
         if (start == null) return@map period
         val end = start.plusMinutes(duration)
-        cursor = end.plusMinutes(breakDuration)
+        val gap = (lbMap[period.periodIndex] ?: defaultBreak.toInt()).toLong()
+        cursor = end.plusMinutes(gap)
         period.copy(
             startTime = start.format(formatter),
             endTime = end.format(formatter)

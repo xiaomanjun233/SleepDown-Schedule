@@ -29,25 +29,50 @@ private sealed interface AgentMarkdownBlock {
     data class Table(val header: List<String>, val rows: List<List<String>>) : AgentMarkdownBlock
 }
 
+private sealed interface AgentMarkdownRenderBlock {
+    data class Paragraph(val text: AnnotatedString) : AgentMarkdownRenderBlock
+    data class Bullet(val text: AnnotatedString) : AgentMarkdownRenderBlock
+    data class Table(
+        val header: List<AnnotatedString>,
+        val rows: List<List<AnnotatedString>>
+    ) : AgentMarkdownRenderBlock
+}
+
 @Composable
 fun AgentMarkdownText(markdown: String, color: Color, style: TextStyle) {
-    val blocks = remember(markdown) { parseAgentMarkdown(markdown) }
+    // Compile both block structure and inline spans once per message. Previously the block list
+    // was remembered, but every Text rebuilt its AnnotatedString whenever an ancestor recomposed.
+    val blocks = remember(markdown) {
+        parseAgentMarkdown(markdown).map { block ->
+            when (block) {
+                is AgentMarkdownBlock.Paragraph ->
+                    AgentMarkdownRenderBlock.Paragraph(agentInlineMarkdown(block.text))
+                is AgentMarkdownBlock.Bullet ->
+                    AgentMarkdownRenderBlock.Bullet(agentInlineMarkdown(block.text))
+                is AgentMarkdownBlock.Table ->
+                    AgentMarkdownRenderBlock.Table(
+                        header = block.header.map(::agentInlineMarkdown),
+                        rows = block.rows.map { row -> row.map(::agentInlineMarkdown) }
+                    )
+            }
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         blocks.forEach { block ->
             when (block) {
-                is AgentMarkdownBlock.Paragraph -> Text(agentInlineMarkdown(block.text), color = color, style = style)
-                is AgentMarkdownBlock.Bullet -> Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                is AgentMarkdownRenderBlock.Paragraph -> Text(block.text, color = color, style = style)
+                is AgentMarkdownRenderBlock.Bullet -> Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text("•", color = color, style = style)
-                    Text(agentInlineMarkdown(block.text), modifier = Modifier.weight(1f), color = color, style = style)
+                    Text(block.text, modifier = Modifier.weight(1f), color = color, style = style)
                 }
-                is AgentMarkdownBlock.Table -> AgentMarkdownTable(block, color, style)
+                is AgentMarkdownRenderBlock.Table -> AgentMarkdownTable(block, color, style)
             }
         }
     }
 }
 
 @Composable
-private fun AgentMarkdownTable(table: AgentMarkdownBlock.Table, color: Color, style: TextStyle) {
+private fun AgentMarkdownTable(table: AgentMarkdownRenderBlock.Table, color: Color, style: TextStyle) {
     val columnCount = table.header.size.coerceAtLeast(1)
     val borderColor = color.copy(alpha = 0.22f)
     Column(
@@ -65,7 +90,7 @@ private fun AgentMarkdownTable(table: AgentMarkdownBlock.Table, color: Color, st
 
 @Composable
 private fun AgentMarkdownTableRow(
-    cells: List<String>,
+    cells: List<AnnotatedString>,
     columnCount: Int,
     color: Color,
     style: TextStyle,
@@ -83,7 +108,7 @@ private fun AgentMarkdownTableRow(
                     .padding(horizontal = 8.dp, vertical = 7.dp)
             ) {
                 Text(
-                    text = agentInlineMarkdown(cells.getOrNull(index).orEmpty()),
+                    text = cells.getOrNull(index) ?: AnnotatedString(""),
                     color = color,
                     style = style,
                     fontWeight = if (header) FontWeight.SemiBold else FontWeight.Normal

@@ -25,6 +25,9 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -137,6 +140,8 @@ fun DetailScheduleMorphOverlay(
     val morphProgress = remember(request) { Animatable(0f) }
     val backgroundScale = remember(request) { Animatable(1f) }
     val closing = remember(request) { androidx.compose.runtime.mutableStateOf(false) }
+    var exitCommitRequest by remember(request) { mutableIntStateOf(0) }
+    var exitUsesToolbarDuration by remember(request) { mutableStateOf(false) }
 
     fun close(useToolbarDuration: Boolean) {
         if (closing.value) return
@@ -171,7 +176,10 @@ fun DetailScheduleMorphOverlay(
         }
     }
 
-    BackHandler(enabled = !closing.value) { close(useToolbarDuration = false) }
+    BackHandler(enabled = !closing.value) {
+        exitUsesToolbarDuration = false
+        exitCommitRequest++
+    }
 
     LaunchedEffect(request) {
         onMorphStateChange(DetailMorphState.Opening)
@@ -325,14 +333,21 @@ fun DetailScheduleMorphOverlay(
                 DetailActivityScaffold(
                     title = "课表详细设置",
                     config = detailState.config,
-                    onBack = { close(useToolbarDuration = true) }
+                    onBack = {
+                        exitUsesToolbarDuration = true
+                        exitCommitRequest++
+                    }
                 ) { backdrop ->
                     ScheduleConfigScreen(
                         state = detailState,
                         backdrop = backdrop,
                         section = SettingsSection.Schedule,
                         onSave = onSave,
-                        onPreviewLiveUpdate = onPreviewLiveUpdate
+                        onPreviewLiveUpdate = onPreviewLiveUpdate,
+                        exitCommitRequest = exitCommitRequest,
+                        onExitCommitFinished = { saved ->
+                            if (saved) close(useToolbarDuration = exitUsesToolbarDuration)
+                        }
                     )
                 }
             }

@@ -37,6 +37,7 @@ enum class DefaultWallpaperStyle { KANBAN, NONE }
 enum class DockAlignment { LEFT, CENTER, RIGHT }
 enum class HomeStartMode { DAY, WEEK }
 enum class LiveUpdateChipTextMode { LOCATION, COUNTDOWN, SHORT, NORMAL }
+enum class PeriodSchemeMode { MANUAL, AUTO_MATCH }
 
 @Entity(tableName = "courses")
 @Immutable
@@ -101,6 +102,9 @@ data class ScheduleConfigEntity(
     val liveUpdateChipTextMode: LiveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION,
     val classDurationMinutes: Int = 45,
     val breakDurationMinutes: Int = 10,
+    @ColumnInfo(defaultValue = "0") val morningPeriodCount: Int = 4,
+    @ColumnInfo(defaultValue = "0") val afternoonPeriodCount: Int = 4,
+    @ColumnInfo(defaultValue = "0") val eveningPeriodCount: Int = 4,
     val hideFromRecents: Boolean = false,
     val autoCheckUpdates: Boolean = true
 )
@@ -112,6 +116,32 @@ data class PeriodEntity(
     val startTime: String,
     val endTime: String,
     val scheduleId: Int = 1
+)
+
+@Entity(tableName = "period_schemes")
+@Immutable
+data class PeriodSchemeEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val scheduleId: Int,
+    val name: String,
+    val mode: PeriodSchemeMode = PeriodSchemeMode.MANUAL,
+    val isActive: Boolean = false,
+    val classDurationMinutes: Int = 45,
+    val breakDurationMinutes: Int = 10,
+    val morningStartTime: String = "08:00",
+    val afternoonStartTime: String = "14:00",
+    val eveningStartTime: String = "19:00",
+    val specialBreaksJson: String = "{}",
+    val overridesJson: String = "{}"
+)
+
+@Entity(tableName = "period_scheme_times", primaryKeys = ["schemeId", "periodIndex"])
+@Immutable
+data class PeriodSchemeTimeEntity(
+    val schemeId: Long,
+    val periodIndex: Int,
+    val startTime: String,
+    val endTime: String
 )
 
 @Entity(tableName = "agent_daily_sessions", primaryKeys = ["scheduleId", "date"])
@@ -261,6 +291,9 @@ interface ConfigDao {
     @Query("SELECT * FROM periods WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1) ORDER BY periodIndex")
     suspend fun getPeriods(): List<PeriodEntity>
 
+    @Query("SELECT * FROM periods WHERE scheduleId = :scheduleId ORDER BY periodIndex")
+    suspend fun getPeriods(scheduleId: Int): List<PeriodEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertConfig(config: ScheduleConfigEntity)
 
@@ -275,6 +308,42 @@ interface ConfigDao {
 
     @Query("DELETE FROM schedule_config WHERE id = :scheduleId")
     suspend fun deleteConfig(scheduleId: Int)
+}
+
+@Dao
+interface PeriodSchemeDao {
+    @Query("SELECT * FROM period_schemes WHERE scheduleId = :scheduleId ORDER BY id")
+    fun observeSchemes(scheduleId: Int): Flow<List<PeriodSchemeEntity>>
+
+    @Query("SELECT * FROM period_schemes WHERE scheduleId = :scheduleId ORDER BY id")
+    suspend fun getSchemes(scheduleId: Int): List<PeriodSchemeEntity>
+
+    @Query("SELECT * FROM period_schemes WHERE scheduleId = :scheduleId AND isActive = 1 LIMIT 1")
+    suspend fun getActiveScheme(scheduleId: Int): PeriodSchemeEntity?
+
+    @Query("SELECT * FROM period_scheme_times WHERE schemeId = :schemeId ORDER BY periodIndex")
+    suspend fun getTimes(schemeId: Long): List<PeriodSchemeTimeEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertScheme(scheme: PeriodSchemeEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSchemes(schemes: List<PeriodSchemeEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertTimes(times: List<PeriodSchemeTimeEntity>)
+
+    @Query("DELETE FROM period_scheme_times WHERE schemeId = :schemeId")
+    suspend fun deleteTimes(schemeId: Long)
+
+    @Query("DELETE FROM period_schemes WHERE id = :schemeId")
+    suspend fun deleteScheme(schemeId: Long)
+
+    @Query("DELETE FROM period_scheme_times WHERE schemeId IN (SELECT id FROM period_schemes WHERE scheduleId = :scheduleId)")
+    suspend fun deleteTimesForSchedule(scheduleId: Int)
+
+    @Query("DELETE FROM period_schemes WHERE scheduleId = :scheduleId")
+    suspend fun deleteSchemesForSchedule(scheduleId: Int)
 }
 
 @Dao
@@ -334,16 +403,19 @@ interface AgentDao {
         ScheduleProfileEntity::class,
         ScheduleConfigEntity::class,
         PeriodEntity::class,
+        PeriodSchemeEntity::class,
+        PeriodSchemeTimeEntity::class,
         AgentDailySessionEntity::class,
         AgentMessageEntity::class
     ],
-    version = 26,
+    version = 27,
     exportSchema = false
 )
 @TypeConverters(ScheduleConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun courseDao(): CourseDao
     abstract fun configDao(): ConfigDao
+    abstract fun periodSchemeDao(): PeriodSchemeDao
     abstract fun scheduleProfileDao(): ScheduleProfileDao
     abstract fun agentDao(): AgentDao
 }
@@ -575,6 +647,43 @@ private val MIGRATION_25_26 = object : Migration(25, 26) {
     }
 }
 
+private val MIGRATION_26_27 = object : Migration(26, 27) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE schedule_config ADD COLUMN morningPeriodCount INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE schedule_config ADD COLUMN afternoonPeriodCount INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE schedule_config ADD COLUMN eveningPeriodCount INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("""
+            UPDATE schedule_config SET
+              morningPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) < 12),
+              afternoonPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) >= 12 AND CAST(substr(p.startTime, 1, 2) AS INTEGER) < 18),
+              eveningPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) >= 18)
+        """.trimIndent())
+        createPeriodSchemeTables(db)
+        db.execSQL("""
+            INSERT INTO period_schemes (
+              scheduleId, name, mode, isActive, classDurationMinutes, breakDurationMinutes,
+              morningStartTime, afternoonStartTime, eveningStartTime, specialBreaksJson, overridesJson
+            )
+            SELECT c.id, '默认作息', 'MANUAL', 1, c.classDurationMinutes, c.breakDurationMinutes,
+              COALESCE((SELECT MIN(startTime) FROM periods p WHERE p.scheduleId=c.id AND CAST(substr(p.startTime,1,2) AS INTEGER)<12), '08:00'),
+              COALESCE((SELECT MIN(startTime) FROM periods p WHERE p.scheduleId=c.id AND CAST(substr(p.startTime,1,2) AS INTEGER)>=12 AND CAST(substr(p.startTime,1,2) AS INTEGER)<18), '14:00'),
+              COALESCE((SELECT MIN(startTime) FROM periods p WHERE p.scheduleId=c.id AND CAST(substr(p.startTime,1,2) AS INTEGER)>=18), '19:00'),
+              '{}', '{}'
+            FROM schedule_config c
+        """.trimIndent())
+        db.execSQL("""
+            INSERT INTO period_scheme_times (schemeId, periodIndex, startTime, endTime)
+            SELECT s.id, p.periodIndex, p.startTime, p.endTime
+            FROM period_schemes s JOIN periods p ON p.scheduleId=s.scheduleId
+        """.trimIndent())
+    }
+}
+
+private fun createPeriodSchemeTables(db: SupportSQLiteDatabase) {
+    db.execSQL("CREATE TABLE IF NOT EXISTS period_schemes (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, scheduleId INTEGER NOT NULL, name TEXT NOT NULL, mode TEXT NOT NULL, isActive INTEGER NOT NULL, classDurationMinutes INTEGER NOT NULL, breakDurationMinutes INTEGER NOT NULL, morningStartTime TEXT NOT NULL, afternoonStartTime TEXT NOT NULL, eveningStartTime TEXT NOT NULL, specialBreaksJson TEXT NOT NULL, overridesJson TEXT NOT NULL)")
+    db.execSQL("CREATE TABLE IF NOT EXISTS period_scheme_times (schemeId INTEGER NOT NULL, periodIndex INTEGER NOT NULL, startTime TEXT NOT NULL, endTime TEXT NOT NULL, PRIMARY KEY(schemeId, periodIndex))")
+}
+
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
     if (!db.hasColumn("schedule_config", "wallpaperPortraitCenterX")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperPortraitCenterX REAL DEFAULT 0.5")
     if (!db.hasColumn("schedule_config", "wallpaperPortraitCenterY")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperPortraitCenterY REAL DEFAULT 0.5")
@@ -590,7 +699,7 @@ class CourseScheduleApp : Application() {
     val database: AppDatabase by lazy {
         repairDatabaseFileBeforeRoomOpen(getDatabasePath("course_schedule.db"))
         Room.databaseBuilder(this, AppDatabase::class.java, "course_schedule.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27)
             .build()
     }
     val repository: ScheduleRepository by lazy { ScheduleRepository(database) }
@@ -831,6 +940,139 @@ class ScheduleRepository(private val database: AppDatabase) {
     private val courseDao = database.courseDao()
     private val configDao = database.configDao()
     private val profileDao = database.scheduleProfileDao()
+    private val periodSchemeDao = database.periodSchemeDao()
+
+    suspend fun switchPeriodScheme(scheduleId: Int, schemeId: Long) = database.withTransaction {
+        val schemes = periodSchemeDao.getSchemes(scheduleId)
+        val target = schemes.firstOrNull { it.id == schemeId } ?: error("作息方案不存在")
+        val times = periodSchemeDao.getTimes(target.id)
+        require(times.isNotEmpty()) { "作息方案没有节次时间" }
+        periodSchemeDao.upsertSchemes(schemes.map { it.copy(isActive = it.id == target.id) })
+        configDao.deletePeriods(scheduleId)
+        configDao.upsertPeriods(times.map { PeriodEntity(it.periodIndex, it.startTime, it.endTime, scheduleId) })
+    }
+
+    suspend fun renamePeriodScheme(scheduleId: Int, schemeId: Long, name: String) = database.withTransaction {
+        val target = periodSchemeDao.getSchemes(scheduleId).firstOrNull { it.id == schemeId }
+            ?: error("作息方案不存在")
+        periodSchemeDao.upsertScheme(target.copy(name = name.trim().ifBlank { "未命名作息" }))
+    }
+
+    suspend fun duplicatePeriodScheme(scheduleId: Int, schemeId: Long, name: String? = null): Long =
+        database.withTransaction {
+            val source = periodSchemeDao.getSchemes(scheduleId).firstOrNull { it.id == schemeId }
+                ?: error("作息方案不存在")
+            val newId = periodSchemeDao.upsertScheme(
+                source.copy(id = 0, name = name?.trim().orEmpty().ifBlank { "${source.name} 副本" }, isActive = false)
+            )
+            periodSchemeDao.upsertTimes(periodSchemeDao.getTimes(source.id).map { it.copy(schemeId = newId) })
+            newId
+        }
+
+    suspend fun deletePeriodScheme(scheduleId: Int, schemeId: Long) = database.withTransaction {
+        val schemes = periodSchemeDao.getSchemes(scheduleId)
+        require(schemes.size > 1) { "至少需要保留一套作息方案" }
+        val removedIndex = schemes.indexOfFirst { it.id == schemeId }
+        require(removedIndex >= 0) { "作息方案不存在" }
+        val wasActive = schemes[removedIndex].isActive
+        periodSchemeDao.deleteTimes(schemeId)
+        periodSchemeDao.deleteScheme(schemeId)
+        if (wasActive) {
+            val remaining = schemes.filterNot { it.id == schemeId }
+            val adjacent = remaining[removedIndex.coerceAtMost(remaining.lastIndex)]
+            switchPeriodScheme(scheduleId, adjacent.id)
+        }
+    }
+
+    suspend fun loadPeriodSchemes(scheduleId: Int): SchedulePeriodSchemesDraft = database.withTransaction {
+        val config = configDao.getConfig(scheduleId) ?: defaultConfig(scheduleId)
+        val activePeriods = configDao.getPeriods(scheduleId)
+        var schemes = periodSchemeDao.getSchemes(scheduleId)
+        if (schemes.isEmpty()) {
+            val first = activePeriods.firstOrNull()?.startTime ?: "08:00"
+            val schemeId = periodSchemeDao.upsertScheme(
+                PeriodSchemeEntity(
+                    scheduleId = scheduleId,
+                    name = "默认作息",
+                    isActive = true,
+                    classDurationMinutes = config.classDurationMinutes,
+                    breakDurationMinutes = config.breakDurationMinutes,
+                    morningStartTime = first,
+                    afternoonStartTime = activePeriods.firstOrNull {
+                        runCatching { java.time.LocalTime.parse(it.startTime).hour }.getOrDefault(0) in 12..17
+                    }?.startTime ?: "14:00",
+                    eveningStartTime = activePeriods.firstOrNull {
+                        runCatching { java.time.LocalTime.parse(it.startTime).hour }.getOrDefault(0) >= 18
+                    }?.startTime ?: "19:00"
+                )
+            )
+            periodSchemeDao.upsertTimes(activePeriods.map {
+                PeriodSchemeTimeEntity(schemeId, it.periodIndex, it.startTime, it.endTime)
+            })
+            schemes = periodSchemeDao.getSchemes(scheduleId)
+        }
+        val drafts = schemes.map { scheme ->
+            PeriodSchemeDraft(
+                scheme = scheme,
+                times = periodSchemeDao.getTimes(scheme.id),
+                specialBreaks = decodeSpecialBreaks(scheme.specialBreaksJson),
+                overriddenPeriods = decodeOverrides(scheme.overridesJson)
+            )
+        }
+        SchedulePeriodSchemesDraft(drafts, schemes.firstOrNull { it.isActive }?.id ?: schemes.first().id)
+    }
+
+    suspend fun saveScheduleDetail(
+        config: ScheduleConfigEntity,
+        draft: SchedulePeriodSchemesDraft
+    ) = database.withTransaction {
+        require(draft.schemes.isNotEmpty()) { "至少需要保留一套作息方案" }
+        val scheduleId = config.id
+        val expectedCount = config.totalPeriodCount()
+        require(expectedCount > 0) { "至少需要保留一个节次" }
+
+        val originalPeriods = configDao.getPeriods(scheduleId)
+        var courses = courseDao.getAllCourses().filter { it.scheduleId == scheduleId }
+
+        val existing = periodSchemeDao.getSchemes(scheduleId)
+        val incomingIds = draft.schemes.map { it.scheme.id }.filter { it > 0 }.toSet()
+        existing.filter { it.id !in incomingIds }.forEach {
+            periodSchemeDao.deleteTimes(it.id)
+            periodSchemeDao.deleteScheme(it.id)
+        }
+
+        val idMap = mutableMapOf<Long, Long>()
+        val saved = draft.schemes.map { item ->
+            val sourceId = item.scheme.id
+            val entity = item.scheme.copy(
+                id = if (sourceId > 0) sourceId else 0,
+                scheduleId = scheduleId,
+                isActive = sourceId == draft.activeSchemeId,
+                specialBreaksJson = encodeSpecialBreaks(item.specialBreaks),
+                overridesJson = encodeOverrides(item.overriddenPeriods)
+            )
+            val storedId = periodSchemeDao.upsertScheme(entity).let { if (entity.id > 0) entity.id else it }
+            idMap[sourceId] = storedId
+            val resolved = resolveSchemeTimes(config, item.copy(scheme = entity.copy(id = storedId)))
+            require(resolved.size == expectedCount) { "${entity.name} 的节次数与课表结构不一致" }
+            validateResolvedPeriodTimes(resolved)?.let { throw IllegalArgumentException("${entity.name}：$it") }
+            periodSchemeDao.deleteTimes(storedId)
+            periodSchemeDao.upsertTimes(resolved.map { it.copy(schemeId = storedId) })
+            entity.copy(id = storedId) to resolved
+        }
+        val activeId = idMap[draft.activeSchemeId] ?: draft.activeSchemeId
+        periodSchemeDao.upsertSchemes(saved.map { (scheme, _) -> scheme.copy(isActive = scheme.id == activeId) })
+        val activeTimes = saved.firstOrNull { it.first.id == activeId }?.second ?: saved.first().second
+        if (draft.topologyOperations.isNotEmpty()) {
+            courses = courses.map { course ->
+                course.copy(periods = remapCoursePeriodsByClockTime(course.periods, originalPeriods, activeTimes))
+            }
+        }
+        configDao.upsertConfig(normalizeConfigForSchedule(config, scheduleId))
+        configDao.deletePeriods(scheduleId)
+        configDao.upsertPeriods(activeTimes.map { PeriodEntity(it.periodIndex, it.startTime, it.endTime, scheduleId) })
+        if (courses.isNotEmpty()) courseDao.insertCourses(courses)
+    }
 
     private val multiScheduleState = combine(
         courseDao.observeAllCourses(),
@@ -964,8 +1206,8 @@ class ScheduleRepository(private val database: AppDatabase) {
         courseDao.deleteCourse(course.id)
     }
 
-    suspend fun importDraft(draft: ImportDraft, createNewSchedule: Boolean = false) {
-        database.withTransaction {
+    suspend fun importDraft(draft: ImportDraft, createNewSchedule: Boolean = false): Int {
+        return database.withTransaction {
             val oldActiveId = activeScheduleId()
             val globalConfig = configDao.getConfig(oldActiveId) ?: defaultConfig(oldActiveId)
             val scheduleId = if (createNewSchedule) {
@@ -975,33 +1217,44 @@ class ScheduleRepository(private val database: AppDatabase) {
             } else {
                 oldActiveId
             }
-            configDao.upsertConfig(normalizeConfigForSchedule(draft.config.withGlobalSettingsFrom(globalConfig), scheduleId))
+            val importedPeriods = normalizePeriodsForSchedule(draft.periods, scheduleId)
+            val importedConfig = configWithCountsFromPeriods(draft.config.withGlobalSettingsFrom(globalConfig), importedPeriods)
+            configDao.upsertConfig(normalizeConfigForSchedule(importedConfig, scheduleId))
             configDao.deletePeriods(scheduleId)
-            configDao.upsertPeriods(normalizePeriodsForSchedule(draft.periods, scheduleId))
+            configDao.upsertPeriods(importedPeriods)
+            replaceSchemesWithPeriods(scheduleId, importedConfig, importedPeriods, "导入作息")
             courseDao.deleteBySchedule(scheduleId)
             courseDao.insertCourses(normalizeImportedCoursesForSchedule(draft.courses, scheduleId))
+            scheduleId
         }
     }
 
     suspend fun saveConfig(config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
         val scheduleId = activeScheduleId()
         database.withTransaction {
-            configDao.upsertConfig(normalizeConfigForSchedule(config, scheduleId))
+            val normalizedPeriods = normalizePeriodsForSchedule(periods, scheduleId)
+            val normalizedConfig = configWithCountsFromPeriods(config, normalizedPeriods)
+            configDao.upsertConfig(normalizeConfigForSchedule(normalizedConfig, scheduleId))
             configDao.deletePeriods(scheduleId)
-            configDao.upsertPeriods(normalizePeriodsForSchedule(periods, scheduleId))
+            configDao.upsertPeriods(normalizedPeriods)
+            syncActiveSchemeTimes(scheduleId, normalizedConfig, normalizedPeriods)
         }
     }
 
     suspend fun saveConfigForSchedule(scheduleId: Int, config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
         database.withTransaction {
-            configDao.upsertConfig(normalizeConfigForSchedule(config, scheduleId))
+            val normalizedPeriods = normalizePeriodsForSchedule(periods, scheduleId)
+            val normalizedConfig = configWithCountsFromPeriods(config, normalizedPeriods)
+            configDao.upsertConfig(normalizeConfigForSchedule(normalizedConfig, scheduleId))
             configDao.deletePeriods(scheduleId)
-            configDao.upsertPeriods(normalizePeriodsForSchedule(periods, scheduleId))
+            configDao.upsertPeriods(normalizedPeriods)
+            syncActiveSchemeTimes(scheduleId, normalizedConfig, normalizedPeriods)
         }
     }
 
     suspend fun saveConfigOnly(config: ScheduleConfigEntity) {
-        configDao.upsertConfig(config.copy(id = activeScheduleId()))
+        val scheduleId = activeScheduleId()
+        configDao.upsertConfig(normalizeConfigForSchedule(config, scheduleId))
     }
 
     suspend fun saveGlobalSettings(config: ScheduleConfigEntity) {
@@ -1037,7 +1290,9 @@ class ScheduleRepository(private val database: AppDatabase) {
             val globalConfig = configDao.getConfig() ?: defaultConfig(activeScheduleId())
             val id = profileDao.upsertProfile(ScheduleProfileEntity(name = name, isActive = false)).toInt()
             configDao.upsertConfig(defaultConfig(id).withGlobalSettingsFrom(globalConfig))
-            configDao.upsertPeriods(defaultPeriods(id))
+            val periods = defaultPeriods(id)
+            configDao.upsertPeriods(periods)
+            replaceSchemesWithPeriods(id, defaultConfig(id), periods, "默认作息")
             id
         }
     }
@@ -1062,6 +1317,8 @@ class ScheduleRepository(private val database: AppDatabase) {
             if (profiles.size <= 1) return@withTransaction
             profileDao.deleteProfile(scheduleId)
             courseDao.deleteBySchedule(scheduleId)
+            periodSchemeDao.deleteTimesForSchedule(scheduleId)
+            periodSchemeDao.deleteSchemesForSchedule(scheduleId)
             configDao.deletePeriods(scheduleId)
             configDao.deleteConfig(scheduleId)
             val remaining = profiles.filterNot { it.id == scheduleId }
@@ -1089,7 +1346,53 @@ class ScheduleRepository(private val database: AppDatabase) {
     }
 
     private fun normalizeConfigForSchedule(config: ScheduleConfigEntity, scheduleId: Int): ScheduleConfigEntity {
-        return config.copy(id = scheduleId)
+        return config.copy(
+            id = scheduleId,
+            weekCardHeightDp = config.weekCardHeightDp?.coerceIn(38f, 80f)
+        )
+    }
+
+    private fun configWithCountsFromPeriods(config: ScheduleConfigEntity, periods: List<PeriodEntity>): ScheduleConfigEntity {
+        if (config.totalPeriodCount() == periods.size && periods.isNotEmpty()) return config
+        val (morning, afternoon, evening) = inferPeriodCounts(periods)
+        return config.copy(
+            morningPeriodCount = morning,
+            afternoonPeriodCount = afternoon,
+            eveningPeriodCount = evening
+        )
+    }
+
+    private suspend fun replaceSchemesWithPeriods(
+        scheduleId: Int,
+        config: ScheduleConfigEntity,
+        periods: List<PeriodEntity>,
+        name: String
+    ) {
+        periodSchemeDao.deleteTimesForSchedule(scheduleId)
+        periodSchemeDao.deleteSchemesForSchedule(scheduleId)
+        val schemeId = periodSchemeDao.upsertScheme(
+            PeriodSchemeEntity(
+                scheduleId = scheduleId,
+                name = name,
+                isActive = true,
+                classDurationMinutes = config.classDurationMinutes,
+                breakDurationMinutes = config.breakDurationMinutes,
+                morningStartTime = periods.firstOrNull()?.startTime ?: "08:00",
+                afternoonStartTime = periods.firstOrNull { runCatching { java.time.LocalTime.parse(it.startTime).hour }.getOrDefault(0) in 12..17 }?.startTime ?: "14:00",
+                eveningStartTime = periods.firstOrNull { runCatching { java.time.LocalTime.parse(it.startTime).hour }.getOrDefault(0) >= 18 }?.startTime ?: "19:00"
+            )
+        )
+        periodSchemeDao.upsertTimes(periods.map { PeriodSchemeTimeEntity(schemeId, it.periodIndex, it.startTime, it.endTime) })
+    }
+
+    private suspend fun syncActiveSchemeTimes(scheduleId: Int, config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
+        val active = periodSchemeDao.getActiveScheme(scheduleId)
+        if (active == null) {
+            replaceSchemesWithPeriods(scheduleId, config, periods, "默认作息")
+            return
+        }
+        periodSchemeDao.deleteTimes(active.id)
+        periodSchemeDao.upsertTimes(periods.map { PeriodSchemeTimeEntity(active.id, it.periodIndex, it.startTime, it.endTime) })
     }
 
     private fun normalizePeriodsForSchedule(periods: List<PeriodEntity>, scheduleId: Int): List<PeriodEntity> {
@@ -1109,6 +1412,38 @@ class ScheduleRepository(private val database: AppDatabase) {
                 scheduleId = scheduleId
             )
         }
+    }
+
+    private fun remapCoursePeriodsByClockTime(
+        sourceIndices: List<Int>,
+        oldTimes: List<PeriodEntity>,
+        newTimes: List<PeriodSchemeTimeEntity>
+    ): List<Int> {
+        if (newTimes.isEmpty()) return sourceIndices
+        val oldByIndex = oldTimes.associateBy { it.periodIndex }
+        val parsedNew = newTimes.mapNotNull { item ->
+            val start = runCatching { java.time.LocalTime.parse(item.startTime) }.getOrNull() ?: return@mapNotNull null
+            val end = runCatching { java.time.LocalTime.parse(item.endTime) }.getOrNull() ?: return@mapNotNull null
+            Triple(item.periodIndex, start, end)
+        }
+        if (parsedNew.isEmpty()) return sourceIndices.map { it.coerceIn(1, newTimes.size) }.distinct().sorted()
+        val mapped = sourceIndices.flatMap { sourceIndex ->
+            val old = oldByIndex[sourceIndex]
+            val oldStart = old?.startTime?.let { runCatching { java.time.LocalTime.parse(it) }.getOrNull() }
+            val oldEnd = old?.endTime?.let { runCatching { java.time.LocalTime.parse(it) }.getOrNull() }
+            if (oldStart == null || oldEnd == null) {
+                listOf(parsedNew.minBy { kotlin.math.abs(it.first - sourceIndex) }.first)
+            } else {
+                val overlaps = parsedNew.filter { (_, start, end) -> start < oldEnd && end > oldStart }
+                if (overlaps.isNotEmpty()) overlaps.map { it.first } else {
+                    val oldMinute = oldStart.hour * 60 + oldStart.minute
+                    listOf(parsedNew.minBy { (_, start, _) ->
+                        kotlin.math.abs(start.hour * 60 + start.minute - oldMinute)
+                    }.first)
+                }
+            }
+        }
+        return mapped.distinct().sorted().ifEmpty { listOf(parsedNew.first().first) }
     }
 
     private fun normalizeImportedCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int): List<CourseEntity> {

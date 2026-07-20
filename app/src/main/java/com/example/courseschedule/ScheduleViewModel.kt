@@ -83,12 +83,12 @@ class ScheduleViewModel(
     fun importDraft(
         draft: ImportDraft,
         createNewSchedule: Boolean = false,
-        onDone: () -> Unit
+        onDone: (Int) -> Unit
     ) = viewModelScope.launch {
-        repository.importDraft(draft, createNewSchedule)
+        val scheduleId = repository.importDraft(draft, createNewSchedule)
         refreshCoordinator.request()
         snackbar.value = if (createNewSchedule) "已导入到新课表" else "课程表已导入"
-        onDone()
+        onDone(scheduleId)
     }
 
     fun saveConfig(config: ScheduleConfigEntity, periods: List<PeriodEntity>) = viewModelScope.launch {

@@ -2,6 +2,7 @@ package com.example.courseschedule
 
 import android.content.Context
 import java.time.LocalDate
+import java.time.LocalTime
 
 data class AgentSettingDefinition(
     val key: String,
@@ -11,6 +12,7 @@ data class AgentSettingDefinition(
 )
 
 object AgentSettingRegistry {
+    private val periodTimeKey = Regex("PERIOD_(\\d+)_TIME")
     val definitions = listOf(
         AgentSettingDefinition("SCHEDULE_NAME", "当前课表名称", "1到30个字符", "SCHEDULE_MANAGER"),
         AgentSettingDefinition("TOTAL_WEEKS", "学期总周数", "1..60整数", "SCHEDULE"),
@@ -39,16 +41,23 @@ object AgentSettingRegistry {
         AgentSettingDefinition("COURSE_CARD_BLUR_PERCENT", "课程卡片模糊", "0..100百分比", "PERSONALIZATION"),
         AgentSettingDefinition("COURSE_CARD_GLASS_ENABLED", "课程卡片液态玻璃", "true/false", "PERSONALIZATION"),
         AgentSettingDefinition("COURSE_CARD_FONT_PERCENT", "课程卡片字体大小", "80..135百分比", "PERSONALIZATION"),
-        AgentSettingDefinition("WEEK_CARD_HEIGHT_DP", "周视图行高", "44..180数值", "PERSONALIZATION"),
+        AgentSettingDefinition("WEEK_CARD_HEIGHT_DP", "周视图行高", "38..80数值", "PERSONALIZATION"),
         AgentSettingDefinition("COURSE_CARD_COLOR", "课程卡片颜色", "MULTICOLOR或#AARRGGBB", "PERSONALIZATION"),
         AgentSettingDefinition("DAY_AGENT_ENABLED", "今日 Agent 总开关", "true/false", "DAY_AGENT"),
         AgentSettingDefinition("DAY_AGENT_DAILY_AI", "每日 AI 个性化文案", "true/false", "DAY_AGENT"),
         AgentSettingDefinition("DAY_AGENT_WEATHER", "今日 Agent 天气提醒", "true/false", "DAY_AGENT")
     )
 
-    fun promptCatalog(): String = buildString {
+    fun promptCatalog(periods: List<PeriodEntity> = emptyList()): String = buildString {
         appendLine("应用设置注册表（SET_SETTING 只能使用下列键）：")
         definitions.forEach { appendLine("- ${it.key}: ${it.description}；值=${it.acceptedValues}；页面=${it.page}") }
+        if (periods.isNotEmpty()) {
+            appendLine("当前课表节次时间表（可直接修改）：")
+            periods.sortedBy { it.periodIndex }.forEach { period ->
+                appendLine("- PERIOD_${period.periodIndex}_TIME: 第${period.periodIndex}节；值=HH:mm-HH:mm；当前=${period.startTime}-${period.endTime}；页面=SCHEDULE")
+            }
+            appendLine("同时修改多节时，为每个 PERIOD_n_TIME 分别输出一条 SET_SETTING；不得产生重叠或结束早于开始的时间。")
+        }
         appendLine("用户使用‘更高/更低/更模糊/亮一点’等相对表达时，根据当前值计算一个幅度克制的绝对值。")
         appendLine("选择壁纸、壁纸裁切和课程卡片外观等个性化界面操作使用 OPEN_SETTINGS 到 PERSONALIZATION；API Key、系统权限等也只能打开对应页面。")
     }
@@ -85,7 +94,7 @@ object AgentSettingRegistry {
         "COURSE_CARD_BLUR_PERCENT" to (config.courseCardBlur / 10f * 100f).toInt().toString(),
         "COURSE_CARD_GLASS_ENABLED" to config.courseCardGlassEnabled.toString(),
         "COURSE_CARD_FONT_PERCENT" to (config.courseCardFontScale * 100f).toInt().toString(),
-        "WEEK_CARD_HEIGHT_DP" to (config.weekCardHeightDp?.toInt()?.toString() ?: "自动"),
+        "WEEK_CARD_HEIGHT_DP" to (config.weekCardHeightDp?.coerceIn(38f, 80f)?.toInt()?.toString() ?: "自动"),
         "COURSE_CARD_COLOR" to if (config.cardColorArgb == MulticolorCourseCardArgb) "MULTICOLOR" else "#%08X".format(config.cardColorArgb),
         "DAY_AGENT_ENABLED" to context?.let(DayAgentPreferences::isEnabled).toStringOrUnknown(),
         "DAY_AGENT_DAILY_AI" to context?.let(DayAgentPreferences::isDailyAiEnabled).toStringOrUnknown(),
@@ -94,10 +103,11 @@ object AgentSettingRegistry {
 
     fun normalize(keyValue: String?, rawValue: String?): Pair<String, String>? {
         val key = keyValue?.trim()?.uppercase() ?: return null
-        if (definitions.none { it.key == key }) return null
+        if (definitions.none { it.key == key } && !periodTimeKey.matches(key)) return null
         val raw = rawValue?.trim()?.takeIf { it.isNotEmpty() } ?: return null
         val normalized = when (key) {
             "SCHEDULE_NAME" -> raw.take(30).takeIf { it.isNotBlank() }
+            else -> if (periodTimeKey.matches(key)) normalizePeriodRange(raw) else when (key) {
             "TOTAL_WEEKS" -> raw.intIn(1, 60)
             "CURRENT_WEEK" -> raw.intIn(1, 60)
             "TERM_START_DATE" -> raw.takeIf { runCatching { LocalDate.parse(it) }.isSuccess }
@@ -107,7 +117,7 @@ object AgentSettingRegistry {
             "WALLPAPER_BLUR_PERCENT", "COURSE_CARD_ALPHA_PERCENT", "COURSE_CARD_BLUR_PERCENT" -> raw.floatIn(0f, 100f)
             "WALLPAPER_BRIGHTNESS_PERCENT" -> raw.floatIn(35f, 100f)
             "COURSE_CARD_FONT_PERCENT" -> raw.floatIn(80f, 135f)
-            "WEEK_CARD_HEIGHT_DP" -> raw.floatIn(44f, 180f)
+            "WEEK_CARD_HEIGHT_DP" -> raw.floatIn(38f, 80f)
             "COURSE_CARD_COLOR" -> normalizeColor(raw)
             "LIVE_UPDATE_CHIP_TEXT" -> raw.uppercase().takeIf { it in setOf("LOCATION", "COUNTDOWN", "SHORT", "NORMAL") }
             "NOTIFICATION_MODE" -> raw.uppercase().takeIf { it in setOf("STANDARD", "LIVE_UPDATE") }
@@ -116,8 +126,25 @@ object AgentSettingRegistry {
             "DEFAULT_HOME_MODE" -> raw.uppercase().takeIf { it in setOf("DAY", "WEEK") }
             "DOCK_ALIGNMENT" -> raw.uppercase().takeIf { it in setOf("LEFT", "CENTER", "RIGHT") }
             else -> raw.uppercase().takeIf { it in setOf("TRUE", "FALSE") }
+            }
         } ?: return null
         return key to normalized
+    }
+
+    fun isPeriodTimeSetting(key: String?): Boolean = key?.let(periodTimeKey::matches) == true
+
+    fun applyPeriodTime(periods: List<PeriodEntity>, key: String?, value: String?): List<PeriodEntity>? {
+        val index = key?.let(periodTimeKey::matchEntire)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: return null
+        val normalized = value?.let(::normalizePeriodRange) ?: return null
+        val (start, end) = normalized.split('-', limit = 2)
+        if (periods.none { it.periodIndex == index }) return null
+        val updated = periods.map { period ->
+            if (period.periodIndex == index) period.copy(startTime = start, endTime = end) else period
+        }.sortedBy { it.periodIndex }
+        val valid = updated.zipWithNext().all { (left, right) ->
+            LocalTime.parse(left.endTime) <= LocalTime.parse(right.startTime)
+        }
+        return updated.takeIf { valid }
     }
 
     fun apply(config: ScheduleConfigEntity, key: String?, value: String?): ScheduleConfigEntity? = when (key) {
@@ -150,7 +177,7 @@ object AgentSettingRegistry {
         "COURSE_CARD_BLUR_PERCENT" -> value?.toFloatOrNull()?.let { config.copy(courseCardBlur = it / 100f * 10f) }
         "COURSE_CARD_GLASS_ENABLED" -> value.agentBoolean()?.let { config.copy(courseCardGlassEnabled = it) }
         "COURSE_CARD_FONT_PERCENT" -> value?.toFloatOrNull()?.let { config.copy(courseCardFontScale = it / 100f) }
-        "WEEK_CARD_HEIGHT_DP" -> value?.toFloatOrNull()?.let { config.copy(weekCardHeightDp = it) }
+        "WEEK_CARD_HEIGHT_DP" -> value?.toFloatOrNull()?.let { config.copy(weekCardHeightDp = it.coerceIn(38f, 80f)) }
         "COURSE_CARD_COLOR" -> value?.let { parseColor(it) }?.let { config.copy(cardColorArgb = it) }
         else -> null
     }
@@ -179,6 +206,14 @@ object AgentSettingRegistry {
             else -> false
         }
     }
+}
+
+private fun normalizePeriodRange(value: String): String? {
+    val match = Regex("(\\d{1,2}:\\d{2})\\s*[-~至]\\s*(\\d{1,2}:\\d{2})").matchEntire(value.trim()) ?: return null
+    val start = runCatching { LocalTime.parse(match.groupValues[1].padStart(5, '0')) }.getOrNull() ?: return null
+    val end = runCatching { LocalTime.parse(match.groupValues[2].padStart(5, '0')) }.getOrNull() ?: return null
+    if (!start.isBefore(end)) return null
+    return "%02d:%02d-%02d:%02d".format(start.hour, start.minute, end.hour, end.minute)
 }
 
 private fun String.intIn(min: Int, max: Int): String? = toIntOrNull()?.takeIf { it in min..max }?.toString()

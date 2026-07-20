@@ -185,6 +185,7 @@ internal fun QuickSheetLiquidAction(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     primary: Boolean = false,
+    destructive: Boolean = false,
     modifier: Modifier = Modifier.width(84.dp),
     height: androidx.compose.ui.unit.Dp = 38.dp,
     onClick: () -> Unit
@@ -196,6 +197,20 @@ internal fun QuickSheetLiquidAction(
         } else {
             Color(0xFFF3F6FB).copy(alpha = 0.90f)
         }
+        val actionSurfaceColor = when {
+            primary -> Color(0xFF0A84FF).copy(alpha = 0.88f)
+            destructive -> Color(0xFFFF453A).copy(alpha = 0.88f)
+            else -> neutralSurface
+        }
+        val actionTint = when {
+            primary -> Color(0xFF0A84FF)
+            destructive -> Color(0xFFFF453A)
+            else -> Color.Unspecified
+        }
+        val actionTextColor = when {
+            primary || destructive -> Color.White
+            else -> MaterialTheme.colorScheme.onSurface
+        }
         LiquidButton(
             onClick = { if (enabled) onClick() },
             backdrop = backdrop,
@@ -204,23 +219,28 @@ internal fun QuickSheetLiquidAction(
             blurRadius = 18.dp,
             lensHeight = 8.dp,
             lensAmount = 12.dp,
-            tint = if (primary) Color(0xFF0A84FF) else Color.Unspecified,
-            surfaceColor = if (primary) Color(0xFF0A84FF).copy(alpha = 0.88f) else neutralSurface,
+            tint = actionTint,
+            surfaceColor = actionSurfaceColor,
             contentPadding = PaddingValues(horizontal = 14.dp)
         ) {
             Text(
                 label,
-                color = if (primary) Color.White else MaterialTheme.colorScheme.onSurface,
+                color = actionTextColor,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp
+                fontSize = 13.sp
             )
         }
     } else {
         val dark = appUsesDarkTheme(config)
         val background = when {
+            destructive -> Color(0xFFFF453A)
             primary -> Color(0xFF0A84FF)
             dark -> Color(0xFF30343D)
             else -> Color(0xFFE8ECF3)
+        }
+        val btnTextColor = when {
+            primary || destructive -> Color.White
+            else -> MaterialTheme.colorScheme.onSurface
         }
         Box(
             modifier = modifier
@@ -232,9 +252,9 @@ internal fun QuickSheetLiquidAction(
         ) {
             Text(
                 label,
-                color = if (primary) Color.White else MaterialTheme.colorScheme.onSurface,
+                color = btnTextColor,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp
+                fontSize = 13.sp
             )
         }
     }
@@ -316,8 +336,22 @@ fun QuickScheduleSettingsSheets(
     var detailButtonBounds by remember(draft?.scheduleId) { mutableStateOf<Rect?>(null) }
     var detailLaunching by remember(draft?.scheduleId) { mutableStateOf(false) }
 
-    LaunchedEffect(draft) {
-        if (draft != null) retainedDraft = draft
+    LaunchedEffect(draft?.scheduleId) {
+        if (draft != null) {
+            retainedDraft = draft
+            totalWeeksText = draft.totalWeeks.toString()
+            currentWeekText = draft.currentWeek.toString()
+        }
+    }
+
+    fun latestDraft(): QuickScheduleDraft? = retainedDraft ?: draft
+
+    fun commitDraft(next: QuickScheduleDraft) {
+        // Update the sheet-owned source of truth before notifying its parent. Otherwise another
+        // control clicked before the parent's next composition can copy an older draft and undo
+        // the preceding date/toggle change.
+        retainedDraft = next
+        onDraftChange(next)
     }
 
     fun beginDateSelection(value: String) {
@@ -329,10 +363,11 @@ fun QuickScheduleSettingsSheets(
     }
 
     fun saveAndDismiss() {
-        val raw = draft ?: return
+        val raw = latestDraft() ?: return
         if (saving) return
         val total = totalWeeksText.toIntOrNull()?.coerceIn(1, 60) ?: raw.totalWeeks
-        val current = currentWeekText.toIntOrNull()?.coerceIn(1, total) ?: raw.currentWeek.coerceIn(1, total)
+        val manual = currentWeekText.toIntOrNull()?.coerceIn(1, total) ?: raw.currentWeek.coerceIn(1, total)
+        val current = resolveScheduleCurrentWeek(config, total, manual, raw.termStartDate, raw.autoCurrentWeek)
         val value = raw.copy(totalWeeks = total, currentWeek = current)
         saving = true
         onSave(value) {
@@ -350,7 +385,7 @@ fun QuickScheduleSettingsSheets(
                 enabled = !saving,
                 backdrop = backdrop,
                 config = config,
-                onClick = onDismiss
+                onClick = ::saveAndDismiss
             )
         },
         endAction = {
@@ -363,7 +398,7 @@ fun QuickScheduleSettingsSheets(
                 onClick = ::saveAndDismiss
             )
         },
-        onDismissRequest = { if (!saving) onDismiss() },
+        onDismissRequest = { if (!saving) saveAndDismiss() },
         onDismissFinished = {
             retainedDraft = null
             onDismissFinished()
@@ -398,7 +433,16 @@ fun QuickScheduleSettingsSheets(
                         onValueChange = { input ->
                             totalWeeksText = input.filter(Char::isDigit).take(2)
                             totalWeeksText.toIntOrNull()?.coerceIn(1, 60)?.let { total ->
-                                onDraftChange(value.copy(totalWeeks = total, currentWeek = value.currentWeek.coerceAtMost(total)))
+                                val latest = latestDraft() ?: return@let
+                                val nextWeek = resolveScheduleCurrentWeek(
+                                    config,
+                                    total,
+                                    latest.currentWeek.coerceAtMost(total),
+                                    latest.termStartDate,
+                                    latest.autoCurrentWeek
+                                )
+                                currentWeekText = nextWeek.toString()
+                                commitDraft(latest.copy(totalWeeks = total, currentWeek = nextWeek))
                             }
                         },
                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
@@ -409,8 +453,10 @@ fun QuickScheduleSettingsSheets(
                         value = currentWeekText,
                         onValueChange = { input ->
                             currentWeekText = input.filter(Char::isDigit).take(2)
-                            currentWeekText.toIntOrNull()?.coerceIn(1, value.totalWeeks.coerceAtLeast(1))?.let { week ->
-                                onDraftChange(value.copy(currentWeek = week))
+                            latestDraft()?.let { latest ->
+                                currentWeekText.toIntOrNull()
+                                    ?.coerceIn(1, latest.totalWeeks.coerceAtLeast(1))
+                                    ?.let { week -> commitDraft(latest.copy(currentWeek = week)) }
                             }
                         },
                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
@@ -422,7 +468,19 @@ fun QuickScheduleSettingsSheets(
                         subtitle = "根据学期开始日期自动计算",
                         checked = value.autoCurrentWeek,
                         backdrop = backdrop,
-                        onCheckedChange = { onDraftChange(value.copy(autoCurrentWeek = it)) }
+                        onCheckedChange = { enabled ->
+                            latestDraft()?.let { latest ->
+                                val nextWeek = resolveScheduleCurrentWeek(
+                                    config,
+                                    latest.totalWeeks,
+                                    latest.currentWeek,
+                                    latest.termStartDate,
+                                    enabled || latest.autoCurrentWeek
+                                )
+                                currentWeekText = nextWeek.toString()
+                                commitDraft(latest.copy(autoCurrentWeek = enabled, currentWeek = nextWeek))
+                            }
+                        }
                     )
                     SettingsDivider()
                     SettingsToggleRow(
@@ -430,7 +488,11 @@ fun QuickScheduleSettingsSheets(
                         subtitle = "周六、周日无课时自动收起",
                         checked = value.hideEmptyWeekends,
                         backdrop = backdrop,
-                        onCheckedChange = { onDraftChange(value.copy(hideEmptyWeekends = it)) }
+                        onCheckedChange = { checked ->
+                            latestDraft()?.let { latest ->
+                                commitDraft(latest.copy(hideEmptyWeekends = checked))
+                            }
+                        }
                     )
                     SettingsDivider()
                     SettingsPickerValueRow(
@@ -442,7 +504,7 @@ fun QuickScheduleSettingsSheets(
                 if (!detailLaunching && !suppressDetailedButton) {
                     if (backdrop != null) LiquidButton(
                         onClick = {
-                            val raw = draft ?: return@LiquidButton
+                            val raw = latestDraft() ?: return@LiquidButton
                             val bounds = detailButtonBounds ?: return@LiquidButton
                             if (saving || detailLaunching) return@LiquidButton
                             val total = totalWeeksText.toIntOrNull()?.coerceIn(1, 60) ?: raw.totalWeeks
@@ -504,7 +566,7 @@ fun QuickScheduleSettingsSheets(
                                 else Color(0xFFE8ECF3)
                             )
                             .clickable {
-                                val raw = draft ?: return@clickable
+                                val raw = latestDraft() ?: return@clickable
                                 val bounds = detailButtonBounds ?: return@clickable
                                 if (saving || detailLaunching) return@clickable
                                 val total = totalWeeksText.toIntOrNull()?.coerceIn(1, 60) ?: raw.totalWeeks
@@ -552,8 +614,17 @@ fun QuickScheduleSettingsSheets(
                 primary = true,
                 onClick = {
                     val safeDay = dateDay.coerceAtMost(daysInMonth(dateYear, dateMonth))
-                    draft?.let {
-                        onDraftChange(it.copy(termStartDate = "%04d-%02d-%02d".format(dateYear, dateMonth, safeDay)))
+                    latestDraft()?.let {
+                        val nextDate = "%04d-%02d-%02d".format(dateYear, dateMonth, safeDay)
+                        val nextWeek = resolveScheduleCurrentWeek(
+                            config,
+                            it.totalWeeks,
+                            it.currentWeek,
+                            nextDate,
+                            it.autoCurrentWeek
+                        )
+                        currentWeekText = nextWeek.toString()
+                        commitDraft(it.copy(termStartDate = nextDate, currentWeek = nextWeek))
                     }
                     showDatePicker = false
                 }

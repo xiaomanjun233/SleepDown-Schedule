@@ -5,11 +5,9 @@ import android.graphics.Bitmap
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -48,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -81,6 +80,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
@@ -99,13 +99,116 @@ import com.kyant.backdrop.catalog.components.LiquidButton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.util.LinkedHashMap
 import kotlin.math.roundToInt
 
 internal val LocalAgentBackgroundCaptureMask = staticCompositionLocalOf<() -> Boolean> { { false } }
+
+/**
+ * The day page is disposed while the week page is entering. Keep the expensive, immutable Agent
+ * projection outside that short-lived composition so switching back does not decode the generated
+ * JSON and scan/sort the whole timetable inside the transition frame budget again.
+ */
+private object DayAgentRenderCache {
+    private data class FactsKey(
+        val scheduleId: Int,
+        val date: LocalDate,
+        val coursesHash: Int,
+        val periodsHash: Int,
+        val configHash: Int,
+        val scheduleName: String?,
+        val weatherHash: Int
+    )
+
+    private val facts = object : LinkedHashMap<FactsKey, DayAgentFacts>(6, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<FactsKey, DayAgentFacts>?): Boolean =
+            size > 6
+    }
+    private val packs = object : LinkedHashMap<String, DailyAgentPack>(6, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, DailyAgentPack>?): Boolean =
+            size > 6
+    }
+    private data class RenderKey(
+        val packIdentity: String?,
+        val sourceHash: String,
+        val minute: LocalDateTime,
+        val weatherHash: Int
+    )
+    private val renderedMessages = object : LinkedHashMap<RenderKey, RenderedAgentMessage>(12, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<RenderKey, RenderedAgentMessage>?): Boolean =
+            size > 12
+    }
+    private var lastCleanupDate: LocalDate? = null
+
+    @Synchronized
+    fun facts(
+        state: AppState,
+        date: LocalDate,
+        weather: AgentWeatherSnapshot?,
+        scheduleName: String?,
+        context: android.content.Context
+    ): DayAgentFacts {
+        val key = FactsKey(
+            scheduleId = state.config.id,
+            date = date,
+            coursesHash = state.courses.hashCode(),
+            periodsHash = state.periods.hashCode(),
+            configHash = state.config.hashCode(),
+            scheduleName = scheduleName,
+            weatherHash = weather.hashCode()
+        )
+        return facts.getOrPut(key) {
+            buildDayAgentFacts(
+                state.courses,
+                state.periods,
+                state.config,
+                date,
+                weather,
+                scheduleName,
+                settingContext = context.applicationContext
+            )
+        }
+    }
+
+    @Synchronized
+    fun pack(json: String?): DailyAgentPack {
+        if (json.isNullOrBlank()) return DailyAgentPack()
+        return packs.getOrPut(json) { DailyAgentPack.decodeOrDefault(json) }
+    }
+
+    @Synchronized
+    fun rendered(json: String?, pack: DailyAgentPack, facts: DayAgentFacts): RenderedAgentMessage {
+        val minute = facts.now.withSecond(0).withNano(0)
+        val key = RenderKey(
+            packIdentity = json,
+            sourceHash = facts.sourceHash,
+            minute = minute,
+            weatherHash = facts.weather.hashCode()
+        )
+        return renderedMessages.getOrPut(key) { TodayAgentTimelineEngine.render(pack, facts) }
+    }
+
+    @Synchronized
+    fun shouldCleanup(date: LocalDate): Boolean {
+        if (lastCleanupDate == date) return false
+        lastCleanupDate = date
+        return true
+    }
+}
+
+@Stable
+class DayAgentBackgroundMotionState {
+    val progress = Animatable(0f)
+}
+
+@Composable
+internal fun rememberDayAgentBackgroundMotionState(): DayAgentBackgroundMotionState =
+    remember { DayAgentBackgroundMotionState() }
 
 @Composable
 fun TodayAgentHost(
@@ -114,7 +217,7 @@ fun TodayAgentHost(
     backdrop: Backdrop?,
     textColor: Color,
     collapsed: Boolean,
-    onBackgroundProgress: (Float) -> Unit = {},
+    backgroundMotionState: DayAgentBackgroundMotionState,
     onPrepareOpen: suspend () -> Unit = {},
     onAgentAction: (AgentValidatedAction) -> Unit = {}
 ) {
@@ -171,7 +274,7 @@ fun TodayAgentHost(
             dailyAiEnabled = DayAgentPreferences.isDailyAiEnabled(context),
             weatherEnabled = DayAgentPreferences.isWeatherEnabled(context),
             hasApiKey = hasApiKey,
-            onBackgroundProgress = onBackgroundProgress,
+            backgroundMotionState = backgroundMotionState,
             onPrepareOpen = onPrepareOpen,
             onAgentAction = onAgentAction
         )
@@ -188,7 +291,7 @@ fun TodayAgentCard(
     dailyAiEnabled: Boolean,
     weatherEnabled: Boolean,
     hasApiKey: Boolean,
-    onBackgroundProgress: (Float) -> Unit,
+    backgroundMotionState: DayAgentBackgroundMotionState,
     onPrepareOpen: suspend () -> Unit,
     onAgentAction: (AgentValidatedAction) -> Unit
 ) {
@@ -200,17 +303,21 @@ fun TodayAgentCard(
     val scope = rememberCoroutineScope()
     val session by repository.observeSession(scheduleId, date)
         .collectAsStateWithLifecycle(initialValue = repository.cachedSession(scheduleId, date))
-    val messages by repository.observeMessages(scheduleId, date)
-        .collectAsStateWithLifecycle(initialValue = emptyList())
     var weather by remember(date, weatherEnabled) {
         mutableStateOf(if (weatherEnabled) DayAgentWeatherStore.load(context) else null)
     }
     var now by remember(date) { mutableStateOf(LocalDateTime.now(ShanghaiZone)) }
     var dialogOpen by remember(date, scheduleId) { mutableStateOf(false) }
     var dialogOpening by remember(date, scheduleId) { mutableStateOf(false) }
+    val messageFlow = remember(repository, scheduleId, date, dialogOpen) {
+        if (dialogOpen) repository.observeMessages(scheduleId, date) else flowOf(emptyList())
+    }
+    val messages by messageFlow
+        .collectAsStateWithLifecycle(initialValue = emptyList())
     var sourceCardHidden by remember(date, scheduleId) { mutableStateOf(false) }
     var pendingQuestion by remember(date, scheduleId) { mutableStateOf<String?>(null) }
     var generationError by remember(date, scheduleId) { mutableStateOf<String?>(null) }
+    var captureRequested by remember(date, scheduleId) { mutableStateOf(false) }
     var cardBounds by remember(date, scheduleId) { mutableStateOf<Rect?>(null) }
     var sourceCardSnapshot by remember(date, scheduleId) { mutableStateOf<Bitmap?>(null) }
     var sourceHandoffCover by remember(date, scheduleId) { mutableStateOf(false) }
@@ -220,6 +327,10 @@ fun TodayAgentCard(
     val suppressForAgentBackgroundCapture = LocalAgentBackgroundCaptureMask.current
     val sourceCardInteractionSource = remember { MutableInteractionSource() }
     val sourceCardPressed by sourceCardInteractionSource.collectIsPressedAsState()
+    // The quick-action controls sample a dedicated sibling layer. Never attach this backdrop
+    // recorder to an ancestor of the LiquidButtons that consume it: doing so creates a cyclic
+    // RenderNode graph and crashes HWUI when the day page is composed.
+    val quickActionBackdrop = rememberLayerBackdrop()
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -234,38 +345,38 @@ fun TodayAgentCard(
         }
     }
 
-    LaunchedEffect(scheduleId, date, dailyAiEnabled, weatherEnabled) {
-        // Keep initialization work out of the day/week transition's frame budget.
-        delay(280)
-        repository.cleanup(date)
-        weather = if (weatherEnabled) weatherRepository.getWeather() else null
-        val initialFacts = buildDayAgentFacts(
-            state.courses,
-            state.periods,
-            state.config,
-            date,
-            weather,
-            scheduleName,
-            settingContext = context
-        )
-        if (dailyAiEnabled) {
-            repository.ensureDailyPack(scheduleId, initialFacts).onFailure { generationError = it.message }
-        }
+    val staticFacts = remember(state.courses, state.periods, state.config, scheduleName, date, weather) {
+        DayAgentRenderCache.facts(state, date, weather, scheduleName, context)
+    }
+    val facts = remember(staticFacts, now) {
+        staticFacts.copy(now = now)
+    }
+    val pack = remember(session?.dailyPackJson) {
+        DayAgentRenderCache.pack(session?.dailyPackJson)
+    }
+    val rendered = remember(session?.dailyPackJson, pack, facts) {
+        DayAgentRenderCache.rendered(session?.dailyPackJson, pack, facts)
     }
 
-    val facts = remember(state.courses, state.periods, state.config, scheduleName, date, weather, now) {
-        buildDayAgentFacts(state.courses, state.periods, state.config, date, weather, scheduleName, now, context)
+    LaunchedEffect(scheduleId, date, dailyAiEnabled, weatherEnabled, session?.dailyPackJson, staticFacts.sourceHash) {
+        // Keep initialization out of the day/week transition and do not repeat work merely because
+        // AnimatedContent recreated the day page.
+        delay(280)
+        if (DayAgentRenderCache.shouldCleanup(date)) repository.cleanup(date)
+        if (weatherEnabled && weather == null) weather = weatherRepository.getWeather()
+        if (dailyAiEnabled && (session == null || pack.sourceHash != staticFacts.sourceHash)) {
+            repository.ensureDailyPack(scheduleId, staticFacts).onFailure { generationError = it.message }
+        }
     }
-    val pack = DailyAgentPack.decodeOrDefault(session?.dailyPackJson)
-    val rendered = TodayAgentTimelineEngine.render(pack, facts)
     val foreground = LocalAdaptiveGlass.current.contentColor
+    val isDarkTheme = appUsesDarkTheme(state.config)
     val status = when (session?.generationStatus) {
         "GENERATING" -> "正在生成今日文案"
         "READY" -> "${session?.providerId} · 今日已生成"
         "FAILED" -> "使用本地文案"
         else -> when {
             !dailyAiEnabled -> "本地时间引擎"
-            AiImportSettingsStore.load(context).apiKey.isBlank() -> "配置 AI 后生成个性化建议"
+            !hasApiKey -> "配置 AI 后生成个性化建议"
             else -> "本地时间引擎"
         }
     }
@@ -282,6 +393,9 @@ fun TodayAgentCard(
                 // pager was between pages preserved a horizontally displaced glass sample even
                 // though the card's final geometry itself was correct.
                 onPrepareOpen()
+                // Trigger a single-frame graphics layer capture in the next draw pass.
+                captureRequested = true
+                withFrameNanos { } // drawWithContent records the layer
                 sourceCardSnapshot = runCatching {
                     cardGraphicsLayer.toImageBitmap().asAndroidBitmap()
                 }.getOrNull()
@@ -293,16 +407,21 @@ fun TodayAgentCard(
         }
     }
 
-    GlassSurface(
-        backdrop = backdrop,
-        config = state.config,
+    val cardShape = RoundedCornerShape(if (collapsed) 26.dp else 28.dp)
+    val cardTokens = GlassTokens.dialog(intensity = if (isDarkTheme) 0.86f else 0.92f).copy(
+        blur = if (isDarkTheme) 6.dp else 8.dp
+    )
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .onGloballyPositioned { cardBounds = it.boundsInWindow() }
             .drawWithContent {
                 if (!suppressForAgentBackgroundCapture()) {
-                    cardGraphicsLayer.record { this@drawWithContent.drawContent() }
                     drawContent()
+                    if (captureRequested) {
+                        captureRequested = false
+                        cardGraphicsLayer.record { this@drawWithContent.drawContent() }
+                    }
                     if (sourceHandoffCover) {
                         sourceHandoffImage?.let { cover ->
                             drawImage(
@@ -328,64 +447,115 @@ fun TodayAgentCard(
                 indication = null,
                 enabled = hasApiKey,
                 onClick = { openConversation(null) }
-            ),
-        shape = RoundedCornerShape(if (collapsed) 26.dp else 28.dp),
-        tokens = GlassTokens.dialog(intensity = 0.82f).copy(blur = 4.dp)
+            )
     ) {
+        // This is the one real glass shell. It is a sibling of the interactive content, so its
+        // compact card-sized texture can safely feed the LiquidButtons without recursive capture.
+        GlassSurface(
+            backdrop = backdrop,
+            config = state.config,
+            modifier = Modifier
+                .matchParentSize()
+                .layerBackdrop(quickActionBackdrop),
+            shape = cardShape,
+            tokens = cardTokens
+        ) {}
         Box {
             Column(
                 modifier = Modifier
-                    .background(Color(state.config.cardColorArgb).copy(alpha = 0.10f))
+                    .clip(cardShape)
+                    .background(
+                        Color(state.config.cardColorArgb).copy(alpha = if (isDarkTheme) 0.16f else 0.10f)
+                    )
+                    .then(
+                        if (isDarkTheme) Modifier
+                        else Modifier.background(Color.White.copy(alpha = 0.14f))
+                    )
                     .padding(horizontal = 16.dp, vertical = if (collapsed) 10.dp else 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("✦", color = Color(0xFF168CFF), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "✦",
+                    color = Color(0xFF168CFF),
+                    style = MaterialTheme.typography.titleMedium
+                )
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("今日助手", color = foreground, fontWeight = FontWeight.SemiBold)
-                    if (!collapsed) Text(status, color = foreground.copy(alpha = 0.62f), style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        "今日助手",
+                        color = foreground,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (!collapsed) {
+                        Text(
+                            text = status,
+                            color = foreground.copy(alpha = 0.62f),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
                 if (session?.generationStatus == "GENERATING") {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFF168CFF))
-                } else if (dailyAiEnabled && AiImportSettingsStore.load(context).apiKey.isNotBlank()) {
-                    AgentSimplePressSurface(
-                        backdrop = backdrop,
-                        config = state.config,
-                        modifier = Modifier.size(32.dp),
-                        shape = CircleShape,
-                        tokens = GlassTokens.pill(intensity = 0.90f).copy(blur = 4.dp, surfaceAlpha = 0.22f),
+                } else if (dailyAiEnabled && hasApiKey) {
+                    LiquidButton(
                         onClick = {
                             scope.launch {
                                 generationError = null
                                 repository.ensureDailyPack(scheduleId, facts, force = true)
                                     .onFailure { generationError = it.message }
                             }
-                        }
+                        },
+                        backdrop = quickActionBackdrop,
+                        modifier = Modifier.size(36.dp),
+                        height = 36.dp,
+                        surfaceColor = if (isDarkTheme) {
+                            Color.Black.copy(alpha = 0.22f)
+                        } else {
+                            Color.White.copy(alpha = 0.20f)
+                        },
+                        tint = Color(0xFF168CFF).copy(alpha = if (isDarkTheme) 0.30f else 0.22f),
+                        contentPadding = PaddingValues(0.dp),
+                        blurRadius = if (isDarkTheme) 6.dp else 8.dp,
+                        lensHeight = 14.dp,
+                        lensAmount = 20.dp,
+                        chromaticAberration = false
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_agent_refresh),
                                 contentDescription = "重新生成",
-                                modifier = Modifier.size(17.dp),
-                                tint = foreground.copy(alpha = 0.78f)
+                                modifier = Modifier.size(18.dp),
+                                tint = foreground.copy(alpha = 0.92f)
                             )
                         }
                     }
                 }
             }
-            AnimatedContent(
-                targetState = if (collapsed) rendered.compactText else rendered.text,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                label = "today-agent-copy"
-            ) { copy ->
-                Text(copy, color = foreground, style = if (collapsed) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge)
-            }
+            // This text changes with the local timeline. Keeping the previous and next copies in
+            // AnimatedContent made the whole glass card redraw twice during each handoff.
+            Text(
+                text = if (collapsed) rendered.compactText else rendered.text,
+                color = foreground.copy(alpha = 0.96f),
+                style = if (collapsed) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+            )
             AnimatedVisibility(!collapsed && hasApiKey, enter = fadeIn(), exit = fadeOut()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // LiquidButton grows beyond its measured bounds while pressed. Reserve a small
+                // internal lens gutter so that feedback is not cut by AnimatedVisibility/card clip.
+                Column(
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         rendered.quickQuestions.take(2).forEach { question ->
-                            AgentSuggestionPill(question, backdrop, state.config, Modifier.weight(1f)) {
+                            AgentSuggestionPill(
+                                text = question,
+                                backdrop = quickActionBackdrop,
+                                config = state.config,
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 openConversation(question)
                             }
                         }
@@ -429,7 +599,7 @@ fun TodayAgentCard(
             sourceBounds = cardBounds,
             sourceCardSnapshot = sourceCardSnapshot,
             sourceCornerRadius = if (collapsed) 26.dp else 28.dp,
-            onBackgroundProgress = onBackgroundProgress,
+            backgroundMotionState = backgroundMotionState,
             onAgentAction = onAgentAction,
             onOverlayReady = { sourceCardHidden = true },
             onPrepareDismiss = {
@@ -443,9 +613,8 @@ fun TodayAgentCard(
                 sourceCardHidden = false
                 pendingQuestion = null
                 scope.launch {
-                    // Keep the cached card over the freshly restored backdrop until its sampling
-                    // has drawn twice, then cross-fade instead of exposing one displaced sample.
-                    repeat(2) { withFrameNanos { } }
+                    // The real card has rendered behind the Dialog throughout the exit, so the
+                    // local source cover can cross-fade immediately after window handoff.
                     sourceHandoffAlpha.animateTo(0f, tween(durationMillis = 110))
                     sourceHandoffCover = false
                     sourceCardSnapshot = null
@@ -464,24 +633,117 @@ private fun AgentSuggestionPill(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    AgentSimplePressSurface(
-        backdrop = backdrop,
-        config = config,
-        modifier = modifier,
-        shape = RoundedCornerShape(50),
-        tokens = GlassTokens.pill(intensity = 0.92f).copy(blur = 4.dp, surfaceAlpha = 0.22f),
-        onClick = onClick
-    ) {
-        Text(
-            text,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-            color = LocalAdaptiveGlass.current.contentColor,
-            style = MaterialTheme.typography.labelMedium,
-            textAlign = TextAlign.Center,
-            maxLines = 1
-        )
+    val foreground = LocalAdaptiveGlass.current.contentColor
+    val isDarkTheme = appUsesDarkTheme(config)
+    if (backdrop != null) {
+        LiquidButton(
+            onClick = onClick,
+            backdrop = backdrop,
+            modifier = modifier,
+            height = 40.dp,
+            surfaceColor = if (isDarkTheme) {
+                Color.Black.copy(alpha = 0.16f)
+            } else {
+                Color.White.copy(alpha = 0.20f)
+            },
+            contentPadding = PaddingValues(horizontal = 15.dp),
+            blurRadius = if (isDarkTheme) 6.dp else 8.dp,
+            lensHeight = 16.dp,
+            lensAmount = 24.dp,
+            chromaticAberration = false
+        ) {
+            Text(
+                text,
+                color = foreground,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+        }
+    } else {
+        AgentSimplePressSurface(
+            backdrop = null,
+            config = config,
+            modifier = modifier,
+            shape = RoundedCornerShape(50),
+            tokens = GlassTokens.pill(intensity = 0.92f).copy(
+                blur = 0.dp,
+                surfaceAlpha = if (isDarkTheme) 0.22f else 0.30f
+            ),
+            onClick = onClick
+        ) {
+            Text(
+                text,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
+                color = foreground,
+                style = MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun AgentOperationLiquidButton(
+    text: String,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    destructive: Boolean,
+    applied: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val textColor = when {
+        applied -> Color.White.copy(alpha = 0.55f)
+        else -> Color.White
+    }
+    val bgColor = when {
+        destructive -> Color(0xFFFF453A)
+        else -> Color(0xFF0A84FF)
+    }
+    if (backdrop != null) {
+        LiquidButton(
+            onClick = { if (!applied) onClick() },
+            backdrop = backdrop,
+            modifier = modifier,
+            height = 42.dp,
+            surfaceColor = if (applied) bgColor.copy(alpha = 0.35f) else bgColor.copy(alpha = 0.88f),
+            tint = if (applied) Color.Unspecified else bgColor,
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            blurRadius = 6.dp,
+            lensHeight = 14.dp,
+            lensAmount = 20.dp
+        ) {
+            Text(
+                text,
+                color = textColor,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                textAlign = TextAlign.Center
+            )
+        }
+    } else {
+        val background = if (applied) bgColor.copy(alpha = 0.30f) else bgColor
+        Box(
+            modifier = modifier
+                .height(42.dp)
+                .clip(RoundedCornerShape(50))
+                .background(background.copy(alpha = if (applied) 0.46f else 0.94f))
+                .clickable(enabled = !applied, onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text,
+                color = textColor,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
@@ -493,6 +755,7 @@ private fun AgentSimplePressSurface(
     shape: Shape,
     tokens: GlassTokens,
     onClick: () -> Unit,
+    enabled: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -503,6 +766,7 @@ private fun AgentSimplePressSurface(
         modifier = modifier.clickable(
             interactionSource = interactionSource,
             indication = null,
+            enabled = enabled,
             onClick = onClick
         ),
         shape = shape,
@@ -538,7 +802,7 @@ private fun DayAgentConversationDialog(
     sourceBounds: Rect?,
     sourceCardSnapshot: Bitmap?,
     sourceCornerRadius: Dp,
-    onBackgroundProgress: (Float) -> Unit,
+    backgroundMotionState: DayAgentBackgroundMotionState,
     onAgentAction: (AgentValidatedAction) -> Unit,
     onOverlayReady: () -> Unit,
     onPrepareDismiss: () -> Unit,
@@ -553,9 +817,14 @@ private fun DayAgentConversationDialog(
     var requestJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var closing by remember { mutableStateOf(false) }
-    var appliedActionKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val dialogContext = LocalContext.current
+    val providerName = remember(dialogContext) {
+        AiImportSettingsStore.load(dialogContext).profile.displayName
+    }
+    val appliedActionKeys = remember(state.config.id) {
+        mutableStateOf(DayAgentPreferences.getAppliedActions(dialogContext, state.config.id))
+    }
     val expansion = remember { Animatable(0f) }
-    val backgroundProgress = remember { Animatable(0f) }
     val conversationListState = rememberLazyListState()
     val foreground = LocalAdaptiveGlass.current.contentColor
     val agentCardContentBackdrop = rememberLayerBackdrop()
@@ -573,25 +842,15 @@ private fun DayAgentConversationDialog(
     val screenCenterXPx = with(density) { configuration.screenWidthDp.dp.toPx() / 2f }
     val startScaleX = ((sourceBounds?.width ?: targetWidthPx) / targetWidthPx).coerceIn(0.16f, 1f)
     val startScaleY = ((sourceBounds?.height ?: targetHeightPx) / targetHeightPx).coerceIn(0.12f, 1f)
-    // This is deliberately the same per-frame shape replacement used by the course editor.
-    // Backdrop observes the Shape value used by its lens effect, not mutable state hidden inside
-    // createOutline, so keeping one dynamic Shape instance leaves its cached SDF out of date.
-    val shapeProgress = expansion.value.coerceIn(0f, 1f)
-    val currentScaleX = startScaleX + (1f - startScaleX) * shapeProgress
-    val currentScaleY = startScaleY + (1f - startScaleY) * shapeProgress
     val sourceRadiusPx = with(density) { sourceCornerRadius.toPx() }
     val targetRadiusPx = with(density) { 32.dp.toPx() }
-    val visualRadiusPx = sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * shapeProgress
-    val morphShape = remember(visualRadiusPx, currentScaleX, currentScaleY) {
-        CourseEditorMorphCornerShape(
-            radiusX = visualRadiusPx / currentScaleX.coerceAtLeast(0.001f),
-            radiusY = visualRadiusPx / currentScaleY.coerceAtLeast(0.001f)
-        )
-    }
     fun dismissAnimated() {
         if (closing) return
         closing = true
         keyboard?.hide()
+        // Restore the real source card underneath the still-opaque Dialog before closing. Its
+        // backdrop now gets the whole exit duration to warm up instead of being mounted at p=0.
+        onPrepareDismiss()
         scope.launch {
             coroutineScope {
                 launch {
@@ -601,17 +860,14 @@ private fun DayAgentConversationDialog(
                     )
                 }
                 launch {
-                    backgroundProgress.animateTo(
+                    backgroundMotionState.progress.animateTo(
                         0f,
                         tween(BACKGROUND_EXIT_DURATION, easing = BackgroundExitEasing)
-                    ) { onBackgroundProgress(value) }
+                    )
                 }
             }
-            onBackgroundProgress(0f)
-            onPrepareDismiss()
-            // The p=0 source snapshot stays opaque while the real card is restored underneath.
-            // Wait for that card to be measured and drawn before removing the Dialog window.
-            repeat(2) { withFrameNanos { } }
+            // The pixel-aligned source cover is already above the warmed card. Remove the Dialog
+            // exactly when the Morph reaches its source geometry; no fixed frame delay is needed.
             onDismiss()
         }
     }
@@ -656,6 +912,7 @@ private fun DayAgentConversationDialog(
                  // The hand-authored frozen-background Morph owns all depth treatment. Android's
                  // Dialog dim flag was the actual full-screen darkening seen behind the Agent.
                  clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                 setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
                  setDimAmount(0f)
                  // The geometry below is the only entrance/exit animation.
                  setWindowAnimations(0)
@@ -676,18 +933,27 @@ private fun DayAgentConversationDialog(
                     .fillMaxWidth()
                     .padding(start = 14.dp, top = answerTopPadding, end = 14.dp)
                     .height(answerMaxHeight)
-                    .graphicsLayer {
-                        val source = sourceBounds
-                        val p = expansion.value
-                        if (source != null && source.width > 0f && source.height > 0f) {
-                            scaleX = startScaleX + (1f - startScaleX) * p
-                            scaleY = startScaleY + (1f - startScaleY) * p
-                            translationX = (source.center.x - screenCenterXPx) * (1f - p)
-                            translationY = (source.center.y - (targetTopPx + targetHeightPx / 2f)) * (1f - p)
-                        }
-                        shape = morphShape
-                        clip = true
-                      }
+                     .graphicsLayer {
+                         val source = sourceBounds
+                         val p = expansion.value.coerceIn(0f, 1f)
+                         val scaleXNow = startScaleX + (1f - startScaleX) * p
+                         val scaleYNow = startScaleY + (1f - startScaleY) * p
+                         if (source != null && source.width > 0f && source.height > 0f) {
+                             scaleX = scaleXNow
+                             scaleY = scaleYNow
+                             translationX = (source.center.x - screenCenterXPx) * (1f - p)
+                             translationY = (source.center.y - (targetTopPx + targetHeightPx / 2f)) * (1f - p)
+                         }
+                         // Keep the animated Shape read and replacement inside the layer phase.
+                         // Reading expansion in composition made the complete Dialog (including
+                         // Markdown, LazyColumn and every glass control) recompose every frame.
+                         val visualRadiusPx = sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * p
+                         shape = CourseEditorMorphCornerShape(
+                             radiusX = visualRadiusPx / scaleXNow.coerceAtLeast(0.001f),
+                             radiusY = visualRadiusPx / scaleYNow.coerceAtLeast(0.001f)
+                         )
+                         clip = true
+                       }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -739,11 +1005,11 @@ private fun DayAgentConversationDialog(
                  ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("✦ 今日助手", color = foreground, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        Text("${AiImportSettingsStore.load(LocalContext.current).profile.displayName}", color = foreground.copy(alpha = 0.58f), style = MaterialTheme.typography.labelSmall)
+                        Text(providerName, color = foreground.copy(alpha = 0.58f), style = MaterialTheme.typography.labelSmall)
                     }
                      LazyColumn(
                          state = conversationListState,
-                         modifier = Modifier.weight(1f, fill = false),
+                         modifier = Modifier.weight(1f),
                          contentPadding = PaddingValues(bottom = 16.dp),
                          verticalArrangement = Arrangement.spacedBy(10.dp)
                      ) {
@@ -761,7 +1027,7 @@ private fun DayAgentConversationDialog(
                                              .padding(horizontal = 12.dp, vertical = 8.dp),
                                          color = Color.White,
                                          style = MaterialTheme.typography.bodyMedium
-                                     )
+                                )
                                  }
                              } else {
                                  val parsed = remember(message.content, facts.sourceHash) {
@@ -773,29 +1039,26 @@ private fun DayAgentConversationDialog(
                                      }
                                      parsed.actions.forEachIndexed { actionIndex, action ->
                                          val actionKey = "${message.id}:$actionIndex"
-                                         AgentSimplePressSurface(
-                                             backdrop = null,
+                                         val alreadyApplied = actionKey in appliedActionKeys.value
+                                         AgentOperationLiquidButton(
+                                             text = if (alreadyApplied) "已执行：${action.summary}" else agentActionButtonLabel(action),
+                                             backdrop = backdrop,
                                              config = state.config,
-                                             modifier = Modifier.fillMaxWidth(),
-                                             shape = RoundedCornerShape(18.dp),
-                                             tokens = GlassTokens.pill(intensity = 0.92f).copy(blur = 4.dp, surfaceAlpha = 0.22f),
+                                             destructive = action.type == AgentValidatedActionType.DELETE,
+                                             applied = alreadyApplied,
+                                             modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false },
                                              onClick = {
-                                                 if (actionKey !in appliedActionKeys) {
+                                                 if (actionKey !in appliedActionKeys.value) {
                                                      onAgentAction(action)
-                                                     appliedActionKeys = appliedActionKeys + actionKey
+                                                     appliedActionKeys.value = appliedActionKeys.value + actionKey
+                                                     DayAgentPreferences.markActionApplied(
+                                                         dialogContext,
+                                                         state.config.id,
+                                                         actionKey
+                                                     )
                                                  }
                                              }
-                                         ) {
-                                             Text(
-                                                 if (actionKey in appliedActionKeys) "已执行：${action.summary}"
-                                                 else agentActionButtonLabel(action),
-                                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                                 color = if (actionKey in appliedActionKeys) foreground.copy(alpha = 0.62f)
-                                                 else if (action.type == AgentValidatedActionType.DELETE) Color(0xFFFF453A)
-                                                 else Color(0xFF168CFF),
-                                                 style = MaterialTheme.typography.labelLarge
-                                             )
-                                         }
+                                         )
                                      }
                                  }
                              }
@@ -804,9 +1067,9 @@ private fun DayAgentConversationDialog(
                              item {
                                  AgentMarkdownText(
                                      parseAgentActions(streamingText, facts).displayText,
-                                     foreground,
-                                     MaterialTheme.typography.bodyMedium
-                                 )
+                                    foreground,
+                                    MaterialTheme.typography.bodyMedium
+                                )
                              }
                          }
                          if (sending && streamingText.isBlank()) {
@@ -878,45 +1141,44 @@ private fun DayAgentConversationDialog(
                                 inner()
                             }
                         )
-                        if (agentInputBackdrop != null) LiquidButton(
-                            onClick = ::toggleSend,
-                            backdrop = agentInputBackdrop,
-                            modifier = Modifier.size(40.dp),
-                            surfaceColor = Color(0xFF168CFF).copy(alpha = 0.82f),
-                            height = 40.dp,
-                            contentPadding = PaddingValues(0.dp),
-                            blurRadius = 4.dp,
-                            lensHeight = 12.dp,
-                            lensAmount = 20.dp,
-                            chromaticAberration = false
-                        ) {
-                            Box(
-                                Modifier
-                                    .fillMaxSize()
-                                    .background(Color.Transparent, CircleShape),
-                                contentAlignment = Alignment.Center
+                        if (agentInputBackdrop != null) {
+                            LiquidButton(
+                                onClick = ::toggleSend,
+                                backdrop = agentInputBackdrop,
+                                modifier = Modifier.size(40.dp),
+                                height = 40.dp,
+                                surfaceColor = Color(0xFF0A84FF).copy(alpha = 0.88f),
+                                tint = Color(0xFF0A84FF),
+                                contentPadding = PaddingValues(0.dp),
+                                blurRadius = 4.dp,
+                                lensHeight = 14.dp,
+                                lensAmount = 18.dp,
+                                chromaticAberration = false
                             ) {
-                                Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
                             }
                         } else AgentSimplePressSurface(
                             backdrop = null,
                             config = state.config,
                             modifier = Modifier.size(40.dp),
                             shape = CircleShape,
-                            tokens = GlassTokens.pill(intensity = 0.90f).copy(blur = 0.dp, surfaceAlpha = 0.82f),
+                            tokens = GlassTokens.pill(intensity = 0.86f).copy(blur = 0.dp, surfaceAlpha = 0.22f),
                             onClick = ::toggleSend
                         ) {
                             Box(
-                                Modifier.fillMaxSize().background(Color(0xFF168CFF).copy(alpha = 0.82f), CircleShape),
+                                Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.16f else 0.06f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
+                                Text(if (sending) "■" else "↑", color = foreground, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
             }
         }
          LaunchedEffect(Unit) {
+              backgroundMotionState.progress.snapTo(0f)
               // Commit the p=0 source snapshot to the Dialog window before hiding the real
               // card below it. A second frame applies that hide while expansion is still zero,
               // eliminating the one-frame hole between the two layers.
@@ -931,10 +1193,10 @@ private fun DayAgentConversationDialog(
                      )
                  }
                  launch {
-                     backgroundProgress.animateTo(
+                     backgroundMotionState.progress.animateTo(
                          1f,
                          tween(BACKGROUND_OPEN_DURATION, easing = BackgroundOpenEasing)
-                     ) { onBackgroundProgress(value) }
+                     )
                  }
              }
              focusRequester.requestFocus()

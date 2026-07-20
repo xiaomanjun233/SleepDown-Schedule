@@ -196,6 +196,28 @@ class DayAgentTimelineEngineTest {
         assertFalse(needsSemesterCourseContext("今天有什么课"))
     }
 
+    @Test
+    fun currentWeekAddActionMayOmitRedundantWeeksArray() {
+        val facts = factsAt(15, 0, emptyList()).copy(
+            scheduleId = 1,
+            currentWeek = 20,
+            totalWeeks = 20,
+            periodDefinitions = (1..10).map { index ->
+                PeriodEntity(index, "%02d:00".format(7 + index), "%02d:45".format(7 + index))
+            }
+        )
+        val response = """
+            已为你准备好仅本周的课程，请确认。
+            <agent_actions>{"type":"ADD_COURSE","scope":"CURRENT_WEEK","course":{"name":"心理健康教育","weekday":1,"periods":[9,10],"weeks":[21]},"summary":"添加今晚课程"}</agent_actions>
+        """.trimIndent()
+
+        val parsed = parseAgentActions(response, facts)
+
+        assertEquals(1, parsed.actions.size)
+        assertEquals(listOf(20), parsed.actions.single().edited?.weeks)
+        assertEquals(AgentActionScope.CURRENT_WEEK, parsed.actions.single().scope)
+    }
+
     private fun factsAt(
         hour: Int,
         minute: Int,

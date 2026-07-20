@@ -169,6 +169,7 @@ fun ScheduleManagerScreen(
     val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     val scope = rememberCoroutineScope()
     val backgroundBackdrop = rememberLayerBackdrop()
+    val sceneBackdrop = rememberLayerBackdrop()
     val chromeBackdrop = backgroundBackdrop
     var deleteCandidate by remember { mutableStateOf<ScheduleProfileEntity?>(null) }
     var renameCandidate by remember { mutableStateOf<ScheduleProfileEntity?>(null) }
@@ -253,6 +254,7 @@ fun ScheduleManagerScreen(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .layerBackdrop(sceneBackdrop)
     ) {
         Box(
             Modifier
@@ -513,7 +515,7 @@ fun ScheduleManagerScreen(
                     deleteReveal = 0f
                 }
             ),
-            backdrop = chromeBackdrop,
+            backdrop = sceneBackdrop,
             config = settingsVisualConfig(state.config),
             onDismissRequest = { deleteCandidate = null }
         )
@@ -522,7 +524,7 @@ fun ScheduleManagerScreen(
     renameCandidate?.let { profile ->
         ScheduleRenameDialog(
             profile = profile,
-            backdrop = chromeBackdrop,
+            backdrop = sceneBackdrop,
             config = settingsVisualConfig(state.config),
             onCancel = { renameCandidate = null },
             onSave = { name ->
@@ -564,7 +566,7 @@ fun ScheduleManagerScreen(
                 },
                 LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) { showShareOptions = false }
             ),
-            backdrop = chromeBackdrop,
+            backdrop = sceneBackdrop,
             config = settingsVisualConfig(state.config),
             onDismissRequest = { showShareOptions = false }
         )

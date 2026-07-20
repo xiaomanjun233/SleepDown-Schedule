@@ -1,15 +1,28 @@
 package com.example.courseschedule
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.IBinder
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -47,10 +60,28 @@ sealed interface GiteeUpdateCheckResult {
     data class UpToDate(val release: GiteeReleaseInfo) : GiteeUpdateCheckResult
 }
 
+sealed interface UpdateDownloadState {
+    data object Idle : UpdateDownloadState
+    data class Downloading(
+        val releaseTag: String,
+        val releaseName: String,
+        val downloadedBytes: Long,
+        val totalBytes: Long
+    ) : UpdateDownloadState {
+        val progressPercent: Int?
+            get() = totalBytes.takeIf { it > 0L }
+                ?.let { ((downloadedBytes * 100L) / it).toInt().coerceIn(0, 100) }
+    }
+    data class Completed(val releaseTag: String, val apk: File) : UpdateDownloadState
+    data class Failed(val releaseTag: String, val message: String) : UpdateDownloadState
+}
+
 object GiteeAppUpdater {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val _updateAvailable = MutableStateFlow(false)
     val updateAvailable: StateFlow<Boolean> = _updateAvailable.asStateFlow()
+    private val _downloadState = MutableStateFlow<UpdateDownloadState>(UpdateDownloadState.Idle)
+    val downloadState: StateFlow<UpdateDownloadState> = _downloadState.asStateFlow()
 
     fun restoreCachedStatus(context: Context, currentVersionName: String) {
         val latestTag = preferences(context).getString(LatestTagKey, null)
@@ -87,22 +118,61 @@ object GiteeAppUpdater {
             }
         }
 
-    suspend fun downloadApk(context: Context, release: GiteeReleaseInfo): Result<File> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val downloadUrl = requireNotNull(release.apkUrl) { "这个 Release 没有附带 APK 安装包" }
-                val updateDir = File(context.cacheDir, "updates").apply { mkdirs() }
-                updateDir.listFiles()?.forEach { it.delete() }
-                val safeName = release.apkName
-                    ?.takeIf { it.endsWith(".apk", ignoreCase = true) }
-                    ?.replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    ?: "SleepDown-${release.tagName.replace(Regex("[^A-Za-z0-9._-]"), "_")}.apk"
-                val target = File(updateDir, safeName)
-                downloadToFile(downloadUrl, target)
-                require(target.length() > 0L) { "下载到的安装包为空" }
-                target
+    suspend fun downloadApk(context: Context, release: GiteeReleaseInfo): Result<File> {
+        val downloadUrl = release.apkUrl
+            ?: return Result.failure(IllegalStateException("这个 Release 没有附带 APK 安装包"))
+        startDownloadService(context, release, downloadUrl)
+        return when (val terminal = downloadState.first { state ->
+            when (state) {
+                is UpdateDownloadState.Completed -> state.releaseTag == release.tagName
+                is UpdateDownloadState.Failed -> state.releaseTag == release.tagName
+                else -> false
             }
+        }) {
+            is UpdateDownloadState.Completed -> Result.success(terminal.apk)
+            is UpdateDownloadState.Failed -> Result.failure(IllegalStateException(terminal.message))
+            else -> error("unreachable")
         }
+    }
+
+    private fun startDownloadService(context: Context, release: GiteeReleaseInfo, downloadUrl: String) {
+        val current = _downloadState.value
+        if (current is UpdateDownloadState.Downloading && current.releaseTag == release.tagName) return
+        if (current is UpdateDownloadState.Completed && current.releaseTag == release.tagName && current.apk.exists()) return
+        _downloadState.value = UpdateDownloadState.Downloading(release.tagName, release.name, 0L, -1L)
+        val intent = Intent(context, UpdateDownloadForegroundService::class.java)
+            .setAction(UpdateDownloadForegroundService.ACTION_DOWNLOAD)
+            .putExtra(UpdateDownloadForegroundService.EXTRA_URL, downloadUrl)
+            .putExtra(UpdateDownloadForegroundService.EXTRA_TAG, release.tagName)
+            .putExtra(UpdateDownloadForegroundService.EXTRA_NAME, release.name)
+            .putExtra(UpdateDownloadForegroundService.EXTRA_APK_NAME, release.apkName)
+        ContextCompat.startForegroundService(context.applicationContext, intent)
+    }
+
+    internal fun publishDownloadState(state: UpdateDownloadState) {
+        _downloadState.value = state
+    }
+
+    internal suspend fun performDownload(
+        context: Context,
+        url: String,
+        tag: String,
+        apkName: String?,
+        onProgress: (Long, Long) -> Unit
+    ): Result<File> = withContext(Dispatchers.IO) {
+        runCatching {
+            val updateDir = File(context.cacheDir, "updates").apply { mkdirs() }
+            updateDir.listFiles()?.forEach { it.delete() }
+            val safeName = apkName
+                ?.takeIf { it.endsWith(".apk", ignoreCase = true) }
+                ?.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                ?: "SleepDown-${tag.replace(Regex("[^A-Za-z0-9._-]"), "_")}.apk"
+            val target = File(updateDir, safeName)
+            downloadToFile(url, target, onProgress)
+            require(target.length() > 0L) { "下载到的安装包为空" }
+            target
+        }
+    }
 
     fun canRequestPackageInstalls(context: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()
@@ -192,10 +262,27 @@ object GiteeAppUpdater {
         return connection.useResponse { input -> input.bufferedReader(Charsets.UTF_8).use { it.readText() } }
     }
 
-    private fun downloadToFile(url: String, target: File) {
+    private fun downloadToFile(url: String, target: File, onProgress: (Long, Long) -> Unit) {
         val connection = openConnection(url, connectTimeoutMillis = 20_000, readTimeoutMillis = 120_000)
+        val totalBytes = connection.contentLengthLong
         connection.useResponse { input ->
-            target.outputStream().buffered().use { output -> input.copyTo(output) }
+            target.outputStream().buffered().use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var downloaded = 0L
+                var lastReportedAt = 0L
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                    downloaded += count
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (now - lastReportedAt >= 180L || downloaded == totalBytes) {
+                        onProgress(downloaded, totalBytes)
+                        lastReportedAt = now
+                    }
+                }
+                onProgress(downloaded, totalBytes)
+            }
         }
     }
 
@@ -223,6 +310,156 @@ object GiteeAppUpdater {
         } finally {
             disconnect()
         }
+    }
+}
+
+class UpdateDownloadForegroundService : Service() {
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var downloadJob: Job? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        createChannel()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action != ACTION_DOWNLOAD) return START_NOT_STICKY
+        val url = intent.getStringExtra(EXTRA_URL).orEmpty()
+        val tag = intent.getStringExtra(EXTRA_TAG).orEmpty()
+        val name = intent.getStringExtra(EXTRA_NAME).orEmpty().ifBlank { tag }
+        val apkName = intent.getStringExtra(EXTRA_APK_NAME)
+        if (url.isBlank() || tag.isBlank()) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        if (downloadJob?.isActive == true) return START_REDELIVER_INTENT
+
+        startForeground(NOTIFICATION_ID, progressNotification(name, null))
+        downloadJob = serviceScope.launch {
+            var lastPercent: Int? = null
+            GiteeAppUpdater.performDownload(this@UpdateDownloadForegroundService, url, tag, apkName) { downloaded, total ->
+                val state = UpdateDownloadState.Downloading(tag, name, downloaded, total)
+                GiteeAppUpdater.publishDownloadState(state)
+                val percent = state.progressPercent
+                if (percent != lastPercent || percent == null) {
+                    getSystemService(NotificationManager::class.java)
+                        .notify(NOTIFICATION_ID, progressNotification(name, percent))
+                    lastPercent = percent
+                }
+            }.fold(
+                onSuccess = { apk ->
+                    GiteeAppUpdater.publishDownloadState(UpdateDownloadState.Completed(tag, apk))
+                    finishForeground(completedNotification(name, apk))
+                },
+                onFailure = { error ->
+                    val message = error.message ?: "更新下载失败"
+                    GiteeAppUpdater.publishDownloadState(UpdateDownloadState.Failed(tag, message))
+                    finishForeground(failedNotification(name, message))
+                }
+            )
+            stopSelf(startId)
+        }
+        return START_REDELIVER_INTENT
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        downloadJob?.cancel()
+        serviceScope.cancel()
+        super.onDestroy()
+    }
+
+    private fun progressNotification(name: String, progress: Int?): Notification {
+        val openApp = PendingIntent.getActivity(
+            this,
+            6101,
+            packageManager.getLaunchIntentForPackage(packageName) ?: Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_download)
+            .setContentTitle("正在下载更新")
+            .setContentText(if (progress == null) name else "$name · $progress%")
+            .setContentIntent(openApp)
+            .setProgress(100, progress ?: 0, progress == null)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setCategory(Notification.CATEGORY_PROGRESS)
+            .setColor(0xFF0A84FF.toInt())
+            .requestPromotedOngoing(if (progress == null) "下载中" else "$progress%")
+            .build()
+    }
+
+    private fun completedNotification(name: String, apk: File): Notification {
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
+        val installIntent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, ApkMimeType)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        val install = PendingIntent.getActivity(
+            this,
+            6102,
+            installIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_download)
+            .setContentTitle("更新下载完成")
+            .setContentText("点击安装 $name")
+            .setContentIntent(install)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(Notification.CATEGORY_STATUS)
+            .setColor(0xFF0A84FF.toInt())
+            .build()
+    }
+
+    private fun failedNotification(name: String, message: String): Notification =
+        Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_download)
+            .setContentTitle("更新下载失败")
+            .setContentText("$name · $message")
+            .setAutoCancel(true)
+            .setCategory(Notification.CATEGORY_ERROR)
+            .build()
+
+    private fun finishForeground(notification: Notification) {
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_DETACH)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(false)
+        }
+    }
+
+    private fun createChannel() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "应用更新", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "显示应用更新包的下载进度"
+                setShowBadge(false)
+            }
+        )
+    }
+
+    private fun Notification.Builder.requestPromotedOngoing(shortText: String): Notification.Builder = apply {
+        runCatching {
+            javaClass.getMethod("setRequestPromotedOngoing", java.lang.Boolean.TYPE).invoke(this, true)
+            extras.putBoolean("android.requestPromotedOngoing", true)
+            javaClass.getMethod("setShortCriticalText", String::class.java).invoke(this, shortText)
+        }
+    }
+
+    companion object {
+        const val ACTION_DOWNLOAD = "com.example.courseschedule.action.DOWNLOAD_UPDATE"
+        const val EXTRA_URL = "update_url"
+        const val EXTRA_TAG = "update_tag"
+        const val EXTRA_NAME = "update_name"
+        const val EXTRA_APK_NAME = "update_apk_name"
+        private const val CHANNEL_ID = "app_update_download"
+        private const val NOTIFICATION_ID = 20260720
     }
 }
 

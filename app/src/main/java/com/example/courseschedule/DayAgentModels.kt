@@ -205,7 +205,7 @@ fun buildDayAgentFacts(
     val periodMap = periods.associateBy { it.periodIndex }
     val currentWeek = effectiveCurrentWeek(config, date)
     fun slotsFor(targetDate: LocalDate): List<AgentCourseSlot> {
-        val week = effectiveCurrentWeek(config, targetDate)
+        val week = scheduleWeekForDateOrNull(config, targetDate) ?: return emptyList()
         val weekday = targetDate.dayOfWeek.value
         return courses.asSequence()
             .filter { it.weekday == weekday && week in it.weeks && parityMatches(it.weekParity, week) }
@@ -338,6 +338,7 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
     val payload = actionMarker.find(content)?.groupValues?.getOrNull(1)
     val drafts = payload?.let {
         runCatching { AgentJson.decodeFromString<List<AgentActionDraft>>(it) }.getOrNull()
+            ?: runCatching { listOf(AgentJson.decodeFromString<AgentActionDraft>(it)) }.getOrNull()
     }.orEmpty()
     val knownCourses = (facts.week.map { it.course } + facts.semesterCourses)
         .distinctBy { it.id }
@@ -349,7 +350,8 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
                 patch = draft.course,
                 base = null,
                 facts = facts,
-                validPeriods = validPeriods
+                validPeriods = validPeriods,
+                scope = draft.scope
             )?.let { course ->
                 actions += AgentValidatedAction(
                     AgentValidatedActionType.ADD,
@@ -360,7 +362,7 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
                 )
             }
             AgentActionType.UPDATE_COURSE -> knownCourses[draft.courseId]?.let { original ->
-                validateAgentCoursePatch(draft.course, original, facts, validPeriods)?.let { edited ->
+                validateAgentCoursePatch(draft.course, original, facts, validPeriods, draft.scope)?.let { edited ->
                     actions += AgentValidatedAction(
                         AgentValidatedActionType.UPDATE,
                         original = original,
@@ -388,7 +390,7 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
                     summary = draft.summary.ifBlank { "打开相关设置" }
                 )
             }
-            AgentActionType.SET_SETTING -> normalizeAgentSetting(draft.settingKey, draft.settingValue)?.let { (key, value) ->
+            AgentActionType.SET_SETTING -> normalizeAgentSetting(draft.settingKey, draft.settingValue, facts)?.let { (key, value) ->
                 actions += AgentValidatedAction(
                     AgentValidatedActionType.SET_SETTING,
                     settingKey = key,
@@ -406,13 +408,20 @@ private fun validateAgentCoursePatch(
     patch: AgentCoursePatch?,
     base: CourseEntity?,
     facts: DayAgentFacts,
-    validPeriods: Set<Int>
+    validPeriods: Set<Int>,
+    scope: AgentActionScope
 ): CourseEntity? {
     patch ?: return null
     val name = patch.name?.trim()?.takeIf { it.isNotBlank() } ?: base?.name ?: return null
     val weekday = patch.weekday ?: base?.weekday ?: return null
     val periods = (patch.periods ?: base?.periods.orEmpty()).distinct().sorted().filter { it in validPeriods }
-    val weeks = (patch.weeks ?: base?.weeks.orEmpty()).distinct().sorted().filter { it in 1..facts.totalWeeks }
+    val requestedWeeks = patch.weeks.orEmpty().filter { it in 1..facts.totalWeeks }
+    val weeks = when {
+        requestedWeeks.isNotEmpty() -> requestedWeeks
+        base != null -> base.weeks
+        scope == AgentActionScope.CURRENT_WEEK -> listOf(facts.currentWeek)
+        else -> emptyList()
+    }.distinct().sorted().filter { it in 1..facts.totalWeeks }
     if (weekday !in 1..7 || periods.isEmpty() || weeks.isEmpty()) return null
     val parity = patch.weekParity?.let { runCatching { WeekParity.valueOf(it.uppercase()) }.getOrNull() }
         ?: base?.weekParity ?: WeekParity.ALL
@@ -449,8 +458,19 @@ private fun normalizeAgentSettingsPage(value: String?): String? = when (value?.t
     else -> null
 }
 
-private fun normalizeAgentSetting(keyValue: String?, rawValue: String?): Pair<String, String>? =
-    AgentSettingRegistry.normalize(keyValue, rawValue)
+private fun normalizeAgentSetting(
+    keyValue: String?,
+    rawValue: String?,
+    facts: DayAgentFacts
+): Pair<String, String>? {
+    val normalized = AgentSettingRegistry.normalize(keyValue, rawValue) ?: return null
+    if (AgentSettingRegistry.isPeriodTimeSetting(normalized.first)) {
+        val periodIndex = Regex("PERIOD_(\\d+)_TIME").matchEntire(normalized.first)
+            ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: return null
+        if (facts.periodDefinitions.none { it.periodIndex == periodIndex }) return null
+    }
+    return normalized
+}
 
 fun parseAgentCourseDraft(content: String, facts: DayAgentFacts): ParsedAgentCourseDraft {
     val marker = Regex("<course_draft>([\\s\\S]*?)</course_draft>")

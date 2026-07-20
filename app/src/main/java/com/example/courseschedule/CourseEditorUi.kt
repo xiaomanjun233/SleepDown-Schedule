@@ -486,14 +486,18 @@ fun NormalizedCourseEditorScreen(
     val selectedPeriods = if (periodStart <= periodEnd) periodValues.filter { it in periodStart..periodEnd } else emptyList()
     val selectedWeeks = if (weekStart <= weekEnd) (weekStart..weekEnd).toList() else emptyList()
 
-    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // Do not apply a horizontal inset to the whole list. Horizontal pickers need the
+    // complete glass-shell viewport so their intrinsic-width items can scroll to both
+    // edges; regular form rows opt into the usual 16.dp inset individually.
+    LazyColumn(contentPadding = PaddingValues(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item(key = "header", contentType = "header") {
-            DialogHeader(
-                title = if (initialCourse == null) "\u6DFB\u52A0\u5355\u8282\u8BFE" else "\u7F16\u8F91\u5355\u8282\u8BFE",
-                onCancel = onCancel,
-                backdrop = backdrop,
-                config = config,
-                onSave = {
+            Box(Modifier.padding(horizontal = 16.dp)) {
+                DialogHeader(
+                    title = if (initialCourse == null) "\u6DFB\u52A0\u5355\u8282\u8BFE" else "\u7F16\u8F91\u5355\u8282\u8BFE",
+                    onCancel = onCancel,
+                    backdrop = backdrop,
+                    config = config,
+                    onSave = {
                     when {
                         name.isBlank() -> error = "\u8BFE\u7A0B\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A"
                         !periodInputValid -> error = "\u8BF7\u5148\u4FEE\u6B63\u8282\u6B21\u8303\u56F4"
@@ -515,29 +519,32 @@ fun NormalizedCourseEditorScreen(
                             )
                         )
                     }
-                }
-            )
+                    }
+                )
+            }
         }
-        item(key = "course-name", contentType = "field") { DialogCapsuleField(name, { name = it }, "\u8BFE\u7A0B\u540D\u79F0", config, Modifier.fillMaxWidth()) }
-        item(key = "teacher", contentType = "field") { DialogCapsuleField(teacher, { teacher = it }, "\u6559\u5E08", config, Modifier.fillMaxWidth()) }
-        item(key = "location", contentType = "field") { DialogCapsuleField(location, { location = it }, "\u5730\u70B9", config, Modifier.fillMaxWidth()) }
+        item(key = "course-name", contentType = "field") { DialogCapsuleField(name, { name = it }, "\u8BFE\u7A0B\u540D\u79F0", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
+        item(key = "teacher", contentType = "field") { DialogCapsuleField(teacher, { teacher = it }, "\u6559\u5E08", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
+        item(key = "location", contentType = "field") { DialogCapsuleField(location, { location = it }, "\u5730\u70B9", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
         item(key = "weekday", contentType = "picker") { WheelPicker("\u661F\u671F", (1..7).toList(), weekday, { weekday = it }, backdrop, config) { "\u5468" + weekdayLabel(it) } }
         item(key = "period-range", contentType = "range-picker") {
-            DialogRangePicker(
-                title = "\u8282\u6B21",
-                values = periodValues,
-                start = periodStart,
-                end = periodEnd,
-                onStart = { periodStart = it },
-                onEnd = { periodEnd = it },
-                backdrop = backdrop,
-                config = config,
-                enforceOrderedInput = true,
-                onInputValidChange = { periodInputValid = it }
-            ) { "\u7B2C" + it + "\u8282" }
+            Box(Modifier.padding(horizontal = 16.dp)) {
+                DialogRangePicker(
+                    title = "\u8282\u6B21",
+                    values = periodValues,
+                    start = periodStart,
+                    end = periodEnd,
+                    onStart = { periodStart = it },
+                    onEnd = { periodEnd = it },
+                    backdrop = backdrop,
+                    config = config,
+                    enforceOrderedInput = true,
+                    onInputValidChange = { periodInputValid = it }
+                ) { "\u7B2C" + it + "\u8282" }
+            }
         }
         item(key = "week-range", contentType = "range-picker") {
-            DialogRangePicker(
+            Box(Modifier.padding(horizontal = 16.dp)) { DialogRangePicker(
                 title = "\u5468\u6B21",
                 values = remember(config.totalWeeks) { (1..config.totalWeeks).toList() },
                 start = weekStart,
@@ -549,15 +556,15 @@ fun NormalizedCourseEditorScreen(
                 enforceOrderedInput = true,
                 onInputValidChange = { weekInputValid = it },
                 invalidRangeMessage = "\u5F53\u524D\u7ED3\u675F\u5468\u65E9\u4E8E\u5F00\u59CB\u5468"
-            ) { "\u7B2C" + it + "\u5468" }
+            ) { "\u7B2C" + it + "\u5468" } }
         }
         item(key = "parity", contentType = "picker") { WheelPicker("\u5355\u53CC\u5468", WeekParity.entries, parity, { parity = it }, backdrop, config) { parityLabel(it) } }
-        item(key = "note", contentType = "field") { DialogCapsuleField(note, { note = it }, "\u5907\u6CE8", config, Modifier.fillMaxWidth()) }
+        item(key = "note", contentType = "field") { DialogCapsuleField(note, { note = it }, "\u5907\u6CE8", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
         if (initialCourse != null) {
-            item(key = "delete", contentType = "action") { DialogLiquidButton(backdrop, "\u5220\u9664\u8BFE\u7A0B", { onDelete(initialCourse) }, role = DialogButtonRole.Cancel) }
+            item(key = "delete", contentType = "action") { Box(Modifier.padding(horizontal = 16.dp)) { DialogLiquidButton(backdrop, "\u5220\u9664\u8BFE\u7A0B", { onDelete(initialCourse) }, role = DialogButtonRole.Cancel) } }
         }
         error?.let { message ->
-            item(key = "error", contentType = "message") { Text(message, color = MaterialTheme.colorScheme.error) }
+            item(key = "error", contentType = "message") { Text(message, modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error) }
         }
     }
 }

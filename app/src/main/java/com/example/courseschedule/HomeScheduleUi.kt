@@ -275,6 +275,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.io.File
@@ -298,6 +299,7 @@ fun HomeDateTitle(
     displayDate: LocalDate,
     displayWeek: Int,
     beforeScheduleTerm: Boolean,
+    afterScheduleTerm: Boolean,
     showReturnToCurrentWeekHint: Boolean,
     onReturnCurrent: () -> Unit
 ) {
@@ -321,6 +323,7 @@ fun HomeDateTitle(
         Text(
             when {
                 beforeScheduleTerm -> "当前暂未开学"
+                afterScheduleTerm -> "学期已结束"
                 showReturnToCurrentWeekHint -> "点击此处回到本周"
                 else -> "第${displayWeek}周"
             },
@@ -442,7 +445,7 @@ fun HomeScreen(
     onSwipeWeek: (Int) -> Unit,
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
-    onAgentBackgroundProgress: (Float) -> Unit = {},
+    dayAgentBackgroundMotionState: DayAgentBackgroundMotionState,
     onAgentPagerSettledChange: (Boolean) -> Unit = {},
     onAgentPrepareOpen: suspend () -> Unit = {},
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
@@ -503,7 +506,7 @@ fun HomeScreen(
                         backdrop = backdrop,
                         onSwipeDay = onSwipeDay,
                         onContentUnderTopBarChange = onContentUnderTopBarChange,
-                        onAgentBackgroundProgress = onAgentBackgroundProgress,
+                        dayAgentBackgroundMotionState = dayAgentBackgroundMotionState,
                         onAgentPagerSettledChange = onAgentPagerSettledChange,
                         onAgentPrepareOpen = onAgentPrepareOpen,
                         onCourseClick = onCourseClick,
@@ -1026,7 +1029,7 @@ fun DayScheduleScreen(
     backdrop: Backdrop?,
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
-    onAgentBackgroundProgress: (Float) -> Unit,
+    dayAgentBackgroundMotionState: DayAgentBackgroundMotionState,
     onAgentPagerSettledChange: (Boolean) -> Unit,
     onAgentPrepareOpen: suspend () -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
@@ -1035,6 +1038,9 @@ fun DayScheduleScreen(
 ) {
     val centerPage = 10_000
     val anchorDate = remember { displayDate }
+    val navigationRange = remember(state.config, anchorDate) {
+        scheduleDayNavigationRange(state.config)
+    }
     val pagerState = rememberPagerState(
         initialPage = centerPage,
         pageCount = { centerPage * 2 + 1 }
@@ -1043,6 +1049,10 @@ fun DayScheduleScreen(
     var programmaticDayScroll by remember { mutableStateOf(false) }
 
     fun dateForPage(page: Int): LocalDate = anchorDate.plusDays((page - centerPage).toLong())
+    fun clampToNavigationRange(date: LocalDate): LocalDate {
+        val range = navigationRange ?: return date
+        return date.coerceIn(range.start, range.endInclusive)
+    }
 
     LaunchedEffect(pagerState, displayDate) {
         snapshotFlow {
@@ -1071,7 +1081,7 @@ fun DayScheduleScreen(
                 delta <= -0.75f -> settledPage - 1
                 else -> settledPage
             }.coerceIn(0, centerPage * 2)
-            val desiredDate = dateForPage(desiredPage)
+            val desiredDate = clampToNavigationRange(dateForPage(desiredPage))
             if (desiredDate != displayDate) {
                 gestureCommittedDate = desiredDate
                 onSwipeDay(ChronoUnit.DAYS.between(displayDate, desiredDate).toInt())
@@ -1081,6 +1091,19 @@ fun DayScheduleScreen(
     LaunchedEffect(pagerState.settledPage) {
         if (programmaticDayScroll) return@LaunchedEffect
         val settledDate = dateForPage(pagerState.settledPage)
+        val allowedDate = clampToNavigationRange(settledDate)
+        if (settledDate != allowedDate) {
+            programmaticDayScroll = true
+            try {
+                val allowedPage = (centerPage + ChronoUnit.DAYS.between(anchorDate, allowedDate).toInt())
+                    .coerceIn(0, centerPage * 2)
+                pagerState.animateScrollToPage(allowedPage, animationSpec = tween(durationMillis = 180))
+            } finally {
+                programmaticDayScroll = false
+                gestureCommittedDate = null
+            }
+            return@LaunchedEffect
+        }
         if (settledDate != displayDate) {
             gestureCommittedDate = settledDate
             onSwipeDay(ChronoUnit.DAYS.between(displayDate, settledDate).toInt())
@@ -1090,7 +1113,12 @@ fun DayScheduleScreen(
     }
     LaunchedEffect(displayDate) {
         if (gestureCommittedDate == displayDate) return@LaunchedEffect
-        val dayOffset = ChronoUnit.DAYS.between(anchorDate, displayDate).toInt()
+        val safeDisplayDate = clampToNavigationRange(displayDate)
+        if (safeDisplayDate != displayDate) {
+            onSwipeDay(ChronoUnit.DAYS.between(displayDate, safeDisplayDate).toInt())
+            return@LaunchedEffect
+        }
+        val dayOffset = ChronoUnit.DAYS.between(anchorDate, safeDisplayDate).toInt()
         val targetPage = (centerPage + dayOffset).coerceIn(0, centerPage * 2)
         if (pagerState.settledPage != targetPage) {
             programmaticDayScroll = true
@@ -1113,10 +1141,11 @@ fun DayScheduleScreen(
         key = { it }
     ) { page ->
             val targetDate = dateForPage(page)
-            val targetWeek = effectiveCurrentWeek(state.config, targetDate)
+            val targetWeekOrNull = scheduleWeekForDateOrNull(state.config, targetDate)
+            val targetWeek = targetWeekOrNull ?: effectiveCurrentWeek(state.config, targetDate)
             val targetWeekday = targetDate.dayOfWeek.toChineseWeekday()
-            val dayCourses = remember(state.courses, targetWeek, targetWeekday) {
-                weekCourseBuckets(state.courses, targetWeek)
+            val dayCourses = remember(state.courses, targetWeekOrNull, targetWeekday) {
+                if (targetWeekOrNull == null) emptyList() else weekCourseBuckets(state.courses, targetWeekOrNull)
                     .byWeekday[targetWeekday]
                     .orEmpty()
                     .sortedWith(compareBy<CourseEntity> { it.periods.minOrNull() ?: Int.MAX_VALUE }.thenBy { it.name })
@@ -1125,12 +1154,7 @@ fun DayScheduleScreen(
             val contentUnderTopBar by remember {
                 derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 }
             }
-            val agentCollapsed by remember {
-                // The agent card changes height when it collapses. Using its pixel offset as the
-                // threshold makes a long message move the list back across that threshold, which
-                // repeatedly expands/collapses the sticky header during overscroll.
-                derivedStateOf { listState.firstVisibleItemIndex > 0 }
-            }
+            val agentCollapsed by remember { mutableStateOf(false) }
             LaunchedEffect(contentUnderTopBar) {
                 if (page == pagerState.settledPage) {
                     onContentUnderTopBarChange(contentUnderTopBar)
@@ -1143,24 +1167,46 @@ fun DayScheduleScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
-                    Text(
-                        "${targetDate.monthValue}月${targetDate.dayOfMonth}日 周${weekdayLabel(targetWeekday)} · 第${targetWeek}周",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = textColor
-                    )
+                    val isToday = targetDate == LocalDate.now(ZoneId.of("Asia/Shanghai"))
+                    val currentPeriod = if (isToday) {
+                        val now = LocalTime.now(ZoneId.of("Asia/Shanghai"))
+                        currentTimelinePeriod(state.periods, now)
+                    } else null
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${targetDate.monthValue}月${targetDate.dayOfMonth}日 周${weekdayLabel(targetWeekday)} · 第${targetWeek}周",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = textColor
+                        )
+                        if (currentPeriod != null) {
+                            Spacer(Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .background(ComposeColor(0xFF0A84FF), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    "第${currentPeriod.periodIndex}节",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = ComposeColor.White,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
                 }
                 if (
                     targetDate == LocalDate.now(ZoneId.of("Asia/Shanghai")) &&
                     abs(page - pagerState.currentPage) <= 1
                 ) {
-                    stickyHeader(key = "today-agent-${state.config.id}") {
+                    item(key = "today-agent-${state.config.id}") {
                         TodayAgentHost(
                             state = state,
                             date = targetDate,
                             backdrop = backdrop,
                             textColor = textColor,
                             collapsed = agentCollapsed,
-                            onBackgroundProgress = onAgentBackgroundProgress,
+                            backgroundMotionState = dayAgentBackgroundMotionState,
                             onPrepareOpen = onAgentPrepareOpen,
                             onAgentAction = onAgentAction
                         )

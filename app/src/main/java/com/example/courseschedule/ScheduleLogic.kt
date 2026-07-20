@@ -511,6 +511,25 @@ fun todayCourses(state: AppState): List<CourseEntity> {
         .sortedBy { courseStartTime(it, state.periods) ?: LocalTime.MAX }
 }
 
+/**
+ * Resolves the period represented by the current point on the schedule timeline.
+ * A normal break remains attached to the period that just started, up to the next
+ * period's start. This keeps the marker stable for schedules whose stored end time
+ * is intentionally short, while still hiding it before the first and after the last period.
+ */
+fun currentTimelinePeriod(periods: List<PeriodEntity>, now: LocalTime): PeriodEntity? {
+    val timeline = periods.mapNotNull { period ->
+        val start = runCatching { LocalTime.parse(period.startTime) }.getOrNull() ?: return@mapNotNull null
+        val end = runCatching { LocalTime.parse(period.endTime) }.getOrNull() ?: return@mapNotNull null
+        Triple(period, start, end)
+    }.sortedBy { it.second }
+    val index = timeline.indexOfLast { (_, start) -> !now.isBefore(start) }
+    if (index < 0) return null
+    val (period, _, end) = timeline[index]
+    val nextStart = timeline.getOrNull(index + 1)?.second
+    return if (now.isBefore(end) || (nextStart != null && now.isBefore(nextStart))) period else null
+}
+
 fun effectiveCurrentWeek(config: ScheduleConfigEntity, today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))): Int {
     if (!config.autoCurrentWeek || config.termStartDate.isNullOrBlank()) return config.currentWeek.coerceIn(1, config.totalWeeks)
     val startDate = parseScheduleDate(config.termStartDate) ?: return config.currentWeek.coerceIn(1, config.totalWeeks)
@@ -520,10 +539,71 @@ fun effectiveCurrentWeek(config: ScheduleConfigEntity, today: LocalDate = LocalD
     return calculated.coerceIn(1, config.totalWeeks)
 }
 
+/**
+ * Resolves the editable current-week fields through one rule shared by every settings surface.
+ * In automatic mode the date is the only source of truth; otherwise the manual value is kept.
+ */
+fun resolveScheduleCurrentWeek(
+    baseConfig: ScheduleConfigEntity,
+    totalWeeks: Int,
+    manualCurrentWeek: Int,
+    termStartDate: String?,
+    autoCurrentWeek: Boolean
+): Int {
+    val safeTotal = totalWeeks.coerceIn(1, 60)
+    val safeManual = manualCurrentWeek.coerceIn(1, safeTotal)
+    if (!autoCurrentWeek || parseScheduleDate(termStartDate) == null) return safeManual
+    return effectiveCurrentWeek(
+        baseConfig.copy(
+            totalWeeks = safeTotal,
+            currentWeek = safeManual,
+            termStartDate = termStartDate?.trim()?.ifBlank { null },
+            autoCurrentWeek = true
+        )
+    ).coerceIn(1, safeTotal)
+}
+
 fun isBeforeScheduleTerm(config: ScheduleConfigEntity, today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))): Boolean {
     if (!config.autoCurrentWeek || config.termStartDate.isNullOrBlank()) return false
     val startDate = parseScheduleDate(config.termStartDate) ?: return false
     return today.isBefore(startDate)
+}
+
+fun scheduleTermEndDate(config: ScheduleConfigEntity): LocalDate? {
+    if (!config.autoCurrentWeek || config.termStartDate.isNullOrBlank()) return null
+    val startDate = parseScheduleDate(config.termStartDate) ?: return null
+    val firstWeekMonday = startDate.minusDays((startDate.dayOfWeek.toChineseWeekday() - 1).toLong())
+    return firstWeekMonday.plusWeeks(config.totalWeeks.coerceAtLeast(1).toLong()).minusDays(1)
+}
+
+fun isAfterScheduleTerm(
+    config: ScheduleConfigEntity,
+    today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+): Boolean = scheduleTermEndDate(config)?.let(today::isAfter) == true
+
+/** Returns null outside the actual teaching-term date range instead of folding into week 1/N. */
+fun scheduleWeekForDateOrNull(config: ScheduleConfigEntity, date: LocalDate): Int? {
+    if (!config.autoCurrentWeek || config.termStartDate.isNullOrBlank()) {
+        return effectiveCurrentWeek(config, date)
+    }
+    val startDate = parseScheduleDate(config.termStartDate) ?: return effectiveCurrentWeek(config, date)
+    val endDate = scheduleTermEndDate(config) ?: return effectiveCurrentWeek(config, date)
+    if (date.isBefore(startDate) || date.isAfter(endDate)) return null
+    val firstWeekMonday = startDate.minusDays((startDate.dayOfWeek.toChineseWeekday() - 1).toLong())
+    return (ChronoUnit.DAYS.between(firstWeekMonday, date) / 7L + 1L).toInt()
+        .takeIf { it in 1..config.totalWeeks.coerceAtLeast(1) }
+}
+
+fun scheduleDayNavigationRange(
+    config: ScheduleConfigEntity,
+    today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+): ClosedRange<LocalDate>? {
+    if (!config.autoCurrentWeek || config.termStartDate.isNullOrBlank()) return null
+    val start = parseScheduleDate(config.termStartDate) ?: return null
+    val end = scheduleTermEndDate(config) ?: return null
+    // Before/after the semester the current date remains a useful empty landing page, but users
+    // cannot keep paging farther away and accidentally expose a clamped first/last teaching week.
+    return minOf(today, start)..maxOf(today, end)
 }
 
 fun scheduleWeekStartDate(

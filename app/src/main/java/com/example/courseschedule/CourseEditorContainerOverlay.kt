@@ -63,7 +63,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
@@ -88,135 +87,6 @@ private val CourseEditorSettleEasing = CubicBezierEasing(0.24f, 0.0f, 0.30f, 1.0
 private const val CourseEditorOpenDurationMillis = 340
 private const val CourseEditorCloseDurationMillis = 350
 
-@Composable
-internal fun MirroredEdgeSnapshot(
-    bitmap: Bitmap,
-    insetFraction: Float,
-    blurPx: Float,
-    alphaProvider: () -> Float,
-    modifier: Modifier = Modifier
-) {
-    val shader = remember(bitmap) {
-        BitmapShader(bitmap, Shader.TileMode.MIRROR, Shader.TileMode.MIRROR)
-    }
-    val paint = remember(shader) {
-        Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
-            this.shader = shader
-        }
-    }
-    Box(
-        modifier = modifier
-            .graphicsLayer {
-                this.alpha = alphaProvider().coerceIn(0f, 1f)
-                renderEffect = if (blurPx > 0.01f) {
-                    RenderEffect.createBlurEffect(
-                        blurPx,
-                        blurPx,
-                        Shader.TileMode.CLAMP
-                    ).asComposeRenderEffect()
-                } else {
-                    null
-                }
-            }
-            .drawWithCache {
-                val insetX = size.width * insetFraction.coerceIn(0f, 0.49f)
-                val insetY = size.height * insetFraction.coerceIn(0f, 0.49f)
-                val shaderMatrix = Matrix().apply {
-                    setRectToRect(
-                        RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat()),
-                        RectF(insetX, insetY, size.width - insetX, size.height - insetY),
-                        Matrix.ScaleToFit.FILL
-                    )
-                }
-                shader.setLocalMatrix(shaderMatrix)
-                onDrawBehind {
-                    drawContext.canvas.nativeCanvas.drawRect(
-                        0f,
-                        0f,
-                        size.width,
-                        size.height,
-                        paint
-                    )
-                }
-            }
-    )
-}
-
-/**
- * The single frozen-home background used by every card-to-overlay Morph.
- * Keeping this here prevents Agent/editor variants from drifting in blur timing, edge fill,
- * corner feathering, or scale geometry.
- */
-@Composable
-internal fun MorphSnapshotBackground(
-    bitmap: Bitmap,
-    backgroundScale: Float,
-    modifier: Modifier = Modifier
-) {
-    val density = LocalDensity.current
-    val scale = backgroundScale.coerceIn(0.92f, 1f)
-    val blurProgress = ((1f - scale) / 0.08f).coerceIn(0f, 1f)
-    val blurPx = blurProgress * 12f * density.density
-    val edgeFillBlurPx = 12f * density.density
-    val backgroundCorner = (24f * blurProgress).dp
-
-    Box(modifier) {
-        MirroredEdgeSnapshot(
-            bitmap = bitmap,
-            insetFraction = 0.04f,
-            blurPx = edgeFillBlurPx,
-            // The center snapshot starts shrinking on the first non-zero frame. Its rounded clear
-            // must always reveal an opaque blurred edge, never a partially transparent black gap.
-            alphaProvider = { 1f },
-            modifier = Modifier.fillMaxSize()
-        )
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = null,
-            contentScale = ContentScale.FillBounds,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    renderEffect = if (blurPx > 0.01f) {
-                        RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP)
-                            .asComposeRenderEffect()
-                    } else null
-                }
-                .drawWithContent {
-                    drawContent()
-                    if (blurProgress > 0.001f) {
-                        val radiusPx = backgroundCorner.toPx()
-                        val outside = Path().apply {
-                            fillType = PathFillType.EvenOdd
-                            addRect(Rect(0f, 0f, size.width, size.height))
-                            addRoundRect(
-                                RoundRect(
-                                    rect = Rect(0f, 0f, size.width, size.height),
-                                    cornerRadius = CornerRadius(radiusPx, radiusPx)
-                                )
-                            )
-                        }
-                        drawPath(outside, Color.Black, blendMode = BlendMode.Clear)
-
-                        val featherPx = 18.dp.toPx() * blurProgress
-                        val featherSteps = 10
-                        repeat(featherSteps) { index ->
-                            val linear = 1f - index / featherSteps.toFloat()
-                            val remaining = linear * linear * (3f - 2f * linear)
-                            drawRoundRect(
-                                color = Color.Black.copy(alpha = 0.115f),
-                                cornerRadius = CornerRadius(radiusPx, radiusPx),
-                                style = Stroke(width = featherPx * 2f * remaining),
-                                blendMode = BlendMode.DstOut
-                            )
-                        }
-                    }
-                }
-        )
-    }
-}
 
 enum class CourseEditorOverlayPhase {
     Idle,
@@ -240,10 +110,10 @@ fun rememberCourseEditorMotionState(): CourseEditorMotionState = remember { Cour
 data class CourseEditorOverlayRequest(
     val course: CourseEntity,
     val targetWeek: Int?,
-    val sourceBoundsInRoot: Rect?,
-    val backgroundSnapshot: Bitmap? = null,
-    val sourceCardSnapshot: Bitmap? = null
+    val sourceBoundsInRoot: Rect?
 )
+
+
 
 /**
  * An elliptically compensated outline that still advertises itself as CornerBasedShape, which is
@@ -306,14 +176,13 @@ fun CourseEditorContainerOverlayHost(
 ) {
     var renderedRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
+    var editorContentMounted by remember { mutableStateOf(false) }
+    var editorContentReady by remember { mutableStateOf(false) }
     val progress = motionState.progress
-    val backgroundScale = remember { Animatable(1f) }
-    var closeDurationMillis by remember { mutableStateOf(DETAIL_SYSTEM_BACK_DURATION) }
-    var deferredCompletion by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val editorContentAlpha = remember { Animatable(0f) }
+    val editorContentReveal = remember { Animatable(0f) }
     val latestOnRenderedCourseIdChange by rememberUpdatedState(onRenderedCourseIdChange)
     val latestOnPhaseChange by rememberUpdatedState(onPhaseChange)
-    val latestOnSave by rememberUpdatedState(onSave)
-    val latestOnDelete by rememberUpdatedState(onDelete)
 
     fun updatePhase(phase: CourseEditorOverlayPhase) {
         motionState.phase = phase
@@ -324,61 +193,74 @@ fun CourseEditorContainerOverlayHost(
         if (request != null) {
             updatePhase(CourseEditorOverlayPhase.Preparing)
             renderedRequest = request
+            editorContentAlpha.snapTo(1f)
+            editorContentReveal.snapTo(1f)
             latestOnRenderedCourseIdChange(request.course.id)
             progress.snapTo(0f)
-            backgroundScale.snapTo(1f)
-            while (rootSize.width <= 0 || rootSize.height <= 0) withFrameNanos { }
-            // One frame is enough to precompose/measure the final-size editor. The previous two
-            // unconditional frames were added before the real content got its progress-delayed
-            // alpha and created a visible pause after tapping. Geometry and the frozen background
-            // now start together on the next frame; the source snapshot covers the editor while
-            // its heavier content finishes warming behind it.
-            withFrameNanos { }
-            updatePhase(CourseEditorOverlayPhase.Opening)
-            coroutineScope {
-                launch {
-                    backgroundScale.animateTo(
-                        0.92f,
-                        tween(BACKGROUND_OPEN_DURATION, easing = BackgroundOpenEasing)
-                    )
-                }
-                launch {
-                    progress.animateTo(
-                        1f,
-                        tween(DETAIL_OPEN_DURATION, easing = DetailOpenEasing)
-                    )
-                }
+            editorContentReady = false
+            editorContentMounted = true
+            var waitedFrames = 0
+            while (waitedFrames < 12 && (rootSize.width <= 0 || rootSize.height <= 0 || !editorContentReady)) {
+                withFrameNanos { }
+                waitedFrames++
             }
+            updatePhase(CourseEditorOverlayPhase.Opening)
+            progress.animateTo(
+                targetValue = 1f,
+                animationSpec = keyframes {
+                    durationMillis = CourseEditorOpenDurationMillis
+                    0f at 0 using CourseEditorPrimaryEasing
+                    1.018f at 286 using CourseEditorSettleEasing
+                    1f at CourseEditorOpenDurationMillis
+                }
+            )
             updatePhase(CourseEditorOverlayPhase.Open)
         } else if (renderedRequest != null) {
             updatePhase(CourseEditorOverlayPhase.Closing)
-            coroutineScope {
-                launch {
-                    backgroundScale.animateTo(
-                        1f,
-                        tween(BACKGROUND_EXIT_DURATION, easing = BackgroundExitEasing)
-                    )
+            if (editorContentMounted) {
+                kotlinx.coroutines.coroutineScope {
+                    launch {
+                        editorContentReveal.animateTo(
+                            targetValue = 0f,
+                            animationSpec = tween(120, easing = CubicBezierEasing(0.22f, 0f, 0.18f, 1f))
+                        )
+                    }
+                    launch {
+                        editorContentAlpha.animateTo(
+                            targetValue = 0f,
+                            animationSpec = tween(90, easing = CubicBezierEasing(0.22f, 0f, 0.18f, 1f))
+                        )
+                    }
                 }
-                launch {
-                    progress.animateTo(
-                        0f,
-                        tween(closeDurationMillis, easing = DetailExitEasing)
-                    )
-                }
+                editorContentMounted = false
+                editorContentReady = false
+                withFrameNanos { }
+            } else {
+                editorContentReveal.snapTo(0f)
+                editorContentAlpha.snapTo(0f)
+                editorContentReady = false
             }
+            progress.animateTo(
+                targetValue = 0f,
+                animationSpec = keyframes {
+                    durationMillis = CourseEditorCloseDurationMillis
+                    1f at 0 using CourseEditorPrimaryEasing
+                    -0.012f at 296 using CourseEditorSettleEasing
+                    0f at CourseEditorCloseDurationMillis
+                }
+            )
             updatePhase(CourseEditorOverlayPhase.Disposing)
             renderedRequest = null
             latestOnRenderedCourseIdChange(null)
-            closeDurationMillis = DETAIL_SYSTEM_BACK_DURATION
             updatePhase(CourseEditorOverlayPhase.Idle)
-            deferredCompletion?.also { completion ->
-                deferredCompletion = null
-                completion()
-            }
         } else {
-            if (motionState.phase != CourseEditorOverlayPhase.Idle || renderedRequest != null) {
+            if (motionState.phase != CourseEditorOverlayPhase.Idle || editorContentMounted || renderedRequest != null) {
                 updatePhase(CourseEditorOverlayPhase.Disposing)
             }
+            editorContentMounted = false
+            editorContentReady = false
+            editorContentAlpha.snapTo(0f)
+            editorContentReveal.snapTo(0f)
             latestOnRenderedCourseIdChange(null)
             if (motionState.phase != CourseEditorOverlayPhase.Idle) {
                 updatePhase(CourseEditorOverlayPhase.Idle)
@@ -395,28 +277,15 @@ fun CourseEditorContainerOverlayHost(
             periods = state.periods
         )
     }
-    fun dismiss(useToolbarDuration: Boolean) {
-        if (motionState.phase == CourseEditorOverlayPhase.Closing || motionState.phase == CourseEditorOverlayPhase.Disposing) return
-        closeDurationMillis = if (useToolbarDuration) DETAIL_TOOLBAR_BACK_DURATION else DETAIL_SYSTEM_BACK_DURATION
+    val saveEditedCourse = remember(shownRequest.course, shownRequest.targetWeek, onSave) {
+        { edited: CourseEntity -> onSave(shownRequest.course, edited, shownRequest.targetWeek) }
+    }
+    val deleteEditedCourse = remember(shownRequest.targetWeek, onDelete) {
+        { deleteCourse: CourseEntity -> onDelete(deleteCourse, shownRequest.targetWeek) }
+    }
+    BackHandler(enabled = isOverlayActive) {
         onDismissRequest()
     }
-    val saveEditedCourse: (CourseEntity) -> Unit = { edited ->
-        if (deferredCompletion == null) {
-            deferredCompletion = {
-                latestOnSave(shownRequest.course, edited, shownRequest.targetWeek)
-            }
-            dismiss(useToolbarDuration = true)
-        }
-    }
-    val deleteEditedCourse: (CourseEntity) -> Unit = { deleteCourse ->
-        if (deferredCompletion == null) {
-            deferredCompletion = {
-                latestOnDelete(deleteCourse, shownRequest.targetWeek)
-            }
-            dismiss(useToolbarDuration = true)
-        }
-    }
-    BackHandler(enabled = isOverlayActive) { dismiss(useToolbarDuration = false) }
 
     val density = LocalDensity.current
     val targetRect = remember(rootSize, density) {
@@ -443,123 +312,113 @@ fun CourseEditorContainerOverlayHost(
 
     val validSource = validSourceRect(shownRequest.sourceBoundsInRoot, rootSize)
     val sourceRect = validSource ?: targetRect
-    val p = progress.value.coerceIn(0f, 1f)
-    val initialScaleX = (sourceRect.width / targetRect.width).coerceAtLeast(0.001f)
-    val initialScaleY = (sourceRect.height / targetRect.height).coerceAtLeast(0.001f)
-    val scaleX = initialScaleX + (1f - initialScaleX) * p
-    val scaleY = initialScaleY + (1f - initialScaleY) * p
-    val translationX = (sourceRect.left - targetRect.left) * (1f - p)
-    val translationY = (sourceRect.top - targetRect.top) * (1f - p)
+    val hasSourceTransform = validSource != null
+    val motionProgress = progress.value.coerceIn(-0.035f, 1.045f)
+    val alphaProgress = progress.value.coerceIn(0f, 1f)
+    val animatedRect = interpolateRectUnbounded(sourceRect, targetRect, motionProgress)
+    val animatedModifier = Modifier
+        .offset {
+            IntOffset(
+                animatedRect.left.roundToInt(),
+                animatedRect.top.roundToInt()
+            )
+        }
+        .size(
+            width = with(density) { animatedRect.width.toDp() },
+            height = with(density) { animatedRect.height.toDp() }
+        )
     val sourceCornerPx = remember(sourceRect, density) {
         with(density) { if (sourceRect.width >= 220.dp.toPx()) 24.dp.toPx() else 8.dp.toPx() }
     }
-    val targetCornerPx = with(density) { 32.dp.toPx() }
-    val visualCornerPx = sourceCornerPx + (targetCornerPx - sourceCornerPx) * p
-    val morphShape = remember(visualCornerPx, scaleX, scaleY) {
-        CourseEditorMorphCornerShape(
-            radiusX = visualCornerPx / scaleX.coerceAtLeast(0.001f),
-            radiusY = visualCornerPx / scaleY.coerceAtLeast(0.001f)
-        )
+    val corner = with(density) {
+        interpolateFloatUnbounded(sourceCornerPx, 32.dp.toPx(), motionProgress)
+            .coerceIn(6.dp.toPx(), 36.dp.toPx())
+            .toDp()
     }
-    val contentAlpha = ((p - 0.1f) / 0.5f).coerceIn(0f, 1f)
-    val sourceCoverAlpha = (1f - p * 3f).coerceIn(0f, 1f)
+    // The source shell and the real form must hand off with one shared opacity curve.
+    // Keeping the form fully opaque underneath the fading source was most visible for
+    // wide day-view cards: both text layouts were composited for several frames and the
+    // form appeared to flicker into place. Make the two layers complementary instead.
+    val openingContentHandoff = smoothStep(0.10f, 0.46f, alphaProgress)
+    val contentAlpha = if (editorContentMounted) {
+        editorContentAlpha.value * when (overlayPhase) {
+            CourseEditorOverlayPhase.Preparing,
+            CourseEditorOverlayPhase.Opening -> openingContentHandoff
+            else -> 1f
+        }
+    } else {
+        0f
+    }
+    val contentReveal = if (editorContentMounted) editorContentReveal.value.coerceIn(0f, 1f) else 0f
+    val morphSurfaceAlpha = 1f
+    val sourceCoverAlpha = if (hasSourceTransform) {
+        when (overlayPhase) {
+            CourseEditorOverlayPhase.Preparing,
+            CourseEditorOverlayPhase.Opening -> 1f - smoothStep(0.10f, 0.46f, alphaProgress)
+            CourseEditorOverlayPhase.Closing,
+            CourseEditorOverlayPhase.Disposing -> 1f - smoothStep(0.28f, 0.66f, alphaProgress)
+            else -> 0f
+        }
+    } else 0f
     val editorFormBackdrop = backdrop
     val textColor = glassForegroundColor(config)
-    // The morph window itself scales independently on X/Y, but the live glass must remain in
-    // final-screen coordinates. Fully invert both the scale and translation so the moving clip
-    // reveals a stationary backdrop instead of stretching or zooming it. This is required for
-    // both tall cards and short/wide cards; a uniform max-axis scale only fixed the tall case.
-    val glassCounterScaleX = 1f / scaleX.coerceAtLeast(0.001f)
-    val glassCounterScaleY = 1f / scaleY.coerceAtLeast(0.001f)
-    val glassCounterTranslationX = -translationX / scaleX.coerceAtLeast(0.001f)
-    val glassCounterTranslationY = -translationY / scaleY.coerceAtLeast(0.001f)
+    val revealPath = remember { Path() }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .onSizeChanged { rootSize = it }
     ) {
-        shownRequest.backgroundSnapshot?.let { background ->
-            MorphSnapshotBackground(
-                bitmap = background,
-                backgroundScale = backgroundScale.value,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
         Box(
-            Modifier
+            modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = (p * 0.5f).coerceIn(0f, 0.5f)))
                 .clickable(
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() }
-                ) { dismiss(useToolbarDuration = false) }
+                ) { onDismissRequest() }
         )
-        Box(
-            modifier = Modifier
-                .offset { IntOffset(targetRect.left.roundToInt(), targetRect.top.roundToInt()) }
-                .size(
-                    width = with(density) { targetRect.width.toDp() },
-                    height = with(density) { targetRect.height.toDp() }
-                )
-                .graphicsLayer {
-                    transformOrigin = TransformOrigin(0f, 0f)
-                    this.scaleX = scaleX
-                    this.scaleY = scaleY
-                    this.translationX = translationX
-                    this.translationY = translationY
-                }
-                .clip(morphShape)
+        CourseEditorAnimatedContainer(
+            backdrop = backdrop,
+            config = config,
+            course = shownRequest.course,
+            corner = corner,
+            progress = alphaProgress,
+            alpha = morphSurfaceAlpha,
+            modifier = animatedModifier
         ) {
-            // Render the liquid editor once at its final, stationary coordinates and transform
-            // that composed layer as a whole. Passing the moving morph shape directly into
-            // drawBackdrop makes its wallpaper sample window move every frame, producing the
-            // impression that the wallpaper is sliced and dragged inside the glass.
-            CourseEditorAnimatedContainer(
-                backdrop = backdrop,
-                config = config,
-                course = shownRequest.course,
-                shape = RoundedCornerShape(32.dp),
-                progress = 1f,
-                alpha = 1f,
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        // Keep the real glass locked to its final coordinates while only the outer
-                        // clip window morphs from the source card rectangle.
-                        transformOrigin = TransformOrigin(0f, 0f)
-                        this.scaleX = glassCounterScaleX
-                        this.scaleY = glassCounterScaleY
-                        this.translationX = glassCounterTranslationX
-                        this.translationY = glassCounterTranslationY
-                    }
+                    .clip(RoundedCornerShape(corner))
             ) {
-                Box(Modifier.fillMaxSize()) {
-                    Box(Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }) {
-                        CompositionLocalProvider(LocalContentColor provides textColor) {
-                            NormalizedCourseEditorScreen(
-                                formData = formData,
-                                initialCourse = shownRequest.course,
-                                onCancel = { dismiss(useToolbarDuration = true) },
-                                onSave = saveEditedCourse,
-                                onDelete = deleteEditedCourse,
-                                backdrop = editorFormBackdrop
-                            )
-                        }
-                    }
+                if (editorContentMounted) {
+                    CourseEditorScaledContentLayer(
+                        animatedRect = animatedRect,
+                        targetRect = targetRect,
+                        contentAlpha = contentAlpha,
+                        contentReveal = contentReveal,
+                        revealPath = revealPath,
+                        textColor = textColor,
+                        formData = formData,
+                        course = shownRequest.course,
+                        backdrop = editorFormBackdrop,
+                        onContentLaidOut = { editorContentReady = true },
+                        onDismissRequest = onDismissRequest,
+                        onSave = saveEditedCourse,
+                        onDelete = deleteEditedCourse
+                    )
                 }
-            }
-            if (shownRequest.sourceCardSnapshot != null && sourceCoverAlpha > 0.001f) {
-                // Keep the source pixels on the geometry transform only. They must remain an
-                // exact FillBounds match and must not inherit the glass counter-scale above.
-                Image(
-                    bitmap = shownRequest.sourceCardSnapshot.asImageBitmap(),
-                    contentDescription = null,
-                    contentScale = ContentScale.FillBounds,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = sourceCoverAlpha }
-                )
+                if (sourceCoverAlpha > 0.001f) {
+                    CourseEditorSourceShell(
+                        course = shownRequest.course,
+                        backdrop = backdrop,
+                        config = config,
+                        sourceIsWide = sourceRect.width >= with(density) { 220.dp.toPx() },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = sourceCoverAlpha }
+                    )
+                }
             }
         }
     }
@@ -585,7 +444,10 @@ private fun CourseEditorScaledContentLayer(
         return
     }
     val density = LocalDensity.current
-    val scale = maxOf(
+    // Fit the complete target form inside the animated glass shell. maxOf() behaved like
+    // ContentScale.Crop: a narrow/tall week card chose the height ratio and permanently cut both
+    // sides of the editor while it expanded. minOf() is the equivalent of ContentScale.Fit.
+    val scale = minOf(
         animatedRect.width / targetRect.width,
         animatedRect.height / targetRect.height
     ).coerceAtLeast(0.001f)
@@ -652,20 +514,19 @@ private fun CourseEditorAnimatedContainer(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     course: CourseEntity,
-    shape: Shape,
+    corner: androidx.compose.ui.unit.Dp,
     progress: Float,
     alpha: Float,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    val shape = RoundedCornerShape(corner)
     val finalDialogBlur = 10f
     val editorBlur = interpolateFloat(
         config.courseCardBlur,
         finalDialogBlur,
         smoothStep(0.62f, 1f, progress)
     )
-    val lightGlass = glassUsesLightStyle(config)
-    val dialogMaskAlpha = (if (lightGlass) 0.12f else 0.20f) * smoothStep(0.42f, 1f, progress)
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
@@ -675,13 +536,6 @@ private fun CourseEditorAnimatedContainer(
         blurOverride = editorBlur
     ) {
         Box(Modifier.fillMaxSize()) {
-            if (dialogMaskAlpha > 0.001f) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = dialogMaskAlpha))
-                )
-            }
             content()
         }
     }
@@ -765,14 +619,11 @@ private fun CourseEditorDaySourceContent(
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
         else readableOn(cardColor)
-    val scale = config.courseCardFontScale.coerceIn(0.80f, 1.35f)
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             course.name,
-            style = MaterialTheme.typography.titleMedium.scaledCourseEditorSourceStyle(scale),
-            color = textColor,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
+            style = MaterialTheme.typography.titleMedium,
+            color = textColor
         )
         course.location?.takeIf { it.isNotBlank() }?.let {
             Text(
@@ -785,6 +636,14 @@ private fun CourseEditorDaySourceContent(
         course.teacher?.takeIf { it.isNotBlank() }?.let {
             Text(
                 "教师：" + it,
+                color = textColor.copy(alpha = 0.86f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        course.note?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                "备注：" + it,
                 color = textColor.copy(alpha = 0.86f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -955,18 +814,21 @@ private fun CourseEditorWeekSourceContent(
     }
 }
 
-private fun TextStyle.scaledCourseEditorSourceStyle(scale: Float): TextStyle {
-    val safeScale = scale.coerceIn(0.80f, 1.35f)
-    val scaledFontSize = if (fontSize == TextUnit.Unspecified) fontSize else (fontSize.value * safeScale).sp
-    val scaledLineHeight = if (lineHeight == TextUnit.Unspecified) lineHeight else (lineHeight.value * safeScale).sp
-    return copy(fontSize = scaledFontSize, lineHeight = scaledLineHeight)
-}
-
 private fun validSourceRect(rect: Rect?, rootSize: IntSize): Rect? {
     if (rect == null || rect.width <= 2f || rect.height <= 2f) return null
     if (rootSize.width <= 0 || rootSize.height <= 0) return null
     val root = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
-    return if (rect.overlaps(root)) rect else null
+    if (!rect.overlaps(root)) return null
+    // The full-screen snapshot is clipped to the Compose root. Keep the Morph geometry on the
+    // exact same clipped rectangle; otherwise a partially off-screen card produces a smaller
+    // bitmap that is stretched back over its original, larger bounds on the first/last frame.
+    val clipped = Rect(
+        left = maxOf(rect.left, root.left),
+        top = maxOf(rect.top, root.top),
+        right = minOf(rect.right, root.right),
+        bottom = minOf(rect.bottom, root.bottom)
+    )
+    return clipped.takeIf { it.width > 2f && it.height > 2f }
 }
 
 private fun interpolateRectUnbounded(start: Rect, stop: Rect, fraction: Float): Rect {

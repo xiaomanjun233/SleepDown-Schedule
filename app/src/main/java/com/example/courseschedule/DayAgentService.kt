@@ -13,6 +13,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.sync.Mutex
@@ -65,6 +66,19 @@ object DayAgentPreferences {
             .putBoolean("weather_enabled", weatherEnabled)
             .apply()
         mutableChanges.value += 1
+    }
+
+    fun getAppliedActions(context: Context, scheduleId: Int): Set<String> {
+        return prefs(context).getStringSet("applied_actions_$scheduleId", emptySet()) ?: emptySet()
+    }
+
+    fun markActionApplied(context: Context, scheduleId: Int, actionKey: String) {
+        val existing = getAppliedActions(context, scheduleId).toMutableSet()
+        if (existing.add(actionKey)) {
+            prefs(context).edit()
+                .putStringSet("applied_actions_$scheduleId", existing)
+                .apply()
+        }
     }
 
     private fun prefs(context: Context) = context.getSharedPreferences(Prefs, Context.MODE_PRIVATE)
@@ -200,7 +214,7 @@ class DayAgentService(private val context: Context) {
         require(settings.apiKey.isNotBlank()) { "请先在 AI 设置中配置 API Key" }
         val messages = buildList {
             add("system" to DayAgentPrompts.ChatSystem)
-            add("system" to AgentSettingRegistry.promptCatalog())
+            add("system" to AgentSettingRegistry.promptCatalog(facts.periodDefinitions))
             add("system" to conversationContext(facts))
             if (needsSemesterCourseContext(question)) {
                 add("system" to semesterCourseContext(facts))
@@ -295,14 +309,17 @@ class DayAgentRepository(private val context: Context) {
 
     fun observeSession(scheduleId: Int, date: LocalDate): Flow<AgentDailySessionEntity?> {
         val key = "$scheduleId:$date"
-        return dao.observeSession(scheduleId, date.toString()).onEach { session ->
-            if (session != null) sessionCache[key] = session
-        }
+        return dao.observeSession(scheduleId, date.toString())
+            .distinctUntilChanged()
+            .onEach { session ->
+                if (session != null) sessionCache[key] = session
+            }
     }
 
     fun cachedSession(scheduleId: Int, date: LocalDate): AgentDailySessionEntity? = sessionCache["$scheduleId:$date"]
 
-    fun observeMessages(scheduleId: Int, date: LocalDate): Flow<List<AgentMessageEntity>> = dao.observeMessages(scheduleId, date.toString())
+    fun observeMessages(scheduleId: Int, date: LocalDate): Flow<List<AgentMessageEntity>> =
+        dao.observeMessages(scheduleId, date.toString()).distinctUntilChanged()
 
     suspend fun cleanup(today: LocalDate) {
         val oldest = today.minusDays(2).toString()

@@ -114,7 +114,7 @@ data class AiProviderProfile(
 )
 
 data class AiImportSettings(
-    val profile: AiProviderProfile = AiProviderPresets.openAI,
+    val profile: AiProviderProfile = AiProviderPresets.none,
     val apiKey: String = ""
 )
 
@@ -570,8 +570,8 @@ object AiImportSettingsStore {
 
     fun load(context: Context): AiImportSettings {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
-        val savedProviderId = prefs.getString(KeyProviderId, AiProviderPresets.openAI.id).orEmpty()
-        val preset = AiProviderPresets.selectable.firstOrNull { it.id == savedProviderId } ?: AiProviderPresets.openAI
+        val savedProviderId = prefs.getString(KeyProviderId, AiProviderPresets.none.id).orEmpty()
+        val preset = AiProviderPresets.selectable.firstOrNull { it.id == savedProviderId } ?: AiProviderPresets.none
         val providerType = runCatching {
             AiProviderType.valueOf(prefs.getString(KeyProviderType, preset.providerType.name).orEmpty())
         }.getOrDefault(preset.providerType)
@@ -652,7 +652,7 @@ object AiImportSettingsStore {
 
     fun clearApiKey(context: Context, providerId: String? = null) {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
-        val currentProviderId = providerId ?: prefs.getString(KeyProviderId, AiProviderPresets.openAI.id).orEmpty()
+        val currentProviderId = providerId ?: prefs.getString(KeyProviderId, AiProviderPresets.none.id).orEmpty()
         context.getSharedPreferences(PrefName, Context.MODE_PRIVATE).edit()
             .remove(apiKeyKey(currentProviderId))
             .apply()

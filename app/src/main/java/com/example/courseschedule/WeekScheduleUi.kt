@@ -275,6 +275,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URLDecoder
@@ -296,6 +298,8 @@ fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardCo
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
+    val now = LocalTime.now(ZoneId.of("Asia/Shanghai"))
+    val currentPeriod = currentTimelinePeriod(state.periods, now)
     val weekBuckets = remember(state.courses, displayWeek) {
         weekCourseBuckets(state.courses, displayWeek)
     }
@@ -343,14 +347,23 @@ fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardCo
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                Text(
-                                    period.periodIndex.toString(),
-                                    fontSize = 13.sp,
-                                    lineHeight = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    color = textColor
-                                )
+                                val isCurrent = currentPeriod?.periodIndex == period.periodIndex
+                                Box(
+                                    modifier = if (isCurrent) Modifier
+                                        .background(ComposeColor(0xFF0A84FF), RoundedCornerShape(5.dp))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    else Modifier,
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        period.periodIndex.toString(),
+                                        fontSize = 13.sp,
+                                        lineHeight = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center,
+                                        color = if (isCurrent) ComposeColor.White else textColor
+                                    )
+                                }
                                 Text(
                                     period.startTime,
                                     fontSize = 10.sp,
@@ -428,6 +441,8 @@ fun SinglePillWeekScheduleScreen(
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
+    val now = LocalTime.now(ZoneId.of("Asia/Shanghai"))
+    val currentPeriod = currentTimelinePeriod(state.periods, now)
     val weekBuckets = remember(state.courses, displayWeek) {
         weekCourseBuckets(state.courses, displayWeek)
     }
@@ -647,14 +662,23 @@ fun SinglePillWeekScheduleScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                    Text(
-                                        period.periodIndex.toString(),
-                                        fontSize = 13.sp,
-                                        lineHeight = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center,
-                                        color = textColor
-                                    )
+                                    val isCurrent = currentPeriod?.periodIndex == period.periodIndex
+                                    Box(
+                                        modifier = if (isCurrent) Modifier
+                                            .background(ComposeColor(0xFF0A84FF), RoundedCornerShape(5.dp))
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        else Modifier,
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            period.periodIndex.toString(),
+                                            fontSize = 13.sp,
+                                            lineHeight = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center,
+                                            color = if (isCurrent) ComposeColor.White else textColor
+                                        )
+                                    }
                                     Text(
                                         period.startTime,
                                         fontSize = 10.sp,
@@ -1113,6 +1137,8 @@ fun LiquidWeekScheduleScreen(
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
+    val now = LocalTime.now(ZoneId.of("Asia/Shanghai"))
+    val currentPeriod = currentTimelinePeriod(state.periods, now)
     val weekBuckets = remember(state.courses, displayWeek) {
         weekCourseBuckets(state.courses, displayWeek)
     }
@@ -1186,14 +1212,23 @@ fun LiquidWeekScheduleScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                Text(
-                                    period.periodIndex.toString(),
-                                    fontSize = 13.sp,
-                                    lineHeight = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    color = textColor
-                                )
+                                val isCurrent = currentPeriod?.periodIndex == period.periodIndex
+                                Box(
+                                    modifier = if (isCurrent) Modifier
+                                        .background(ComposeColor(0xFF0A84FF), RoundedCornerShape(5.dp))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    else Modifier,
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        period.periodIndex.toString(),
+                                        fontSize = 13.sp,
+                                        lineHeight = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center,
+                                        color = if (isCurrent) ComposeColor.White else textColor
+                                    )
+                                }
                                 Text(
                                     period.startTime,
                                     fontSize = 10.sp,
