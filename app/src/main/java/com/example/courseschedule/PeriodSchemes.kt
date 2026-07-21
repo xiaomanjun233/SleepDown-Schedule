@@ -4,7 +4,14 @@ import androidx.compose.runtime.Immutable
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-enum class PeriodDayPart { MORNING, AFTERNOON, EVENING }
+enum class PeriodDayPart { MORNING, NOON, AFTERNOON, EVENING }
+
+data class PeriodPartCounts(
+    val morning: Int,
+    val noon: Int,
+    val afternoon: Int,
+    val evening: Int
+)
 
 sealed interface PeriodTopologyOperation {
     data class AddAfter(val periodIndex: Int) : PeriodTopologyOperation
@@ -30,37 +37,42 @@ private val PeriodTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 fun ScheduleConfigEntity.periodCount(part: PeriodDayPart): Int = when (part) {
     PeriodDayPart.MORNING -> morningPeriodCount
+    PeriodDayPart.NOON -> noonPeriodCount
     PeriodDayPart.AFTERNOON -> afternoonPeriodCount
     PeriodDayPart.EVENING -> eveningPeriodCount
 }
 
 fun ScheduleConfigEntity.totalPeriodCount(): Int =
-    morningPeriodCount + afternoonPeriodCount + eveningPeriodCount
+    morningPeriodCount + noonPeriodCount + afternoonPeriodCount + eveningPeriodCount
 
 fun ScheduleConfigEntity.periodRange(part: PeriodDayPart): IntRange {
     val morningEnd = morningPeriodCount
-    val afternoonEnd = morningEnd + afternoonPeriodCount
+    val noonEnd = morningEnd + noonPeriodCount
+    val afternoonEnd = noonEnd + afternoonPeriodCount
     return when (part) {
         PeriodDayPart.MORNING -> if (morningEnd > 0) 1..morningEnd else IntRange.EMPTY
-        PeriodDayPart.AFTERNOON -> if (afternoonPeriodCount > 0) (morningEnd + 1)..afternoonEnd else IntRange.EMPTY
+        PeriodDayPart.NOON -> if (noonPeriodCount > 0) (morningEnd + 1)..noonEnd else IntRange.EMPTY
+        PeriodDayPart.AFTERNOON -> if (afternoonPeriodCount > 0) (noonEnd + 1)..afternoonEnd else IntRange.EMPTY
         PeriodDayPart.EVENING -> if (eveningPeriodCount > 0) (afternoonEnd + 1)..totalPeriodCount() else IntRange.EMPTY
     }
 }
 
-fun inferPeriodCounts(periods: List<PeriodEntity>): Triple<Int, Int, Int> {
+fun inferPeriodCounts(periods: List<PeriodEntity>): PeriodPartCounts {
     var morning = 0
+    var noon = 0
     var afternoon = 0
     var evening = 0
     periods.forEach { period ->
         val hour = runCatching { LocalTime.parse(period.startTime).hour }.getOrDefault(8)
         when {
             hour < 12 -> morning++
+            hour < 14 -> noon++
             hour < 18 -> afternoon++
             else -> evening++
         }
     }
-    if (morning + afternoon + evening == 0) morning = periods.size
-    return Triple(morning, afternoon, evening)
+    if (morning + noon + afternoon + evening == 0) morning = periods.size
+    return PeriodPartCounts(morning, noon, afternoon, evening)
 }
 
 fun resolveSchemeTimes(config: ScheduleConfigEntity, draft: PeriodSchemeDraft): List<PeriodSchemeTimeEntity> {
@@ -71,20 +83,30 @@ fun resolveSchemeTimes(config: ScheduleConfigEntity, draft: PeriodSchemeDraft): 
     val normalBreak = draft.scheme.breakDurationMinutes.coerceIn(0, 300)
     val existing = draft.times.associateBy { it.periodIndex }
     val result = mutableListOf<PeriodSchemeTimeEntity>()
+    var previousPartEnd: LocalTime? = null
     PeriodDayPart.entries.forEach { part ->
         val range = config.periodRange(part)
         if (range.isEmpty()) return@forEach
         val startText = when (part) {
             PeriodDayPart.MORNING -> draft.scheme.morningStartTime
+            PeriodDayPart.NOON -> draft.scheme.noonStartTime
             PeriodDayPart.AFTERNOON -> draft.scheme.afternoonStartTime
             PeriodDayPart.EVENING -> draft.scheme.eveningStartTime
         }
         var cursor = runCatching { LocalTime.parse(startText) }.getOrElse {
             when (part) {
                 PeriodDayPart.MORNING -> LocalTime.of(8, 0)
+                PeriodDayPart.NOON -> LocalTime.of(12, 0)
                 PeriodDayPart.AFTERNOON -> LocalTime.of(14, 0)
                 PeriodDayPart.EVENING -> LocalTime.of(19, 0)
             }
+        }
+        // Each day part has an independently configurable start, but the resulting
+        // timetable is still one continuous timeline.  Old drafts (and a picker that
+        // is being edited quickly) can contain an earlier start for a later part.  Do
+        // not let that transient/stored value produce duplicate periods on screen.
+        previousPartEnd?.let { end ->
+            if (cursor.isBefore(end)) cursor = end
         }
         range.forEach { index ->
             val automaticEnd = cursor.plusMinutes(duration)
@@ -98,8 +120,35 @@ fun resolveSchemeTimes(config: ScheduleConfigEntity, draft: PeriodSchemeDraft): 
             val gap = draft.specialBreaks[index] ?: normalBreak
             cursor = automaticEnd.plusMinutes(gap.toLong())
         }
+        previousPartEnd = result.lastOrNull()?.endTime?.let {
+            runCatching { LocalTime.parse(it) }.getOrNull()
+        } ?: previousPartEnd
     }
     return result
+}
+
+/**
+ * Makes the configured day-part starts agree with the effective, non-overlapping
+ * auto-generated timeline.  This is used when the start-time picker is confirmed so
+ * the summary never keeps showing an obsolete value that was pushed forward.
+ */
+fun normalizeAutoSchemeStarts(
+    config: ScheduleConfigEntity,
+    draft: PeriodSchemeDraft
+): PeriodSchemeDraft {
+    if (draft.scheme.mode != PeriodSchemeMode.AUTO_MATCH) return draft
+    val resolved = resolveSchemeTimes(config, draft)
+    val byIndex = resolved.associateBy { it.periodIndex }
+    fun firstStart(part: PeriodDayPart, fallback: String): String =
+        config.periodRange(part).firstOrNull()?.let { byIndex[it]?.startTime } ?: fallback
+    val normalizedScheme = draft.scheme.copy(
+        morningStartTime = firstStart(PeriodDayPart.MORNING, draft.scheme.morningStartTime),
+        noonStartTime = firstStart(PeriodDayPart.NOON, draft.scheme.noonStartTime),
+        afternoonStartTime = firstStart(PeriodDayPart.AFTERNOON, draft.scheme.afternoonStartTime),
+        eveningStartTime = firstStart(PeriodDayPart.EVENING, draft.scheme.eveningStartTime)
+    )
+    val normalized = draft.copy(scheme = normalizedScheme)
+    return normalized.copy(times = resolveSchemeTimes(config, normalized))
 }
 
 fun encodeSpecialBreaks(value: Map<Int, Int>): String =

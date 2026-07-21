@@ -138,6 +138,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -181,6 +185,7 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -387,7 +392,7 @@ fun CourseEditorScreen(
 
 @Composable
 fun DialogHeader(title: String, onCancel: () -> Unit, onSave: () -> Unit, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig()) {
-    LiquidDialogHeader(title, onCancel, backdrop, config, onConfirm = onSave)
+    LiquidDialogHeader(title, onCancel, backdrop, config, buttonBlurRadius = 8.dp, onConfirm = onSave)
 }
 
 @Composable
@@ -435,10 +440,11 @@ fun NormalizedCourseEditorScreen(
     onDelete: (CourseEntity) -> Unit,
     backdrop: Backdrop?
 ) {
-    val formData = remember(state.config, state.periods) {
+    val formData = remember(state.config, state.periods, state.courses) {
         CourseEditorFormData(
             config = state.config,
-            periods = state.periods
+            periods = state.periods,
+            courses = state.courses
         )
     }
     NormalizedCourseEditorScreen(
@@ -454,9 +460,65 @@ fun NormalizedCourseEditorScreen(
 @Immutable
 data class CourseEditorFormData(
     val config: ScheduleConfigEntity,
-    val periods: List<PeriodEntity>
+    val periods: List<PeriodEntity>,
+    val courses: List<CourseEntity> = emptyList()
 )
 
+private data class CourseEditorDraft(
+    val name: String,
+    val teacher: String,
+    val location: String,
+    val weekday: Int,
+    val periodStart: Int,
+    val periodEnd: Int,
+    val weekStart: Int,
+    val weekEnd: Int,
+    val parity: WeekParity,
+    val note: String
+)
+
+private data class CourseEditorPickerRequest(
+    val title: String,
+    val labels: List<String>,
+    val startIndex: Int,
+    val endIndex: Int? = null,
+    val onConfirm: (Int, Int?) -> Unit
+)
+
+private fun courseEditorDraft(
+    course: CourseEntity?,
+    periodValues: List<Int>,
+    totalWeeks: Int
+) = CourseEditorDraft(
+    name = course?.name.orEmpty(),
+    teacher = course?.teacher.orEmpty(),
+    location = course?.location.orEmpty(),
+    weekday = course?.weekday ?: 1,
+    periodStart = course?.periods?.minOrNull() ?: (periodValues.firstOrNull() ?: 1),
+    periodEnd = course?.periods?.maxOrNull() ?: (periodValues.firstOrNull() ?: 1),
+    weekStart = course?.weeks?.minOrNull() ?: 1,
+    weekEnd = course?.weeks?.maxOrNull() ?: totalWeeks.coerceAtLeast(1),
+    parity = course?.weekParity ?: WeekParity.ALL,
+    note = course?.note.orEmpty()
+)
+
+private fun CourseEditorDraft.toCourse(
+    original: CourseEntity?,
+    periodValues: List<Int>
+) = CourseEntity(
+    id = original?.id ?: 0,
+    name = name.trim(),
+    teacher = teacher.ifBlank { null },
+    location = location.ifBlank { null },
+    weekday = weekday,
+    periods = periodValues.filter { it in periodStart..periodEnd },
+    weeks = if (weekStart <= weekEnd) (weekStart..weekEnd).toList() else emptyList(),
+    weekParity = parity,
+    note = note.ifBlank { null },
+    scheduleId = original?.scheduleId ?: 0
+)
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NormalizedCourseEditorScreen(
     formData: CourseEditorFormData,
@@ -464,108 +526,436 @@ fun NormalizedCourseEditorScreen(
     onCancel: () -> Unit,
     onSave: (CourseEntity) -> Unit,
     onDelete: (CourseEntity) -> Unit,
-    backdrop: Backdrop?
+    backdrop: Backdrop?,
+    onSaveWithOriginal: ((CourseEntity, CourseEntity) -> Unit)? = null
 ) {
     val config = formData.config
-    var name by remember(initialCourse) { mutableStateOf(initialCourse?.name.orEmpty()) }
-    var teacher by remember(initialCourse) { mutableStateOf(initialCourse?.teacher.orEmpty()) }
-    var location by remember(initialCourse) { mutableStateOf(initialCourse?.location.orEmpty()) }
-    var weekday by remember(initialCourse) { mutableIntStateOf(initialCourse?.weekday ?: 1) }
-    val rawPeriodValues = remember(formData.periods) { formData.periods.map { it.periodIndex } }
-    val coursePeriodValues = initialCourse?.periods.orEmpty()
-    val periodValues = (rawPeriodValues + coursePeriodValues).distinct().sorted()
-    var periodStart by remember(initialCourse, periodValues) { mutableIntStateOf(initialCourse?.periods?.minOrNull() ?: (periodValues.firstOrNull() ?: 1)) }
-    var periodEnd by remember(initialCourse, periodValues) { mutableIntStateOf(initialCourse?.periods?.maxOrNull() ?: periodStart) }
-    var weekStart by remember(initialCourse, config.totalWeeks) { mutableIntStateOf(initialCourse?.weeks?.minOrNull() ?: 1) }
-    var weekEnd by remember(initialCourse, config.totalWeeks) { mutableIntStateOf(initialCourse?.weeks?.maxOrNull() ?: config.totalWeeks) }
-    var parity by remember(initialCourse) { mutableStateOf(initialCourse?.weekParity ?: WeekParity.ALL) }
-    var note by remember(initialCourse) { mutableStateOf(initialCourse?.note.orEmpty()) }
+    val relatedCourses = remember(initialCourse, formData.courses) {
+        if (initialCourse == null) emptyList() else {
+            (formData.courses + initialCourse)
+                .filter { it.scheduleId == initialCourse.scheduleId && it.name.trim() == initialCourse.name.trim() }
+                .distinctBy { it.id }
+                .sortedWith(compareBy<CourseEntity> { it.weekday }.thenBy { it.periods.minOrNull() ?: 0 }.thenBy { it.location.orEmpty() })
+        }
+    }
+    val editorCourses: List<CourseEntity?> = remember(initialCourse, relatedCourses) {
+        if (relatedCourses.isEmpty()) listOf(initialCourse) else relatedCourses
+    }
+    val periodValues = remember(formData.periods, editorCourses) {
+        (formData.periods.map { it.periodIndex } + editorCourses.filterNotNull().flatMap { it.periods }).distinct().sorted()
+    }
+    val initialPage = remember(initialCourse, editorCourses) {
+        editorCourses.indexOfFirst { it?.id == initialCourse?.id }.coerceAtLeast(0)
+    }
+    val pagerState = rememberPagerState(initialPage = initialPage) { editorCourses.size }
+    var drafts by remember(editorCourses, periodValues, config.totalWeeks) {
+        mutableStateOf(editorCourses.associate { course ->
+            (course?.id ?: Long.MIN_VALUE) to courseEditorDraft(course, periodValues, config.totalWeeks)
+        })
+    }
     var error by remember { mutableStateOf<String?>(null) }
-    var periodInputValid by remember(initialCourse, periodValues) { mutableStateOf(true) }
-    var weekInputValid by remember(initialCourse, config.totalWeeks) { mutableStateOf(true) }
-    val selectedPeriods = if (periodStart <= periodEnd) periodValues.filter { it in periodStart..periodEnd } else emptyList()
-    val selectedWeeks = if (weekStart <= weekEnd) (weekStart..weekEnd).toList() else emptyList()
+    var pickerRequest by remember { mutableStateOf<CourseEditorPickerRequest?>(null) }
+    val currentPage = pagerState.currentPage.coerceIn(editorCourses.indices)
 
-    // Do not apply a horizontal inset to the whole list. Horizontal pickers need the
-    // complete glass-shell viewport so their intrinsic-width items can scroll to both
-    // edges; regular form rows opt into the usual 16.dp inset individually.
-    LazyColumn(contentPadding = PaddingValues(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LaunchedEffect(currentPage) { error = null }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            beyondViewportPageCount = 1,
+            pageSpacing = 10.dp,
+            userScrollEnabled = pickerRequest == null,
+            key = { page -> editorCourses[page]?.id ?: Long.MIN_VALUE }
+        ) { page ->
+            val course = editorCourses[page]
+            val key = course?.id ?: Long.MIN_VALUE
+            val draft = drafts.getValue(key)
+            CourseEditorFormPage(
+                course = course,
+                draft = draft,
+                onDraftChange = { drafts = drafts + (key to it); error = null },
+                periodValues = periodValues,
+                totalWeeks = config.totalWeeks.coerceAtLeast(1),
+                config = config,
+                backdrop = backdrop,
+                error = error.takeIf { page == currentPage },
+                onCancel = onCancel,
+                onSave = {
+                    val edited = drafts.getValue(key).toCourse(course, periodValues)
+                    when {
+                        edited.name.isBlank() -> error = "课程名称不能为空"
+                        edited.periods.isEmpty() -> error = "请选择节次"
+                        edited.weeks.isEmpty() -> error = "请选择周次"
+                        course != null && onSaveWithOriginal != null -> onSaveWithOriginal(course, edited)
+                        else -> onSave(edited)
+                    }
+                },
+                onDelete = course?.let { { onDelete(it) } },
+                onOpenPicker = { pickerRequest = it },
+                pageCount = editorCourses.size
+            )
+        }
+        if (editorCourses.size > 1 && pickerRequest == null) {
+            CourseEditorPagerIndicator(
+                pagerState = pagerState,
+                pageCount = editorCourses.size,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .zIndex(20f)
+                    .padding(bottom = 10.dp)
+            )
+        }
+        pickerRequest?.let { request ->
+            CourseEditorPickerOverlay(
+                request = request,
+                backdrop = backdrop,
+                config = config,
+                onDismiss = { pickerRequest = null }
+            )
+        }
+    }
+}
+
+@Composable
+private fun CourseEditorFormPage(
+    course: CourseEntity?,
+    draft: CourseEditorDraft,
+    onDraftChange: (CourseEditorDraft) -> Unit,
+    periodValues: List<Int>,
+    totalWeeks: Int,
+    config: ScheduleConfigEntity,
+    backdrop: Backdrop?,
+    error: String?,
+    onCancel: () -> Unit,
+    onSave: () -> Unit,
+    onDelete: (() -> Unit)?,
+    onOpenPicker: (CourseEditorPickerRequest) -> Unit,
+    pageCount: Int
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = if (pageCount > 1) 52.dp else 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         item(key = "header", contentType = "header") {
             Box(Modifier.padding(horizontal = 16.dp)) {
                 DialogHeader(
-                    title = if (initialCourse == null) "\u6DFB\u52A0\u5355\u8282\u8BFE" else "\u7F16\u8F91\u5355\u8282\u8BFE",
+                    title = if (course == null) "添加单节课" else "编辑单节课",
                     onCancel = onCancel,
                     backdrop = backdrop,
                     config = config,
-                    onSave = {
-                    when {
-                        name.isBlank() -> error = "\u8BFE\u7A0B\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A"
-                        !periodInputValid -> error = "\u8BF7\u5148\u4FEE\u6B63\u8282\u6B21\u8303\u56F4"
-                        !weekInputValid -> error = "\u8BF7\u5148\u4FEE\u6B63\u5468\u6B21\u8303\u56F4"
-                        selectedPeriods.isEmpty() -> error = "\u8BF7\u9009\u62E9\u8282\u6B21"
-                        selectedWeeks.isEmpty() -> error = "\u8BF7\u9009\u62E9\u5468\u6B21"
-                        else -> onSave(
-                            CourseEntity(
-                                id = initialCourse?.id ?: 0,
-                                name = name.trim(),
-                                teacher = teacher.ifBlank { null },
-                                location = location.ifBlank { null },
-                                weekday = weekday,
-                                periods = selectedPeriods,
-                                weeks = selectedWeeks,
-                                weekParity = parity,
-                                note = note.ifBlank { null },
-                                scheduleId = initialCourse?.scheduleId ?: 0
-                            )
-                        )
-                    }
-                    }
+                    onSave = onSave
                 )
             }
         }
-        item(key = "course-name", contentType = "field") { DialogCapsuleField(name, { name = it }, "\u8BFE\u7A0B\u540D\u79F0", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
-        item(key = "teacher", contentType = "field") { DialogCapsuleField(teacher, { teacher = it }, "\u6559\u5E08", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
-        item(key = "location", contentType = "field") { DialogCapsuleField(location, { location = it }, "\u5730\u70B9", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
-        item(key = "weekday", contentType = "picker") { WheelPicker("\u661F\u671F", (1..7).toList(), weekday, { weekday = it }, backdrop, config) { "\u5468" + weekdayLabel(it) } }
-        item(key = "period-range", contentType = "range-picker") {
-            Box(Modifier.padding(horizontal = 16.dp)) {
-                DialogRangePicker(
-                    title = "\u8282\u6B21",
-                    values = periodValues,
-                    start = periodStart,
-                    end = periodEnd,
-                    onStart = { periodStart = it },
-                    onEnd = { periodEnd = it },
-                    backdrop = backdrop,
-                    config = config,
-                    enforceOrderedInput = true,
-                    onInputValidChange = { periodInputValid = it }
-                ) { "\u7B2C" + it + "\u8282" }
+        if (course != null) {
+            item(key = "summary", contentType = "summary") {
+                Text(
+                    listOfNotNull(course.teacher, course.location, "周${weekdayLabel(course.weekday)}", course.periods.takeIf { it.isNotEmpty() }?.let { "第${it.min()}-${it.max()}节" }).joinToString(" · "),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = LocalContentColor.current.copy(alpha = 0.68f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
-        item(key = "week-range", contentType = "range-picker") {
-            Box(Modifier.padding(horizontal = 16.dp)) { DialogRangePicker(
-                title = "\u5468\u6B21",
-                values = remember(config.totalWeeks) { (1..config.totalWeeks).toList() },
-                start = weekStart,
-                end = weekEnd,
-                onStart = { weekStart = it },
-                onEnd = { weekEnd = it },
+        item(key = "course-name", contentType = "field") { DialogCapsuleField(draft.name, { onDraftChange(draft.copy(name = it)) }, "课程名称", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
+        item(key = "teacher", contentType = "field") { DialogCapsuleField(draft.teacher, { onDraftChange(draft.copy(teacher = it)) }, "教师", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
+        item(key = "location", contentType = "field") { DialogCapsuleField(draft.location, { onDraftChange(draft.copy(location = it)) }, "地点", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
+        item(key = "weekday", contentType = "picker") {
+            DialogSingleWheelSelector(
+                title = "星期",
+                values = (1..7).toList(),
+                selected = draft.weekday,
+                onSelected = { onDraftChange(draft.copy(weekday = it)) },
+                onOpenPicker = onOpenPicker,
                 backdrop = backdrop,
-                config = config,
-                enforceOrderedInput = true,
-                onInputValidChange = { weekInputValid = it },
-                invalidRangeMessage = "\u5F53\u524D\u7ED3\u675F\u5468\u65E9\u4E8E\u5F00\u59CB\u5468"
-            ) { "\u7B2C" + it + "\u5468" } }
+                config = config
+            ) { "周" + weekdayLabel(it) }
         }
-        item(key = "parity", contentType = "picker") { WheelPicker("\u5355\u53CC\u5468", WeekParity.entries, parity, { parity = it }, backdrop, config) { parityLabel(it) } }
-        item(key = "note", contentType = "field") { DialogCapsuleField(note, { note = it }, "\u5907\u6CE8", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
-        if (initialCourse != null) {
-            item(key = "delete", contentType = "action") { Box(Modifier.padding(horizontal = 16.dp)) { DialogLiquidButton(backdrop, "\u5220\u9664\u8BFE\u7A0B", { onDelete(initialCourse) }, role = DialogButtonRole.Cancel) } }
+        item(key = "period-range", contentType = "range-picker") {
+            DialogRangeWheelSelector(
+                title = "节次",
+                values = periodValues.ifEmpty { listOf(1) },
+                start = draft.periodStart,
+                end = draft.periodEnd,
+                onRangeSelected = { start, end -> onDraftChange(draft.copy(periodStart = start, periodEnd = end)) },
+                onOpenPicker = onOpenPicker,
+                backdrop = backdrop,
+                config = config
+            ) { "第${it}节" }
+        }
+        item(key = "week-range", contentType = "range-picker") {
+            DialogRangeWheelSelector(
+                title = "周次",
+                values = (1..totalWeeks).toList(),
+                start = draft.weekStart,
+                end = draft.weekEnd,
+                onRangeSelected = { start, end -> onDraftChange(draft.copy(weekStart = start, weekEnd = end)) },
+                onOpenPicker = onOpenPicker,
+                backdrop = backdrop,
+                config = config
+            ) { "第${it}周" }
+        }
+        item(key = "parity", contentType = "picker") {
+            DialogSingleWheelSelector(
+                title = "单双周",
+                values = WeekParity.entries,
+                selected = draft.parity,
+                onSelected = { onDraftChange(draft.copy(parity = it)) },
+                onOpenPicker = onOpenPicker,
+                backdrop = backdrop,
+                config = config
+            ) { parityLabel(it) }
+        }
+        item(key = "note", contentType = "field") { DialogCapsuleField(draft.note, { onDraftChange(draft.copy(note = it)) }, "备注", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
+        if (onDelete != null) {
+            item(key = "delete", contentType = "action") {
+                Box(Modifier.padding(horizontal = 16.dp)) {
+                    DialogLiquidButton(
+                        backdrop = backdrop,
+                        label = "删除课程",
+                        onClick = onDelete,
+                        modifier = Modifier.fillMaxWidth(),
+                        role = DialogButtonRole.Cancel,
+                        destructiveFilled = true,
+                        blurRadius = 8.dp
+                    )
+                }
+            }
         }
         error?.let { message ->
             item(key = "error", contentType = "message") { Text(message, modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error) }
         }
+    }
+}
+
+@Composable
+private fun DialogRangeWheelSelector(
+    title: String,
+    values: List<Int>,
+    start: Int,
+    end: Int,
+    onRangeSelected: (Int, Int) -> Unit,
+    onOpenPicker: (CourseEditorPickerRequest) -> Unit,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    label: (Int) -> String
+) {
+    val safeValues = remember(values) { values.distinct().sorted().ifEmpty { listOf(1) } }
+    val startIndex = safeValues.indexOf(start).takeIf { it >= 0 } ?: 0
+    val endIndex = (safeValues.indexOf(end).takeIf { it >= 0 } ?: startIndex).coerceAtLeast(startIndex)
+    CourseEditorPickerValue(
+        title = title,
+        value = "${label(safeValues[startIndex])} - ${label(safeValues[endIndex])}",
+        backdrop = backdrop,
+        config = config,
+        onClick = {
+            onOpenPicker(
+                CourseEditorPickerRequest(
+                    title = "选择$title",
+                    labels = safeValues.map(label),
+                    startIndex = startIndex,
+                    endIndex = endIndex,
+                    onConfirm = { selectedStart, selectedEnd ->
+                        onRangeSelected(safeValues[selectedStart], safeValues[selectedEnd ?: selectedStart])
+                    }
+                )
+            )
+        }
+    )
+}
+
+@Composable
+private fun <T> DialogSingleWheelSelector(
+    title: String,
+    values: List<T>,
+    selected: T,
+    onSelected: (T) -> Unit,
+    onOpenPicker: (CourseEditorPickerRequest) -> Unit,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    label: (T) -> String
+) {
+    val safeValues = values.ifEmpty { return }
+    val selectedIndex = safeValues.indexOf(selected).coerceAtLeast(0)
+    CourseEditorPickerValue(
+        title = title,
+        value = label(safeValues[selectedIndex]),
+        backdrop = backdrop,
+        config = config,
+        onClick = {
+            onOpenPicker(
+                CourseEditorPickerRequest(
+                    title = "选择$title",
+                    labels = safeValues.map(label),
+                    startIndex = selectedIndex,
+                    onConfirm = { index, _ -> onSelected(safeValues[index]) }
+                )
+            )
+        }
+    )
+}
+
+@Composable
+private fun CourseEditorPickerValue(
+    title: String,
+    value: String,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onClick: () -> Unit
+) {
+    val dark = appUsesDarkTheme(config)
+    val buttonSurface = if (dark) ComposeColor.Black.copy(alpha = 0.46f) else ComposeColor.White.copy(alpha = 0.62f)
+    val buttonTextColor = if (dark) ComposeColor.White else ComposeColor(0xFF111111)
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        if (backdrop != null) {
+            LiquidButton(
+                onClick = onClick,
+                backdrop = backdrop,
+                modifier = Modifier.wrapContentWidth(),
+                height = 42.dp,
+                surfaceColor = buttonSurface,
+                contentPadding = PaddingValues(horizontal = 15.dp),
+                blurRadius = 8.dp,
+                lensHeight = 16.dp,
+                lensAmount = 24.dp,
+                chromaticAberration = false
+            ) {
+                Text(value, color = buttonTextColor, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .wrapContentWidth()
+                    .clip(RoundedCornerShape(50.dp))
+                    .background(buttonSurface)
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+                    .padding(horizontal = 15.dp, vertical = 11.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(value, color = buttonTextColor, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CourseEditorPickerOverlay(
+    request: CourseEditorPickerRequest,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onDismiss: () -> Unit
+) {
+    val dark = appUsesDarkTheme(config)
+    val pickerContentColor = if (dark) ComposeColor.White else ComposeColor(0xFF111111)
+    var startIndex by remember(request) { mutableIntStateOf(request.startIndex.coerceIn(request.labels.indices)) }
+    var endIndex by remember(request) {
+        mutableIntStateOf((request.endIndex ?: request.startIndex).coerceIn(request.labels.indices).coerceAtLeast(startIndex))
+    }
+    top.yukonga.miuix.kmp.overlay.OverlayDialog(
+        show = true,
+        title = request.title,
+        titleColor = pickerContentColor,
+        onDismissRequest = onDismiss,
+        enableWindowDim = false,
+        backgroundColor = ComposeColor.Transparent,
+        forceCenter = true,
+        surfaceModifier = quickSheetBackdropModifier(
+            backdrop = backdrop,
+            config = config,
+            blurRadius = 28.dp,
+            centered = true
+        )
+    ) {
+        CompositionLocalProvider(LocalContentColor provides pickerContentColor) {
+        Column(modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val compact = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.15f
+                val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                    color = pickerContentColor,
+                    fontSize = if (compact) 23.sp else 28.sp
+                )
+                val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
+                    selectedTextColor = pickerContentColor,
+                    unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
+                    disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
+                    disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
+                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)) {
+                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                        value = startIndex,
+                        onValueChange = { startIndex = it; if (request.endIndex != null && endIndex < it) endIndex = it },
+                        range = request.labels.indices,
+                        visibleItemCount = 3,
+                        label = { request.labels[it] },
+                        colors = pickerColors,
+                        textStyle = pickerTextStyle,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (request.endIndex != null) {
+                        top.yukonga.miuix.kmp.basic.NumberPicker(
+                            value = endIndex,
+                            onValueChange = { endIndex = it; if (startIndex > it) startIndex = it },
+                            range = request.labels.indices,
+                            visibleItemCount = 3,
+                            label = { request.labels[it] },
+                            colors = pickerColors,
+                            textStyle = pickerTextStyle,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                QuickSheetLiquidAction("取消", true, backdrop, config, modifier = Modifier.weight(1f), height = 50.dp) { onDismiss() }
+                QuickSheetLiquidAction("确定", true, backdrop, config, primary = true, modifier = Modifier.weight(1f), height = 50.dp) {
+                    request.onConfirm(startIndex, endIndex.takeIf { request.endIndex != null })
+                    onDismiss()
+                }
+            }
+        }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CourseEditorPagerIndicator(
+    pagerState: PagerState,
+    pageCount: Int,
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val dotSpacingPx = with(density) { 15.dp.toPx() }
+    val horizontalPaddingPx = with(density) { 12.dp.toPx() }
+    val indicatorWidth = with(density) { (24 + (pageCount - 1) * 15).dp }
+    Canvas(modifier = modifier.width(indicatorWidth).height(24.dp)) {
+        drawRoundRect(
+            color = ComposeColor.Black.copy(alpha = 0.28f),
+            cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
+        )
+        repeat(pageCount) { page ->
+            drawCircle(
+                color = ComposeColor.White.copy(alpha = 0.30f),
+                radius = 4.dp.toPx(),
+                center = Offset(horizontalPaddingPx + page * dotSpacingPx, size.height / 2f)
+            )
+        }
+        val position = (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, (pageCount - 1).toFloat())
+        drawCircle(
+            color = ComposeColor.White,
+            radius = 5.dp.toPx(),
+            center = Offset(horizontalPaddingPx + position * dotSpacingPx, size.height / 2f)
+        )
     }
 }
 

@@ -248,13 +248,15 @@ data class HomeWallpaperImages(
     val reducedSource: Bitmap?,
     val blurredSource: Bitmap?,
     val blurBucket: Int,
-    val representativeColors: List<Long> = DefaultCourseCardPalette
+    val representativeColors: List<Long> = DefaultCourseCardPalette,
+    val readabilityBitmap: Bitmap? = null
 )
 
 private data class WallpaperSourceImages(
     val source: Bitmap,
     val reducedSource: Bitmap?,
-    val representativeColors: List<Long>
+    val representativeColors: List<Long>,
+    val readabilityBitmap: Bitmap?
 )
 
 private val wallpaperSourceCache = object : LinkedHashMap<String, WallpaperSourceImages>(6, 0.75f, true) {
@@ -269,6 +271,7 @@ private fun HomeWallpaperImages.prepareToDraw() = apply {
     source?.prepareToDraw()
     reducedSource?.prepareToDraw()
     blurredSource?.prepareToDraw()
+    readabilityBitmap?.prepareToDraw()
 }
 
 @Composable
@@ -280,7 +283,10 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
         "${config.wallpaperUri}|${config.defaultWallpaperStyle}|$useDarkDefaultWallpaper"
     }
     val renderKey = remember(sourceKey, blurBucket) { "$sourceKey|blur=$blurBucket" }
-    val images = remember(renderKey) { mutableStateOf(synchronized(wallpaperRenderCache) {
+    // Keep the last rendered image while only the blur bucket is changing.  Keying
+    // this state by renderKey used to replace it with an empty bitmap for one frame,
+    // which was visible as a flash whenever the blur slider crossed an integer.
+    val images = remember(sourceKey) { mutableStateOf(synchronized(wallpaperRenderCache) {
         wallpaperRenderCache[renderKey] ?: HomeWallpaperImages(null, null, null, blurBucket)
     }) }
     LaunchedEffect(renderKey) {
@@ -295,7 +301,8 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
                 WallpaperSourceImages(
                     source = source,
                     reducedSource = createReducedWallpaperBitmap(source),
-                    representativeColors = extractRepresentativeWallpaperColors(source)
+                    representativeColors = extractRepresentativeWallpaperColors(source),
+                    readabilityBitmap = createWallpaperReadabilityBitmap(source)
                 ).also { entry ->
                     synchronized(wallpaperSourceCache) { wallpaperSourceCache[sourceKey] = entry }
                 }
@@ -305,7 +312,8 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
                 reducedSource = sourceEntry?.reducedSource,
                 blurredSource = createBlurredWallpaperBitmap(sourceEntry?.source, blurBucket),
                 blurBucket = blurBucket,
-                representativeColors = sourceEntry?.representativeColors ?: DefaultCourseCardPalette
+                representativeColors = sourceEntry?.representativeColors ?: DefaultCourseCardPalette,
+                readabilityBitmap = sourceEntry?.readabilityBitmap
             ).prepareToDraw()
         }
         synchronized(wallpaperRenderCache) { wallpaperRenderCache[renderKey] = loaded }

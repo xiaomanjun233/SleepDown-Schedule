@@ -30,6 +30,21 @@ class ScheduleTermBoundaryTest {
     }
 
     @Test
+    fun automaticModeKeepsManualFallbackBeforeTheTerm() {
+        val storedWeek = resolveScheduleCurrentWeek(
+            baseConfig = config,
+            totalWeeks = 2,
+            manualCurrentWeek = 2,
+            termStartDate = "2026-09-02",
+            autoCurrentWeek = true,
+            today = LocalDate.of(2026, 9, 1)
+        )
+        assertEquals(2, storedWeek)
+        assertEquals("暂未开学", scheduleTermStatusLabel(config, LocalDate.of(2026, 9, 1)))
+        assertEquals("学期已结束", scheduleTermStatusLabel(config, LocalDate.of(2026, 9, 14)))
+    }
+
+    @Test
     fun periodTimeSettingUpdatesOnlyAValidNonOverlappingPeriod() {
         val periods = listOf(
             PeriodEntity(1, "08:00", "08:45"),

@@ -176,6 +176,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
@@ -272,6 +273,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
@@ -370,7 +372,7 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                 SettingsDivider()
                 SettingsToggleRow(
                     title = "隐藏后台卡片",
-                    subtitle = "返回桌面后，从最近任务列表中移除本应用，更无感。",
+                    subtitle = "以任意方式离开应用后，都从最近任务列表中隐藏本应用。",
                     checked = draft.hideFromRecents,
                     backdrop = backdrop,
                     onCheckedChange = { applyChange(draft.copy(hideFromRecents = it)) }
@@ -2265,9 +2267,10 @@ fun ScheduleSettingsContent(
     breakDurationMinutes: String,
     onBreakDurationMinutesChange: (String) -> Unit,
     morningPeriodCount: Int,
+    noonPeriodCount: Int,
     afternoonPeriodCount: Int,
     eveningPeriodCount: Int,
-    onPeriodCountsChange: (Int, Int, Int) -> Unit,
+    onPeriodCountsChange: (Int, Int, Int, Int) -> Unit,
     schemeDraft: SchedulePeriodSchemesDraft?,
     onSchemeDraftChange: (SchedulePeriodSchemesDraft) -> Unit,
     onAutoMatchPeriodEnds: () -> Unit,
@@ -2301,6 +2304,7 @@ fun ScheduleSettingsContent(
             breakDurationMinutes = breakDurationMinutes,
             onBreakDurationMinutesChange = onBreakDurationMinutesChange,
             morningPeriodCount = morningPeriodCount,
+            noonPeriodCount = noonPeriodCount,
             afternoonPeriodCount = afternoonPeriodCount,
             eveningPeriodCount = eveningPeriodCount,
             onPeriodCountsChange = onPeriodCountsChange,
@@ -2447,9 +2451,10 @@ fun ScheduleSettingsContentFixed(
     breakDurationMinutes: String,
     onBreakDurationMinutesChange: (String) -> Unit,
     morningPeriodCount: Int,
+    noonPeriodCount: Int,
     afternoonPeriodCount: Int,
     eveningPeriodCount: Int,
-    onPeriodCountsChange: (Int, Int, Int) -> Unit,
+    onPeriodCountsChange: (Int, Int, Int, Int) -> Unit,
     schemeDraft: SchedulePeriodSchemesDraft?,
     onSchemeDraftChange: (SchedulePeriodSchemesDraft) -> Unit,
     onAutoMatchPeriodEnds: () -> Unit,
@@ -2521,6 +2526,7 @@ fun ScheduleSettingsContentFixed(
                     backdrop = backdrop,
                     config = state.config.copy(
                         morningPeriodCount = morningPeriodCount,
+                        noonPeriodCount = noonPeriodCount,
                         afternoonPeriodCount = afternoonPeriodCount,
                         eveningPeriodCount = eveningPeriodCount
                     ),
@@ -2940,7 +2946,7 @@ private fun PeriodSchemeEditor(
     config: ScheduleConfigEntity,
     draft: SchedulePeriodSchemesDraft,
     onDraftChange: (SchedulePeriodSchemesDraft) -> Unit,
-    onCountsChange: (Int, Int, Int) -> Unit
+    onCountsChange: (Int, Int, Int, Int) -> Unit
 ) {
     val active = draft.schemes.firstOrNull { it.scheme.id == draft.activeSchemeId } ?: draft.schemes.first()
     var localError by remember { mutableStateOf<String?>(null) }
@@ -2954,11 +2960,13 @@ private fun PeriodSchemeEditor(
     var showBreakPicker by remember { mutableStateOf(false) }
     var showCountPicker by remember { mutableStateOf(false) }
     var countPickerMorning by remember { mutableIntStateOf(config.morningPeriodCount.coerceAtLeast(1)) }
+    var countPickerNoon by remember { mutableIntStateOf(config.noonPeriodCount.coerceAtLeast(1)) }
     var countPickerAfternoon by remember { mutableIntStateOf(config.afternoonPeriodCount.coerceAtLeast(1)) }
     var countPickerEvening by remember { mutableIntStateOf(config.eveningPeriodCount.coerceAtLeast(1)) }
     var countPickerTotal by remember { mutableIntStateOf(config.totalPeriodCount().coerceAtLeast(1)) }
     var showSegmentStartPicker by remember { mutableStateOf(false) }
     var morningStartMinute by remember { mutableIntStateOf(8 * 60) }
+    var noonStartMinute by remember { mutableIntStateOf(12 * 60) }
     var afternoonStartMinute by remember { mutableIntStateOf(14 * 60) }
     var eveningStartMinute by remember { mutableIntStateOf(19 * 60) }
     var breakAfter by remember { mutableIntStateOf(1) }
@@ -2984,7 +2992,8 @@ private fun PeriodSchemeEditor(
             val start = previous?.endTime?.let { runCatching { LocalTime.parse(it).plusMinutes(item.scheme.breakDurationMinutes.toLong()) }.getOrNull() }
                 ?: when {
                     after < newConfig.morningPeriodCount -> LocalTime.parse(item.scheme.morningStartTime)
-                    after < newConfig.morningPeriodCount + newConfig.afternoonPeriodCount -> LocalTime.parse(item.scheme.afternoonStartTime)
+                    after < newConfig.morningPeriodCount + newConfig.noonPeriodCount -> LocalTime.parse(item.scheme.noonStartTime)
+                    after < newConfig.morningPeriodCount + newConfig.noonPeriodCount + newConfig.afternoonPeriodCount -> LocalTime.parse(item.scheme.afternoonStartTime)
                     else -> LocalTime.parse(item.scheme.eveningStartTime)
                 }
             val end = start.plusMinutes(item.scheme.classDurationMinutes.toLong())
@@ -3002,20 +3011,17 @@ private fun PeriodSchemeEditor(
         val after = when {
             !range.isEmpty() -> range.last
             part == PeriodDayPart.MORNING -> 0
-            part == PeriodDayPart.AFTERNOON -> config.morningPeriodCount
-            else -> config.morningPeriodCount + config.afternoonPeriodCount
+            part == PeriodDayPart.NOON -> config.morningPeriodCount
+            part == PeriodDayPart.AFTERNOON -> config.morningPeriodCount + config.noonPeriodCount
+            else -> config.morningPeriodCount + config.noonPeriodCount + config.afternoonPeriodCount
         }
-        val newCounts = when (part) {
-            PeriodDayPart.MORNING -> Triple(config.morningPeriodCount + 1, config.afternoonPeriodCount, config.eveningPeriodCount)
-            PeriodDayPart.AFTERNOON -> Triple(config.morningPeriodCount, config.afternoonPeriodCount + 1, config.eveningPeriodCount)
-            PeriodDayPart.EVENING -> Triple(config.morningPeriodCount, config.afternoonPeriodCount, config.eveningPeriodCount + 1)
+        val newConfig = when (part) {
+            PeriodDayPart.MORNING -> config.copy(morningPeriodCount = config.morningPeriodCount + 1)
+            PeriodDayPart.NOON -> config.copy(noonPeriodCount = config.noonPeriodCount + 1)
+            PeriodDayPart.AFTERNOON -> config.copy(afternoonPeriodCount = config.afternoonPeriodCount + 1)
+            PeriodDayPart.EVENING -> config.copy(eveningPeriodCount = config.eveningPeriodCount + 1)
         }
-        val newConfig = config.copy(
-            morningPeriodCount = newCounts.first,
-            afternoonPeriodCount = newCounts.second,
-            eveningPeriodCount = newCounts.third
-        )
-        onCountsChange(newCounts.first, newCounts.second, newCounts.third)
+        onCountsChange(newConfig.morningPeriodCount, newConfig.noonPeriodCount, newConfig.afternoonPeriodCount, newConfig.eveningPeriodCount)
         onDraftChange(
             draft.copy(
                 schemes = draft.schemes.map { shiftedTimesForInsert(it, after, newConfig) },
@@ -3026,16 +3032,17 @@ private fun PeriodSchemeEditor(
 
     fun deletePeriod(index: Int) {
         val part = PeriodDayPart.entries.firstOrNull { index in config.periodRange(it) } ?: return
-        val newCounts = when (part) {
-            PeriodDayPart.MORNING -> Triple((config.morningPeriodCount - 1).coerceAtLeast(0), config.afternoonPeriodCount, config.eveningPeriodCount)
-            PeriodDayPart.AFTERNOON -> Triple(config.morningPeriodCount, (config.afternoonPeriodCount - 1).coerceAtLeast(0), config.eveningPeriodCount)
-            PeriodDayPart.EVENING -> Triple(config.morningPeriodCount, config.afternoonPeriodCount, (config.eveningPeriodCount - 1).coerceAtLeast(0))
+        val newConfig = when (part) {
+            PeriodDayPart.MORNING -> config.copy(morningPeriodCount = (config.morningPeriodCount - 1).coerceAtLeast(0))
+            PeriodDayPart.NOON -> config.copy(noonPeriodCount = (config.noonPeriodCount - 1).coerceAtLeast(0))
+            PeriodDayPart.AFTERNOON -> config.copy(afternoonPeriodCount = (config.afternoonPeriodCount - 1).coerceAtLeast(0))
+            PeriodDayPart.EVENING -> config.copy(eveningPeriodCount = (config.eveningPeriodCount - 1).coerceAtLeast(0))
         }
-        if (newCounts.first + newCounts.second + newCounts.third == 0) {
+        if (newConfig.totalPeriodCount() == 0) {
             localError = "至少需要保留一个节次"
             return
         }
-        onCountsChange(newCounts.first, newCounts.second, newCounts.third)
+        onCountsChange(newConfig.morningPeriodCount, newConfig.noonPeriodCount, newConfig.afternoonPeriodCount, newConfig.eveningPeriodCount)
         onDraftChange(
             draft.copy(
                 schemes = draft.schemes.map { item ->
@@ -3050,14 +3057,15 @@ private fun PeriodSchemeEditor(
         )
     }
 
-    fun changePartCounts(requestedMorning: Int, requestedAfternoon: Int, requestedEvening: Int) {
+    fun changePartCounts(requestedMorning: Int, requestedNoon: Int, requestedAfternoon: Int, requestedEvening: Int) {
         val targets = mapOf(
-            PeriodDayPart.MORNING to requestedMorning.coerceIn(0, 20),
-            PeriodDayPart.AFTERNOON to requestedAfternoon.coerceIn(0, 20),
-            PeriodDayPart.EVENING to requestedEvening.coerceIn(0, 20)
+            PeriodDayPart.MORNING to requestedMorning.coerceIn(0, 40),
+            PeriodDayPart.NOON to requestedNoon.coerceIn(0, 40),
+            PeriodDayPart.AFTERNOON to requestedAfternoon.coerceIn(0, 40),
+            PeriodDayPart.EVENING to requestedEvening.coerceIn(0, 40)
         )
         if (targets.values.sum() == 0) {
-            localError = "上午、下午、晚上至少需要启用一个时段"
+            localError = "上午、中午、下午、晚上至少需要启用一个时段"
             return
         }
         var workingConfig = config
@@ -3071,11 +3079,13 @@ private fun PeriodSchemeEditor(
                 val after = when {
                     !range.isEmpty() -> range.last
                     part == PeriodDayPart.MORNING -> 0
-                    part == PeriodDayPart.AFTERNOON -> workingConfig.morningPeriodCount
-                    else -> workingConfig.morningPeriodCount + workingConfig.afternoonPeriodCount
+                    part == PeriodDayPart.NOON -> workingConfig.morningPeriodCount
+                    part == PeriodDayPart.AFTERNOON -> workingConfig.morningPeriodCount + workingConfig.noonPeriodCount
+                    else -> workingConfig.morningPeriodCount + workingConfig.noonPeriodCount + workingConfig.afternoonPeriodCount
                 }
                 workingConfig = when (part) {
                     PeriodDayPart.MORNING -> workingConfig.copy(morningPeriodCount = workingConfig.morningPeriodCount + 1)
+                    PeriodDayPart.NOON -> workingConfig.copy(noonPeriodCount = workingConfig.noonPeriodCount + 1)
                     PeriodDayPart.AFTERNOON -> workingConfig.copy(afternoonPeriodCount = workingConfig.afternoonPeriodCount + 1)
                     PeriodDayPart.EVENING -> workingConfig.copy(eveningPeriodCount = workingConfig.eveningPeriodCount + 1)
                 }
@@ -3094,13 +3104,14 @@ private fun PeriodSchemeEditor(
                 }
                 workingConfig = when (part) {
                     PeriodDayPart.MORNING -> workingConfig.copy(morningPeriodCount = workingConfig.morningPeriodCount - 1)
+                    PeriodDayPart.NOON -> workingConfig.copy(noonPeriodCount = workingConfig.noonPeriodCount - 1)
                     PeriodDayPart.AFTERNOON -> workingConfig.copy(afternoonPeriodCount = workingConfig.afternoonPeriodCount - 1)
                     PeriodDayPart.EVENING -> workingConfig.copy(eveningPeriodCount = workingConfig.eveningPeriodCount - 1)
                 }
                 operations += PeriodTopologyOperation.Delete(index)
             }
         }
-        onCountsChange(workingConfig.morningPeriodCount, workingConfig.afternoonPeriodCount, workingConfig.eveningPeriodCount)
+        onCountsChange(workingConfig.morningPeriodCount, workingConfig.noonPeriodCount, workingConfig.afternoonPeriodCount, workingConfig.eveningPeriodCount)
         onDraftChange(
             draft.copy(
                 schemes = workingSchemes.map { item ->
@@ -3114,6 +3125,7 @@ private fun PeriodSchemeEditor(
     fun changePartCount(part: PeriodDayPart, requestedCount: Int) {
         changePartCounts(
             requestedMorning = if (part == PeriodDayPart.MORNING) requestedCount else config.morningPeriodCount,
+            requestedNoon = if (part == PeriodDayPart.NOON) requestedCount else config.noonPeriodCount,
             requestedAfternoon = if (part == PeriodDayPart.AFTERNOON) requestedCount else config.afternoonPeriodCount,
             requestedEvening = if (part == PeriodDayPart.EVENING) requestedCount else config.eveningPeriodCount
         )
@@ -3154,6 +3166,7 @@ private fun PeriodSchemeEditor(
                         classDurationMinutes = active.scheme.classDurationMinutes,
                         breakDurationMinutes = active.scheme.breakDurationMinutes,
                         morningStartTime = active.scheme.morningStartTime,
+                        noonStartTime = active.scheme.noonStartTime,
                         afternoonStartTime = active.scheme.afternoonStartTime,
                         eveningStartTime = active.scheme.eveningStartTime
                     )
@@ -3210,6 +3223,7 @@ private fun PeriodSchemeEditor(
                                 scheme = active.scheme.copy(
                                     mode = PeriodSchemeMode.AUTO_MATCH,
                                     morningStartTime = times.firstOrNull { t -> t.periodIndex in config.periodRange(PeriodDayPart.MORNING) }?.startTime ?: active.scheme.morningStartTime,
+                                    noonStartTime = times.firstOrNull { t -> t.periodIndex in config.periodRange(PeriodDayPart.NOON) }?.startTime ?: active.scheme.noonStartTime,
                                     afternoonStartTime = times.firstOrNull { t -> t.periodIndex in config.periodRange(PeriodDayPart.AFTERNOON) }?.startTime ?: active.scheme.afternoonStartTime,
                                     eveningStartTime = times.firstOrNull { t -> t.periodIndex in config.periodRange(PeriodDayPart.EVENING) }?.startTime ?: active.scheme.eveningStartTime
                                 ),
@@ -3242,7 +3256,7 @@ private fun PeriodSchemeEditor(
                 }, KeyboardType.Number)
             }
             PeriodDayPart.entries.forEach { part ->
-                val title = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
+                val title = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.NOON -> "中午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
                 val count = config.periodCount(part)
                 val range = config.periodRange(part)
                 SettingsDivider()
@@ -3258,11 +3272,12 @@ private fun PeriodSchemeEditor(
             SettingsPickerValueRow(
                 title = "节数分配",
                 value = PeriodDayPart.entries.filter { config.periodCount(it) > 0 }.joinToString(" · ") { part ->
-                    val name = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
+                    val name = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.NOON -> "中午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
                     "$name ${config.periodCount(part)}"
                 },
                 onClick = {
                     countPickerMorning = config.morningPeriodCount.coerceAtLeast(1)
+                    countPickerNoon = config.noonPeriodCount.coerceAtLeast(1)
                     countPickerAfternoon = config.afternoonPeriodCount.coerceAtLeast(1)
                     countPickerEvening = config.eveningPeriodCount.coerceAtLeast(1)
                     countPickerTotal = config.totalPeriodCount().coerceAtLeast(1)
@@ -3276,12 +3291,14 @@ private fun PeriodSchemeEditor(
                     value = PeriodDayPart.entries.filter { config.periodCount(it) > 0 }.joinToString(" · ") { part ->
                         when (part) {
                             PeriodDayPart.MORNING -> active.scheme.morningStartTime
+                            PeriodDayPart.NOON -> active.scheme.noonStartTime
                             PeriodDayPart.AFTERNOON -> active.scheme.afternoonStartTime
                             PeriodDayPart.EVENING -> active.scheme.eveningStartTime
                         }
                     },
                     onClick = {
                         morningStartMinute = runCatching { LocalTime.parse(active.scheme.morningStartTime) }.getOrDefault(LocalTime.of(8, 0)).let { it.hour * 60 + it.minute }
+                        noonStartMinute = runCatching { LocalTime.parse(active.scheme.noonStartTime) }.getOrDefault(LocalTime.of(12, 0)).let { it.hour * 60 + it.minute }
                         afternoonStartMinute = runCatching { LocalTime.parse(active.scheme.afternoonStartTime) }.getOrDefault(LocalTime.of(14, 0)).let { it.hour * 60 + it.minute }
                         eveningStartMinute = runCatching { LocalTime.parse(active.scheme.eveningStartTime) }.getOrDefault(LocalTime.of(19, 0)).let { it.hour * 60 + it.minute }
                         showSegmentStartPicker = true
@@ -3325,8 +3342,9 @@ private fun PeriodSchemeEditor(
                 if (position > 0) {
                     val previous = resolved[position - 1]
                     val dayPartLabel = when {
-                        config.afternoonPeriodCount > 0 && time.periodIndex == config.morningPeriodCount + 1 -> "下午时段"
-                        config.eveningPeriodCount > 0 && time.periodIndex == config.morningPeriodCount + config.afternoonPeriodCount + 1 -> "晚上时段"
+                        config.noonPeriodCount > 0 && time.periodIndex == config.morningPeriodCount + 1 -> "中午时段"
+                        config.afternoonPeriodCount > 0 && time.periodIndex == config.morningPeriodCount + config.noonPeriodCount + 1 -> "下午时段"
+                        config.eveningPeriodCount > 0 && time.periodIndex == config.morningPeriodCount + config.noonPeriodCount + config.afternoonPeriodCount + 1 -> "晚上时段"
                         else -> null
                     }
                     val specialBreak = active.specialBreaks[previous.periodIndex]
@@ -3367,6 +3385,36 @@ private fun PeriodSchemeEditor(
         surfaceModifier = quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("总节次", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            top.yukonga.miuix.kmp.basic.NumberPicker(
+                value = countPickerTotal,
+                onValueChange = { changed ->
+                    countPickerTotal = changed
+                    var remaining = changed
+                    enabledParts.forEachIndexed { index, part ->
+                        val slotsAfter = enabledParts.lastIndex - index
+                        val current = when (part) {
+                            PeriodDayPart.MORNING -> countPickerMorning
+                            PeriodDayPart.NOON -> countPickerNoon
+                            PeriodDayPart.AFTERNOON -> countPickerAfternoon
+                            PeriodDayPart.EVENING -> countPickerEvening
+                        }
+                        val allocated = if (index == enabledParts.lastIndex) remaining else current.coerceIn(1, (remaining - slotsAfter).coerceAtLeast(1))
+                        when (part) {
+                            PeriodDayPart.MORNING -> countPickerMorning = allocated
+                            PeriodDayPart.NOON -> countPickerNoon = allocated
+                            PeriodDayPart.AFTERNOON -> countPickerAfternoon = allocated
+                            PeriodDayPart.EVENING -> countPickerEvening = allocated
+                        }
+                        remaining -= allocated
+                    }
+                },
+                range = enabledParts.size.coerceAtLeast(1)..40,
+                visibleItemCount = 3,
+                label = { "${it}节" },
+                modifier = Modifier.fillMaxWidth().height(112.dp)
+            )
+            Text("时段分配", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val fontScale = LocalDensity.current.fontScale
                 val columnWidth = maxWidth / enabledParts.size.coerceAtLeast(1)
@@ -3381,37 +3429,49 @@ private fun PeriodSchemeEditor(
                     enabledParts.forEach { part ->
                         val value = when (part) {
                             PeriodDayPart.MORNING -> countPickerMorning
+                            PeriodDayPart.NOON -> countPickerNoon
                             PeriodDayPart.AFTERNOON -> countPickerAfternoon
                             PeriodDayPart.EVENING -> countPickerEvening
                         }
-                        val name = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
+                        val name = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.NOON -> "中午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
                         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (part == PeriodDayPart.EVENING) {
+                            if (part == enabledParts.last()) {
                                 Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) {
-                                    Text("${countPickerEvening}节", style = pickerStyle, fontWeight = FontWeight.SemiBold)
+                                    Text("${value}节", style = pickerStyle, fontWeight = FontWeight.SemiBold)
                                 }
                             } else {
-                                val eveningEnabled = PeriodDayPart.EVENING in enabledParts
-                                val allocatedMorning = if (PeriodDayPart.MORNING in enabledParts) countPickerMorning else 0
-                                val allocatedAfternoon = if (PeriodDayPart.AFTERNOON in enabledParts) countPickerAfternoon else 0
-                                val maxCount = when (part) {
-                                    PeriodDayPart.MORNING -> if (eveningEnabled) countPickerTotal - allocatedAfternoon - 1 else 20
-                                    PeriodDayPart.AFTERNOON -> if (eveningEnabled) countPickerTotal - allocatedMorning - 1 else 20
-                                    PeriodDayPart.EVENING -> 20
-                                }.coerceAtLeast(1)
+                                val otherBeforeLast = enabledParts.dropLast(1).filterNot { it == part }.sumOf { other ->
+                                    when (other) {
+                                        PeriodDayPart.MORNING -> countPickerMorning
+                                        PeriodDayPart.NOON -> countPickerNoon
+                                        PeriodDayPart.AFTERNOON -> countPickerAfternoon
+                                        PeriodDayPart.EVENING -> countPickerEvening
+                                    }
+                                }
+                                val maxCount = (countPickerTotal - otherBeforeLast - 1).coerceAtLeast(1)
                                 top.yukonga.miuix.kmp.basic.NumberPicker(
                                     value = value.coerceIn(1, maxCount),
                                     onValueChange = { changed ->
                                         when (part) {
                                             PeriodDayPart.MORNING -> countPickerMorning = changed
+                                            PeriodDayPart.NOON -> countPickerNoon = changed
                                             PeriodDayPart.AFTERNOON -> countPickerAfternoon = changed
-                                            PeriodDayPart.EVENING -> Unit
+                                            PeriodDayPart.EVENING -> countPickerEvening = changed
                                         }
-                                        if (eveningEnabled) {
-                                            val morning = if (PeriodDayPart.MORNING in enabledParts) countPickerMorning else 0
-                                            val afternoon = if (PeriodDayPart.AFTERNOON in enabledParts) countPickerAfternoon else 0
-                                            countPickerEvening = (countPickerTotal - morning - afternoon).coerceAtLeast(1)
+                                        val allocated = enabledParts.dropLast(1).sumOf { beforeLast ->
+                                            when (beforeLast) {
+                                                PeriodDayPart.MORNING -> countPickerMorning
+                                                PeriodDayPart.NOON -> countPickerNoon
+                                                PeriodDayPart.AFTERNOON -> countPickerAfternoon
+                                                PeriodDayPart.EVENING -> countPickerEvening
+                                            }
+                                        }
+                                        when (enabledParts.last()) {
+                                            PeriodDayPart.MORNING -> countPickerMorning = (countPickerTotal - allocated).coerceAtLeast(1)
+                                            PeriodDayPart.NOON -> countPickerNoon = (countPickerTotal - allocated).coerceAtLeast(1)
+                                            PeriodDayPart.AFTERNOON -> countPickerAfternoon = (countPickerTotal - allocated).coerceAtLeast(1)
+                                            PeriodDayPart.EVENING -> countPickerEvening = (countPickerTotal - allocated).coerceAtLeast(1)
                                         }
                                     },
                                     range = 1..maxCount,
@@ -3432,6 +3492,7 @@ private fun PeriodSchemeEditor(
                 QuickSheetLiquidAction("确定", true, popupBackdrop, state.config, primary = true, modifier = Modifier.weight(1f), height = 48.dp) {
                     changePartCounts(
                         if (PeriodDayPart.MORNING in enabledParts) countPickerMorning else 0,
+                        if (PeriodDayPart.NOON in enabledParts) countPickerNoon else 0,
                         if (PeriodDayPart.AFTERNOON in enabledParts) countPickerAfternoon else 0,
                         if (PeriodDayPart.EVENING in enabledParts) countPickerEvening else 0
                     )
@@ -3452,6 +3513,16 @@ private fun PeriodSchemeEditor(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
+                fun formatStartMinute(value: Int) = "%02d:%02d".format(value / 60, value % 60)
+                val pickerDraft = active.copy(
+                    scheme = active.scheme.copy(
+                        morningStartTime = formatStartMinute(morningStartMinute),
+                        noonStartTime = formatStartMinute(noonStartMinute),
+                        afternoonStartTime = formatStartMinute(afternoonStartMinute),
+                        eveningStartTime = formatStartMinute(eveningStartMinute)
+                    )
+                )
+                val pickerResolvedByIndex = resolveSchemeTimes(config, pickerDraft).associateBy { it.periodIndex }
                 val fontScale = LocalDensity.current.fontScale
                 val columnWidth = maxWidth / enabledParts.size.coerceAtLeast(1)
                 val pickerStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
@@ -3463,12 +3534,25 @@ private fun PeriodSchemeEditor(
                 )
                 Row(Modifier.fillMaxWidth()) {
                     enabledParts.forEach { part ->
-                        val value = when (part) {
+                        val rawValue = when (part) {
                             PeriodDayPart.MORNING -> morningStartMinute
+                            PeriodDayPart.NOON -> noonStartMinute
                             PeriodDayPart.AFTERNOON -> afternoonStartMinute
                             PeriodDayPart.EVENING -> eveningStartMinute
                         }
-                        val name = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
+                        val previousPart = enabledParts.getOrNull(enabledParts.indexOf(part) - 1)
+                        val minimumMinute = previousPart
+                            ?.let(config::periodRange)
+                            ?.lastOrNull()
+                            ?.let(pickerResolvedByIndex::get)
+                            ?.endTime
+                            ?.split(":")
+                            ?.takeIf { it.size == 2 }
+                            ?.let { it[0].toIntOrNull()?.times(60)?.plus(it[1].toIntOrNull() ?: 0) }
+                            ?.coerceIn(0, 1439)
+                            ?: 0
+                        val value = rawValue.coerceIn(minimumMinute, 1439)
+                        val name = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.NOON -> "中午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
                         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             top.yukonga.miuix.kmp.basic.NumberPicker(
@@ -3476,11 +3560,12 @@ private fun PeriodSchemeEditor(
                                 onValueChange = { changed ->
                                     when (part) {
                                         PeriodDayPart.MORNING -> morningStartMinute = changed
+                                        PeriodDayPart.NOON -> noonStartMinute = changed
                                         PeriodDayPart.AFTERNOON -> afternoonStartMinute = changed
                                         PeriodDayPart.EVENING -> eveningStartMinute = changed
                                     }
                                 },
-                                range = 0..1439,
+                                range = minimumMinute..1439,
                                 visibleItemCount = 3,
                                 label = { minute -> "%02d:%02d".format(minute / 60, minute % 60) },
                                 textStyle = pickerStyle,
@@ -3496,13 +3581,14 @@ private fun PeriodSchemeEditor(
                 }
                 QuickSheetLiquidAction("确定", true, popupBackdrop, state.config, primary = true, modifier = Modifier.weight(1f), height = 48.dp) {
                     fun formatMinute(value: Int) = "%02d:%02d".format(value / 60, value % 60)
-                    val candidate = active.copy(
+                    val candidate = normalizeAutoSchemeStarts(config, active.copy(
                         scheme = active.scheme.copy(
                             morningStartTime = formatMinute(morningStartMinute),
+                            noonStartTime = formatMinute(noonStartMinute),
                             afternoonStartTime = formatMinute(afternoonStartMinute),
                             eveningStartTime = formatMinute(eveningStartMinute)
                         )
-                    ).let { changed -> changed.copy(times = resolveSchemeTimes(config, changed)) }
+                    ))
                     val conflict = validateResolvedPeriodTimes(candidate.times)
                     if (conflict != null) timeConflictMessage = conflict else {
                         updateActive { candidate }
@@ -3591,6 +3677,7 @@ private fun PeriodSchemeEditor(
                     } else editingPart?.let { part ->
                         val scheme = when (part) {
                             PeriodDayPart.MORNING -> active.scheme.copy(morningStartTime = start)
+                            PeriodDayPart.NOON -> active.scheme.copy(noonStartTime = start)
                             PeriodDayPart.AFTERNOON -> active.scheme.copy(afternoonStartTime = start)
                             PeriodDayPart.EVENING -> active.scheme.copy(eveningStartTime = start)
                         }
@@ -3737,6 +3824,7 @@ fun ScheduleConfigScreen(
     var classDurationMinutes by remember { mutableStateOf(state.config.classDurationMinutes.toString()) }
     var breakDurationMinutes by remember { mutableStateOf(state.config.breakDurationMinutes.toString()) }
     var morningPeriodCount by remember { mutableIntStateOf(state.config.morningPeriodCount) }
+    var noonPeriodCount by remember { mutableIntStateOf(state.config.noonPeriodCount) }
     var afternoonPeriodCount by remember { mutableIntStateOf(state.config.afternoonPeriodCount) }
     var eveningPeriodCount by remember { mutableIntStateOf(state.config.eveningPeriodCount) }
     var periods by remember { mutableStateOf(state.periods) }
@@ -3765,6 +3853,7 @@ fun ScheduleConfigScreen(
         classDurationMinutes = state.config.classDurationMinutes.toString()
         breakDurationMinutes = state.config.breakDurationMinutes.toString()
         morningPeriodCount = state.config.morningPeriodCount
+        noonPeriodCount = state.config.noonPeriodCount
         afternoonPeriodCount = state.config.afternoonPeriodCount
         eveningPeriodCount = state.config.eveningPeriodCount
         periods = state.periods
@@ -3786,6 +3875,7 @@ fun ScheduleConfigScreen(
             classDurationMinutes != lastSavedConfig.classDurationMinutes.toString() ||
             breakDurationMinutes != lastSavedConfig.breakDurationMinutes.toString() ||
             morningPeriodCount != lastSavedConfig.morningPeriodCount ||
+            noonPeriodCount != lastSavedConfig.noonPeriodCount ||
             afternoonPeriodCount != lastSavedConfig.afternoonPeriodCount ||
             eveningPeriodCount != lastSavedConfig.eveningPeriodCount ||
             schemeDraft != lastSavedSchemeDraft ||
@@ -3797,7 +3887,12 @@ fun ScheduleConfigScreen(
             resetConfigDraftFromState()
         }
     }
-    LaunchedEffect(state.config.id) {
+    LaunchedEffect(state.config.id, section) {
+        if (section != SettingsSection.Schedule) {
+            schemeDraft = null
+            lastSavedSchemeDraft = null
+            return@LaunchedEffect
+        }
         runCatching { repository.loadPeriodSchemes(state.config.id) }
             .onSuccess {
                 schemeDraft = it
@@ -3807,6 +3902,7 @@ fun ScheduleConfigScreen(
                     periods = resolveSchemeTimes(
                         state.config.copy(
                             morningPeriodCount = morningPeriodCount,
+                            noonPeriodCount = noonPeriodCount,
                             afternoonPeriodCount = afternoonPeriodCount,
                             eveningPeriodCount = eveningPeriodCount
                         ),
@@ -3834,7 +3930,13 @@ fun ScheduleConfigScreen(
         remapConfirmed: Boolean = false
     ) {
         if (saving) {
-            onFinished?.invoke(false)
+            if (onFinished != null) {
+                saveScope.launch {
+                    snapshotFlow { saving }.first { !it }
+                    if (computeDirty()) saveConfigDraft(onFinished, remapConfirmed)
+                    else onFinished(true)
+                }
+            }
             return
         }
         val needsCourseRemap = schemeDraft?.topologyOperations?.isNotEmpty() == true &&
@@ -3872,22 +3974,14 @@ fun ScheduleConfigScreen(
                 val end = ScheduleImportParser.parseTimeForUi(it.endTime)
                 require(start < end) { "第" + it.periodIndex + "节结束时间必须晚于开始时间" }
             }
-            val effectiveWeekForSave = if (autoCurrentWeek) {
-                effectiveCurrentWeek(
-                    state.config.copy(
-                        totalWeeks = total,
-                        currentWeek = current,
-                        termStartDate = termStartDate.ifBlank { null },
-                        autoCurrentWeek = true
-                    )
-                )
-            } else {
-                current
-            }
+            // Keep the stored manual week as a fallback. The visible automatic week
+            // is derived from the date at render time and must not turn an upcoming
+            // term into a persisted "week 1" merely because settings were saved.
+            val storedCurrentWeek = current
             error = null
             val nextConfig = state.config.copy(
                 totalWeeks = total,
-                currentWeek = effectiveWeekForSave,
+                currentWeek = storedCurrentWeek,
                 notificationLeadMinutes = lead,
                 termStartDate = termStartDate.ifBlank { null },
                 autoCurrentWeek = autoCurrentWeek,
@@ -3898,10 +3992,11 @@ fun ScheduleConfigScreen(
                 classDurationMinutes = classDuration,
                 breakDurationMinutes = breakDuration
                 ,morningPeriodCount = morningPeriodCount
+                ,noonPeriodCount = noonPeriodCount
                 ,afternoonPeriodCount = afternoonPeriodCount
                 ,eveningPeriodCount = eveningPeriodCount
             )
-            currentWeek = effectiveWeekForSave.toString()
+            currentWeek = storedCurrentWeek.toString()
             periods = nextPeriods
             val currentSchemes = schemeDraft
             if (currentSchemes != null) {
@@ -3946,8 +4041,17 @@ fun ScheduleConfigScreen(
     }
 
     LaunchedEffect(exitCommitRequest) {
-        if (exitCommitRequest > 0 && section == SettingsSection.Schedule) {
-            if (computeDirty()) showExitSaveConfirm = true else onExitCommitFinished(true)
+        if (exitCommitRequest <= 0) return@LaunchedEffect
+        when (section) {
+            SettingsSection.Schedule -> {
+                if (computeDirty()) showExitSaveConfirm = true else onExitCommitFinished(true)
+            }
+            SettingsSection.Notifications -> {
+                // The page used to finish while its 250 ms debounce coroutine was still pending,
+                // cancelling the save and making the controls appear to ignore changes.
+                if (computeDirty() || saving) saveConfigDraft(onExitCommitFinished)
+                else onExitCommitFinished(true)
+            }
         }
     }
 
@@ -3991,10 +4095,12 @@ fun ScheduleConfigScreen(
         breakDurationMinutes = breakDurationMinutes,
         onBreakDurationMinutesChange = { breakDurationMinutes = it },
         morningPeriodCount = morningPeriodCount,
+        noonPeriodCount = noonPeriodCount,
         afternoonPeriodCount = afternoonPeriodCount,
         eveningPeriodCount = eveningPeriodCount,
-        onPeriodCountsChange = { morning, afternoon, evening ->
+        onPeriodCountsChange = { morning, noon, afternoon, evening ->
             morningPeriodCount = morning
+            noonPeriodCount = noon
             afternoonPeriodCount = afternoon
             eveningPeriodCount = evening
         },
@@ -4005,6 +4111,7 @@ fun ScheduleConfigScreen(
             if (active != null) {
                 val draftConfig = state.config.copy(
                     morningPeriodCount = morningPeriodCount,
+                    noonPeriodCount = noonPeriodCount,
                     afternoonPeriodCount = afternoonPeriodCount,
                     eveningPeriodCount = eveningPeriodCount
                 )

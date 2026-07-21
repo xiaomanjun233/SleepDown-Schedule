@@ -327,7 +327,7 @@ fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardCo
         Column {
             Row(modifier = Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                 WeekSwitchButton("<", state.config, backdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
-                Text(
+                HomeReadableText(
                     "第${displayWeek}周",
                     modifier = Modifier.padding(horizontal = 8.dp),
                     style = MaterialTheme.typography.titleSmall,
@@ -346,40 +346,55 @@ fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardCo
                                 .fillMaxWidth(),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                val isCurrent = currentPeriod?.periodIndex == period.periodIndex
-                                Box(
-                                    modifier = if (isCurrent) Modifier
-                                        .background(ComposeColor(0xFF0A84FF), RoundedCornerShape(5.dp))
-                                        .padding(horizontal = 4.dp, vertical = 1.dp)
-                                    else Modifier,
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        period.periodIndex.toString(),
-                                        fontSize = 13.sp,
-                                        lineHeight = 15.sp,
-                                        fontWeight = FontWeight.Bold,
+                            HomeReadableRegion(color = textColor) {
+                                HomeReadableRegion(color = textColor) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                    val isCurrent = currentPeriod?.periodIndex == period.periodIndex
+                                    Box(
+                                        modifier = if (isCurrent) Modifier
+                                            .background(ComposeColor(0xFF0A84FF), RoundedCornerShape(5.dp))
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        else Modifier,
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isCurrent) {
+                                            Text(
+                                                period.periodIndex.toString(),
+                                                fontSize = 13.sp,
+                                                lineHeight = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center,
+                                                color = ComposeColor.White
+                                            )
+                                        } else {
+                                            HomeReadableText(
+                                                period.periodIndex.toString(),
+                                                fontSize = 13.sp,
+                                                lineHeight = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center,
+                                                color = textColor
+                                            )
+                                        }
+                                    }
+                                    HomeReadableText(
+                                        period.startTime,
+                                        fontSize = 10.sp,
+                                        lineHeight = 11.sp,
+                                        fontWeight = FontWeight.Light,
                                         textAlign = TextAlign.Center,
-                                        color = if (isCurrent) ComposeColor.White else textColor
+                                        color = textColor.copy(alpha = 0.86f)
+                                    )
+                                    HomeReadableText(
+                                        period.endTime,
+                                        fontSize = 10.sp,
+                                        lineHeight = 11.sp,
+                                        fontWeight = FontWeight.Light,
+                                        textAlign = TextAlign.Center,
+                                        color = textColor.copy(alpha = 0.86f)
                                     )
                                 }
-                                Text(
-                                    period.startTime,
-                                    fontSize = 10.sp,
-                                    lineHeight = 11.sp,
-                                    fontWeight = FontWeight.Light,
-                                    textAlign = TextAlign.Center,
-                                    color = textColor.copy(alpha = 0.86f)
-                                )
-                                Text(
-                                    period.endTime,
-                                    fontSize = 10.sp,
-                                    lineHeight = 11.sp,
-                                    fontWeight = FontWeight.Light,
-                                    textAlign = TextAlign.Center,
-                                    color = textColor.copy(alpha = 0.86f)
-                                )
+                                }
                             }
                         }
                     }
@@ -670,16 +685,27 @@ fun SinglePillWeekScheduleScreen(
                                         else Modifier,
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(
-                                            period.periodIndex.toString(),
-                                            fontSize = 13.sp,
-                                            lineHeight = 15.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            textAlign = TextAlign.Center,
-                                            color = if (isCurrent) ComposeColor.White else textColor
-                                        )
+                                        if (isCurrent) {
+                                            Text(
+                                                period.periodIndex.toString(),
+                                                fontSize = 13.sp,
+                                                lineHeight = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center,
+                                                color = ComposeColor.White
+                                            )
+                                        } else {
+                                            HomeReadableText(
+                                                period.periodIndex.toString(),
+                                                fontSize = 13.sp,
+                                                lineHeight = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center,
+                                                color = textColor
+                                            )
+                                        }
                                     }
-                                    Text(
+                                    HomeReadableText(
                                         period.startTime,
                                         fontSize = 10.sp,
                                         lineHeight = 11.sp,
@@ -687,7 +713,7 @@ fun SinglePillWeekScheduleScreen(
                                         textAlign = TextAlign.Center,
                                         color = textColor.copy(alpha = 0.86f)
                                     )
-                                    Text(
+                                    HomeReadableText(
                                         period.endTime,
                                         fontSize = 10.sp,
                                         lineHeight = 11.sp,
@@ -1172,7 +1198,7 @@ fun LiquidWeekScheduleScreen(
                 horizontalArrangement = Arrangement.Center
             ) {
                 WeekSwitchButton("<", state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
-                Text(
+                HomeReadableText(
                     text = "第${displayWeek}周",
                     modifier = Modifier.padding(horizontal = 10.dp),
                     style = MaterialTheme.typography.titleSmall,
@@ -1211,6 +1237,7 @@ fun LiquidWeekScheduleScreen(
                                 .fillMaxWidth(),
                             contentAlignment = Alignment.Center
                         ) {
+                            HomeReadableRegion(color = textColor) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                                 val isCurrent = currentPeriod?.periodIndex == period.periodIndex
                                 Box(
@@ -1220,31 +1247,43 @@ fun LiquidWeekScheduleScreen(
                                     else Modifier,
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        period.periodIndex.toString(),
-                                        fontSize = 13.sp,
-                                        lineHeight = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center,
-                                        color = if (isCurrent) ComposeColor.White else textColor
-                                    )
-                                }
-                                Text(
-                                    period.startTime,
+                                        if (isCurrent) {
+                                            Text(
+                                                period.periodIndex.toString(),
+                                                fontSize = 13.sp,
+                                                lineHeight = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center,
+                                                color = ComposeColor.White
+                                            )
+                                        } else {
+                                            HomeReadableText(
+                                                period.periodIndex.toString(),
+                                                fontSize = 13.sp,
+                                                lineHeight = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center,
+                                                color = textColor
+                                            )
+                                        }
+                                    }
+                                    HomeReadableText(
+                                        period.startTime,
                                     fontSize = 10.sp,
                                     lineHeight = 11.sp,
                                     fontWeight = FontWeight.Light,
                                     textAlign = TextAlign.Center,
                                     color = textColor.copy(alpha = 0.86f)
                                 )
-                                Text(
-                                    period.endTime,
+                                    HomeReadableText(
+                                        period.endTime,
                                     fontSize = 10.sp,
                                     lineHeight = 11.sp,
                                     fontWeight = FontWeight.Light,
                                     textAlign = TextAlign.Center,
                                     color = textColor.copy(alpha = 0.86f)
                                 )
+                            }
                             }
                         }
                     }

@@ -271,14 +271,15 @@ fun CourseEditorContainerOverlayHost(
     val overlayPhase = motionState.phase
     val isOverlayActive = overlayPhase != CourseEditorOverlayPhase.Idle
     val shownRequest = request ?: renderedRequest ?: return
-    val formData = remember(state.config, state.periods) {
+    val formData = remember(state.config, state.periods, state.courses) {
         CourseEditorFormData(
             config = state.config,
-            periods = state.periods
+            periods = state.periods,
+            courses = state.courses
         )
     }
-    val saveEditedCourse = remember(shownRequest.course, shownRequest.targetWeek, onSave) {
-        { edited: CourseEntity -> onSave(shownRequest.course, edited, shownRequest.targetWeek) }
+    val saveEditedCourse = remember(shownRequest.targetWeek, onSave) {
+        { original: CourseEntity, edited: CourseEntity -> onSave(original, edited, shownRequest.targetWeek) }
     }
     val deleteEditedCourse = remember(shownRequest.targetWeek, onDelete) {
         { deleteCourse: CourseEntity -> onDelete(deleteCourse, shownRequest.targetWeek) }
@@ -437,7 +438,7 @@ private fun CourseEditorScaledContentLayer(
     backdrop: Backdrop?,
     onContentLaidOut: () -> Unit,
     onDismissRequest: () -> Unit,
-    onSave: (CourseEntity) -> Unit,
+    onSave: (CourseEntity, CourseEntity) -> Unit,
     onDelete: (CourseEntity) -> Unit
 ) {
     if (targetRect.width <= 1f || targetRect.height <= 1f || animatedRect.width <= 1f || animatedRect.height <= 1f) {
@@ -500,7 +501,8 @@ private fun CourseEditorScaledContentLayer(
                     formData = formData,
                     initialCourse = course,
                     onCancel = onDismissRequest,
-                    onSave = onSave,
+                    onSave = {},
+                    onSaveWithOriginal = onSave,
                     onDelete = onDelete,
                     backdrop = backdrop
                 )

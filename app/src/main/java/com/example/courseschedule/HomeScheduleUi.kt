@@ -186,6 +186,7 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.BlurredEdgeTreatment
@@ -215,6 +216,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -293,6 +295,146 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+data class HomeReadabilityContext(
+    val bitmap: Bitmap? = null,
+    val config: ScheduleConfigEntity? = null,
+    val rootSize: IntSize = IntSize.Zero
+)
+
+val LocalHomeReadability = compositionLocalOf { HomeReadabilityContext() }
+private val LocalHomeReadableOutline = compositionLocalOf<Boolean?> { null }
+
+private fun regionNeedsDarkTextShadow(
+    context: HomeReadabilityContext,
+    bounds: Rect,
+    textColor: ComposeColor,
+    currentlyEnabled: Boolean
+): Boolean {
+    if (textColor.luminance() < 0.62f || bounds.width <= 0f || bounds.height <= 0f) return false
+    val bitmap = context.bitmap ?: return false
+    val config = context.config ?: return false
+    val root = context.rootSize
+    if (root.width <= 0 || root.height <= 0 || bitmap.width <= 0 || bitmap.height <= 0) return false
+    val useSavedCrop = !config.wallpaperUri.isNullOrBlank()
+    val cropState = if (useSavedCrop) {
+        config.wallpaperCropState(
+            if (root.width <= root.height) WallpaperPreviewOrientation.Portrait
+            else WallpaperPreviewOrientation.Landscape
+        )
+    } else WallpaperCropState()
+    val drawn = calculateFocusCropRect(
+        bitmapWidth = bitmap.width,
+        bitmapHeight = bitmap.height,
+        containerWidth = root.width.toFloat(),
+        containerHeight = root.height.toFloat(),
+        cropState = cropState
+    )
+    if (drawn.width <= 0f || drawn.height <= 0f) return false
+    var weightedLuminance = 0f
+    var samples = 0
+    for (row in 0 until 3) {
+        for (column in 0 until 5) {
+            val rootX = bounds.left + bounds.width * ((column + 0.5f) / 5f)
+            val rootY = bounds.top + bounds.height * ((row + 0.5f) / 3f)
+            val x = (((rootX - drawn.left) / drawn.width) * bitmap.width)
+                .roundToInt().coerceIn(0, bitmap.width - 1)
+            val y = (((rootY - drawn.top) / drawn.height) * bitmap.height)
+                .roundToInt().coerceIn(0, bitmap.height - 1)
+            val pixel = bitmap.getPixel(x, y)
+            val color = ComposeColor(pixel)
+            weightedLuminance += color.luminance()
+            samples++
+        }
+    }
+    val dim = (1f - config.wallpaperBrightness.coerceIn(0.35f, 1f)).coerceIn(0f, 0.65f)
+    val visibleLuminance = weightedLuminance / samples.coerceAtLeast(1) * (1f - dim)
+    // A small hysteresis band keeps labels near the threshold from toggling
+    // while the pager or list is moving by a fraction of a pixel.
+    return visibleLuminance >= if (currentlyEnabled) 0.43f else 0.53f
+}
+
+@Composable
+fun HomeReadableText(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: ComposeColor,
+    style: TextStyle = LocalTextStyle.current,
+    fontWeight: FontWeight? = null,
+    fontSize: TextUnit = TextUnit.Unspecified,
+    lineHeight: TextUnit = TextUnit.Unspecified,
+    textAlign: TextAlign? = null,
+    maxLines: Int = Int.MAX_VALUE,
+    softWrap: Boolean = true,
+    overflow: TextOverflow = TextOverflow.Clip
+) {
+    val readability = LocalHomeReadability.current
+    val outlineOverride = LocalHomeReadableOutline.current
+    var needsOutline by remember(readability.bitmap, readability.config, readability.rootSize, color) {
+        mutableStateOf(false)
+    }
+    val effectiveOutline = outlineOverride ?: needsOutline
+    val measuredModifier = if (outlineOverride == null) {
+        modifier.onGloballyPositioned { coordinates ->
+            val next = regionNeedsDarkTextShadow(
+                readability,
+                coordinates.boundsInRoot(),
+                color,
+                needsOutline
+            )
+            if (next != needsOutline) needsOutline = next
+        }
+    } else modifier
+    Box(
+        modifier = measuredModifier
+    ) {
+        Text(
+            text = text,
+            color = color,
+            style = if (effectiveOutline) style.copy(
+                shadow = androidx.compose.ui.graphics.Shadow(
+                    color = ComposeColor.Black.copy(alpha = 0.44f),
+                    offset = Offset(0f, 1.2f),
+                    blurRadius = 12f
+                )
+            ) else style,
+            fontWeight = fontWeight,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            textAlign = textAlign,
+            maxLines = maxLines,
+            softWrap = softWrap,
+            overflow = overflow
+        )
+    }
+}
+
+@Composable
+fun HomeReadableRegion(
+    color: ComposeColor,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val readability = LocalHomeReadability.current
+    var needsOutline by remember(readability.bitmap, readability.config, readability.rootSize, color) {
+        mutableStateOf(false)
+    }
+    Box(
+        modifier = modifier.onGloballyPositioned { coordinates ->
+            val next = regionNeedsDarkTextShadow(
+                readability,
+                coordinates.boundsInRoot(),
+                color,
+                needsOutline
+            )
+            if (next != needsOutline) needsOutline = next
+        }
+    ) {
+        CompositionLocalProvider(LocalHomeReadableOutline provides needsOutline) {
+            content()
+        }
+    }
+}
+
 @Composable
 fun HomeDateTitle(
     state: AppState,
@@ -308,11 +450,10 @@ fun HomeDateTitle(
     Column(
         modifier = Modifier
             .padding(top = 2.dp)
-            .clip(RoundedCornerShape(8.dp))
             .clickable(interactionSource = interactionSource, indication = null, onClick = onReturnCurrent),
         verticalArrangement = Arrangement.spacedBy((-6).dp)
     ) {
-        Text(
+        HomeReadableText(
             "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}",
             style = MaterialTheme.typography.titleMedium,
             color = color,
@@ -320,7 +461,7 @@ fun HomeDateTitle(
             softWrap = false,
             overflow = TextOverflow.Clip
         )
-        Text(
+        HomeReadableText(
             when {
                 beforeScheduleTerm -> "当前暂未开学"
                 afterScheduleTerm -> "学期已结束"
@@ -448,6 +589,7 @@ fun HomeScreen(
     dayAgentBackgroundMotionState: DayAgentBackgroundMotionState,
     onAgentPagerSettledChange: (Boolean) -> Unit = {},
     onAgentPrepareOpen: suspend () -> Unit = {},
+    onAgentDismissed: () -> Unit = {},
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit = {},
     onAgentAction: (AgentValidatedAction) -> Unit = {},
@@ -509,6 +651,7 @@ fun HomeScreen(
                         dayAgentBackgroundMotionState = dayAgentBackgroundMotionState,
                         onAgentPagerSettledChange = onAgentPagerSettledChange,
                         onAgentPrepareOpen = onAgentPrepareOpen,
+                        onAgentDismissed = onAgentDismissed,
                         onCourseClick = onCourseClick,
                         onAddCourse = onAddCourse,
                         onAgentAction = onAgentAction
@@ -1032,6 +1175,7 @@ fun DayScheduleScreen(
     dayAgentBackgroundMotionState: DayAgentBackgroundMotionState,
     onAgentPagerSettledChange: (Boolean) -> Unit,
     onAgentPrepareOpen: suspend () -> Unit,
+    onAgentDismissed: () -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit,
     onAgentAction: (AgentValidatedAction) -> Unit
@@ -1143,6 +1287,7 @@ fun DayScheduleScreen(
             val targetDate = dateForPage(page)
             val targetWeekOrNull = scheduleWeekForDateOrNull(state.config, targetDate)
             val targetWeek = targetWeekOrNull ?: effectiveCurrentWeek(state.config, targetDate)
+            val termStatus = scheduleTermStatusLabel(state.config, targetDate)
             val targetWeekday = targetDate.dayOfWeek.toChineseWeekday()
             val dayCourses = remember(state.courses, targetWeekOrNull, targetWeekday) {
                 if (targetWeekOrNull == null) emptyList() else weekCourseBuckets(state.courses, targetWeekOrNull)
@@ -1168,13 +1313,13 @@ fun DayScheduleScreen(
             ) {
                 item {
                     val isToday = targetDate == LocalDate.now(ZoneId.of("Asia/Shanghai"))
-                    val currentPeriod = if (isToday) {
+                    val currentPeriod = if (isToday && targetWeekOrNull != null) {
                         val now = LocalTime.now(ZoneId.of("Asia/Shanghai"))
                         currentTimelinePeriod(state.periods, now)
                     } else null
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "${targetDate.monthValue}月${targetDate.dayOfMonth}日 周${weekdayLabel(targetWeekday)} · 第${targetWeek}周",
+            HomeReadableText(
+                            "${targetDate.monthValue}月${targetDate.dayOfMonth}日 周${weekdayLabel(targetWeekday)} · ${termStatus ?: "第${targetWeek}周"}",
                             style = MaterialTheme.typography.titleMedium,
                             color = textColor
                         )
@@ -1206,13 +1351,15 @@ fun DayScheduleScreen(
                             backdrop = backdrop,
                             textColor = textColor,
                             collapsed = agentCollapsed,
+                            isActive = page == pagerState.settledPage,
                             backgroundMotionState = dayAgentBackgroundMotionState,
                             onPrepareOpen = onAgentPrepareOpen,
+                            onAgentDismissed = onAgentDismissed,
                             onAgentAction = onAgentAction
                         )
                     }
                 }
-                if (dayCourses.isEmpty()) item { Text("这一天没有课程", color = textColor) }
+                if (dayCourses.isEmpty()) item { HomeReadableText("这一天没有课程", color = textColor) }
                 itemsIndexed(dayCourses, key = { _, it -> it.id }) { index, course ->
                     DayTimelineCourse(course, targetWeek, state.periods, cardColor, backdrop, state.config, onCourseClick, entranceIndex = index)
                 }

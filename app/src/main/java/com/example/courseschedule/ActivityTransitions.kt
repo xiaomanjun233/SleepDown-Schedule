@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Build
 
 const val ScheduleCustomizeIdExtra = "schedule_customize_id"
+const val ScheduleEntrySnapshotExtra = "schedule_entry_snapshot"
 
 fun Activity.startActivityWithScheduleDepthTransition(intent: Intent) {
     if (Build.VERSION.SDK_INT >= 34) {

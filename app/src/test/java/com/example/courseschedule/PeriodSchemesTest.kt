@@ -7,6 +7,7 @@ import org.junit.Test
 class PeriodSchemesTest {
     private val config = defaultConfig().copy(
         morningPeriodCount = 2,
+        noonPeriodCount = 1,
         afternoonPeriodCount = 2,
         eveningPeriodCount = 1
     )
@@ -21,13 +22,14 @@ class PeriodSchemesTest {
             classDurationMinutes = 45,
             breakDurationMinutes = 10,
             morningStartTime = "08:00",
+            noonStartTime = "12:20",
             afternoonStartTime = "14:00",
             eveningStartTime = "19:00"
         )
 
         val result = resolveSchemeTimes(config, PeriodSchemeDraft(scheme, emptyList()))
 
-        assertEquals(listOf("08:00", "08:55", "14:00", "14:55", "19:00"), result.map { it.startTime })
+        assertEquals(listOf("08:00", "08:55", "12:20", "14:00", "14:55", "19:00"), result.map { it.startTime })
         assertNull(validateResolvedPeriodTimes(result))
     }
 
@@ -59,5 +61,47 @@ class PeriodSchemesTest {
             PeriodSchemeTimeEntity(1, 2, "08:50", "09:35")
         )
         assertEquals("第 1 节与第 2 节时间重叠", validateResolvedPeriodTimes(times))
+    }
+
+    @Test
+    fun laterDayPartIsPushedAfterPreviousPartInsteadOfOverlapping() {
+        val scheme = PeriodSchemeEntity(
+            id = 11,
+            scheduleId = 1,
+            name = "overlap",
+            mode = PeriodSchemeMode.AUTO_MATCH,
+            classDurationMinutes = 45,
+            breakDurationMinutes = 10,
+            morningStartTime = "08:00",
+            noonStartTime = "12:10",
+            afternoonStartTime = "12:10",
+            eveningStartTime = "19:20"
+        )
+
+        val result = resolveSchemeTimes(config, PeriodSchemeDraft(scheme, emptyList()))
+
+        assertEquals("12:55", result.first { it.periodIndex == 4 }.startTime)
+        assertNull(validateResolvedPeriodTimes(result))
+    }
+
+    @Test
+    fun normalizingAutoStartsPersistsTheEffectiveStart() {
+        val scheme = PeriodSchemeEntity(
+            id = 12,
+            scheduleId = 1,
+            name = "normalize",
+            mode = PeriodSchemeMode.AUTO_MATCH,
+            classDurationMinutes = 45,
+            breakDurationMinutes = 10,
+            morningStartTime = "08:00",
+            noonStartTime = "12:10",
+            afternoonStartTime = "12:10",
+            eveningStartTime = "19:20"
+        )
+
+        val normalized = normalizeAutoSchemeStarts(config, PeriodSchemeDraft(scheme, emptyList()))
+
+        assertEquals("12:55", normalized.scheme.afternoonStartTime)
+        assertNull(validateResolvedPeriodTimes(normalized.times))
     }
 }

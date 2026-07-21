@@ -24,6 +24,7 @@ object IcsScheduleCodec {
     fun parse(bytes: ByteArray, baseConfig: ScheduleConfigEntity): Result<ImportDraft> = runCatching {
         val text = bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF")
         require(text.contains("BEGIN:VCALENDAR", ignoreCase = true)) { "所选文件不是有效的 ICS 日历" }
+        val metadata = parseSleepDownMetadata(text)
         val events = parseEvents(text)
         require(events.isNotEmpty()) { "ICS 中没有找到日历事件" }
 
@@ -37,7 +38,7 @@ object IcsScheduleCodec {
         val rawLastWeek = occurrences.maxOf { occurrence ->
             ChronoUnit.WEEKS.between(firstMonday, occurrence.start.toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))).toInt() + 1
         }
-        val totalWeeks = rawLastWeek.coerceIn(1, 60)
+        val totalWeeks = (metadata.totalWeeks ?: rawLastWeek).coerceIn(1, 60)
         val usable = occurrences.filter { occurrence ->
             val week = ChronoUnit.WEEKS.between(
                 firstMonday,
@@ -52,7 +53,7 @@ object IcsScheduleCodec {
             .sortedWith(compareBy<Pair<LocalTime, LocalTime>> { it.first }.thenBy { it.second })
         require(timeRanges.isNotEmpty()) { "ICS 中没有可识别的课程时间" }
         val periodIndexByRange = timeRanges.withIndex().associate { it.value to it.index + 1 }
-        val periods = timeRanges.mapIndexed { index, range ->
+        val inferredPeriods = timeRanges.mapIndexed { index, range ->
             PeriodEntity(
                 periodIndex = index + 1,
                 startTime = range.first.format(displayTime),
@@ -60,24 +61,34 @@ object IcsScheduleCodec {
                 scheduleId = baseConfig.id
             )
         }
+        val periods = metadata.periods.ifEmpty { inferredPeriods }
+            .distinctBy { it.periodIndex }
+            .sortedBy { it.periodIndex }
+            .map { it.copy(scheduleId = baseConfig.id) }
+        val periodsByIndex = periods.associateBy { it.periodIndex }
 
         data class CourseKey(
             val name: String,
             val teacher: String?,
             val location: String?,
             val weekday: Int,
-            val periodIndex: Int,
+            val sourceIdentity: String,
             val note: String?
         )
 
         val grouped = usable.groupBy { occurrence ->
             val teacher = extractTeacher(occurrence.description)
+            val embeddedPeriods = occurrence.periodIndices
+                .filter { it in periodsByIndex }
+                .distinct()
+                .sorted()
+            val inferredPeriod = periodIndexByRange[occurrence.start.toLocalTime() to occurrence.end.toLocalTime()]
             CourseKey(
                 name = occurrence.name.ifBlank { "未命名课程" },
                 teacher = teacher,
                 location = occurrence.location.takeIf { it.isNotBlank() },
                 weekday = occurrence.start.dayOfWeek.value,
-                periodIndex = periodIndexByRange.getValue(occurrence.start.toLocalTime() to occurrence.end.toLocalTime()),
+                sourceIdentity = occurrence.sourceCourseId ?: "generic-${embeddedPeriods.ifEmpty { listOfNotNull(inferredPeriod) }.joinToString(",")}",
                 note = occurrence.description
                     .takeIf { it.isNotBlank() }
                     ?.takeUnless { description -> teacher != null && description.trim() == "教师：$teacher" }
@@ -95,7 +106,11 @@ object IcsScheduleCodec {
                 teacher = key.teacher,
                 location = key.location,
                 weekday = key.weekday,
-                periods = listOf(key.periodIndex),
+                periods = values.flatMap { occurrence ->
+                    occurrence.periodIndices.filter { it in periodsByIndex }.ifEmpty {
+                        listOfNotNull(periodIndexByRange[occurrence.start.toLocalTime() to occurrence.end.toLocalTime()])
+                    }
+                }.distinct().sorted(),
                 weeks = weeks,
                 weekParity = WeekParity.ALL,
                 note = key.note,
@@ -105,14 +120,23 @@ object IcsScheduleCodec {
             .sortedWith(compareBy<CourseEntity> { it.weekday }.thenBy { it.periods.firstOrNull() ?: 0 }.thenBy { it.name })
         require(courses.isNotEmpty()) { "ICS 中没有可导入的课程" }
 
+        val termStart = metadata.termStartDate ?: firstMonday
         val today = LocalDate.now(shanghaiZone)
-        val detectedWeek = (ChronoUnit.DAYS.between(firstMonday, today).toInt() / 7 + 1).coerceIn(1, totalWeeks)
+        val detectedWeek = (ChronoUnit.DAYS.between(termStart, today).toInt() / 7 + 1).coerceIn(1, totalWeeks)
+        val inferredCounts = inferPeriodCounts(periods)
+        val counts = metadata.partCounts?.takeIf {
+            it.morning + it.noon + it.afternoon + it.evening == periods.size
+        } ?: inferredCounts
         ImportDraft(
             config = baseConfig.copy(
                 totalWeeks = totalWeeks,
                 currentWeek = detectedWeek,
-                termStartDate = firstMonday.toString(),
-                autoCurrentWeek = true
+                termStartDate = termStart.toString(),
+                autoCurrentWeek = true,
+                morningPeriodCount = counts.morning,
+                noonPeriodCount = counts.noon,
+                afternoonPeriodCount = counts.afternoon,
+                eveningPeriodCount = counts.evening
             ),
             periods = periods,
             courses = courses
@@ -137,6 +161,13 @@ object IcsScheduleCodec {
             appendLine("CALSCALE:GREGORIAN")
             appendLine("METHOD:PUBLISH")
             appendLine("X-WR-CALNAME:${escapeText(calendarName)}")
+            appendLine("X-SLEEPDOWN-SCHEMA:2")
+            appendLine("X-SLEEPDOWN-TOTAL-WEEKS:${config.totalWeeks}")
+            config.termStartDate?.let { appendLine("X-SLEEPDOWN-TERM-START:$it") }
+            appendLine("X-SLEEPDOWN-PART-COUNTS:${config.morningPeriodCount},${config.noonPeriodCount},${config.afternoonPeriodCount},${config.eveningPeriodCount}")
+            periods.sortedBy { it.periodIndex }.forEach { period ->
+                appendLine("X-SLEEPDOWN-PERIOD:${period.periodIndex},${period.startTime},${period.endTime}")
+            }
             courses.sortedWith(compareBy<CourseEntity> { it.weekday }.thenBy { it.name }).forEach { course ->
                 val ranges = contiguousPeriodRanges(course.periods, periodsByIndex)
                 course.weeks.distinct().sorted()
@@ -144,14 +175,15 @@ object IcsScheduleCodec {
                     .forEach { week ->
                         val date = scheduleWeekStartDate(config, week, today).plusDays((course.weekday - 1).toLong())
                         ranges.forEachIndexed { rangeIndex, range ->
-                            val start = date.atTime(range.first)
-                            val end = date.atTime(range.second)
+                            val start = date.atTime(range.start)
+                            val end = date.atTime(range.end)
                             appendLine("BEGIN:VEVENT")
                             appendLine("UID:sleepdown-${config.id}-${course.id}-$week-$rangeIndex@sleepdown.local")
                             appendLine("DTSTAMP:$stamp")
                             appendLine("DTSTART;TZID=Asia/Shanghai:${start.format(compactDateTime)}")
                             appendLine("DTEND;TZID=Asia/Shanghai:${end.format(compactDateTime)}")
                             appendLine("SUMMARY:${escapeText(course.name)}")
+                            appendLine("X-SLEEPDOWN-COURSE-ID:${course.id}")
                             course.location?.takeIf { it.isNotBlank() }?.let { appendLine("LOCATION:${escapeText(it)}") }
                             val description = listOfNotNull(
                                 course.teacher?.takeIf { it.isNotBlank() }?.let { "教师：$it" },
@@ -159,6 +191,7 @@ object IcsScheduleCodec {
                             ).joinToString("\\n")
                             if (description.isNotBlank()) appendLine("DESCRIPTION:${escapeText(description)}")
                             appendLine("X-SLEEPDOWN-WEEK:$week")
+                            appendLine("X-SLEEPDOWN-PERIODS:${range.indices.joinToString(",")}")
                             appendLine("END:VEVENT")
                         }
                     }
@@ -188,10 +221,21 @@ object IcsScheduleCodec {
         val location: String,
         val description: String,
         val start: LocalDateTime,
-        val end: LocalDateTime
+        val end: LocalDateTime,
+        val periodIndices: List<Int> = emptyList(),
+        val sourceCourseId: String? = null
     )
 
-    private fun parseEvents(text: String): List<IcsEvent> {
+    private data class SleepDownMetadata(
+        val totalWeeks: Int? = null,
+        val termStartDate: LocalDate? = null,
+        val partCounts: PeriodPartCounts? = null,
+        val periods: List<PeriodEntity> = emptyList()
+    )
+
+    private data class IcsPeriodRange(val indices: List<Int>, val start: LocalTime, val end: LocalTime)
+
+    private fun unfoldLines(text: String): List<String> {
         val unfolded = mutableListOf<String>()
         text.replace("\r\n", "\n").replace('\r', '\n').lineSequence().forEach { line ->
             if ((line.startsWith(' ') || line.startsWith('\t')) && unfolded.isNotEmpty()) {
@@ -200,6 +244,30 @@ object IcsScheduleCodec {
                 unfolded += line
             }
         }
+        return unfolded
+    }
+
+    private fun parseSleepDownMetadata(text: String): SleepDownMetadata {
+        val properties = unfoldLines(text).mapNotNull(::parseProperty)
+        val totalWeeks = properties.firstOrNull { it.name == "X-SLEEPDOWN-TOTAL-WEEKS" }?.value?.toIntOrNull()
+        val termStart = properties.firstOrNull { it.name == "X-SLEEPDOWN-TERM-START" }?.value
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        val counts = properties.firstOrNull { it.name == "X-SLEEPDOWN-PART-COUNTS" }?.value
+            ?.split(',')?.mapNotNull(String::toIntOrNull)
+            ?.takeIf { it.size == 4 }
+            ?.let { PeriodPartCounts(it[0], it[1], it[2], it[3]) }
+        val periods = properties.filter { it.name == "X-SLEEPDOWN-PERIOD" }.mapNotNull { property ->
+            val values = property.value.split(',')
+            val index = values.getOrNull(0)?.toIntOrNull() ?: return@mapNotNull null
+            val start = values.getOrNull(1)?.takeIf { runCatching { LocalTime.parse(it) }.isSuccess } ?: return@mapNotNull null
+            val end = values.getOrNull(2)?.takeIf { runCatching { LocalTime.parse(it) }.isSuccess } ?: return@mapNotNull null
+            PeriodEntity(index, start, end)
+        }
+        return SleepDownMetadata(totalWeeks, termStart, counts, periods)
+    }
+
+    private fun parseEvents(text: String): List<IcsEvent> {
+        val unfolded = unfoldLines(text)
         val events = mutableListOf<IcsEvent>()
         var current: MutableMap<String, MutableList<IcsProperty>>? = null
         unfolded.forEach { line ->
@@ -258,8 +326,11 @@ object IcsScheduleCodec {
         val name = unescapeText(event.properties["SUMMARY"]?.firstOrNull()?.value.orEmpty()).ifBlank { "未命名课程" }
         val location = unescapeText(event.properties["LOCATION"]?.firstOrNull()?.value.orEmpty())
         val description = unescapeText(event.properties["DESCRIPTION"]?.firstOrNull()?.value.orEmpty())
+        val embeddedPeriods = event.properties["X-SLEEPDOWN-PERIODS"]?.firstOrNull()?.value
+            ?.split(',')?.mapNotNull { it.trim().toIntOrNull() }.orEmpty()
+        val sourceCourseId = event.properties["X-SLEEPDOWN-COURSE-ID"]?.firstOrNull()?.value?.trim()?.takeIf { it.isNotBlank() }
         return starts.take(1000).map { occurrenceStart ->
-            Occurrence(name, location, description, occurrenceStart, occurrenceStart.plus(duration))
+            Occurrence(name, location, description, occurrenceStart, occurrenceStart.plus(duration), embeddedPeriods, sourceCourseId)
         }
     }
 
@@ -336,7 +407,7 @@ object IcsScheduleCodec {
     private fun contiguousPeriodRanges(
         indexes: List<Int>,
         periodsByIndex: Map<Int, PeriodEntity>
-    ): List<Pair<LocalTime, LocalTime>> {
+    ): List<IcsPeriodRange> {
         val sorted = indexes.distinct().sorted().mapNotNull { index -> periodsByIndex[index]?.let { index to it } }
         if (sorted.isEmpty()) return emptyList()
         val groups = mutableListOf<MutableList<Pair<Int, PeriodEntity>>>()
@@ -347,7 +418,7 @@ object IcsScheduleCodec {
         return groups.mapNotNull { group ->
             val start = runCatching { LocalTime.parse(group.first().second.startTime) }.getOrNull()
             val end = runCatching { LocalTime.parse(group.last().second.endTime) }.getOrNull()
-            if (start != null && end != null && end.isAfter(start)) start to end else null
+            if (start != null && end != null && end.isAfter(start)) IcsPeriodRange(group.map { it.first }, start, end) else null
         }
     }
 

@@ -81,7 +81,8 @@ internal object MiuixTodayWidgetRenderer {
         val today = LocalDate.now(zone)
         val now = LocalTime.now(zone)
         val targetDate = if (now >= LocalTime.of(22, 0)) today.plusDays(1) else today
-        val currentWeek = effectiveCurrentWeek(state.config, targetDate)
+        val currentWeek = scheduleWeekForDateOrNull(state.config, targetDate)
+        val termStatus = scheduleTermStatusLabel(state.config, targetDate)
         val allCourses = coursesForDate(state, targetDate)
             .filter { targetDate != today || courseEndTime(it, state.periods)?.isAfter(now) != false }
         val limit = when (variant) {
@@ -105,14 +106,17 @@ internal object MiuixTodayWidgetRenderer {
                     TodayWidgetVariant.SQUARE -> "${dayPrefix}课程"
                 }
             )
-            setTextViewText(R.id.widget_subtitle, "第${currentWeek}周")
+            setTextViewText(R.id.widget_subtitle, currentWeek?.let { "第${it}周" } ?: termStatus.orEmpty())
             if (variant != TodayWidgetVariant.LARGE) {
                 setViewVisibility(R.id.widget_subtitle, View.GONE)
             }
             setOnClickPendingIntent(R.id.widget_root, openAppPendingIntent(context))
             setOnClickPendingIntent(R.id.widget_refresh, refreshPendingIntent(context))
             setViewVisibility(R.id.widget_empty, if (courses.isEmpty()) View.VISIBLE else View.GONE)
-            setTextViewText(R.id.widget_empty, if (targetDate == today) "今天没课了" else "明天没有课")
+            setTextViewText(
+                R.id.widget_empty,
+                termStatus ?: if (targetDate == today) "今天没课了" else "明天没有课"
+            )
             when (variant) {
                 TodayWidgetVariant.LARGE -> {
                     val useGrid = courses.size >= 3
@@ -244,7 +248,7 @@ internal object MiuixTodayWidgetRenderer {
 
     private fun coursesForDate(state: AppState, date: LocalDate): List<CourseEntity> {
         val weekday = date.dayOfWeek.toChineseWeekday()
-        val week = effectiveCurrentWeek(state.config, date)
+        val week = scheduleWeekForDateOrNull(state.config, date) ?: return emptyList()
         return state.courses
             .filter { it.weekday == weekday && week in it.weeks && parityMatches(it.weekParity, week) }
             .sortedBy { courseStartTime(it, state.periods) ?: LocalTime.MAX }

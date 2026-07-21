@@ -2,6 +2,8 @@ package com.example.courseschedule
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowInsetsController
@@ -21,10 +23,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class MainActivity : ComponentActivity() {
+    private val pendingExternalIcsUri = MutableStateFlow<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        acceptExternalIcsIntent(intent)
         WindowCompat.setDecorFitsSystemWindows(window, true)
         setContent {
             val app = application as CourseScheduleApp
@@ -32,10 +39,33 @@ class MainActivity : ComponentActivity() {
                 factory = ScheduleViewModelFactory(app, app.repository)
             )
             val config by viewModel.themeConfig.collectAsStateWithLifecycle()
+            val externalIcsUri by pendingExternalIcsUri.asStateFlow().collectAsStateWithLifecycle()
             CourseScheduleTheme(config = config) {
-                CourseScheduleAppUi(viewModel)
+                CourseScheduleAppUi(
+                    viewModel = viewModel,
+                    externalIcsUri = externalIcsUri,
+                    onExternalIcsConsumed = { consumed ->
+                        pendingExternalIcsUri.compareAndSet(consumed, null)
+                    }
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        acceptExternalIcsIntent(intent)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun acceptExternalIcsIntent(intent: Intent?) {
+        val uri = when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+            else -> null
+        } ?: return
+        pendingExternalIcsUri.value = uri
     }
 
     override fun onUserLeaveHint() {

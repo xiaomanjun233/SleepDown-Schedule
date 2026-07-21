@@ -138,6 +138,7 @@ fun LiquidDialogHeader(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
+    buttonBlurRadius: Dp = 3.dp,
     onConfirm: (() -> Unit)? = null
 ) {
     Box(
@@ -153,7 +154,8 @@ fun LiquidDialogHeader(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .offset(y = 4.dp),
-            role = DialogButtonRole.Cancel
+            role = DialogButtonRole.Cancel,
+            blurRadius = buttonBlurRadius
         )
         Text(
             text = title,
@@ -175,7 +177,8 @@ fun LiquidDialogHeader(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .offset(y = 4.dp),
-                role = DialogButtonRole.Confirm
+                role = DialogButtonRole.Confirm,
+                blurRadius = buttonBlurRadius
             )
         }
     }

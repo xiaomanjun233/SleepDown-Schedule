@@ -105,7 +105,7 @@ JSON 协议如下：
     }
   ]
 }
-要求：weekday 使用 1-7 表示周一到周日；periods 必须引用 scheduleConfig.periods 里的 index；weeks 必须在 1 到 totalWeeks 内；weekParity 只能是 ALL、ODD、EVEN；时间必须是 HH:mm。只返回 JSON。
+要求：weekday 使用 1-7 表示周一到周日；periods 必须引用 scheduleConfig.periods 里的 index；weeks 必须在 1 到 totalWeeks 内；weekParity 只能是 ALL、ODD、EVEN；时间必须是 HH:mm。只返回一个完整 JSON 对象。JSON 可以正常换行和缩进，但不要在字符串值中为了排版擅自插入换行，不要使用 Markdown 代码块。
 """.trimIndent()
 
     fun buildTokenPrompt(): String = """
@@ -123,6 +123,9 @@ C=课程名|教师|地点|星期|节次|周次|单双周|备注
 4. 单双周用 A/O/E，分别表示全部/单周/双周。
 5. 没有教师、地点或备注时写 -。
 6. 时间必须是 HH:mm。
+7. 必须严格换行：SDCT1 单独一行，T= 单独一行，全部节次写在同一条 P= 行；每一门课程各占一条独立的 C= 行。
+8. 不要把一条 P= 或 C= 记录折成多行，不要添加项目符号、序号、空行、Markdown 代码围栏或解释文字。
+9. 课程名称、教师、地点和备注中不要使用竖线“|”；如原文包含竖线，请改为空格。每个 C= 行必须恰好包含 8 个由“|”分隔的字段。
 示例：
 SDCT1
 T=20
@@ -505,8 +508,11 @@ private fun formatNumberRanges(values: List<Int>): String {
 }
 
 fun todayCourses(state: AppState): List<CourseEntity> {
-    val weekday = LocalDate.now(ZoneId.of("Asia/Shanghai")).dayOfWeek.toChineseWeekday()
-    val currentWeek = effectiveCurrentWeek(state.config)
+    val today = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    val weekday = today.dayOfWeek.toChineseWeekday()
+    // Do not fold dates before/after the term into week 1/the final week. Widgets,
+    // notifications and the live activity all consume this shared query.
+    val currentWeek = scheduleWeekForDateOrNull(state.config, today) ?: return emptyList()
     return state.courses.filter { it.weekday == weekday && it.weeks.contains(currentWeek) && parityMatches(it.weekParity, currentWeek) }
         .sortedBy { courseStartTime(it, state.periods) ?: LocalTime.MAX }
 }
@@ -548,19 +554,22 @@ fun resolveScheduleCurrentWeek(
     totalWeeks: Int,
     manualCurrentWeek: Int,
     termStartDate: String?,
-    autoCurrentWeek: Boolean
+    autoCurrentWeek: Boolean,
+    today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
 ): Int {
     val safeTotal = totalWeeks.coerceIn(1, 60)
     val safeManual = manualCurrentWeek.coerceIn(1, safeTotal)
     if (!autoCurrentWeek || parseScheduleDate(termStartDate) == null) return safeManual
-    return effectiveCurrentWeek(
-        baseConfig.copy(
-            totalWeeks = safeTotal,
-            currentWeek = safeManual,
-            termStartDate = termStartDate?.trim()?.ifBlank { null },
-            autoCurrentWeek = true
-        )
-    ).coerceIn(1, safeTotal)
+    val automaticConfig = baseConfig.copy(
+        totalWeeks = safeTotal,
+        currentWeek = safeManual,
+        termStartDate = termStartDate?.trim()?.ifBlank { null },
+        autoCurrentWeek = true
+    )
+    // currentWeek is persisted as the manual fallback. Before the opening date and
+    // after the final teaching day there is no current teaching week to write back.
+    return scheduleWeekForDateOrNull(automaticConfig, today)
+        ?: safeManual
 }
 
 fun isBeforeScheduleTerm(config: ScheduleConfigEntity, today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))): Boolean {
@@ -580,6 +589,12 @@ fun isAfterScheduleTerm(
     config: ScheduleConfigEntity,
     today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
 ): Boolean = scheduleTermEndDate(config)?.let(today::isAfter) == true
+
+fun scheduleTermStatusLabel(config: ScheduleConfigEntity, date: LocalDate): String? = when {
+    isBeforeScheduleTerm(config, date) -> "暂未开学"
+    isAfterScheduleTerm(config, date) -> "学期已结束"
+    else -> null
+}
 
 /** Returns null outside the actual teaching-term date range instead of folding into week 1/N. */
 fun scheduleWeekForDateOrNull(config: ScheduleConfigEntity, date: LocalDate): Int? {
@@ -706,7 +721,13 @@ object NotificationScheduler {
     suspend fun refreshToday(context: Context, courses: List<CourseEntity>, config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val signature = scheduleSignature(courses, config, periods)
-        if (prefs.getString(KEY_SCHEDULE_SIGNATURE, null) != signature) {
+        val todayIsInTerm = scheduleWeekForDateOrNull(
+            config,
+            LocalDate.now(ZoneId.of("Asia/Shanghai"))
+        ) != null
+        if (!todayIsInTerm || prefs.getString(KEY_SCHEDULE_SIGNATURE, null) != signature) {
+            // Always clear stale alarms outside the term, even if this process has
+            // already seen today's signature before the boundary check was fixed.
             scheduleToday(context, courses, config, periods)
             prefs.edit().putString(KEY_SCHEDULE_SIGNATURE, signature).apply()
         }

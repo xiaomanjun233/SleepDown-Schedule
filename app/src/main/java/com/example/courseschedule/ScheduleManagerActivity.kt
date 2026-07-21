@@ -124,6 +124,7 @@ class ScheduleManagerActivity : ComponentActivity() {
                         val intent = Intent(this, SettingsDetailActivity::class.java)
                             .putExtra("settings_page", SettingsPage.Schedule.name)
                             .putScheduleCustomizeId(id)
+                            .putExtra(ScheduleEntrySnapshotExtra, true)
                         startActivity(intent)
                     },
                     onCreate = {

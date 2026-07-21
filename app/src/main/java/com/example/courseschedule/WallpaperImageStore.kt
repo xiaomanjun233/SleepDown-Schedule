@@ -118,6 +118,22 @@ fun createReducedWallpaperBitmap(source: Bitmap?): Bitmap? {
     return Bitmap.createScaledBitmap(source, width, height, true)
 }
 
+/**
+ * Small, always software-backed copy used only for regional text contrast checks.
+ * Keeping this separate from the render bitmap avoids reading hardware bitmaps on
+ * the main thread and makes the handful of per-label samples effectively free.
+ */
+fun createWallpaperReadabilityBitmap(source: Bitmap?): Bitmap? {
+    if (source == null || source.width <= 0 || source.height <= 0) return null
+    val largest = max(source.width, source.height).coerceAtLeast(1)
+    val scale = (128f / largest).coerceAtMost(1f)
+    val width = (source.width * scale).roundToInt().coerceAtLeast(1)
+    val height = (source.height * scale).roundToInt().coerceAtLeast(1)
+    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { target ->
+        Canvas(target).drawBitmap(source, null, android.graphics.Rect(0, 0, width, height), null)
+    }
+}
+
 fun createBlurredWallpaperBitmap(source: Bitmap?, blurRadius: Int): Bitmap? {
     if (source == null || blurRadius <= 0 || source.width <= 0 || source.height <= 0) return null
     val largest = max(source.width, source.height).coerceAtLeast(1)

@@ -55,7 +55,8 @@ class TodayCoursesWidgetProvider : AppWidgetProvider() {
             val today = LocalDate.now(zone)
             val now = LocalTime.now(zone)
             val targetDate = if (now >= LocalTime.of(22, 0)) today.plusDays(1) else today
-            val currentWeek = effectiveCurrentWeek(state.config, targetDate)
+            val currentWeek = scheduleWeekForDateOrNull(state.config, targetDate)
+            val termStatus = scheduleTermStatusLabel(state.config, targetDate)
             val courses = coursesForWidgetDate(state, targetDate)
                 .filter { course -> targetDate != today || courseEndTime(course, state.periods)?.isAfter(now) != false }
                 .take(4)
@@ -63,7 +64,9 @@ class TodayCoursesWidgetProvider : AppWidgetProvider() {
                 val dark = widgetUsesDarkTheme(context, state.config)
                 applyWidgetTheme(dark)
                 setTextViewText(R.id.widget_title, if (targetDate == today) "今日课程" else "明日课程")
-                setTextViewText(R.id.widget_subtitle, "${targetDate.monthValue}月${targetDate.dayOfMonth}日 · 第${currentWeek}周")
+                val subtitle = currentWeek?.let { "${targetDate.monthValue}月${targetDate.dayOfMonth}日 · 第${it}周" }
+                    ?: "${targetDate.monthValue}月${targetDate.dayOfMonth}日 · ${termStatus.orEmpty()}"
+                setTextViewText(R.id.widget_subtitle, subtitle)
                 setOnClickPendingIntent(R.id.widget_root, openAppPendingIntent(context))
                 setOnClickPendingIntent(R.id.widget_refresh, refreshPendingIntent(context))
 
@@ -83,7 +86,10 @@ class TodayCoursesWidgetProvider : AppWidgetProvider() {
                     dark = dark
                 )
                 setViewVisibility(R.id.widget_empty, if (courses.isEmpty()) View.VISIBLE else View.GONE)
-                setTextViewText(R.id.widget_empty, if (targetDate == today) "今天没有剩余课程" else "明天没有课程")
+                setTextViewText(
+                    R.id.widget_empty,
+                    termStatus ?: if (targetDate == today) "今天没有剩余课程" else "明天没有课程"
+                )
             }
         }
 
@@ -130,7 +136,7 @@ class TodayCoursesWidgetProvider : AppWidgetProvider() {
 
         private fun coursesForWidgetDate(state: AppState, date: LocalDate): List<CourseEntity> {
             val weekday = date.dayOfWeek.toChineseWeekday()
-            val week = effectiveCurrentWeek(state.config, date)
+            val week = scheduleWeekForDateOrNull(state.config, date) ?: return emptyList()
             return state.courses
                 .filter { it.weekday == weekday && week in it.weeks && parityMatches(it.weekParity, week) }
                 .sortedBy { courseStartTime(it, state.periods) ?: LocalTime.MAX }

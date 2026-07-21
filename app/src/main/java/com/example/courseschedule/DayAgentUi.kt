@@ -103,6 +103,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.Duration
 import java.time.ZoneId
 import java.util.LinkedHashMap
 import kotlin.math.roundToInt
@@ -217,8 +218,10 @@ fun TodayAgentHost(
     backdrop: Backdrop?,
     textColor: Color,
     collapsed: Boolean,
+    isActive: Boolean = true,
     backgroundMotionState: DayAgentBackgroundMotionState,
     onPrepareOpen: suspend () -> Unit = {},
+    onAgentDismissed: () -> Unit = {},
     onAgentAction: (AgentValidatedAction) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -241,7 +244,7 @@ fun TodayAgentHost(
     if (!hasDecision) {
         LiquidAlertDialog(
             title = "启用今日 Agent？",
-            message = "今日 Agent 会在日视图整理课程、课间空档与天气，并可使用已配置的 AI 每天生成一次个性化文案。动态倒计时均在本地计算；你可以随时在今日 Agent 设置中关闭。",
+            message = "今日助手会在日视图显示下一节课、实时倒计时与天气。课程和倒计时均在本地计算；绑定 API Key 后，点击卡片可以继续对话。你可以随时在今日助手设置中关闭。",
             actions = listOf(
                 LiquidAlertAction("暂不启用", LiquidAlertActionStyle.Secondary) {
                     DayAgentPreferences.setEnabled(context, false)
@@ -271,11 +274,12 @@ fun TodayAgentHost(
             backdrop = backdrop,
             textColor = textColor,
             collapsed = collapsed,
-            dailyAiEnabled = DayAgentPreferences.isDailyAiEnabled(context),
+            isActive = isActive,
             weatherEnabled = DayAgentPreferences.isWeatherEnabled(context),
             hasApiKey = hasApiKey,
             backgroundMotionState = backgroundMotionState,
             onPrepareOpen = onPrepareOpen,
+            onAgentDismissed = onAgentDismissed,
             onAgentAction = onAgentAction
         )
     }
@@ -288,11 +292,12 @@ fun TodayAgentCard(
     backdrop: Backdrop?,
     textColor: Color,
     collapsed: Boolean,
-    dailyAiEnabled: Boolean,
+    isActive: Boolean,
     weatherEnabled: Boolean,
     hasApiKey: Boolean,
     backgroundMotionState: DayAgentBackgroundMotionState,
     onPrepareOpen: suspend () -> Unit,
+    onAgentDismissed: () -> Unit,
     onAgentAction: (AgentValidatedAction) -> Unit
 ) {
     val context = LocalContext.current
@@ -301,8 +306,6 @@ fun TodayAgentCard(
     val repository = remember(context) { DayAgentRepository(context.applicationContext) }
     val weatherRepository = remember(context) { DayAgentWeatherRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
-    val session by repository.observeSession(scheduleId, date)
-        .collectAsStateWithLifecycle(initialValue = repository.cachedSession(scheduleId, date))
     var weather by remember(date, weatherEnabled) {
         mutableStateOf(if (weatherEnabled) DayAgentWeatherStore.load(context) else null)
     }
@@ -316,22 +319,17 @@ fun TodayAgentCard(
         .collectAsStateWithLifecycle(initialValue = emptyList())
     var sourceCardHidden by remember(date, scheduleId) { mutableStateOf(false) }
     var pendingQuestion by remember(date, scheduleId) { mutableStateOf<String?>(null) }
-    var generationError by remember(date, scheduleId) { mutableStateOf<String?>(null) }
     var captureRequested by remember(date, scheduleId) { mutableStateOf(false) }
     var cardBounds by remember(date, scheduleId) { mutableStateOf<Rect?>(null) }
     var sourceCardSnapshot by remember(date, scheduleId) { mutableStateOf<Bitmap?>(null) }
     var sourceHandoffCover by remember(date, scheduleId) { mutableStateOf(false) }
+    var showApiKeyHint by remember(date, scheduleId, hasApiKey) { mutableStateOf(!hasApiKey) }
     val sourceHandoffAlpha = remember(date, scheduleId) { Animatable(1f) }
     val sourceHandoffImage = remember(sourceCardSnapshot) { sourceCardSnapshot?.asImageBitmap() }
     val cardGraphicsLayer = rememberGraphicsLayer()
     val suppressForAgentBackgroundCapture = LocalAgentBackgroundCaptureMask.current
     val sourceCardInteractionSource = remember { MutableInteractionSource() }
     val sourceCardPressed by sourceCardInteractionSource.collectIsPressedAsState()
-    // The quick-action controls sample a dedicated sibling layer. Never attach this backdrop
-    // recorder to an ancestor of the LiquidButtons that consume it: doing so creates a cyclic
-    // RenderNode graph and crashes HWUI when the day page is composed.
-    val quickActionBackdrop = rememberLayerBackdrop()
-
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
             scope.launch { weather = weatherRepository.getWeather(forceRefresh = true) }
@@ -348,36 +346,75 @@ fun TodayAgentCard(
     val staticFacts = remember(state.courses, state.periods, state.config, scheduleName, date, weather) {
         DayAgentRenderCache.facts(state, date, weather, scheduleName, context)
     }
+    LaunchedEffect(date, scheduleId, hasApiKey, isActive) {
+        showApiKeyHint = isActive && !hasApiKey
+        if (isActive && !hasApiKey) {
+            delay(5_000L)
+            showApiKeyHint = false
+        }
+    }
     val facts = remember(staticFacts, now) {
         staticFacts.copy(now = now)
     }
-    val pack = remember(session?.dailyPackJson) {
-        DayAgentRenderCache.pack(session?.dailyPackJson)
-    }
-    val rendered = remember(session?.dailyPackJson, pack, facts) {
-        DayAgentRenderCache.rendered(session?.dailyPackJson, pack, facts)
-    }
-
-    LaunchedEffect(scheduleId, date, dailyAiEnabled, weatherEnabled, session?.dailyPackJson, staticFacts.sourceHash) {
-        // Keep initialization out of the day/week transition and do not repeat work merely because
-        // AnimatedContent recreated the day page.
+    LaunchedEffect(scheduleId, date, weatherEnabled) {
+        // Weather is the only asynchronous home-card content. Daily AI copy is intentionally not
+        // generated or observed here; the model is used only after the user opens a conversation.
         delay(280)
         if (DayAgentRenderCache.shouldCleanup(date)) repository.cleanup(date)
         if (weatherEnabled && weather == null) weather = weatherRepository.getWeather()
-        if (dailyAiEnabled && (session == null || pack.sourceHash != staticFacts.sourceHash)) {
-            repository.ensureDailyPack(scheduleId, staticFacts).onFailure { generationError = it.message }
-        }
     }
     val foreground = LocalAdaptiveGlass.current.contentColor
-    val isDarkTheme = appUsesDarkTheme(state.config)
-    val status = when (session?.generationStatus) {
-        "GENERATING" -> "正在生成今日文案"
-        "READY" -> "${session?.providerId} · 今日已生成"
-        "FAILED" -> "使用本地文案"
-        else -> when {
-            !dailyAiEnabled -> "本地时间引擎"
-            !hasApiKey -> "配置 AI 后生成个性化建议"
-            else -> "本地时间引擎"
+    val cardIsDark = !glassUsesLightStyle(state.config)
+    val activityAccent = if (cardIsDark) Color(0xFF62B5FF) else Color(0xFF006EDC)
+    val currentSlot = remember(facts.today, now) {
+        facts.today.firstOrNull { !now.toLocalTime().isBefore(it.start) && now.toLocalTime().isBefore(it.end) }
+    }
+    val nextSlot = remember(facts.today, now) {
+        facts.today.firstOrNull { now.toLocalTime().isBefore(it.start) }
+    }
+    val focusSlot = currentSlot ?: nextSlot
+    val remainingMinutes = remember(currentSlot, nextSlot, now) {
+        val target = currentSlot?.end ?: nextSlot?.start
+        target?.let { Duration.between(now.toLocalTime(), it).toMinutes().coerceAtLeast(0) }
+    }
+    val activityLabel = when {
+        currentSlot != null -> "当前"
+        nextSlot != null -> "下节课"
+        facts.today.isEmpty() -> "今日无课"
+        else -> "课程已结束"
+    }
+    val countdownText = when {
+        currentSlot != null && remainingMinutes != null -> "${remainingMinutes} 分钟后下课"
+        nextSlot != null && remainingMinutes != null -> "${remainingMinutes} 分钟后"
+        facts.today.isEmpty() -> "轻松一天"
+        else -> "今日完成"
+    }
+    val locationText = focusSlot?.course?.let { course ->
+        listOfNotNull(course.location?.takeIf(String::isNotBlank), course.teacher?.takeIf(String::isNotBlank)).joinToString(" | ")
+    }.orEmpty()
+    val weatherText = when {
+        !weatherEnabled -> "天气未启用"
+        weather != null -> {
+            val icon = weatherEmoji(weather!!.summary)
+            val condition = weather!!.summary.substringBefore('，')
+            "$icon ${weather!!.temperature}°C $condition"
+        }
+        !weatherRepository.hasLocationPermission() -> "📍 点击开启天气"
+        else -> "天气加载中"
+    }
+    val weatherAlertText = weather?.let(::weatherAlertText)
+    val assistantHintText = if (weatherAlertText == null) {
+        when {
+            hasApiKey -> "点击卡片和助手对话"
+            showApiKeyHint -> "绑定 API Key 后可以启用更多智慧功能"
+            else -> null
+        }
+    } else null
+    val conversationInitialText = remember(facts.today, focusSlot, weather) {
+        when {
+            focusSlot != null -> "今天有 ${facts.today.size} 节课，${activityLabel}是${focusSlot.course.name}${locationText.takeIf { it.isNotBlank() }?.let { "，$it" }.orEmpty()}。"
+            facts.today.isEmpty() -> "今天没有课程。"
+            else -> "今天的课程已经结束。"
         }
     }
 
@@ -408,8 +445,15 @@ fun TodayAgentCard(
     }
 
     val cardShape = RoundedCornerShape(if (collapsed) 26.dp else 28.dp)
-    val cardTokens = GlassTokens.dialog(intensity = if (isDarkTheme) 0.86f else 0.92f).copy(
-        blur = if (isDarkTheme) 6.dp else 8.dp
+    val cardTokens = GlassTokens.dialog(intensity = 1.12f).copy(
+        blur = if (cardIsDark) 10.dp else 12.dp,
+        lensHeight = 18.dp,
+        lensAmount = 34.dp,
+        surfaceAlpha = if (cardIsDark) 0.54f else 0.58f,
+        borderAlpha = 0.34f,
+        highlightAlpha = 0.075f,
+        depthEffect = true,
+        chromaticAberration = false
     )
     Box(
         modifier = Modifier
@@ -445,8 +489,19 @@ fun TodayAgentCard(
             .clickable(
                 interactionSource = sourceCardInteractionSource,
                 indication = null,
-                enabled = hasApiKey,
-                onClick = { openConversation(null) }
+                onClick = {
+                    if (hasApiKey) {
+                        openConversation(null)
+                    } else {
+                        onAgentAction(
+                            AgentValidatedAction(
+                                type = AgentValidatedActionType.OPEN_SETTINGS,
+                                settingsPage = "AI_IMPORT",
+                                summary = "绑定 API Key"
+                            )
+                        )
+                    }
+                }
             )
     ) {
         // This is the one real glass shell. It is a sibling of the interactive content, so its
@@ -454,9 +509,7 @@ fun TodayAgentCard(
         GlassSurface(
             backdrop = backdrop,
             config = state.config,
-            modifier = Modifier
-                .matchParentSize()
-                .layerBackdrop(quickActionBackdrop),
+            modifier = Modifier.matchParentSize(),
             shape = cardShape,
             tokens = cardTokens
         ) {}
@@ -465,112 +518,87 @@ fun TodayAgentCard(
                 modifier = Modifier
                     .clip(cardShape)
                     .background(
-                        Color(state.config.cardColorArgb).copy(alpha = if (isDarkTheme) 0.16f else 0.10f)
-                    )
-                    .then(
-                        if (isDarkTheme) Modifier
-                        else Modifier.background(Color.White.copy(alpha = 0.14f))
+                        if (cardIsDark) {
+                            Color.Black.copy(alpha = 0.20f)
+                        } else {
+                            Color.White.copy(alpha = 0.30f)
+                        }
                     )
                     .padding(horizontal = 16.dp, vertical = if (collapsed) 10.dp else 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "✦",
-                    color = Color(0xFF168CFF),
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Spacer(Modifier.width(8.dp))
+            Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(activityLabel, color = activityAccent, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        focusSlot?.let {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                it.course.name,
+                                color = foreground,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    if (locationText.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(locationText, color = foreground.copy(alpha = 0.56f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                Text(
+                    countdownText,
+                    color = activityAccent,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1
+                )
+            }
+            if (!collapsed) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(foreground.copy(alpha = 0.10f)))
+                Text("今天 ${facts.today.size} 节课", color = foreground, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        "今日助手",
-                        color = foreground,
-                        fontWeight = FontWeight.SemiBold
+                        weatherText,
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(
+                                if (weatherEnabled && weather == null && !weatherRepository.hasLocationPermission()) {
+                                    Modifier.clickable { permissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION) }
+                                } else Modifier
+                            ),
+                        color = foreground.copy(alpha = 0.58f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    if (!collapsed) {
+                    assistantHintText?.let { hint ->
+                        Spacer(Modifier.width(10.dp))
                         Text(
-                            text = status,
-                            color = foreground.copy(alpha = 0.62f),
+                            text = hint,
+                            modifier = Modifier.weight(if (hasApiKey) 1.15f else 1.75f),
+                            color = foreground.copy(alpha = 0.52f),
                             style = MaterialTheme.typography.labelSmall,
+                            textAlign = TextAlign.End,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
-                if (session?.generationStatus == "GENERATING") {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFF168CFF))
-                } else if (dailyAiEnabled && hasApiKey) {
-                    LiquidButton(
-                        onClick = {
-                            scope.launch {
-                                generationError = null
-                                repository.ensureDailyPack(scheduleId, facts, force = true)
-                                    .onFailure { generationError = it.message }
-                            }
-                        },
-                        backdrop = quickActionBackdrop,
-                        modifier = Modifier.size(36.dp),
-                        height = 36.dp,
-                        surfaceColor = if (isDarkTheme) {
-                            Color.Black.copy(alpha = 0.22f)
-                        } else {
-                            Color.White.copy(alpha = 0.20f)
-                        },
-                        tint = Color(0xFF168CFF).copy(alpha = if (isDarkTheme) 0.30f else 0.22f),
-                        contentPadding = PaddingValues(0.dp),
-                        blurRadius = if (isDarkTheme) 6.dp else 8.dp,
-                        lensHeight = 14.dp,
-                        lensAmount = 20.dp,
-                        chromaticAberration = false
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_agent_refresh),
-                                contentDescription = "重新生成",
-                                modifier = Modifier.size(18.dp),
-                                tint = foreground.copy(alpha = 0.92f)
-                            )
-                        }
-                    }
-                }
-            }
-            // This text changes with the local timeline. Keeping the previous and next copies in
-            // AnimatedContent made the whole glass card redraw twice during each handoff.
-            Text(
-                text = if (collapsed) rendered.compactText else rendered.text,
-                color = foreground.copy(alpha = 0.96f),
-                style = if (collapsed) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-            )
-            AnimatedVisibility(!collapsed && hasApiKey, enter = fadeIn(), exit = fadeOut()) {
-                // LiquidButton grows beyond its measured bounds while pressed. Reserve a small
-                // internal lens gutter so that feedback is not cut by AnimatedVisibility/card clip.
-                Column(
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        rendered.quickQuestions.take(2).forEach { question ->
-                            AgentSuggestionPill(
-                                text = question,
-                                backdrop = quickActionBackdrop,
-                                config = state.config,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                openConversation(question)
-                            }
-                        }
-                    }
-                    if (weatherEnabled && weather == null && !weatherRepository.hasLocationPermission()) {
-                        Text(
-                            "启用粗略位置以显示天气",
-                            modifier = Modifier.clickable { permissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
-                            color = Color(0xFF168CFF),
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-                    generationError?.let {
-                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, maxLines = 2)
-                    }
+                weatherAlertText?.let { alert ->
+                    Text(
+                        text = "⚠️ $alert",
+                        color = if (cardIsDark) Color(0xFFFFB86B) else Color(0xFFB84D00),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
             }
@@ -594,7 +622,7 @@ fun TodayAgentCard(
             facts = facts,
             messages = messages,
             repository = repository,
-            initialText = rendered.text,
+            initialText = conversationInitialText,
             initialQuestion = pendingQuestion,
             sourceBounds = cardBounds,
             sourceCardSnapshot = sourceCardSnapshot,
@@ -612,6 +640,7 @@ fun TodayAgentCard(
                 dialogOpen = false
                 sourceCardHidden = false
                 pendingQuestion = null
+                onAgentDismissed()
                 scope.launch {
                     // The real card has rendered behind the Dialog throughout the exit, so the
                     // local source cover can cross-fade immediately after window handoff.
@@ -623,6 +652,38 @@ fun TodayAgentCard(
             }
         )
     }
+}
+
+private fun weatherEmoji(summary: String): String {
+    // The suffix may contain precipitation advice/probability even when the current condition is
+    // merely overcast. Only classify the actual condition segment before the first separator.
+    val condition = summary.substringBefore('，').substringBefore(',').trim()
+    return when {
+    "雷" in condition -> "⛈️"
+    "雪" in condition -> "🌨️"
+    "雨" in condition -> "🌧️"
+    "雾" in condition || "霾" in condition -> "🌫️"
+    "阴" in condition -> "☁️"
+    "云" in condition -> "⛅"
+    "晴" in condition -> "☀️"
+    else -> "🌤️"
+    }
+}
+
+private fun weatherAlertText(weather: AgentWeatherSnapshot): String? {
+    val condition = weather.summary.substringBefore('，').substringBefore(',').trim()
+    val alerts = buildList {
+        when {
+            "雷" in condition -> add("雷暴提醒")
+            "雪" in condition -> add("降雪提醒")
+            "暴雨" in condition -> add("强降雨提醒")
+            weather.precipitationProbability >= 60 -> add("降雨提醒")
+        }
+        if (weather.temperature >= 35 || weather.apparentTemperature >= 38) add("高温提醒")
+        if (weather.temperature <= 5 || weather.apparentTemperature <= 2) add("低温提醒")
+        if (weather.windSpeed >= 35) add("大风提醒")
+    }
+    return alerts.distinct().takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
 @Composable

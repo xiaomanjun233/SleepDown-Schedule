@@ -111,6 +111,11 @@ class ScheduleViewModel(
         repository.saveConfigOnly(config)
     }
 
+    fun saveNotificationSettings(config: ScheduleConfigEntity) = viewModelScope.launch {
+        repository.saveGlobalSettings(config)
+        refreshCoordinator.request()
+    }
+
     fun createSchedule(
         name: String = "\u65B0\u8BFE\u8868",
         activate: Boolean = true,

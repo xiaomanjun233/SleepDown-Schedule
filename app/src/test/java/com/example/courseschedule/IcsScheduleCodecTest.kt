@@ -39,7 +39,11 @@ class IcsScheduleCodecTest {
             totalWeeks = 4,
             currentWeek = 1,
             termStartDate = "2026-09-07",
-            autoCurrentWeek = true
+            autoCurrentWeek = true,
+            morningPeriodCount = 2,
+            noonPeriodCount = 0,
+            afternoonPeriodCount = 0,
+            eveningPeriodCount = 0
         )
         val periods = listOf(
             PeriodEntity(1, "08:00", "08:45"),
@@ -66,7 +70,10 @@ class IcsScheduleCodecTest {
         assertEquals("大学英语", imported.courses.single().name)
         assertEquals("B202", imported.courses.single().location)
         assertEquals(listOf(1, 2, 3, 4), imported.courses.single().weeks)
-        assertEquals("08:00", imported.periods.single().startTime)
-        assertEquals("09:40", imported.periods.single().endTime)
+        assertEquals(listOf(1, 2), imported.courses.single().periods)
+        assertEquals(listOf("08:00", "08:55"), imported.periods.map { it.startTime })
+        assertEquals(listOf("08:45", "09:40"), imported.periods.map { it.endTime })
+        assertEquals(2, imported.config.morningPeriodCount)
+        assertEquals(0, imported.config.noonPeriodCount)
     }
 }

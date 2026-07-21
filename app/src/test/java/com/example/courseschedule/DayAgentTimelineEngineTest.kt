@@ -218,6 +218,55 @@ class DayAgentTimelineEngineTest {
         assertEquals(AgentActionScope.CURRENT_WEEK, parsed.actions.single().scope)
     }
 
+    @Test
+    fun extractsActionJsonEvenWhenModelAddsCodeFence() {
+        val facts = factsAt(15, 0, emptyList()).copy(
+            scheduleId = 1,
+            currentWeek = 4,
+            totalWeeks = 20,
+            periodDefinitions = (1..4).map { index ->
+                PeriodEntity(index, "%02d:00".format(7 + index), "%02d:45".format(7 + index))
+            }
+        )
+        val response = """
+            已准备好，请确认。
+            <agent_actions>```json
+            [{"type":"ADD_COURSE","scope":"CURRENT_WEEK","course":{"name":"测试课","weekday":3,"periods":[1,2,3,4]},"summary":"添加测试课"}]
+            ```</agent_actions>
+        """.trimIndent()
+
+        val parsed = parseAgentActions(response, facts)
+
+        assertEquals(1, parsed.actions.size)
+        assertEquals("测试课", parsed.actions.single().edited?.name)
+        assertEquals(listOf(1, 2, 3, 4), parsed.actions.single().edited?.periods)
+        assertEquals(listOf(4), parsed.actions.single().edited?.weeks)
+    }
+
+    @Test
+    fun recognizesLooseWrappedActionAndInfersAllWeeks() {
+        val facts = factsAt(15, 0, emptyList()).copy(
+            scheduleId = 7,
+            currentWeek = 3,
+            totalWeeks = 18,
+            periodDefinitions = (1..4).map { index ->
+                PeriodEntity(index, "%02d:00".format(7 + index), "%02d:45".format(7 + index))
+            }
+        )
+        val response = """
+            已准备好，确认后添加。
+            ```json
+            {"actions":[{"type":"add_course","scope":"all_weeks","course":{"name":"测试课","weekday":3,"periods":[1,2]},"summary":"添加测试课"}]}
+            ```
+        """.trimIndent()
+
+        val parsed = parseAgentActions(response, facts)
+
+        assertEquals(1, parsed.actions.size)
+        assertEquals((1..18).toList(), parsed.actions.single().edited?.weeks)
+        assertFalse(parsed.displayText.contains("actions"))
+    }
+
     private fun factsAt(
         hour: Int,
         minute: Int,

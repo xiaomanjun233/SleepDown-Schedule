@@ -1,6 +1,8 @@
 package com.example.courseschedule
 
 import android.app.Application
+import android.app.ActivityManager
+import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import androidx.compose.runtime.Immutable
 import androidx.room.ColumnInfo
@@ -17,6 +19,9 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.room.withTransaction
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -103,6 +108,7 @@ data class ScheduleConfigEntity(
     val classDurationMinutes: Int = 45,
     val breakDurationMinutes: Int = 10,
     @ColumnInfo(defaultValue = "0") val morningPeriodCount: Int = 4,
+    @ColumnInfo(defaultValue = "0") val noonPeriodCount: Int = 0,
     @ColumnInfo(defaultValue = "0") val afternoonPeriodCount: Int = 4,
     @ColumnInfo(defaultValue = "0") val eveningPeriodCount: Int = 4,
     val hideFromRecents: Boolean = false,
@@ -129,6 +135,7 @@ data class PeriodSchemeEntity(
     val classDurationMinutes: Int = 45,
     val breakDurationMinutes: Int = 10,
     val morningStartTime: String = "08:00",
+    val noonStartTime: String = "12:00",
     val afternoonStartTime: String = "14:00",
     val eveningStartTime: String = "19:00",
     val specialBreaksJson: String = "{}",
@@ -408,7 +415,7 @@ interface AgentDao {
         AgentDailySessionEntity::class,
         AgentMessageEntity::class
     ],
-    version = 27,
+    version = 28,
     exportSchema = false
 )
 @TypeConverters(ScheduleConverters::class)
@@ -679,6 +686,28 @@ private val MIGRATION_26_27 = object : Migration(26, 27) {
     }
 }
 
+private val MIGRATION_27_28 = object : Migration(27, 28) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE schedule_config ADD COLUMN noonPeriodCount INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE period_schemes ADD COLUMN noonStartTime TEXT NOT NULL DEFAULT '12:00'")
+        db.execSQL(
+            """
+            UPDATE schedule_config SET
+              noonPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) >= 12 AND CAST(substr(p.startTime, 1, 2) AS INTEGER) < 14),
+              afternoonPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) >= 14 AND CAST(substr(p.startTime, 1, 2) AS INTEGER) < 18)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            UPDATE period_schemes SET noonStartTime = COALESCE(
+              (SELECT MIN(p.startTime) FROM periods p WHERE p.scheduleId = period_schemes.scheduleId AND CAST(substr(p.startTime, 1, 2) AS INTEGER) >= 12 AND CAST(substr(p.startTime, 1, 2) AS INTEGER) < 14),
+              '12:00'
+            )
+            """.trimIndent()
+        )
+    }
+}
+
 private fun createPeriodSchemeTables(db: SupportSQLiteDatabase) {
     db.execSQL("CREATE TABLE IF NOT EXISTS period_schemes (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, scheduleId INTEGER NOT NULL, name TEXT NOT NULL, mode TEXT NOT NULL, isActive INTEGER NOT NULL, classDurationMinutes INTEGER NOT NULL, breakDurationMinutes INTEGER NOT NULL, morningStartTime TEXT NOT NULL, afternoonStartTime TEXT NOT NULL, eveningStartTime TEXT NOT NULL, specialBreaksJson TEXT NOT NULL, overridesJson TEXT NOT NULL)")
     db.execSQL("CREATE TABLE IF NOT EXISTS period_scheme_times (schemeId INTEGER NOT NULL, periodIndex INTEGER NOT NULL, startTime TEXT NOT NULL, endTime TEXT NOT NULL, PRIMARY KEY(schemeId, periodIndex))")
@@ -696,10 +725,30 @@ private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
 }
 
 class CourseScheduleApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                setTaskExcludedFromRecents(false)
+            }
+
+            override fun onStop(owner: LifecycleOwner) {
+                if (hideFromRecentsEnabled) setTaskExcludedFromRecents(true)
+            }
+        })
+    }
+
+    private fun setTaskExcludedFromRecents(excluded: Boolean) {
+        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        activityManager.appTasks.forEach { task ->
+            runCatching { task.setExcludeFromRecents(excluded) }
+        }
+    }
+
     val database: AppDatabase by lazy {
         repairDatabaseFileBeforeRoomOpen(getDatabasePath("course_schedule.db"))
         Room.databaseBuilder(this, AppDatabase::class.java, "course_schedule.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28)
             .build()
     }
     val repository: ScheduleRepository by lazy { ScheduleRepository(database) }
@@ -818,6 +867,10 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "breakDurationMinutes", "INTEGER NOT NULL DEFAULT 10")
     ensureSqliteColumn(db, "schedule_config", "hideFromRecents", "INTEGER NOT NULL DEFAULT 0")
     ensureSqliteColumn(db, "schedule_config", "autoCheckUpdates", "INTEGER NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "morningPeriodCount", "INTEGER NOT NULL DEFAULT 4")
+    ensureSqliteColumn(db, "schedule_config", "noonPeriodCount", "INTEGER NOT NULL DEFAULT 0")
+    ensureSqliteColumn(db, "schedule_config", "afternoonPeriodCount", "INTEGER NOT NULL DEFAULT 4")
+    ensureSqliteColumn(db, "schedule_config", "eveningPeriodCount", "INTEGER NOT NULL DEFAULT 4")
     db.execSQL(scheduleConfigCreateSql("schedule_config_room_fix"))
     db.execSQL(
         """
@@ -830,7 +883,8 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale, weekCardHeightDp,
             homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
-            classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates
+            classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates,
+            morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount
         )
         SELECT
             id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek,
@@ -841,7 +895,8 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale, weekCardHeightDp,
             homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
-            classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates
+            classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates,
+            morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount
         FROM schedule_config
         """.trimIndent()
     )
@@ -889,7 +944,11 @@ private fun scheduleConfigCreateSql(table: String): String =
         classDurationMinutes INTEGER NOT NULL,
         breakDurationMinutes INTEGER NOT NULL,
         hideFromRecents INTEGER NOT NULL,
-        autoCheckUpdates INTEGER NOT NULL DEFAULT 1
+        autoCheckUpdates INTEGER NOT NULL DEFAULT 1,
+        morningPeriodCount INTEGER NOT NULL DEFAULT 4,
+        noonPeriodCount INTEGER NOT NULL DEFAULT 0,
+        afternoonPeriodCount INTEGER NOT NULL DEFAULT 4,
+        eveningPeriodCount INTEGER NOT NULL DEFAULT 4
     )
     """.trimIndent()
 
@@ -985,6 +1044,7 @@ class ScheduleRepository(private val database: AppDatabase) {
     }
 
     suspend fun loadPeriodSchemes(scheduleId: Int): SchedulePeriodSchemesDraft = database.withTransaction {
+        ensureScheduleData(scheduleId)
         val config = configDao.getConfig(scheduleId) ?: defaultConfig(scheduleId)
         val activePeriods = configDao.getPeriods(scheduleId)
         var schemes = periodSchemeDao.getSchemes(scheduleId)
@@ -1140,9 +1200,9 @@ class ScheduleRepository(private val database: AppDatabase) {
             if (profileDao.getActiveProfile() == null) {
                 profileDao.getProfiles().firstOrNull()?.let { profileDao.activateProfile(it.id) }
             }
-            val scheduleId = activeScheduleId()
-            if (configDao.getConfig(scheduleId) == null) configDao.upsertConfig(defaultConfig(scheduleId))
-            if (configDao.getPeriods().isEmpty()) configDao.upsertPeriods(defaultPeriods(scheduleId))
+            profileDao.getProfiles().forEach { profile ->
+                ensureScheduleData(profile.id)
+            }
         }
     }
 
@@ -1301,7 +1361,9 @@ class ScheduleRepository(private val database: AppDatabase) {
         database.withTransaction {
             val oldActiveId = activeScheduleId()
             val globalConfig = configDao.getConfig(oldActiveId) ?: defaultConfig(oldActiveId)
-            val targetConfig = configDao.getConfig(scheduleId) ?: defaultConfig(scheduleId)
+            ensureScheduleData(scheduleId)
+            val targetConfig = configDao.getConfig(scheduleId)
+                ?: error("课表配置恢复失败：$scheduleId")
             profileDao.activateProfile(scheduleId)
             configDao.upsertConfig(targetConfig.withGlobalSettingsFrom(globalConfig).copy(id = scheduleId))
         }
@@ -1345,6 +1407,96 @@ class ScheduleRepository(private val database: AppDatabase) {
         return profileDao.getActiveProfile()?.id ?: 1
     }
 
+    /**
+     * Reconciles the persisted config, materialized periods and period schemes for
+     * one schedule without replacing real user data with defaults. Older builds
+     * could leave a non-active schedule without its config or materialized periods
+     * while the scheme tables still retained the original timetable.
+     */
+    private suspend fun ensureScheduleData(scheduleId: Int) {
+        var periods = configDao.getPeriods(scheduleId)
+        val schemes = periodSchemeDao.getSchemes(scheduleId)
+        val activeScheme = schemes.firstOrNull { it.isActive } ?: schemes.firstOrNull()
+        var activeTimes = activeScheme?.let { periodSchemeDao.getTimes(it.id) }.orEmpty()
+
+        if (periods.isNotEmpty() && activeTimes.isNotEmpty()) {
+            val schemePeriods = activeTimes.map {
+                PeriodEntity(it.periodIndex, it.startTime, it.endTime, scheduleId)
+            }
+            if (!samePeriodTimeline(periods, schemePeriods)) {
+                val defaults = defaultPeriods(scheduleId)
+                val materializedIsDefault = samePeriodTimeline(periods, defaults)
+                val schemeIsDefault = samePeriodTimeline(schemePeriods, defaults)
+                if (materializedIsDefault && !schemeIsDefault) {
+                    // A legacy/fallback write replaced only the materialized layer.
+                    // Recover the remaining customized scheme instead of destroying it.
+                    configDao.deletePeriods(scheduleId)
+                    configDao.upsertPeriods(schemePeriods)
+                    periods = schemePeriods
+                }
+            }
+        }
+
+        if (periods.isEmpty() && activeTimes.isNotEmpty()) {
+            periods = activeTimes.map {
+                PeriodEntity(it.periodIndex, it.startTime, it.endTime, scheduleId)
+            }
+            configDao.upsertPeriods(periods)
+        }
+
+        if (periods.isEmpty()) {
+            periods = defaultPeriods(scheduleId)
+            configDao.upsertPeriods(periods)
+        }
+
+        val storedConfig = configDao.getConfig(scheduleId)
+        val repairedConfig = configWithCountsFromPeriods(
+            storedConfig ?: defaultConfig(scheduleId),
+            periods
+        )
+        if (storedConfig != repairedConfig) {
+            configDao.upsertConfig(repairedConfig.copy(id = scheduleId))
+        }
+
+        if (schemes.isEmpty()) {
+            replaceSchemesWithPeriods(scheduleId, repairedConfig, periods, "默认作息")
+        } else if (activeScheme != null) {
+            // Exactly one active scheme is part of the database invariant. Normalize
+            // old/corrupt rows here so LIMIT 1 can never select a stale scheme.
+            if (schemes.count { it.isActive } != 1 || !activeScheme.isActive) {
+                periodSchemeDao.upsertSchemes(schemes.map { it.copy(isActive = it.id == activeScheme.id) })
+            }
+
+            val materializedTimes = periods.map {
+                PeriodSchemeTimeEntity(activeScheme.id, it.periodIndex, it.startTime, it.endTime)
+            }
+            if (activeTimes != materializedTimes) {
+                // The materialized table is what the home screen, notifications and
+                // widgets were actually using before the multi-scheme upgrade. Keep
+                // that visible user state authoritative and repair the active scheme.
+                periodSchemeDao.deleteTimes(activeScheme.id)
+                periodSchemeDao.upsertTimes(materializedTimes)
+                activeTimes = materializedTimes
+            }
+
+            // A partially written inactive scheme must not later activate as an empty
+            // timetable. Preserve its metadata but seed its missing timeline from the
+            // currently materialized schedule instead of generating defaults.
+            schemes.filter { it.id != activeScheme.id }.forEach { scheme ->
+                if (periodSchemeDao.getTimes(scheme.id).isEmpty()) {
+                    periodSchemeDao.upsertTimes(activeTimes.map { it.copy(schemeId = scheme.id) })
+                }
+            }
+        }
+    }
+
+    private fun samePeriodTimeline(left: List<PeriodEntity>, right: List<PeriodEntity>): Boolean {
+        if (left.size != right.size) return false
+        return left.sortedBy { it.periodIndex }.zip(right.sortedBy { it.periodIndex }).all { (a, b) ->
+            a.periodIndex == b.periodIndex && a.startTime == b.startTime && a.endTime == b.endTime
+        }
+    }
+
     private fun normalizeConfigForSchedule(config: ScheduleConfigEntity, scheduleId: Int): ScheduleConfigEntity {
         return config.copy(
             id = scheduleId,
@@ -1354,11 +1506,12 @@ class ScheduleRepository(private val database: AppDatabase) {
 
     private fun configWithCountsFromPeriods(config: ScheduleConfigEntity, periods: List<PeriodEntity>): ScheduleConfigEntity {
         if (config.totalPeriodCount() == periods.size && periods.isNotEmpty()) return config
-        val (morning, afternoon, evening) = inferPeriodCounts(periods)
+        val inferred = inferPeriodCounts(periods)
         return config.copy(
-            morningPeriodCount = morning,
-            afternoonPeriodCount = afternoon,
-            eveningPeriodCount = evening
+            morningPeriodCount = inferred.morning,
+            noonPeriodCount = inferred.noon,
+            afternoonPeriodCount = inferred.afternoon,
+            eveningPeriodCount = inferred.evening
         )
     }
 
@@ -1378,7 +1531,8 @@ class ScheduleRepository(private val database: AppDatabase) {
                 classDurationMinutes = config.classDurationMinutes,
                 breakDurationMinutes = config.breakDurationMinutes,
                 morningStartTime = periods.firstOrNull()?.startTime ?: "08:00",
-                afternoonStartTime = periods.firstOrNull { runCatching { java.time.LocalTime.parse(it.startTime).hour }.getOrDefault(0) in 12..17 }?.startTime ?: "14:00",
+                noonStartTime = periods.firstOrNull { runCatching { java.time.LocalTime.parse(it.startTime).hour }.getOrDefault(0) in 12..13 }?.startTime ?: "12:00",
+                afternoonStartTime = periods.firstOrNull { runCatching { java.time.LocalTime.parse(it.startTime).hour }.getOrDefault(0) in 14..17 }?.startTime ?: "14:00",
                 eveningStartTime = periods.firstOrNull { runCatching { java.time.LocalTime.parse(it.startTime).hour }.getOrDefault(0) >= 18 }?.startTime ?: "19:00"
             )
         )

@@ -356,6 +356,7 @@ fun CourseGlassCard(
     content: @Composable () -> Unit
 ) {
     val glassBackdrop = if (config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
+    val simpleBlurBackdrop = if (!config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
     val useGlass = glassBackdrop != null
     val quality = LocalGlassQuality.current
     val clickInteractionSource = remember { MutableInteractionSource() }
@@ -417,6 +418,30 @@ fun CourseGlassCard(
                             )
                             drawRect(Color.Black.copy(alpha = if (lightGlass) 0.004f else 0.014f))
                         }
+                )
+        } else if (simpleBlurBackdrop != null) {
+            // Non-liquid mode still samples the content behind the course card, but
+            // deliberately omits lens/refraction/vibrancy.  This is a cheap Gaussian
+            // material rather than falling all the way back to an opaque rectangle.
+            Modifier
+                .matchParentSize()
+                .drawBackdrop(
+                    backdrop = simpleBlurBackdrop,
+                    shape = { shape },
+                    effects = {
+                        blur(((blurOverride ?: config.courseCardBlur).coerceIn(0f, 24f) * quality).dp.toPx())
+                    },
+                    highlight = { Highlight.Default.copy(alpha = 0.10f) },
+                    shadow = { Shadow(alpha = 0.12f) },
+                    innerShadow = { InnerShadow(radius = 3.dp, alpha = 0.08f) },
+                    onDrawSurface = {
+                        drawRect(
+                            baseColor.copy(
+                                alpha = (config.cardAlpha.coerceIn(0f, 1f) * 0.72f)
+                                    .coerceIn(0.28f, 0.78f)
+                            )
+                        )
+                    }
                 )
         } else {
             Modifier

@@ -163,6 +163,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -380,8 +381,8 @@ internal fun homeHeaderGlassTokens(lightGlass: Boolean): GlassTokens =
 sealed interface HomeDialog {
     data object ImportSchedule : HomeDialog
     data object EduImport : HomeDialog
-    data class ConfirmImport(val draft: ImportDraft, val returnDialog: HomeDialog = ImportSchedule) : HomeDialog
-    data class EditWallpaper(val uri: Uri) : HomeDialog
+    data class ConfirmImport(val draft: ImportDraft, val returnDialog: HomeDialog? = ImportSchedule) : HomeDialog
+    data class EditWallpaper(val uri: Uri, val entrySnapshot: Bitmap?) : HomeDialog
     data object SampleWallpaperColor : HomeDialog
     data class EditCourse(val course: CourseEntity?, val targetWeek: Int? = null) : HomeDialog
     data class ApplyCourseEdit(val original: CourseEntity, val edited: CourseEntity, val targetWeek: Int) : HomeDialog
@@ -391,11 +392,16 @@ sealed interface HomeDialog {
 private var splashEntranceDone = false
 internal val LocalEditingCourseId = compositionLocalOf<Long?> { null }
 internal val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope?> { null }
+@Volatile
 internal var hideFromRecentsEnabled = false
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
-fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
+fun CourseScheduleAppUi(
+    viewModel: ScheduleViewModel,
+    externalIcsUri: Uri? = null,
+    onExternalIcsConsumed: (Uri) -> Unit = {}
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val allSchedulesState by viewModel.allSchedulesState.collectAsStateWithLifecycle()
     val message by viewModel.snackbar.collectAsStateWithLifecycle()
@@ -507,6 +513,31 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     }
     val appScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(externalIcsUri, state.loaded) {
+        val uri = externalIcsUri ?: return@LaunchedEffect
+        if (!state.loaded) return@LaunchedEffect
+        onExternalIcsConsumed(uri)
+        screen = Screen.Home
+        addMenuExpanded = false
+        showPersonalizePanel = false
+        loadAiImportFile(context, uri)
+            .onSuccess { file ->
+                if (!file.isIcs) {
+                    Toast.makeText(context, "分享的文件不是有效的 ICS 日历", Toast.LENGTH_SHORT).show()
+                    return@onSuccess
+                }
+                IcsScheduleCodec.parse(file.bytes, state.config)
+                    .onSuccess { draft ->
+                        homeDialog = HomeDialog.ConfirmImport(draft, returnDialog = null)
+                    }
+                    .onFailure { error ->
+                        Toast.makeText(context, error.message ?: "ICS 解析失败", Toast.LENGTH_SHORT).show()
+                    }
+            }
+            .onFailure { error ->
+                Toast.makeText(context, error.message ?: "ICS 文件读取失败", Toast.LENGTH_SHORT).show()
+            }
+    }
     val backgroundBackdrop = rememberLayerBackdrop()
     val contentBackdrop = rememberLayerBackdrop()
     val pickerSceneBackdrop = rememberLayerBackdrop()
@@ -649,7 +680,13 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val wallpaperLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
-            homeDialog = HomeDialog.EditWallpaper(uri)
+            appScope.launch {
+                val entrySnapshot = runCatching {
+                    withFrameNanos { }
+                    screenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                }.getOrNull()
+                homeDialog = HomeDialog.EditWallpaper(uri, entrySnapshot)
+            }
         }
     }
     val todayDate = LocalDate.now()
@@ -675,6 +712,11 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
             dayAgentSnapshotKey != currentDayAgentSnapshotKey
         ) {
             dayAgentSnapshotKey = null
+            if (homeMode != HomeMode.Day || pickerState.overlayVisible) {
+                // The frozen Agent background owns a full-screen mirrored blur RenderNode.
+                // Keeping it mounted at alpha=0 still taxes every later week animation.
+                dayAgentEdgeSnapshot = null
+            }
         }
     }
     LaunchedEffect(visualState.loaded, visualState.config.id, visualState.config.totalWeeks, homeCurrentWeek, visualState.config.autoCurrentWeek, beforeScheduleTerm) {
@@ -1093,6 +1135,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     ) {
     val sharedTransitionScope = this
     val activeSharedTransitionScope = if (startupPhase == StartupPhase.FullQuality) sharedTransitionScope else null
+    var homeReadabilityRootSize by remember { mutableStateOf(IntSize.Zero) }
     CompositionLocalProvider(
         LocalSharedTransitionScope provides activeSharedTransitionScope,
         LocalEditingCourseId provides editingCourseId,
@@ -1100,6 +1143,11 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         LocalGlassQuality provides glassQuality,
         LocalStartupEntranceSpec provides startupEntranceSpec,
         LocalAdaptiveGlass provides adaptiveGlassState,
+        LocalHomeReadability provides HomeReadabilityContext(
+            bitmap = wallpaperImages.readabilityBitmap,
+            config = visualState.config,
+            rootSize = homeReadabilityRootSize
+        ),
         LocalCourseCardPalette provides wallpaperImages.representativeColors,
         LocalCourseCardColorAssignments provides homeCourseColorAssignments,
         LocalAgentBackgroundCaptureMask provides { dayAgentCaptureMaskActive.get() }
@@ -1107,6 +1155,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onSizeChanged { homeReadabilityRootSize = it }
             .drawWithContent {
                 val recordCleanFrame =
                     detailMorphState is DetailMorphState.Capturing && detailCaptureRecordCleanFrame
@@ -1363,6 +1412,12 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                                                 dayAgentCaptureRecordCleanFrame = false
                                             }
                                         }
+                                    },
+                                    onAgentDismissed = {
+                                        // The close Morph has reached p=0, so the invisible full-screen
+                                        // snapshot can be removed without changing the handoff frame.
+                                        dayAgentEdgeSnapshot = null
+                                        dayAgentSnapshotKey = null
                                     },
                                     onCourseClick = { course, week, sourceBounds ->
                                         openCourseEditor(course, week, sourceBounds)
@@ -1772,16 +1827,13 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                     autoCurrentWeek = draft.autoCurrentWeek,
                     hideEmptyWeekends = draft.hideEmptyWeekends
                 )
-                val effectiveWeek = if (draft.autoCurrentWeek && draft.termStartDate.isNotBlank()) {
-                    effectiveCurrentWeek(datedConfig)
-                } else {
-                    manualWeek
-                }
                 val periods = latest.allPeriods.filter { it.scheduleId == draft.scheduleId }
                     .ifEmpty { defaultPeriods(draft.scheduleId) }
                 viewModel.saveConfigForSchedule(
                     draft.scheduleId,
-                    datedConfig.copy(currentWeek = effectiveWeek.coerceIn(1, totalWeeks)),
+                    // The automatic display week is derived at runtime. Persist the
+                    // selected fallback instead of writing a clamped pre-term week 1.
+                    datedConfig.copy(currentWeek = manualWeek),
                     periods,
                     onSaved
                 )
@@ -1842,7 +1894,44 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                 }
             }
         )
-        top.yukonga.miuix.kmp.utils.MiuixPopupUtils.MiuixPopupHost()
+
+        // Keep the course editor inside the same root stack as the stock MIUIX popup
+        // host. The host stays in its 1.0.6 position and therefore preserves the manager
+        // quick sheet's original backdrop, colors and animation, while its later draw
+        // order still places picker dialogs above the editor shell.
+        CourseEditorContainerOverlayHost(
+            request = courseEditorRequest,
+            state = state,
+            backdrop = courseEditorBackdrop,
+            config = state.config,
+            modifier = Modifier.zIndex(100f),
+            onDismissRequest = { closeCourseEditor() },
+            onSave = { original, edited, targetWeek ->
+                if (courseWeeksChanged(original, edited)) {
+                    viewModel.updateCourse(edited)
+                    closeCourseEditor()
+                } else {
+                    closeCourseEditor()
+                    homeDialog = HomeDialog.ApplyCourseEdit(original, edited, targetWeek ?: effectiveCurrentWeek(state.config))
+                }
+            },
+            onDelete = { course, targetWeek ->
+                closeCourseEditor()
+                homeDialog = HomeDialog.ApplyCourseDelete(course, targetWeek ?: effectiveCurrentWeek(state.config))
+            },
+            motionState = courseEditorMotionState,
+            onRenderedCourseIdChange = { courseEditorRenderedCourseId = it },
+            onPhaseChange = {}
+        )
+
+        if (courseEditorRequest != null) {
+            Box(modifier = Modifier.fillMaxSize().zIndex(101f)) {
+                top.yukonga.miuix.kmp.utils.MiuixPopupUtils.MiuixPopupHost()
+            }
+        } else {
+            // Exact 1.0.6 host structure for the manager quick sheet and all regular dialogs.
+            top.yukonga.miuix.kmp.utils.MiuixPopupUtils.MiuixPopupHost()
+        }
     }
 
     detailCaptureCoverBitmap?.let { cover ->
@@ -1890,34 +1979,25 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
         )
     }
 
-    CourseEditorContainerOverlayHost(
-        request = courseEditorRequest,
-        state = state,
-        backdrop = courseEditorBackdrop,
-        config = state.config,
-        modifier = Modifier.zIndex(100f),
-        onDismissRequest = { closeCourseEditor() },
-        onSave = { original, edited, targetWeek ->
-            if (courseWeeksChanged(original, edited)) {
-                viewModel.updateCourse(edited)
-                closeCourseEditor()
-            } else {
-                closeCourseEditor()
-                homeDialog = HomeDialog.ApplyCourseEdit(original, edited, targetWeek ?: effectiveCurrentWeek(state.config))
-            }
-        },
-        onDelete = { course, targetWeek ->
-            closeCourseEditor()
-            homeDialog = HomeDialog.ApplyCourseDelete(course, targetWeek ?: effectiveCurrentWeek(state.config))
-        },
-        motionState = courseEditorMotionState,
-        onRenderedCourseIdChange = { courseEditorRenderedCourseId = it },
-        onPhaseChange = {}
-    )
+    (renderedHomeDialog as? HomeDialog.EditWallpaper)?.let { dialog ->
+        WallpaperEditorOverlay(
+            uri = dialog.uri,
+            entrySnapshot = dialog.entrySnapshot,
+            config = state.config,
+            backdrop = chromeBackdrop,
+            visible = homeDialogVisible,
+            onCancel = { dismissHomeDialog() },
+            onApply = { nextConfig ->
+                viewModel.savePersonalization(nextConfig)
+                dismissHomeDialog()
+            },
+            modifier = Modifier.zIndex(280f)
+        )
+    }
 
     // Dialog-based dialogs for all other types (including EditCourse without a source card)
     renderedHomeDialog?.let { dialog ->
-        if (dialog !is HomeDialog.EditCourse || dialog.course == null) {
+        if (dialog !is HomeDialog.EditWallpaper && (dialog !is HomeDialog.EditCourse || dialog.course == null)) {
         if (dialog is HomeDialog.ApplyCourseEdit) {
             ApplyCourseEditDialog(
                 original = dialog.original,
@@ -2000,16 +2080,7 @@ fun CourseScheduleAppUi(viewModel: ScheduleViewModel) {
                         onParsed = { homeDialog = HomeDialog.ConfirmImport(it) }
                     )
                     HomeDialog.EduImport -> Unit
-                    is HomeDialog.EditWallpaper -> WallpaperEditorDialog(
-                        uri = dialog.uri,
-                        config = state.config,
-                        backdrop = chromeBackdrop,
-                        onCancel = { dismissHomeDialog() },
-                        onApply = { nextConfig ->
-                            viewModel.savePersonalization(nextConfig)
-                            dismissHomeDialog()
-                        }
-                    )
+                    is HomeDialog.EditWallpaper -> Unit
                     is HomeDialog.ConfirmImport -> ConfirmScheduleScreen(
                         draft = dialog.draft,
                         backdrop = chromeBackdrop,
@@ -3474,6 +3545,60 @@ private fun DockTabContent(iconRes: Int, label: String, iconSize: Dp) {
     }
 }
 
+@Composable
+private fun PersonalizeSliderLabel(
+    value: State<Float>,
+    label: (Float) -> String
+) {
+    Text(label(value.value), style = MaterialTheme.typography.labelMedium)
+}
+
+@Composable
+private fun PersonalizeValueSlider(
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    backdrop: Backdrop?,
+    label: (Float) -> String,
+    onCommit: (Float) -> Unit,
+    snapValue: Float? = null,
+    onTouchActiveChange: (Boolean) -> Unit = {}
+) {
+    val displayValue = remember(valueRange) { mutableFloatStateOf(value.coerceIn(valueRange)) }
+    LaunchedEffect(value, valueRange) {
+        displayValue.floatValue = value.coerceIn(valueRange)
+    }
+    // Only this tiny label scope observes the live value.  The liquid slider and its
+    // backdrop are therefore not recomposed again by their own drag callback.
+    PersonalizeSliderLabel(displayValue, label)
+    LiquidControlSlider(
+        value = value,
+        onValueChange = onCommit,
+        valueRange = valueRange,
+        backdrop = backdrop,
+        onLiveValueChange = { displayValue.floatValue = it },
+        snapValue = snapValue,
+        onSliderTouchActiveChange = onTouchActiveChange
+    )
+}
+
+@Composable
+private fun WallpaperBlurControl(
+    blurDp: Float,
+    backdrop: Backdrop?,
+    onCommit: (Float) -> Unit,
+    onTouchActiveChange: (Boolean) -> Unit
+) {
+    PersonalizeValueSlider(
+        value = wallpaperBlurPercent(blurDp),
+        valueRange = 0f..100f,
+        backdrop = backdrop,
+        label = { "壁纸模糊 ${it.roundToInt()}%" },
+        onCommit = onCommit,
+        snapValue = 0f,
+        onTouchActiveChange = onTouchActiveChange
+    )
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PersonalizePanel(
@@ -3488,19 +3613,7 @@ fun PersonalizePanel(
     onUpdateConfig: (ScheduleConfigEntity) -> Unit
 ) {
     val adaptiveHeight = if (state.periods.size >= 10) 72f else 80f
-    var wallpaperBlurDisplay by remember { mutableFloatStateOf(wallpaperBlurPercent(state.config.wallpaperBlur)) }
-    var wallpaperBrightnessDisplay by remember { mutableFloatStateOf(state.config.wallpaperBrightness.coerceIn(0.35f, 1f)) }
-    var cardAlphaDisplay by remember { mutableFloatStateOf(state.config.cardAlpha.coerceIn(0f, 1f)) }
-    var courseCardBlurDisplay by remember { mutableFloatStateOf(state.config.courseCardBlur.coerceIn(0f, 10f) / 10f * 100f) }
-    var courseCardFontDisplay by remember { mutableFloatStateOf(state.config.courseCardFontScale) }
     var sliderTouchActive by remember { mutableStateOf(false) }
-    LaunchedEffect(state.config.wallpaperBlur) {
-        wallpaperBlurDisplay = wallpaperBlurPercent(state.config.wallpaperBlur)
-    }
-    LaunchedEffect(state.config.wallpaperBrightness) { wallpaperBrightnessDisplay = state.config.wallpaperBrightness.coerceIn(0.35f, 1f) }
-    LaunchedEffect(state.config.cardAlpha) { cardAlphaDisplay = state.config.cardAlpha.coerceIn(0f, 1f) }
-    LaunchedEffect(state.config.courseCardBlur) { courseCardBlurDisplay = state.config.courseCardBlur.coerceIn(0f, 10f) / 10f * 100f }
-    LaunchedEffect(state.config.courseCardFontScale) { courseCardFontDisplay = state.config.courseCardFontScale }
     @Composable
     fun PersonalizeSection(content: @Composable ColumnScope.() -> Unit) {
         Column(
@@ -3519,136 +3632,196 @@ fun PersonalizePanel(
             PersonalizeSection {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("首页壁纸", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                    LiquidMenuButton(
-                        backdrop,
-                        "\u9009\u62E9\u58C1\u7EB8",
-                        onClick = onPickWallpaper,
-                        textColorOverride = ComposeColor.White,
-                        surfaceColorOverride = ComposeColor(0xFFFFB340).copy(alpha = 0.62f)
-                    )
-                    if (state.config.wallpaperUri != null) {
+                    Text("首页壁纸", style = MaterialTheme.typography.labelLarge)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         LiquidMenuButton(
                             backdrop,
-                            "\u6E05\u9664",
-                            onClick = {
-                                onUpdateConfig(
-                                    state.config.copy(
-                                        wallpaperUri = null,
-                                        wallpaperPortraitCenterX = 0.5f,
-                                        wallpaperPortraitCenterY = 0.5f,
-                                        wallpaperPortraitScale = 1f,
-                                        wallpaperLandscapeCenterX = 0.5f,
-                                        wallpaperLandscapeCenterY = 0.5f,
-                                        wallpaperLandscapeScale = 1f,
-                                        wallpaperSourceWidth = null,
-                                        wallpaperSourceHeight = null,
-                                        homeTextLight = false
-                                    )
-                                )
-                            },
+                            "\u9009\u62E9\u58C1\u7EB8",
+                            onClick = onPickWallpaper,
                             textColorOverride = ComposeColor.White,
-                            surfaceColorOverride = ComposeColor(0xFFFF453A).copy(alpha = 0.62f)
+                            surfaceColorOverride = ComposeColor(0xFF0A84FF).copy(alpha = 0.72f)
                         )
+                        if (state.config.wallpaperUri != null) {
+                            LiquidMenuButton(
+                                backdrop,
+                                "\u6E05\u9664",
+                                onClick = {
+                                    onUpdateConfig(
+                                        state.config.copy(
+                                            wallpaperUri = null,
+                                            wallpaperPortraitCenterX = 0.5f,
+                                            wallpaperPortraitCenterY = 0.5f,
+                                            wallpaperPortraitScale = 1f,
+                                            wallpaperLandscapeCenterX = 0.5f,
+                                            wallpaperLandscapeCenterY = 0.5f,
+                                            wallpaperLandscapeScale = 1f,
+                                            wallpaperSourceWidth = null,
+                                            wallpaperSourceHeight = null,
+                                            homeTextLight = false
+                                        )
+                                    )
+                                },
+                                textColorOverride = ComposeColor.White,
+                                surfaceColorOverride = ComposeColor(0xFFFF453A).copy(alpha = 0.66f)
+                            )
+                        }
                     }
                 }
-                Text("壁纸模糊 ${wallpaperBlurDisplay.roundToInt()}%", style = MaterialTheme.typography.labelMedium)
-                LiquidControlSlider(
-                    value = wallpaperBlurPercent(state.config.wallpaperBlur),
-                    onValueChange = { percent ->
+                WallpaperBlurControl(
+                    blurDp = state.config.wallpaperBlur,
+                    backdrop = backdrop,
+                    onCommit = { percent ->
                         onUpdateConfig(state.config.copy(wallpaperBlur = wallpaperBlurDp(percent)))
                     },
-                    valueRange = 0f..100f,
-                    backdrop = backdrop,
-                    onLiveValueChange = { wallpaperBlurDisplay = it },
-                    snapValue = 0f,
-                    onSliderTouchActiveChange = { sliderTouchActive = it }
+                    onTouchActiveChange = { sliderTouchActive = it }
                 )
-                Text("壁纸亮度 ${(wallpaperBrightnessDisplay.coerceIn(0.35f, 1f) * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
-                LiquidControlSlider(state.config.wallpaperBrightness.coerceIn(0.35f, 1f), { onUpdateConfig(state.config.copy(wallpaperBrightness = it)) }, 0.35f..1f, backdrop, onLiveValueChange = { wallpaperBrightnessDisplay = it }, snapValue = 1f, onSliderTouchActiveChange = { sliderTouchActive = it })
+                PersonalizeValueSlider(
+                    value = state.config.wallpaperBrightness.coerceIn(0.35f, 1f),
+                    valueRange = 0.35f..1f,
+                    backdrop = backdrop,
+                    label = { "壁纸亮度 ${(it * 100).toInt()}%" },
+                    onCommit = { onUpdateConfig(state.config.copy(wallpaperBrightness = it)) },
+                    snapValue = 1f,
+                    onTouchActiveChange = { sliderTouchActive = it }
+                )
             }
             PersonalizeSection {
                 if (mode == HomeMode.Week) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("周视图行高", style = MaterialTheme.typography.labelLarge)
-                        Text("${weekCardHeight.toInt()}dp", style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("周视图行高", style = MaterialTheme.typography.labelLarge)
+                            Text("${weekCardHeight.toInt()}dp", style = MaterialTheme.typography.labelMedium)
+                        }
                         LiquidMenuButton(
                             backdrop,
                             "\u81EA\u9002\u5E94",
                             onClick = { onWeekCardHeight(adaptiveHeight) },
                             textColorOverride = ComposeColor.White,
-                            surfaceColorOverride = ComposeColor(0xFF0A84FF).copy(alpha = 0.58f)
+                            surfaceColorOverride = ComposeColor(0xFF0A84FF).copy(alpha = 0.72f)
                         )
                     }
                     LiquidControlSlider(weekCardHeight, onWeekCardHeight, 38f..80f, backdrop, snapValue = adaptiveHeight.coerceIn(38f, 80f), onSliderTouchActiveChange = { sliderTouchActive = it })
                 }
-                Text("课程卡片颜色", style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        0xFFD6E9FF, 0xFFBFE0FF, 0xFF9ED4FF, 0xFFFFE1E8,
-                        0xFFFFC4D6, 0xFFD8F3DC, 0xFFB7E4C7, 0xFFFFF0C2,
-                        0xFFFFD166, 0xFFE8D7FF, 0xFFD7C0FF
-                    ).forEach { color ->
-                        val selected = state.config.cardColorArgb == color
-                        Surface(
-                            modifier = Modifier.size(34.dp),
-                            shape = RoundedCornerShape(50),
-                            color = ComposeColor(color.toInt()),
-                            border = BorderStroke(
-                                if (selected) 2.dp else 1.dp,
-                                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
-                            ),
-                            onClick = { onUpdateConfig(state.config.copy(cardColorArgb = color)) }
-                        ) {}
-                    }
-                    val multicolorSelected = state.config.cardColorArgb == MulticolorCourseCardArgb
-                    Surface(
-                        modifier = Modifier.size(34.dp),
-                        shape = RoundedCornerShape(50),
-                        color = ComposeColor.Transparent,
-                        border = BorderStroke(
-                            if (multicolorSelected) 2.dp else 1.dp,
-                            if (multicolorSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
-                        ),
-                        onClick = { onUpdateConfig(state.config.copy(cardColorArgb = MulticolorCourseCardArgb)) }
-                    ) {
-                        Box(
-                            modifier = Modifier.background(
-                                Brush.sweepGradient(
-                                    listOf(
-                                        ComposeColor(0xFFFF453A),
-                                        ComposeColor(0xFFFFD60A),
-                                        ComposeColor(0xFF30D158),
-                                        ComposeColor(0xFF64D2FF),
-                                        ComposeColor(0xFF0A84FF),
-                                        ComposeColor(0xFFBF5AF2),
-                                        ComposeColor(0xFFFF453A)
-                                    )
-                                )
-                            ),
-                            contentAlignment = Alignment.Center
-                        ) {}
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("课程卡片颜色", style = MaterialTheme.typography.labelLarge)
+                    LiquidMenuButton(
+                        backdrop,
+                        "从壁纸取色",
+                        onClick = onSampleWallpaperColor,
+                        textColorOverride = ComposeColor.White,
+                        surfaceColorOverride = ComposeColor(0xFF0A84FF).copy(alpha = 0.72f)
+                    )
+                }
+                val courseCardPalette = listOf(
+                    0xFFD6E9FF, 0xFFBFE0FF, 0xFF9ED4FF, 0xFFFFE1E8,
+                    0xFFFFC4D6, 0xFFD8F3DC, 0xFFB7E4C7, 0xFFFFF0C2,
+                    0xFFFFD166, 0xFFE8D7FF, 0xFFD7C0FF,
+                    MulticolorCourseCardArgb
+                )
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                ) {
+                    // Always balance the palette into exactly two rows. The count is
+                    // derived from the current palette while SpaceBetween consumes the
+                    // actual panel width, avoiding FlowRow's asymmetric 7 + 5 wrapping.
+                    val firstRowCount = (courseCardPalette.size + 1) / 2
+                    val paletteRows = listOf(
+                        courseCardPalette.take(firstRowCount),
+                        courseCardPalette.drop(firstRowCount)
+                    )
+                    val largestRow = paletteRows.maxOf { it.size }.coerceAtLeast(1)
+                    val minimumGap = 6.dp
+                    val responsiveSwatchSize = minOf(
+                        34.dp,
+                        ((maxWidth - minimumGap * (largestRow - 1)) / largestRow).coerceAtLeast(28.dp)
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        paletteRows.forEach { rowColors ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = if (rowColors.size == 1) {
+                                    Arrangement.Center
+                                } else {
+                                    Arrangement.SpaceBetween
+                                }
+                            ) {
+                                rowColors.forEach { color ->
+                                    val selected = state.config.cardColorArgb == color
+                                    val multicolor = color == MulticolorCourseCardArgb
+                                    Surface(
+                                        modifier = Modifier.size(responsiveSwatchSize),
+                                        shape = RoundedCornerShape(50),
+                                        color = if (multicolor) ComposeColor.Transparent else ComposeColor(color.toInt()),
+                                        border = BorderStroke(
+                                            if (selected) 2.dp else 1.dp,
+                                            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
+                                        ),
+                                        onClick = { onUpdateConfig(state.config.copy(cardColorArgb = color)) }
+                                    ) {
+                                        if (multicolor) {
+                                            Box(
+                                                modifier = Modifier.background(
+                                                    Brush.sweepGradient(
+                                                        listOf(
+                                                            ComposeColor(0xFFFF453A),
+                                                            ComposeColor(0xFFFFD60A),
+                                                            ComposeColor(0xFF30D158),
+                                                            ComposeColor(0xFF64D2FF),
+                                                            ComposeColor(0xFF0A84FF),
+                                                            ComposeColor(0xFFBF5AF2),
+                                                            ComposeColor(0xFFFF453A)
+                                                        )
+                                                    )
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-                LiquidMenuButton(backdrop, "从壁纸取色", onClick = onSampleWallpaperColor)
                 val alphaLabel = if (state.config.courseCardGlassEnabled) "课程卡片着色强度" else "课程卡片不透明度"
-                Text("$alphaLabel ${(cardAlphaDisplay * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
-                LiquidControlSlider(state.config.cardAlpha.coerceIn(0f, 1f), { onUpdateConfig(state.config.copy(cardAlpha = it)) }, 0f..1f, backdrop, onLiveValueChange = { cardAlphaDisplay = it }, snapValue = 0.5f, onSliderTouchActiveChange = { sliderTouchActive = it })
-                Text("课程卡片模糊 ${courseCardBlurDisplay.toInt()}%", style = MaterialTheme.typography.labelMedium)
-                LiquidControlSlider(
+                PersonalizeValueSlider(
+                    value = state.config.cardAlpha.coerceIn(0f, 1f),
+                    valueRange = 0f..1f,
+                    backdrop = backdrop,
+                    label = { "$alphaLabel ${(it * 100).toInt()}%" },
+                    onCommit = { onUpdateConfig(state.config.copy(cardAlpha = it)) },
+                    snapValue = 0.5f,
+                    onTouchActiveChange = { sliderTouchActive = it }
+                )
+                PersonalizeValueSlider(
                     value = state.config.courseCardBlur.coerceIn(0f, 10f) / 10f * 100f,
-                    onValueChange = { onUpdateConfig(state.config.copy(courseCardBlur = it / 100f * 10f)) },
                     valueRange = 0f..100f,
                     backdrop = backdrop,
-                    onLiveValueChange = { courseCardBlurDisplay = it },
+                    label = { "课程卡片模糊 ${it.toInt()}%" },
+                    onCommit = { onUpdateConfig(state.config.copy(courseCardBlur = it / 100f * 10f)) },
                     snapValue = 35f,
-                    onSliderTouchActiveChange = { sliderTouchActive = it }
+                    onTouchActiveChange = { sliderTouchActive = it }
                 )
-                Text("课程卡片字体 ${(courseCardFontDisplay * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
-                LiquidControlSlider(state.config.courseCardFontScale, { onUpdateConfig(state.config.copy(courseCardFontScale = it)) }, 0.80f..1.35f, backdrop, onLiveValueChange = { courseCardFontDisplay = it }, snapValue = 1f, onSliderTouchActiveChange = { sliderTouchActive = it })
+                PersonalizeValueSlider(
+                    value = state.config.courseCardFontScale,
+                    valueRange = 0.80f..1.35f,
+                    backdrop = backdrop,
+                    label = { "课程卡片字体 ${(it * 100).toInt()}%" },
+                    onCommit = { onUpdateConfig(state.config.copy(courseCardFontScale = it)) },
+                    snapValue = 1f,
+                    onTouchActiveChange = { sliderTouchActive = it }
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -3772,6 +3945,8 @@ fun DialogLiquidButton(
     modifier: Modifier = Modifier,
     role: DialogButtonRole = DialogButtonRole.Neutral,
     iconRes: Int? = null,
+    blurRadius: Dp = 3.dp,
+    destructiveFilled: Boolean = false,
     roundIcon: Boolean = (role == DialogButtonRole.Cancel && label == "取消") ||
         (role == DialogButtonRole.Confirm && label == "保存")
 ) {
@@ -3783,12 +3958,12 @@ fun DialogLiquidButton(
     }
     val textColor = when (role) {
         DialogButtonRole.Confirm -> ComposeColor.White
-        DialogButtonRole.Cancel -> if (useRoundIcon) ComposeColor.White else ComposeColor(0xFFFF453A)
+        DialogButtonRole.Cancel -> if (useRoundIcon || destructiveFilled) ComposeColor.White else ComposeColor(0xFFFF453A)
         DialogButtonRole.Neutral -> MaterialTheme.colorScheme.primary
     }
     val surfaceColor = when (role) {
         DialogButtonRole.Confirm -> ComposeColor(0xFF0A84FF).copy(alpha = 0.82f)
-        DialogButtonRole.Cancel -> ComposeColor(0xFFFF453A).copy(alpha = if (useRoundIcon) 0.78f else 0.16f)
+        DialogButtonRole.Cancel -> ComposeColor(0xFFFF453A).copy(alpha = if (useRoundIcon || destructiveFilled) 0.78f else 0.16f)
         DialogButtonRole.Neutral -> ComposeColor.Transparent
     }
     if (backdrop != null) {
@@ -3803,7 +3978,7 @@ fun DialogLiquidButton(
             } else {
                 PaddingValues(horizontal = 15.dp)
             },
-            blurRadius = 3.dp,
+            blurRadius = blurRadius,
             lensHeight = 16.dp,
             lensAmount = 24.dp,
             chromaticAberration = false
@@ -3960,6 +4135,7 @@ class SettingsDetailActivity : ComponentActivity() {
         enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val customizeScheduleId = intent.getIntExtra(ScheduleCustomizeIdExtra, -1).takeIf { it > 0 }
+        val useEntrySnapshot = intent.getBooleanExtra(ScheduleEntrySnapshotExtra, false)
         setContent {
             val app = application as CourseScheduleApp
             val viewModel: ScheduleViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
@@ -3978,8 +4154,10 @@ class SettingsDetailActivity : ComponentActivity() {
                 }
                 val scheduleEditReady = customizeScheduleId == null ||
                     state.allConfigs.any { it.id == customizeScheduleId }
-                val editEntrySnapshot = remember(customizeScheduleId) {
-                    customizeScheduleId?.let { BitmapFactory.decodeFile(ScheduleSnapshotStore.file(this, it).absolutePath) }
+                val editEntrySnapshot = remember(customizeScheduleId, useEntrySnapshot) {
+                    customizeScheduleId?.takeIf { useEntrySnapshot }?.let {
+                        BitmapFactory.decodeFile(ScheduleSnapshotStore.file(this, it).absolutePath)
+                    }
                 }
                 var editEntrySnapshotVisible by remember(editEntrySnapshot) { mutableStateOf(editEntrySnapshot != null) }
                 LaunchedEffect(editEntrySnapshot) {
@@ -3995,7 +4173,11 @@ class SettingsDetailActivity : ComponentActivity() {
                     title = section.title(),
                     config = state.config,
                     onBack = {
-                        if (section == SettingsPage.Schedule) scheduleExitRequest++ else finish()
+                        if (section == SettingsPage.Schedule || section == SettingsPage.Notifications) {
+                            scheduleExitRequest++
+                        } else {
+                            finish()
+                        }
                     }
                 ) { backdrop ->
                     when (section) {
@@ -4024,7 +4206,15 @@ class SettingsDetailActivity : ComponentActivity() {
                                 onExitCommitFinished = { saved -> if (saved) finish() }
                             )
                         }
-                        SettingsPage.Notifications -> ScheduleConfigScreen(state, backdrop, SettingsSection.Notifications, viewModel::saveConfig, viewModel::previewLiveUpdate)
+                        SettingsPage.Notifications -> ScheduleConfigScreen(
+                            state = state,
+                            backdrop = backdrop,
+                            section = SettingsSection.Notifications,
+                            onSave = { config, _ -> viewModel.saveNotificationSettings(config) },
+                            onPreviewLiveUpdate = viewModel::previewLiveUpdate,
+                            exitCommitRequest = scheduleExitRequest,
+                            onExitCommitFinished = { saved -> if (saved) finish() }
+                        )
                         SettingsPage.About -> AboutSettingsScreen(state, backdrop)
                         SettingsPage.Changelog -> ChangelogSettingsScreen(
                             state = state,
@@ -5006,6 +5196,8 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.0.7", "重构个性化与壁纸调整流程，新增卡片式壁纸裁切页面、横竖屏独立构图及更连贯的无缝过渡，并优化配色布局、玻璃材质、壁纸模糊与全部调节滑条的性能；强化课表详细设置与课程编辑，补充中午时段、总节次配置、时段防重叠和多课程翻页编辑，完善节次选择器、特殊课间以及 ICS 导入导出的完整作息信息，并支持从系统分享或打开方式直接调用 SleepDown 导入 ICS；重新设计今日助手卡片，集中展示课程、天气和预警信息，保留对话入口并增强自然语言课程与设置操作的识别稳定性；改进首页文字可读性和非液态玻璃课程卡片的高斯模糊效果，修复详情页进入闪帧、后台任务卡片隐藏范围及多项动画、数据与交互问题。")
+                SettingsDivider()
                 SettingsInfoRow("1.0.6", "重构课表详细设置与节次时间管理，支持上午、下午、晚上分段配置、多套作息方案、自动匹配、特殊课间与手动微调，并完善保存确认、课程节次重映射和不同课表间的数据隔离；增强今日助手的课程与设置操作能力，修复操作按钮缺失、切换课表后当前节次不显示以及生成文案后首页卡顿等问题；优化日视图、周视图、课程卡片与多课表管理的动画性能和交接效果，补全开学前与学期结束后的日期边界处理；更新下载新增后台持续下载与原生实时进度通知。")
                 SettingsDivider()
                 SettingsInfoRow("1.0.5", "优化今日助手样式与动画，修复日视图布局错误；重新设计桌面小组件，新增2x1样式；性能优化减少卡顿。日视图与周视图表头新增当前节次标识，上课时段一目了然。课表详细设置页面精简标题、取消二次确认、动画更流畅。节次时间编辑改版：可添加多条大课间，自动匹配一键重算，时间线合并展示。")

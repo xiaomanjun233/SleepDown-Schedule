@@ -322,9 +322,19 @@ fun defaultAgentQuickQuestions(facts: DayAgentFacts): List<String> = when {
 }
 
 fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions {
-    val actionMarker = Regex("<agent_actions>([\\s\\S]*?)</agent_actions>")
+    val actionMarker = Regex(
+        "<agent_actions\\s*>([\\s\\S]*?)(?:</agent_actions\\s*>|$)",
+        RegexOption.IGNORE_CASE
+    )
     val legacy = parseAgentCourseDraft(content, facts)
-    val displayText = legacy.displayText.replace(actionMarker, "").trim()
+    val markerMatch = actionMarker.find(content)
+    val payload = markerMatch?.groupValues?.getOrNull(1)
+        ?: extractLooseAgentActionPayload(content)
+    val displayText = legacy.displayText
+        .replace(actionMarker, "")
+        .let { text -> if (markerMatch == null && payload != null) text.replace(payload, "") else text }
+        .replace(Regex("```(?:json)?\\s*\\s*```", RegexOption.IGNORE_CASE), "")
+        .trim()
     val actions = mutableListOf<AgentValidatedAction>()
     legacy.course?.let { course ->
         actions += AgentValidatedAction(
@@ -335,11 +345,7 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
             summary = "添加 ${course.name}"
         )
     }
-    val payload = actionMarker.find(content)?.groupValues?.getOrNull(1)
-    val drafts = payload?.let {
-        runCatching { AgentJson.decodeFromString<List<AgentActionDraft>>(it) }.getOrNull()
-            ?: runCatching { listOf(AgentJson.decodeFromString<AgentActionDraft>(it)) }.getOrNull()
-    }.orEmpty()
+    val drafts = payload?.let(::decodeAgentActionDrafts).orEmpty()
     val knownCourses = (facts.week.map { it.course } + facts.semesterCourses)
         .distinctBy { it.id }
         .associateBy { it.id }
@@ -404,6 +410,63 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
     return ParsedAgentActions(displayText, actions)
 }
 
+private fun decodeAgentActionDrafts(payload: String): List<AgentActionDraft> {
+    val unfenced = payload.trim()
+        .removePrefix("```json")
+        .removePrefix("```JSON")
+        .removePrefix("```")
+        .removeSuffix("```")
+        .trim()
+    val candidates = buildList {
+        add(unfenced)
+        Regex("\\\"actions\\\"\\s*:\\s*(\\[[\\s\\S]*])", RegexOption.IGNORE_CASE)
+            .find(unfenced)?.groupValues?.getOrNull(1)?.let(::add)
+        val arrayStart = unfenced.indexOf('[')
+        val arrayEnd = unfenced.lastIndexOf(']')
+        if (arrayStart >= 0 && arrayEnd > arrayStart) add(unfenced.substring(arrayStart, arrayEnd + 1))
+        val objectStart = unfenced.indexOf('{')
+        val objectEnd = unfenced.lastIndexOf('}')
+        if (objectStart >= 0 && objectEnd > objectStart) add(unfenced.substring(objectStart, objectEnd + 1))
+    }.distinct()
+    candidates.forEach { rawCandidate ->
+        val candidate = normalizeLooseAgentActionJson(rawCandidate)
+        runCatching { AgentJson.decodeFromString<List<AgentActionDraft>>(candidate) }
+            .getOrNull()?.let { return it }
+        runCatching { AgentJson.decodeFromString<AgentActionDraft>(candidate) }
+            .getOrNull()?.let { return listOf(it) }
+    }
+    return emptyList()
+}
+
+private fun extractLooseAgentActionPayload(content: String): String? {
+    if (!Regex("\\\"type\\\"\\s*:\\s*\\\"(?:ADD_COURSE|UPDATE_COURSE|DELETE_COURSE|OPEN_SETTINGS|SET_SETTING)", RegexOption.IGNORE_CASE)
+            .containsMatchIn(content)) return null
+    val fenced = Regex("```(?:json)?\\s*([\\s\\S]*?)```", RegexOption.IGNORE_CASE)
+        .findAll(content)
+        .map { it.groupValues[1] }
+        .firstOrNull { it.contains("\"type\"", ignoreCase = true) }
+    if (fenced != null) return fenced
+    val arrayStart = content.indexOf('[')
+    val arrayEnd = content.lastIndexOf(']')
+    if (arrayStart >= 0 && arrayEnd > arrayStart) return content.substring(arrayStart, arrayEnd + 1)
+    val objectStart = content.indexOf('{')
+    val objectEnd = content.lastIndexOf('}')
+    return if (objectStart >= 0 && objectEnd > objectStart) content.substring(objectStart, objectEnd + 1) else null
+}
+
+private fun normalizeLooseAgentActionJson(raw: String): String {
+    var normalized = raw.trim()
+    listOf("type", "scope", "weekParity").forEach { key ->
+        normalized = Regex("(\\\"$key\\\"\\s*:\\s*\\\")([^\\\"]+)(\\\")", RegexOption.IGNORE_CASE)
+            .replace(normalized) { match ->
+                match.groupValues[1] + match.groupValues[2].trim().uppercase() + match.groupValues[3]
+            }
+    }
+    normalized = Regex("(\\\"settingValue\\\"\\s*:\\s*)(true|false|-?\\d+(?:\\.\\d+)?)", RegexOption.IGNORE_CASE)
+        .replace(normalized) { match -> match.groupValues[1] + "\"" + match.groupValues[2].uppercase() + "\"" }
+    return normalized
+}
+
 private fun validateAgentCoursePatch(
     patch: AgentCoursePatch?,
     base: CourseEntity?,
@@ -420,7 +483,7 @@ private fun validateAgentCoursePatch(
         requestedWeeks.isNotEmpty() -> requestedWeeks
         base != null -> base.weeks
         scope == AgentActionScope.CURRENT_WEEK -> listOf(facts.currentWeek)
-        else -> emptyList()
+        else -> (1..facts.totalWeeks).toList()
     }.distinct().sorted().filter { it in 1..facts.totalWeeks }
     if (weekday !in 1..7 || periods.isEmpty() || weeks.isEmpty()) return null
     val parity = patch.weekParity?.let { runCatching { WeekParity.valueOf(it.uppercase()) }.getOrNull() }

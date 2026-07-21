@@ -417,7 +417,7 @@ class DayAgentRepository(private val context: Context) {
 
 private object DayAgentPrompts {
     const val DailySystem = """你是课程表应用的日程文案助手。你只负责生成简洁、自然的中文文案模板和快捷问题，不计算时间，不编造课程、地点、教师或天气。只返回 JSON 对象，格式为 {\"templates\":{\"MORNING_OVERVIEW\":\"...\"},\"quickQuestions\":[\"...\",\"...\"]}。模板键只能使用请求给出的枚举，占位符只能使用请求给出的白名单。每条文案按“天气与体感；当前或下一节课程；一条可执行建议；一句自然关心”的固定顺序组织，控制在 35 到 100 个汉字。快捷问题生成2至3条，每条不超过12个汉字，必须结合当天课程或空档且适合用户直接点击。"""
-    const val ChatSystem = """你是 SleepDown 课程表的今日助手。每次回答只能依据本次请求提供的最新本周课程、课程ID、节次定义、今日/明日安排、天气和当前时间；当用户询问整个学期时，还会提供仅限本次请求使用的全学期课程。不得沿用旧课表事实，不得编造课程、教室、教师、天气或时间。缺少信息时直接追问。回答简洁、可执行。
+    const val ChatSystem = """你是 SleepDown 课程表的今日助手。每次回答依据本次请求提供的最新课程、日期与星期、节次定义、天气和当前时间，自行理解用户意图并给出简洁、可执行的回答；当用户询问整个学期时，还会提供仅限本次请求使用的全学期课程。不要沿用旧课表事实，也不要编造课程、教室、教师、天气或时间。
 你可以准备课程操作和设置跳转，但绝不能声称已经执行。操作必须放在正文末尾的唯一机器标记 <agent_actions>[...]</agent_actions> 中，等待用户在应用内确认。
 支持的操作：
 1. 新增：{\"type\":\"ADD_COURSE\",\"scope\":\"ALL_WEEKS\",\"course\":{\"name\":\"课程名\",\"teacher\":null,\"location\":null,\"weekday\":1,\"periods\":[1,2],\"weeks\":[1,2],\"weekParity\":\"ALL\",\"note\":null},\"summary\":\"添加课程\"}
@@ -427,7 +427,7 @@ private object DayAgentPrompts {
 5. 修改设置：{\"type\":\"SET_SETTING\",\"settingKey\":\"REALTIME_ACTIVITY\",\"settingValue\":\"TRUE\",\"summary\":\"开启实时活动\"}
 交换两门课程必须输出两条 UPDATE_COURSE。courseId 只能使用请求中提供的真实ID。scope 可为 CURRENT_WEEK 或 ALL_WEEKS。星期一为1、星期日为7。
 设置目录：GENERAL=通用与深色模式；PERSONALIZATION=首页个性化弹窗（壁纸、玻璃、课程卡片外观、字体和行高）；AI_IMPORT=模型与API；DAY_AGENT=今日助手；SCHEDULE=周数、开学日期、节次；NOTIFICATIONS=课程提醒、提前分钟、通知样式、实时活动、实时活动缩略文字、保活权限与测试；SCHEDULE_MANAGER=多课表；ABOUT/CHANGELOG/DOWNLOAD/DONATE=关于、日志、更新、捐赠。
-可修改设置的完整键、类型、范围和当前值由后续系统消息中的设置注册表提供。用户说“打开/开启实时活动”时使用 SET_SETTING，而用户问“在哪里/怎么设置”时使用 OPEN_SETTINGS 指向 NOTIFICATIONS。若只是回答问题，不输出机器标记。"""
+可修改设置的完整键、类型、范围和当前值由后续系统消息中的设置注册表提供。用户说“打开/开启实时活动”时使用 SET_SETTING，而用户问“在哪里/怎么设置”时使用 OPEN_SETTINGS 指向 NOTIFICATIONS。若只是回答问题，不输出机器标记。只要回复中提出了一个可供用户确认的实际操作，就必须同时输出机器标记，不能只在自然语言里声称“已准备”“请确认”。机器标记必须严格位于正文末尾，只包含使用英文双引号的合法 JSON 数组，不加 Markdown 代码围栏、注释或尾随逗号；type、scope、weekParity 和字段名必须与上述协议完全一致。"""
 }
 
 private fun dailyPackPrompt(facts: DayAgentFacts): String = buildString {
@@ -440,7 +440,10 @@ private fun dailyPackPrompt(facts: DayAgentFacts): String = buildString {
 }
 
 private fun conversationContext(facts: DayAgentFacts): String = buildString {
-    appendLine("日期：${facts.date}；当前时间：${facts.now.toLocalTime()}")
+    val weekday = weekdayLabel(facts.date.dayOfWeek.toChineseWeekday())
+    val tomorrowDate = facts.date.plusDays(1)
+    val tomorrowWeekday = weekdayLabel(tomorrowDate.dayOfWeek.toChineseWeekday())
+    appendLine("本地日期与星期：今天是 ${facts.date} 星期$weekday；明天是 $tomorrowDate 星期$tomorrowWeekday；当前时间：${facts.now.toLocalTime()}")
     appendLine("天气：${facts.weather?.summary ?: "不可用"}")
     appendLine("今日课程：${facts.today.joinToString("；") { "${it.start}-${it.end} ${it.course.name}，地点 ${it.course.location ?: "待确认"}，教师 ${it.course.teacher ?: "待确认"}" }.ifBlank { "无" }}")
     appendLine("明日课程：${facts.tomorrow.joinToString("；") { "${it.start}-${it.end} ${it.course.name}，地点 ${it.course.location ?: "待确认"}" }.ifBlank { "无" }}")
