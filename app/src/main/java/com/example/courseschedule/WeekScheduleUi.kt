@@ -326,7 +326,7 @@ fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardCo
     ) {
         Column {
             Row(modifier = Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                WeekSwitchButton("<", state.config, backdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
+                WeekSwitchButton(-1, state.config, backdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
                 HomeReadableText(
                     "第${displayWeek}周",
                     modifier = Modifier.padding(horizontal = 8.dp),
@@ -334,7 +334,7 @@ fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardCo
                     textAlign = TextAlign.Center,
                     color = textColor
                 )
-                WeekSwitchButton(">", state.config, backdrop, enabled = displayWeek < state.config.totalWeeks) { onSwipeWeek(1) }
+                WeekSwitchButton(1, state.config, backdrop, enabled = displayWeek < state.config.totalWeeks) { onSwipeWeek(1) }
             }
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.width(rowHeaderWidth)) {
@@ -610,7 +610,7 @@ fun SinglePillWeekScheduleScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
-                WeekSwitchButton("<", state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
+                WeekSwitchButton(-1, state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
                 Text(
                     text = "第${displayWeek}周",
                     modifier = Modifier.padding(horizontal = 10.dp),
@@ -619,7 +619,7 @@ fun SinglePillWeekScheduleScreen(
                     textAlign = TextAlign.Center,
                     color = textColor
                 )
-                WeekSwitchButton(">", state.config, headerBackdrop, enabled = displayWeek < state.config.totalWeeks) { onSwipeWeek(1) }
+                WeekSwitchButton(1, state.config, headerBackdrop, enabled = displayWeek < state.config.totalWeeks) { onSwipeWeek(1) }
             }
 
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -1197,7 +1197,7 @@ fun LiquidWeekScheduleScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
-                WeekSwitchButton("<", state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
+                WeekSwitchButton(-1, state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
                 HomeReadableText(
                     text = "第${displayWeek}周",
                     modifier = Modifier.padding(horizontal = 10.dp),
@@ -1206,7 +1206,7 @@ fun LiquidWeekScheduleScreen(
                     textAlign = TextAlign.Center,
                     color = textColor
                 )
-                WeekSwitchButton(">", state.config, headerBackdrop, enabled = displayWeek < state.config.totalWeeks) { onSwipeWeek(1) }
+                WeekSwitchButton(1, state.config, headerBackdrop, enabled = displayWeek < state.config.totalWeeks) { onSwipeWeek(1) }
             }
 
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -1346,7 +1346,7 @@ fun LiquidWeekScheduleScreen(
 }
 
 @Composable
-fun WeekSwitchButton(label: String, config: ScheduleConfigEntity, backdrop: Backdrop?, enabled: Boolean, onClick: () -> Unit) {
+fun WeekSwitchButton(direction: Int, config: ScheduleConfigEntity, backdrop: Backdrop?, enabled: Boolean, onClick: () -> Unit) {
     val lightGlass = glassUsesLightStyle(config)
     val surfaceColor = if (lightGlass) ComposeColor.White else ComposeColor(0xFF121212)
     val textColor = glassForegroundColor(config)
@@ -1367,11 +1367,11 @@ fun WeekSwitchButton(label: String, config: ScheduleConfigEntity, backdrop: Back
             chromaticAberration = false
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = textColor
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_back),
+                    contentDescription = if (direction < 0) "上一周" else "下一周",
+                    tint = textColor,
+                    modifier = Modifier.size(18.dp).graphicsLayer(rotationZ = if (direction > 0) 180f else 0f)
                 )
             }
         }
@@ -1383,7 +1383,12 @@ fun WeekSwitchButton(label: String, config: ScheduleConfigEntity, backdrop: Back
             onClick = if (enabled) onClick else null
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_back),
+                    contentDescription = if (direction < 0) "上一周" else "下一周",
+                    tint = textColor,
+                    modifier = Modifier.size(18.dp).graphicsLayer(rotationZ = if (direction > 0) 180f else 0f)
+                )
             }
         }
     }

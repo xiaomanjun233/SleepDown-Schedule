@@ -690,21 +690,8 @@ private val MIGRATION_27_28 = object : Migration(27, 28) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE schedule_config ADD COLUMN noonPeriodCount INTEGER NOT NULL DEFAULT 0")
         db.execSQL("ALTER TABLE period_schemes ADD COLUMN noonStartTime TEXT NOT NULL DEFAULT '12:00'")
-        db.execSQL(
-            """
-            UPDATE schedule_config SET
-              noonPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) >= 12 AND CAST(substr(p.startTime, 1, 2) AS INTEGER) < 14),
-              afternoonPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) >= 14 AND CAST(substr(p.startTime, 1, 2) AS INTEGER) < 18)
-            """.trimIndent()
-        )
-        db.execSQL(
-            """
-            UPDATE period_schemes SET noonStartTime = COALESCE(
-              (SELECT MIN(p.startTime) FROM periods p WHERE p.scheduleId = period_schemes.scheduleId AND CAST(substr(p.startTime, 1, 2) AS INTEGER) >= 12 AND CAST(substr(p.startTime, 1, 2) AS INTEGER) < 14),
-              '12:00'
-            )
-            """.trimIndent()
-        )
+        // v27 had no independent noon segment. Keep its original afternoon structure intact;
+        // interpreting periods by clock hour here used to silently reset existing timetables.
     }
 }
 
@@ -1091,10 +1078,19 @@ class ScheduleRepository(private val database: AppDatabase) {
         val expectedCount = config.totalPeriodCount()
         require(expectedCount > 0) { "至少需要保留一个节次" }
 
+        val storedConfig = configDao.getConfig(scheduleId)
         val originalPeriods = configDao.getPeriods(scheduleId)
         var courses = courseDao.getAllCourses().filter { it.scheduleId == scheduleId }
 
         val existing = periodSchemeDao.getSchemes(scheduleId)
+        val existingDrafts = existing.associate { scheme ->
+            scheme.id to PeriodSchemeDraft(
+                scheme = scheme,
+                times = periodSchemeDao.getTimes(scheme.id),
+                specialBreaks = decodeSpecialBreaks(scheme.specialBreaksJson),
+                overriddenPeriods = decodeOverrides(scheme.overridesJson)
+            )
+        }
         val incomingIds = draft.schemes.map { it.scheme.id }.filter { it > 0 }.toSet()
         existing.filter { it.id !in incomingIds }.forEach {
             periodSchemeDao.deleteTimes(it.id)
@@ -1113,7 +1109,13 @@ class ScheduleRepository(private val database: AppDatabase) {
             )
             val storedId = periodSchemeDao.upsertScheme(entity).let { if (entity.id > 0) entity.id else it }
             idMap[sourceId] = storedId
-            val resolved = resolveSchemeTimes(config, item.copy(scheme = entity.copy(id = storedId)))
+            val incoming = item.copy(scheme = entity.copy(id = storedId))
+            val resolved = resolveSchemeTimesForSave(
+                config = config,
+                draft = incoming,
+                storedConfig = storedConfig,
+                storedDraft = existingDrafts[sourceId]
+            )
             require(resolved.size == expectedCount) { "${entity.name} 的节次数与课表结构不一致" }
             validateResolvedPeriodTimes(resolved)?.let { throw IllegalArgumentException("${entity.name}：$it") }
             periodSchemeDao.deleteTimes(storedId)

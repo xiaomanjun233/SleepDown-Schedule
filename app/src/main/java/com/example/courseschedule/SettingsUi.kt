@@ -3899,15 +3899,10 @@ fun ScheduleConfigScreen(
                 lastSavedSchemeDraft = it
                 val active = it.schemes.firstOrNull { scheme -> scheme.scheme.id == it.activeSchemeId }
                 if (active != null) {
-                    periods = resolveSchemeTimes(
-                        state.config.copy(
-                            morningPeriodCount = morningPeriodCount,
-                            noonPeriodCount = noonPeriodCount,
-                            afternoonPeriodCount = afternoonPeriodCount,
-                            eveningPeriodCount = eveningPeriodCount
-                        ),
-                        active
-                    ).map { time -> PeriodEntity(time.periodIndex, time.startTime, time.endTime, state.config.id) }
+                    // Stored scheme times are authoritative. Merely opening this page must not
+                    // regenerate an AUTO_MATCH scheme with newly introduced defaults.
+                    periods = active.times.sortedBy { time -> time.periodIndex }
+                        .map { time -> PeriodEntity(time.periodIndex, time.startTime, time.endTime, state.config.id) }
                 }
             }
             .onFailure { error = it.message ?: "作息方案加载失败" }
@@ -4002,11 +3997,22 @@ fun ScheduleConfigScreen(
             if (currentSchemes != null) {
                 val active = currentSchemes.schemes.firstOrNull { it.scheme.id == currentSchemes.activeSchemeId }
                     ?: currentSchemes.schemes.first()
-                val activePeriods = resolveSchemeTimes(nextConfig, active).map {
+                val previousActive = lastSavedSchemeDraft?.schemes
+                    ?.firstOrNull { it.scheme.id == active.scheme.id }
+                val activePeriods = resolveSchemeTimesForSave(
+                    config = nextConfig,
+                    draft = active,
+                    storedConfig = lastSavedConfig,
+                    storedDraft = previousActive
+                ).map {
                     PeriodEntity(it.periodIndex, it.startTime, it.endTime, nextConfig.id)
                 }
                 currentSchemes.schemes.forEach { item ->
-                    validateResolvedPeriodTimes(resolveSchemeTimes(nextConfig, item))?.let {
+                    val previous = lastSavedSchemeDraft?.schemes
+                        ?.firstOrNull { it.scheme.id == item.scheme.id }
+                    validateResolvedPeriodTimes(
+                        resolveSchemeTimesForSave(nextConfig, item, lastSavedConfig, previous)
+                    )?.let {
                         throw IllegalArgumentException("${item.scheme.name}：$it")
                     }
                 }

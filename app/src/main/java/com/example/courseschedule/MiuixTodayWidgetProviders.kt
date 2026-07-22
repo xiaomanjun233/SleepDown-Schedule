@@ -15,7 +15,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.Duration
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -25,6 +27,19 @@ internal enum class TodayWidgetVariant { LARGE, SQUARE }
 class TodayCoursesSquareWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         MiuixTodayWidgetRenderer.refresh(context, manager, ids, TodayWidgetVariant.SQUARE)
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        if (MiuixTodayWidgetRenderer.isRefreshAction(intent.action)) {
+            TodayCoursesWidgetProvider.refreshAll(context)
+        }
+    }
+}
+
+class TodayAssistantWidgetProvider : AppWidgetProvider() {
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        TodayAssistantWidgetRenderer.refresh(context, manager, ids)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -48,6 +63,8 @@ internal object MiuixTodayWidgetRenderer {
         val manager = AppWidgetManager.getInstance(context)
         refreshComponent(context, manager, TodayCoursesWidgetProvider::class.java, TodayWidgetVariant.LARGE)
         refreshComponent(context, manager, TodayCoursesSquareWidgetProvider::class.java, TodayWidgetVariant.SQUARE)
+        val assistantIds = manager.getAppWidgetIds(ComponentName(context, TodayAssistantWidgetProvider::class.java))
+        if (assistantIds.isNotEmpty()) TodayAssistantWidgetRenderer.refresh(context, manager, assistantIds)
     }
 
     private fun refreshComponent(
@@ -288,5 +305,139 @@ internal object MiuixTodayWidgetRenderer {
         }
         val alarm = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         alarm.set(AlarmManager.RTC, trigger.toInstant().toEpochMilli(), refreshPendingIntent(context))
+    }
+}
+
+internal object TodayAssistantWidgetRenderer {
+    private const val AccentLight = 0xFF006EDC.toInt()
+    private const val AccentDark = 0xFF62B5FF.toInt()
+
+    fun refresh(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        if (ids.isEmpty()) return
+        CoroutineScope(Dispatchers.IO).launch {
+            val app = context.applicationContext as CourseScheduleApp
+            app.repository.ensureDefaults()
+            val state = app.repository.snapshot()
+            val weather = if (DayAgentPreferences.isWeatherEnabled(context)) {
+                DayAgentWeatherRepository(context.applicationContext).getWeather()
+            } else null
+            ids.forEach { manager.updateAppWidget(it, buildViews(context, state, weather)) }
+        }
+    }
+
+    private fun buildViews(
+        context: Context,
+        state: AppState,
+        weather: AgentWeatherSnapshot?
+    ): RemoteViews {
+        val zone = ZoneId.of("Asia/Shanghai")
+        val now = LocalDateTime.now(zone)
+        val facts = buildDayAgentFacts(
+            courses = state.courses,
+            periods = state.periods,
+            config = state.config,
+            date = now.toLocalDate(),
+            weather = weather,
+            now = now
+        )
+        val current = facts.today.firstOrNull { !now.toLocalTime().isBefore(it.start) && now.toLocalTime().isBefore(it.end) }
+        val next = facts.today.firstOrNull { now.toLocalTime().isBefore(it.start) }
+        val focus = current ?: next
+        val remaining = (current?.end ?: next?.start)?.let {
+            Duration.between(now.toLocalTime(), it).toMinutes().coerceAtLeast(0)
+        }
+        val activity = when {
+            current != null -> "当前"
+            next != null -> "下节课"
+            facts.today.isEmpty() -> "今日无课"
+            else -> "课程已结束"
+        }
+        val countdown = when {
+            current != null && remaining != null -> "${remaining} 分钟后下课"
+            next != null && remaining != null -> "${remaining} 分钟后"
+            facts.today.isEmpty() -> "轻松一天"
+            else -> "今日完成"
+        }
+        val detail = focus?.course?.let { course ->
+            listOfNotNull(course.location?.takeIf(String::isNotBlank), course.teacher?.takeIf(String::isNotBlank))
+                .joinToString(" | ")
+        }.orEmpty()
+        val timeText = focus?.let {
+            val formatter = DateTimeFormatter.ofPattern("HH:mm")
+            "${it.start.format(formatter)} - ${it.end.format(formatter)}"
+        }.orEmpty()
+        val weatherText = when {
+            !DayAgentPreferences.isWeatherEnabled(context) -> "天气未启用"
+            weather != null -> "${widgetWeatherEmoji(weather.summary)} ${weather.temperature}°C ${weather.summary.substringBefore('，')}"
+            else -> "天气加载中"
+        }
+        val alert = weather?.let(::widgetWeatherAlert)
+        val trailingText = alert?.let { "⚠️ $it" }.orEmpty()
+        val dark = if (!state.config.followSystemDarkMode) state.config.darkMode else {
+            val mode = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+            mode == Configuration.UI_MODE_NIGHT_YES
+        }
+        val primary = if (dark) Color.WHITE else Color.rgb(17, 17, 17)
+        val secondary = if (dark) Color.argb(170, 255, 255, 255) else Color.argb(150, 0, 0, 0)
+        val accent = if (dark) AccentDark else AccentLight
+        return RemoteViews(context.packageName, R.layout.widget_today_assistant).apply {
+            setInt(R.id.widget_agent_root, "setBackgroundResource", if (dark) R.drawable.widget_today_background_dark else R.drawable.widget_today_background)
+            setTextViewText(R.id.widget_agent_activity, activity)
+            setTextViewText(R.id.widget_agent_course, focus?.course?.name.orEmpty())
+            setViewVisibility(R.id.widget_agent_course, if (focus == null) View.GONE else View.VISIBLE)
+            setTextViewText(R.id.widget_agent_countdown, countdown)
+            setTextViewText(R.id.widget_agent_detail, detail)
+            setTextViewText(R.id.widget_agent_time, timeText)
+            setViewVisibility(R.id.widget_agent_time, if (focus == null) View.GONE else View.VISIBLE)
+            setTextViewText(R.id.widget_agent_count, "今天有 ${facts.today.size} 节课")
+            setTextViewText(R.id.widget_agent_weather, weatherText)
+            setTextViewText(R.id.widget_agent_trailing, trailingText)
+            setViewVisibility(R.id.widget_agent_trailing, if (trailingText.isBlank()) View.GONE else View.VISIBLE)
+            setTextColor(R.id.widget_agent_activity, accent)
+            setTextColor(R.id.widget_agent_countdown, accent)
+            setTextColor(R.id.widget_agent_course, primary)
+            setTextColor(R.id.widget_agent_count, primary)
+            setTextColor(R.id.widget_agent_detail, secondary)
+            setTextColor(R.id.widget_agent_time, secondary)
+            setTextColor(R.id.widget_agent_weather, secondary)
+            setTextColor(R.id.widget_agent_trailing, if (alert == null) secondary else Color.rgb(255, 149, 0))
+            setInt(R.id.widget_agent_divider, "setBackgroundColor", if (dark) Color.argb(28, 255, 255, 255) else Color.argb(22, 0, 0, 0))
+            setOnClickPendingIntent(R.id.widget_agent_root, openAppPendingIntent(context))
+        }
+    }
+
+    private fun widgetWeatherEmoji(summary: String): String {
+        val condition = summary.substringBefore('，').substringBefore(',').trim()
+        return when {
+            "雷" in condition -> "⛈️"
+            "雪" in condition -> "🌨️"
+            "雨" in condition -> "🌧️"
+            "雾" in condition || "霾" in condition -> "🌫️"
+            "阴" in condition -> "☁️"
+            "云" in condition -> "⛅"
+            "晴" in condition -> "☀️"
+            else -> "🌤️"
+        }
+    }
+
+    private fun widgetWeatherAlert(weather: AgentWeatherSnapshot): String? {
+        val condition = weather.summary.substringBefore('，').substringBefore(',').trim()
+        return buildList {
+            when {
+                "雷" in condition -> add("雷暴提醒")
+                "雪" in condition -> add("降雪提醒")
+                "暴雨" in condition -> add("强降雨提醒")
+                weather.precipitationProbability >= 60 -> add("降雨提醒")
+            }
+            if (weather.temperature >= 35 || weather.apparentTemperature >= 38) add("高温提醒")
+            if (weather.temperature <= 5 || weather.apparentTemperature <= 2) add("低温提醒")
+            if (weather.windSpeed >= 35) add("大风提醒")
+        }.distinct().takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    }
+
+    private fun openAppPendingIntent(context: Context): PendingIntent {
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: Intent(context, MainActivity::class.java)
+        return PendingIntent.getActivity(context, 2501, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 }

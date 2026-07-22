@@ -45,6 +45,51 @@ fun ScheduleConfigEntity.periodCount(part: PeriodDayPart): Int = when (part) {
 fun ScheduleConfigEntity.totalPeriodCount(): Int =
     morningPeriodCount + noonPeriodCount + afternoonPeriodCount + eveningPeriodCount
 
+fun ScheduleConfigEntity.hasSamePeriodTopology(other: ScheduleConfigEntity): Boolean =
+    morningPeriodCount == other.morningPeriodCount &&
+        noonPeriodCount == other.noonPeriodCount &&
+        afternoonPeriodCount == other.afternoonPeriodCount &&
+        eveningPeriodCount == other.eveningPeriodCount
+
+/**
+ * Parameters that are allowed to regenerate an automatic scheme.  The persisted time line is
+ * deliberately not treated as a cache: opening an unrelated setting must never rewrite a user's
+ * existing summer/winter timetable.
+ */
+fun PeriodSchemeDraft.hasSameGenerationInputs(other: PeriodSchemeDraft): Boolean {
+    if (scheme.mode != other.scheme.mode ||
+        scheme.classDurationMinutes != other.scheme.classDurationMinutes ||
+        scheme.breakDurationMinutes != other.scheme.breakDurationMinutes ||
+        scheme.morningStartTime != other.scheme.morningStartTime ||
+        scheme.noonStartTime != other.scheme.noonStartTime ||
+        scheme.afternoonStartTime != other.scheme.afternoonStartTime ||
+        scheme.eveningStartTime != other.scheme.eveningStartTime ||
+        specialBreaks != other.specialBreaks ||
+        overriddenPeriods != other.overriddenPeriods
+    ) return false
+
+    val mine = times.filter { it.periodIndex in overriddenPeriods }
+        .associate { it.periodIndex to (it.startTime to it.endTime) }
+    val theirs = other.times.filter { it.periodIndex in other.overriddenPeriods }
+        .associate { it.periodIndex to (it.startTime to it.endTime) }
+    return mine == theirs
+}
+
+fun resolveSchemeTimesForSave(
+    config: ScheduleConfigEntity,
+    draft: PeriodSchemeDraft,
+    storedConfig: ScheduleConfigEntity?,
+    storedDraft: PeriodSchemeDraft?
+): List<PeriodSchemeTimeEntity> {
+    if (draft.scheme.mode == PeriodSchemeMode.MANUAL) return draft.times.sortedBy { it.periodIndex }
+    if (storedConfig != null && storedDraft != null &&
+        config.hasSamePeriodTopology(storedConfig) && draft.hasSameGenerationInputs(storedDraft)
+    ) {
+        return storedDraft.times.sortedBy { it.periodIndex }
+    }
+    return resolveSchemeTimes(config, draft)
+}
+
 fun ScheduleConfigEntity.periodRange(part: PeriodDayPart): IntRange {
     val morningEnd = morningPeriodCount
     val noonEnd = morningEnd + noonPeriodCount

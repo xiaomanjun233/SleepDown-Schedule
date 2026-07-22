@@ -438,7 +438,8 @@ fun NormalizedCourseEditorScreen(
     onCancel: () -> Unit,
     onSave: (CourseEntity) -> Unit,
     onDelete: (CourseEntity) -> Unit,
-    backdrop: Backdrop?
+    backdrop: Backdrop?,
+    pickerRenderInRootScaffold: Boolean = true
 ) {
     val formData = remember(state.config, state.periods, state.courses) {
         CourseEditorFormData(
@@ -453,7 +454,8 @@ fun NormalizedCourseEditorScreen(
         onCancel = onCancel,
         onSave = onSave,
         onDelete = onDelete,
-        backdrop = backdrop
+        backdrop = backdrop,
+        pickerRenderInRootScaffold = pickerRenderInRootScaffold
     )
 }
 
@@ -527,7 +529,8 @@ fun NormalizedCourseEditorScreen(
     onSave: (CourseEntity) -> Unit,
     onDelete: (CourseEntity) -> Unit,
     backdrop: Backdrop?,
-    onSaveWithOriginal: ((CourseEntity, CourseEntity) -> Unit)? = null
+    onSaveWithOriginal: ((CourseEntity, CourseEntity) -> Unit)? = null,
+    pickerRenderInRootScaffold: Boolean = true
 ) {
     val config = formData.config
     val relatedCourses = remember(initialCourse, formData.courses) {
@@ -611,6 +614,7 @@ fun NormalizedCourseEditorScreen(
                 request = request,
                 backdrop = backdrop,
                 config = config,
+                renderInRootScaffold = pickerRenderInRootScaffold,
                 onDismiss = { pickerRequest = null }
             )
         }
@@ -853,6 +857,7 @@ private fun CourseEditorPickerOverlay(
     request: CourseEditorPickerRequest,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
+    renderInRootScaffold: Boolean,
     onDismiss: () -> Unit
 ) {
     val dark = appUsesDarkTheme(config)
@@ -869,6 +874,7 @@ private fun CourseEditorPickerOverlay(
         enableWindowDim = false,
         backgroundColor = ComposeColor.Transparent,
         forceCenter = true,
+        renderInRootScaffold = renderInRootScaffold,
         surfaceModifier = quickSheetBackdropModifier(
             backdrop = backdrop,
             config = config,

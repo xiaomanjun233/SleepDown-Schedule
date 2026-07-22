@@ -2045,34 +2045,53 @@ fun CourseScheduleAppUi(
                     }
                 }
             }
-            AnimatedVisibility(
-                visible = homeDialogVisible,
-                enter = popEnterTransition(),
-                exit = popExitTransition()
-            ) {
+            val animatedDialogContent: @Composable () -> Unit = {
+                AnimatedVisibility(
+                    visible = homeDialogVisible,
+                    enter = popEnterTransition(),
+                    exit = popExitTransition()
+                ) {
                 val dialogContent: @Composable () -> Unit = {
                     when (dialog) {
-                    is HomeDialog.EditCourse ->
-                    NormalizedCourseEditorScreen(
-                        state = state,
-                        initialCourse = dialog.course,
-                        onCancel = { dismissHomeDialog() },
-                        onSave = {
-                            if (dialog.course == null) {
-                                viewModel.addCourse(it)
-                                dismissHomeDialog()
-                            } else if (courseWeeksChanged(dialog.course, it)) {
-                                viewModel.updateCourse(it)
-                                dismissHomeDialog()
-                            } else {
-                                homeDialog = HomeDialog.ApplyCourseEdit(dialog.course, it, dialog.targetWeek ?: effectiveCurrentWeek(state.config))
+                    is HomeDialog.EditCourse -> {
+                        val editor: @Composable () -> Unit = {
+                            NormalizedCourseEditorScreen(
+                                state = state,
+                                initialCourse = dialog.course,
+                                onCancel = { dismissHomeDialog() },
+                                onSave = {
+                                    if (dialog.course == null) {
+                                        viewModel.addCourse(it)
+                                        dismissHomeDialog()
+                                    } else if (courseWeeksChanged(dialog.course, it)) {
+                                        viewModel.updateCourse(it)
+                                        dismissHomeDialog()
+                                    } else {
+                                        homeDialog = HomeDialog.ApplyCourseEdit(dialog.course, it, dialog.targetWeek ?: effectiveCurrentWeek(state.config))
+                                    }
+                                },
+                                onDelete = {
+                                    homeDialog = HomeDialog.ApplyCourseDelete(it, dialog.targetWeek ?: effectiveCurrentWeek(state.config))
+                                },
+                                backdrop = chromeBackdrop,
+                                pickerRenderInRootScaffold = dialog.course != null
+                            )
+                        }
+                        if (dialog.course == null) {
+                            // Keep the Android dialog itself under its original centered constraints.
+                            // Only the editor content owns a local overlay host, so wheel pickers can
+                            // cover the form without changing the glass shell's size or position.
+                            top.yukonga.miuix.kmp.basic.Scaffold(
+                                modifier = Modifier.fillMaxSize(),
+                                containerColor = ComposeColor.Transparent,
+                                contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                            ) {
+                                editor()
                             }
-                        },
-                        onDelete = {
-                            homeDialog = HomeDialog.ApplyCourseDelete(it, dialog.targetWeek ?: effectiveCurrentWeek(state.config))
-                        },
-                        backdrop = chromeBackdrop
-                    )
+                        } else {
+                            editor()
+                        }
+                    }
                     HomeDialog.ImportSchedule -> NormalizedAiManualImportScreen(
                         state = state,
                         backdrop = chromeBackdrop,
@@ -2149,7 +2168,9 @@ fun CourseScheduleAppUi(
                     ) {
                         dialogContent()
                     }
+                }
             }
+            animatedDialogContent()
         }
         }
         }
@@ -5196,6 +5217,8 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.0.8", "桌面小组件新增今日助手，展示当前或下节课、倒计时、地点与教师、上下课时间、今日课程数量、天气和预警，并补齐今日课程与今日助手三款小组件在系统选择页的独立名称和预览；修复升级后部分课表的节次时间与详细设置被错误重建为默认值的问题，完善多作息方案保存和数据库迁移兼容；将周次切换字符替换为矢量图标，并修复添加单节课选择器层级等交互问题。")
+                SettingsDivider()
                 SettingsInfoRow("1.0.7", "重构个性化与壁纸调整流程，新增卡片式壁纸裁切页面、横竖屏独立构图及更连贯的无缝过渡，并优化配色布局、玻璃材质、壁纸模糊与全部调节滑条的性能；强化课表详细设置与课程编辑，补充中午时段、总节次配置、时段防重叠和多课程翻页编辑，完善节次选择器、特殊课间以及 ICS 导入导出的完整作息信息，并支持从系统分享或打开方式直接调用 SleepDown 导入 ICS；重新设计今日助手卡片，集中展示课程、天气和预警信息，保留对话入口并增强自然语言课程与设置操作的识别稳定性；改进首页文字可读性和非液态玻璃课程卡片的高斯模糊效果，修复详情页进入闪帧、后台任务卡片隐藏范围及多项动画、数据与交互问题。")
                 SettingsDivider()
                 SettingsInfoRow("1.0.6", "重构课表详细设置与节次时间管理，支持上午、下午、晚上分段配置、多套作息方案、自动匹配、特殊课间与手动微调，并完善保存确认、课程节次重映射和不同课表间的数据隔离；增强今日助手的课程与设置操作能力，修复操作按钮缺失、切换课表后当前节次不显示以及生成文案后首页卡顿等问题；优化日视图、周视图、课程卡片与多课表管理的动画性能和交接效果，补全开学前与学期结束后的日期边界处理；更新下载新增后台持续下载与原生实时进度通知。")

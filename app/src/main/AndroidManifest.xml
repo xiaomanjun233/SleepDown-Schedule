@@ -120,6 +120,7 @@
             android:foregroundServiceType="dataSync" />
         <receiver
             android:name=".TodayCoursesWidgetProvider"
+            android:label="@string/widget_today_courses_name"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -133,6 +134,7 @@
         </receiver>
         <receiver
             android:name=".TodayCoursesSquareWidgetProvider"
+            android:label="@string/widget_today_courses_square_name"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -143,6 +145,20 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/today_courses_square_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".TodayAssistantWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_today_assistant_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="com.example.courseschedule.action.REFRESH_TODAY_WIDGET" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/today_assistant_widget_info" />
         </receiver>
         <receiver
             android:name=".CourseBootReceiver"

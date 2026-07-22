@@ -105,6 +105,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.Duration
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.LinkedHashMap
 import kotlin.math.roundToInt
 
@@ -392,6 +393,10 @@ fun TodayAgentCard(
     val locationText = focusSlot?.course?.let { course ->
         listOfNotNull(course.location?.takeIf(String::isNotBlank), course.teacher?.takeIf(String::isNotBlank)).joinToString(" | ")
     }.orEmpty()
+    val focusTimeText = focusSlot?.let {
+        val formatter = DateTimeFormatter.ofPattern("HH:mm")
+        "${it.start.format(formatter)} - ${it.end.format(formatter)}"
+    }.orEmpty()
     val weatherText = when {
         !weatherEnabled -> "天气未启用"
         weather != null -> {
@@ -527,38 +532,54 @@ fun TodayAgentCard(
                     .padding(horizontal = 16.dp, vertical = if (collapsed) 10.dp else 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-            Row(verticalAlignment = Alignment.Top) {
-                Column(Modifier.weight(1f)) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(activityLabel, color = activityAccent, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    focusSlot?.let {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            it.course.name,
+                            modifier = Modifier.weight(1f),
+                            color = foreground,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    } ?: Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        countdownText,
+                        color = activityAccent,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1
+                    )
+                }
+                if (focusSlot != null) {
+                    Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(activityLabel, color = activityAccent, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        focusSlot?.let {
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                it.course.name,
-                                color = foreground,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                    if (locationText.isNotBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(locationText, color = foreground.copy(alpha = 0.56f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            locationText,
+                            modifier = Modifier.weight(1f),
+                            color = foreground.copy(alpha = 0.56f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            focusTimeText,
+                            color = foreground.copy(alpha = 0.56f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1
+                        )
                     }
                 }
-                Text(
-                    countdownText,
-                    color = activityAccent,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1
-                )
             }
             if (!collapsed) {
                 Box(Modifier.fillMaxWidth().height(1.dp).background(foreground.copy(alpha = 0.10f)))
-                Text("今天 ${facts.today.size} 节课", color = foreground, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text("今天有 ${facts.today.size} 节课", color = foreground, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -577,28 +598,32 @@ fun TodayAgentCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    assistantHintText?.let { hint ->
+                    val trailingStatus = weatherAlertText?.let { "⚠️ $it" } ?: assistantHintText
+                    trailingStatus?.let { status ->
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            text = hint,
-                            modifier = Modifier.weight(if (hasApiKey) 1.15f else 1.75f),
-                            color = foreground.copy(alpha = 0.52f),
-                            style = MaterialTheme.typography.labelSmall,
+                            text = status,
+                            modifier = Modifier.weight(
+                                if (weatherAlertText != null) 1.75f
+                                else if (hasApiKey) 1.15f
+                                else 1.75f
+                            ),
+                            color = if (weatherAlertText != null) {
+                                if (cardIsDark) Color(0xFFFFB86B) else Color(0xFFB84D00)
+                            } else {
+                                foreground.copy(alpha = 0.52f)
+                            },
+                            style = if (weatherAlertText != null) {
+                                MaterialTheme.typography.labelMedium
+                            } else {
+                                MaterialTheme.typography.labelSmall
+                            },
+                            fontWeight = if (weatherAlertText != null) FontWeight.SemiBold else FontWeight.Normal,
                             textAlign = TextAlign.End,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                }
-                weatherAlertText?.let { alert ->
-                    Text(
-                        text = "⚠️ $alert",
-                        color = if (cardIsDark) Color(0xFFFFB86B) else Color(0xFFB84D00),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
                 }
             }
             }
