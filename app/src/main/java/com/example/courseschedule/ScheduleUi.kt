@@ -1319,6 +1319,20 @@ fun CourseScheduleAppUi(
                         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
                     }
                 }
+                /*
+                 * Wallpaper brightness is a visual treatment for the wallpaper only. Keep it
+                 * outside backgroundBackdrop's provider node: liquid course cards should sample
+                 * the original wallpaper, otherwise lowering wallpaper brightness also darkens
+                 * every glass surface that consumes this backdrop.
+                 */
+                if (
+                    screen is Screen.Home &&
+                    visualState.loaded &&
+                    visualState.config.hasAnyWallpaper() &&
+                    wallpaperImages.source != null
+                ) {
+                    WallpaperToneOverlay(visualState.config)
+                }
                 val contentModifier = Modifier
                     .fillMaxSize()
                     .layerBackdrop(contentBackdrop)

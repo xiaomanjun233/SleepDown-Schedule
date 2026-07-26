@@ -777,7 +777,6 @@ fun HomeWallpaper(
                     alpha = crossfadeAlpha,
                     useSavedCrop = true
                 )
-                WallpaperToneOverlay(config)
             }
         }
         return
@@ -809,7 +808,6 @@ fun HomeWallpaper(
                     alpha = crossfadeAlpha,
                     useSavedCrop = false
                 )
-                WallpaperToneOverlay(config)
             }
         }
         return
@@ -860,7 +858,7 @@ internal fun HomeWallpaperLoadingMask(config: ScheduleConfigEntity) {
 }
 
 @Composable
-private fun WallpaperToneOverlay(config: ScheduleConfigEntity) {
+internal fun WallpaperToneOverlay(config: ScheduleConfigEntity) {
     val dim = (1f - config.wallpaperBrightness.coerceIn(0.35f, 1f)).coerceIn(0f, 0.65f)
     if (dim > 0f) Box(Modifier.fillMaxSize().background(ComposeColor.Black.copy(alpha = dim)))
 }
