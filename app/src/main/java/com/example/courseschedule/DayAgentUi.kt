@@ -59,6 +59,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -107,10 +108,12 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.Duration
@@ -1364,16 +1367,33 @@ private fun DayAgentConversationDialog(
                                   val userContent = remember(message.content) {
                                       parseAgentMessageContent(message.content)
                                   }
-                                  val sentPreview = remember(userContent.attachmentFileName) {
-                                      userContent.attachmentFileName?.let { fileName ->
-                                          runCatching {
-                                              BitmapFactory.decodeFile(
-                                                  File(
+                                  // Decode off the main thread and downsample to the preview
+                                  // size; the original synchronous full-size decode ran inside
+                                  // composition and janked scrolling past attachment messages.
+                                  val sentPreview by produceState<androidx.compose.ui.graphics.ImageBitmap?>(
+                                      initialValue = null,
+                                      userContent.attachmentFileName
+                                  ) {
+                                      value = userContent.attachmentFileName?.let { fileName ->
+                                          withContext(Dispatchers.IO) {
+                                              runCatching {
+                                                  val path = File(
                                                       dialogContext.filesDir,
                                                       "agent_attachments/$fileName"
                                                   ).absolutePath
-                                              )?.asImageBitmap()
-                                          }.getOrNull()
+                                                  val bounds = BitmapFactory.Options().apply {
+                                                      inJustDecodeBounds = true
+                                                  }
+                                                  BitmapFactory.decodeFile(path, bounds)
+                                                  val options = BitmapFactory.Options().apply {
+                                                      inSampleSize = maxOf(
+                                                          1,
+                                                          maxOf(bounds.outWidth, bounds.outHeight) / 512
+                                                      )
+                                                  }
+                                                  BitmapFactory.decodeFile(path, options)?.asImageBitmap()
+                                              }.getOrNull()
+                                          }
                                       }
                                   }
                                   Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -1580,8 +1600,11 @@ private fun DayAgentConversationDialog(
                           }
                            if (streamingParts.answer.isNotBlank()) {
                               item {
+                                  val streamingDisplayText = remember(streamingParts.answer, facts.sourceHash) {
+                                      parseAgentActions(streamingParts.answer, facts).displayText
+                                  }
                                   AgentMarkdownText(
-                                      parseAgentActions(streamingParts.answer, facts).displayText,
+                                      streamingDisplayText,
                                      foreground,
                                      MaterialTheme.typography.bodyMedium
                                  )

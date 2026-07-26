@@ -2265,10 +2265,8 @@ private fun CourseEditorBackgroundBlurLayer(
             } else {
                 null
             }
-            // Anchored at center so the scale never exposes the layer's transparent edges.
-            // TEMP DISABLED: diagnosing backdrop sampling mismatch.
-            // scaleX = motionState.backgroundZoom.value
-            // scaleY = motionState.backgroundZoom.value
+            // The inertial zoom itself lives in CourseEditorBackgroundZoomLayer, which wraps
+            // both this blurred surface and the overlay so backdrop sampling stays aligned.
         },
         content = content
     )

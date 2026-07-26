@@ -75,7 +75,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.catalog.components.LiquidPanel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -580,57 +579,6 @@ private fun CourseEditorAnimatedContainer(
         Box(Modifier.fillMaxSize()) {
             content()
         }
-    }
-}
-
-@Composable
-private fun CourseEditorBackgroundDepthLayer(
-    backdrop: Backdrop?,
-    progress: Float,
-    modifier: Modifier = Modifier
-) {
-    val safeProgress = progress.coerceIn(0f, 1f)
-    if (safeProgress <= 0.001f) return
-
-    val dimAlpha = interpolateFloat(0f, 0.42f, safeProgress)
-    Box(modifier.background(Color.Black.copy(alpha = dimAlpha)))
-}
-
-@Composable
-private fun CourseEditorFinalDialogSurface(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    alpha: Float,
-    modifier: Modifier = Modifier
-) {
-    val shape = RoundedCornerShape(32.dp)
-    val lightGlass = glassUsesLightStyle(config)
-    val surfaceColor = if (lightGlass) {
-        Color.White.copy(alpha = 0.18f)
-    } else {
-        Color(0xFF121212).copy(alpha = 0.28f)
-    }
-    if (backdrop != null) {
-        LiquidPanel(
-            backdrop = backdrop,
-            modifier = modifier.graphicsLayer { this.alpha = alpha },
-            shape = shape,
-            surfaceColor = surfaceColor
-        ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .clip(shape)
-                    .background(Color.Black.copy(alpha = if (lightGlass) 0.12f else 0.20f))
-            )
-        }
-    } else {
-        Box(
-            modifier = modifier
-                .graphicsLayer { this.alpha = alpha }
-                .clip(shape)
-                .background(if (appUsesDarkTheme(config)) Color(0xFF1C1C1E) else Color.White)
-        )
     }
 }
 

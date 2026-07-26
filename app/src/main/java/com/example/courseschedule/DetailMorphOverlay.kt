@@ -9,7 +9,6 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -245,8 +245,14 @@ fun DetailScheduleMorphOverlay(
             }
         }
         val values by morphValues
-        val blurProgress = ((1f - backgroundScale.value) / (1f - 0.92f)).coerceIn(0f, 1f)
-        val backgroundBlurRadius = (blurProgress * 6f).coerceIn(0f, 6f)
+        // Threshold booleans are derived so composition only invalidates when they flip,
+        // instead of on every animation frame that merely changes the float values.
+        val showSourceSnapshot by remember(morphValues) {
+            derivedStateOf { morphValues.value.sourceSnapshotAlpha > 0f }
+        }
+        val morphStillAnimating by remember(morphValues) {
+            derivedStateOf { morphValues.value.progress < 0.999f }
+        }
         val animatedClipShape = remember(request, screenWidth, morphValues) {
             DetailMorphClipShape(
                 screenWidth = screenWidth,
@@ -260,11 +266,16 @@ fun DetailScheduleMorphOverlay(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    scaleX = backgroundScale.value
-                    scaleY = backgroundScale.value
+                    // Read the Animatable here so each frame only invalidates this layer;
+                    // the blur radius shares the same deferred read instead of being
+                    // recomputed in composition every frame.
+                    val bgScale = backgroundScale.value
+                    scaleX = bgScale
+                    scaleY = bgScale
                     shape = RoundedCornerShape(20.dp)
-                    clip = backgroundScale.value < 0.999f
-                    val blurPx = backgroundBlurRadius * density.density
+                    clip = bgScale < 0.999f
+                    val blurProgress = ((1f - bgScale) / (1f - 0.92f)).coerceIn(0f, 1f)
+                    val blurPx = (blurProgress * 6f).coerceIn(0f, 6f) * density.density
                     renderEffect = if (blurPx > 0.01f) {
                         RenderEffect.createBlurEffect(
                             blurPx,
@@ -287,7 +298,11 @@ fun DetailScheduleMorphOverlay(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = values.backgroundAlpha))
+                // drawBehind defers the scrim alpha read to the draw phase, so the fade
+                // no longer recomposes this subtree every frame. Rendering is identical.
+                .drawBehind {
+                    drawRect(Color.Black.copy(alpha = morphValues.value.backgroundAlpha))
+                }
                 .pointerInput(request) {
                     awaitPointerEventScope {
                         while (true) {
@@ -310,7 +325,7 @@ fun DetailScheduleMorphOverlay(
                     clip = values.progress < 1f
                 }
         ) {
-            if (values.sourceSnapshotAlpha > 0f) {
+            if (showSourceSnapshot) {
                 Image(
                     bitmap = request.sourceCardSnapshot.asImageBitmap(),
                     contentDescription = null,
@@ -352,7 +367,7 @@ fun DetailScheduleMorphOverlay(
                 }
             }
         }
-        if (values.progress < 0.999f || closing.value) {
+        if (morphStillAnimating || closing.value) {
             Box(
                 Modifier
                     .fillMaxSize()

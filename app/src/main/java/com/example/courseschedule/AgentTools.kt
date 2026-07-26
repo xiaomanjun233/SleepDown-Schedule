@@ -595,12 +595,20 @@ private fun agentOverviewResult(facts: DayAgentFacts): String = buildString {
 
 private fun agentCourseSearchResult(query: String, facts: DayAgentFacts): String {
     val unique = facts.semesterCourses.distinctBy { it.id }
+    val needle = query.trim()
+    /*
+     * Match in both directions: the model may pass either a fragment of the course name
+     * ("数学" → "高等数学") or a whole user sentence that embeds the full name. One-directional
+     * query.contains(name) silently failed the first, far more common case.
+     */
+    fun fieldMatches(field: String?): Boolean {
+        val value = field?.takeIf(String::isNotBlank) ?: return false
+        return value.contains(needle, ignoreCase = true) ||
+            needle.contains(value, ignoreCase = true)
+    }
     val matched = unique.filter { course ->
-        query.contains(course.name, ignoreCase = true) ||
-            course.teacher?.takeIf(String::isNotBlank)
-                ?.let { query.contains(it, ignoreCase = true) } == true ||
-            course.location?.takeIf(String::isNotBlank)
-                ?.let { query.contains(it, ignoreCase = true) } == true
+        needle.isNotBlank() &&
+            (fieldMatches(course.name) || fieldMatches(course.teacher) || fieldMatches(course.location))
     }.take(24)
     return matched.joinToString("\n", transform = ::agentCourseLine)
         .ifBlank { "没有匹配课程" }
