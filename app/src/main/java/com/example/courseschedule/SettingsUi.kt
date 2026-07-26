@@ -435,6 +435,11 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
     val context = LocalContext.current
     var enabled by remember { mutableStateOf(DayAgentPreferences.isEnabled(context)) }
     var weatherEnabled by remember { mutableStateOf(DayAgentPreferences.isWeatherEnabled(context)) }
+    var memoryEnabled by remember { mutableStateOf(DayAgentPreferences.isMemoryEnabled(context)) }
+    var memoryText by remember { mutableStateOf(DayAgentPreferences.memory(context)) }
+    var memoryDraft by remember { mutableStateOf(memoryText) }
+    var showMemoryEditor by remember { mutableStateOf(false) }
+    val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     val topPadding = detailContentTopPadding()
 
     LazyColumn(
@@ -475,6 +480,113 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
                             )
                         }
                     )
+                    SettingsDivider()
+                    SettingsToggleRow(
+                        title = "助手记忆",
+                        subtitle = "跨天记住你明确表达的长期偏好与背景。",
+                        checked = memoryEnabled,
+                        backdrop = backdrop,
+                        onCheckedChange = {
+                            memoryEnabled = it
+                            DayAgentPreferences.setMemoryEnabled(context, it)
+                        }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "查看与编辑记忆",
+                        subtitle = memoryText
+                            .lineSequence()
+                            .firstOrNull { it.isNotBlank() }
+                            ?.take(42)
+                            ?: "当前没有已保存的记忆",
+                        badgeText = if (memoryEnabled) "已启用" else "已关闭",
+                        onClick = {
+                            memoryDraft = DayAgentPreferences.memory(context)
+                            showMemoryEditor = true
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    top.yukonga.miuix.kmp.overlay.OverlayDialog(
+        show = showMemoryEditor,
+        title = "助手记忆",
+        onDismissRequest = { showMemoryEditor = false },
+        enableWindowDim = false,
+        backgroundColor = ComposeColor.Transparent,
+        forceCenter = true,
+        surfaceModifier = quickSheetBackdropModifier(
+            backdrop = popupBackdrop,
+            config = state.config,
+            blurRadius = 28.dp,
+            centered = true
+        )
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                "这里保存的是助手可跨天使用的简短长期记忆。你可以直接修改；关闭记忆后内容会保留，但不会再注入对话或由助手更新。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            MaterialOutlinedTextField(
+                value = memoryDraft,
+                onValueChange = { memoryDraft = it.take(1200) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 180.dp, max = 300.dp),
+                placeholder = {
+                    Text("例如：默认只修改本周；跨校区课程之间预留 30 分钟。")
+                },
+                minLines = 6,
+                maxLines = 10,
+                shape = RoundedCornerShape(24.dp)
+            )
+            Text(
+                "${memoryDraft.length}/1200",
+                modifier = Modifier.align(Alignment.End),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                QuickSheetLiquidAction(
+                    label = "清空",
+                    enabled = true,
+                    backdrop = popupBackdrop,
+                    config = state.config,
+                    destructive = true,
+                    modifier = Modifier.weight(1f),
+                    height = 48.dp
+                ) {
+                    memoryDraft = ""
+                }
+                QuickSheetLiquidAction(
+                    label = "取消",
+                    enabled = true,
+                    backdrop = popupBackdrop,
+                    config = state.config,
+                    modifier = Modifier.weight(1f),
+                    height = 48.dp
+                ) {
+                    showMemoryEditor = false
+                }
+                QuickSheetLiquidAction(
+                    label = "保存",
+                    enabled = true,
+                    backdrop = popupBackdrop,
+                    config = state.config,
+                    primary = true,
+                    modifier = Modifier.weight(1f),
+                    height = 48.dp
+                ) {
+                    DayAgentPreferences.saveMemory(context, memoryDraft)
+                    memoryText = DayAgentPreferences.memory(context)
+                    memoryDraft = memoryText
+                    showMemoryEditor = false
                 }
             }
         }

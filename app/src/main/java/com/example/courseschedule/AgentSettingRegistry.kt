@@ -45,7 +45,8 @@ object AgentSettingRegistry {
         AgentSettingDefinition("WEEK_CARD_HEIGHT_DP", "周视图行高", "38..80数值", "PERSONALIZATION"),
         AgentSettingDefinition("COURSE_CARD_COLOR", "课程卡片颜色", "MULTICOLOR或#AARRGGBB", "PERSONALIZATION"),
         AgentSettingDefinition("DAY_AGENT_ENABLED", "今日助手总开关", "true/false", "DAY_AGENT"),
-        AgentSettingDefinition("DAY_AGENT_WEATHER", "今日助手天气提醒", "true/false", "DAY_AGENT")
+        AgentSettingDefinition("DAY_AGENT_WEATHER", "今日助手天气提醒", "true/false", "DAY_AGENT"),
+        AgentSettingDefinition("DAY_AGENT_MEMORY_ENABLED", "今日助手记忆", "true/false", "DAY_AGENT")
     )
 
     fun promptCatalog(
@@ -140,7 +141,8 @@ object AgentSettingRegistry {
         "WALLPAPER_LANDSCAPE_SCALE" to (config.wallpaperLandscapeScale ?: 1f).toString(),
         "WALLPAPER_SOURCE_SIZE" to "${config.wallpaperSourceWidth ?: 0}x${config.wallpaperSourceHeight ?: 0}",
         "DAY_AGENT_ENABLED" to context?.let(DayAgentPreferences::isEnabled).toStringOrUnknown(),
-        "DAY_AGENT_WEATHER" to context?.let(DayAgentPreferences::isWeatherEnabled).toStringOrUnknown()
+        "DAY_AGENT_WEATHER" to context?.let(DayAgentPreferences::isWeatherEnabled).toStringOrUnknown(),
+        "DAY_AGENT_MEMORY_ENABLED" to context?.let(DayAgentPreferences::isMemoryEnabled).toStringOrUnknown()
     )
 
     fun normalize(keyValue: String?, rawValue: String?): Pair<String, String>? {
@@ -247,7 +249,8 @@ object AgentSettingRegistry {
 
     fun isPreferenceSetting(key: String?): Boolean = key in setOf(
         "DAY_AGENT_ENABLED",
-        "DAY_AGENT_WEATHER"
+        "DAY_AGENT_WEATHER",
+        "DAY_AGENT_MEMORY_ENABLED"
     )
 
     fun applyPreference(context: Context, key: String?, value: String?): Boolean {
@@ -259,6 +262,10 @@ object AgentSettingRegistry {
             }
             "DAY_AGENT_WEATHER" -> {
                 DayAgentPreferences.saveOptions(context, DayAgentPreferences.isDailyAiEnabled(context), enabled)
+                true
+            }
+            "DAY_AGENT_MEMORY_ENABLED" -> {
+                DayAgentPreferences.setMemoryEnabled(context, enabled)
                 true
             }
             else -> false

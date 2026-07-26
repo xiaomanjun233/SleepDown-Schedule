@@ -66,6 +66,36 @@ data class AgentCourseSlot(
     val end: LocalTime
 )
 
+data class AgentImageAttachment(
+    val mimeType: String,
+    val base64: String,
+    val sourceName: String
+)
+
+data class AgentPersistedMessageContent(
+    val text: String,
+    val attachmentFileName: String? = null
+)
+
+private val AgentImageMarkerRegex =
+    Regex("""^\[\[agent_image:([A-Za-z0-9._-]+)]]\r?\n?""")
+
+fun agentMessageContent(text: String, attachmentFileName: String?): String {
+    return if (attachmentFileName.isNullOrBlank()) {
+        text
+    } else {
+        "[[agent_image:$attachmentFileName]]\n$text"
+    }
+}
+
+fun parseAgentMessageContent(content: String): AgentPersistedMessageContent {
+    val match = AgentImageMarkerRegex.find(content)
+    return AgentPersistedMessageContent(
+        text = if (match == null) content else content.removeRange(match.range),
+        attachmentFileName = match?.groupValues?.getOrNull(1)
+    )
+}
+
 data class DayAgentFacts(
     val date: LocalDate,
     val now: LocalDateTime,

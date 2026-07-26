@@ -1,16 +1,23 @@
 package com.example.courseschedule
 
 import android.Manifest
+import android.graphics.BitmapFactory
+import android.util.Base64
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -31,7 +38,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
@@ -47,6 +53,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
@@ -65,6 +72,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
@@ -72,6 +81,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionOnScreen
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -98,7 +108,6 @@ import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
@@ -107,6 +116,7 @@ import java.time.LocalDateTime
 import java.time.Duration
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.io.File
 import java.util.LinkedHashMap
 import kotlin.math.roundToInt
 import kotlin.math.abs
@@ -621,6 +631,7 @@ fun TodayAgentCard(
             sourceVisual = cardVisual,
             sourceForeground = foreground,
             sourceActivityAccent = activityAccent,
+            sourceGlassTokens = cardTokens,
             backgroundMotionState = backgroundMotionState,
             onAgentAction = onAgentAction,
             onOverlayReady = { sourceCardHidden = true },
@@ -955,11 +966,6 @@ private fun DayAgentCardVisualContent(
                     Spacer(Modifier.width(6.dp))
                      Text(
                          text = status,
-                         modifier = if (visual.weatherAlert) {
-                             Modifier.widthIn(max = 112.dp)
-                         } else {
-                             Modifier.widthIn(max = 156.dp)
-                         },
                          color = if (visual.weatherAlert) {
                             if (visual.cardIsDark) Color(0xFFFFB86B) else Color(0xFFB84D00)
                         } else {
@@ -995,6 +1001,7 @@ private fun DayAgentConversationDialog(
     sourceVisual: DayAgentCardVisual,
     sourceForeground: Color,
     sourceActivityAccent: Color,
+    sourceGlassTokens: GlassTokens,
     backgroundMotionState: DayAgentBackgroundMotionState,
     onAgentAction: AgentActionHandler,
     onOverlayReady: () -> Unit,
@@ -1006,14 +1013,19 @@ private fun DayAgentConversationDialog(
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     var input by remember { mutableStateOf("") }
-    var streamingText by remember { mutableStateOf("") }
-    var sending by remember { mutableStateOf(false) }
-    var runStatuses by remember { mutableStateOf(emptyList<AgentRunStatus>()) }
+    var imageAttachment by remember { mutableStateOf<AgentImageAttachment?>(null) }
+    var attachmentMenuExpanded by remember { mutableStateOf(false) }
+    var attachmentError by remember { mutableStateOf<String?>(null) }
     var runStatusesExpanded by remember { mutableStateOf(true) }
-    var requestJob by remember { mutableStateOf<Job?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
     var closing by remember { mutableStateOf(false) }
     val dialogContext = LocalContext.current
+    val backgroundRun by remember(state.config.id, facts.date) {
+        DayAgentRunCoordinator.observe(state.config.id, facts.date)
+    }.collectAsStateWithLifecycle()
+    val streamingText = backgroundRun.streamingText
+    val sending = backgroundRun.running
+    val runStatuses = backgroundRun.statuses
+    val error = backgroundRun.error
     val providerName = remember(dialogContext) {
         AiImportSettingsStore.load(dialogContext).profile.displayName
     }
@@ -1052,6 +1064,55 @@ private fun DayAgentConversationDialog(
     val sourceRect = sourceBounds?.takeIf { it.width > 2f && it.height > 2f } ?: targetRect
     val sourceRadiusPx = with(density) { sourceCornerRadius.toPx() }
     val targetRadiusPx = with(density) { 32.dp.toPx() }
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            attachmentError = null
+            loadAiImportFile(dialogContext, uri)
+                .onSuccess { file ->
+                    imageAttachment = AgentImageAttachment(
+                        mimeType = if (file.mimeType.startsWith("image/")) {
+                            "image/jpeg"
+                        } else {
+                            file.mimeType
+                        },
+                        base64 = Base64.encodeToString(file.bytes, Base64.NO_WRAP),
+                        sourceName = file.displayName
+                    )
+                }
+                .onFailure { attachmentError = it.message ?: "图片读取失败" }
+        }
+    }
+    DisposableEffect(state.config.id, facts.date) {
+        DayAgentRunCoordinator.setConversationVisible(
+            state.config.id,
+            facts.date,
+            true
+        )
+        onDispose {
+            DayAgentRunCoordinator.setConversationVisible(
+                state.config.id,
+                facts.date,
+                false
+            )
+        }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        DayAgentRunCoordinator.setConversationVisible(
+            state.config.id,
+            facts.date,
+            true
+        )
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        DayAgentRunCoordinator.setConversationVisible(
+            state.config.id,
+            facts.date,
+            false
+        )
+    }
     fun dismissAnimated() {
         if (closing) return
         closing = true
@@ -1119,48 +1180,29 @@ private fun DayAgentConversationDialog(
     fun send(questionOverride: String? = null) {
         val question = questionOverride?.trim().orEmpty().ifBlank { input.trim() }
         if (question.isBlank() || sending) return
-        input = ""
-        streamingText = ""
-        runStatuses = emptyList()
         runStatusesExpanded = true
-        error = null
-        sending = true
-        val buffer = StringBuilder()
-        requestJob = scope.launch {
-            repository.sendMessage(
-                scheduleId = state.config.id,
-                facts = facts,
-                question = question,
-                onStatus = { status ->
-                    scope.launch {
-                        if (sending) {
-                            runStatuses = if (
-                                status.icon == AgentRunStatusIcon.THINKING &&
-                                runStatuses.lastOrNull()?.icon == AgentRunStatusIcon.THINKING
-                            ) {
-                                runStatuses.dropLast(1) + status
-                            } else {
-                                runStatuses + status
-                            }
-                        }
-                    }
-                }
-            ) { delta ->
-                val snapshot = synchronized(buffer) { buffer.append(delta).toString() }
-                scope.launch { if (sending) streamingText = snapshot }
-            }.onFailure { error = it.message }
-            sending = false
-            streamingText = ""
-            requestJob = null
+        val started = DayAgentRunCoordinator.start(
+            context = dialogContext,
+            scheduleId = state.config.id,
+            facts = facts,
+            question = question,
+            imageAttachment = imageAttachment
+        )
+        if (started) {
+            input = ""
+            imageAttachment = null
+            attachmentMenuExpanded = false
+            attachmentError = null
         }
     }
 
     fun toggleSend() {
         if (sending) {
-            requestJob?.cancel()
-            requestJob = null
-            sending = false
-            streamingText = ""
+            DayAgentRunCoordinator.cancel(
+                context = dialogContext,
+                scheduleId = state.config.id,
+                date = facts.date
+            )
         } else {
             send()
         }
@@ -1257,10 +1299,10 @@ private fun DayAgentConversationDialog(
                     config = state.config,
                     modifier = Modifier.matchParentSize(),
                     shape = RoundedCornerShape(32.dp),
-                    tokens = GlassTokens.dialog(intensity = 0.90f).copy(
-                        blur = 5.dp,
-                        surfaceAlpha = 0.30f
-                    )
+                    // Keep the expanded conversation shell visually identical to the compact
+                    // home card. Passing the resolved tokens also preserves the card's light/dark
+                    // wallpaper treatment instead of maintaining a second drifting parameter set.
+                    tokens = sourceGlassTokens
                 ) {}
                 DayAgentCardVisualContent(
                     visual = sourceVisual,
@@ -1316,20 +1358,56 @@ private fun DayAgentConversationDialog(
                          if (messages.isEmpty() && streamingText.isBlank()) {
                              item { AgentMarkdownText(initialText, foreground, MaterialTheme.typography.bodyMedium) }
                          }
-                         items(messages, key = { it.id }) { message ->
-                             val isUser = message.role == "user"
-                             if (isUser) {
-                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                     Text(
-                                         text = message.content,
-                                         modifier = Modifier
-                                             .background(Color(0xFF168CFF).copy(alpha = 0.88f), RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp))
-                                             .padding(horizontal = 12.dp, vertical = 8.dp),
-                                         color = Color.White,
-                                         style = MaterialTheme.typography.bodyMedium
-                                )
-                                 }
-                             } else {
+                          items(messages, key = { it.id }) { message ->
+                              val isUser = message.role == "user"
+                              if (isUser) {
+                                  val userContent = remember(message.content) {
+                                      parseAgentMessageContent(message.content)
+                                  }
+                                  val sentPreview = remember(userContent.attachmentFileName) {
+                                      userContent.attachmentFileName?.let { fileName ->
+                                          runCatching {
+                                              BitmapFactory.decodeFile(
+                                                  File(
+                                                      dialogContext.filesDir,
+                                                      "agent_attachments/$fileName"
+                                                  ).absolutePath
+                                              )?.asImageBitmap()
+                                          }.getOrNull()
+                                      }
+                                  }
+                                  Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                      Column(
+                                          horizontalAlignment = Alignment.End,
+                                          verticalArrangement = Arrangement.spacedBy(6.dp)
+                                      ) {
+                                          sentPreview?.let {
+                                              Image(
+                                                  bitmap = it,
+                                                  contentDescription = "已发送图片",
+                                                  contentScale = ContentScale.Crop,
+                                                  modifier = Modifier
+                                                      .width(176.dp)
+                                                      .height(112.dp)
+                                                      .clip(RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp))
+                                              )
+                                          }
+                                          if (userContent.text.isNotBlank()) {
+                                              Text(
+                                                  text = userContent.text,
+                                                  modifier = Modifier
+                                                      .background(
+                                                          Color(0xFF168CFF).copy(alpha = 0.88f),
+                                                          RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
+                                                      )
+                                                      .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                  color = Color.White,
+                                                  style = MaterialTheme.typography.bodyMedium
+                                              )
+                                          }
+                                      }
+                                  }
+                              } else {
                                  val messageParts = remember(message.content) {
                                      splitAgentReasoning(message.content)
                                  }
@@ -1520,14 +1598,85 @@ private fun DayAgentConversationDialog(
                                   )
                               }
                           }
-                         error?.let { message ->
+                         (error ?: attachmentError)?.let { message ->
                              item { Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium) }
                          }
                      }
                  }
             }
 
-             GlassSurface(
+             AnimatedVisibility(
+                 visible = attachmentMenuExpanded,
+                 modifier = Modifier
+                     .align(Alignment.BottomStart)
+                     .imePadding()
+                     .navigationBarsPadding()
+                     .padding(start = 14.dp, bottom = 78.dp),
+                 enter = fadeIn(
+                     animationSpec = tween(durationMillis = 110)
+                 ) + scaleIn(
+                     initialScale = 0.72f,
+                     transformOrigin = TransformOrigin(0.12f, 1f),
+                     animationSpec = spring(
+                         dampingRatio = 0.66f,
+                         stiffness = 620f
+                     )
+                 ),
+                 exit = fadeOut(
+                     animationSpec = tween(durationMillis = 90)
+                 ) + scaleOut(
+                     targetScale = 0.82f,
+                     transformOrigin = TransformOrigin(0.12f, 1f),
+                     animationSpec = spring(
+                         dampingRatio = 0.88f,
+                         stiffness = 760f
+                     )
+                 )
+             ) {
+                 val attachmentMenuTokens = remember(sourceGlassTokens) {
+                     sourceGlassTokens.copy(
+                         lensHeight = 8.dp,
+                         lensAmount = 14.dp,
+                         surfaceAlpha = sourceGlassTokens.surfaceAlpha.coerceAtLeast(0.30f),
+                         highlightAlpha = 0f,
+                         innerShadowAlpha = 0.025f
+                     )
+                 }
+                  GlassSurface(
+                      backdrop = agentInputBackdrop,
+                      config = state.config,
+                      modifier = Modifier
+                          .width(184.dp),
+                      shape = RoundedCornerShape(50),
+                      tokens = attachmentMenuTokens,
+                      onClick = {
+                          attachmentMenuExpanded = false
+                          imagePicker.launch("image/*")
+                      }
+                  ) {
+                      Row(
+                          modifier = Modifier
+                              .padding(horizontal = 16.dp, vertical = 14.dp),
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.spacedBy(12.dp)
+                      ) {
+                          Icon(
+                              painter = painterResource(R.drawable.ic_image_attachment),
+                              contentDescription = null,
+                              tint = foreground,
+                              modifier = Modifier.size(22.dp)
+                          )
+                          Text(
+                              "选择图片",
+                              color = foreground,
+                              style = MaterialTheme.typography.bodyMedium,
+                              fontWeight = FontWeight.Medium
+                          )
+                      }
+                  }
+             }
+
+              GlassSurface(
                      backdrop = agentInputBackdrop,
                     config = state.config,
                     modifier = Modifier
@@ -1549,62 +1698,110 @@ private fun DayAgentConversationDialog(
                             indication = null,
                             onClick = { focusRequester.requestFocus(); keyboard?.show() }
                         ),
-                    shape = RoundedCornerShape(50),
-                    tokens = GlassTokens.pill(intensity = 0.86f).copy(blur = 4.dp)
+                    shape = if (imageAttachment == null) {
+                        RoundedCornerShape(50)
+                    } else {
+                        RoundedCornerShape(26.dp)
+                    },
+                    tokens = sourceGlassTokens
             ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .background(Color.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.16f else 0.06f))
-                            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 8.dp)
                     ) {
-                        BasicTextField(
-                            value = input,
-                            onValueChange = { input = it },
-                            modifier = Modifier
-                                .weight(1f)
-                                .focusRequester(focusRequester),
-                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = foreground),
-                            cursorBrush = SolidColor(Color(0xFF168CFF)),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { send() }),
-                            decorationBox = { inner ->
-                                if (input.isBlank()) Text("问问今天的安排…", color = foreground.copy(alpha = 0.5f))
-                                inner()
+                         imageAttachment?.let { attachment ->
+                             Row(
+                                 modifier = Modifier
+                                     .padding(start = 44.dp, end = 4.dp, top = 2.dp, bottom = 8.dp)
+                                     .fillMaxWidth(),
+                                 verticalAlignment = Alignment.CenterVertically
+                             ) {
+                                 Text(
+                                     text = "图片 · ${attachment.sourceName}",
+                                    color = foreground.copy(alpha = 0.72f),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "×",
+                                    color = foreground,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .clickable { imageAttachment = null }
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
                             }
-                        )
-                        if (agentInputBackdrop != null) {
-                            LiquidButton(
-                                onClick = ::toggleSend,
-                                backdrop = agentInputBackdrop,
-                                modifier = Modifier.size(40.dp),
-                                height = 40.dp,
-                                surfaceColor = Color(0xFF0A84FF).copy(alpha = 0.88f),
-                                tint = Color(0xFF0A84FF),
-                                contentPadding = PaddingValues(0.dp),
-                                blurRadius = 4.dp,
-                                lensHeight = 14.dp,
-                                lensAmount = 18.dp,
-                                chromaticAberration = false
-                            ) {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        } else AgentSimplePressSurface(
-                            backdrop = null,
-                            config = state.config,
-                            modifier = Modifier.size(40.dp),
-                            shape = CircleShape,
-                            tokens = GlassTokens.pill(intensity = 0.86f).copy(blur = 0.dp, surfaceAlpha = 0.22f),
-                            onClick = ::toggleSend
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.16f else 0.06f), CircleShape),
+                             Box(
+                                 modifier = Modifier
+                                     .size(40.dp)
+                                     .clip(CircleShape)
+                                    .clickable {
+                                        keyboard?.hide()
+                                        attachmentMenuExpanded = !attachmentMenuExpanded
+                                    },
                                 contentAlignment = Alignment.Center
+                             ) {
+                                 Icon(
+                                     painter = painterResource(R.drawable.ic_add_course),
+                                     contentDescription = "添加附件",
+                                     tint = foreground,
+                                     modifier = Modifier.size(24.dp)
+                                 )
+                             }
+                            BasicTextField(
+                                value = input,
+                                onValueChange = { input = it },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .focusRequester(focusRequester),
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(color = foreground),
+                                cursorBrush = SolidColor(Color(0xFF168CFF)),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(onSend = { send() }),
+                                decorationBox = { inner ->
+                                    if (input.isBlank()) Text("问问今天的安排…", color = foreground.copy(alpha = 0.5f))
+                                    inner()
+                                }
+                            )
+                            if (agentInputBackdrop != null) {
+                                LiquidButton(
+                                    onClick = ::toggleSend,
+                                    backdrop = agentInputBackdrop,
+                                    modifier = Modifier.size(40.dp),
+                                    height = 40.dp,
+                                    surfaceColor = Color(0xFF0A84FF).copy(alpha = 0.88f),
+                                    tint = Color(0xFF0A84FF),
+                                    contentPadding = PaddingValues(0.dp),
+                                    blurRadius = 4.dp,
+                                    lensHeight = 14.dp,
+                                    lensAmount = 18.dp,
+                                    chromaticAberration = false
+                                ) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            } else AgentSimplePressSurface(
+                                backdrop = null,
+                                config = state.config,
+                                modifier = Modifier.size(40.dp),
+                                shape = CircleShape,
+                                tokens = GlassTokens.pill(intensity = 0.86f).copy(blur = 0.dp, surfaceAlpha = 0.22f),
+                                onClick = ::toggleSend
                             ) {
-                                Text(if (sending) "■" else "↑", color = foreground, fontWeight = FontWeight.Bold)
+                                Box(
+                                    Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.16f else 0.06f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(if (sending) "■" else "↑", color = foreground, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }

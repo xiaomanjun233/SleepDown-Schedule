@@ -26,7 +26,8 @@ enum class AgentToolName {
     GET_PERIODS,
     GET_SETTINGS,
     PREVIEW_SETTING_CHANGES,
-    PROPOSE_ACTION_PLAN
+    PROPOSE_ACTION_PLAN,
+    UPDATE_MEMORY
 }
 
 data class AgentToolCall(
@@ -74,6 +75,8 @@ internal fun AgentToolName.runStatus(): AgentRunStatus = when (this) {
         AgentRunStatus(AgentRunStatusIcon.SETTINGS, "校验设置修改")
     AgentToolName.PROPOSE_ACTION_PLAN ->
         AgentRunStatus(AgentRunStatusIcon.SETTINGS, "准备操作方案")
+    AgentToolName.UPDATE_MEMORY ->
+        AgentRunStatus(AgentRunStatusIcon.SETTINGS, "更新助手记忆")
 }
 
 /**
@@ -81,7 +84,10 @@ internal fun AgentToolName.runStatus(): AgentRunStatus = when (this) {
  * tools to call. Local code only validates the selected name/arguments and executes it against the
  * active schedule-scoped fact snapshot.
  */
-internal fun agentToolDefinitions(includeMiMoWebSearch: Boolean = false): JsonArray = buildJsonArray {
+internal fun agentToolDefinitions(
+    includeMiMoWebSearch: Boolean = false,
+    includeMemoryTool: Boolean = false
+): JsonArray = buildJsonArray {
     add(agentToolDefinition(
         AgentToolName.GET_CURRENT_OVERVIEW,
         "读取当前日期、时间、当前教学周、今天/明天课程摘要和天气。需要回答当前状态时使用。"
@@ -107,6 +113,9 @@ internal fun agentToolDefinitions(includeMiMoWebSearch: Boolean = false): JsonAr
         AgentToolName.GET_SETTINGS,
         "读取当前课表和应用可由助手访问的设置键、类型、范围与当前真实值。回答或修改设置前使用。"
     ))
+    if (includeMemoryTool) {
+        add(agentMemoryToolDefinition())
+    }
     /*
      * Only fact acquisition is exposed as a model tool. Write plans deliberately remain the
      * generic <agent_actions> JSON protocol in the final answer: turning every write primitive
@@ -126,6 +135,33 @@ internal fun agentToolDefinitions(includeMiMoWebSearch: Boolean = false): JsonAr
             put("limit", 1)
         })
     }
+}
+
+private fun agentMemoryToolDefinition() = buildJsonObject {
+    put("type", "function")
+    put("function", buildJsonObject {
+        put("name", AgentToolName.UPDATE_MEMORY.name)
+        put(
+            "description",
+            "完整替换用户已授权保存的简短长期记忆。仅保存跨天仍有价值的稳定偏好或背景；" +
+                "不得保存临时任务、当天安排、聊天复述或敏感凭据。没有值得更新的内容时不要调用。"
+        )
+        put("parameters", buildJsonObject {
+            put("type", "object")
+            put("properties", buildJsonObject {
+                put("memory", buildJsonObject {
+                    put("type", "string")
+                    put(
+                        "description",
+                        "完整的新记忆文本，不是增量。用简短条目表达；明确忘记全部内容时传空字符串。"
+                    )
+                    put("maxLength", 1200)
+                })
+            })
+            put("required", buildJsonArray { add(JsonPrimitive("memory")) })
+            put("additionalProperties", false)
+        })
+    })
 }
 
 @Suppress("unused")
@@ -424,6 +460,8 @@ internal fun executeAgentReadTools(
                         previewAgentSettingChanges(call.arguments["changes"], scopedFacts)
                     AgentToolName.PROPOSE_ACTION_PLAN ->
                         "操作计划只能交给确认层处理，不能作为只读工具执行"
+                    AgentToolName.UPDATE_MEMORY ->
+                        "记忆更新只能由助手会话层处理"
                 }
         )
     }

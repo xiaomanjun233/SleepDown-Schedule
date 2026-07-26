@@ -33,6 +33,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -40,6 +41,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.concurrent.ConcurrentHashMap
+import java.util.UUID
 
 private val DayAgentJson = Json { ignoreUnknownKeys = true; isLenient = true }
 private const val MaxAgentToolRounds = 6
@@ -57,6 +59,32 @@ internal data class AgentToolDecision(
 private fun agentTextMessage(role: String, content: String): JsonObject = buildJsonObject {
     put("role", role)
     put("content", content)
+}
+
+private fun agentUserMessage(
+    content: String,
+    imageAttachment: AgentImageAttachment?
+): JsonObject = if (imageAttachment == null) {
+    agentTextMessage("user", content)
+} else {
+    buildJsonObject {
+        put("role", "user")
+        put("content", buildJsonArray {
+            add(buildJsonObject {
+                put("type", "text")
+                put("text", content)
+            })
+            add(buildJsonObject {
+                put("type", "image_url")
+                put("image_url", buildJsonObject {
+                    put(
+                        "url",
+                        "data:${imageAttachment.mimeType};base64,${imageAttachment.base64}"
+                    )
+                })
+            })
+        })
+    }
 }
 
 internal fun parseAgentToolDecision(response: String): AgentToolDecision {
@@ -145,8 +173,13 @@ internal fun parseAgentToolDecision(response: String): AgentToolDecision {
 private fun callsHashSeed(response: String, name: AgentToolName): String =
     (31 * response.hashCode() + name.hashCode()).toUInt().toString(16)
 
+private fun String.escapeAgentMemory(): String =
+    replace("<", "＜").replace(">", "＞")
+
 object DayAgentPreferences {
     private const val Prefs = "day_agent_preferences"
+    private const val MemoryMaxLength = 1200
+    private const val MemoryTurnsBeforeUpdate = 3
     private val mutableChanges = MutableStateFlow(0L)
     val changes: Flow<Long> = mutableChanges
 
@@ -154,6 +187,32 @@ object DayAgentPreferences {
     fun isEnabled(context: Context): Boolean = prefs(context).getBoolean("enabled", false)
     fun isDailyAiEnabled(context: Context): Boolean = prefs(context).getBoolean("daily_ai_enabled", true)
     fun isWeatherEnabled(context: Context): Boolean = prefs(context).getBoolean("weather_enabled", true)
+    fun isMemoryEnabled(context: Context): Boolean = prefs(context).getBoolean("memory_enabled", false)
+    fun memory(context: Context): String = prefs(context).getString("memory", null).orEmpty()
+
+    fun noteConversationTurn(context: Context, date: LocalDate) {
+        val today = date.toString()
+        val storage = prefs(context)
+        val previousDay = storage.getString("memory_turn_day", null)
+        val nextCount = if (previousDay == today) {
+            storage.getInt("memory_turn_count", 0) + 1
+        } else {
+            1
+        }
+        storage.edit()
+            .putString("memory_turn_day", today)
+            .putInt("memory_turn_count", nextCount)
+            .apply()
+    }
+
+    fun shouldOfferMemoryUpdate(context: Context, date: LocalDate): Boolean {
+        if (!isMemoryEnabled(context)) return false
+        val storage = prefs(context)
+        val today = date.toString()
+        return storage.getString("memory_turn_day", null) == today &&
+            storage.getInt("memory_turn_count", 0) >= MemoryTurnsBeforeUpdate &&
+            storage.getString("memory_last_agent_update_day", null) != today
+    }
 
     fun setEnabled(context: Context, enabled: Boolean, markDecided: Boolean = true) {
         prefs(context).edit()
@@ -168,6 +227,42 @@ object DayAgentPreferences {
             .putBoolean("daily_ai_enabled", dailyAiEnabled)
             .putBoolean("weather_enabled", weatherEnabled)
             .apply()
+        mutableChanges.value += 1
+    }
+
+    fun setMemoryEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit()
+            .putBoolean("memory_enabled", enabled)
+            .apply()
+        mutableChanges.value += 1
+    }
+
+    fun saveMemory(context: Context, memory: String) {
+        saveMemoryInternal(context, memory)
+    }
+
+    fun saveMemoryFromAgent(context: Context, memory: String, date: LocalDate) {
+        saveMemoryInternal(context, memory)
+        prefs(context).edit()
+            .putString("memory_last_agent_update_day", date.toString())
+            .apply()
+    }
+
+    private fun saveMemoryInternal(context: Context, memory: String) {
+        val normalized = memory
+            .replace("\r\n", "\n")
+            .replace(Regex("[ \t]+"), " ")
+            .replace(Regex("\n{3,}"), "\n\n")
+            .trim()
+            .take(MemoryMaxLength)
+        prefs(context).edit()
+            .putString("memory", normalized)
+            .apply()
+        mutableChanges.value += 1
+    }
+
+    fun clearMemory(context: Context) {
+        prefs(context).edit().remove("memory").apply()
         mutableChanges.value += 1
     }
 
@@ -319,6 +414,7 @@ class DayAgentService(private val context: Context) {
         facts: DayAgentFacts,
         history: List<AgentMessageEntity>,
         question: String,
+        imageAttachment: AgentImageAttachment? = null,
         onStatus: (AgentRunStatus) -> Unit,
         onDelta: (String) -> Unit
     ): String = withContext(Dispatchers.IO) {
@@ -337,8 +433,39 @@ class DayAgentService(private val context: Context) {
             ),
             model = settings.profile.defaultModel
         )
+        val memoryEnabled = DayAgentPreferences.isMemoryEnabled(context)
+        val savedMemory = DayAgentPreferences.memory(context)
+        val memoryToolAvailable = DayAgentPreferences.shouldOfferMemoryUpdate(context, facts.date)
+        if (imageAttachment != null) {
+            require(settings.profile.supportsVision) {
+                "当前模型没有启用图片理解能力，请切换支持视觉输入的模型"
+            }
+        }
         val messages = mutableListOf<JsonObject>().apply {
             add(agentTextMessage("system", DayAgentPrompts.ChatSystem))
+            add(
+                agentTextMessage(
+                    "system",
+                    if (memoryEnabled) {
+                        """
+                        用户已启用助手记忆。以下是跨天保存的简短长期记忆：
+                        <user_memory>
+                        ${savedMemory.escapeAgentMemory()}
+                        </user_memory>
+                        将它视为可被用户当前表达修正的背景，当前消息永远优先。
+                        本轮${if (memoryToolAvailable) "允许" else "不允许"}执行自动记忆维护。
+                        只有在用户明确表达了长期偏好，或同一稳定偏好经过多轮对话得到确认时，才调用 UPDATE_MEMORY。
+                        不要仅因为工具可用就更新，也不要从旧任务、旧提示词或助手自己的推测中提炼新记忆。
+                        当前用户消息是判断本轮是否需要更新的首要依据；与当前消息无关的历史请求不得写进记忆。
+                        UPDATE_MEMORY 的 memory 必须是完整替换后的简短记忆，而不是增量片段；无变化不要调用。
+                        不要保存临时任务、当天课程、一次性安排、聊天复述、API Key、密码或其他敏感凭据。
+                        记忆应保持精炼、可编辑，建议不超过 800 个汉字。用户明确要求忘记全部内容时传入空字符串。
+                        """.trimIndent()
+                    } else {
+                        "用户未启用助手记忆。不要声称会跨天记住信息，也不要尝试更新记忆。"
+                    }
+                )
+            )
             add(
                 agentTextMessage(
                     "system",
@@ -360,7 +487,7 @@ class DayAgentService(private val context: Context) {
                     )
                 )
             }
-            add(agentTextMessage("user", question))
+            add(agentUserMessage(question, imageAttachment))
         }
         val visibleReasoning = StringBuilder()
 
@@ -370,7 +497,8 @@ class DayAgentService(private val context: Context) {
                 settings = settings,
                 messages = messages,
                 stream = false,
-                includeTools = true
+                includeTools = true,
+                includeMemoryTool = memoryToolAvailable
             )
             val decision = parseAgentToolDecision(postChat(settings, decisionBody))
             if (decision.webSearchUsed) {
@@ -427,6 +555,28 @@ class DayAgentService(private val context: Context) {
                             "操作计划 JSON 无效，请修正后重新提交。"
                         }
                     )
+                } else if (call.name == AgentToolName.UPDATE_MEMORY) {
+                    val nextMemory = call.arguments["memory"].orEmpty()
+                    if (!DayAgentPreferences.shouldOfferMemoryUpdate(context, facts.date)) {
+                        AgentToolResult(
+                            callId = call.id,
+                            name = call.name,
+                            success = false,
+                            content = "本日自动记忆已经维护过，或尚未达到低频维护条件；请继续当前任务，不要再次更新记忆。"
+                        )
+                    } else {
+                        DayAgentPreferences.saveMemoryFromAgent(context, nextMemory, facts.date)
+                        AgentToolResult(
+                            callId = call.id,
+                            name = call.name,
+                            success = true,
+                            content = if (nextMemory.isBlank()) {
+                                "助手记忆已清空。"
+                            } else {
+                                "助手记忆已更新。后续对话会使用这份简短长期记忆。"
+                            }
+                        )
+                    }
                 } else {
                     executeAgentReadTools(listOf(call), facts).single()
                 }
@@ -580,7 +730,8 @@ class DayAgentService(private val context: Context) {
         settings: AiImportSettings,
         messages: List<JsonObject>,
         stream: Boolean,
-        includeTools: Boolean
+        includeTools: Boolean,
+        includeMemoryTool: Boolean = false
     ): String = buildJsonObject {
         put("model", settings.profile.defaultModel)
         put("stream", stream)
@@ -599,7 +750,8 @@ class DayAgentService(private val context: Context) {
                             settings.profile.baseUrl
                         ),
                         model = settings.profile.defaultModel
-                    )
+                    ),
+                    includeMemoryTool = includeMemoryTool
                 )
             )
             put("tool_choice", "auto")
@@ -711,6 +863,7 @@ class DayAgentRepository(private val context: Context) {
         scheduleId: Int,
         facts: DayAgentFacts,
         question: String,
+        imageAttachment: AgentImageAttachment? = null,
         onStatus: (AgentRunStatus) -> Unit,
         onDelta: (String) -> Unit
     ): Result<String> = runCatching {
@@ -718,7 +871,32 @@ class DayAgentRepository(private val context: Context) {
             "课表已切换，请重新发送这条消息"
         }
         cleanup(facts.date)
-        dao.insertMessage(AgentMessageEntity(scheduleId = scheduleId, sessionDate = facts.date.toString(), role = "user", content = question, createdAt = System.currentTimeMillis(), status = "READY"))
+        val persistedAttachmentName = imageAttachment?.let { attachment ->
+            runCatching {
+                val directory = File(context.filesDir, "agent_attachments").apply { mkdirs() }
+                val extension = when (attachment.mimeType.lowercase()) {
+                    "image/png" -> "png"
+                    "image/webp" -> "webp"
+                    else -> "jpg"
+                }
+                val fileName = "${UUID.randomUUID()}.$extension"
+                File(directory, fileName).writeBytes(
+                    android.util.Base64.decode(attachment.base64, android.util.Base64.DEFAULT)
+                )
+                fileName
+            }.getOrNull()
+        }
+        dao.insertMessage(
+            AgentMessageEntity(
+                scheduleId = scheduleId,
+                sessionDate = facts.date.toString(),
+                role = "user",
+                content = agentMessageContent(question, persistedAttachmentName),
+                createdAt = System.currentTimeMillis(),
+                status = "READY"
+            )
+        )
+        DayAgentPreferences.noteConversationTurn(context, facts.date)
         val history = dao.getRecentMessages(scheduleId, facts.date.toString(), 20).reversed().dropLast(1)
         /*
          * UI facts deliberately stay cheap. Rich period-scheme facts are read here, immediately
@@ -748,7 +926,14 @@ class DayAgentRepository(private val context: Context) {
                 activePeriodSchemeId = schemes.activeSchemeId
             )
         }.getOrElse { facts }
-        val answer = service.chat(currentFacts, history, question, onStatus, onDelta)
+        val answer = service.chat(
+            facts = currentFacts,
+            history = history,
+            question = question,
+            imageAttachment = imageAttachment,
+            onStatus = onStatus,
+            onDelta = onDelta
+        )
         val cleanAnswer = sanitizeAgentToolOutput(answer)
         dao.insertMessage(AgentMessageEntity(scheduleId = scheduleId, sessionDate = facts.date.toString(), role = "assistant", content = cleanAnswer, createdAt = System.currentTimeMillis(), status = "READY"))
         cleanAnswer
@@ -768,14 +953,23 @@ class DayAgentRepository(private val context: Context) {
 }
 
 private fun compactAgentHistory(history: List<AgentMessageEntity>): List<AgentMessageEntity> {
-    var remainingCharacters = 6_000
-    val selected = ArrayDeque<AgentMessageEntity>()
-    history.sortedByDescending { it.createdAt }
-        .asSequence()
-        .take(12)
-        .forEach { message ->
-            if (remainingCharacters <= 0) return@forEach
-            val clean = message.content
+    /*
+     * Only the immediately preceding exchange is sent back to the model. The durable memory is
+     * already injected separately, so replaying the whole day's prompts only makes an unrelated
+     * new request inherit stale goals and parameters.
+     */
+    return history
+        .sortedBy { it.createdAt }
+        .takeLast(2)
+        .mapNotNull { message ->
+            val clean = parseAgentMessageContent(message.content).text
+                .replace(
+                    Regex(
+                        "<think\\s*>[\\s\\S]*?(?:</think\\s*>|$)",
+                        RegexOption.IGNORE_CASE
+                    ),
+                    ""
+                )
                 .replace(
                     Regex(
                         "<agent_actions\\s*>[\\s\\S]*?(?:</agent_actions\\s*>|$)",
@@ -785,17 +979,13 @@ private fun compactAgentHistory(history: List<AgentMessageEntity>): List<AgentMe
                 )
                 .trim()
                 .take(1_200)
-            if (clean.isBlank()) return@forEach
-            val clipped = clean.take(remainingCharacters)
-            selected.addFirst(message.copy(content = clipped))
-            remainingCharacters -= clipped.length
+            clean.takeIf(String::isNotBlank)?.let { message.copy(content = it) }
         }
-    return selected.toList()
 }
 
 private object DayAgentPrompts {
     const val DailySystem = """你是课程表应用的日程文案助手。你只负责生成简洁、自然的中文文案模板和快捷问题，不计算时间，不编造课程、地点、教师或天气。只返回 JSON 对象，格式为 {\"templates\":{\"MORNING_OVERVIEW\":\"...\"},\"quickQuestions\":[\"...\",\"...\"]}。模板键只能使用请求给出的枚举，占位符只能使用请求给出的白名单。每条文案按“天气与体感；当前或下一节课程；一条可执行建议；一句自然关心”的固定顺序组织，控制在 35 到 100 个汉字。快捷问题生成2至3条，每条不超过12个汉字，必须结合当天课程或空档且适合用户直接点击。"""
-    const val ChatSystem = """你是 SleepDown 课程表的任务型智能体，而不是功能菜单或客服。你必须先理解用户想要的最终状态，再自主查询事实、分解目标并组合原子操作完成任务。你已获得一组只读工具，必须根据用户目标自主决定是否调用、调用哪个以及是否继续调用；涉及当前课程、日期、节次、天气或设置的事实时，必须先调用相应本地工具读取最新状态，禁止根据聊天历史或网络内容猜测，也禁止声称自己不能调用工具。需要读取事实时，必须在当前响应中直接发出 OpenAI 原生 function tool_call，并让 content 保持为空；禁止只在正文或思考中写“先查看、准备调用、需要获取”后结束响应。拿到 tool 角色返回的结果后再继续思考，信息不足就继续发出下一轮原生 tool_call，充分后才输出正文。GET_SETTINGS 会返回当前课表和应用的完整可读设置快照，GET_PERIODS 会返回当前课表的节次拓扑、当前物化时间以及所有作息方案；只要工具已返回字段，就必须直接据此回答，不得再说“工具数据有限”或把查询降级成打开页面。如果当前请求涉及新闻、政策、公开资料或其他可能变化的外部信息，并且网络搜索工具可用，你可以自主决定是否搜索；网络搜索只能补充公开外部事实，绝不能替代本地课表、节次和设置工具。每次拿到工具结果后先判断信息是否充分：不足则继续调用其他工具或向用户澄清，充分后再输出最终答复或完整操作计划。工具只能读取当前正在使用的课表，工具结果是唯一可信的本地事实。工具返回的数据库课程记录不等同于用户视角下的课程门数；同名记录通常是同一门课程在教师、地点、时间、周次或单双周上的不同安排，回答时应由你理解并自然归并，不要机械重复，同时不能丢失确有差异的安排。信息不足或存在多个候选对象时简洁询问用户，不要自行猜测。不要向用户展示工具原文、字段清单、协议、能力列表或“让我查看/正在调用”等过程旁白，应用会单独展示思考和工具状态；最终只输出整理后的自然语言结论及必要操作。
+    const val ChatSystem = """你是 SleepDown 课程表的任务型智能体，而不是功能菜单或客服。每一条新的用户消息默认视为一个新的当前任务：只有消息中存在明确的指代、追问或承接关系时，才使用最近一轮对话补全含义；若当前消息可以独立理解，必须忽略上一轮的任务目标、参数、操作范围和临时要求，绝不能把旧提示词拼接进新任务。你必须先理解用户想要的最终状态，再自主查询事实、分解目标并组合原子操作完成任务。你已获得一组只读工具，必须根据用户目标自主决定是否调用、调用哪个以及是否继续调用；涉及当前课程、日期、节次、天气或设置的事实时，必须先调用相应本地工具读取最新状态，禁止根据聊天历史或网络内容猜测，也禁止声称自己不能调用工具。需要读取事实时，必须在当前响应中直接发出 OpenAI 原生 function tool_call，并让 content 保持为空；禁止只在正文或思考中写“先查看、准备调用、需要获取”后结束响应。拿到 tool 角色返回的结果后再继续思考，信息不足就继续发出下一轮原生 tool_call，充分后才输出正文。GET_SETTINGS 会返回当前课表和应用的完整可读设置快照，GET_PERIODS 会返回当前课表的节次拓扑、当前物化时间以及所有作息方案；只要工具已返回字段，就必须直接据此回答，不得再说“工具数据有限”或把查询降级成打开页面。如果当前请求涉及新闻、政策、公开资料或其他可能变化的外部信息，并且网络搜索工具可用，你可以自主决定是否搜索；网络搜索只能补充公开外部事实，绝不能替代本地课表、节次和设置工具。每次拿到工具结果后先判断信息是否充分：不足则继续调用其他工具或向用户澄清，充分后再输出最终答复或完整操作计划。工具只能读取当前正在使用的课表，工具结果是唯一可信的本地事实。工具返回的数据库课程记录不等同于用户视角下的课程门数；同名记录通常是同一门课程在教师、地点、时间、周次或单双周上的不同安排，回答时应由你理解并自然归并，不要机械重复，同时不能丢失确有差异的安排。信息不足或存在多个候选对象时简洁询问用户，不要自行猜测。不要向用户展示工具原文、字段清单、协议、能力列表或“让我查看/正在调用”等过程旁白，应用会单独展示思考和工具状态；最终只输出整理后的自然语言结论及必要操作。
 你可以准备课程操作和设置跳转，但绝不能声称已经执行。读取工具只负责提供事实，不负责定义或限制你的写入能力。事实充分后，把完整修改 JSON 放在正文末尾唯一的 <agent_actions>[...]</agent_actions> 标记中交给应用确认。下面的操作是可自由组合的规划原语，不是彼此孤立的功能：用户目标不必与某一个操作一一对应。没有同名的专用操作时，必须先推导目标状态，再用若干新增、修改和删除组成一个完整计划；不得仅以“没有合适工具/协议不直接支持”为由拒绝。替换、合并、拆分、交换、批量调整等目标都应使用现有原语表达，并放在同一个 JSON 数组中，由应用统一预演、确认、事务执行和验证。例如，把多条记录归并为一条时，应保留并合并用户要求的有效信息，删除被替代的真实记录并新增目标记录，而不是要求存在 MERGE_COURSE。修改普通设置时，先调用 GET_SETTINGS 获取合法键和当前值，再提交规范化 SET_SETTING。修改节次数量、四个时段分配、自动匹配参数、时段起点、特殊课间或完整逐节时间时，先调用 GET_PERIODS 和 GET_SETTINGS，然后提交一个 SET_PERIOD_SETTINGS，其 periodSettings 直接描述完整目标 JSON；不要把这类请求降级成打开设置页。只有工具事实为空、对象不明确或目标状态本身有歧义时才向用户澄清。
 在生成任何修改计划前，必须先在内部完成一次“依赖与迁移自检”，这是一项由你根据目标和工具事实主动完成的规划步骤，不是要求应用用关键词规则替你判断。先比较修改前后的语义基础，识别哪些现有数据依赖将被改变的结构，例如课程对节次编号的引用、作息方案中的逐节时间、特殊课间、周次范围以及与课程时间相关的设置；再判断用户真正希望保持的是原编号、原实际日期时间、原课程顺序，还是新的结构含义。只要结构变化可能让旧引用改变含义，就必须把必要的数据迁移一并纳入同一个操作计划，不能只修改设置本身。
 尤其在修改节次数量、逐节时间、时段分配或作息方案时，应先用 GET_PERIODS 取得旧节次的真实起止时间，并按需读取当前课表课程。对于原来绑定旧节次的课程，先推演修改后继续保留原节次编号是否仍符合用户目标；若不符合，应依据课程修改前的实际授课时间、连续时长和时段归属，推导它在新时间线中的目标节次，并同时生成相应的课程迁移动作。不要把“第几节”天然视为永远不变，也不要未经判断就把所有课程机械重编号。若新时间线无法唯一承接原课程、会截断连续课程或存在多个合理映射，必须先向用户说明受影响对象并澄清选择。
