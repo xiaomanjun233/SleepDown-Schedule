@@ -10,7 +10,7 @@ import android.graphics.Shader
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.Image
@@ -76,16 +76,30 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.hypot
+import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sign
+import kotlin.math.sin
 
-private val CourseEditorPrimaryEasing = CubicBezierEasing(0.20f, 0.0f, 0.10f, 1.0f)
-private val CourseEditorSettleEasing = CubicBezierEasing(0.24f, 0.0f, 0.30f, 1.0f)
-private const val CourseEditorOpenDurationMillis = 340
-private const val CourseEditorCloseDurationMillis = 350
+private val CourseEditorOpenPositionEasing = CubicBezierEasing(0.18f, 0.72f, 0.18f, 1.0f)
+private val CourseEditorOpenSizeEasing = CubicBezierEasing(0.22f, 0.62f, 0.22f, 1.0f)
+private val CourseEditorClosePositionEasing = CubicBezierEasing(0.30f, 0.10f, 0.22f, 1.0f)
+private const val CourseEditorOpenDurationMillis = 380
+private const val CourseEditorCloseDurationMillis = 440
+// The background zoom runs on its own, slower timeline than the card morph so it keeps
+// settling after the card has finished expanding/collapsing — reading as inertial pull
+// on the home surface behind the editor rather than a motion locked to the card.
+internal const val BackgroundZoomOpenScale = 1.08f
+private const val BackgroundZoomDelayMillis = 40
+private const val BackgroundZoomOpenDurationMillis = 560
+private const val BackgroundZoomCloseDurationMillis = 560
+private val BackgroundZoomInertialEasing = CubicBezierEasing(0.30f, 0.0f, 0.20f, 1.0f)
 
 
 enum class CourseEditorOverlayPhase {
@@ -100,6 +114,7 @@ enum class CourseEditorOverlayPhase {
 @Stable
 class CourseEditorMotionState internal constructor() {
     val progress = Animatable(0f)
+    val backgroundZoom = Animatable(1f)
     var phase by mutableStateOf(CourseEditorOverlayPhase.Idle)
         internal set
 }
@@ -197,6 +212,7 @@ fun CourseEditorContainerOverlayHost(
             editorContentReveal.snapTo(1f)
             latestOnRenderedCourseIdChange(request.course.id)
             progress.snapTo(0f)
+            motionState.backgroundZoom.snapTo(1f)
             editorContentReady = false
             editorContentMounted = true
             var waitedFrames = 0
@@ -205,50 +221,61 @@ fun CourseEditorContainerOverlayHost(
                 waitedFrames++
             }
             updatePhase(CourseEditorOverlayPhase.Opening)
-            progress.animateTo(
-                targetValue = 1f,
-                animationSpec = keyframes {
-                    durationMillis = CourseEditorOpenDurationMillis
-                    0f at 0 using CourseEditorPrimaryEasing
-                    1.018f at 286 using CourseEditorSettleEasing
-                    1f at CourseEditorOpenDurationMillis
+            coroutineScope {
+                launch {
+                    progress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(
+                            durationMillis = CourseEditorOpenDurationMillis,
+                            easing = LinearEasing
+                        )
+                    )
                 }
-            )
+                // The background depth (blur + zoom) trails the card on a longer, gentler
+                // ease-out so it keeps settling after the card has opened — the inertial pull
+                // on the home surface behind the editor.
+                launch {
+                    motionState.backgroundZoom.animateTo(
+                        targetValue = BackgroundZoomOpenScale,
+                        animationSpec = tween(
+                            durationMillis = BackgroundZoomOpenDurationMillis,
+                            delayMillis = BackgroundZoomDelayMillis,
+                            easing = BackgroundZoomInertialEasing
+                        )
+                    )
+                }
+            }
             updatePhase(CourseEditorOverlayPhase.Open)
         } else if (renderedRequest != null) {
             updatePhase(CourseEditorOverlayPhase.Closing)
-            if (editorContentMounted) {
-                kotlinx.coroutines.coroutineScope {
-                    launch {
-                        editorContentReveal.animateTo(
-                            targetValue = 0f,
-                            animationSpec = tween(120, easing = CubicBezierEasing(0.22f, 0f, 0.18f, 1f))
+            coroutineScope {
+                launch {
+                    progress.animateTo(
+                        targetValue = 0f,
+                        animationSpec = tween(
+                            durationMillis = CourseEditorCloseDurationMillis,
+                            easing = LinearEasing
                         )
-                    }
-                    launch {
-                        editorContentAlpha.animateTo(
-                            targetValue = 0f,
-                            animationSpec = tween(90, easing = CubicBezierEasing(0.22f, 0f, 0.18f, 1f))
-                        )
-                    }
+                    )
                 }
-                editorContentMounted = false
-                editorContentReady = false
-                withFrameNanos { }
-            } else {
-                editorContentReveal.snapTo(0f)
-                editorContentAlpha.snapTo(0f)
-                editorContentReady = false
+                // Mirror the open: the background keeps easing back after the card has
+                // collapsed, so closing reads as the home surface settling home rather
+                // than snapping with the card.
+                launch {
+                    motionState.backgroundZoom.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(
+                            durationMillis = BackgroundZoomCloseDurationMillis,
+                            delayMillis = BackgroundZoomDelayMillis,
+                            easing = BackgroundZoomInertialEasing
+                        )
+                    )
+                }
             }
-            progress.animateTo(
-                targetValue = 0f,
-                animationSpec = keyframes {
-                    durationMillis = CourseEditorCloseDurationMillis
-                    1f at 0 using CourseEditorPrimaryEasing
-                    -0.012f at 296 using CourseEditorSettleEasing
-                    0f at CourseEditorCloseDurationMillis
-                }
-            )
+            editorContentMounted = false
+            editorContentReady = false
+            editorContentReveal.snapTo(0f)
+            editorContentAlpha.snapTo(0f)
             updatePhase(CourseEditorOverlayPhase.Disposing)
             renderedRequest = null
             latestOnRenderedCourseIdChange(null)
@@ -314,9 +341,20 @@ fun CourseEditorContainerOverlayHost(
     val validSource = validSourceRect(shownRequest.sourceBoundsInRoot, rootSize)
     val sourceRect = validSource ?: targetRect
     val hasSourceTransform = validSource != null
-    val motionProgress = progress.value.coerceIn(-0.035f, 1.045f)
-    val alphaProgress = progress.value.coerceIn(0f, 1f)
-    val animatedRect = interpolateRectUnbounded(sourceRect, targetRect, motionProgress)
+    val rawProgress = progress.value.coerceIn(0f, 1f)
+    val visualProgress = courseEditorVisualProgress(rawProgress, overlayPhase)
+    val positionProgress = visualProgress.position
+    val sizeProgress = visualProgress.size
+    val cornerProgress = smoothStep(0.04f, 0.90f, sizeProgress)
+    val pulseScale = courseEditorSettleScale(rawProgress, overlayPhase)
+    val animatedRect = curvedCourseEditorRect(
+        source = sourceRect,
+        target = targetRect,
+        positionProgress = positionProgress,
+        sizeProgress = sizeProgress,
+        pulseScale = pulseScale,
+        maxArcPx = with(density) { 48.dp.toPx() }
+    )
     val animatedModifier = Modifier
         .offset {
             IntOffset(
@@ -332,7 +370,7 @@ fun CourseEditorContainerOverlayHost(
         with(density) { if (sourceRect.width >= 220.dp.toPx()) 24.dp.toPx() else 8.dp.toPx() }
     }
     val corner = with(density) {
-        interpolateFloatUnbounded(sourceCornerPx, 32.dp.toPx(), motionProgress)
+        interpolateFloat(sourceCornerPx, 32.dp.toPx(), cornerProgress)
             .coerceIn(6.dp.toPx(), 36.dp.toPx())
             .toDp()
     }
@@ -340,11 +378,13 @@ fun CourseEditorContainerOverlayHost(
     // Keeping the form fully opaque underneath the fading source was most visible for
     // wide day-view cards: both text layouts were composited for several frames and the
     // form appeared to flicker into place. Make the two layers complementary instead.
-    val openingContentHandoff = smoothStep(0.10f, 0.46f, alphaProgress)
+    val openingContentHandoff = smoothStep(0.12f, 0.50f, positionProgress)
+    val closingContentHandoff = smoothStep(0.04f, 0.18f, positionProgress)
     val contentAlpha = if (editorContentMounted) {
         editorContentAlpha.value * when (overlayPhase) {
             CourseEditorOverlayPhase.Preparing,
             CourseEditorOverlayPhase.Opening -> openingContentHandoff
+            CourseEditorOverlayPhase.Closing -> closingContentHandoff
             else -> 1f
         }
     } else {
@@ -355,9 +395,9 @@ fun CourseEditorContainerOverlayHost(
     val sourceCoverAlpha = if (hasSourceTransform) {
         when (overlayPhase) {
             CourseEditorOverlayPhase.Preparing,
-            CourseEditorOverlayPhase.Opening -> 1f - smoothStep(0.10f, 0.46f, alphaProgress)
+            CourseEditorOverlayPhase.Opening -> 1f - smoothStep(0.12f, 0.50f, positionProgress)
             CourseEditorOverlayPhase.Closing,
-            CourseEditorOverlayPhase.Disposing -> 1f - smoothStep(0.28f, 0.66f, alphaProgress)
+            CourseEditorOverlayPhase.Disposing -> 1f - closingContentHandoff
             else -> 0f
         }
     } else 0f
@@ -383,7 +423,7 @@ fun CourseEditorContainerOverlayHost(
             config = config,
             course = shownRequest.course,
             corner = corner,
-            progress = alphaProgress,
+            progress = sizeProgress,
             alpha = morphSurfaceAlpha,
             modifier = animatedModifier
         ) {
@@ -833,22 +873,112 @@ private fun validSourceRect(rect: Rect?, rootSize: IntSize): Rect? {
     return clipped.takeIf { it.width > 2f && it.height > 2f }
 }
 
-private fun interpolateRectUnbounded(start: Rect, stop: Rect, fraction: Float): Rect {
-    return Rect(
-        left = interpolateFloatUnbounded(start.left, stop.left, fraction),
-        top = interpolateFloatUnbounded(start.top, stop.top, fraction),
-        right = interpolateFloatUnbounded(start.right, stop.right, fraction),
-        bottom = interpolateFloatUnbounded(start.bottom, stop.bottom, fraction)
-    )
-}
-
 private fun interpolateFloat(start: Float, stop: Float, fraction: Float): Float {
     val safe = fraction.coerceIn(0f, 1f)
     return start + (stop - start) * safe
 }
 
-private fun interpolateFloatUnbounded(start: Float, stop: Float, fraction: Float): Float {
-    return start + (stop - start) * fraction
+private data class CourseEditorVisualProgress(
+    val position: Float,
+    val size: Float
+)
+
+private fun courseEditorVisualProgress(
+    rawProgress: Float,
+    phase: CourseEditorOverlayPhase
+): CourseEditorVisualProgress {
+    val raw = rawProgress.coerceIn(0f, 1f)
+    return when (phase) {
+        CourseEditorOverlayPhase.Closing,
+        CourseEditorOverlayPhase.Disposing -> {
+            // Keep the same reverse parabola, but let its center advance gently at first so the
+            // close does not feel faster than the opening. Size contracts earlier and separately,
+            // making the return arc visible instead of moving a nearly full-size dialog.
+            val closingElapsed = 1f - raw
+            val closingPosition = CourseEditorClosePositionEasing.transform(closingElapsed)
+            val advancedClosingSize = (closingElapsed / 0.78f).coerceIn(0f, 1f)
+            val closingSize = CourseEditorOpenSizeEasing.transform(advancedClosingSize)
+            CourseEditorVisualProgress(
+                position = (1f - closingPosition).coerceIn(0f, 1f),
+                size = (1f - closingSize).coerceIn(0f, 1f)
+            )
+        }
+        CourseEditorOverlayPhase.Open -> CourseEditorVisualProgress(position = 1f, size = 1f)
+        else -> {
+            val delayedSizeProgress = ((raw - 0.10f) / 0.90f).coerceIn(0f, 1f)
+            CourseEditorVisualProgress(
+                position = CourseEditorOpenPositionEasing.transform(raw).coerceIn(0f, 1f),
+                size = CourseEditorOpenSizeEasing.transform(delayedSizeProgress).coerceIn(0f, 1f)
+            )
+        }
+    }
+}
+
+internal fun courseEditorBackgroundBlurProgress(
+    rawProgress: Float,
+    phase: CourseEditorOverlayPhase
+): Float {
+    val position = courseEditorVisualProgress(rawProgress, phase).position
+    return when (phase) {
+        CourseEditorOverlayPhase.Open -> 1f
+        CourseEditorOverlayPhase.Closing,
+        CourseEditorOverlayPhase.Disposing -> smoothStep(0f, 0.72f, position)
+        else -> smoothStep(0f, 0.72f, position)
+    }
+}
+
+private fun courseEditorSettleScale(
+    rawProgress: Float,
+    phase: CourseEditorOverlayPhase
+): Float {
+    val raw = rawProgress.coerceIn(0f, 1f)
+    return when (phase) {
+        CourseEditorOverlayPhase.Opening -> {
+            val pulse = ((raw - 0.78f) / 0.22f).coerceIn(0f, 1f)
+            1f + sin(PI.toFloat() * pulse) * 0.008f
+        }
+        CourseEditorOverlayPhase.Closing -> {
+            val closingElapsed = 1f - raw
+            val pulse = ((closingElapsed - 0.78f) / 0.22f).coerceIn(0f, 1f)
+            1f + sin(PI.toFloat() * pulse) * 0.008f
+        }
+        else -> 1f
+    }
+}
+
+private fun curvedCourseEditorRect(
+    source: Rect,
+    target: Rect,
+    positionProgress: Float,
+    sizeProgress: Float,
+    pulseScale: Float,
+    maxArcPx: Float
+): Rect {
+    val positionT = positionProgress.coerceIn(0f, 1f)
+    val sizeT = sizeProgress.coerceIn(0f, 1f)
+    val sourceCenter = source.center
+    val targetCenter = target.center
+    val deltaY = targetCenter.y - sourceCenter.y
+    val arcAmplitude = min(maxArcPx, abs(deltaY) * 0.22f)
+    val controlX = (sourceCenter.x + targetCenter.x) / 2f
+    val controlY = (sourceCenter.y + targetCenter.y) / 2f + sign(deltaY) * arcAmplitude
+    val inverse = 1f - positionT
+    val centerX =
+        inverse * inverse * sourceCenter.x +
+            2f * inverse * positionT * controlX +
+            positionT * positionT * targetCenter.x
+    val centerY =
+        inverse * inverse * sourceCenter.y +
+            2f * inverse * positionT * controlY +
+            positionT * positionT * targetCenter.y
+    val width = interpolateFloat(source.width, target.width, sizeT) * pulseScale
+    val height = interpolateFloat(source.height, target.height, sizeT) * pulseScale
+    return Rect(
+        left = centerX - width / 2f,
+        top = centerY - height / 2f,
+        right = centerX + width / 2f,
+        bottom = centerY + height / 2f
+    )
 }
 
 private fun smoothStep(edge0: Float, edge1: Float, value: Float): Float {

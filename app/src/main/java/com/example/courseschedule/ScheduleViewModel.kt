@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 class ScheduleViewModel(
     private val app: Application,
@@ -78,6 +80,357 @@ class ScheduleViewModel(
         repository.deleteCourseSingleWeek(course, targetWeek)
         refreshCoordinator.request()
         snackbar.value = "课程已删除"
+    }
+
+    fun executeAgentPlan(
+        actions: List<AgentValidatedAction>,
+        onResult: (AgentPlanExecutionResult) -> Unit = {}
+    ) = viewModelScope.launch {
+        val result = repository.executeAgentPlan(AgentPlan(actions))
+        if (result.success) refreshCoordinator.request()
+        snackbar.value = result.message
+        onResult(result)
+    }
+
+    fun executeAgentSettingPlan(
+        actions: List<AgentValidatedAction>,
+        onResult: (AgentPlanExecutionResult) -> Unit = {}
+    ) = viewModelScope.launch {
+        val settingActions = actions.filter {
+            it.type == AgentValidatedActionType.SET_SETTING ||
+                it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS
+        }
+        if (settingActions.size != actions.size || settingActions.isEmpty()) {
+            onResult(
+                AgentPlanExecutionResult(false, null, false, "这组操作不是完整的设置计划")
+            )
+            return@launch
+        }
+
+        val before = repository.snapshot()
+        val scheduleId = before.config.id
+        val beforeSchemes = repository.loadPeriodSchemes(scheduleId)
+        val beforeName = before.schedules.firstOrNull { it.id == scheduleId }?.name
+        val beforeAgentEnabled = DayAgentPreferences.isEnabled(app)
+        val beforeWeatherEnabled = DayAgentPreferences.isWeatherEnabled(app)
+        var targetConfig = before.config
+        var targetPeriods = before.periods
+        var targetName = beforeName
+
+        val periodActions = settingActions.filter {
+            AgentSettingRegistry.isPeriodTimeSetting(it.settingKey)
+        }
+        val structuredPeriodAction = settingActions
+            .filter { it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS }
+            .singleOrNull()
+        if (settingActions.count { it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS } > 1) {
+            onResult(AgentPlanExecutionResult(false, null, false, "一次只能提交一份完整节次设置"))
+            return@launch
+        }
+        if (periodActions.isNotEmpty()) {
+            targetPeriods = AgentSettingRegistry.applyPeriodTimes(
+                before.periods,
+                periodActions.map { it.settingKey to it.settingValue }
+            ) ?: run {
+                onResult(
+                    AgentPlanExecutionResult(
+                        false, null, false,
+                        "节次时间存在重叠、倒序或无效节次，未写入任何修改"
+                    )
+                )
+                return@launch
+            }
+        }
+
+        settingActions
+            .filter { it.type == AgentValidatedActionType.SET_SETTING }
+            .filterNot { AgentSettingRegistry.isPeriodTimeSetting(it.settingKey) }
+            .forEach { action ->
+                when {
+                    action.settingKey == "SCHEDULE_NAME" -> {
+                        targetName = action.settingValue
+                    }
+                    AgentSettingRegistry.isPreferenceSetting(action.settingKey) -> Unit
+                    else -> {
+                        targetConfig = AgentSettingRegistry.apply(
+                            targetConfig,
+                            action.settingKey,
+                            action.settingValue
+                        ) ?: run {
+                            onResult(
+                                AgentPlanExecutionResult(
+                                    false, null, false,
+                                    "无法应用“${action.summary}”，整组设置均未写入"
+                                )
+                            )
+                            return@launch
+                        }
+                    }
+                }
+            }
+
+        var targetSchemes: SchedulePeriodSchemesDraft? = null
+        structuredPeriodAction?.periodSettings?.let { patch ->
+            val prepared = prepareAgentPeriodSettings(
+                config = targetConfig,
+                draft = beforeSchemes,
+                patch = patch,
+                scheduleId = scheduleId
+            ) ?: run {
+                onResult(
+                    AgentPlanExecutionResult(
+                        false, null, false,
+                        "节次设置 JSON 与当前作息方案不一致，未写入任何修改"
+                    )
+                )
+                return@launch
+            }
+            targetConfig = prepared.first
+            targetSchemes = prepared.second
+            val active = prepared.second.schemes.firstOrNull {
+                it.scheme.id == prepared.second.activeSchemeId
+            }
+            targetPeriods = active?.let { resolveSchemeTimes(prepared.first, it) }
+                ?.map { PeriodEntity(it.periodIndex, it.startTime, it.endTime, scheduleId) }
+                ?: targetPeriods
+        }
+
+        val writeError = runCatching {
+            targetSchemes?.let { repository.saveScheduleDetail(targetConfig, it) }
+                ?: repository.saveConfigForSchedule(scheduleId, targetConfig, targetPeriods)
+            targetName?.let { repository.renameSchedule(scheduleId, it) }
+            settingActions
+                .filter { AgentSettingRegistry.isPreferenceSetting(it.settingKey) }
+                .forEach { action ->
+                    check(
+                        AgentSettingRegistry.applyPreference(
+                            app, action.settingKey, action.settingValue
+                        )
+                    )
+                }
+        }.exceptionOrNull()
+        if (writeError != null) {
+            runCatching {
+                repository.saveScheduleDetail(before.config, beforeSchemes)
+                beforeName?.let { repository.renameSchedule(scheduleId, it) }
+                DayAgentPreferences.setEnabled(app, beforeAgentEnabled)
+                DayAgentPreferences.saveOptions(
+                    app,
+                    DayAgentPreferences.isDailyAiEnabled(app),
+                    beforeWeatherEnabled
+                )
+            }
+            refreshCoordinator.request()
+            onResult(
+                AgentPlanExecutionResult(
+                    false, null, false,
+                    "设置保存失败，已恢复修改前状态：${writeError.message ?: "未知错误"}"
+                )
+            )
+            return@launch
+        }
+
+        val actual = repository.snapshot()
+        val verified = settingActions.all { action ->
+            when {
+                action.type == AgentValidatedActionType.SET_PERIOD_SETTINGS ->
+                    actual.config.hasSamePeriodTopology(targetConfig) &&
+                        actual.periods.sortedBy { it.periodIndex } ==
+                        targetPeriods.sortedBy { it.periodIndex }
+                AgentSettingRegistry.isPeriodTimeSetting(action.settingKey) -> {
+                    val expected = AgentSettingRegistry.applyPeriodTime(
+                        actual.periods, action.settingKey, action.settingValue
+                    )
+                    expected == actual.periods.sortedBy { it.periodIndex }
+                }
+                action.settingKey == "SCHEDULE_NAME" ->
+                    actual.schedules.firstOrNull { it.id == scheduleId }?.name == action.settingValue
+                AgentSettingRegistry.isPreferenceSetting(action.settingKey) ->
+                    AgentSettingRegistry.snapshot(
+                        actual.config,
+                        actual.schedules.firstOrNull { it.id == scheduleId }?.name,
+                        app
+                    )[action.settingKey] == action.settingValue?.lowercase()
+                else -> AgentSettingRegistry.apply(
+                    actual.config, action.settingKey, action.settingValue
+                ) == actual.config
+            }
+        }
+        if (!verified) {
+            repository.saveScheduleDetail(before.config, beforeSchemes)
+            beforeName?.let { repository.renameSchedule(scheduleId, it) }
+            DayAgentPreferences.setEnabled(app, beforeAgentEnabled)
+            DayAgentPreferences.saveOptions(
+                app,
+                DayAgentPreferences.isDailyAiEnabled(app),
+                beforeWeatherEnabled
+            )
+            refreshCoordinator.request()
+            onResult(
+                AgentPlanExecutionResult(
+                    false, null, false,
+                    "数据库回读与目标不一致，已自动回滚全部修改"
+                )
+            )
+            return@launch
+        }
+
+        refreshCoordinator.request()
+        onResult(
+            AgentPlanExecutionResult(
+                success = true,
+                preview = null,
+                verified = true,
+                message = "已应用并回读验证 ${settingActions.size} 项设置",
+                undo = { undoResult ->
+                    viewModelScope.launch {
+                        val restored = runCatching {
+                            repository.saveScheduleDetail(before.config, beforeSchemes)
+                            beforeName?.let { repository.renameSchedule(scheduleId, it) }
+                            DayAgentPreferences.setEnabled(app, beforeAgentEnabled)
+                            DayAgentPreferences.saveOptions(
+                                app,
+                                DayAgentPreferences.isDailyAiEnabled(app),
+                                beforeWeatherEnabled
+                            )
+                            refreshCoordinator.request()
+                        }.isSuccess
+                        undoResult(
+                            AgentPlanExecutionResult(
+                                restored, null, restored,
+                                if (restored) "已撤销本次设置修改" else "撤销失败"
+                            )
+                        )
+                    }
+                }
+            )
+        )
+    }
+
+    private fun prepareAgentPeriodSettings(
+        config: ScheduleConfigEntity,
+        draft: SchedulePeriodSchemesDraft,
+        patch: AgentPeriodSettingsPatch,
+        scheduleId: Int
+    ): Pair<ScheduleConfigEntity, SchedulePeriodSchemesDraft>? {
+        val targetConfig = config.copy(
+            morningPeriodCount = patch.morningPeriodCount ?: config.morningPeriodCount,
+            noonPeriodCount = patch.noonPeriodCount ?: config.noonPeriodCount,
+            afternoonPeriodCount = patch.afternoonPeriodCount ?: config.afternoonPeriodCount,
+            eveningPeriodCount = patch.eveningPeriodCount ?: config.eveningPeriodCount,
+            classDurationMinutes = patch.classDurationMinutes ?: config.classDurationMinutes,
+            breakDurationMinutes = patch.breakDurationMinutes ?: config.breakDurationMinutes
+        )
+        val total = targetConfig.totalPeriodCount()
+        if (total !in 1..30) return null
+        val activeIndex = draft.schemes.indexOfFirst { it.scheme.id == draft.activeSchemeId }
+        if (activeIndex < 0) return null
+        val explicitTimes = patch.periods?.sortedBy { it.periodIndex }?.map {
+            PeriodSchemeTimeEntity(
+                schemeId = draft.activeSchemeId,
+                periodIndex = it.periodIndex,
+                startTime = it.startTime,
+                endTime = it.endTime
+            )
+        }
+        if (explicitTimes != null &&
+            (explicitTimes.size != total || validateResolvedPeriodTimes(explicitTimes) != null)
+        ) return null
+
+        val updatedSchemes = draft.schemes.mapIndexed { index, item ->
+            val isActive = index == activeIndex
+            val requestedMode = patch.mode?.let {
+                runCatching { PeriodSchemeMode.valueOf(it) }.getOrNull()
+            }
+            val mode = when {
+                isActive && requestedMode != null -> requestedMode
+                isActive && explicitTimes != null -> PeriodSchemeMode.MANUAL
+                else -> item.scheme.mode
+            }
+            val entity = if (isActive) item.scheme.copy(
+                scheduleId = scheduleId,
+                name = patch.schemeName?.trim()?.takeIf(String::isNotBlank)
+                    ?: item.scheme.name,
+                mode = mode,
+                classDurationMinutes = patch.classDurationMinutes
+                    ?: item.scheme.classDurationMinutes,
+                breakDurationMinutes = patch.breakDurationMinutes
+                    ?: item.scheme.breakDurationMinutes,
+                morningStartTime = patch.morningStartTime ?: item.scheme.morningStartTime,
+                noonStartTime = patch.noonStartTime ?: item.scheme.noonStartTime,
+                afternoonStartTime = patch.afternoonStartTime ?: item.scheme.afternoonStartTime,
+                eveningStartTime = patch.eveningStartTime ?: item.scheme.eveningStartTime
+            ) else item.scheme
+            val times = when {
+                isActive && explicitTimes != null ->
+                    explicitTimes.map { it.copy(schemeId = entity.id) }
+                entity.mode == PeriodSchemeMode.AUTO_MATCH ->
+                    resolveSchemeTimes(
+                        targetConfig,
+                        item.copy(scheme = entity)
+                    )
+                else -> resizeManualPeriodTimes(
+                    item.times,
+                    total,
+                    entity.id,
+                    entity.classDurationMinutes,
+                    entity.breakDurationMinutes
+                )
+            }
+            val specialBreaks = if (isActive && patch.specialBreaks != null) {
+                patch.specialBreaks.mapNotNull { (key, value) ->
+                    key.toIntOrNull()?.let { it to value }
+                }.toMap()
+            } else item.specialBreaks
+            val overrides = if (isActive && patch.overriddenPeriods != null) {
+                patch.overriddenPeriods.toSet()
+            } else item.overriddenPeriods
+            item.copy(
+                scheme = entity,
+                times = times,
+                specialBreaks = specialBreaks,
+                overriddenPeriods = overrides
+            )
+        }
+        val topologyChanged = !config.hasSamePeriodTopology(targetConfig)
+        val targetDraft = draft.copy(
+            schemes = updatedSchemes,
+            topologyOperations = if (topologyChanged) {
+                listOf(PeriodTopologyOperation.AddAfter(config.totalPeriodCount()))
+            } else {
+                draft.topologyOperations
+            }
+        )
+        val active = targetDraft.schemes[activeIndex]
+        if (validateResolvedPeriodTimes(resolveSchemeTimes(targetConfig, active)) != null) return null
+        return targetConfig to targetDraft
+    }
+
+    private fun resizeManualPeriodTimes(
+        source: List<PeriodSchemeTimeEntity>,
+        count: Int,
+        schemeId: Long,
+        durationMinutes: Int,
+        breakMinutes: Int
+    ): List<PeriodSchemeTimeEntity> {
+        val formatter = DateTimeFormatter.ofPattern("HH:mm")
+        val result = source.sortedBy { it.periodIndex }
+            .filter { it.periodIndex in 1..count }
+            .toMutableList()
+        while (result.size < count) {
+            val index = result.size + 1
+            val start = result.lastOrNull()?.endTime
+                ?.let { runCatching { LocalTime.parse(it).plusMinutes(breakMinutes.toLong()) }.getOrNull() }
+                ?: LocalTime.of(8, 0)
+            val end = start.plusMinutes(durationMinutes.toLong())
+            result += PeriodSchemeTimeEntity(
+                schemeId = schemeId,
+                periodIndex = index,
+                startTime = start.format(formatter),
+                endTime = end.format(formatter)
+            )
+        }
+        return result.map { it.copy(schemeId = schemeId) }
     }
 
     fun importDraft(
@@ -151,9 +504,11 @@ class ScheduleViewModel(
         snackbar.value = null
     }
 
-    fun previewLiveUpdate() {
-        NotificationScheduler.showLiveUpdatePreview(app)
-        snackbar.value = "已发送实时活动预览"
+    fun previewLiveUpdate() = viewModelScope.launch {
+        val snapshot = repository.snapshot()
+        NotificationScheduler.showLiveUpdatePreview(app, snapshot.config)
+        val minutes = snapshot.config.notificationLeadMinutes.coerceIn(1, 30)
+        snackbar.value = "已启动测试实时活动（${minutes}分钟倒计时）"
     }
 
     fun refreshNotifications() {

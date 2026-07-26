@@ -1268,6 +1268,118 @@ class ScheduleRepository(private val database: AppDatabase) {
         courseDao.deleteCourse(course.id)
     }
 
+    suspend fun executeAgentPlan(plan: AgentPlan): AgentPlanExecutionResult {
+        return runCatching {
+            database.withTransaction {
+                val scheduleId = activeScheduleId()
+                val before = courseDao.getCourses().filter { it.scheduleId == scheduleId }
+                plan.actions.forEach { action ->
+                    if (
+                        action.type == AgentValidatedActionType.UPDATE ||
+                        action.type == AgentValidatedActionType.DELETE
+                    ) {
+                        val originalId = action.original?.id
+                        if (originalId == null || before.none { it.id == originalId }) {
+                            throw AgentPlanRejectedException("操作对象不属于当前课表，已拒绝执行")
+                        }
+                    }
+                }
+                val preview = previewAgentPlan(before, plan)
+
+                plan.actions.forEach { action ->
+                    when (action.type) {
+                        AgentValidatedActionType.ADD -> action.edited?.let { course ->
+                            courseDao.insertCourse(
+                                normalizeCoursesForSchedule(
+                                    listOf(course.copy(id = 0)),
+                                    scheduleId
+                                ).single()
+                            )
+                        }
+
+                        AgentValidatedActionType.UPDATE -> {
+                            val original = action.original
+                            val edited = action.edited
+                            if (original != null && edited != null) {
+                                if (action.scope == AgentActionScope.CURRENT_WEEK) {
+                                    val remainingWeeks =
+                                        original.weeks.filterNot { it == action.targetWeek }
+                                    if (remainingWeeks.isEmpty()) {
+                                        courseDao.deleteCourse(original.id)
+                                    } else {
+                                        courseDao.updateCourse(
+                                            original.copy(
+                                                weeks = remainingWeeks,
+                                                scheduleId = scheduleId
+                                            )
+                                        )
+                                    }
+                                    courseDao.insertCourse(
+                                        normalizeCoursesForSchedule(
+                                            listOf(
+                                                edited.copy(
+                                                    id = 0,
+                                                    weeks = listOf(action.targetWeek)
+                                                )
+                                            ),
+                                            scheduleId
+                                        ).single()
+                                    )
+                                } else {
+                                    courseDao.updateCourse(
+                                        normalizeCoursesForSchedule(
+                                            listOf(edited.copy(id = original.id)),
+                                            scheduleId
+                                        ).single()
+                                    )
+                                }
+                            }
+                        }
+
+                        AgentValidatedActionType.DELETE -> action.original?.let { original ->
+                            if (action.scope == AgentActionScope.CURRENT_WEEK) {
+                                val remainingWeeks =
+                                    original.weeks.filterNot { it == action.targetWeek }
+                                if (remainingWeeks.isEmpty()) courseDao.deleteCourse(original.id)
+                                else courseDao.updateCourse(
+                                    original.copy(
+                                        weeks = remainingWeeks,
+                                        scheduleId = scheduleId
+                                    )
+                                )
+                            } else {
+                                courseDao.deleteCourse(original.id)
+                            }
+                        }
+
+                        AgentValidatedActionType.OPEN_SETTINGS,
+                        AgentValidatedActionType.SET_SETTING,
+                        AgentValidatedActionType.SET_PERIOD_SETTINGS -> Unit
+                    }
+                }
+
+                mergeCompatibleCourseFragments(scheduleId)
+                val after = courseDao.getCourses().filter { it.scheduleId == scheduleId }
+                if (!verifyAgentPlan(after, plan)) {
+                    throw AgentPlanRejectedException("数据库写入后的真实状态与操作计划不一致")
+                }
+                AgentPlanExecutionResult(
+                    success = true,
+                    preview = preview,
+                    verified = true,
+                    message = "操作已完成并验证"
+                )
+            }
+        }.getOrElse { error ->
+            AgentPlanExecutionResult(
+                success = false,
+                preview = null,
+                verified = false,
+                message = error.message ?: "操作失败，所有修改已回滚"
+            )
+        }
+    }
+
     suspend fun importDraft(draft: ImportDraft, createNewSchedule: Boolean = false): Int {
         return database.withTransaction {
             val oldActiveId = activeScheduleId()

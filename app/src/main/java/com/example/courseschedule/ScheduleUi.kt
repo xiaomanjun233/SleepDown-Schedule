@@ -209,6 +209,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
@@ -344,7 +345,7 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.Root -> "设置"
     SettingsPage.General -> "通用设置"
     SettingsPage.AiImport -> "AI 设置"
-    SettingsPage.DayAgent -> "今日 Agent"
+    SettingsPage.DayAgent -> "今日助手"
     SettingsPage.Schedule -> "课表详细设置"
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
@@ -410,12 +411,7 @@ fun CourseScheduleAppUi(
     var pendingPickerEditorScheduleId by remember { mutableStateOf<Int?>(null) }
     var quickScheduleDraft by remember { mutableStateOf<QuickScheduleDraft?>(null) }
     val dayAgentBackgroundMotionState = rememberDayAgentBackgroundMotionState()
-    var dayAgentEdgeSnapshot by remember { mutableStateOf<Bitmap?>(null) }
-    var dayAgentSnapshotKey by remember { mutableStateOf<String?>(null) }
     var dayAgentPagerSettled by remember { mutableStateOf(false) }
-    var dayAgentCaptureRecordCleanFrame by remember { mutableStateOf(false) }
-    val dayAgentCaptureMaskActive = remember { AtomicBoolean(false) }
-    val dayAgentCleanFrameSignal = remember { AtomicReference<CompletableDeferred<Unit>?>(null) }
     var detailMorphState by remember { mutableStateOf<DetailMorphState>(DetailMorphState.Idle) }
     var detailMorphRequest by remember { mutableStateOf<DetailMorphRequest?>(null) }
     var detailCaptureCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -423,7 +419,6 @@ fun CourseScheduleAppUi(
     val detailCaptureMaskActive = remember { AtomicBoolean(false) }
     val visualState = previewScheduleId?.let(allSchedulesState::forSchedule) ?: state
     val screenGraphicsLayer = rememberGraphicsLayer()
-    val dayAgentBackgroundGraphicsLayer = rememberGraphicsLayer()
     val detailScreenGraphicsLayer = rememberGraphicsLayer()
     val recordedScheduleId = remember { AtomicInteger(-1) }
     val recordedHomeGeneration = remember { AtomicLong(0L) }
@@ -542,6 +537,8 @@ fun CourseScheduleAppUi(
     val contentBackdrop = rememberLayerBackdrop()
     val pickerSceneBackdrop = rememberLayerBackdrop()
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
+    var homeReadabilityRootSize by remember { mutableStateOf(IntSize.Zero) }
+    var homeRootPositionOnScreen by remember { mutableStateOf(Offset.Zero) }
     val currentVersionName = remember(context) {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
@@ -664,7 +661,7 @@ fun CourseScheduleAppUi(
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening ||
             (courseEditorRequest != null && courseEditorOverlayPhase == CourseEditorOverlayPhase.Open)
-    val courseEditorBackdrop =
+    val courseEditorBackdropBase =
         if (
             reduceWallpaperQualityForCourseEditor ||
             (courseEditorRequest != null && courseEditorOverlayPhase != CourseEditorOverlayPhase.Open)
@@ -673,6 +670,18 @@ fun CourseScheduleAppUi(
         } else {
             chromeBackdrop
         }
+    val courseEditorBackdrop = rememberScreenScaledBackdrop(
+        backdrop = courseEditorBackdropBase,
+        scale = { courseEditorMotionState.backgroundZoom.value },
+        rootPositionOnScreen = { homeRootPositionOnScreen },
+        rootSize = { homeReadabilityRootSize }
+    )
+    val dayAgentBackdrop = rememberScreenScaledBackdrop(
+        backdrop = backgroundBackdrop,
+        scale = { dayAgentBackgroundMotionState.backgroundZoom.value },
+        rootPositionOnScreen = { homeRootPositionOnScreen },
+        rootSize = { homeReadabilityRootSize }
+    )
     // Startup splash with circular reveal
     val systemDark = isSystemInDarkTheme()
     val splashColor = if (systemDark) ComposeColor(0xFF000000) else ComposeColor(0xFFFFFFFF)
@@ -696,7 +705,6 @@ fun CourseScheduleAppUi(
     var homeDisplayWeek by remember(visualState.config.id) { mutableIntStateOf(1) }
     var homeWeekInitialized by remember(visualState.config.id) { mutableStateOf(false) }
     var homeDisplayDate by remember(visualState.config.id) { mutableStateOf(todayDate) }
-    val currentDayAgentSnapshotKey = "${visualState.config.id}:${homeMode.name}:$homeDisplayDate"
     LaunchedEffect(
         state.loaded,
         visualState.config.id,
@@ -704,20 +712,8 @@ fun CourseScheduleAppUi(
         homeMode,
         homeDisplayDate
     ) {
-        // A full-screen GPU readback here used to run as soon as the day pager settled.
-        // That made merely arriving on a date containing the Agent card visibly hitch.
-        // Keep only cache invalidation here; capture once, on demand, after the pager's
-        // exact final frame is confirmed in onAgentPrepareOpen below.
-        if (!state.loaded || pickerState.overlayVisible || homeMode != HomeMode.Day ||
-            dayAgentSnapshotKey != currentDayAgentSnapshotKey
-        ) {
-            dayAgentSnapshotKey = null
-            if (homeMode != HomeMode.Day || pickerState.overlayVisible) {
-                // The frozen Agent background owns a full-screen mirrored blur RenderNode.
-                // Keeping it mounted at alpha=0 still taxes every later week animation.
-                dayAgentEdgeSnapshot = null
-            }
-        }
+        // The Agent background is transformed live now, so there is no frozen snapshot to
+        // invalidate when leaving the day page or opening the picker.
     }
     LaunchedEffect(visualState.loaded, visualState.config.id, visualState.config.totalWeeks, homeCurrentWeek, visualState.config.autoCurrentWeek, beforeScheduleTerm) {
         if (!visualState.loaded) return@LaunchedEffect
@@ -1135,7 +1131,6 @@ fun CourseScheduleAppUi(
     ) {
     val sharedTransitionScope = this
     val activeSharedTransitionScope = if (startupPhase == StartupPhase.FullQuality) sharedTransitionScope else null
-    var homeReadabilityRootSize by remember { mutableStateOf(IntSize.Zero) }
     CompositionLocalProvider(
         LocalSharedTransitionScope provides activeSharedTransitionScope,
         LocalEditingCourseId provides editingCourseId,
@@ -1149,13 +1144,16 @@ fun CourseScheduleAppUi(
             rootSize = homeReadabilityRootSize
         ),
         LocalCourseCardPalette provides wallpaperImages.representativeColors,
-        LocalCourseCardColorAssignments provides homeCourseColorAssignments,
-        LocalAgentBackgroundCaptureMask provides { dayAgentCaptureMaskActive.get() }
+        LocalCourseCardColorAssignments provides homeCourseColorAssignments
     ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .onSizeChanged { homeReadabilityRootSize = it }
+            .background(MaterialTheme.colorScheme.background)
+            .onGloballyPositioned {
+                homeReadabilityRootSize = it.size
+                homeRootPositionOnScreen = it.positionOnScreen()
+            }
             .drawWithContent {
                 val recordCleanFrame =
                     detailMorphState is DetailMorphState.Capturing && detailCaptureRecordCleanFrame
@@ -1178,43 +1176,23 @@ fun CourseScheduleAppUi(
                 drawContent()
             }
     ) {
-        dayAgentEdgeSnapshot?.let { background ->
-            MorphSnapshotBackground(
-                bitmap = background,
-                backgroundScaleProvider = {
-                    1f - 0.08f * dayAgentBackgroundMotionState.progress.value.coerceIn(0f, 1f)
-                },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = if (dayAgentBackgroundMotionState.progress.value > 0.001f) 1f else 0f
-                    }
-            )
-        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .clipToBounds()
                 .graphicsLayer {
-                    val p = dayAgentBackgroundMotionState.progress.value.coerceIn(0f, 1f)
-                    if (dayAgentEdgeSnapshot != null) {
-                        // The frozen snapshot owns the whole background transition. Do not keep
-                        // transforming the live, backdrop-heavy home underneath it.
-                        alpha = if (p > 0.001f) 0f else 1f
-                        scaleX = 1f
-                        scaleY = 1f
-                        renderEffect = null
-                    } else {
-                        // Safe fallback for the very first frame before prewarm completes.
-                        val scale = 1f - 0.08f * p
-                        scaleX = scale
-                        scaleY = scale
-                        val blurPx = with(density) { 12.dp.toPx() }
-                        renderEffect = if (p > 0.001f) {
-                            BlurEffect(blurPx, blurPx, TileMode.Clamp)
-                        } else null
-                    }
-                    shape = RoundedCornerShape(20.dp)
-                    clip = p > 0.001f
+                    // Live background depth: blur + inertial zoom on the real home surface,
+                    // driven by a single slow Animatable that trails the card morph. No frozen
+                    // snapshot — the backdrop-heavy home is transformed directly each frame.
+                    val zoom = dayAgentBackgroundMotionState.backgroundZoom.value
+                    val depthProgress =
+                        ((1f - zoom) / (1f - DayAgentBackgroundZoomRestScale)).coerceIn(0f, 1f)
+                    scaleX = zoom
+                    scaleY = zoom
+                    val blurPx = with(density) { 12.dp.toPx() } * depthProgress
+                    renderEffect = if (depthProgress > 0.001f) {
+                        BlurEffect(blurPx, blurPx, TileMode.Clamp)
+                    } else null
                 }
                 .drawWithContent {
                     val mayRecordHome =
@@ -1222,17 +1200,6 @@ fun CourseScheduleAppUi(
                             courseEditorOverlayPhase == CourseEditorOverlayPhase.Idle
                     if (mayRecordHome) {
                         captureRenderToken // Reading the token explicitly invalidates this draw node for capture.
-                        if (dayAgentCaptureRecordCleanFrame) {
-                            dayAgentCaptureMaskActive.set(true)
-                            try {
-                                dayAgentBackgroundGraphicsLayer.record {
-                                    this@drawWithContent.drawContent()
-                                }
-                            } finally {
-                                dayAgentCaptureMaskActive.set(false)
-                            }
-                            dayAgentCleanFrameSignal.getAndSet(null)?.complete(Unit)
-                        }
                         screenGraphicsLayer.record { this@drawWithContent.drawContent() }
                         recordedScheduleId.set(visualState.config.id)
                         recordedHomeGeneration.incrementAndGet()
@@ -1240,6 +1207,11 @@ fun CourseScheduleAppUi(
                     drawContent()
                 }
         ) {
+        // The editor zoom wraps BOTH the blurred home surface and the editor overlay so the
+        // backdrop provider (wallpaper inside CourseEditorBackgroundBlurLayer) and its consumer
+        // (the overlay's liquid glass) share one scale transform. Scaling only the blur layer
+        // left the provider transformed but the consumer outside it, so glass sampling drifted.
+        CourseEditorBackgroundZoomLayer(motionState = courseEditorMotionState) {
         CourseEditorBackgroundBlurLayer(
             motionState = courseEditorMotionState,
             modifier = Modifier
@@ -1357,13 +1329,15 @@ fun CourseScheduleAppUi(
                     ContentEntranceContainer(phase = startupPhase, modifier = Modifier.weight(1f)) {
                         when (val current = screen) {
                             Screen.Home -> {
-                                HomeScreen(
-                                    state = visualState,
+                                 HomeScreen(
+                                     state = visualState,
+                                     agentState = state,
                                     mode = homeMode,
                                     weekCardHeight = weekCardHeight.dp,
                                     displayWeek = homeDisplayWeek,
                                     displayDate = homeDisplayDate,
                                     backdrop = backgroundBackdrop,
+                                    dayAgentBackdrop = dayAgentBackdrop,
                                     // Dragged week cards must not sample contentBackdrop/chromeBackdrop:
                                     // they live inside contentBackdrop, so sampling it can recursively include themselves.
                                     floatingCourseBackdrop = backgroundBackdrop,
@@ -1379,71 +1353,52 @@ fun CourseScheduleAppUi(
                                     dayAgentBackgroundMotionState = dayAgentBackgroundMotionState,
                                     onAgentPagerSettledChange = { settled ->
                                         dayAgentPagerSettled = settled
-                                        if (!settled) dayAgentSnapshotKey = null
                                     },
                                     onAgentPrepareOpen = {
-                                        // Never freeze a partially swiped day page. The clean capture must
-                                        // correspond to the exact final frame that is visible before opening.
+                                        // Never open over a partially swiped day page. The background is now
+                                        // transformed live (blur + zoom), so no frozen snapshot capture is
+                                        // needed — only the pager-settled gate remains.
                                         if (!dayAgentPagerSettled) {
                                             snapshotFlow { dayAgentPagerSettled }.first { it }
                                         }
-                                        // Reuse a valid snapshot when reopening the unchanged day; otherwise
-                                        // capture on demand, matching the course-card morph instead of stalling
-                                        // the pager with an eager full-screen GPU readback.
-                                        if (dayAgentSnapshotKey != currentDayAgentSnapshotKey) {
-                                            val cleanFrameReady = CompletableDeferred<Unit>()
-                                            dayAgentCleanFrameSignal.set(cleanFrameReady)
-                                            dayAgentCaptureRecordCleanFrame = true
-                                            captureRenderToken += 1
-                                            try {
-                                                // Wait for the draw node that actually recorded the clean frame.
-                                                // This replaces two unconditional frame delays with one explicit
-                                                // completion signal and keeps the capture tied to the final pager.
-                                                withTimeoutOrNull(250L) { cleanFrameReady.await() }
-                                                    ?: withFrameNanos { }
-                                                runCatching {
-                                                    dayAgentBackgroundGraphicsLayer.toImageBitmap().asAndroidBitmap()
-                                                }.getOrNull()?.let {
-                                                    dayAgentEdgeSnapshot = it
-                                                    dayAgentSnapshotKey = currentDayAgentSnapshotKey
-                                                }
-                                            } finally {
-                                                dayAgentCleanFrameSignal.compareAndSet(cleanFrameReady, null)
-                                                dayAgentCaptureRecordCleanFrame = false
-                                            }
-                                        }
                                     },
-                                    onAgentDismissed = {
-                                        // The close Morph has reached p=0, so the invisible full-screen
-                                        // snapshot can be removed without changing the handoff frame.
-                                        dayAgentEdgeSnapshot = null
-                                        dayAgentSnapshotKey = null
-                                    },
+                                    onAgentDismissed = {},
                                     onCourseClick = { course, week, sourceBounds ->
                                         openCourseEditor(course, week, sourceBounds)
                                     },
                                     onAddCourse = viewModel::addCourse,
-                                    onAgentAction = { action ->
-                                        when (action.type) {
-                                            AgentValidatedActionType.ADD -> action.edited?.let(viewModel::addCourse)
-                                            AgentValidatedActionType.UPDATE -> {
-                                                val original = action.original
-                                                val edited = action.edited
-                                                if (original != null && edited != null) {
-                                                    if (action.scope == AgentActionScope.CURRENT_WEEK) {
-                                                        viewModel.updateCourseSingleWeek(original, edited, action.targetWeek)
-                                                    } else {
-                                                        viewModel.updateCourse(edited)
-                                                    }
-                                                }
-                                            }
-                                            AgentValidatedActionType.DELETE -> action.original?.let { course ->
-                                                if (action.scope == AgentActionScope.CURRENT_WEEK) {
-                                                    viewModel.deleteCourseSingleWeek(course, action.targetWeek)
-                                                } else {
-                                                    viewModel.deleteCourse(course)
-                                                }
-                                            }
+                                    onAgentAction = {
+                                        plan: AgentPlan,
+                                        onResult: (AgentPlanExecutionResult) -> Unit ->
+                                        val actions = plan.actions
+                                        val action = actions.singleOrNull()
+                                        val courseActions = actions.filter {
+                                            it.type == AgentValidatedActionType.ADD ||
+                                                it.type == AgentValidatedActionType.UPDATE ||
+                                                it.type == AgentValidatedActionType.DELETE
+                                        }
+                                         val settingActions = actions.filter {
+                                             it.type == AgentValidatedActionType.SET_SETTING ||
+                                                 it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS
+                                        }
+                                        when {
+                                            courseActions.size == actions.size && actions.isNotEmpty() ->
+                                                viewModel.executeAgentPlan(actions, onResult)
+                                            settingActions.size == actions.size && actions.isNotEmpty() ->
+                                                viewModel.executeAgentSettingPlan(actions, onResult)
+                                            action == null -> onResult(
+                                                AgentPlanExecutionResult(
+                                                    success = false,
+                                                    preview = null,
+                                                    verified = false,
+                                                    message = "课程操作与页面或设置操作不能在同一事务中执行"
+                                                )
+                                            )
+                                            else -> when (action.type) {
+                                            AgentValidatedActionType.ADD,
+                                            AgentValidatedActionType.UPDATE,
+                                            AgentValidatedActionType.DELETE ->
+                                                viewModel.executeAgentPlan(actions, onResult)
                                             AgentValidatedActionType.OPEN_SETTINGS -> {
                                                 if (action.settingsPage == "PERSONALIZATION") {
                                                     addMenuExpanded = false
@@ -1456,6 +1411,14 @@ fun CourseScheduleAppUi(
                                                     }
                                                     context.startActivity(intent)
                                                 }
+                                                onResult(
+                                                    AgentPlanExecutionResult(
+                                                        success = true,
+                                                        preview = null,
+                                                        verified = true,
+                                                        message = "页面已打开"
+                                                    )
+                                                )
                                             }
                                             AgentValidatedActionType.SET_SETTING -> {
                                                 when {
@@ -1483,7 +1446,18 @@ fun CourseScheduleAppUi(
                                                         action.settingValue
                                                     )?.let(viewModel::savePersonalization)
                                                 }
+                                                onResult(
+                                                    AgentPlanExecutionResult(
+                                                        success = true,
+                                                        preview = null,
+                                                        verified = false,
+                                                        message = "设置修改已提交"
+                                                    )
+                                                )
                                             }
+                                            AgentValidatedActionType.SET_PERIOD_SETTINGS ->
+                                                viewModel.executeAgentSettingPlan(actions, onResult)
+                                        }
                                         }
                                     },
                                     onUpdateCourseSingleWeek = viewModel::updateCourseSingleWeek,
@@ -1794,6 +1768,7 @@ fun CourseScheduleAppUi(
         )
     }
     }
+    } // end CourseEditorBackgroundZoomLayer
 
     GlassMiuixSettingsTheme(settingsVisualConfig(state.config)) {
         QuickScheduleSettingsSheets(
@@ -1911,12 +1886,12 @@ fun CourseScheduleAppUi(
                     viewModel.updateCourse(edited)
                     closeCourseEditor()
                 } else {
-                    closeCourseEditor()
+                    // Keep the editor fully mounted behind the choice dialog. Closing it first
+                    // lets its Morph/interaction shield cover and stall the confirmation.
                     homeDialog = HomeDialog.ApplyCourseEdit(original, edited, targetWeek ?: effectiveCurrentWeek(state.config))
                 }
             },
             onDelete = { course, targetWeek ->
-                closeCourseEditor()
                 homeDialog = HomeDialog.ApplyCourseDelete(course, targetWeek ?: effectiveCurrentWeek(state.config))
             },
             motionState = courseEditorMotionState,
@@ -2007,10 +1982,12 @@ fun CourseScheduleAppUi(
                 onSingle = {
                     viewModel.updateCourseSingleWeek(dialog.original, dialog.edited, dialog.targetWeek)
                     dismissHomeDialog()
+                    closeCourseEditor()
                 },
                 onAll = {
                     viewModel.updateCourse(dialog.edited)
                     dismissHomeDialog()
+                    closeCourseEditor()
                 },
                 onCancel = { dismissHomeDialog() }
             )
@@ -2022,14 +1999,15 @@ fun CourseScheduleAppUi(
                 onSingle = {
                     viewModel.deleteCourseSingleWeek(dialog.course, dialog.targetWeek)
                     dismissHomeDialog()
+                    closeCourseEditor()
                 },
                 onAll = {
                     viewModel.deleteCourse(dialog.course)
                     dismissHomeDialog()
+                    closeCourseEditor()
                 },
                 onCancel = {
                     dismissHomeDialog()
-                    openCourseEditor(dialog.course, dialog.targetWeek, null)
                 }
             )
         } else {
@@ -2221,6 +2199,28 @@ fun CourseScheduleAppUi(
 
 }
 
+@Composable
+private fun CourseEditorBackgroundZoomLayer(
+    motionState: CourseEditorMotionState,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .graphicsLayer {
+                // Inertial zoom shared by the blurred home surface and the editor overlay.
+                // Wrapping both keeps the backdrop provider and its glass consumer in one
+                // transform space, so sampling stays correct while the surface pushes in.
+                // clipToBounds ensures the zoomed-in content never bleeds past the screen.
+                scaleX = motionState.backgroundZoom.value
+                scaleY = motionState.backgroundZoom.value
+            },
+        content = content
+    )
+}
+
 private val HomeTopOverlayHeight = 178.dp
 private val DetailTopBarHeight = 58.dp
 private val DetailTopOverlayExtra = 74.dp
@@ -2238,14 +2238,23 @@ private fun CourseEditorBackgroundBlurLayer(
         modifier = modifier.graphicsLayer {
             // Read the Morph Animatable inside the layer block: Compose invalidates only this
             // render layer instead of recomposing the home/Pagers on every animation frame.
-            val rawProgress = motionState.progress.value.coerceIn(0f, 1f)
-            val blurProgress = rawProgress * rawProgress * (3f - 2f * rawProgress)
-            val blurPx = with(density) { 12.dp.toPx() } * blurProgress
+            // Both the blur depth and the inertial zoom are driven by a single slow Animatable
+            // (backgroundZoom) that trails the card morph, so the home surface keeps settling
+            // after the card has opened/closed. Normalise the 1..1.08 zoom range back to a
+            // 0..1 depth factor so blur strength and scale never drift apart.
+            val depthProgress =
+                ((motionState.backgroundZoom.value - 1f) / (BackgroundZoomOpenScale - 1f))
+                    .coerceIn(0f, 1f)
+            val blurPx = with(density) { 12.dp.toPx() } * depthProgress
             renderEffect = if (blurPx > 0.01f) {
                 BlurEffect(blurPx, blurPx, TileMode.Clamp)
             } else {
                 null
             }
+            // Anchored at center so the scale never exposes the layer's transparent edges.
+            // TEMP DISABLED: diagnosing backdrop sampling mismatch.
+            // scaleX = motionState.backgroundZoom.value
+            // scaleY = motionState.backgroundZoom.value
         },
         content = content
     )
@@ -2536,7 +2545,7 @@ fun AppTopBar(
                                 SettingsPage.Root -> "设置"
                                 SettingsPage.General -> "通用设置"
                                 SettingsPage.AiImport -> "AI 设置"
-                                SettingsPage.DayAgent -> "今日 Agent"
+                                SettingsPage.DayAgent -> "今日助手"
                                 SettingsPage.Schedule -> "课表详细设置"
                                 SettingsPage.Notifications -> "通知设置"
                                 SettingsPage.ScheduleManager -> "课表设置"
@@ -4848,7 +4857,7 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow("AI 设置", "配置智能功能共用的服务商、模型和 API Key。", onClick = { onPageChange(SettingsPage.AiImport) })
                     SettingsDivider()
-                    SettingsNavigationRow("今日 Agent", "管理日视图助手、每日文案与天气。", onClick = { onPageChange(SettingsPage.DayAgent) })
+                    SettingsNavigationRow("今日助手", "管理日视图助手、天气与预警。", onClick = { onPageChange(SettingsPage.DayAgent) })
                 }
             }
         }
@@ -5217,6 +5226,8 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsInfoRow("1.0.9", "今日助手全面升级，能够根据需要读取当前课表和设置，连续完成查询、修改、确认结果与撤销操作，并支持 MiMo 联网搜索；新增课程卡片和今日助手打开时的背景随动缩放效果，课程卡片展开与收回采用更自然的抛物线运动轨迹，配合弹性缩放和更流畅的页面交接，动画更加灵动；增强课程、节次、作息方案和个性化设置的智能调整能力，修改节次后可更合理地处理原有课程安排；修复今日助手偶尔读取错误课表、工具调用中断、回复内容缺失，以及实时活动倒计时停止刷新、测试提醒无法取消等问题。")
+                SettingsDivider()
                 SettingsInfoRow("1.0.8", "桌面小组件新增今日助手，展示当前或下节课、倒计时、地点与教师、上下课时间、今日课程数量、天气和预警，并补齐今日课程与今日助手三款小组件在系统选择页的独立名称和预览；修复升级后部分课表的节次时间与详细设置被错误重建为默认值的问题，完善多作息方案保存和数据库迁移兼容；将周次切换字符替换为矢量图标，并修复添加单节课选择器层级等交互问题。")
                 SettingsDivider()
                 SettingsInfoRow("1.0.7", "重构个性化与壁纸调整流程，新增卡片式壁纸裁切页面、横竖屏独立构图及更连贯的无缝过渡，并优化配色布局、玻璃材质、壁纸模糊与全部调节滑条的性能；强化课表详细设置与课程编辑，补充中午时段、总节次配置、时段防重叠和多课程翻页编辑，完善节次选择器、特殊课间以及 ICS 导入导出的完整作息信息，并支持从系统分享或打开方式直接调用 SleepDown 导入 ICS；重新设计今日助手卡片，集中展示课程、天气和预警信息，保留对话入口并增强自然语言课程与设置操作的识别稳定性；改进首页文字可读性和非液态玻璃课程卡片的高斯模糊效果，修复详情页进入闪帧、后台任务卡片隐藏范围及多项动画、数据与交互问题。")

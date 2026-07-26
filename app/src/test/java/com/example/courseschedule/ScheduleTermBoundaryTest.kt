@@ -55,4 +55,23 @@ class ScheduleTermBoundaryTest {
         assertEquals("08:50", updated?.first()?.endTime)
         assertNull(AgentSettingRegistry.applyPeriodTime(periods, "PERIOD_1_TIME", "08:30-09:00"))
     }
+
+    @Test
+    fun periodTimeBatchValidatesTheFinalTimelineInsteadOfIntermediateStates() {
+        val periods = listOf(
+            PeriodEntity(1, "08:00", "08:45"),
+            PeriodEntity(2, "08:55", "09:40")
+        )
+        // The first change alone overlaps the old second period, but the complete requested
+        // timeline is valid and therefore must be applied atomically.
+        val updated = AgentSettingRegistry.applyPeriodTimes(
+            periods,
+            listOf(
+                "PERIOD_1_TIME" to "09:00-09:45",
+                "PERIOD_2_TIME" to "09:55-10:40"
+            )
+        )
+        assertEquals("09:00", updated?.first()?.startTime)
+        assertEquals("10:40", updated?.last()?.endTime)
+    }
 }

@@ -576,11 +576,13 @@ fun HomeModePill(backdrop: Backdrop?, config: ScheduleConfigEntity, iconRes: Int
 @Composable
 fun HomeScreen(
     state: AppState,
+    agentState: AppState = state,
     mode: HomeMode,
     weekCardHeight: Dp,
     displayWeek: Int,
     displayDate: LocalDate,
     backdrop: Backdrop?,
+    dayAgentBackdrop: Backdrop? = backdrop,
     floatingCourseBackdrop: Backdrop? = backdrop,
     weekHeaderBackdrop: Backdrop? = backdrop,
     onSwipeWeek: (Int) -> Unit,
@@ -592,7 +594,7 @@ fun HomeScreen(
     onAgentDismissed: () -> Unit = {},
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit = {},
-    onAgentAction: (AgentValidatedAction) -> Unit = {},
+    onAgentAction: AgentActionHandler = { _, _ -> },
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onScheduleLongPress: () -> Unit = {},
@@ -641,11 +643,13 @@ fun HomeScreen(
                 HomeMode.Day -> CompositionLocalProvider(LocalOverscrollFactory provides homeOverscrollFactory) {
                     DayScheduleScreen(
                         state = state,
+                        agentState = agentState,
                         displayDate = displayDate,
                         displayWeek = effectiveCurrentWeek(state.config, displayDate),
                         cardColor = cardColor,
                         textColor = textColor,
                         backdrop = backdrop,
+                        dayAgentBackdrop = dayAgentBackdrop,
                         onSwipeDay = onSwipeDay,
                         onContentUnderTopBarChange = onContentUnderTopBarChange,
                         dayAgentBackgroundMotionState = dayAgentBackgroundMotionState,
@@ -1165,11 +1169,13 @@ fun appPanelForegroundColor(config: ScheduleConfigEntity): ComposeColor {
 @Composable
 fun DayScheduleScreen(
     state: AppState,
+    agentState: AppState = state,
     displayDate: LocalDate,
     displayWeek: Int,
     cardColor: ComposeColor,
     textColor: ComposeColor,
     backdrop: Backdrop?,
+    dayAgentBackdrop: Backdrop? = backdrop,
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     dayAgentBackgroundMotionState: DayAgentBackgroundMotionState,
@@ -1178,7 +1184,7 @@ fun DayScheduleScreen(
     onAgentDismissed: () -> Unit,
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit,
-    onAgentAction: (AgentValidatedAction) -> Unit
+    onAgentAction: AgentActionHandler
 ) {
     val centerPage = 10_000
     val anchorDate = remember { displayDate }
@@ -1346,9 +1352,9 @@ fun DayScheduleScreen(
                 ) {
                     item(key = "today-agent-${state.config.id}") {
                         TodayAgentHost(
-                            state = state,
+                            state = agentState,
                             date = targetDate,
-                            backdrop = backdrop,
+                            backdrop = dayAgentBackdrop,
                             textColor = textColor,
                             collapsed = agentCollapsed,
                             isActive = page == pagerState.settledPage,

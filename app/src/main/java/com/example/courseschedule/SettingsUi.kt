@@ -434,7 +434,6 @@ fun AiImportSettingsScreen(state: AppState, backdrop: Backdrop?) {
 fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
     val context = LocalContext.current
     var enabled by remember { mutableStateOf(DayAgentPreferences.isEnabled(context)) }
-    var dailyAiEnabled by remember { mutableStateOf(DayAgentPreferences.isDailyAiEnabled(context)) }
     var weatherEnabled by remember { mutableStateOf(DayAgentPreferences.isWeatherEnabled(context)) }
     val topPadding = detailContentTopPadding()
 
@@ -446,30 +445,18 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
             GlassPreferenceSection("今日助手") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsInfoRow(
-                        "今日 Agent",
-                        "仅在日视图的今天显示。倒计时与课程状态由本地计算；个性化文案每天最多自动调用一次已配置的 AI。"
+                        "今日助手",
+                        "仅在日视图的今天显示，集中展示课程状态、倒计时、天气与预警；点击卡片可进入助手对话。"
                     )
                     SettingsDivider()
                     SettingsToggleRow(
-                        title = "启用今日 Agent",
+                        title = "启用今日助手",
                         subtitle = "显示课程、空档、天气与问答入口。",
                         checked = enabled,
                         backdrop = backdrop,
                         onCheckedChange = {
                             enabled = it
                             DayAgentPreferences.setEnabled(context, it)
-                        }
-                    )
-                    SettingsDivider()
-                    SettingsToggleRow(
-                        title = "每日 AI 个性化文案",
-                        subtitle = "关闭后完全使用本地模板，不自动调用 AI。",
-                        checked = dailyAiEnabled,
-                        backdrop = backdrop,
-                        enabled = enabled,
-                        onCheckedChange = {
-                            dailyAiEnabled = it
-                            DayAgentPreferences.saveOptions(context, it, weatherEnabled)
                         }
                     )
                     SettingsDivider()
@@ -481,7 +468,11 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
                         enabled = enabled,
                         onCheckedChange = {
                             weatherEnabled = it
-                            DayAgentPreferences.saveOptions(context, dailyAiEnabled, it)
+                            DayAgentPreferences.saveOptions(
+                                context,
+                                DayAgentPreferences.isDailyAiEnabled(context),
+                                it
+                            )
                         }
                     )
                 }

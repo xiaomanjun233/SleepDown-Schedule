@@ -79,7 +79,25 @@ data class DayAgentFacts(
     val scheduleId: Int = 1,
     val currentWeek: Int = 1,
     val settingSnapshot: Map<String, String> = emptyMap(),
-    val semesterCourses: List<CourseEntity> = emptyList()
+    val semesterCourses: List<CourseEntity> = emptyList(),
+    val periodSchemes: List<AgentPeriodSchemeSnapshot> = emptyList(),
+    val activePeriodSchemeId: Long? = null
+)
+
+data class AgentPeriodSchemeSnapshot(
+    val id: Long,
+    val name: String,
+    val mode: PeriodSchemeMode,
+    val isActive: Boolean,
+    val classDurationMinutes: Int,
+    val breakDurationMinutes: Int,
+    val morningStartTime: String,
+    val noonStartTime: String,
+    val afternoonStartTime: String,
+    val eveningStartTime: String,
+    val specialBreaks: Map<Int, Int>,
+    val overriddenPeriods: Set<Int>,
+    val times: List<PeriodSchemeTimeEntity>
 )
 
 @Serializable
@@ -100,7 +118,14 @@ data class ParsedAgentCourseDraft(
 )
 
 @Serializable
-enum class AgentActionType { ADD_COURSE, UPDATE_COURSE, DELETE_COURSE, OPEN_SETTINGS, SET_SETTING }
+enum class AgentActionType {
+    ADD_COURSE,
+    UPDATE_COURSE,
+    DELETE_COURSE,
+    OPEN_SETTINGS,
+    SET_SETTING,
+    SET_PERIOD_SETTINGS
+}
 
 @Serializable
 enum class AgentActionScope { CURRENT_WEEK, ALL_WEEKS }
@@ -118,6 +143,32 @@ data class AgentCoursePatch(
 )
 
 @Serializable
+data class AgentPeriodTimePatch(
+    val periodIndex: Int,
+    val startTime: String,
+    val endTime: String
+)
+
+@Serializable
+data class AgentPeriodSettingsPatch(
+    val schemeName: String? = null,
+    val mode: String? = null,
+    val morningPeriodCount: Int? = null,
+    val noonPeriodCount: Int? = null,
+    val afternoonPeriodCount: Int? = null,
+    val eveningPeriodCount: Int? = null,
+    val classDurationMinutes: Int? = null,
+    val breakDurationMinutes: Int? = null,
+    val morningStartTime: String? = null,
+    val noonStartTime: String? = null,
+    val afternoonStartTime: String? = null,
+    val eveningStartTime: String? = null,
+    val periods: List<AgentPeriodTimePatch>? = null,
+    val specialBreaks: Map<String, Int>? = null,
+    val overriddenPeriods: List<Int>? = null
+)
+
+@Serializable
 data class AgentActionDraft(
     val type: AgentActionType,
     val courseId: Long? = null,
@@ -126,10 +177,18 @@ data class AgentActionDraft(
     val settingsPage: String? = null,
     val settingKey: String? = null,
     val settingValue: String? = null,
+    val periodSettings: AgentPeriodSettingsPatch? = null,
     val summary: String = ""
 )
 
-enum class AgentValidatedActionType { ADD, UPDATE, DELETE, OPEN_SETTINGS, SET_SETTING }
+enum class AgentValidatedActionType {
+    ADD,
+    UPDATE,
+    DELETE,
+    OPEN_SETTINGS,
+    SET_SETTING,
+    SET_PERIOD_SETTINGS
+}
 
 data class AgentValidatedAction(
     val type: AgentValidatedActionType,
@@ -140,6 +199,7 @@ data class AgentValidatedAction(
     val settingsPage: String? = null,
     val settingKey: String? = null,
     val settingValue: String? = null,
+    val periodSettings: AgentPeriodSettingsPatch? = null,
     val summary: String
 )
 
@@ -202,12 +262,14 @@ fun buildDayAgentFacts(
     now: LocalDateTime = LocalDateTime.now(ZoneId.of("Asia/Shanghai")),
     settingContext: android.content.Context? = null
 ): DayAgentFacts {
-    val periodMap = periods.associateBy { it.periodIndex }
+    val scheduleCourses = courses.filter { it.scheduleId == config.id }
+    val schedulePeriods = periods.filter { it.scheduleId == config.id }
+    val periodMap = schedulePeriods.associateBy { it.periodIndex }
     val currentWeek = effectiveCurrentWeek(config, date)
     fun slotsFor(targetDate: LocalDate): List<AgentCourseSlot> {
         val week = scheduleWeekForDateOrNull(config, targetDate) ?: return emptyList()
         val weekday = targetDate.dayOfWeek.value
-        return courses.asSequence()
+        return scheduleCourses.asSequence()
             .filter { it.weekday == weekday && week in it.weeks && parityMatches(it.weekParity, week) }
             .mapNotNull { course ->
                 val first = course.periods.minOrNull()?.let(periodMap::get)
@@ -240,13 +302,12 @@ fun buildDayAgentFacts(
         week = week,
         weather = weather,
         sourceHash = source.sha256(),
-        periodDefinitions = periods.sortedBy { it.periodIndex },
+        periodDefinitions = schedulePeriods.sortedBy { it.periodIndex },
         totalWeeks = config.totalWeeks,
         scheduleId = config.id,
         currentWeek = currentWeek,
         settingSnapshot = AgentSettingRegistry.snapshot(config, scheduleName, settingContext),
-        semesterCourses = courses
-            .filter { it.scheduleId == config.id }
+        semesterCourses = scheduleCourses
             .sortedWith(compareBy<CourseEntity> { it.name }.thenBy { it.weekday }.thenBy { it.periods.minOrNull() ?: Int.MAX_VALUE })
     )
 }
@@ -405,6 +466,15 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
                     summary = draft.summary.ifBlank { "修改应用设置" }
                 )
             }
+            AgentActionType.SET_PERIOD_SETTINGS ->
+                validateAgentPeriodSettings(draft.periodSettings, facts)?.let { patch ->
+                    actions += AgentValidatedAction(
+                        type = AgentValidatedActionType.SET_PERIOD_SETTINGS,
+                        periodSettings = patch,
+                        targetWeek = facts.currentWeek,
+                        summary = draft.summary.ifBlank { "修改当前课表的节次设置" }
+                    )
+                }
         }
     }
     return ParsedAgentActions(displayText, actions)
@@ -439,7 +509,7 @@ private fun decodeAgentActionDrafts(payload: String): List<AgentActionDraft> {
 }
 
 private fun extractLooseAgentActionPayload(content: String): String? {
-    if (!Regex("\\\"type\\\"\\s*:\\s*\\\"(?:ADD_COURSE|UPDATE_COURSE|DELETE_COURSE|OPEN_SETTINGS|SET_SETTING)", RegexOption.IGNORE_CASE)
+    if (!Regex("\\\"type\\\"\\s*:\\s*\\\"(?:ADD_COURSE|UPDATE_COURSE|DELETE_COURSE|OPEN_SETTINGS|SET_SETTING|SET_PERIOD_SETTINGS)", RegexOption.IGNORE_CASE)
             .containsMatchIn(content)) return null
     val fenced = Regex("```(?:json)?\\s*([\\s\\S]*?)```", RegexOption.IGNORE_CASE)
         .findAll(content)
@@ -533,6 +603,60 @@ private fun normalizeAgentSetting(
         if (facts.periodDefinitions.none { it.periodIndex == periodIndex }) return null
     }
     return normalized
+}
+
+private fun validateAgentPeriodSettings(
+    patch: AgentPeriodSettingsPatch?,
+    facts: DayAgentFacts
+): AgentPeriodSettingsPatch? {
+    patch ?: return null
+    val mode = patch.mode?.trim()?.uppercase()
+    if (mode != null && mode !in setOf("MANUAL", "AUTO_MATCH")) return null
+    val counts = listOf(
+        patch.morningPeriodCount,
+        patch.noonPeriodCount,
+        patch.afternoonPeriodCount,
+        patch.eveningPeriodCount
+    )
+    if (counts.filterNotNull().any { it !in 0..30 }) return null
+    if (counts.any { it != null } && counts.any { it == null }) return null
+    val currentCount = facts.periodDefinitions.size
+    val requestedCount = if (counts.any { it != null }) {
+        (patch.morningPeriodCount ?: 0) +
+            (patch.noonPeriodCount ?: 0) +
+            (patch.afternoonPeriodCount ?: 0) +
+            (patch.eveningPeriodCount ?: 0)
+    } else {
+        currentCount
+    }
+    if (requestedCount !in 1..30) return null
+    if (patch.classDurationMinutes != null && patch.classDurationMinutes !in 1..300) return null
+    if (patch.breakDurationMinutes != null && patch.breakDurationMinutes !in 0..300) return null
+    val startTimes = listOf(
+        patch.morningStartTime,
+        patch.noonStartTime,
+        patch.afternoonStartTime,
+        patch.eveningStartTime
+    )
+    if (startTimes.filterNotNull().any { runCatching { LocalTime.parse(it) }.isFailure }) return null
+    if (patch.specialBreaks.orEmpty().any { (key, value) ->
+            key.toIntOrNull() !in 1..requestedCount || value !in 0..300
+        }) return null
+    if (patch.overriddenPeriods.orEmpty().any { it !in 1..requestedCount }) return null
+    patch.periods?.let { periods ->
+        if (periods.size != requestedCount) return null
+        if (periods.map { it.periodIndex }.sorted() != (1..requestedCount).toList()) return null
+        val timeline = periods.sortedBy { it.periodIndex }.map {
+            PeriodSchemeTimeEntity(
+                schemeId = 0,
+                periodIndex = it.periodIndex,
+                startTime = it.startTime,
+                endTime = it.endTime
+            )
+        }
+        if (validateResolvedPeriodTimes(timeline) != null) return null
+    }
+    return patch.copy(mode = mode)
 }
 
 fun parseAgentCourseDraft(content: String, facts: DayAgentFacts): ParsedAgentCourseDraft {
