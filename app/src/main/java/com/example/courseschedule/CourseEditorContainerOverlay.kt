@@ -99,6 +99,10 @@ private const val BackgroundZoomDelayMillis = 40
 private const val BackgroundZoomOpenDurationMillis = 560
 private const val BackgroundZoomCloseDurationMillis = 560
 private val BackgroundZoomInertialEasing = CubicBezierEasing(0.30f, 0.0f, 0.20f, 1.0f)
+// How small the real form starts inside the morphing shell. This is a settle scale, not a
+// fit-to-source scale: the shell's clip does the reveal, so keep it close to 1. Lower values
+// reintroduce the shrunken-thumbnail look; 1.0 removes the sense of the content growing.
+private const val CourseEditorContentSettleScale = 0.94f
 
 
 enum class CourseEditorOverlayPhase {
@@ -435,6 +439,8 @@ fun CourseEditorContainerOverlayHost(
                     CourseEditorScaledContentLayer(
                         animatedRect = animatedRect,
                         targetRect = targetRect,
+                        sizeProgress = sizeProgress,
+                        corner = corner,
                         contentAlpha = contentAlpha,
                         contentReveal = contentReveal,
                         revealPath = revealPath,
@@ -468,6 +474,8 @@ fun CourseEditorContainerOverlayHost(
 private fun CourseEditorScaledContentLayer(
     animatedRect: Rect,
     targetRect: Rect,
+    sizeProgress: Float,
+    corner: androidx.compose.ui.unit.Dp,
     contentAlpha: Float,
     contentReveal: Float,
     revealPath: Path,
@@ -484,19 +492,26 @@ private fun CourseEditorScaledContentLayer(
         return
     }
     val density = LocalDensity.current
-    // Fit the complete target form inside the animated glass shell. maxOf() behaved like
-    // ContentScale.Crop: a narrow/tall week card chose the height ratio and permanently cut both
-    // sides of the editor while it expanded. minOf() is the equivalent of ContentScale.Fit.
-    val scale = minOf(
-        animatedRect.width / targetRect.width,
-        animatedRect.height / targetRect.height
-    ).coerceAtLeast(0.001f)
-    val translateX = (animatedRect.width - targetRect.width * scale) / 2f
-    val translateY = (animatedRect.height - targetRect.height * scale) / 2f
+    /*
+     * Container transform: the form keeps its real layout size and the animated shell's clip
+     * reveals a window onto it, so every frame shows correctly proportioned content.
+     *
+     * Scaling the whole form to fit inside the source rect is what looked wrong at handoff.
+     * Neither ratio works: maxOf() crops, and minOf() letterboxes — for a wide day card
+     * (~380x90dp against a 378x600dp form) minOf picks the 0.15 height ratio, shrinking the
+     * entire editor into an illegible thumbnail flanked by ~162dp of empty band on each side.
+     * Only a gentle settle scale remains, so the growth still reads as connected.
+     */
+    val settleScale = CourseEditorContentSettleScale +
+        (1f - CourseEditorContentSettleScale) * sizeProgress.coerceIn(0f, 1f)
+    val translateX = (animatedRect.width - targetRect.width * settleScale) / 2f
+    val translateY = (animatedRect.height - targetRect.height * settleScale) / 2f
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(32.dp))
+            // Follow the shell's animated corner instead of a fixed 32dp, which turned the
+            // small early rectangle into a pill and rounded the reveal window too hard.
+            .clip(RoundedCornerShape(corner))
             .graphicsLayer { alpha = contentAlpha }
             .drawWithContent {
                 if (contentReveal >= 0.999f) {
@@ -529,8 +544,8 @@ private fun CourseEditorScaledContentLayer(
                 }
                 .graphicsLayer {
                     transformOrigin = TransformOrigin(0f, 0f)
-                    scaleX = scale
-                    scaleY = scale
+                    scaleX = settleScale
+                    scaleY = settleScale
                     translationX = translateX
                     translationY = translateY
                 }
