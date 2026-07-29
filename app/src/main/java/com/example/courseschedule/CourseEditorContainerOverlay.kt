@@ -50,6 +50,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
@@ -404,6 +405,28 @@ fun CourseEditorContainerOverlayHost(
             else -> 0f
         }
     } else 0f
+    val sourceContentBlurPx = with(density) {
+        val blurProgress = when (overlayPhase) {
+            CourseEditorOverlayPhase.Closing,
+            CourseEditorOverlayPhase.Disposing -> smoothStep(0f, 0.12f, positionProgress)
+            else -> smoothStep(0f, 0.24f, positionProgress)
+        }
+        6.dp.toPx() * blurProgress
+    }
+    val editorContentBlurPx = with(density) {
+        val blurDp = when (overlayPhase) {
+            CourseEditorOverlayPhase.Preparing,
+            // Keep the form softly blurred through almost all of its enlargement.
+            // It only resolves once the content is about to finish settling.
+            CourseEditorOverlayPhase.Opening ->
+                5f * (1f - smoothStep(0.90f, 1f, positionProgress))
+            CourseEditorOverlayPhase.Closing -> 5f
+            CourseEditorOverlayPhase.Disposing -> 5f
+            CourseEditorOverlayPhase.Open -> 0f
+            CourseEditorOverlayPhase.Idle -> 0f
+        }
+        blurDp.dp.toPx()
+    }
     val editorFormBackdrop = backdrop
     val textColor = glassForegroundColor(config)
     val revealPath = remember { Path() }
@@ -442,6 +465,7 @@ fun CourseEditorContainerOverlayHost(
                         sizeProgress = sizeProgress,
                         corner = corner,
                         contentAlpha = contentAlpha,
+                        contentBlurRadiusPx = editorContentBlurPx,
                         contentReveal = contentReveal,
                         revealPath = revealPath,
                         textColor = textColor,
@@ -462,7 +486,18 @@ fun CourseEditorContainerOverlayHost(
                         sourceIsWide = sourceRect.width >= with(density) { 220.dp.toPx() },
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = sourceCoverAlpha }
+                            .graphicsLayer {
+                                alpha = sourceCoverAlpha
+                                val blurPx = sourceContentBlurPx
+                                compositingStrategy = CompositingStrategy.Offscreen
+                                renderEffect = if (blurPx > 0.01f) {
+                                    RenderEffect.createBlurEffect(
+                                        blurPx,
+                                        blurPx,
+                                        Shader.TileMode.CLAMP
+                                    ).asComposeRenderEffect()
+                                } else null
+                            }
                     )
                 }
             }
@@ -477,6 +512,7 @@ private fun CourseEditorScaledContentLayer(
     sizeProgress: Float,
     corner: androidx.compose.ui.unit.Dp,
     contentAlpha: Float,
+    contentBlurRadiusPx: Float,
     contentReveal: Float,
     revealPath: Path,
     textColor: Color,
@@ -512,7 +548,18 @@ private fun CourseEditorScaledContentLayer(
             // Follow the shell's animated corner instead of a fixed 32dp, which turned the
             // small early rectangle into a pill and rounded the reveal window too hard.
             .clip(RoundedCornerShape(corner))
-            .graphicsLayer { alpha = contentAlpha }
+            .graphicsLayer {
+                alpha = contentAlpha
+                val blurPx = contentBlurRadiusPx
+                compositingStrategy = CompositingStrategy.Offscreen
+                renderEffect = if (blurPx > 0.01f) {
+                    RenderEffect.createBlurEffect(
+                        blurPx,
+                        blurPx,
+                        Shader.TileMode.CLAMP
+                    ).asComposeRenderEffect()
+                } else null
+            }
             .drawWithContent {
                 if (contentReveal >= 0.999f) {
                     drawContent()

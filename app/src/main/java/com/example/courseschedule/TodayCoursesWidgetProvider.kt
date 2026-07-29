@@ -32,6 +32,25 @@ class TodayCoursesWidgetProvider : AppWidgetProvider() {
         }
     }
 
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: android.os.Bundle
+    ) {
+        MiuixTodayWidgetRenderer.refresh(context, appWidgetManager, intArrayOf(appWidgetId), TodayWidgetVariant.LARGE)
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        val app = context.applicationContext as CourseScheduleApp
+        CoroutineScope(Dispatchers.IO).launch {
+            appWidgetIds.forEach {
+                app.widgetAppearanceRepository.deleteInstance(WidgetAppearanceVariant.COURSES_LARGE, it)
+            }
+        }
+    }
+
     companion object {
         private const val ACTION_REFRESH = "com.example.courseschedule.action.REFRESH_TODAY_WIDGET"
 

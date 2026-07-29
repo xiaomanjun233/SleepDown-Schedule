@@ -18,22 +18,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathFillType
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
 import androidx.metrics.performance.JankStats
 import androidx.metrics.performance.PerformanceMetricsState
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +31,6 @@ import kotlinx.coroutines.withContext
 import java.util.LinkedHashMap
 import kotlin.math.max
 import kotlin.math.roundToInt
-import kotlin.math.sqrt
 
 enum class StartupPhase {
     Loading,
@@ -156,67 +143,6 @@ fun PerformanceAnimationState(animation: String, active: Boolean) {
 }
 
 @Composable
-fun StartupRevealOverlay(
-    phase: StartupPhase,
-    splashColor: Color,
-    onRevealFinished: () -> Unit
-) {
-    val revealRadius = remember { androidx.compose.animation.core.Animatable(0f) }
-    val path = remember { Path().apply { fillType = PathFillType.EvenOdd } }
-    var diagonal by remember { mutableStateOf(0f) }
-    val visible = phase == StartupPhase.Loading || phase == StartupPhase.Prewarm || phase == StartupPhase.Reveal
-
-    LaunchedEffect(phase, diagonal) {
-        when {
-            phase == StartupPhase.Loading || phase == StartupPhase.Prewarm -> revealRadius.snapTo(0f)
-            phase == StartupPhase.Reveal && diagonal > 0f -> {
-                revealRadius.snapTo(0f)
-                revealRadius.animateTo(
-                    diagonal * 1.2f,
-                    animationSpec = androidx.compose.animation.core.tween(
-                        durationMillis = 350,
-                        easing = androidx.compose.animation.core.FastOutSlowInEasing
-                    )
-                )
-                onRevealFinished()
-            }
-        }
-    }
-
-    if (visible) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    compositingStrategy = CompositingStrategy.Offscreen
-                }
-                .onSizeChanged { size ->
-                    val halfW = size.width / 2f
-                    val halfH = size.height / 2f
-                    diagonal = sqrt(halfW * halfW + halfH * halfH)
-                }
-                .drawWithContent {
-                    val radius = revealRadius.value
-                    if (radius <= 0f) {
-                        drawRect(splashColor)
-                    } else {
-                        path.reset()
-                        path.fillType = PathFillType.EvenOdd
-                        path.addRect(Rect(0f, 0f, size.width, size.height))
-                        path.addOval(
-                            Rect(
-                                center = Offset(size.width / 2f, size.height / 2f),
-                                radius = radius
-                            )
-                        )
-                        drawPath(path, splashColor)
-                    }
-                }
-        )
-    }
-}
-
-@Composable
 fun TopBarEntranceContainer(
     phase: StartupPhase,
     modifier: Modifier = Modifier,
@@ -249,7 +175,8 @@ data class HomeWallpaperImages(
     val blurredSource: Bitmap?,
     val blurBucket: Int,
     val representativeColors: List<Long> = DefaultCourseCardPalette,
-    val readabilityBitmap: Bitmap? = null
+    val readabilityBitmap: Bitmap? = null,
+    val renderKey: String = ""
 )
 
 private data class WallpaperSourceImages(
@@ -274,6 +201,14 @@ private fun HomeWallpaperImages.prepareToDraw() = apply {
     readabilityBitmap?.prepareToDraw()
 }
 
+fun homeWallpaperRenderKey(
+    config: ScheduleConfigEntity,
+    useDarkDefaultWallpaper: Boolean
+): String {
+    val sourceKey = "${config.wallpaperUri}|${config.defaultWallpaperStyle}|$useDarkDefaultWallpaper"
+    return "$sourceKey|blur=${bucketWallpaperBlur(config.wallpaperBlur)}"
+}
+
 @Composable
 fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpaperImages> {
     val context = LocalContext.current.applicationContext
@@ -282,11 +217,13 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
     val sourceKey = remember(config.wallpaperUri, config.defaultWallpaperStyle, useDarkDefaultWallpaper) {
         "${config.wallpaperUri}|${config.defaultWallpaperStyle}|$useDarkDefaultWallpaper"
     }
-    val renderKey = remember(sourceKey, blurBucket) { "$sourceKey|blur=$blurBucket" }
+    val renderKey = remember(sourceKey, blurBucket) {
+        homeWallpaperRenderKey(config, useDarkDefaultWallpaper)
+    }
     // Keep the last rendered image while only the blur bucket is changing.  Keying
     // this state by renderKey used to replace it with an empty bitmap for one frame,
     // which was visible as a flash whenever the blur slider crossed an integer.
-    val images = remember(sourceKey) { mutableStateOf(synchronized(wallpaperRenderCache) {
+    val images = remember { mutableStateOf(synchronized(wallpaperRenderCache) {
         wallpaperRenderCache[renderKey] ?: HomeWallpaperImages(null, null, null, blurBucket)
     }) }
     LaunchedEffect(renderKey) {
@@ -296,25 +233,38 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
             return@LaunchedEffect
         }
         val loaded = withContext(Dispatchers.IO) {
-            val cachedSource = synchronized(wallpaperSourceCache) { wallpaperSourceCache[sourceKey] }
-            val sourceEntry = cachedSource ?: loadWallpaperBitmap(context, config, useDarkDefaultWallpaper)?.let { source ->
-                WallpaperSourceImages(
-                    source = source,
-                    reducedSource = createReducedWallpaperBitmap(source),
-                    representativeColors = extractRepresentativeWallpaperColors(source),
-                    readabilityBitmap = createWallpaperReadabilityBitmap(source)
-                ).also { entry ->
-                    synchronized(wallpaperSourceCache) { wallpaperSourceCache[sourceKey] = entry }
+            runCatching {
+                val cachedSource = synchronized(wallpaperSourceCache) { wallpaperSourceCache[sourceKey] }
+                val sourceEntry = cachedSource ?: loadWallpaperBitmap(context, config, useDarkDefaultWallpaper)?.let { source ->
+                    WallpaperSourceImages(
+                        source = source,
+                        reducedSource = createReducedWallpaperBitmap(source),
+                        representativeColors = extractRepresentativeWallpaperColors(source),
+                        readabilityBitmap = createWallpaperReadabilityBitmap(source)
+                    ).also { entry ->
+                        synchronized(wallpaperSourceCache) { wallpaperSourceCache[sourceKey] = entry }
+                    }
                 }
+                HomeWallpaperImages(
+                    source = sourceEntry?.source,
+                    reducedSource = sourceEntry?.reducedSource,
+                    blurredSource = createBlurredWallpaperBitmap(sourceEntry?.source, blurBucket),
+                    blurBucket = blurBucket,
+                    representativeColors = sourceEntry?.representativeColors ?: DefaultCourseCardPalette,
+                    readabilityBitmap = sourceEntry?.readabilityBitmap,
+                    renderKey = renderKey
+                ).prepareToDraw()
+            }.getOrElse {
+                // Mark this key as completed even when a persisted URI is no longer
+                // readable, so the first-draw gate can reveal the normal fallback.
+                HomeWallpaperImages(
+                    source = null,
+                    reducedSource = null,
+                    blurredSource = null,
+                    blurBucket = blurBucket,
+                    renderKey = renderKey
+                )
             }
-            HomeWallpaperImages(
-                source = sourceEntry?.source,
-                reducedSource = sourceEntry?.reducedSource,
-                blurredSource = createBlurredWallpaperBitmap(sourceEntry?.source, blurBucket),
-                blurBucket = blurBucket,
-                representativeColors = sourceEntry?.representativeColors ?: DefaultCourseCardPalette,
-                readabilityBitmap = sourceEntry?.readabilityBitmap
-            ).prepareToDraw()
         }
         synchronized(wallpaperRenderCache) { wallpaperRenderCache[renderKey] = loaded }
         images.value = loaded

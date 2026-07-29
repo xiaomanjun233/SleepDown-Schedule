@@ -90,7 +90,7 @@ internal fun agentToolDefinitions(
 ): JsonArray = buildJsonArray {
     add(agentToolDefinition(
         AgentToolName.GET_CURRENT_OVERVIEW,
-        "读取当前日期、时间、当前教学周、今天/明天课程摘要和天气。需要回答当前状态时使用。"
+        "读取当前日期、时间、明确的学期状态、有效教学周、今天/明天课程摘要和天气。需要回答当前状态时使用；未开学或已结束时不得误称为第一周或最后一周。"
     ))
     add(agentToolDefinition(
         AgentToolName.SEARCH_COURSES,
@@ -579,7 +579,13 @@ internal fun extractAgentToolPrelude(content: String): String {
 private fun agentOverviewResult(facts: DayAgentFacts): String = buildString {
     val weekday = weekdayLabel(facts.date.dayOfWeek.toChineseWeekday())
     appendLine("日期=${facts.date} 星期$weekday；当前时间=${facts.now.toLocalTime()}")
-    appendLine("课表ID=${facts.scheduleId}；当前教学周=${facts.currentWeek}；总周数=${facts.totalWeeks}")
+    val teachingWeek = if (facts.termState in setOf(ScheduleTermState.MANUAL, ScheduleTermState.ACTIVE)) {
+        facts.currentWeek.toString()
+    } else {
+        "无"
+    }
+    appendLine("课表ID=${facts.scheduleId}；学期状态=${facts.termState.name}（${facts.termStatus}）；" +
+        "当前有效教学周=$teachingWeek；总周数=${facts.totalWeeks}")
     appendLine("天气=${facts.weather?.summary ?: "不可用"}")
     appendLine(
         "今日=" + facts.today.joinToString("；") {
@@ -614,15 +620,27 @@ private fun agentCourseSearchResult(query: String, facts: DayAgentFacts): String
         .ifBlank { "没有匹配课程" }
 }
 
-private fun agentWeekResult(facts: DayAgentFacts): String =
-    facts.week.joinToString("\n") { item ->
-        "${item.date} ${item.start}-${item.end} ${agentCourseLine(item.course)}"
-    }.ifBlank { "本周无课" }
+private fun agentWeekResult(facts: DayAgentFacts): String = buildString {
+    appendLine("学期状态=${facts.termState.name}（${facts.termStatus}）")
+    if (facts.termState !in setOf(ScheduleTermState.MANUAL, ScheduleTermState.ACTIVE)) {
+        append("当前没有有效教学周")
+    } else {
+        append(
+            facts.week.joinToString("\n") { item ->
+                "${item.date} ${item.start}-${item.end} ${agentCourseLine(item.course)}"
+            }.ifBlank { "本周无课" }
+        )
+    }
+}
 
-private fun agentSemesterResult(facts: DayAgentFacts): String =
-    facts.semesterCourses.distinctBy { it.id }
-        .joinToString("\n", transform = ::agentCourseLine)
-        .ifBlank { "本学期无课程" }
+private fun agentSemesterResult(facts: DayAgentFacts): String = buildString {
+    appendLine("学期状态=${facts.termState.name}（${facts.termStatus}）")
+    append(
+        facts.semesterCourses.distinctBy { it.id }
+            .joinToString("\n", transform = ::agentCourseLine)
+            .ifBlank { "本学期无课程" }
+    )
+}
 
 private fun agentPeriodResult(facts: DayAgentFacts): String =
     buildString {

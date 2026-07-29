@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +37,7 @@ class ScheduleViewModel(
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), defaultConfig())
     val snackbar = MutableStateFlow<String?>(null)
+    private val personalizationSaveChannel = Channel<ScheduleConfigEntity>(Channel.CONFLATED)
     private val refreshCoordinator = ScheduleRefreshCoordinator(
         scope = viewModelScope,
         refresh = ::refreshScheduleSurfaces
@@ -45,6 +47,11 @@ class ScheduleViewModel(
         viewModelScope.launch {
             repository.ensureDefaults()
             refreshCoordinator.refreshNow()
+        }
+        viewModelScope.launch {
+            for (config in personalizationSaveChannel) {
+                repository.saveConfigOnly(config)
+            }
         }
     }
 
@@ -460,8 +467,8 @@ class ScheduleViewModel(
         finish?.invoke()
     }
 
-    fun savePersonalization(config: ScheduleConfigEntity) = viewModelScope.launch {
-        repository.saveConfigOnly(config)
+    fun savePersonalization(config: ScheduleConfigEntity) {
+        personalizationSaveChannel.trySend(config)
     }
 
     fun saveNotificationSettings(config: ScheduleConfigEntity) = viewModelScope.launch {

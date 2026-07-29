@@ -5,7 +5,6 @@ import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.app.DatePickerDialog
 import android.app.Application
-import android.app.NotificationManager
 import android.app.TimePickerDialog
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -25,7 +24,6 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
 import android.view.HapticFeedbackConstants
@@ -34,7 +32,6 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
 import androidx.core.view.WindowCompat
-import androidx.core.content.FileProvider
 import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
@@ -61,11 +58,13 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.expandIn
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -196,6 +195,7 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -263,7 +263,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
@@ -278,12 +277,9 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
 import java.time.LocalTime
-import java.io.File
 import java.net.HttpURLConnection
 import java.net.URLDecoder
 import java.net.URL
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.pow
@@ -388,35 +384,16 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                 }
             }
         }
-        item(key = "general-diagnostics") {
-            GlassPreferenceSection("诊断") {
-                SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
-                    SettingsActionRow(
-                        title = "抓取日志",
-                        subtitle = "点击后开始记录，复现问题后点悬浮按钮停止。",
-                        buttonText = "开始",
-                        iconRes = R.drawable.ic_download,
-                        backdrop = backdrop,
-                        onClick = {
-                            scope.launch {
-                                DiagnosticLogCapture.start(context, state.config)
-                                    .onSuccess {
-                                        Toast.makeText(context, "已开始抓取日志", Toast.LENGTH_SHORT).show()
-                                    }
-                                    .onFailure {
-                                        Toast.makeText(context, "日志抓取失败：${it.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                        }
-                    )
-                }
-            }
-        }
     }
 }
 
 @Composable
-fun AiImportSettingsScreen(state: AppState, backdrop: Backdrop?) {
+fun AiImportSettingsScreen(
+    state: AppState,
+    backdrop: Backdrop?,
+    exitCommitRequest: Int = 0,
+    onExitCommitFinished: (Boolean) -> Unit = {}
+) {
     val topPadding = detailContentTopPadding()
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
@@ -424,7 +401,12 @@ fun AiImportSettingsScreen(state: AppState, backdrop: Backdrop?) {
     ) {
         item {
             GlassPreferenceSection("模型服务") {
-                AiImportSettingsSection(state = state, backdrop = backdrop)
+                AiImportSettingsSection(
+                    state = state,
+                    backdrop = backdrop,
+                    exitCommitRequest = exitCommitRequest,
+                    onExitCommitFinished = onExitCommitFinished
+                )
             }
         }
     }
@@ -594,7 +576,12 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
 }
 
 @Composable
-fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
+fun AiImportSettingsSection(
+    state: AppState,
+    backdrop: Backdrop?,
+    exitCommitRequest: Int = 0,
+    onExitCommitFinished: (Boolean) -> Unit = {}
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var saved by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
@@ -678,6 +665,11 @@ fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
         customModelInput = if (savedUsesPresetModel) "" else saved.profile.defaultModel
     }
     fun selectProvider(providerId: String) {
+        // Preserve the current provider draft before switching. In particular, the
+        // custom compatible endpoint must not fall back to its empty preset whenever
+        // the user temporarily selects another provider.
+        val outgoingKey = apiKeyInput.ifBlank { saved.apiKey }
+        AiImportSettingsStore.saveProvider(context, AiImportSettings(profile, outgoingKey))
         val providerSettings = AiImportSettingsStore.loadProvider(context, providerId)
         val providerModelOptions = AiProviderPresets.modelOptions(providerSettings.profile.id)
         val providerUsesPresetModel = providerModelOptions.any { it.model == providerSettings.profile.defaultModel }
@@ -696,15 +688,44 @@ fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
         customModelInput = if (providerUsesPresetModel) "" else providerSettings.profile.defaultModel
         providerMenuExpanded = false
     }
-    fun save() {
+    fun save(showMessage: Boolean = true): Boolean {
         val nextKey = apiKeyInput.ifBlank { saved.apiKey }
         if (!aiDisabled && (profile.baseUrl.isBlank() || profile.defaultModel.isBlank())) {
             message = "请先填写接口地址和模型名称"
-            return
+            return false
         }
         AiImportSettingsStore.save(context, AiImportSettings(profile, nextKey.takeUnless { aiDisabled }.orEmpty()))
         reload()
-        message = if (aiDisabled) "AI 功能已关闭" else "AI 设置已保存"
+        if (showMessage) {
+            message = if (aiDisabled) "AI 功能已关闭" else "AI 设置已保存"
+        }
+        return true
+    }
+    fun persistForExit() {
+        val nextKey = apiKeyInput.ifBlank { saved.apiKey }
+        val nextSettings = AiImportSettings(
+            profile,
+            nextKey.takeUnless { aiDisabled }.orEmpty()
+        )
+        if (aiDisabled || (profile.baseUrl.isNotBlank() && profile.defaultModel.isNotBlank())) {
+            AiImportSettingsStore.save(context, nextSettings)
+        } else {
+            // Preserve incomplete input as a provider-scoped draft without making
+            // the invalid profile the active service.
+            AiImportSettingsStore.saveProvider(context, nextSettings)
+        }
+    }
+    val latestPersistForExit by rememberUpdatedState<(Unit) -> Unit>({ persistForExit() })
+    DisposableEffect(Unit) {
+        // Saving during disposal leaves Android's Activity back dispatcher free to
+        // drive the predictive-back gesture instead of waiting for a save callback.
+        onDispose { latestPersistForExit(Unit) }
+    }
+    LaunchedEffect(exitCommitRequest) {
+        if (exitCommitRequest > 0) {
+            persistForExit()
+            onExitCommitFinished(true)
+        }
     }
 
     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
@@ -785,6 +806,19 @@ fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
             keyboardType = KeyboardType.Password
         )
         SettingsDivider()
+        if (selectedProviderId == AiProviderPresets.custom.id) {
+            SettingsToggleRow(
+                title = "文件上传",
+                subtitle = "允许今日助手向该兼容接口发送图片附件。",
+                checked = supportsFileUpload,
+                backdrop = backdrop,
+                onCheckedChange = {
+                    supportsFileUpload = it
+                    supportsVision = it
+                }
+            )
+            SettingsDivider()
+        }
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -852,10 +886,8 @@ fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
         }
         SettingsDivider()
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)
         ) {
-            SettingsActionButton("保存", backdrop, onClick = { save() }, modifier = Modifier.weight(1f))
             SettingsActionButton(
                 "清除 Key",
                 backdrop,
@@ -865,18 +897,10 @@ fun AiImportSettingsSection(state: AppState, backdrop: Backdrop?) {
                     apiKeyInput = ""
                     message = "API Key 已清除"
                 },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 destructive = true
             )
         }
-        }
-        if (aiDisabled) {
-            SettingsDivider()
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)
-            ) {
-                SettingsActionButton("保存", backdrop, onClick = { save() }, modifier = Modifier.fillMaxWidth())
-            }
         }
         message?.let {
             Text(
@@ -1099,156 +1123,6 @@ private fun AiProviderMenuRow(name: String, selected: Boolean, onClick: () -> Un
             )
         }
     }
-}
-
-private suspend fun createDiagnosticLogUri(context: Context, config: ScheduleConfigEntity): Uri {
-    return withContext(Dispatchers.IO) {
-        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val file = File(context.cacheDir, "sleepdown_log_$timestamp.txt")
-        val header = buildString {
-            appendLine("SleepDown课程表 beta 诊断日志")
-            appendLine("生成时间: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
-            appendLine("设备: ${Build.MANUFACTURER} ${Build.MODEL}")
-            appendLine("品牌: ${Build.BRAND}")
-            appendLine("系统: Android ${Build.VERSION.RELEASE} API ${Build.VERSION.SDK_INT}")
-            appendLine("构建: ${Build.DISPLAY}")
-            appendLine("通知模式: ${config.notificationMode}")
-            appendLine("实时活动按钮: ${config.liveUpdateActionsEnabled}")
-            appendLine("实时活动缩略态: ${config.liveUpdateChipTextMode}")
-            appendLine("Promoted 通知权限: ${promotedNotificationStatus(context)}")
-            appendLine("忽略电池优化: ${batteryOptimizationStatus(context)}")
-            appendLine()
-            appendLine("===== logcat -d -v time =====")
-        }
-        val logcat = runCatching {
-            ProcessBuilder("logcat", "-d", "-v", "time")
-                .redirectErrorStream(true)
-                .start()
-                .inputStream
-                .bufferedReader()
-                .use { it.readText() }
-        }.getOrElse { "logcat 读取失败: ${it.message ?: it::class.java.simpleName}" }
-        file.writeText(header + logcat)
-        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    }
-}
-
-internal object DiagnosticLogCapture {
-    val recording = MutableStateFlow(false)
-    private val lock = Any()
-    private var process: Process? = null
-    private var worker: Thread? = null
-    private var outputFile: File? = null
-
-    suspend fun start(context: Context, config: ScheduleConfigEntity): Result<Unit> {
-        return withContext(Dispatchers.IO) {
-            runCatching {
-                val appContext = context.applicationContext
-                synchronized(lock) {
-                    if (process != null) error("日志正在抓取中")
-                }
-                runCatching {
-                    ProcessBuilder("logcat", "-c").start().waitFor()
-                }
-                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                val file = File(appContext.cacheDir, "sleepdown_log_$timestamp.txt")
-                file.writeText(diagnosticLogHeader(appContext, config, "===== logcat -v time ====="))
-                val newProcess = ProcessBuilder("logcat", "-v", "time")
-                    .redirectErrorStream(true)
-                    .start()
-                val newWorker = Thread {
-                    runCatching {
-                        java.io.FileOutputStream(file, true).bufferedWriter().use { writer ->
-                            newProcess.inputStream.bufferedReader().useLines { lines ->
-                                lines.forEach { line ->
-                                    writer.appendLine(line)
-                                }
-                            }
-                        }
-                    }
-                }
-                synchronized(lock) {
-                    process = newProcess
-                    worker = newWorker
-                    outputFile = file
-                    recording.value = true
-                }
-                newWorker.isDaemon = true
-                newWorker.start()
-            }
-        }
-    }
-
-    suspend fun stop(context: Context): Result<Uri> {
-        return withContext(Dispatchers.IO) {
-            runCatching {
-                val stoppedProcess: Process?
-                val stoppedWorker: Thread?
-                val file: File
-                synchronized(lock) {
-                    stoppedProcess = process
-                    stoppedWorker = worker
-                    file = outputFile ?: error("没有正在抓取的日志")
-                    process = null
-                    worker = null
-                    outputFile = null
-                    recording.value = false
-                }
-                stoppedProcess?.destroy()
-                runCatching { stoppedProcess?.waitFor(800, java.util.concurrent.TimeUnit.MILLISECONDS) }
-                if (stoppedProcess?.isAlive == true) {
-                    stoppedProcess.destroyForcibly()
-                }
-                runCatching { stoppedWorker?.join(1000) }
-                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-            }
-        }
-    }
-}
-
-private fun diagnosticLogHeader(context: Context, config: ScheduleConfigEntity, marker: String): String {
-    return buildString {
-        appendLine("SleepDown课程表 beta 诊断日志")
-        appendLine("生成时间: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
-        appendLine("设备: ${Build.MANUFACTURER} ${Build.MODEL}")
-        appendLine("品牌: ${Build.BRAND}")
-        appendLine("系统: Android ${Build.VERSION.RELEASE} API ${Build.VERSION.SDK_INT}")
-        appendLine("构建: ${Build.DISPLAY}")
-        appendLine("通知模式: ${config.notificationMode}")
-        appendLine("实时活动按钮: ${config.liveUpdateActionsEnabled}")
-        appendLine("实时活动缩略态: ${config.liveUpdateChipTextMode}")
-        appendLine("Promoted 通知权限: ${promotedNotificationStatus(context)}")
-        appendLine("忽略电池优化: ${batteryOptimizationStatus(context)}")
-        appendLine()
-        appendLine(marker)
-    }
-}
-
-private fun promotedNotificationStatus(context: Context): String {
-    if (Build.VERSION.SDK_INT < 36) return "系统不支持运行时查询"
-    val manager = context.getSystemService(NotificationManager::class.java) ?: return "NotificationManager 不可用"
-    return runCatching {
-        val allowed = manager.javaClass
-            .getMethod("canPostPromotedNotifications")
-            .invoke(manager) as? Boolean
-        allowed?.toString() ?: "未知"
-    }.getOrElse { "查询失败: ${it.message ?: it::class.java.simpleName}" }
-}
-
-private fun batteryOptimizationStatus(context: Context): String {
-    val powerManager = context.getSystemService(PowerManager::class.java) ?: return "PowerManager 不可用"
-    return runCatching {
-        if (powerManager.isIgnoringBatteryOptimizations(context.packageName)) "已忽略" else "未忽略"
-    }.getOrElse { "查询失败: ${it.message ?: it::class.java.simpleName}" }
-}
-
-internal fun shareDiagnosticLog(context: Context, uri: Uri) {
-    val intent = Intent(Intent.ACTION_SEND)
-        .setType("text/plain")
-        .putExtra(Intent.EXTRA_STREAM, uri)
-        .putExtra(Intent.EXTRA_SUBJECT, "SleepDown课程表诊断日志")
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    context.startActivity(Intent.createChooser(intent, "分享诊断日志"))
 }
 
 @Composable
@@ -2118,6 +1992,10 @@ fun SettingsTimePickerRow(
 
 @Composable
 fun SettingsInfoRow(title: String, body: String) {
+    if (LocalCollapsibleSettingsInfoRows.current) {
+        CollapsibleChangelogRow(title, body)
+        return
+    }
     if (LocalGlassMiuixEnabled.current) {
         MiuixBasicComponent(
             title = title,
@@ -2135,6 +2013,145 @@ fun SettingsInfoRow(title: String, body: String) {
     ) {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
         Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
+    }
+}
+
+internal val LocalCollapsibleSettingsInfoRows = compositionLocalOf { false }
+
+private val changelogReleaseDates = mapOf(
+    "1.0.9" to "2026-07-26",
+    "1.0.8" to "2026-07-22",
+    "1.0.7" to "2026-07-22",
+    "1.0.6" to "2026-07-20",
+    "1.0.5" to "2026-07-20",
+    "1.0.4" to "2026-07-18",
+    "1.0.3" to "2026-07-18",
+    "1.0.2" to "2026-07-17",
+    "1.0.1" to "2026-07-15",
+    "1.10 beta" to "2026-07-09",
+    "1.09 beta" to "2026-06-28",
+    "1.08 beta" to "2026-06-18",
+    "1.05 beta" to "2026-06-07",
+    "1.04 beta" to "2026-05-30"
+)
+
+@Composable
+private fun CollapsibleChangelogRow(version: String, body: String) {
+    val isCurrentVersion = version == BuildConfig.VERSION_NAME
+    val releaseDate = changelogReleaseDates[version]
+    val entries = remember(body) {
+        body.split(Regex("[；。]"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
+    var expanded by remember(version) { mutableStateOf(isCurrentVersion) }
+    val gentleExpansionEasing = remember {
+        CubicBezierEasing(0.20f, 0f, 0f, 1f)
+    }
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 90f else -90f,
+        animationSpec = tween(280, easing = gentleExpansionEasing),
+        label = "changelog-arrow-$version"
+    )
+    val details: @Composable () -> Unit = {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(
+                animationSpec = tween(420, easing = gentleExpansionEasing),
+                expandFrom = Alignment.Top
+            ) + fadeIn(tween(280, delayMillis = 60)),
+            exit = shrinkVertically(
+                animationSpec = tween(320, easing = gentleExpansionEasing),
+                shrinkTowards = Alignment.Top
+            ) + fadeOut(tween(220))
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                entries.forEach { entry ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Text(
+                            "•",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            entry,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 19.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+    if (LocalGlassMiuixEnabled.current) {
+        MiuixBasicComponent(
+            title = version,
+            modifier = Modifier.fillMaxWidth(),
+            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            endActions = {
+                releaseDate?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_back),
+                    contentDescription = if (expanded) "折叠 $version" else "展开 $version",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .graphicsLayer(rotationZ = arrowRotation)
+                )
+            },
+            bottomAction = details,
+            onClick = { expanded = !expanded }
+        )
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    version,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                releaseDate?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_back),
+                    contentDescription = if (expanded) "折叠 $version" else "展开 $version",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .graphicsLayer(rotationZ = arrowRotation)
+                )
+            }
+            details()
+        }
     }
 }
 
@@ -2310,32 +2327,72 @@ fun SettingsLiveUpdateChipTextRow(
 }
 
 @Composable
-fun SettingsActionButton(label: String, backdrop: Backdrop?, onClick: () -> Unit, modifier: Modifier = Modifier, destructive: Boolean = false) {
-    val tint = if (destructive) ComposeColor(0xFFFF453A) else MaterialTheme.colorScheme.primary
+fun SettingsActionButton(
+    label: String,
+    backdrop: Backdrop?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    destructive: Boolean = false,
+    monochrome: Boolean = false
+) {
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val monochromeSurface = if (darkTheme) ComposeColor.Black else ComposeColor.White
+    val tint = when {
+        destructive -> ComposeColor(0xFFFF453A)
+        monochrome -> monochromeSurface
+        else -> MaterialTheme.colorScheme.primary
+    }
+    val textColor = if (monochrome) {
+        if (darkTheme) ComposeColor.White else ComposeColor.Black
+    } else {
+        ComposeColor.White
+    }
     if (backdrop != null) {
         LiquidButton(
             onClick = onClick,
             backdrop = backdrop,
             modifier = modifier,
             height = 42.dp,
-            surfaceColor = tint.copy(alpha = if (destructive) 0.18f else 0.12f),
+            tint = tint,
+            surfaceColor = tint.copy(
+                alpha = when {
+                    destructive -> 0.86f
+                    monochrome && darkTheme -> 0.58f
+                    monochrome -> 0.74f
+                    else -> 0.84f
+                }
+            ),
             contentPadding = PaddingValues(horizontal = 16.dp),
-            blurRadius = 8.dp,
-            lensHeight = 26.dp,
-            lensAmount = 30.dp,
+            blurRadius = 4.dp,
+            lensHeight = 14.dp,
+            lensAmount = 18.dp,
             chromaticAberration = false
         ) {
-            Text(label, color = tint, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                label,
+                color = textColor,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold
+            )
         }
     } else {
         Text(
             label,
             modifier = modifier
                 .clip(RoundedCornerShape(50))
-                .background(tint.copy(alpha = if (destructive) 0.20f else 0.14f))
+                .background(
+                    tint.copy(
+                        alpha = when {
+                            destructive -> 0.90f
+                            monochrome && darkTheme -> 0.72f
+                            monochrome -> 0.88f
+                            else -> 0.88f
+                        }
+                    )
+                )
                 .clickable(onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 11.dp),
-            color = tint,
+            color = textColor,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold
         )
@@ -2380,6 +2437,7 @@ fun ScheduleSettingsContent(
     periods: List<PeriodEntity>,
     onPeriodsChange: (List<PeriodEntity>) -> Unit,
     detectedWeek: Int,
+    detectedWeekDescription: String,
     dirty: Boolean,
     error: String?,
     onReset: () -> Unit,
@@ -2417,6 +2475,7 @@ fun ScheduleSettingsContent(
             periods = periods,
             onPeriodsChange = onPeriodsChange,
             detectedWeek = detectedWeek,
+            detectedWeekDescription = detectedWeekDescription,
             dirty = dirty,
             error = error,
             onReset = onReset,
@@ -2449,7 +2508,7 @@ fun ScheduleSettingsContent(
                     SettingsDivider()
                     SettingsTextFieldRow("当前周", currentWeek, { onCurrentWeekChange(it.filter(Char::isDigit)) }, KeyboardType.Number, enabled = !autoCurrentWeek)
                     SettingsDivider()
-                    SettingsToggleRow("自动计算当前周", "根据学期开始日期计算，当前为第 $detectedWeek 周", autoCurrentWeek, backdrop, onCheckedChange = onAutoCurrentWeekChange)
+                    SettingsToggleRow("自动计算当前周", detectedWeekDescription, autoCurrentWeek, backdrop, onCheckedChange = onAutoCurrentWeekChange)
                     SettingsDivider()
                     SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
                 }
@@ -2520,10 +2579,10 @@ fun ScheduleSettingsContent(
                     ) {
                         SettingsActionButton("电池优化", backdrop, onClick = {
                             openBatteryOptimizationSettings(appContext)
-                        }, modifier = Modifier.weight(1f))
+                        }, modifier = Modifier.weight(1f), monochrome = true)
                         SettingsActionButton("自启动设置", backdrop, onClick = {
                             openKeepAliveSettings(appContext)
-                        }, modifier = Modifier.weight(1f))
+                        }, modifier = Modifier.weight(1f), monochrome = true)
                     }
                 }
             }
@@ -2564,6 +2623,7 @@ fun ScheduleSettingsContentFixed(
     periods: List<PeriodEntity>,
     onPeriodsChange: (List<PeriodEntity>) -> Unit,
     detectedWeek: Int,
+    detectedWeekDescription: String,
     dirty: Boolean,
     error: String?,
     onReset: () -> Unit,
@@ -2604,7 +2664,7 @@ fun ScheduleSettingsContentFixed(
                 SettingsDivider()
                 SettingsToggleRow(
                     title = "自动计算当前周",
-                    subtitle = "根据学期开始日期计算，当前为第 $detectedWeek 周",
+                    subtitle = detectedWeekDescription,
                     checked = autoCurrentWeek,
                     backdrop = backdrop,
                     onCheckedChange = onAutoCurrentWeekChange
@@ -4015,6 +4075,21 @@ fun ScheduleConfigScreen(
         val manual = currentWeek.toIntOrNull() ?: state.config.currentWeek
         effectiveCurrentWeek(state.config.copy(totalWeeks = total.coerceAtLeast(1), currentWeek = manual.coerceAtLeast(1), termStartDate = termStartDate.ifBlank { null }, autoCurrentWeek = true))
     }
+    val detectedWeekDescription = remember(autoCurrentWeek, termStartDate, totalWeeks, currentWeek, detectedWeek) {
+        if (!autoCurrentWeek) {
+            "学期状态：手动设置 · 第 ${currentWeek.toIntOrNull() ?: state.config.currentWeek} 周"
+        } else {
+            val total = totalWeeks.toIntOrNull() ?: state.config.totalWeeks
+            val manual = currentWeek.toIntOrNull() ?: state.config.currentWeek
+            val draftConfig = state.config.copy(
+                totalWeeks = total.coerceAtLeast(1),
+                currentWeek = manual.coerceAtLeast(1),
+                termStartDate = termStartDate.ifBlank { null },
+                autoCurrentWeek = true
+            )
+            "学期状态：${scheduleTermStatusDescription(draftConfig, LocalDate.now())}"
+        }
+    }
     val displayedCurrentWeek = if (autoCurrentWeek) detectedWeek.toString() else currentWeek
     val dirty = computeDirty()
 
@@ -4237,6 +4312,7 @@ fun ScheduleConfigScreen(
         periods = periods,
         onPeriodsChange = { periods = it },
         detectedWeek = detectedWeek,
+        detectedWeekDescription = detectedWeekDescription,
         dirty = false,
         error = error,
         onReset = {},

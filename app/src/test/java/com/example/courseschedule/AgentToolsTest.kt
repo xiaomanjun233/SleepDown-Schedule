@@ -319,6 +319,35 @@ class AgentToolsTest {
     }
 
     @Test
+    fun overviewAndWeekToolExposeUpcomingTermInsteadOfWeekOne() {
+        val facts = DayAgentFacts(
+            date = LocalDate.of(2026, 9, 1),
+            now = LocalDateTime.of(2026, 9, 1, 8, 0),
+            today = emptyList(),
+            tomorrow = emptyList(),
+            week = emptyList(),
+            weather = null,
+            sourceHash = "upcoming",
+            scheduleId = 3,
+            currentWeek = 1,
+            termState = ScheduleTermState.UPCOMING,
+            termStatus = "暂未开学"
+        )
+
+        val results = executeAgentReadTools(
+            listOf(
+                AgentToolCall("overview", AgentToolName.GET_CURRENT_OVERVIEW),
+                AgentToolCall("week", AgentToolName.GET_WEEK_SCHEDULE)
+            ),
+            facts
+        )
+
+        assertTrue(results[0].content.contains("学期状态=UPCOMING（暂未开学）"))
+        assertTrue(results[0].content.contains("当前有效教学周=无"))
+        assertTrue(results[1].content.contains("当前没有有效教学周"))
+    }
+
+    @Test
     fun periodsToolReturnsTopologyAndEveryPersistedScheme() {
         val facts = DayAgentFacts(
             date = LocalDate.of(2026, 7, 27),

@@ -21,6 +21,19 @@ class ScheduleTermBoundaryTest {
     }
 
     @Test
+    fun databaseTermStateDistinguishesOutsideTermFromWeekOne() {
+        assertEquals(ScheduleTermState.UPCOMING, derivedScheduleTermState(config, LocalDate.of(2026, 9, 1)))
+        assertEquals(ScheduleTermState.ACTIVE, derivedScheduleTermState(config, LocalDate.of(2026, 9, 2)))
+        assertEquals(ScheduleTermState.ENDED, derivedScheduleTermState(config, LocalDate.of(2026, 9, 14)))
+        assertEquals(
+            ScheduleTermState.UPCOMING,
+            config.withDerivedScheduleTermState(LocalDate.of(2026, 9, 1)).termState
+        )
+        // currentWeek remains the manual fallback; termState is the authoritative marker.
+        assertEquals(1, config.withDerivedScheduleTermState(LocalDate.of(2026, 9, 1)).currentWeek)
+    }
+
+    @Test
     fun finalTeachingWeekEndsOnItsSunday() {
         assertEquals(LocalDate.of(2026, 9, 13), scheduleTermEndDate(config))
         assertEquals(2, scheduleWeekForDateOrNull(config, LocalDate.of(2026, 9, 13)))

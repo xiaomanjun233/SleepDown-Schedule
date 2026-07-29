@@ -108,6 +108,8 @@ data class DayAgentFacts(
     val totalWeeks: Int = 20,
     val scheduleId: Int = 1,
     val currentWeek: Int = 1,
+    val termState: ScheduleTermState = ScheduleTermState.MANUAL,
+    val termStatus: String = "手动设置 · 第 1 周",
     val settingSnapshot: Map<String, String> = emptyMap(),
     val semesterCourses: List<CourseEntity> = emptyList(),
     val periodSchemes: List<AgentPeriodSchemeSnapshot> = emptyList(),
@@ -295,6 +297,8 @@ fun buildDayAgentFacts(
     val scheduleCourses = courses.filter { it.scheduleId == config.id }
     val schedulePeriods = periods.filter { it.scheduleId == config.id }
     val periodMap = schedulePeriods.associateBy { it.periodIndex }
+    val termState = derivedScheduleTermState(config, date)
+    val termStatus = scheduleTermStatusDescription(config, date)
     val currentWeek = effectiveCurrentWeek(config, date)
     fun slotsFor(targetDate: LocalDate): List<AgentCourseSlot> {
         val week = scheduleWeekForDateOrNull(config, targetDate) ?: return emptyList()
@@ -317,7 +321,8 @@ fun buildDayAgentFacts(
     val weekStart = date.minusDays((date.dayOfWeek.value - 1).toLong())
     val week = (0L..6L).flatMap { offset -> slotsFor(weekStart.plusDays(offset)) }
     val source = buildString {
-        append(config.id).append('|').append(date).append('|').append(currentWeek).append('|')
+        append(config.id).append('|').append(date).append('|').append(termState).append(':')
+            .append(currentWeek).append('|')
         week.forEach { slot ->
             append(slot.course.id).append(':').append(slot.course.name).append(':')
             append(slot.start).append('-').append(slot.end).append(':')
@@ -336,7 +341,9 @@ fun buildDayAgentFacts(
         totalWeeks = config.totalWeeks,
         scheduleId = config.id,
         currentWeek = currentWeek,
-        settingSnapshot = AgentSettingRegistry.snapshot(config, scheduleName, settingContext),
+        termState = termState,
+        termStatus = termStatus,
+        settingSnapshot = AgentSettingRegistry.snapshot(config, scheduleName, settingContext, date),
         semesterCourses = scheduleCourses
             .sortedWith(compareBy<CourseEntity> { it.name }.thenBy { it.weekday }.thenBy { it.periods.minOrNull() ?: Int.MAX_VALUE })
     )

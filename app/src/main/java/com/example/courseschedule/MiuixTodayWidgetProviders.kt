@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
+import android.os.Build
+import android.util.SizeF
 import android.view.View
 import android.widget.RemoteViews
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +26,11 @@ import java.time.format.DateTimeFormatter
 
 internal enum class TodayWidgetVariant { LARGE, SQUARE }
 
+private fun TodayWidgetVariant.appearanceVariant(): WidgetAppearanceVariant = when (this) {
+    TodayWidgetVariant.LARGE -> WidgetAppearanceVariant.COURSES_LARGE
+    TodayWidgetVariant.SQUARE -> WidgetAppearanceVariant.COURSES_SQUARE
+}
+
 class TodayCoursesSquareWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         MiuixTodayWidgetRenderer.refresh(context, manager, ids, TodayWidgetVariant.SQUARE)
@@ -33,6 +40,25 @@ class TodayCoursesSquareWidgetProvider : AppWidgetProvider() {
         super.onReceive(context, intent)
         if (MiuixTodayWidgetRenderer.isRefreshAction(intent.action)) {
             TodayCoursesWidgetProvider.refreshAll(context)
+        }
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        manager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: android.os.Bundle
+    ) {
+        MiuixTodayWidgetRenderer.refresh(context, manager, intArrayOf(appWidgetId), TodayWidgetVariant.SQUARE)
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        val app = context.applicationContext as CourseScheduleApp
+        CoroutineScope(Dispatchers.IO).launch {
+            appWidgetIds.forEach {
+                app.widgetAppearanceRepository.deleteInstance(WidgetAppearanceVariant.COURSES_SQUARE, it)
+            }
         }
     }
 }
@@ -46,6 +72,25 @@ class TodayAssistantWidgetProvider : AppWidgetProvider() {
         super.onReceive(context, intent)
         if (MiuixTodayWidgetRenderer.isRefreshAction(intent.action)) {
             TodayCoursesWidgetProvider.refreshAll(context)
+        }
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        manager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: android.os.Bundle
+    ) {
+        TodayAssistantWidgetRenderer.refresh(context, manager, intArrayOf(appWidgetId))
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        val app = context.applicationContext as CourseScheduleApp
+        CoroutineScope(Dispatchers.IO).launch {
+            appWidgetIds.forEach {
+                app.widgetAppearanceRepository.deleteInstance(WidgetAppearanceVariant.TODAY_ASSISTANT, it)
+            }
         }
     }
 }
@@ -88,12 +133,34 @@ internal object MiuixTodayWidgetRenderer {
             val app = context.applicationContext as CourseScheduleApp
             app.repository.ensureDefaults()
             val state = app.repository.snapshot()
-            ids.forEach { manager.updateAppWidget(it, buildViews(context, state, variant)) }
+            ids.forEach { id ->
+                val appearanceVariant = variant.appearanceVariant()
+                val appearance = app.widgetAppearanceRepository.get(
+                    appearanceVariant,
+                    WidgetDefaultAppearanceId
+                )
+                val sizes = widgetRenderSizes(manager, id, appearanceVariant)
+                val views = sizes.map { size ->
+                    size to buildViews(context, state, variant, appearance, size)
+                }
+                val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && views.size > 1) {
+                    RemoteViews(views.associate { (size, remote) ->
+                        SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to remote
+                    })
+                } else views.first().second
+                manager.updateAppWidget(id, result)
+            }
             scheduleNextBoundaryRefresh(context, state)
         }
     }
 
-    private fun buildViews(context: Context, state: AppState, variant: TodayWidgetVariant): RemoteViews {
+    internal fun buildViews(
+        context: Context,
+        state: AppState,
+        variant: TodayWidgetVariant,
+        appearance: WidgetAppearanceEntity,
+        size: WidgetRenderSize
+    ): RemoteViews {
         val zone = ZoneId.of("Asia/Shanghai")
         val today = LocalDate.now(zone)
         val now = LocalTime.now(zone)
@@ -112,8 +179,10 @@ internal object MiuixTodayWidgetRenderer {
             TodayWidgetVariant.SQUARE -> R.layout.widget_today_courses_square
         }
         val dark = usesDarkTheme(context, state.config)
+        val custom = WidgetBackgroundRenderer.render(context, appearance, size, courses.size, dark)
         return RemoteViews(context.packageName, layout).apply {
             applyTheme(dark, variant)
+            applyCustomBackground(custom)
             val dayLabel = chineseWeekday(targetDate)
             val dayPrefix = if (targetDate == today) "今日" else "明日"
             setTextViewText(
@@ -128,7 +197,6 @@ internal object MiuixTodayWidgetRenderer {
                 setViewVisibility(R.id.widget_subtitle, View.GONE)
             }
             setOnClickPendingIntent(R.id.widget_root, openAppPendingIntent(context))
-            setOnClickPendingIntent(R.id.widget_refresh, refreshPendingIntent(context))
             setViewVisibility(R.id.widget_empty, if (courses.isEmpty()) View.VISIBLE else View.GONE)
             setTextViewText(
                 R.id.widget_empty,
@@ -142,14 +210,32 @@ internal object MiuixTodayWidgetRenderer {
                         if (!useGrid && courses.isNotEmpty()) View.VISIBLE else View.GONE
                     )
                     setViewVisibility(R.id.widget_grid_courses, if (useGrid) View.VISIBLE else View.GONE)
-                    if (useGrid) fillGridCourses(state, courses, dark) else fillLargeCourses(state, courses, dark)
+                    if (useGrid) fillGridCourses(state, courses, dark, custom) else fillLargeCourses(state, courses, dark, custom)
                 }
-                TodayWidgetVariant.SQUARE -> fillCompactCourses(state, courses, dark, 2)
+                TodayWidgetVariant.SQUARE -> fillCompactCourses(state, courses, dark, 2, custom)
             }
         }
     }
 
-    private fun RemoteViews.fillLargeCourses(state: AppState, courses: List<CourseEntity>, dark: Boolean) {
+    private fun RemoteViews.applyCustomBackground(custom: WidgetBackgroundResult?) {
+        if (custom == null) {
+            setViewVisibility(R.id.widget_background_image, View.GONE)
+            return
+        }
+        setViewVisibility(R.id.widget_background_image, View.VISIBLE)
+        setImageViewBitmap(R.id.widget_background_image, custom.bitmap)
+        setInt(R.id.widget_root, "setBackgroundColor", Color.TRANSPARENT)
+        setTextColor(R.id.widget_title, custom.header)
+        setTextColor(R.id.widget_subtitle, custom.headerSecondary)
+        setTextColor(R.id.widget_empty, custom.headerSecondary)
+    }
+
+    private fun RemoteViews.fillLargeCourses(
+        state: AppState,
+        courses: List<CourseEntity>,
+        dark: Boolean,
+        custom: WidgetBackgroundResult?
+    ) {
         val rows = intArrayOf(R.id.widget_course_row_1, R.id.widget_course_row_2)
         val starts = intArrayOf(R.id.widget_course_time_1, R.id.widget_course_time_2)
         val ends = intArrayOf(R.id.widget_course_end_1, R.id.widget_course_end_2)
@@ -158,23 +244,42 @@ internal object MiuixTodayWidgetRenderer {
         val details = intArrayOf(R.id.widget_course_detail_1, R.id.widget_course_detail_2)
         rows.indices.forEach { index ->
             val course = courses.getOrNull(index)
-            setViewVisibility(rows[index], if (course == null) View.GONE else View.VISIBLE)
+            setViewVisibility(
+                rows[index],
+                when {
+                    course != null -> View.VISIBLE
+                    courses.isNotEmpty() -> View.INVISIBLE
+                    else -> View.GONE
+                }
+            )
             if (course != null) {
-                setInt(rows[index], "setBackgroundResource", if (dark) R.drawable.widget_course_background_dark else R.drawable.widget_course_background)
+                setInt(
+                    rows[index],
+                    "setBackgroundResource",
+                    if (custom != null) android.R.color.transparent
+                    else if (dark) R.drawable.widget_course_background_dark else R.drawable.widget_course_background
+                )
                 setTextViewText(starts[index], courseStartTime(course, state.periods)?.format(timeFormatter).orEmpty())
                 setTextViewText(ends[index], courseEndTime(course, state.periods)?.format(timeFormatter).orEmpty())
                 setTextViewText(names[index], course.name)
                 setTextViewText(details[index], courseDetail(course))
                 setInt(indicators[index], "setColorFilter", stableCourseColor(state.config, course))
-                setTextColor(starts[index], if (dark) Color.argb(210, 255, 255, 255) else Color.argb(180, 17, 17, 17))
-                setTextColor(ends[index], if (dark) Color.argb(140, 255, 255, 255) else Color.argb(105, 17, 17, 17))
-                setTextColor(names[index], if (dark) Color.WHITE else Color.rgb(17, 17, 17))
-                setTextColor(details[index], if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
+                val primary = custom?.content?.getOrNull(index)
+                val secondary = custom?.contentSecondary?.getOrNull(index)
+                setTextColor(starts[index], primary ?: if (dark) Color.argb(210, 255, 255, 255) else Color.argb(180, 17, 17, 17))
+                setTextColor(ends[index], secondary ?: if (dark) Color.argb(140, 255, 255, 255) else Color.argb(105, 17, 17, 17))
+                setTextColor(names[index], primary ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17))
+                setTextColor(details[index], secondary ?: if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
             }
         }
     }
 
-    private fun RemoteViews.fillGridCourses(state: AppState, courses: List<CourseEntity>, dark: Boolean) {
+    private fun RemoteViews.fillGridCourses(
+        state: AppState,
+        courses: List<CourseEntity>,
+        dark: Boolean,
+        custom: WidgetBackgroundResult?
+    ) {
         val cells = intArrayOf(R.id.widget_grid_cell_1, R.id.widget_grid_cell_2, R.id.widget_grid_cell_3, R.id.widget_grid_cell_4)
         val indicators = intArrayOf(R.id.widget_grid_indicator_1, R.id.widget_grid_indicator_2, R.id.widget_grid_indicator_3, R.id.widget_grid_indicator_4)
         val names = intArrayOf(R.id.widget_grid_name_1, R.id.widget_grid_name_2, R.id.widget_grid_name_3, R.id.widget_grid_name_4)
@@ -183,14 +288,19 @@ internal object MiuixTodayWidgetRenderer {
             val course = courses.getOrNull(index)
             setViewVisibility(cells[index], if (course == null) View.INVISIBLE else View.VISIBLE)
             if (course != null) {
-                setInt(cells[index], "setBackgroundResource", if (dark) R.drawable.widget_course_background_compact_dark else R.drawable.widget_course_background_compact)
+                setInt(
+                    cells[index],
+                    "setBackgroundResource",
+                    if (custom != null) android.R.color.transparent
+                    else if (dark) R.drawable.widget_course_background_compact_dark else R.drawable.widget_course_background_compact
+                )
                 setTextViewText(names[index], course.name)
                 val time = courseStartTime(course, state.periods)?.format(timeFormatter).orEmpty()
                 val location = course.location?.takeIf(String::isNotBlank)
                 setTextViewText(details[index], listOfNotNull(time.takeIf(String::isNotBlank), location).joinToString(" · "))
                 setInt(indicators[index], "setColorFilter", stableCourseColor(state.config, course))
-                setTextColor(names[index], if (dark) Color.WHITE else Color.rgb(17, 17, 17))
-                setTextColor(details[index], if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
+                setTextColor(names[index], custom?.content?.getOrNull(index) ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17))
+                setTextColor(details[index], custom?.contentSecondary?.getOrNull(index) ?: if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
             }
         }
     }
@@ -199,7 +309,8 @@ internal object MiuixTodayWidgetRenderer {
         state: AppState,
         courses: List<CourseEntity>,
         dark: Boolean,
-        count: Int
+        count: Int,
+        custom: WidgetBackgroundResult?
     ) {
         val rows = intArrayOf(R.id.widget_compact_row_1, R.id.widget_compact_row_2, R.id.widget_compact_row_3)
         val indicators = intArrayOf(R.id.widget_compact_indicator_1, R.id.widget_compact_indicator_2, R.id.widget_compact_indicator_3)
@@ -207,18 +318,30 @@ internal object MiuixTodayWidgetRenderer {
         val details = intArrayOf(R.id.widget_compact_detail_1, R.id.widget_compact_detail_2, R.id.widget_compact_detail_3)
         repeat(count) { index ->
             val course = courses.getOrNull(index)
-            setViewVisibility(rows[index], if (course == null) View.GONE else View.VISIBLE)
+            setViewVisibility(
+                rows[index],
+                when {
+                    course != null -> View.VISIBLE
+                    courses.isNotEmpty() -> View.INVISIBLE
+                    else -> View.GONE
+                }
+            )
             if (course != null) {
                 if (count > 1) {
-                    setInt(rows[index], "setBackgroundResource", if (dark) R.drawable.widget_course_background_compact_dark else R.drawable.widget_course_background_compact)
+                    setInt(
+                        rows[index],
+                        "setBackgroundResource",
+                        if (custom != null) android.R.color.transparent
+                        else if (dark) R.drawable.widget_course_background_compact_dark else R.drawable.widget_course_background_compact
+                    )
                 }
                 setTextViewText(names[index], course.name)
                 val time = courseStartTime(course, state.periods)?.format(timeFormatter).orEmpty()
                 val location = course.location?.takeIf(String::isNotBlank)
                 setTextViewText(details[index], listOfNotNull(time.takeIf(String::isNotBlank), location).joinToString(" · "))
                 setInt(indicators[index], "setColorFilter", stableCourseColor(state.config, course))
-                setTextColor(names[index], if (dark) Color.WHITE else Color.rgb(17, 17, 17))
-                setTextColor(details[index], if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
+                setTextColor(names[index], custom?.content?.getOrNull(index) ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17))
+                setTextColor(details[index], custom?.contentSecondary?.getOrNull(index) ?: if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
             }
         }
     }
@@ -232,10 +355,8 @@ internal object MiuixTodayWidgetRenderer {
                 TodayWidgetVariant.LARGE -> if (dark) R.drawable.widget_today_background_dark else R.drawable.widget_today_background
             }
         )
-        setInt(R.id.widget_refresh, "setBackgroundResource", if (dark) R.drawable.widget_refresh_background_dark else R.drawable.widget_refresh_background)
         setTextColor(R.id.widget_title, if (dark) Color.WHITE else Color.rgb(17, 17, 17))
         setTextColor(R.id.widget_subtitle, if (dark) Color.argb(170, 255, 255, 255) else Color.argb(150, 0, 0, 0))
-        setInt(R.id.widget_refresh, "setColorFilter", Color.rgb(10, 132, 255))
         setTextColor(R.id.widget_empty, if (dark) Color.argb(170, 255, 255, 255) else Color.argb(150, 0, 0, 0))
     }
 
@@ -263,7 +384,7 @@ internal object MiuixTodayWidgetRenderer {
         5 -> "周五"; 6 -> "周六"; else -> "周日"
     }
 
-    private fun coursesForDate(state: AppState, date: LocalDate): List<CourseEntity> {
+    internal fun coursesForDate(state: AppState, date: LocalDate): List<CourseEntity> {
         val weekday = date.dayOfWeek.toChineseWeekday()
         val week = scheduleWeekForDateOrNull(state.config, date) ?: return emptyList()
         return state.courses
@@ -271,7 +392,7 @@ internal object MiuixTodayWidgetRenderer {
             .sortedBy { courseStartTime(it, state.periods) ?: LocalTime.MAX }
     }
 
-    private fun usesDarkTheme(context: Context, config: ScheduleConfigEntity): Boolean {
+    internal fun usesDarkTheme(context: Context, config: ScheduleConfigEntity): Boolean {
         if (!config.followSystemDarkMode) return config.darkMode
         val mode = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
         return mode == Configuration.UI_MODE_NIGHT_YES
@@ -298,11 +419,18 @@ internal object MiuixTodayWidgetRenderer {
             .flatMap { listOfNotNull(courseStartTime(it, state.periods), courseEndTime(it, state.periods)) }
             .filter { it.isAfter(targetNow) }
             .minOrNull()
-        val trigger = if (nextBoundary != null) {
-            ZonedDateTime.of(targetDate, nextBoundary, zone).plusSeconds(2)
-        } else {
-            ZonedDateTime.of(today.plusDays(1), LocalTime.of(22, 0), zone)
+        val boundaryTrigger = nextBoundary?.let {
+            ZonedDateTime.of(targetDate, it, zone).plusSeconds(2)
         }
+        val stateTransitionTrigger = when {
+            now >= LocalTime.of(22, 0) ->
+                ZonedDateTime.of(today.plusDays(1), LocalTime.MIDNIGHT, zone).plusSeconds(2)
+            now < LocalTime.of(6, 0) ->
+                ZonedDateTime.of(today, LocalTime.of(6, 0), zone).plusSeconds(2)
+            else -> ZonedDateTime.of(today.plusDays(1), LocalTime.of(22, 0), zone)
+        }
+        val trigger = listOfNotNull(boundaryTrigger, stateTransitionTrigger).minOrNull()
+            ?: stateTransitionTrigger
         val alarm = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         alarm.set(AlarmManager.RTC, trigger.toInstant().toEpochMilli(), refreshPendingIntent(context))
     }
@@ -321,14 +449,30 @@ internal object TodayAssistantWidgetRenderer {
             val weather = if (DayAgentPreferences.isWeatherEnabled(context)) {
                 DayAgentWeatherRepository(context.applicationContext).getWeather()
             } else null
-            ids.forEach { manager.updateAppWidget(it, buildViews(context, state, weather)) }
+            ids.forEach { id ->
+                val variant = WidgetAppearanceVariant.TODAY_ASSISTANT
+                val appearance = app.widgetAppearanceRepository.get(
+                    variant,
+                    WidgetDefaultAppearanceId
+                )
+                val sizes = widgetRenderSizes(manager, id, variant)
+                val views = sizes.map { size -> size to buildViews(context, state, weather, appearance, size) }
+                val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && views.size > 1) {
+                    RemoteViews(views.associate { (size, remote) ->
+                        SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to remote
+                    })
+                } else views.first().second
+                manager.updateAppWidget(id, result)
+            }
         }
     }
 
-    private fun buildViews(
+    internal fun buildViews(
         context: Context,
         state: AppState,
-        weather: AgentWeatherSnapshot?
+        weather: AgentWeatherSnapshot?,
+        appearance: WidgetAppearanceEntity,
+        size: WidgetRenderSize
     ): RemoteViews {
         val zone = ZoneId.of("Asia/Shanghai")
         val now = LocalDateTime.now(zone)
@@ -342,19 +486,26 @@ internal object TodayAssistantWidgetRenderer {
         )
         val current = facts.today.firstOrNull { !now.toLocalTime().isBefore(it.start) && now.toLocalTime().isBefore(it.end) }
         val next = facts.today.firstOrNull { now.toLocalTime().isBefore(it.start) }
-        val focus = current ?: next
+        val previewTomorrow = now.toLocalTime() >= LocalTime.of(22, 0) &&
+            current == null &&
+            next == null &&
+            facts.tomorrow.isNotEmpty()
+        val focus = current ?: next ?: facts.tomorrow.firstOrNull().takeIf { previewTomorrow }
         val remaining = (current?.end ?: next?.start)?.let {
             Duration.between(now.toLocalTime(), it).toMinutes().coerceAtLeast(0)
         }
         val activity = when {
             current != null -> "当前"
             next != null -> "下节课"
+            previewTomorrow -> "明日首课"
             facts.today.isEmpty() -> "今日无课"
             else -> "课程已结束"
         }
         val countdown = when {
             current != null && remaining != null -> "${remaining} 分钟后下课"
-            next != null && remaining != null -> "${remaining} 分钟后"
+            next != null && remaining != null && now.toLocalTime() >= LocalTime.of(6, 0) ->
+                "${remaining} 分钟后"
+            previewTomorrow -> ""
             facts.today.isEmpty() -> "轻松一天"
             else -> "今日完成"
         }
@@ -377,19 +528,38 @@ internal object TodayAssistantWidgetRenderer {
             val mode = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
             mode == Configuration.UI_MODE_NIGHT_YES
         }
-        val primary = if (dark) Color.WHITE else Color.rgb(17, 17, 17)
-        val secondary = if (dark) Color.argb(170, 255, 255, 255) else Color.argb(150, 0, 0, 0)
-        val accent = if (dark) AccentDark else AccentLight
+        val custom = WidgetBackgroundRenderer.render(context, appearance, size, 2, dark)
+        val primary = custom?.header ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17)
+        val secondary = custom?.headerSecondary ?: if (dark) Color.argb(170, 255, 255, 255) else Color.argb(150, 0, 0, 0)
+        val accent = custom?.accent ?: if (dark) AccentDark else AccentLight
         return RemoteViews(context.packageName, R.layout.widget_today_assistant).apply {
             setInt(R.id.widget_agent_root, "setBackgroundResource", if (dark) R.drawable.widget_today_background_dark else R.drawable.widget_today_background)
+            if (custom == null) {
+                setViewVisibility(R.id.widget_agent_background_image, View.GONE)
+            } else {
+                setViewVisibility(R.id.widget_agent_background_image, View.VISIBLE)
+                setImageViewBitmap(R.id.widget_agent_background_image, custom.bitmap)
+                setInt(R.id.widget_agent_root, "setBackgroundColor", Color.TRANSPARENT)
+            }
             setTextViewText(R.id.widget_agent_activity, activity)
             setTextViewText(R.id.widget_agent_course, focus?.course?.name.orEmpty())
             setViewVisibility(R.id.widget_agent_course, if (focus == null) View.GONE else View.VISIBLE)
             setTextViewText(R.id.widget_agent_countdown, countdown)
+            setViewVisibility(
+                R.id.widget_agent_countdown,
+                if (countdown.isBlank()) View.GONE else View.VISIBLE
+            )
             setTextViewText(R.id.widget_agent_detail, detail)
             setTextViewText(R.id.widget_agent_time, timeText)
             setViewVisibility(R.id.widget_agent_time, if (focus == null) View.GONE else View.VISIBLE)
-            setTextViewText(R.id.widget_agent_count, "今天有 ${facts.today.size} 节课")
+            setTextViewText(
+                R.id.widget_agent_count,
+                if (previewTomorrow) {
+                    "明天有 ${facts.tomorrow.size} 节课"
+                } else {
+                    "今天有 ${facts.today.size} 节课"
+                }
+            )
             setTextViewText(R.id.widget_agent_weather, weatherText)
             setTextViewText(R.id.widget_agent_trailing, trailingText)
             setViewVisibility(R.id.widget_agent_trailing, if (trailingText.isBlank()) View.GONE else View.VISIBLE)

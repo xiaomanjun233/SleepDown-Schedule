@@ -541,6 +541,24 @@ fun currentTimelinePeriod(periods: List<PeriodEntity>, now: LocalTime): PeriodEn
     return if (now.isBefore(end) || (nextStart != null && now.isBefore(nextStart))) period else null
 }
 
+fun derivedScheduleTermState(
+    config: ScheduleConfigEntity,
+    today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+): ScheduleTermState {
+    if (!config.autoCurrentWeek) return ScheduleTermState.MANUAL
+    val startDate = parseScheduleDate(config.termStartDate) ?: return ScheduleTermState.INVALID
+    if (today.isBefore(startDate)) return ScheduleTermState.UPCOMING
+    val firstWeekMonday = startDate.minusDays((startDate.dayOfWeek.toChineseWeekday() - 1).toLong())
+    val endDate = firstWeekMonday.plusWeeks(config.totalWeeks.coerceAtLeast(1).toLong()).minusDays(1)
+    return if (today.isAfter(endDate)) ScheduleTermState.ENDED else ScheduleTermState.ACTIVE
+}
+
+internal fun ScheduleConfigEntity.withDerivedScheduleTermState(
+    today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+): ScheduleConfigEntity {
+    val derived = derivedScheduleTermState(this, today)
+    return if (termState == derived) this else copy(termState = derived)
+}
 fun effectiveCurrentWeek(config: ScheduleConfigEntity, today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))): Int {
     if (!config.autoCurrentWeek || config.termStartDate.isNullOrBlank()) return config.currentWeek.coerceIn(1, config.totalWeeks)
     val startDate = parseScheduleDate(config.termStartDate) ?: return config.currentWeek.coerceIn(1, config.totalWeeks)
@@ -595,11 +613,21 @@ fun isAfterScheduleTerm(
     today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
 ): Boolean = scheduleTermEndDate(config)?.let(today::isAfter) == true
 
-fun scheduleTermStatusLabel(config: ScheduleConfigEntity, date: LocalDate): String? = when {
-    isBeforeScheduleTerm(config, date) -> "暂未开学"
-    isAfterScheduleTerm(config, date) -> "学期已结束"
+fun scheduleTermStatusLabel(config: ScheduleConfigEntity, date: LocalDate): String? = when (derivedScheduleTermState(config, date)) {
+    ScheduleTermState.UPCOMING -> "暂未开学"
+    ScheduleTermState.ENDED -> "学期已结束"
+    ScheduleTermState.INVALID -> "学期日期无效"
     else -> null
 }
+
+fun scheduleTermStatusDescription(config: ScheduleConfigEntity, date: LocalDate): String =
+    when (derivedScheduleTermState(config, date)) {
+        ScheduleTermState.MANUAL -> "手动设置 · 第 ${config.currentWeek.coerceIn(1, config.totalWeeks.coerceAtLeast(1))} 周"
+        ScheduleTermState.UPCOMING -> "暂未开学"
+        ScheduleTermState.ACTIVE -> "进行中 · 第 ${effectiveCurrentWeek(config, date)} 周"
+        ScheduleTermState.ENDED -> "学期已结束"
+        ScheduleTermState.INVALID -> "学期日期无效"
+    }
 
 /** Returns null outside the actual teaching-term date range instead of folding into week 1/N. */
 fun scheduleWeekForDateOrNull(config: ScheduleConfigEntity, date: LocalDate): Int? {

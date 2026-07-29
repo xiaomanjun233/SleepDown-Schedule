@@ -6,6 +6,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.view.ViewTreeObserver
 import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -25,14 +27,31 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : ComponentActivity() {
     private val pendingExternalIcsUri = MutableStateFlow<Uri?>(null)
+    private val startupContentReady = AtomicBoolean(false)
+    private var startupPreDrawListener: ViewTreeObserver.OnPreDrawListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         acceptExternalIcsIntent(intent)
         WindowCompat.setDecorFitsSystemWindows(window, true)
+        val contentRoot = findViewById<View>(android.R.id.content)
+        startupPreDrawListener = ViewTreeObserver.OnPreDrawListener {
+            if (startupContentReady.get()) {
+                startupPreDrawListener?.let { listener ->
+                    if (contentRoot.viewTreeObserver.isAlive) {
+                        contentRoot.viewTreeObserver.removeOnPreDrawListener(listener)
+                    }
+                }
+                startupPreDrawListener = null
+                true
+            } else {
+                false
+            }
+        }.also(contentRoot.viewTreeObserver::addOnPreDrawListener)
         setContent {
             val app = application as CourseScheduleApp
             val viewModel: ScheduleViewModel = viewModel(
@@ -46,10 +65,26 @@ class MainActivity : ComponentActivity() {
                     externalIcsUri = externalIcsUri,
                     onExternalIcsConsumed = { consumed ->
                         pendingExternalIcsUri.compareAndSet(consumed, null)
+                    },
+                    onStartupContentReady = {
+                        if (startupContentReady.compareAndSet(false, true)) {
+                            contentRoot.postInvalidateOnAnimation()
+                        }
                     }
                 )
             }
         }
+    }
+
+    override fun onDestroy() {
+        val contentRoot = findViewById<View>(android.R.id.content)
+        startupPreDrawListener?.let { listener ->
+            if (contentRoot.viewTreeObserver.isAlive) {
+                contentRoot.viewTreeObserver.removeOnPreDrawListener(listener)
+            }
+        }
+        startupPreDrawListener = null
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {

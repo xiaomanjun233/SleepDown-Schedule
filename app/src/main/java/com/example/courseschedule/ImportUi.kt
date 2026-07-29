@@ -300,6 +300,7 @@ fun NormalizedAiManualImportScreen(
     var routeMessage by remember { mutableStateOf<String?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var aiParsing by remember { mutableStateOf(false) }
+    var showAiTokenRepairPrompt by remember { mutableStateOf(false) }
     var selectedMode by remember { mutableIntStateOf(0) }
     var aiSettings by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
     val textColor = glassForegroundColor(state.config)
@@ -452,7 +453,92 @@ fun NormalizedAiManualImportScreen(
     }
     fun parseDraft() {
         val result = ScheduleImportParser.parse(jsonText, state.config)
-        result.onSuccess { error = null; onParsed(it) }.onFailure { error = it.message ?: "口令解析失败" }
+        result.onSuccess {
+            error = null
+            onParsed(it)
+        }.onFailure {
+            val latestSettings = AiImportSettingsStore.load(context)
+            aiSettings = latestSettings
+            if (latestSettings.apiKey.isNotBlank() && jsonText.isNotBlank()) {
+                error = null
+                showAiTokenRepairPrompt = true
+            } else {
+                error = it.message ?: "口令解析失败"
+            }
+        }
+    }
+    fun repairTokenWithAi() {
+        if (aiParsing) return
+        val settings = AiImportSettingsStore.load(context)
+        aiSettings = settings
+        showAiTokenRepairPrompt = false
+        aiParsing = true
+        routeMessage = "正在使用 ${settings.profile.displayName} 整理课表口令..."
+        AiEduImportProgressSession.clearActions()
+        AiEduImportProgressSession.update(
+            AiEduImportProgress(
+                routeLabel = "AI 手动导入",
+                steps = listOf("本地口令校验未通过", "正在交给 AI 整理"),
+                requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n输入：用户粘贴的非标准课表口令\n密钥：已从本机安全存储读取，未显示"
+            )
+        )
+        context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
+        scope.launch {
+            val repairInput = buildString {
+                appendLine("下面是一个格式不完整或不规范的 SleepDown 课程表口令。")
+                appendLine("请理解其中的课程信息，严格按照 SleepDown 课表导入协议整理并只返回可导入结果。")
+                appendLine()
+                append(jsonText)
+            }
+            AiScheduleImportService(context)
+                .parseScheduleText(repairInput, "手动粘贴的非标准课表口令", settings)
+                .onSuccess { aiResult ->
+                    val output = aiResult.output.ifBlank { aiResult.rawOutput }
+                    ScheduleImportParser.parse(output, state.config)
+                        .onSuccess { draft ->
+                            error = null
+                            routeMessage = "AI 已完成口令整理。"
+                            AiEduImportProgressSession.update(
+                                AiEduImportProgress(
+                                    routeLabel = "AI 手动导入",
+                                    steps = listOf("本地口令校验未通过", "AI 已完成整理", "本地校验通过，进入导入预览"),
+                                    requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n输入：用户粘贴的非标准课表口令",
+                                    reasoningOutput = aiResult.reasoningOutput.take(20_000),
+                                    aiOutput = aiResult.rawOutput.take(80_000),
+                                    finished = true
+                                )
+                            )
+                            onParsed(draft)
+                        }
+                        .onFailure {
+                            error = "AI 已整理口令，但仍无法导入：${it.message ?: "未知错误"}"
+                            AiEduImportProgressSession.update(
+                                AiEduImportProgress(
+                                    routeLabel = "AI 手动导入",
+                                    steps = listOf("本地口令校验未通过", "AI 已完成整理", "本地校验仍未通过"),
+                                    requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}",
+                                    reasoningOutput = aiResult.reasoningOutput.take(20_000),
+                                    aiOutput = aiResult.rawOutput.take(80_000),
+                                    error = it.message ?: "AI 返回内容无法解析",
+                                    finished = true
+                                )
+                            )
+                        }
+                }
+                .onFailure {
+                    error = it.message ?: "AI 口令整理失败"
+                    AiEduImportProgressSession.update(
+                        AiEduImportProgress(
+                            routeLabel = "AI 手动导入",
+                            steps = listOf("本地口令校验未通过", "AI 整理请求失败"),
+                            requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}",
+                            error = it.message ?: "AI 口令整理失败",
+                            finished = true
+                        )
+                    )
+                }
+            aiParsing = false
+        }
     }
     AiManualImportDialogContent(
         state = state,
@@ -493,6 +579,27 @@ fun NormalizedAiManualImportScreen(
             }
         }
     )
+    if (showAiTokenRepairPrompt) {
+        LiquidAlertOverlay(
+            title = "口令格式不完整",
+            message = "本地校验无法识别这段口令。是否使用当前配置的 ${aiSettings.profile.displayName} 整理课程信息后再次导入？",
+            actions = listOf(
+                LiquidAlertAction(
+                    "取消",
+                    LiquidAlertActionStyle.Secondary,
+                    onClick = { showAiTokenRepairPrompt = false }
+                ),
+                LiquidAlertAction(
+                    "交给 AI 整理",
+                    LiquidAlertActionStyle.Primary,
+                    onClick = { repairTokenWithAi() }
+                )
+            ),
+            backdrop = backdrop,
+            config = state.config,
+            onDismissRequest = { showAiTokenRepairPrompt = false }
+        )
+    }
 }
 
 @Composable
@@ -573,7 +680,12 @@ private fun AiManualImportDialogContent(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                DialogLiquidButton(backdrop, "刷新", onRefreshSettings)
+                DialogLiquidButton(
+                    backdrop,
+                    "刷新",
+                    onRefreshSettings,
+                    monochromeNeutral = true
+                )
             }
         }
         BoxWithConstraints(
@@ -592,8 +704,20 @@ private fun AiManualImportDialogContent(
             LiquidDialogBody {
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        DialogLiquidButton(backdrop, "复制提示词", onCopyPrompt, modifier = Modifier.weight(1f))
-                        DialogLiquidButton(backdrop, "清理格式", onCleanText, modifier = Modifier.weight(1f))
+                        DialogLiquidButton(
+                            backdrop,
+                            "复制提示词",
+                            onCopyPrompt,
+                            modifier = Modifier.weight(1f),
+                            monochromeNeutral = true
+                        )
+                        DialogLiquidButton(
+                            backdrop,
+                            "清理格式",
+                            onCleanText,
+                            modifier = Modifier.weight(1f),
+                            monochromeNeutral = true
+                        )
                     }
                     DialogCapsuleField(
                         value = jsonText,
@@ -663,9 +787,9 @@ private fun AiManualImportDialogContent(
             DialogLiquidButton(
                 backdrop = backdrop,
                 label = when {
+                    aiParsing -> "解析中..."
                     mode == 0 -> "解析并预览"
                     mode == 1 -> "选择 ICS 文件"
-                    aiParsing -> "解析中..."
                     else -> "选择 PDF/图片并解析"
                 },
                 role = DialogButtonRole.Confirm,

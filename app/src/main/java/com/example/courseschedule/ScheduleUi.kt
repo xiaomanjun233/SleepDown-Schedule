@@ -1,4 +1,4 @@
-﻿package com.example.courseschedule
+package com.example.courseschedule
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -60,12 +60,10 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -88,6 +86,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -197,13 +196,12 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -236,7 +234,6 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.palette.graphics.Palette
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
@@ -248,16 +245,12 @@ import com.kyant.backdrop.catalog.components.LiquidSlider
 import com.kyant.backdrop.catalog.components.LiquidToggle
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.shadow.InnerShadow
-import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import androidx.lifecycle.AndroidViewModel
@@ -317,7 +310,7 @@ sealed interface Screen {
 
 enum class HomeMode { Day, Week }
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, About, Changelog, Download, Donate }
+enum class SettingsPage { Root, General, Widgets, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, About, Changelog, Download, Donate }
 
 private fun agentSettingsPage(value: String?): SettingsPage? = when (value) {
     "GENERAL" -> SettingsPage.General
@@ -344,6 +337,7 @@ private const val EduAdapterExtra = "edu_adapter"
 private fun SettingsPage.title(): String = when (this) {
     SettingsPage.Root -> "设置"
     SettingsPage.General -> "通用设置"
+    SettingsPage.Widgets -> "小组件设置"
     SettingsPage.AiImport -> "AI 设置"
     SettingsPage.DayAgent -> "今日助手"
     SettingsPage.Schedule -> "课表详细设置"
@@ -366,16 +360,6 @@ internal const val HomeHeaderGlassHighlightAlpha = 0.09f
 internal const val HomeHeaderGlassShadowAlpha = 0.05f
 internal const val HomeHeaderGlassOuterShadowAlpha = 0.018f
 internal const val HomeHeaderGlassInnerShadowAlpha = 0.08f
-private const val AddMenuMorphDurationMillis = 190
-private const val AddMenuCloseSettleMillis = 36
-
-private enum class AddMenuPhase {
-    Idle,
-    Opening,
-    Open,
-    Closing
-}
-
 internal fun homeHeaderGlassTokens(lightGlass: Boolean): GlassTokens =
     GlassTokens.pill(intensity = 0.95f).copy(surfaceAlpha = homeChromeGlassSurfaceAlpha(lightGlass))
 
@@ -401,7 +385,8 @@ internal var hideFromRecentsEnabled = false
 fun CourseScheduleAppUi(
     viewModel: ScheduleViewModel,
     externalIcsUri: Uri? = null,
-    onExternalIcsConsumed: (Uri) -> Unit = {}
+    onExternalIcsConsumed: (Uri) -> Unit = {},
+    onStartupContentReady: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val allSchedulesState by viewModel.allSchedulesState.collectAsStateWithLifecycle()
@@ -417,7 +402,28 @@ fun CourseScheduleAppUi(
     var detailCaptureCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var detailCaptureRecordCleanFrame by remember { mutableStateOf(false) }
     val detailCaptureMaskActive = remember { AtomicBoolean(false) }
-    val visualState = previewScheduleId?.let(allSchedulesState::forSchedule) ?: state
+    val baseVisualState = previewScheduleId?.let(allSchedulesState::forSchedule) ?: state
+    var personalizationPreviewConfig by remember { mutableStateOf<ScheduleConfigEntity?>(null) }
+    var personalizationPendingCommitConfig by remember { mutableStateOf<ScheduleConfigEntity?>(null) }
+    var personalizationSliderPreviewKey by remember { mutableStateOf<String?>(null) }
+    val personalizationPreviewProgress by animateFloatAsState(
+        targetValue = if (personalizationSliderPreviewKey != null) 1f else 0f,
+        animationSpec = tween(durationMillis = 180, easing = CubicBezierEasing(0.22f, 0f, 0.2f, 1f)),
+        label = "personalization-preview-transition"
+    )
+    LaunchedEffect(baseVisualState.config, personalizationPendingCommitConfig) {
+        val pending = personalizationPendingCommitConfig
+        if (pending != null && baseVisualState.config == pending) {
+            if (personalizationPreviewConfig == pending) {
+                personalizationPreviewConfig = null
+            }
+            personalizationPendingCommitConfig = null
+        }
+    }
+    val visualState = personalizationPreviewConfig
+        ?.takeIf { it.id == baseVisualState.config.id }
+        ?.let { baseVisualState.copy(config = it) }
+        ?: baseVisualState
     val screenGraphicsLayer = rememberGraphicsLayer()
     val detailScreenGraphicsLayer = rememberGraphicsLayer()
     val recordedScheduleId = remember { AtomicInteger(-1) }
@@ -460,42 +466,73 @@ fun CourseScheduleAppUi(
             renderedHomeDialog = null
         }
     }
-    var addMenuExpanded by remember { mutableStateOf(false) }
-    var renderAddMenu by remember { mutableStateOf(false) }
-    var addMenuPhase by remember { mutableStateOf(AddMenuPhase.Idle) }
-    var addButtonBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    val homeAnchoredMorphState = rememberHomeAnchoredMorphState()
+    val homeMenuDestinationMotionState = rememberHomeMenuDestinationMotionState()
+    var homeMenuDestinationRequest by remember { mutableStateOf<HomeMenuDestinationRequest?>(null) }
+    var homeMenuSourceHidden by remember { mutableStateOf(false) }
+    var homeAddMenuBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
+    var homeAnchoredOverlayRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
+    var addButtonBounds by remember { mutableStateOf<Rect?>(null) }
+    var personalizeButtonBounds by remember { mutableStateOf<Rect?>(null) }
+    var pendingHomeAnchoredOverlay by remember { mutableStateOf<HomeAnchoredOverlayKind?>(null) }
     var showScheduleEntryPill by remember { mutableStateOf(false) }
     val editingCourseId: Long? = courseEditorRequest?.course?.id ?: courseEditorRenderedCourseId
-    LaunchedEffect(addMenuExpanded) {
-        if (addMenuExpanded) {
-            renderAddMenu = true
-            addMenuPhase = AddMenuPhase.Opening
-            withFrameNanos { }
-            addMenuPhase = AddMenuPhase.Open
-        } else if (renderAddMenu) {
-            addMenuPhase = AddMenuPhase.Closing
-            delay(AddMenuMorphDurationMillis.toLong())
-            withFrameNanos { }
-            addMenuPhase = AddMenuPhase.Idle
-            delay((AddMenuCloseSettleMillis + 130).toLong())
-            renderAddMenu = false
+    val activeHomeAnchoredOverlay =
+        homeAnchoredOverlayRequest?.kind ?: homeAnchoredMorphState.renderedKind
+
+    fun openHomeAnchoredOverlay(kind: HomeAnchoredOverlayKind) {
+        if (homeAnchoredOverlayRequest != null ||
+            homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle
+        ) return
+        val bounds = when (kind) {
+            HomeAnchoredOverlayKind.Add -> addButtonBounds
+            HomeAnchoredOverlayKind.Personalize -> personalizeButtonBounds
+        }
+        if (bounds == null || bounds.width <= 2f || bounds.height <= 2f) {
+            pendingHomeAnchoredOverlay = kind
+            return
+        }
+        pendingHomeAnchoredOverlay = null
+        homeAnchoredOverlayRequest = HomeAnchoredOverlayRequest(kind, bounds)
+    }
+
+    fun toggleHomeAnchoredOverlay(kind: HomeAnchoredOverlayKind) {
+        if (homeAnchoredOverlayRequest?.kind == kind) {
+            homeAnchoredOverlayRequest = null
         } else {
-            addMenuPhase = AddMenuPhase.Idle
+            openHomeAnchoredOverlay(kind)
         }
     }
-    var showPersonalizePanel by remember { mutableStateOf(false) }
+
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
-    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.roundToPx() }
-    val personalizePanelOffscreenMarginPx = with(density) { 24.dp.roundToPx() }
-    var personalizePanelHeightPx by remember { mutableIntStateOf(0) }
-    val personalizePanelOffscreenOffsetY = remember(
-        screenHeightPx,
-        personalizePanelHeightPx,
-        personalizePanelOffscreenMarginPx
+
+    LaunchedEffect(
+        pendingHomeAnchoredOverlay,
+        addButtonBounds,
+        personalizeButtonBounds,
+        homeAnchoredMorphState.phase,
+        screen
     ) {
-        val panelHeight = personalizePanelHeightPx.takeIf { it > 0 } ?: screenHeightPx
-        -(screenHeightPx / 2 + panelHeight / 2 + personalizePanelOffscreenMarginPx)
+        val pending = pendingHomeAnchoredOverlay ?: return@LaunchedEffect
+        if (screen !is Screen.Home || homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle) {
+            return@LaunchedEffect
+        }
+        openHomeAnchoredOverlay(pending)
+    }
+    LaunchedEffect(screen) {
+        if (screen !is Screen.Home) {
+            pendingHomeAnchoredOverlay = null
+            homeAnchoredOverlayRequest = null
+            personalizationSliderPreviewKey = null
+            personalizationPreviewConfig = null
+        }
+    }
+    LaunchedEffect(homeAnchoredOverlayRequest) {
+        if (homeAnchoredOverlayRequest?.kind != HomeAnchoredOverlayKind.Personalize) {
+            personalizationSliderPreviewKey = null
+            personalizationPreviewConfig = null
+        }
     }
     var homeContentUnderTopBar by remember { mutableStateOf(false) }
     val adaptiveWeekCardHeight = if (visualState.periods.size >= 10) 72f else 80f
@@ -513,8 +550,8 @@ fun CourseScheduleAppUi(
         if (!state.loaded) return@LaunchedEffect
         onExternalIcsConsumed(uri)
         screen = Screen.Home
-        addMenuExpanded = false
-        showPersonalizePanel = false
+        pendingHomeAnchoredOverlay = null
+        homeAnchoredOverlayRequest = null
         loadAiImportFile(context, uri)
             .onSuccess { file ->
                 if (!file.isIcs) {
@@ -539,6 +576,21 @@ fun CourseScheduleAppUi(
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
     var homeReadabilityRootSize by remember { mutableStateOf(IntSize.Zero) }
     var homeRootPositionOnScreen by remember { mutableStateOf(Offset.Zero) }
+    fun openHomeMenuDestination(kind: HomeMenuDestinationKind) {
+        val sourceButton = addButtonBounds ?: return
+        if (homeReadabilityRootSize.width <= 0 || homeReadabilityRootSize.height <= 0) return
+        val menuBounds = homeAddMenuBoundsInRoot ?: homeAddMenuTargetRect(
+            source = sourceButton,
+            rootSize = homeReadabilityRootSize,
+            density = density.density,
+            actionCount = 3
+        )
+        homeMenuDestinationRequest = HomeMenuDestinationRequest(
+            kind = kind,
+            sourceBoundsInRoot = menuBounds,
+            collapseBoundsInRoot = sourceButton
+        )
+    }
     val currentVersionName = remember(context) {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
@@ -589,28 +641,43 @@ fun CourseScheduleAppUi(
             }
         }
     }
-    val logRecording by DiagnosticLogCapture.recording.collectAsStateWithLifecycle()
     val wallpaperImages by rememberHomeWallpaperImages(visualState.config)
+    val expectedWallpaperRenderKey = homeWallpaperRenderKey(
+        visualState.config,
+        appUsesDarkTheme(visualState.config)
+    )
+    val wallpaperLoadFinished = !visualState.config.hasAnyWallpaper() ||
+        wallpaperImages.renderKey == expectedWallpaperRenderKey
+    val latestOnStartupContentReady = rememberUpdatedState(onStartupContentReady)
+    var startupContentReported by remember { mutableStateOf(false) }
     val latestVisualState = rememberUpdatedState(visualState)
     val latestWallpaperImages = rememberUpdatedState(wallpaperImages)
     val latestAllSchedulesState = rememberUpdatedState(allSchedulesState)
     val startupAnimationsEnabled = remember(context) { animationsEnabled(context) }
 
     var startupPhase by remember {
-        mutableStateOf(if (state.loaded || splashEntranceDone || !startupAnimationsEnabled) StartupPhase.FullQuality else StartupPhase.Loading)
+        mutableStateOf(if (splashEntranceDone || !startupAnimationsEnabled) StartupPhase.FullQuality else StartupPhase.Loading)
     }
-    LaunchedEffect(state.loaded, startupAnimationsEnabled) {
-        if (state.loaded && startupPhase == StartupPhase.Loading) {
-            if (startupAnimationsEnabled) {
-                startupPhase = StartupPhase.Prewarm
-            } else {
-                splashEntranceDone = true
-                startupPhase = StartupPhase.FullQuality
-            }
+    LaunchedEffect(state.loaded, wallpaperLoadFinished, startupAnimationsEnabled) {
+        if (!state.loaded || !wallpaperLoadFinished) return@LaunchedEffect
+        if (startupPhase == StartupPhase.Loading && !startupAnimationsEnabled) {
+            splashEntranceDone = true
+            startupPhase = StartupPhase.FullQuality
         }
-    }
-    if (startupAnimationsEnabled && startupPhase == StartupPhase.Prewarm) {
-        WaitForPrewarmFrames { startupPhase = StartupPhase.Reveal }
+        // Let the ready bitmap participate in a complete Compose frame before
+        // releasing MainActivity's first-draw gate.
+        withFrameNanos { }
+        if (!startupContentReported) {
+            startupContentReported = true
+            latestOnStartupContentReady.value()
+        }
+        // Show the already-rendered wallpaper for a brief beat, then let the
+        // home elements fly in. This keeps the entrance readable without
+        // bringing back the old loading mask or circular reveal.
+        if (startupPhase == StartupPhase.Loading && startupAnimationsEnabled) {
+            delay(140)
+            startupPhase = StartupPhase.Entrance
+        }
     }
     LaunchedEffect(startupPhase, startupAnimationsEnabled) {
         if (!startupAnimationsEnabled) {
@@ -676,16 +743,65 @@ fun CourseScheduleAppUi(
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
     )
+    val homeAnchoredOverlayBackdrop = rememberScreenScaledBackdrop(
+        backdrop = chromeBackdrop,
+        scale = {
+            val zoom = homeAnchoredMorphState.backgroundZoom.value
+            1f + (zoom - 1f) * (1f - personalizationPreviewProgress)
+        },
+        rootPositionOnScreen = { homeRootPositionOnScreen },
+        rootSize = { homeReadabilityRootSize }
+    )
+    // Android Dialog content owns a separate Compose root/window. Wrap each recorded layer in
+    // screen coordinates before combining them, otherwise LayerBackdrop mixes the dialog and
+    // activity window origins and samples with a decor/status-bar offset on ColorOS.
+    val homeDialogBackgroundBackdrop = rememberScreenScaledBackdrop(
+        backdrop = backgroundBackdrop,
+        scale = { 1f },
+        rootPositionOnScreen = { homeRootPositionOnScreen },
+        rootSize = { homeReadabilityRootSize }
+    ) ?: backgroundBackdrop
+    val homeDialogContentBackdrop = rememberScreenScaledBackdrop(
+        backdrop = contentBackdrop,
+        scale = { 1f },
+        rootPositionOnScreen = { homeRootPositionOnScreen },
+        rootSize = { homeReadabilityRootSize }
+    ) ?: contentBackdrop
+    val homeDialogBackdrop = rememberCombinedBackdrop(
+        homeDialogBackgroundBackdrop,
+        homeDialogContentBackdrop
+    )
+    val homeMenuDestinationBackdrop = rememberScreenScaledBackdrop(
+        backdrop = chromeBackdrop,
+        scale = { homeMenuDestinationMotionState.backgroundZoom.value },
+        rootPositionOnScreen = { homeRootPositionOnScreen },
+        rootSize = { homeReadabilityRootSize }
+    )
+    val eduMenuDestinationActive =
+        homeMenuDestinationRequest?.kind == HomeMenuDestinationKind.EduImport ||
+            (homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle &&
+                homeMenuDestinationMotionState.backgroundZoom.value > 1.0001f)
+    val homeOverlayBackgroundZoom: () -> Float = {
+        if (personalizationPreviewProgress > 0.001f) {
+            val zoom = homeAnchoredMorphState.backgroundZoom.value
+            1f + (zoom - 1f) * (1f - personalizationPreviewProgress)
+        } else if (eduMenuDestinationActive) {
+            homeMenuDestinationMotionState.backgroundZoom.value
+        } else {
+            maxOf(
+                courseEditorMotionState.backgroundZoom.value,
+                homeAnchoredMorphState.backgroundZoom.value,
+                homeMenuDestinationMotionState.backgroundZoom.value
+            )
+        }
+    }
     val dayAgentBackdrop = rememberScreenScaledBackdrop(
         backdrop = backgroundBackdrop,
         scale = { dayAgentBackgroundMotionState.backgroundZoom.value },
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
     )
-    // Startup splash with circular reveal
     val systemDark = isSystemInDarkTheme()
-    val splashColor = if (systemDark) ComposeColor(0xFF000000) else ComposeColor(0xFFFFFFFF)
-
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val wallpaperLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -1117,13 +1233,6 @@ fun CourseScheduleAppUi(
             viewModel.clearSnackbar()
         }
     }
-    BackHandler(enabled = showPersonalizePanel) {
-        showPersonalizePanel = false
-    }
-    BackHandler(enabled = addMenuExpanded || renderAddMenu) {
-        addMenuExpanded = false
-    }
-
     // Root wrapper — ensures splash covers all content including Scaffold internals
     @OptIn(ExperimentalSharedTransitionApi::class)
     SharedTransitionLayout(
@@ -1207,13 +1316,14 @@ fun CourseScheduleAppUi(
                     drawContent()
                 }
         ) {
-        // The editor zoom wraps BOTH the blurred home surface and the editor overlay so the
-        // backdrop provider (wallpaper inside CourseEditorBackgroundBlurLayer) and its consumer
-        // (the overlay's liquid glass) share one scale transform. Scaling only the blur layer
-        // left the provider transformed but the consumer outside it, so glass sampling drifted.
-        CourseEditorBackgroundZoomLayer(motionState = courseEditorMotionState) {
-        CourseEditorBackgroundBlurLayer(
-            motionState = courseEditorMotionState,
+        // The live home surface owns shared depth for source-anchored overlays. Consumers render
+        // outside this layer and compensate through rememberScreenScaledBackdrop, keeping the
+        // liquid sampling coordinates aligned without blurring the foreground panel itself.
+        HomeBackgroundZoomLayer(
+            zoom = homeOverlayBackgroundZoom
+        ) {
+        HomeBackgroundBlurLayer(
+            zoom = homeOverlayBackgroundZoom,
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
@@ -1264,23 +1374,12 @@ fun CourseScheduleAppUi(
                             afterScheduleTerm = afterScheduleTerm,
                             homeShowingAnotherWeek = homeShowingAnotherWeek,
                             onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
-                            addMenuExpanded = addMenuExpanded,
+                            activeHomeOverlay = activeHomeAnchoredOverlay,
                             onAddButtonPositioned = { addButtonBounds = it },
-                            addMenuRendering = renderAddMenu && addMenuPhase != AddMenuPhase.Idle,
-                            onToggleAddMenu = {
-                                val next = !addMenuExpanded
-                                if (next) {
-                                    renderAddMenu = true
-                                    addMenuPhase = AddMenuPhase.Opening
-                                }
-                                addMenuExpanded = next
-                                if (next) showPersonalizePanel = false
-                            },
-                            showPersonalize = showPersonalizePanel,
+                            onPersonalizeButtonPositioned = { personalizeButtonBounds = it },
+                            onToggleAddMenu = { toggleHomeAnchoredOverlay(HomeAnchoredOverlayKind.Add) },
                             onTogglePersonalize = {
-                                val next = !showPersonalizePanel
-                                showPersonalizePanel = next
-                                if (next) addMenuExpanded = false
+                                toggleHomeAnchoredOverlay(HomeAnchoredOverlayKind.Personalize)
                             },
                             onBackHome = { screen = Screen.Home }
                         )
@@ -1299,17 +1398,16 @@ fun CourseScheduleAppUi(
                 ) {
                     if (screen is Screen.Home) {
                         if (!visualState.loaded) {
-                            HomeWallpaperLoadingMask(visualState.config)
+                            HomeBackdropFallback()
                         } else {
-                            HomeWallpaper(
-                                visualState.config,
-                                wallpaperImages,
-                                startupPhase,
-                                reduceQuality = reduceWallpaperQualityForCourseEditor
-                            )
-                            if (visualState.config.hasAnyWallpaper() && wallpaperImages.source == null) {
-                                HomeWallpaperLoadingMask(visualState.config)
-                            } else if (!visualState.config.hasAnyWallpaper()) {
+                            if (wallpaperImages.source != null) {
+                                HomeWallpaper(
+                                    visualState.config,
+                                    wallpaperImages,
+                                    startupPhase,
+                                    reduceQuality = reduceWallpaperQualityForCourseEditor
+                                )
+                            } else {
                                 HomeBackdropFallback()
                             }
                         }
@@ -1415,8 +1513,7 @@ fun CourseScheduleAppUi(
                                                 viewModel.executeAgentPlan(actions, onResult)
                                             AgentValidatedActionType.OPEN_SETTINGS -> {
                                                 if (action.settingsPage == "PERSONALIZATION") {
-                                                    addMenuExpanded = false
-                                                    showPersonalizePanel = true
+                                                    openHomeAnchoredOverlay(HomeAnchoredOverlayKind.Personalize)
                                                 } else agentSettingsPage(action.settingsPage)?.let { page ->
                                                     val intent = Intent(context, SettingsDetailActivity::class.java)
                                                         .putExtra(SettingsDetailPageExtra, page.name)
@@ -1478,8 +1575,8 @@ fun CourseScheduleAppUi(
                                     onDeleteCourseSingleWeek = viewModel::deleteCourseSingleWeek,
                                     onScheduleLongPress = {
                                         if (pickerState.phase is CustomizeUiState.Home) {
-                                            addMenuExpanded = false
-                                            showPersonalizePanel = false
+                                            pendingHomeAnchoredOverlay = null
+                                            homeAnchoredOverlayRequest = null
                                             pickerState.phase = CustomizeUiState.ShowingEntryButton
                                             showScheduleEntryPill = true
                                             prewarmCurrentScheduleSnapshot()
@@ -1530,60 +1627,6 @@ fun CourseScheduleAppUi(
                         }
                     }
                 }
-            if (screen is Screen.Home && renderAddMenu) {
-                AnimatedVisibility(
-                    visible = addMenuPhase == AddMenuPhase.Open,
-                    enter = fadeIn(animationSpec = tween(durationMillis = 120)),
-                    exit = fadeOut(animationSpec = tween(durationMillis = 140)),
-                    modifier = Modifier.fillMaxSize().zIndex(23f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = { addMenuExpanded = false }
-                            )
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .zIndex(24f)
-                        .fillMaxSize()
-                ) {
-                    LiquidAddMenu(
-                        backdrop = chromeBackdrop,
-                        config = state.config,
-                        expanded = addMenuPhase == AddMenuPhase.Open,
-                        anchorBounds = addButtonBounds,
-                        actions = listOf(
-                            AddMenuAction(R.drawable.ic_add_course, "\u6DFB\u52A0\u5355\u8282\u8BFE") { addMenuExpanded = false; homeDialog = HomeDialog.EditCourse(null) },
-                            AddMenuAction(R.drawable.ic_ai_import, "\u624B\u52A8\u5BFC\u5165\u8BFE\u8868") { addMenuExpanded = false; homeDialog = HomeDialog.ImportSchedule },
-                            AddMenuAction(R.drawable.ic_school_import, "\u6559\u52A1\u7CFB\u7EDF\u5BFC\u5165") { addMenuExpanded = false; context.startActivity(Intent(context, EduSchoolSelectActivity::class.java)) }
-                        )
-                    )
-                }
-                if (false) LiquidPanel(
-                    backdrop = chromeBackdrop,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .zIndex(24f)
-                        .popIn()
-                        .padding(top = 92.dp, end = 58.dp)
-                        .width(208.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        MenuPill(R.drawable.ic_add_course, "添加单节课") { addMenuExpanded = false; homeDialog = HomeDialog.EditCourse(null) }
-                        MenuPill(R.drawable.ic_ai_import, "手动导入课表") { addMenuExpanded = false; homeDialog = HomeDialog.ImportSchedule }
-                        MenuPill(R.drawable.ic_school_import, "\u6559\u52A1\u7CFB\u7EDF\u5BFC\u5165") { addMenuExpanded = false; context.startActivity(Intent(context, EduSchoolSelectActivity::class.java)) }
-                    }
-                }
-            }
             if (screen !is Screen.Home) {
                 showScheduleEntryPill = false
                 if (pickerState.phase is CustomizeUiState.ShowingEntryButton) pickerState.phase = CustomizeUiState.Home
@@ -1604,49 +1647,6 @@ fun CourseScheduleAppUi(
                     )
                 }
             }
-            if (screen is Screen.Home) {
-                AnimatedVisibility(
-                    visible = showPersonalizePanel,
-                    enter = personalizePanelEnterTransition(personalizePanelOffscreenOffsetY),
-                    exit = personalizePanelExitTransition(personalizePanelOffscreenOffsetY),
-                    modifier = Modifier.fillMaxSize().zIndex(19f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = { showPersonalizePanel = false }
-                            )
-                    )
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        PersonalizePanel(
-                            modifier = Modifier.onSizeChanged { personalizePanelHeightPx = it.height },
-                            state = state,
-                            backdrop = chromeBackdrop,
-                            mode = homeMode,
-                            weekCardHeight = weekCardHeight,
-                            onWeekCardHeight = {
-                                val safeHeight = it.coerceIn(38f, 80f)
-                                weekCardHeight = safeHeight
-                                viewModel.savePersonalization(state.config.copy(weekCardHeightDp = safeHeight))
-                            },
-                            onPickWallpaper = { wallpaperLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                            onSampleWallpaperColor = { homeDialog = HomeDialog.SampleWallpaperColor },
-                            onUpdateConfig = { config -> viewModel.savePersonalization(config) }
-                        )
-                    }
-                }
-            } else {
-                showPersonalizePanel = false
-            }
-            DiagnosticLogStopOverlay(
-                visible = logRecording,
-                config = state.config,
-                backdrop = chromeBackdrop,
-                modifier = Modifier.align(Alignment.BottomCenter).zIndex(40f)
-            )
         }
         }
 
@@ -1782,8 +1782,127 @@ fun CourseScheduleAppUi(
         )
     }
     }
-    } // end CourseEditorBackgroundZoomLayer
+    } // end HomeBackgroundZoomLayer
 
+    val homeAddActions = listOf(
+        AddMenuAction(R.drawable.ic_add_course, "添加单节课") {
+            openHomeMenuDestination(HomeMenuDestinationKind.AddCourse)
+        },
+        AddMenuAction(R.drawable.ic_ai_import, "手动导入课表") {
+            openHomeMenuDestination(HomeMenuDestinationKind.ManualImport)
+        },
+        AddMenuAction(R.drawable.ic_school_import, "教务系统导入") {
+            openHomeMenuDestination(HomeMenuDestinationKind.EduImport)
+        }
+    )
+
+    fun closeHomeMenuDestination() {
+        homeAnchoredOverlayRequest = null
+        homeMenuDestinationRequest = null
+    }
+
+    HomeAnchoredMorphOverlayHost(
+        request = if (screen is Screen.Home) homeAnchoredOverlayRequest else null,
+        motionState = homeAnchoredMorphState,
+        backdrop = homeAnchoredOverlayBackdrop,
+        config = state.config,
+        addActions = homeAddActions,
+        modifier = Modifier
+            .zIndex(24f)
+            .graphicsLayer { alpha = if (homeMenuSourceHidden) 0f else 1f },
+        onDismissRequest = { homeAnchoredOverlayRequest = null },
+        onAddMenuBoundsChanged = { homeAddMenuBoundsInRoot = it },
+        personalizePreviewProgress = personalizationPreviewProgress,
+        sourceContent = { kind, sourceModifier ->
+            when (kind) {
+                HomeAnchoredOverlayKind.Add -> HomeIconButtonVisual(
+                    backdrop = homeAnchoredOverlayBackdrop,
+                    config = state.config,
+                    iconRes = R.drawable.ic_add_course,
+                    contentDescription = "添加",
+                    accentColor = ComposeColor(0xFF0A84FF),
+                    modifier = sourceModifier,
+                    isInteractive = false
+                )
+                HomeAnchoredOverlayKind.Personalize -> HomeIconButtonVisual(
+                    backdrop = homeAnchoredOverlayBackdrop,
+                    config = state.config,
+                    iconRes = R.drawable.ic_tune,
+                    contentDescription = "个性化",
+                    modifier = sourceModifier,
+                    isInteractive = false
+                )
+            }
+        },
+        personalizeContent = { panelModifier ->
+            PersonalizePanel(
+                modifier = panelModifier,
+                drawSurface = false,
+                state = visualState,
+                backdrop = homeAnchoredOverlayBackdrop,
+                mode = homeMode,
+                weekCardHeight = weekCardHeight,
+                onWeekCardHeight = {
+                    val safeHeight = it.coerceIn(38f, 80f)
+                    val committedConfig = visualState.config.copy(weekCardHeightDp = safeHeight)
+                    weekCardHeight = safeHeight
+                    personalizationPreviewConfig = committedConfig
+                    personalizationPendingCommitConfig = committedConfig
+                    viewModel.savePersonalization(committedConfig)
+                },
+                onWeekCardHeightPreview = {
+                    val safeHeight = it.coerceIn(38f, 80f)
+                    weekCardHeight = safeHeight
+                    personalizationPreviewConfig = visualState.config.copy(weekCardHeightDp = safeHeight)
+                },
+                onPickWallpaper = {
+                    wallpaperLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                onSampleWallpaperColor = { homeDialog = HomeDialog.SampleWallpaperColor },
+                onUpdateConfig = {
+                    personalizationPreviewConfig = it
+                    personalizationPendingCommitConfig = it
+                    viewModel.savePersonalization(it)
+                },
+                onPreviewConfig = { personalizationPreviewConfig = it },
+                previewSliderKey = personalizationSliderPreviewKey,
+                previewProgress = personalizationPreviewProgress,
+                onSliderPreviewActiveChange = { key, active ->
+                    personalizationSliderPreviewKey = key.takeIf { active }
+                }
+            )
+        }
+    )
+
+    HomeMenuDestinationOverlayHost(
+        request = homeMenuDestinationRequest,
+        motionState = homeMenuDestinationMotionState,
+        state = state,
+        backdrop = homeMenuDestinationBackdrop,
+        modifier = Modifier.zIndex(90f),
+        onDismissRequest = ::closeHomeMenuDestination,
+        sourceActions = homeAddActions,
+        onSourceHandoff = { homeMenuSourceHidden = true },
+        onCollapseHandoff = { homeMenuSourceHidden = false },
+        onClosed = { homeMenuSourceHidden = false },
+        onAddCourse = { course ->
+            viewModel.addCourse(course)
+            closeHomeMenuDestination()
+        },
+        onManualImportParsed = { draft ->
+            closeHomeMenuDestination()
+            appScope.launch {
+                delay(HomeMenuDestinationCloseDurationMillis.toLong())
+                homeDialog = HomeDialog.ConfirmImport(draft)
+            }
+        },
+        onEduAdapterSelected = { adapter ->
+            context.startActivity(
+                Intent(context, EduImportActivity::class.java)
+                    .putExtra(EduAdapterExtra, adapter.toIntentKey())
+            )
+        }
+    )
     GlassMiuixSettingsTheme(settingsVisualConfig(state.config)) {
         QuickScheduleSettingsSheets(
             draft = quickScheduleDraft,
@@ -1991,7 +2110,7 @@ fun CourseScheduleAppUi(
             ApplyCourseEditDialog(
                 original = dialog.original,
                 edited = dialog.edited,
-                backdrop = chromeBackdrop,
+                backdrop = homeDialogBackdrop,
                 config = state.config,
                 onSingle = {
                     viewModel.updateCourseSingleWeek(dialog.original, dialog.edited, dialog.targetWeek)
@@ -2008,7 +2127,7 @@ fun CourseScheduleAppUi(
         } else if (dialog is HomeDialog.ApplyCourseDelete) {
             ApplyCourseDeleteDialog(
                 course = dialog.course,
-                backdrop = chromeBackdrop,
+                backdrop = homeDialogBackdrop,
                 config = state.config,
                 onSingle = {
                     viewModel.deleteCourseSingleWeek(dialog.course, dialog.targetWeek)
@@ -2065,7 +2184,7 @@ fun CourseScheduleAppUi(
                                 onDelete = {
                                     homeDialog = HomeDialog.ApplyCourseDelete(it, dialog.targetWeek ?: effectiveCurrentWeek(state.config))
                                 },
-                                backdrop = chromeBackdrop,
+                                backdrop = homeDialogBackdrop,
                                 pickerRenderInRootScaffold = dialog.course != null
                             )
                         }
@@ -2086,7 +2205,7 @@ fun CourseScheduleAppUi(
                     }
                     HomeDialog.ImportSchedule -> NormalizedAiManualImportScreen(
                         state = state,
-                        backdrop = chromeBackdrop,
+                        backdrop = homeDialogBackdrop,
                         onCancel = { dismissHomeDialog() },
                         onParsed = { homeDialog = HomeDialog.ConfirmImport(it) }
                     )
@@ -2094,7 +2213,7 @@ fun CourseScheduleAppUi(
                     is HomeDialog.EditWallpaper -> Unit
                     is HomeDialog.ConfirmImport -> ConfirmScheduleScreen(
                         draft = dialog.draft,
-                        backdrop = chromeBackdrop,
+                        backdrop = homeDialogBackdrop,
                         onCancel = { homeDialog = dialog.returnDialog },
                         onConfirm = { createNewSchedule ->
                             viewModel.importDraft(dialog.draft, createNewSchedule) { scheduleId ->
@@ -2105,7 +2224,7 @@ fun CourseScheduleAppUi(
                     )
                     HomeDialog.SampleWallpaperColor -> WallpaperColorSamplerScreen(
                         state = state,
-                        backdrop = chromeBackdrop,
+                        backdrop = homeDialogBackdrop,
                         onCancel = { dismissHomeDialog() },
                         onSelected = { color ->
                             viewModel.savePersonalization(state.config.copy(cardColorArgb = color))
@@ -2115,7 +2234,7 @@ fun CourseScheduleAppUi(
                     is HomeDialog.ApplyCourseEdit -> ApplyCourseEditDialog(
                         original = dialog.original,
                         edited = dialog.edited,
-                        backdrop = chromeBackdrop,
+                        backdrop = homeDialogBackdrop,
                         config = state.config,
                         onSingle = {
                             viewModel.updateCourseSingleWeek(dialog.original, dialog.edited, dialog.targetWeek)
@@ -2131,7 +2250,7 @@ fun CourseScheduleAppUi(
                     )
                     is HomeDialog.ApplyCourseDelete -> ApplyCourseDeleteDialog(
                         course = dialog.course,
-                        backdrop = chromeBackdrop,
+                        backdrop = homeDialogBackdrop,
                         config = state.config,
                         onSingle = {
                             viewModel.deleteCourseSingleWeek(dialog.course, dialog.targetWeek)
@@ -2149,7 +2268,7 @@ fun CourseScheduleAppUi(
                     }
                 }
                 CenterLiquidDialog(
-                        backdrop = chromeBackdrop,
+                        backdrop = homeDialogBackdrop,
                         config = state.config,
                         modifier = Modifier,
                         size = if (dialog is HomeDialog.ImportSchedule) {
@@ -2201,12 +2320,6 @@ fun CourseScheduleAppUi(
             }
         )
 
-        // Startup splash — covers content until config loaded, then circular reveal
-        StartupRevealOverlay(
-            phase = startupPhase,
-            splashColor = splashColor,
-            onRevealFinished = { startupPhase = StartupPhase.Entrance }
-        )
     }
     }
     }
@@ -2214,8 +2327,8 @@ fun CourseScheduleAppUi(
 }
 
 @Composable
-private fun CourseEditorBackgroundZoomLayer(
-    motionState: CourseEditorMotionState,
+private fun HomeBackgroundZoomLayer(
+    zoom: () -> Float,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -2224,12 +2337,9 @@ private fun CourseEditorBackgroundZoomLayer(
             .fillMaxSize()
             .clipToBounds()
             .graphicsLayer {
-                // Inertial zoom shared by the blurred home surface and the editor overlay.
-                // Wrapping both keeps the backdrop provider and its glass consumer in one
-                // transform space, so sampling stays correct while the surface pushes in.
-                // clipToBounds ensures the zoomed-in content never bleeds past the screen.
-                scaleX = motionState.backgroundZoom.value
-                scaleY = motionState.backgroundZoom.value
+                val currentZoom = zoom()
+                scaleX = currentZoom
+                scaleY = currentZoom
             },
         content = content
     )
@@ -2242,31 +2352,25 @@ private val DetailContentTopGap = 44.dp
 internal val HomeInitialTopInset = 122.dp
 
 @Composable
-private fun CourseEditorBackgroundBlurLayer(
-    motionState: CourseEditorMotionState,
+private fun HomeBackgroundBlurLayer(
+    zoom: () -> Float,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
     val density = LocalDensity.current
     Box(
         modifier = modifier.graphicsLayer {
-            // Read the Morph Animatable inside the layer block: Compose invalidates only this
-            // render layer instead of recomposing the home/Pagers on every animation frame.
-            // Both the blur depth and the inertial zoom are driven by a single slow Animatable
-            // (backgroundZoom) that trails the card morph, so the home surface keeps settling
-            // after the card has opened/closed. Normalise the 1..1.08 zoom range back to a
-            // 0..1 depth factor so blur strength and scale never drift apart.
-            val depthProgress =
-                ((motionState.backgroundZoom.value - 1f) / (BackgroundZoomOpenScale - 1f))
-                    .coerceIn(0f, 1f)
+            val depthRange = maxOf(
+                abs(BackgroundZoomOpenScale - 1f),
+                abs(HomeMenuDestinationEduBackgroundScale - 1f)
+            )
+            val depthProgress = (abs(zoom() - 1f) / depthRange).coerceIn(0f, 1f)
             val blurPx = with(density) { 12.dp.toPx() } * depthProgress
             renderEffect = if (blurPx > 0.01f) {
                 BlurEffect(blurPx, blurPx, TileMode.Clamp)
             } else {
                 null
             }
-            // The inertial zoom itself lives in CourseEditorBackgroundZoomLayer, which wraps
-            // both this blurred surface and the overlay so backdrop sampling stays aligned.
         },
         content = content
     )
@@ -2341,6 +2445,8 @@ fun DetailActivityScaffold(
     showTopGradientBlur: Boolean = true,
     isolateContentFromBackdrop: Boolean = false,
     compactTopBar: Boolean = false,
+    centerCompactTitle: Boolean = false,
+    topBarVisible: Boolean = true,
     content: @Composable (Backdrop?) -> Unit
 ) {
     GlassMiuixDetailActivityScaffold(
@@ -2350,78 +2456,21 @@ fun DetailActivityScaffold(
         showTopGradientBlur = showTopGradientBlur,
         isolateContentFromBackdrop = isolateContentFromBackdrop,
         compactTopBar = compactTopBar,
+        centerCompactTitle = centerCompactTitle,
+        topBarVisible = topBarVisible,
         content = content
     )
 }
 
-@Composable
-fun DiagnosticLogStopOverlay(
-    visible: Boolean,
-    config: ScheduleConfigEntity,
-    backdrop: Backdrop?,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    AnimatedVisibility(
-        visible = visible,
-        enter = popEnterTransition(),
-        exit = popExitTransition(),
-        modifier = modifier
-            .navigationBarsPadding()
-            .padding(bottom = 28.dp)
-    ) {
-        val stop: () -> Unit = {
-            scope.launch {
-                DiagnosticLogCapture.stop(context)
-                    .onSuccess { uri -> shareDiagnosticLog(context, uri) }
-                    .onFailure {
-                        Toast.makeText(context, "日志停止失败：${it.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
-                    }
-            }
-        }
-        if (backdrop != null) {
-            LiquidButton(
-                onClick = stop,
-                backdrop = backdrop,
-                height = 46.dp,
-                surfaceColor = ComposeColor(0xFFFF453A).copy(alpha = 0.82f),
-                contentPadding = PaddingValues(horizontal = 20.dp),
-                blurRadius = 12.dp,
-                lensHeight = 30.dp,
-                lensAmount = 38.dp,
-                chromaticAberration = false
-            ) {
-                Text(
-                    "停止抓取",
-                    color = ComposeColor.White,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
-        } else {
-            Text(
-                "停止抓取",
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(ComposeColor(0xFFFF453A).copy(alpha = 0.86f))
-                    .clickable(onClick = stop)
-                    .padding(horizontal = 20.dp, vertical = 13.dp),
-                color = ComposeColor.White,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                softWrap = false
-            )
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DetailTopBar(title: String, config: ScheduleConfigEntity, backdrop: Backdrop?, onBack: () -> Unit) {
+fun DetailTopBar(
+    title: String,
+    config: ScheduleConfigEntity,
+    backdrop: Backdrop?,
+    onBack: () -> Unit,
+    centerTitle: Boolean = false
+) {
     val density = LocalDensity.current
     val statusTop = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
     Box(
@@ -2429,7 +2478,31 @@ fun DetailTopBar(title: String, config: ScheduleConfigEntity, backdrop: Backdrop
             .fillMaxWidth()
             .height(statusTop + DetailTopBarHeight)
     ) {
-        Row(
+        if (centerTitle) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(DetailTopBarHeight)
+                    .align(Alignment.BottomCenter)
+            ) {
+                TopBackButton(
+                    backdrop = backdrop,
+                    config = config,
+                    onClick = onBack,
+                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp).size(42.dp)
+                )
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    lineHeight = MaterialTheme.typography.titleLarge.fontSize,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    modifier = Modifier.align(Alignment.Center).padding(horizontal = 64.dp)
+                )
+            }
+        } else Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(DetailTopBarHeight)
@@ -2498,7 +2571,7 @@ fun HomeTopGradientBlur(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppTopBar(
+internal fun AppTopBar(
     screen: Screen,
     state: AppState,
     settingsPage: SettingsPage,
@@ -2512,11 +2585,10 @@ fun AppTopBar(
     afterScheduleTerm: Boolean,
     homeShowingAnotherWeek: Boolean,
     onReturnHomeToCurrentWeek: () -> Unit,
-    addMenuExpanded: Boolean,
+    activeHomeOverlay: HomeAnchoredOverlayKind?,
     onAddButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
-    addMenuRendering: Boolean,
+    onPersonalizeButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
     onToggleAddMenu: () -> Unit,
-    showPersonalize: Boolean,
     onTogglePersonalize: () -> Unit,
     onBackHome: () -> Unit
 ) {
@@ -2556,6 +2628,7 @@ fun AppTopBar(
                             Screen.Config -> when (settingsPage) {
                                 SettingsPage.Root -> "设置"
                                 SettingsPage.General -> "通用设置"
+                                SettingsPage.Widgets -> "小组件设置"
                                 SettingsPage.AiImport -> "AI 设置"
                                 SettingsPage.DayAgent -> "今日助手"
                                 SettingsPage.Schedule -> "课表详细设置"
@@ -2595,79 +2668,33 @@ fun AppTopBar(
                         state.config,
                         R.drawable.ic_tune,
                         "个性化",
-                        selected = showPersonalize,
+                        selected = activeHomeOverlay == HomeAnchoredOverlayKind.Personalize,
+                        visible = activeHomeOverlay != HomeAnchoredOverlayKind.Personalize,
                         onClick = {
                             performButtonHaptic(view)
                             onTogglePersonalize()
-                        }
+                        },
+                        onButtonPositioned = onPersonalizeButtonPositioned
                     )
-                    HomeAddButton(
-                        backdrop,
-                        state.config,
-                        addMenuExpanded,
-                        addMenuRendering,
-                        onAddButtonPositioned,
+                    HomeIconButton(
+                        backdrop = backdrop,
+                        config = state.config,
+                        iconRes = R.drawable.ic_add_course,
+                        contentDescription = "添加",
+                        selected = activeHomeOverlay == HomeAnchoredOverlayKind.Add,
+                        accentColor = ComposeColor(0xFF0A84FF),
+                        visible = activeHomeOverlay != HomeAnchoredOverlayKind.Add,
                         onClick = {
                             performButtonHaptic(view)
                             onToggleAddMenu()
-                        }
+                        },
+                        onButtonPositioned = onAddButtonPositioned
                     )
                     HomeModeSwitch(backdrop, state.config, homeMode, onHomeModeChange)
                 }
             }
         }
     )
-}
-
-@Composable
-fun HomeAddButton(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    expanded: Boolean,
-    menuRendering: Boolean,
-    onPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
-    onClick: () -> Unit
-) {
-    val alpha = remember { Animatable(1f) }
-    val scale = remember { Animatable(1f) }
-    val buttonFadeEase = remember { CubicBezierEasing(0.16f, 1f, 0.30f, 1f) }
-    val visible = !expanded && !menuRendering
-    LaunchedEffect(expanded, menuRendering) {
-        if (!visible) {
-            launch { alpha.animateTo(0f, tween(durationMillis = 100, easing = buttonFadeEase)) }
-            scale.animateTo(0.92f, tween(durationMillis = 110, easing = buttonFadeEase))
-        } else {
-            scale.snapTo(0.94f)
-            delay(18)
-            launch { alpha.animateTo(1f, tween(durationMillis = 130, easing = buttonFadeEase)) }
-            scale.animateTo(1f, spring(dampingRatio = 0.78f, stiffness = 620f))
-        }
-    }
-    Box(modifier = Modifier.graphicsLayer { this.alpha = alpha.value; scaleX = scale.value; scaleY = scale.value }) {
-        HomeIconButton(
-            backdrop = backdrop,
-            config = config,
-            iconRes = R.drawable.ic_add_course,
-            contentDescription = "添加",
-            selected = expanded,
-            accentColor = ComposeColor(0xFF0A84FF),
-            onClick = onClick,
-            onButtonPositioned = onPositioned
-        )
-    }
-}
-
-@Composable
-fun Modifier.popIn(): Modifier {
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
-    val scale by animateFloatAsState(targetValue = if (visible) 1f else 0.92f, animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f), label = "pop-in-scale")
-    val alpha by animateFloatAsState(targetValue = if (visible) 1f else 0f, animationSpec = spring(dampingRatio = 0.9f, stiffness = 420f), label = "pop-in-alpha")
-    return graphicsLayer {
-        scaleX = scale
-        scaleY = scale
-        this.alpha = alpha
-    }
 }
 
 private fun popEnterTransition(): EnterTransition =
@@ -2677,74 +2704,6 @@ private fun popEnterTransition(): EnterTransition =
 private fun popExitTransition(): ExitTransition =
     fadeOut(animationSpec = spring(dampingRatio = 0.92f, stiffness = 560f)) +
         scaleOut(targetScale = 0.94f, animationSpec = spring(dampingRatio = 0.82f, stiffness = 560f))
-
-private fun personalizePanelEnterTransition(offscreenOffsetY: Int): EnterTransition {
-    val flowEase = CubicBezierEasing(0.18f, 0.82f, 0.24f, 1f)
-    return fadeIn(animationSpec = tween(durationMillis = 190, easing = flowEase)) +
-        expandIn(
-            expandFrom = Alignment.TopCenter,
-            initialSize = ::personalizePanelCollapsedSize,
-            animationSpec = tween(durationMillis = 300, easing = flowEase)
-        ) +
-        scaleIn(
-            initialScale = 0.02f,
-            transformOrigin = TransformOrigin(0.5f, 0.02f),
-            animationSpec = tween(durationMillis = 300, easing = flowEase)
-        ) +
-        slideInVertically(
-            initialOffsetY = { offscreenOffsetY },
-            animationSpec = tween(durationMillis = 300, easing = flowEase)
-        )
-}
-
-private fun personalizePanelExitTransition(offscreenOffsetY: Int): ExitTransition {
-    val ease = CubicBezierEasing(0.76f, 0f, 0.82f, 0.18f)
-    return fadeOut(animationSpec = tween(durationMillis = 260, easing = ease)) +
-        shrinkOut(
-            shrinkTowards = Alignment.TopCenter,
-            targetSize = ::personalizePanelCollapsedSize,
-            animationSpec = tween(durationMillis = 260, easing = ease)
-        ) +
-        scaleOut(
-            targetScale = 0.02f,
-            transformOrigin = TransformOrigin(0.5f, 0.02f),
-            animationSpec = tween(durationMillis = 260, easing = ease)
-        ) +
-        slideOutVertically(
-            targetOffsetY = { offscreenOffsetY },
-            animationSpec = tween(durationMillis = 260, easing = ease)
-        )
-}
-
-private fun personalizePanelCollapsedSize(fullSize: IntSize): IntSize =
-    IntSize(
-        width = (fullSize.width * 0.075f).roundToInt().coerceAtLeast(1),
-        height = (fullSize.height * 0.012f).roundToInt().coerceAtLeast(1)
-    )
-
-private fun courseEditEnterTransition(): EnterTransition =
-    fadeIn(animationSpec = spring(dampingRatio = 0.86f, stiffness = 620f)) +
-        scaleIn(
-            initialScale = 0.62f,
-            transformOrigin = TransformOrigin(0.5f, 0.68f),
-            animationSpec = spring(dampingRatio = 0.70f, stiffness = 640f)
-        ) +
-        slideInVertically(
-            initialOffsetY = { it / 5 },
-            animationSpec = spring(dampingRatio = 0.72f, stiffness = 620f)
-        )
-
-private fun courseEditExitTransition(): ExitTransition =
-    fadeOut(animationSpec = spring(dampingRatio = 0.92f, stiffness = 620f)) +
-        scaleOut(
-            targetScale = 0.76f,
-            transformOrigin = TransformOrigin(0.5f, 0.68f),
-            animationSpec = spring(dampingRatio = 0.82f, stiffness = 620f)
-        ) +
-        slideOutVertically(
-            targetOffsetY = { it / 8 },
-            animationSpec = spring(dampingRatio = 0.86f, stiffness = 620f)
-        )
 
 @Suppress("UNUSED_PARAMETER")
 @Composable
@@ -2777,7 +2736,8 @@ fun TopBackButton(backdrop: Backdrop?, config: ScheduleConfigEntity, onClick: ()
             blurRadius = 3.dp,
             lensHeight = 16.dp,
             lensAmount = 24.dp,
-            chromaticAberration = false
+            chromaticAberration = false,
+            shadowEnabled = false
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "返回", modifier = Modifier.size(22.dp))
@@ -2806,8 +2766,48 @@ fun HomeIconButton(
     selected: Boolean,
     accentColor: ComposeColor = ComposeColor.Unspecified,
     modifier: Modifier = Modifier,
+    visible: Boolean = true,
     onClick: () -> Unit,
     onButtonPositioned: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null
+) {
+    Box(
+        modifier = modifier
+            .padding(end = 7.dp)
+            .size(42.dp)
+            .then(
+                if (onButtonPositioned != null) {
+                    Modifier.onGloballyPositioned { onButtonPositioned(it.boundsInRoot()) }
+                } else {
+                    Modifier
+                }
+            )
+            .graphicsLayer { alpha = if (visible) 1f else 0f }
+    ) {
+        HomeIconButtonVisual(
+            backdrop = backdrop,
+            config = config,
+            iconRes = iconRes,
+            contentDescription = contentDescription,
+            selected = selected,
+            accentColor = accentColor,
+            modifier = Modifier.fillMaxSize(),
+            isInteractive = visible,
+            onClick = onClick
+        )
+    }
+}
+
+@Composable
+internal fun HomeIconButtonVisual(
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    iconRes: Int,
+    contentDescription: String,
+    selected: Boolean = false,
+    accentColor: ComposeColor = ComposeColor.Unspecified,
+    modifier: Modifier = Modifier,
+    isInteractive: Boolean = true,
+    onClick: () -> Unit = {}
 ) {
     val adaptiveGlass = LocalAdaptiveGlass.current
     val lightGlass = adaptiveGlass.lightGlass
@@ -2819,18 +2819,9 @@ fun HomeIconButton(
     }
     if (backdrop != null) {
         LiquidButton(
-            onClick = onClick,
+            onClick = if (isInteractive) onClick else ({}),
             backdrop = backdrop,
-            modifier = modifier
-                .padding(end = 7.dp)
-                .size(42.dp)
-                .then(
-                    if (onButtonPositioned != null) {
-                        Modifier.onGloballyPositioned { onButtonPositioned(it.boundsInRoot()) }
-                    } else {
-                        Modifier
-                    }
-                ),
+            modifier = modifier,
             height = 42.dp,
             tint = if (accentColor.isSpecified) accentColor else ComposeColor.Unspecified,
             surfaceColor = buttonSurfaceColor,
@@ -2838,7 +2829,8 @@ fun HomeIconButton(
             blurRadius = HomeHeaderGlassBlur,
             lensHeight = HomeHeaderGlassLensHeight,
             lensAmount = HomeHeaderGlassLensAmount,
-            chromaticAberration = false
+            chromaticAberration = false,
+            shadowEnabled = false
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(
@@ -2853,18 +2845,9 @@ fun HomeIconButton(
         GlassPill(
             backdrop = null,
             config = config,
-            modifier = modifier
-                .padding(end = 7.dp)
-                .size(42.dp)
-                .then(
-                    if (onButtonPositioned != null) {
-                        Modifier.onGloballyPositioned { onButtonPositioned(it.boundsInRoot()) }
-                    } else {
-                        Modifier
-                    }
-                ),
+            modifier = modifier,
             selected = selected,
-            onClick = onClick
+            onClick = if (isInteractive) onClick else ({})
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(painterResource(iconRes), contentDescription = contentDescription, modifier = Modifier.size(20.dp))
@@ -2873,487 +2856,11 @@ fun HomeIconButton(
     }
 }
 
-@Composable
-fun MenuPill(iconRes: Int, label: String, onClick: () -> Unit) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = if (pressed) 0.16f else 0f))
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Icon(painterResource(iconRes), contentDescription = null, modifier = Modifier.size(18.dp))
-        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
-    }
-}
-
 data class AddMenuAction(
     val iconRes: Int,
     val label: String,
     val onClick: () -> Unit
 )
-
-@Composable
-fun LiquidAddMenu(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    actions: List<AddMenuAction>,
-    modifier: Modifier = Modifier,
-    anchorBounds: androidx.compose.ui.geometry.Rect? = null,
-    expanded: Boolean = true
-) {
-    MorphingLiquidAddMenu(
-        backdrop = backdrop,
-        config = config,
-        actions = actions,
-        modifier = modifier,
-        anchorBounds = anchorBounds,
-        expanded = expanded
-    )
-}
-
-@Composable
-fun MorphingLiquidAddMenu(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    actions: List<AddMenuAction>,
-    modifier: Modifier = Modifier,
-    anchorBounds: androidx.compose.ui.geometry.Rect? = null,
-    expanded: Boolean = true
-) {
-    var animatedExpanded by remember { mutableStateOf(false) }
-    LaunchedEffect(expanded) {
-        if (expanded) {
-            delay(16)
-            animatedExpanded = true
-        } else {
-            animatedExpanded = false
-        }
-    }
-    val transition = androidx.compose.animation.core.updateTransition(animatedExpanded, label = "morph-add-menu")
-    val addMenuEase = remember { CubicBezierEasing(0.16f, 1f, 0.30f, 1f) }
-    val addMenuSettleEase = remember { CubicBezierEasing(0.22f, 1f, 0.36f, 1f) }
-    val itemHeight = 48.dp
-    val itemSpacing = 4.dp
-    val menuPadding = 8.dp
-    val expandedHeight = menuPadding * 2 + itemHeight * actions.size + itemSpacing * (actions.size - 1).coerceAtLeast(0)
-    val sinkOffset by transition.animateDp(
-        transitionSpec = {
-            if (targetState) {
-                keyframes {
-                    durationMillis = AddMenuMorphDurationMillis
-                    0.dp at 0
-                    49.dp at 150 using addMenuEase
-                    46.dp at AddMenuMorphDurationMillis using addMenuSettleEase
-                }
-            } else {
-                keyframes {
-                    durationMillis = AddMenuMorphDurationMillis
-                    46.dp at 0
-                    (-3).dp at 150 using addMenuEase
-                    0.dp at AddMenuMorphDurationMillis using addMenuSettleEase
-                }
-            }
-        },
-        label = "add-menu-sink"
-    ) { if (it) 46.dp else 0.dp }
-    val width by transition.animateDp(
-        transitionSpec = {
-            if (targetState) {
-                keyframes {
-                    durationMillis = AddMenuMorphDurationMillis
-                    42.dp at 0
-                    42.dp at 42
-                    212.dp at 150 using addMenuEase
-                    202.dp at AddMenuMorphDurationMillis using addMenuSettleEase
-                }
-            } else {
-                keyframes {
-                    durationMillis = AddMenuMorphDurationMillis
-                    202.dp at 0
-                    38.dp at 150 using addMenuEase
-                    42.dp at AddMenuMorphDurationMillis using addMenuSettleEase
-                }
-            }
-        },
-        label = "add-menu-width"
-    ) { if (it) 202.dp else 42.dp }
-    val height by transition.animateDp(
-        transitionSpec = {
-            if (targetState) {
-                keyframes {
-                    durationMillis = AddMenuMorphDurationMillis
-                    42.dp at 0
-                    42.dp at 42
-                    (expandedHeight + 8.dp) at 150 using addMenuEase
-                    expandedHeight at AddMenuMorphDurationMillis using addMenuSettleEase
-                }
-            } else {
-                keyframes {
-                    durationMillis = AddMenuMorphDurationMillis
-                    expandedHeight at 0
-                    38.dp at 150 using addMenuEase
-                    42.dp at AddMenuMorphDurationMillis using addMenuSettleEase
-                }
-            }
-        },
-        label = "add-menu-height"
-    ) { if (it) expandedHeight else 42.dp }
-    val radius by transition.animateDp(
-        transitionSpec = {
-            if (targetState) {
-                keyframes {
-                    durationMillis = AddMenuMorphDurationMillis
-                    50.dp at 0
-                    24.dp at 150 using addMenuEase
-                    26.dp at AddMenuMorphDurationMillis using addMenuSettleEase
-                }
-            } else {
-                keyframes {
-                    durationMillis = AddMenuMorphDurationMillis
-                    26.dp at 0
-                    52.dp at 150 using addMenuEase
-                    50.dp at AddMenuMorphDurationMillis using addMenuSettleEase
-                }
-            }
-        },
-        label = "add-menu-radius"
-    ) { if (it) 26.dp else 50.dp }
-    val iconAlpha by transition.animateFloat(
-        transitionSpec = { tween(durationMillis = 90, easing = addMenuEase) },
-        label = "add-menu-icon-alpha"
-    ) { if (it) 0f else 1f }
-    val contentAlpha by transition.animateFloat(
-        transitionSpec = {
-            if (targetState) {
-                keyframes {
-                    durationMillis = 175
-                    0f at 0
-                    0f at 48
-                    1f at 175 using addMenuEase
-                }
-            } else {
-                tween(durationMillis = 85, easing = addMenuEase)
-            }
-        },
-        label = "add-menu-content-alpha"
-    ) { if (it) 1f else 0f }
-    val dynamicBlur by transition.animateDp(
-        transitionSpec = { tween(durationMillis = 175, easing = addMenuEase) },
-        label = "add-menu-blur"
-    ) { if (it) 14.dp else 3.dp }
-    val menuReboundScale by transition.animateFloat(
-        transitionSpec = {
-            if (targetState) {
-                keyframes {
-                    durationMillis = AddMenuMorphDurationMillis
-                    1f at 0
-                    1.018f at 150 using addMenuEase
-                    1f at AddMenuMorphDurationMillis using addMenuSettleEase
-                }
-            } else {
-                keyframes {
-                    durationMillis = AddMenuMorphDurationMillis
-                    1f at 0
-                    0.985f at 150 using addMenuEase
-                    1f at AddMenuMorphDurationMillis using addMenuSettleEase
-                }
-            }
-        },
-        label = "add-menu-rebound-scale"
-    ) { if (it) 1.0001f else 1f }
-    var highlightedIndex by remember { mutableIntStateOf(-1) }
-    var touching by remember { mutableStateOf(false) }
-    val pressProgress by animateFloatAsState(
-        targetValue = if (touching || highlightedIndex >= 0) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 360f),
-        label = "morph-add-menu-press"
-    )
-    val density = LocalDensity.current
-    val itemHeightPx = with(density) { itemHeight.toPx() }
-    val itemStepPx = with(density) { (itemHeight + itemSpacing).toPx() }
-    val menuPaddingPx = with(density) { menuPadding.toPx() }
-    val lightGlass = glassUsesLightStyle(config)
-    val textColor = glassForegroundColor(config)
-    val expansionProgress = contentAlpha.coerceIn(0f, 1f)
-    val closedTintColor = ComposeColor(0xFF0A84FF)
-    val closedSurfaceColor = closedTintColor.copy(alpha = if (lightGlass) 0.20f else 0.24f)
-    val expandedSurfaceColor = (if (lightGlass) ComposeColor.White else ComposeColor(0xFF050505))
-        .copy(alpha = if (lightGlass) 0.16f else 0.26f)
-    val closedBackdropAlpha = 1f - expansionProgress
-    val expandedBackdropAlpha = expansionProgress
-    fun hitIndex(y: Float): Int {
-        val localY = y - menuPaddingPx
-        if (localY < 0f || contentAlpha < 0.6f) return -1
-        val index = (localY / itemStepPx).toInt()
-        val inItem = localY - index * itemStepPx <= itemHeightPx
-        return index.takeIf { it in actions.indices && inItem } ?: -1
-    }
-    val dragModifier = Modifier.pointerInput(actions, contentAlpha) {
-        awaitPointerEventScope {
-            while (true) {
-                val down = awaitPointerEvent().changes.firstOrNull { it.pressed } ?: continue
-                touching = true
-                highlightedIndex = hitIndex(down.position.y)
-                down.consume()
-                var released = false
-                while (!released) {
-                    val event = awaitPointerEvent()
-                    val change = event.changes.firstOrNull() ?: continue
-                    highlightedIndex = hitIndex(change.position.y)
-                    if (change.changedToUpIgnoreConsumed()) {
-                        val index = highlightedIndex
-                        touching = false
-                        highlightedIndex = -1
-                        if (index in actions.indices) actions[index].onClick()
-                        released = true
-                    }
-                    change.consume()
-                }
-            }
-        }
-    }
-    val shape = RoundedCornerShape(radius)
-    val anchorDensity = LocalDensity.current
-    val anchorCenter = anchorBounds?.center
-    val anchorOffset = if (anchorCenter != null) {
-        with(anchorDensity) {
-            IntOffset(
-                x = (anchorCenter.x - width.toPx() / 2f).roundToInt(),
-                y = (anchorCenter.y - 21.dp.toPx()).roundToInt()
-            )
-        }
-    } else {
-        IntOffset.Zero
-    }
-    val containerModifier = modifier
-        .offset { anchorOffset }
-        .offset { IntOffset(0, sinkOffset.roundToPx()) }
-        .graphicsLayer {
-            scaleX = menuReboundScale
-            scaleY = menuReboundScale
-        }
-        .width(width)
-        .height(height)
-        .clip(shape)
-        .then(dragModifier)
-
-    Box(
-        modifier = if (backdrop != null) {
-            containerModifier.drawBackdrop(
-                backdrop = backdrop,
-                shape = { shape },
-                effects = {
-                    vibrancy()
-                    blur(((dynamicBlur * 0.65f) + 3.dp * pressProgress).toPx())
-                    lens(
-                        (12.dp + 6.dp * contentAlpha + 4.dp * pressProgress).toPx(),
-                        (HomeHeaderGlassLensAmount + 6.dp * contentAlpha + 6.dp * pressProgress).toPx(),
-                        depthEffect = true,
-                        chromaticAberration = false
-                    )
-                },
-                highlight = {
-                    Highlight.Default.copy(
-                        alpha = HomeHeaderGlassHighlightAlpha * closedBackdropAlpha +
-                            0.04f * expandedBackdropAlpha +
-                            0.08f * pressProgress
-                    )
-                },
-                shadow = {
-                    Shadow(
-                        alpha = HomeHeaderGlassShadowAlpha * closedBackdropAlpha +
-                            (if (lightGlass) 0.10f else 0.18f) * expandedBackdropAlpha +
-                            0.08f * pressProgress
-                    )
-                },
-                innerShadow = {
-                    InnerShadow(
-                        radius = 8.dp + 3.dp * contentAlpha,
-                        alpha = HomeHeaderGlassInnerShadowAlpha * closedBackdropAlpha +
-                            0.10f * expandedBackdropAlpha +
-                            0.08f * pressProgress
-                    )
-                },
-                layerBlock = {
-                    val scale = 1f + 0.016f * pressProgress
-                    scaleX = scale
-                    scaleY = scale
-                },
-                onDrawSurface = {
-                    drawRect(closedTintColor.copy(alpha = 0.18f * closedBackdropAlpha), blendMode = BlendMode.Hue)
-                    drawRect(closedTintColor.copy(alpha = 0.22f * closedBackdropAlpha))
-                    drawRect(closedSurfaceColor.copy(alpha = closedSurfaceColor.alpha * closedBackdropAlpha))
-                    drawRect(expandedSurfaceColor.copy(alpha = expandedSurfaceColor.alpha * expandedBackdropAlpha))
-                    drawRect(ComposeColor.Black.copy(alpha = (if (lightGlass) 0.018f else 0.055f) * expandedBackdropAlpha))
-                }
-            )
-        } else {
-            containerModifier.background(if (appUsesDarkTheme(config)) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
-        },
-        contentAlignment = Alignment.TopCenter
-    ) {
-        Icon(
-            painterResource(R.drawable.ic_add_course),
-            contentDescription = "添加",
-            tint = ComposeColor(0xFF0A84FF),
-            modifier = Modifier
-                .align(Alignment.Center)
-                .graphicsLayer(alpha = iconAlpha, rotationZ = 45f * contentAlpha)
-                .size(20.dp)
-        )
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer(alpha = contentAlpha)
-                .padding(menuPadding),
-            verticalArrangement = Arrangement.spacedBy(itemSpacing)
-        ) {
-            CompositionLocalProvider(LocalContentColor provides textColor) {
-                actions.forEachIndexed { index, action ->
-                    AddMenuLiquidItem(
-                        config = config,
-                        action = action,
-                        highlighted = highlightedIndex == index,
-                        itemHeight = itemHeight
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun LegacyLiquidAddMenu(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    actions: List<AddMenuAction>,
-    modifier: Modifier = Modifier
-) {
-    var highlightedIndex by remember { mutableIntStateOf(-1) }
-    var touching by remember { mutableStateOf(false) }
-    val pressProgress by animateFloatAsState(
-        targetValue = if (touching || highlightedIndex >= 0) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 360f),
-        label = "add-menu-press"
-    )
-    val itemHeight = 48.dp
-    val itemSpacing = 4.dp
-    val menuPadding = 8.dp
-    val density = LocalDensity.current
-    val itemHeightPx = with(density) { itemHeight.toPx() }
-    val itemStepPx = with(density) { (itemHeight + itemSpacing).toPx() }
-    val menuPaddingPx = with(density) { menuPadding.toPx() }
-    val menuShape = RoundedCornerShape(26.dp)
-    val lightGlass = glassUsesLightStyle(config)
-    val textColor = glassForegroundColor(config)
-    fun hitIndex(y: Float): Int {
-        val localY = y - menuPaddingPx
-        if (localY < 0f) return -1
-        val index = (localY / itemStepPx).toInt()
-        val inItem = localY - index * itemStepPx <= itemHeightPx
-        return index.takeIf { it in actions.indices && inItem } ?: -1
-    }
-    val dragModifier = Modifier.pointerInput(actions) {
-        awaitPointerEventScope {
-            while (true) {
-                val down = awaitPointerEvent().changes.firstOrNull { it.pressed } ?: continue
-                touching = true
-                highlightedIndex = hitIndex(down.position.y)
-                down.consume()
-                var released = false
-                while (!released) {
-                    val event = awaitPointerEvent()
-                    val change = event.changes.firstOrNull() ?: continue
-                    highlightedIndex = hitIndex(change.position.y)
-                    if (change.changedToUpIgnoreConsumed()) {
-                        val index = highlightedIndex
-                        touching = false
-                        highlightedIndex = -1
-                        if (index in actions.indices) actions[index].onClick()
-                        released = true
-                    }
-                    change.consume()
-                }
-            }
-        }
-    }
-
-    val content: @Composable () -> Unit = {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(menuPadding),
-            verticalArrangement = Arrangement.spacedBy(itemSpacing)
-        ) {
-            actions.forEachIndexed { index, action ->
-                AddMenuLiquidItem(
-                    config = config,
-                    action = action,
-                    highlighted = highlightedIndex == index,
-                    itemHeight = itemHeight
-                )
-            }
-        }
-    }
-
-    if (backdrop != null) {
-        Box(
-            modifier = modifier
-                .width(206.dp)
-                .drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { menuShape },
-                    effects = {
-                        blur(14.dp.toPx())
-                        lens(
-                            (28.dp + 8.dp * pressProgress).toPx(),
-                            (34.dp + 10.dp * pressProgress).toPx(),
-                            chromaticAberration = false
-                        )
-                    },
-                    highlight = { Highlight.Default.copy(alpha = 0.12f + 0.10f * pressProgress) },
-                    shadow = { Shadow(alpha = (if (lightGlass) 0.18f else 0.34f) + 0.10f * pressProgress) },
-                    innerShadow = { InnerShadow(radius = 14.dp + 4.dp * pressProgress, alpha = 0.22f + 0.10f * pressProgress) },
-                    layerBlock = {
-                        val scale = 1f + 0.018f * pressProgress
-                        scaleX = scale
-                        scaleY = scale
-                    },
-                    onDrawSurface = {
-                        drawRect((if (lightGlass) ComposeColor.White else ComposeColor(0xFF050505)).copy(alpha = if (lightGlass) 0.28f else 0.46f))
-                        drawRect(ComposeColor.Black.copy(alpha = if (lightGlass) 0.06f else 0.16f))
-                    }
-                )
-                .clip(menuShape)
-                .then(dragModifier),
-            contentAlignment = Alignment.Center
-        ) {
-            CompositionLocalProvider(LocalContentColor provides textColor) {
-                content()
-            }
-        }
-    } else {
-        Box(
-            modifier = modifier
-                .width(206.dp)
-                .clip(menuShape)
-                .background(if (appUsesDarkTheme(config)) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
-                .then(dragModifier),
-            contentAlignment = Alignment.Center
-        ) {
-            CompositionLocalProvider(LocalContentColor provides textColor) {
-                content()
-            }
-        }
-    }
-}
 
 @Composable
 fun AddMenuLiquidItem(
@@ -3587,6 +3094,22 @@ private fun DockTabContent(iconRes: Int, label: String, iconSize: Dp) {
     }
 }
 
+private const val PersonalizeWallpaperBlurSlider = "wallpaper-blur"
+private const val PersonalizeWallpaperBrightnessSlider = "wallpaper-brightness"
+private const val PersonalizeWeekHeightSlider = "week-height"
+private const val PersonalizeCardAlphaSlider = "card-alpha"
+private const val PersonalizeCardBlurSlider = "card-blur"
+private const val PersonalizeCardFontSlider = "card-font"
+
+private fun Modifier.personalizePreviewVisibility(
+    activeKey: String?,
+    previewProgress: Float,
+    ownKey: String? = null
+): Modifier = graphicsLayer {
+    val selectedSlider = activeKey != null && activeKey == ownKey
+    alpha = if (selectedSlider) 1f else 1f - previewProgress.coerceIn(0f, 1f)
+}
+
 @Composable
 private fun PersonalizeSliderLabel(
     value: State<Float>,
@@ -3597,11 +3120,16 @@ private fun PersonalizeSliderLabel(
 
 @Composable
 private fun PersonalizeValueSlider(
+    sliderKey: String,
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
     backdrop: Backdrop?,
     label: (Float) -> String,
     onCommit: (Float) -> Unit,
+    onPreviewValueChange: (Float) -> Unit,
+    previewSliderKey: String?,
+    previewProgress: Float,
+    onSliderPreviewActiveChange: (String, Boolean) -> Unit,
     snapValue: Float? = null,
     onTouchActiveChange: (Boolean) -> Unit = {}
 ) {
@@ -3609,18 +3137,29 @@ private fun PersonalizeValueSlider(
     LaunchedEffect(value, valueRange) {
         displayValue.floatValue = value.coerceIn(valueRange)
     }
-    // Only this tiny label scope observes the live value.  The liquid slider and its
-    // backdrop are therefore not recomposed again by their own drag callback.
-    PersonalizeSliderLabel(displayValue, label)
-    LiquidControlSlider(
-        value = value,
-        onValueChange = onCommit,
-        valueRange = valueRange,
-        backdrop = backdrop,
-        onLiveValueChange = { displayValue.floatValue = it },
-        snapValue = snapValue,
-        onSliderTouchActiveChange = onTouchActiveChange
-    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .personalizePreviewVisibility(previewSliderKey, previewProgress, sliderKey),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        PersonalizeSliderLabel(displayValue, label)
+        LiquidControlSlider(
+            value = value,
+            onValueChange = onCommit,
+            valueRange = valueRange,
+            backdrop = backdrop,
+            onLiveValueChange = {
+                displayValue.floatValue = it
+                onPreviewValueChange(it)
+            },
+            snapValue = snapValue,
+            onSliderTouchActiveChange = { active ->
+                onTouchActiveChange(active)
+                onSliderPreviewActiveChange(sliderKey, active)
+            }
+        )
+    }
 }
 
 @Composable
@@ -3628,14 +3167,23 @@ private fun WallpaperBlurControl(
     blurDp: Float,
     backdrop: Backdrop?,
     onCommit: (Float) -> Unit,
+    onPreviewValueChange: (Float) -> Unit,
+    previewSliderKey: String?,
+    previewProgress: Float,
+    onSliderPreviewActiveChange: (String, Boolean) -> Unit,
     onTouchActiveChange: (Boolean) -> Unit
 ) {
     PersonalizeValueSlider(
+        sliderKey = PersonalizeWallpaperBlurSlider,
         value = wallpaperBlurPercent(blurDp),
         valueRange = 0f..100f,
         backdrop = backdrop,
         label = { "壁纸模糊 ${it.roundToInt()}%" },
         onCommit = onCommit,
+        onPreviewValueChange = onPreviewValueChange,
+        previewSliderKey = previewSliderKey,
+        previewProgress = previewProgress,
+        onSliderPreviewActiveChange = onSliderPreviewActiveChange,
         snapValue = 0f,
         onTouchActiveChange = onTouchActiveChange
     )
@@ -3645,14 +3193,20 @@ private fun WallpaperBlurControl(
 @Composable
 fun PersonalizePanel(
     modifier: Modifier = Modifier,
+    drawSurface: Boolean = true,
     state: AppState,
     backdrop: Backdrop?,
     mode: HomeMode,
     weekCardHeight: Float,
     onWeekCardHeight: (Float) -> Unit,
+    onWeekCardHeightPreview: (Float) -> Unit,
     onPickWallpaper: () -> Unit,
     onSampleWallpaperColor: () -> Unit,
-    onUpdateConfig: (ScheduleConfigEntity) -> Unit
+    onUpdateConfig: (ScheduleConfigEntity) -> Unit,
+    onPreviewConfig: (ScheduleConfigEntity) -> Unit,
+    previewSliderKey: String?,
+    previewProgress: Float,
+    onSliderPreviewActiveChange: (String, Boolean) -> Unit
 ) {
     val adaptiveHeight = if (state.periods.size >= 10) 72f else 80f
     var sliderTouchActive by remember { mutableStateOf(false) }
@@ -3662,7 +3216,11 @@ fun PersonalizePanel(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(18.dp))
-                .background(ComposeColor.Black.copy(alpha = 0.10f))
+                .background(
+                    ComposeColor.Black.copy(
+                        alpha = 0.10f * (1f - previewProgress.coerceIn(0f, 1f))
+                    )
+                )
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
             content = content
@@ -3673,7 +3231,9 @@ fun PersonalizePanel(
         Column(modifier = modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PersonalizeSection {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .personalizePreviewVisibility(previewSliderKey, previewProgress),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -3718,14 +3278,25 @@ fun PersonalizePanel(
                     onCommit = { percent ->
                         onUpdateConfig(state.config.copy(wallpaperBlur = wallpaperBlurDp(percent)))
                     },
+                    onPreviewValueChange = { percent ->
+                        onPreviewConfig(state.config.copy(wallpaperBlur = wallpaperBlurDp(percent)))
+                    },
+                    previewSliderKey = previewSliderKey,
+                    previewProgress = previewProgress,
+                    onSliderPreviewActiveChange = onSliderPreviewActiveChange,
                     onTouchActiveChange = { sliderTouchActive = it }
                 )
                 PersonalizeValueSlider(
+                    sliderKey = PersonalizeWallpaperBrightnessSlider,
                     value = state.config.wallpaperBrightness.coerceIn(0.35f, 1f),
                     valueRange = 0.35f..1f,
                     backdrop = backdrop,
                     label = { "壁纸亮度 ${(it * 100).toInt()}%" },
                     onCommit = { onUpdateConfig(state.config.copy(wallpaperBrightness = it)) },
+                    onPreviewValueChange = { onPreviewConfig(state.config.copy(wallpaperBrightness = it)) },
+                    previewSliderKey = previewSliderKey,
+                    previewProgress = previewProgress,
+                    onSliderPreviewActiveChange = onSliderPreviewActiveChange,
                     snapValue = 1f,
                     onTouchActiveChange = { sliderTouchActive = it }
                 )
@@ -3733,7 +3304,9 @@ fun PersonalizePanel(
             PersonalizeSection {
                 if (mode == HomeMode.Week) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .personalizePreviewVisibility(previewSliderKey, previewProgress),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -3749,10 +3322,31 @@ fun PersonalizePanel(
                             surfaceColorOverride = ComposeColor(0xFF0A84FF).copy(alpha = 0.72f)
                         )
                     }
-                    LiquidControlSlider(weekCardHeight, onWeekCardHeight, 38f..80f, backdrop, snapValue = adaptiveHeight.coerceIn(38f, 80f), onSliderTouchActiveChange = { sliderTouchActive = it })
+                    Box(
+                        modifier = Modifier.personalizePreviewVisibility(
+                            previewSliderKey,
+                            previewProgress,
+                            PersonalizeWeekHeightSlider
+                        )
+                    ) {
+                        LiquidControlSlider(
+                            value = weekCardHeight,
+                            onValueChange = onWeekCardHeight,
+                            valueRange = 38f..80f,
+                            backdrop = backdrop,
+                            onLiveValueChange = onWeekCardHeightPreview,
+                            snapValue = adaptiveHeight.coerceIn(38f, 80f),
+                            onSliderTouchActiveChange = { active ->
+                                sliderTouchActive = active
+                                onSliderPreviewActiveChange(PersonalizeWeekHeightSlider, active)
+                            }
+                        )
+                    }
                 }
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .personalizePreviewVisibility(previewSliderKey, previewProgress),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -3775,6 +3369,7 @@ fun PersonalizePanel(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
+                        .personalizePreviewVisibility(previewSliderKey, previewProgress)
                 ) {
                     // Always balance the palette into exactly two rows. The count is
                     // derived from the current palette while SpaceBetween consumes the
@@ -3838,34 +3433,51 @@ fun PersonalizePanel(
                 }
                 val alphaLabel = if (state.config.courseCardGlassEnabled) "课程卡片着色强度" else "课程卡片不透明度"
                 PersonalizeValueSlider(
+                    sliderKey = PersonalizeCardAlphaSlider,
                     value = state.config.cardAlpha.coerceIn(0f, 1f),
                     valueRange = 0f..1f,
                     backdrop = backdrop,
                     label = { "$alphaLabel ${(it * 100).toInt()}%" },
                     onCommit = { onUpdateConfig(state.config.copy(cardAlpha = it)) },
+                    onPreviewValueChange = { onPreviewConfig(state.config.copy(cardAlpha = it)) },
+                    previewSliderKey = previewSliderKey,
+                    previewProgress = previewProgress,
+                    onSliderPreviewActiveChange = onSliderPreviewActiveChange,
                     snapValue = 0.5f,
                     onTouchActiveChange = { sliderTouchActive = it }
                 )
                 PersonalizeValueSlider(
+                    sliderKey = PersonalizeCardBlurSlider,
                     value = state.config.courseCardBlur.coerceIn(0f, 10f) / 10f * 100f,
                     valueRange = 0f..100f,
                     backdrop = backdrop,
                     label = { "课程卡片模糊 ${it.toInt()}%" },
                     onCommit = { onUpdateConfig(state.config.copy(courseCardBlur = it / 100f * 10f)) },
+                    onPreviewValueChange = { onPreviewConfig(state.config.copy(courseCardBlur = it / 100f * 10f)) },
+                    previewSliderKey = previewSliderKey,
+                    previewProgress = previewProgress,
+                    onSliderPreviewActiveChange = onSliderPreviewActiveChange,
                     snapValue = 35f,
                     onTouchActiveChange = { sliderTouchActive = it }
                 )
                 PersonalizeValueSlider(
+                    sliderKey = PersonalizeCardFontSlider,
                     value = state.config.courseCardFontScale,
                     valueRange = 0.80f..1.35f,
                     backdrop = backdrop,
                     label = { "课程卡片字体 ${(it * 100).toInt()}%" },
                     onCommit = { onUpdateConfig(state.config.copy(courseCardFontScale = it)) },
+                    onPreviewValueChange = { onPreviewConfig(state.config.copy(courseCardFontScale = it)) },
+                    previewSliderKey = previewSliderKey,
+                    previewProgress = previewProgress,
+                    onSliderPreviewActiveChange = onSliderPreviewActiveChange,
                     snapValue = 1f,
                     onTouchActiveChange = { sliderTouchActive = it }
                 )
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .personalizePreviewVisibility(previewSliderKey, previewProgress),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -3879,51 +3491,36 @@ fun PersonalizePanel(
             }
         }
     }
-    BoxWithConstraints(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        val topClearance = HomeInitialTopInset + 8.dp
-        val heightRatio = when {
-            maxHeight < 520.dp -> 0.74f
-            maxHeight < 700.dp -> 0.72f
-            else -> 0.68f
-        }
-        val centeredSafeHeight = (maxHeight - topClearance * 2).coerceAtLeast(280.dp)
-        val panelMaxHeight = (maxHeight * heightRatio)
-            .coerceAtMost(centeredSafeHeight)
-            .coerceAtMost(680.dp)
-        val panelModifier = Modifier
-            .fillMaxWidth(0.95f)
-            .heightIn(max = panelMaxHeight)
-        val scrollState = rememberScrollState()
-        val contentModifier = Modifier
-            .heightIn(max = panelMaxHeight)
-            .verticalScroll(scrollState, enabled = !sliderTouchActive)
-        if (backdrop != null) {
-            val lightGlass = glassUsesLightStyle(state.config)
-            val panelTextColor = personalizePanelForegroundColor(state.config)
-            LiquidPanel(
-                backdrop = backdrop,
-                modifier = panelModifier,
-                surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.18f) else ComposeColor(0xFF121212).copy(alpha = 0.30f)
-            ) {
-                CompositionLocalProvider(LocalContentColor provides panelTextColor) {
-                    PanelContent(contentModifier)
-                }
+    val scrollState = rememberScrollState()
+    val contentModifier = Modifier
+        .fillMaxSize()
+        .verticalScroll(scrollState, enabled = !sliderTouchActive)
+    val panelTextColor = personalizePanelForegroundColor(state.config)
+    if (!drawSurface) {
+        Box(modifier = modifier) {
+            CompositionLocalProvider(LocalContentColor provides panelTextColor) {
+                PanelContent(contentModifier)
             }
-        } else {
-            val panelTextColor = personalizePanelForegroundColor(state.config)
-            GlassDialogSurface(
-                backdrop = null,
-                config = state.config,
-                modifier = panelModifier
-            ) {
-                CompositionLocalProvider(LocalContentColor provides panelTextColor) {
-                    PanelContent(contentModifier)
-                }
+        }
+    } else if (backdrop != null) {
+        val lightGlass = glassUsesLightStyle(state.config)
+        LiquidPanel(
+            backdrop = backdrop,
+            modifier = modifier,
+            surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.18f) else ComposeColor(0xFF121212).copy(alpha = 0.30f)
+        ) {
+            CompositionLocalProvider(LocalContentColor provides panelTextColor) {
+                PanelContent(contentModifier)
+            }
+        }
+    } else {
+        GlassDialogSurface(
+            backdrop = null,
+            config = state.config,
+            modifier = modifier
+        ) {
+            CompositionLocalProvider(LocalContentColor provides panelTextColor) {
+                PanelContent(contentModifier)
             }
         }
     }
@@ -3989,9 +3586,12 @@ fun DialogLiquidButton(
     iconRes: Int? = null,
     blurRadius: Dp = 3.dp,
     destructiveFilled: Boolean = false,
+    monochromeNeutral: Boolean = false,
     roundIcon: Boolean = (role == DialogButtonRole.Cancel && label == "取消") ||
         (role == DialogButtonRole.Confirm && label == "保存")
 ) {
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val useMonochromeNeutral = role == DialogButtonRole.Neutral && monochromeNeutral
     val useRoundIcon = roundIcon && role != DialogButtonRole.Neutral
     val resolvedIconRes = iconRes ?: when {
         useRoundIcon && role == DialogButtonRole.Cancel -> R.drawable.ic_close_light
@@ -4001,12 +3601,17 @@ fun DialogLiquidButton(
     val textColor = when (role) {
         DialogButtonRole.Confirm -> ComposeColor.White
         DialogButtonRole.Cancel -> if (useRoundIcon || destructiveFilled) ComposeColor.White else ComposeColor(0xFFFF453A)
-        DialogButtonRole.Neutral -> MaterialTheme.colorScheme.primary
+        DialogButtonRole.Neutral -> if (useMonochromeNeutral) {
+            if (darkTheme) ComposeColor.White else ComposeColor.Black
+        } else MaterialTheme.colorScheme.primary
     }
     val surfaceColor = when (role) {
         DialogButtonRole.Confirm -> ComposeColor(0xFF0A84FF).copy(alpha = 0.82f)
         DialogButtonRole.Cancel -> ComposeColor(0xFFFF453A).copy(alpha = if (useRoundIcon || destructiveFilled) 0.78f else 0.16f)
-        DialogButtonRole.Neutral -> ComposeColor.Transparent
+        DialogButtonRole.Neutral -> if (useMonochromeNeutral) {
+            (if (darkTheme) ComposeColor.Black else ComposeColor.White)
+                .copy(alpha = if (darkTheme) 0.46f else 0.62f)
+        } else ComposeColor.Transparent
     }
     if (backdrop != null) {
         LiquidButton(
@@ -4210,13 +3815,20 @@ class SettingsDetailActivity : ComponentActivity() {
                     }
                 }
                 var scheduleExitRequest by remember { mutableIntStateOf(0) }
+                var aiExitRequest by remember { mutableIntStateOf(0) }
+                var widgetEditorVisible by remember { mutableStateOf(false) }
                 Box(Modifier.fillMaxSize()) {
                 DetailActivityScaffold(
                     title = section.title(),
                     config = state.config,
+                    compactTopBar = section == SettingsPage.Widgets,
+                    centerCompactTitle = section == SettingsPage.Widgets,
+                    topBarVisible = !widgetEditorVisible,
                     onBack = {
                         if (section == SettingsPage.Schedule || section == SettingsPage.Notifications) {
                             scheduleExitRequest++
+                        } else if (section == SettingsPage.AiImport) {
+                            finish()
                         } else {
                             finish()
                         }
@@ -4224,7 +3836,17 @@ class SettingsDetailActivity : ComponentActivity() {
                 ) { backdrop ->
                     when (section) {
                         SettingsPage.General -> GeneralSettingsScreen(state, backdrop, viewModel::savePersonalization)
-                        SettingsPage.AiImport -> AiImportSettingsScreen(state, backdrop)
+                        SettingsPage.Widgets -> WidgetCustomizationScreen(
+                            state = state,
+                            backdrop = backdrop,
+                            onEditorVisibilityChange = { widgetEditorVisible = it }
+                        )
+                        SettingsPage.AiImport -> AiImportSettingsScreen(
+                            state = state,
+                            backdrop = backdrop,
+                            exitCommitRequest = aiExitRequest,
+                            onExitCommitFinished = { saved -> if (saved) finish() }
+                        )
                         SettingsPage.DayAgent -> DayAgentSettingsScreen(state, backdrop)
                         SettingsPage.Schedule -> if (!scheduleEditReady) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -4431,208 +4053,88 @@ fun LiquidControlSlider(
     onLiveValueChange: ((Float) -> Unit)? = null,
     snapValue: Float? = null,
     onSliderTouchActiveChange: (Boolean) -> Unit = {},
-    visibilityThreshold: Float = 0.01f
+    visibilityThreshold: Float = 0.01f,
+    enabled: Boolean = true
 ) {
     val haptic = LocalHapticFeedback.current
     val safeSnapValue = snapValue?.coerceIn(valueRange)
-    @Composable
-    fun SliderWithSnapMarker(currentValue: Float, onSnapClick: () -> Unit, content: @Composable () -> Unit) {
-        val density = LocalDensity.current
-        val latestCurrentValue by rememberUpdatedState(currentValue)
-        val latestTouchActiveChange by rememberUpdatedState(onSliderTouchActiveChange)
-        BoxWithConstraints(
-            modifier = modifier
-                .fillMaxWidth()
-                .pointerInput(valueRange) {
-                    val thumbInsetPx = with(density) { 10.dp.toPx() }
-                    val thumbHitRadiusPx = with(density) { 18.dp.toPx() }
-                    val dragLockThresholdPx = with(density) { 4.dp.toPx() }
-                    try {
-                        awaitPointerEventScope {
-                            var pressed = false
-                            var downTimeMillis = 0L
-                            var scrollLocked = false
-                            var thumbPress = false
-                            var downX = 0f
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val nextPressed = event.changes.any { it.pressed }
-                                val eventTimeMillis = event.changes.maxOfOrNull { it.uptimeMillis } ?: 0L
-                                if (nextPressed) {
-                                    if (!pressed) {
-                                        pressed = true
-                                        downTimeMillis = eventTimeMillis
-                                        val firstPressed = event.changes.firstOrNull { it.pressed }
-                                        thumbPress = firstPressed?.let { change ->
-                                            val thumbFraction = ((latestCurrentValue.coerceIn(valueRange) - valueRange.start) / (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
-                                            val thumbCenterX = thumbInsetPx + (size.width - thumbInsetPx * 2f).coerceAtLeast(1f) * thumbFraction
-                                            downX = change.position.x
-                                            abs(change.position.x - thumbCenterX) <= thumbHitRadiusPx
-                                        } ?: false
-                                    }
-                                    val currentX = event.changes.firstOrNull { it.pressed }?.position?.x ?: downX
-                                    val draggedThumb = abs(currentX - downX) >= dragLockThresholdPx
-                                    if (thumbPress && !scrollLocked && (eventTimeMillis - downTimeMillis >= 80L || draggedThumb)) {
-                                        scrollLocked = true
-                                        latestTouchActiveChange(true)
-                                    }
-                                } else if (pressed) {
-                                    pressed = false
-                                    downTimeMillis = 0L
-                                    thumbPress = false
-                                    downX = 0f
-                                    if (scrollLocked) {
-                                        scrollLocked = false
-                                        latestTouchActiveChange(false)
-                                    }
-                                }
-                            }
-                        }
-                    } finally {
-                        latestTouchActiveChange(false)
-                    }
-                }
-        ) {
-            content()
-            val snap = safeSnapValue
-            if (snap != null) {
-                val fraction = ((snap - valueRange.start) / (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
-                val trackWidth = maxWidth
-                val markerClickable = abs(currentValue.coerceIn(valueRange) - snap) > visibilityThreshold
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .fillMaxWidth()
-                        .height(36.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .offset(x = ((trackWidth - 20.dp) * fraction) - 4.dp)
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(50))
-                            .then(
-                                if (markerClickable) {
-                                    Modifier.pointerInput(onSnapClick) {
-                                        detectTapGestures(onTap = { onSnapClick() })
-                                    }
-                                } else {
-                                    Modifier
-                                }
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(5.dp)
-                                .clip(RoundedCornerShape(50))
-                                .background(ComposeColor.White.copy(alpha = 0.78f))
-                        )
-                    }
-                }
-            }
+    var localValue by remember(valueRange) { mutableFloatStateOf(value.coerceIn(valueRange)) }
+    var previewModeActive by remember(valueRange) { mutableStateOf(false) }
+    var lastSnapSide by remember(valueRange, safeSnapValue) {
+        mutableIntStateOf(snapSide(value.coerceIn(valueRange), safeSnapValue, visibilityThreshold))
+    }
+    var snapZoneActive by remember(valueRange, safeSnapValue) {
+        mutableStateOf(lastSnapSide == 0 && safeSnapValue != null)
+    }
+
+    fun updatePreview(candidate: Float) {
+        val next = candidate.coerceIn(valueRange)
+        val nextSide = snapSide(next, safeSnapValue, visibilityThreshold)
+        val enteredSnapZone = safeSnapValue != null && nextSide == 0 && !snapZoneActive
+        val crossedSnap = nextSide != 0 && !snapZoneActive &&
+            lastSnapSide != 0 && nextSide != lastSnapSide
+        if (enteredSnapZone || crossedSnap) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+        snapZoneActive = safeSnapValue != null && nextSide == 0
+        if (nextSide != 0) lastSnapSide = nextSide
+        localValue = next
+        onLiveValueChange?.invoke(next)
+    }
+
+    fun commit(candidate: Float) {
+        val finalValue = candidate.coerceIn(valueRange)
+        if (abs(localValue - finalValue) > visibilityThreshold) updatePreview(finalValue)
+        onValueChange(finalValue)
+    }
+
+    LaunchedEffect(value, valueRange) {
+        val externalValue = value.coerceIn(valueRange)
+        if (!previewModeActive && abs(localValue - externalValue) > visibilityThreshold) {
+            localValue = externalValue
+            lastSnapSide = snapSide(externalValue, safeSnapValue, visibilityThreshold)
+            snapZoneActive = safeSnapValue != null && lastSnapSide == 0
         }
     }
-    if (backdrop != null) {
-        var localValue by remember(valueRange) { mutableFloatStateOf(value.coerceIn(valueRange)) }
-        var localEditPending by remember(valueRange) { mutableStateOf(false) }
-        val commitScope = rememberCoroutineScope()
-        var commitJob by remember(valueRange) { mutableStateOf<Job?>(null) }
-        fun commitAfterVisualSettle() {
-            if (!localEditPending) return
-            val settledValue = localValue.coerceIn(valueRange)
-            commitJob?.cancel()
-            commitJob = commitScope.launch {
-                withFrameNanos { }
-                withFrameNanos { }
-                if (localEditPending && abs(localValue - settledValue) <= visibilityThreshold) {
-                    onValueChange(settledValue)
-                    localEditPending = false
-                }
-            }
-        }
-        LaunchedEffect(value, valueRange) {
-            if (!localEditPending) {
-                val coerced = value.coerceIn(valueRange)
-                if (abs(localValue - coerced) > visibilityThreshold) {
-                    localValue = coerced
-                    onLiveValueChange?.invoke(coerced)
-                }
-            }
-        }
-        SliderWithSnapMarker(
-            currentValue = localValue,
-            onSnapClick = {
-                val snap = safeSnapValue ?: return@SliderWithSnapMarker
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                localValue = snap
-                onLiveValueChange?.invoke(snap)
-                localEditPending = true
-                commitAfterVisualSettle()
-            }
-        ) {
+
+    SliderWithSnapMarker(
+        modifier = modifier,
+        snapValue = safeSnapValue,
+        valueRange = valueRange
+    ) {
+        if (backdrop != null && enabled) {
             LiquidSlider(
                 value = { localValue },
-                onValueChange = {
-                    commitJob?.cancel()
-                    localValue = it.coerceIn(valueRange)
-                    onLiveValueChange?.invoke(localValue)
-                    localEditPending = true
+                onPreviewValueChange = ::updatePreview,
+                onPreviewModeChange = { active ->
+                    previewModeActive = active
+                    onSliderTouchActiveChange(active)
                 },
+                onCommit = ::commit,
                 valueRange = valueRange,
                 visibilityThreshold = visibilityThreshold,
                 backdrop = backdrop,
-                modifier = Modifier.fillMaxWidth(),
-                onValueChangeFinished = { commitAfterVisualSettle() }
+                snapValue = safeSnapValue,
+                modifier = Modifier.fillMaxWidth()
             )
-        }
-    } else {
-        var localValue by remember(valueRange) { mutableFloatStateOf(value.coerceIn(valueRange)) }
-        var localEditPending by remember(valueRange) { mutableStateOf(false) }
-        val commitScope = rememberCoroutineScope()
-        var commitJob by remember(valueRange) { mutableStateOf<Job?>(null) }
-        fun commitAfterVisualSettle() {
-            if (!localEditPending) return
-            val settledValue = localValue.coerceIn(valueRange)
-            commitJob?.cancel()
-            commitJob = commitScope.launch {
-                withFrameNanos { }
-                withFrameNanos { }
-                if (localEditPending && abs(localValue - settledValue) <= visibilityThreshold) {
-                    onValueChange(settledValue)
-                    localEditPending = false
-                }
-            }
-        }
-        LaunchedEffect(value, valueRange) {
-            if (!localEditPending) {
-                val coerced = value.coerceIn(valueRange)
-                if (abs(localValue - coerced) > visibilityThreshold) {
-                    localValue = coerced
-                    onLiveValueChange?.invoke(coerced)
-                }
-            }
-        }
-        SliderWithSnapMarker(
-            currentValue = localValue,
-            onSnapClick = {
-                val snap = safeSnapValue ?: return@SliderWithSnapMarker
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                localValue = snap
-                onLiveValueChange?.invoke(snap)
-                localEditPending = true
-                commitAfterVisualSettle()
-            }
-        ) {
+        } else {
             Slider(
                 value = localValue,
+                enabled = enabled,
                 onValueChange = {
-                    commitJob?.cancel()
-                    localValue = it.coerceIn(valueRange)
-                    onLiveValueChange?.invoke(localValue)
-                    localEditPending = true
+                    if (!previewModeActive) {
+                        previewModeActive = true
+                        onSliderTouchActiveChange(true)
+                    }
+                    updatePreview(it)
                 },
-                onValueChangeFinished = { commitAfterVisualSettle() },
+                onValueChangeFinished = {
+                    commit(localValue)
+                    if (previewModeActive) {
+                        previewModeActive = false
+                        onSliderTouchActiveChange(false)
+                    }
+                },
                 valueRange = valueRange,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -4640,6 +4142,45 @@ fun LiquidControlSlider(
     }
 }
 
+private fun snapSide(candidate: Float, snapValue: Float?, threshold: Float): Int {
+    val snap = snapValue ?: return 0
+    return when {
+        candidate < snap - threshold -> -1
+        candidate > snap + threshold -> 1
+        else -> 0
+    }
+}
+
+@Composable
+private fun SliderWithSnapMarker(
+    modifier: Modifier,
+    snapValue: Float?,
+    valueRange: ClosedFloatingPointRange<Float>,
+    content: @Composable () -> Unit
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        content()
+        val snap = snapValue ?: return@BoxWithConstraints
+        val fraction = ((snap - valueRange.start) /
+            (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
+        val trackWidth = maxWidth
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .height(36.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(x = ((trackWidth - 20.dp) * fraction) + 7.5.dp)
+                    .size(5.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(ComposeColor.White.copy(alpha = 0.78f))
+            )
+        }
+    }
+}
 @Composable
 fun LiquidControlToggle(
     checked: Boolean,
@@ -4710,6 +4251,7 @@ fun SettingsScreen(
         when (page) {
             SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange)
             SettingsPage.General -> GeneralSettingsScreen(state, backdrop, onUpdateConfig)
+            SettingsPage.Widgets -> WidgetCustomizationScreen(state, backdrop)
             SettingsPage.AiImport -> AiImportSettingsScreen(state, backdrop)
             SettingsPage.DayAgent -> DayAgentSettingsScreen(state, backdrop)
             SettingsPage.Schedule -> ScheduleConfigScreen(state, backdrop, SettingsSection.Schedule, onSave, onPreviewLiveUpdate)
@@ -4853,6 +4395,8 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
             GlassPreferenceSection("应用") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow("通用设置", "深色模式与系统外观", onClick = { onPageChange(SettingsPage.General) })
+                    SettingsDivider()
+                    SettingsNavigationRow("小组件设置", "自定义小组件背景", onClick = { onPageChange(SettingsPage.Widgets) })
                     SettingsDivider()
                     SettingsNavigationRow(
                         "当前课表详细设置",
@@ -5238,6 +4782,7 @@ fun ChangelogSettingsScreen(
         }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
                 SettingsInfoRow("1.0.9", "今日助手全面升级，能够根据需要读取当前课表和设置，连续完成查询、修改、确认结果与撤销操作，并支持 MiMo 联网搜索；新增课程卡片和今日助手打开时的背景随动缩放效果，课程卡片展开与收回采用更自然的抛物线运动轨迹，配合弹性缩放和更流畅的页面交接，动画更加灵动；增强课程、节次、作息方案和个性化设置的智能调整能力，修改节次后可更合理地处理原有课程安排；修复今日助手偶尔读取错误课表、工具调用中断、回复内容缺失，以及实时活动倒计时停止刷新、测试提醒无法取消等问题。")
                 SettingsDivider()
                 SettingsInfoRow("1.0.8", "桌面小组件新增今日助手，展示当前或下节课、倒计时、地点与教师、上下课时间、今日课程数量、天气和预警，并补齐今日课程与今日助手三款小组件在系统选择页的独立名称和预览；修复升级后部分课表的节次时间与详细设置被错误重建为默认值的问题，完善多作息方案保存和数据库迁移兼容；将周次切换字符替换为矢量图标，并修复添加单节课选择器层级等交互问题。")
@@ -5278,6 +4823,7 @@ fun ChangelogSettingsScreen(
                 SettingsInfoRow("1.01 beta", "修复教务导入预览与节次信息问题；新增组件测试页、本次日志抓取、更新日志入口和下载新版页面；优化课程编辑删除作用范围；为周视图切换周加入课程卡片甩尾过渡动画。")
                 SettingsDivider()
                 SettingsInfoRow("1.0 beta", "完成基础课程表、手动导入、教务导入、通知提醒、实时活动、深色模式、壁纸与液态玻璃个性化设置。")
+                }
             }
         }
     }

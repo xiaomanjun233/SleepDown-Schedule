@@ -30,6 +30,7 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -51,6 +52,7 @@ fun LiquidButton(
     lensHeight: Dp = 12f.dp,
     lensAmount: Dp = 24f.dp,
     chromaticAberration: Boolean = false,
+    shadowEnabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
     val animationScope = rememberCoroutineScope()
@@ -71,6 +73,7 @@ fun LiquidButton(
                     blur(blurRadius.toPx())
                     lens(lensHeight.toPx(), lensAmount.toPx(), chromaticAberration = chromaticAberration)
                 },
+                shadow = if (shadowEnabled) ({ Shadow.Default }) else null,
                 layerBlock = if (isInteractive) {
                     {
                         val width = size.width

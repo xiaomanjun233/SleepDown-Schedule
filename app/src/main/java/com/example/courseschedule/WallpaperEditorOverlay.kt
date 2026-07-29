@@ -233,7 +233,7 @@ fun WallpaperEditorOverlay(
 }
 
 @Composable
-private fun WallpaperHeaderButton(
+internal fun WallpaperHeaderButton(
     text: String,
     backdrop: Backdrop?,
     surface: Color,
@@ -301,7 +301,7 @@ private fun WallpaperRoundOrientationButton(
 }
 
 @Composable
-private fun WallpaperGestureCanvas(
+internal fun WallpaperGestureCanvas(
     bitmap: Bitmap,
     cropState: WallpaperCropState,
     enabled: Boolean,

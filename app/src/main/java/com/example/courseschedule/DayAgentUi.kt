@@ -72,7 +72,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.geometry.Rect
@@ -116,6 +119,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.Duration
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -256,7 +260,7 @@ private data class DayAgentCardVisual(
     val countdownText: String,
     val locationText: String,
     val focusTimeText: String,
-    val todayCourseCount: Int,
+    val courseCountText: String,
     val weatherText: String,
     val trailingStatus: String?,
     val weatherAlert: Boolean,
@@ -381,6 +385,7 @@ fun TodayAgentCard(
     val sourceHandoffProgress = remember(date, scheduleId) { Animatable(0f) }
     var pendingQuestion by remember(date, scheduleId) { mutableStateOf<String?>(null) }
     var cardBounds by remember(date, scheduleId) { mutableStateOf<Rect?>(null) }
+    var dialogSourceBounds by remember(date, scheduleId) { mutableStateOf<Rect?>(null) }
     var showApiKeyHint by remember(date, scheduleId, hasApiKey) { mutableStateOf(!hasApiKey) }
     val suppressForAgentBackgroundCapture = LocalAgentBackgroundCaptureMask.current
     val sourceCardInteractionSource = remember { MutableInteractionSource() }
@@ -427,7 +432,12 @@ fun TodayAgentCard(
     val nextSlot = remember(facts.today, now) {
         facts.today.firstOrNull { now.toLocalTime().isBefore(it.start) }
     }
-    val focusSlot = currentSlot ?: nextSlot
+    val previewTomorrow = now.toLocalDate() == date &&
+        now.toLocalTime() >= LocalTime.of(22, 0) &&
+        currentSlot == null &&
+        nextSlot == null &&
+        facts.tomorrow.isNotEmpty()
+    val focusSlot = currentSlot ?: nextSlot ?: facts.tomorrow.firstOrNull().takeIf { previewTomorrow }
     val remainingMinutes = remember(currentSlot, nextSlot, now) {
         val target = currentSlot?.end ?: nextSlot?.start
         target?.let { Duration.between(now.toLocalTime(), it).toMinutes().coerceAtLeast(0) }
@@ -435,12 +445,15 @@ fun TodayAgentCard(
     val activityLabel = when {
         currentSlot != null -> "当前"
         nextSlot != null -> "下节课"
+        previewTomorrow -> "明日首课"
         facts.today.isEmpty() -> "今日无课"
         else -> "课程已结束"
     }
     val countdownText = when {
         currentSlot != null && remainingMinutes != null -> "${remainingMinutes} 分钟后下课"
-        nextSlot != null && remainingMinutes != null -> "${remainingMinutes} 分钟后"
+        nextSlot != null && remainingMinutes != null && now.toLocalTime() >= LocalTime.of(6, 0) ->
+            "${remainingMinutes} 分钟后"
+        previewTomorrow -> ""
         facts.today.isEmpty() -> "轻松一天"
         else -> "今日完成"
     }
@@ -475,15 +488,21 @@ fun TodayAgentCard(
         countdownText = countdownText,
         locationText = locationText,
         focusTimeText = focusTimeText,
-        todayCourseCount = facts.today.size,
+        courseCountText = if (previewTomorrow) {
+            "明天有 ${facts.tomorrow.size} 节课"
+        } else {
+            "今天有 ${facts.today.size} 节课"
+        },
         weatherText = weatherText,
         trailingStatus = weatherAlertText?.let { "⚠️ $it" } ?: assistantHintText,
         weatherAlert = weatherAlertText != null,
         collapsed = collapsed,
         cardIsDark = cardIsDark
     )
-    val conversationInitialText = remember(facts.today, focusSlot, weather) {
+    val conversationInitialText = remember(facts.today, facts.tomorrow, focusSlot, weather, previewTomorrow) {
         when {
+            previewTomorrow && focusSlot != null ->
+                "明天有 ${facts.tomorrow.size} 节课，最早一节是${focusSlot.course.name}${locationText.takeIf { it.isNotBlank() }?.let { "，$it" }.orEmpty()}。"
             focusSlot != null -> "今天有 ${facts.today.size} 节课，${activityLabel}是${focusSlot.course.name}${locationText.takeIf { it.isNotBlank() }?.let { "，$it" }.orEmpty()}。"
             facts.today.isEmpty() -> "今天没有课程。"
             else -> "今天的课程已经结束。"
@@ -498,6 +517,15 @@ fun TodayAgentCard(
                 // Keep the pager-settled barrier, but do not perform a GPU bitmap readback. The
                 // overlay now redraws the real compact card shell at the measured source bounds.
                 onPrepareOpen()
+                var resolvedBounds = cardBounds?.takeIf { it.width > 2f && it.height > 2f }
+                repeat(8) {
+                    if (resolvedBounds == null) {
+                        withFrameNanos { }
+                        resolvedBounds = cardBounds?.takeIf { it.width > 2f && it.height > 2f }
+                    }
+                }
+                val frozenBounds = resolvedBounds ?: return@launch
+                dialogSourceBounds = frozenBounds
                 sourceHandoffTransform = null
                 sourceHandoffProgress.snapTo(0f)
                 pendingQuestion = question
@@ -620,7 +648,8 @@ fun TodayAgentCard(
         }
     }
 
-    if (dialogOpen && hasApiKey) {
+    val frozenDialogSourceBounds = dialogSourceBounds
+    if (dialogOpen && hasApiKey && frozenDialogSourceBounds != null) {
         DayAgentConversationDialog(
             state = state,
             backdrop = backdrop,
@@ -629,7 +658,7 @@ fun TodayAgentCard(
             repository = repository,
             initialText = conversationInitialText,
             initialQuestion = pendingQuestion,
-            sourceBounds = cardBounds,
+            sourceBounds = frozenDialogSourceBounds,
             sourceCornerRadius = if (collapsed) 26.dp else 28.dp,
             sourceVisual = cardVisual,
             sourceForeground = foreground,
@@ -639,30 +668,14 @@ fun TodayAgentCard(
             onAgentAction = onAgentAction,
             onOverlayReady = { sourceCardHidden = true },
             onPrepareDismiss = {},
-            onSourceHandoff = { transform ->
-                // The overlay has reached the last sliver of its return. Reveal the real card at
-                // that exact geometry and let it settle to identity, instead of hard-switching
-                // two independently rendered cards at expansion == 0.
-                sourceHandoffTransform = transform
+            onSourceHandoff = {
                 sourceCardHidden = false
-                // Keep the final compact card in the Dialog above the real card until both reach
-                // the exact source geometry. Removing the window here exposes a one-frame
-                // composition gap on some devices even when the rectangles already match.
-                scope.launch {
-                    sourceHandoffProgress.snapTo(0f)
-                    sourceHandoffProgress.animateTo(
-                        1f,
-                        tween(
-                            durationMillis = 165,
-                            easing = CubicBezierEasing(0.20f, 0.78f, 0.20f, 1f)
-                        )
-                    )
-                }
             },
             onDismiss = {
                 dialogOpen = false
                 sourceCardHidden = false
                 pendingQuestion = null
+                dialogSourceBounds = null
                 sourceHandoffTransform = null
                 scope.launch {
                     sourceHandoffProgress.snapTo(0f)
@@ -914,13 +927,15 @@ private fun DayAgentCardVisualContent(
                     )
                 } ?: Spacer(Modifier.weight(1f))
                 Spacer(Modifier.width(10.dp))
-                Text(
-                    visual.countdownText,
-                    color = activityAccent,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1
-                )
+                if (visual.countdownText.isNotBlank()) {
+                    Text(
+                        visual.countdownText,
+                        color = activityAccent,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1
+                    )
+                }
             }
             if (visual.courseName != null) {
                 Spacer(Modifier.height(4.dp))
@@ -946,7 +961,7 @@ private fun DayAgentCardVisualContent(
         if (!visual.collapsed) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(foreground.copy(alpha = 0.10f)))
             Text(
-                "今天有 ${visual.todayCourseCount} 节课",
+                visual.courseCountText,
                 color = foreground,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
@@ -999,7 +1014,7 @@ private fun DayAgentConversationDialog(
     repository: DayAgentRepository,
     initialText: String,
     initialQuestion: String?,
-    sourceBounds: Rect?,
+    sourceBounds: Rect,
     sourceCornerRadius: Dp,
     sourceVisual: DayAgentCardVisual,
     sourceForeground: Color,
@@ -1029,9 +1044,13 @@ private fun DayAgentConversationDialog(
     val sending = backgroundRun.running
     val runStatuses = backgroundRun.statuses
     val error = backgroundRun.error
-    val providerName = remember(dialogContext) {
-        AiImportSettingsStore.load(dialogContext).profile.displayName
+    val agentAiSettings = remember(dialogContext) {
+        AiImportSettingsStore.load(dialogContext)
     }
+    val providerName = agentAiSettings.profile.displayName
+    val attachmentUploadEnabled =
+        agentAiSettings.profile.id != AiProviderPresets.custom.id ||
+            agentAiSettings.profile.supportsFileUpload
     val appliedActionKeys = remember(state.config.id) {
         mutableStateOf(DayAgentPreferences.getAppliedActions(dialogContext, state.config.id))
     }
@@ -1064,7 +1083,7 @@ private fun DayAgentConversationDialog(
             bottom = targetTopPx + targetHeightPx
         )
     }
-    val sourceRect = sourceBounds?.takeIf { it.width > 2f && it.height > 2f } ?: targetRect
+    val sourceRect = sourceBounds
     val sourceRadiusPx = with(density) { sourceCornerRadius.toPx() }
     val targetRadiusPx = with(density) { 32.dp.toPx() }
     val imagePicker = rememberLauncherForActivityResult(
@@ -1135,7 +1154,7 @@ private fun DayAgentConversationDialog(
                     // Hand over while there is still a visible final return segment. The Dialog
                     // is removed immediately and the real shell completes the same geometry,
                     // avoiding the expensive cross-window composition hitch near expansion == 0.
-                    while (expansion.value > 0.32f) {
+                    while (expansion.value > 0.01f) {
                         withFrameNanos { }
                     }
                     val raw = expansion.value.coerceIn(0f, 1f)
@@ -1318,8 +1337,13 @@ private fun DayAgentConversationDialog(
                             alpha = if (closing) {
                                 1f - agentSmoothStep(0.32f, 0.56f, raw)
                             } else {
-                                0f
+                                1f - agentSmoothStep(0.10f, 0.38f, raw)
                             }
+                            val blurPx = 5.dp.toPx() * agentSmoothStep(0f, 0.56f, raw)
+                            compositingStrategy = CompositingStrategy.Offscreen
+                            renderEffect = if (blurPx > 0.01f) {
+                                BlurEffect(blurPx, blurPx, TileMode.Clamp)
+                            } else null
                         }
                 )
                   Column(
@@ -1334,6 +1358,13 @@ private fun DayAgentConversationDialog(
                               } else {
                                   agentSmoothStep(0.10f, 0.38f, raw)
                               }
+                              val blurPx = 5.dp.toPx() * (
+                                  1f - agentSmoothStep(0.38f, 0.92f, raw)
+                              )
+                              compositingStrategy = CompositingStrategy.Offscreen
+                              renderEffect = if (blurPx > 0.01f) {
+                                  BlurEffect(blurPx, blurPx, TileMode.Clamp)
+                              } else null
                           }
                           .padding(start = 16.dp, top = 16.dp, end = 16.dp),
                      verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1628,13 +1659,18 @@ private fun DayAgentConversationDialog(
                  }
             }
 
-             AnimatedVisibility(
-                 visible = attachmentMenuExpanded,
-                 modifier = Modifier
-                     .align(Alignment.BottomStart)
-                     .imePadding()
-                     .navigationBarsPadding()
-                     .padding(start = 14.dp, bottom = 78.dp),
+              AnimatedVisibility(
+                  visible = attachmentMenuExpanded && attachmentUploadEnabled,
+                  modifier = Modifier
+                      .align(Alignment.BottomStart)
+                      .imePadding()
+                      .navigationBarsPadding()
+                      .padding(start = 14.dp, bottom = 78.dp)
+                      .graphicsLayer {
+                          val p = expansion.value
+                          alpha = ((p - 0.12f) / 0.58f).coerceIn(0f, 1f)
+                          translationY = 18.dp.toPx() * (1f - p)
+                      },
                  enter = fadeIn(
                      animationSpec = tween(durationMillis = 110)
                  ) + scaleIn(
@@ -1760,22 +1796,24 @@ private fun DayAgentConversationDialog(
                         Row(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                             Box(
-                                 modifier = Modifier
-                                     .size(40.dp)
-                                     .clip(CircleShape)
-                                    .clickable {
-                                        keyboard?.hide()
-                                        attachmentMenuExpanded = !attachmentMenuExpanded
-                                    },
-                                contentAlignment = Alignment.Center
-                             ) {
-                                 Icon(
-                                     painter = painterResource(R.drawable.ic_add_course),
-                                     contentDescription = "添加附件",
-                                     tint = foreground,
-                                     modifier = Modifier.size(24.dp)
-                                 )
+                             if (attachmentUploadEnabled) {
+                                 Box(
+                                     modifier = Modifier
+                                         .size(40.dp)
+                                         .clip(CircleShape)
+                                        .clickable {
+                                            keyboard?.hide()
+                                            attachmentMenuExpanded = !attachmentMenuExpanded
+                                        },
+                                    contentAlignment = Alignment.Center
+                                 ) {
+                                     Icon(
+                                         painter = painterResource(R.drawable.ic_add_course),
+                                         contentDescription = "添加附件",
+                                         tint = foreground,
+                                         modifier = Modifier.size(24.dp)
+                                     )
+                                 }
                              }
                             BasicTextField(
                                 value = input,

@@ -1,5 +1,12 @@
 package com.example.courseschedule
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -22,12 +29,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,9 +51,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidPanel
+import kotlinx.coroutines.delay
 
 enum class LiquidDialogSize {
     Standard,
@@ -366,14 +377,86 @@ fun LiquidAlertOverlay(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LiquidAlertDialog(
-        title = title,
-        message = message,
-        actions = actions,
-        backdrop = backdrop,
-        config = config,
-        onDismissRequest = onDismissRequest
+    val dark = appUsesDarkTheme(config)
+    var visible by remember { mutableStateOf(false) }
+    var completion by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val scrimProgress by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(220),
+        label = "liquidAlertOverlayScrim"
     )
+
+    fun closeThen(action: () -> Unit) {
+        if (!visible) return
+        completion = action
+        visible = false
+    }
+
+    val animatedActions = actions.map { action ->
+        action.copy(onClick = {
+            if (action.dismissOnClick) closeThen(action.onClick) else action.onClick()
+        })
+    }
+
+    LaunchedEffect(Unit) { visible = true }
+    LaunchedEffect(visible) {
+        if (!visible && completion != null) {
+            delay(240)
+            val action = completion
+            completion = null
+            action?.invoke()
+        }
+    }
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .zIndex(1_000f)
+            .background(
+                Color.Black.copy(
+                    alpha = (if (dark) 0.48f else 0.30f) * scrimProgress
+                )
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { closeThen(onDismissRequest) }
+            )
+            .padding(18.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(220)) + scaleIn(tween(280), initialScale = 0.90f),
+            exit = fadeOut(tween(190)) + scaleOut(tween(230), targetScale = 0.92f)
+        ) {
+            Box(
+                modifier = Modifier
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    )
+                    .then(
+                        quickSheetBackdropModifier(
+                            backdrop = backdrop,
+                            config = config,
+                            blurRadius = 28.dp,
+                            centered = true
+                        )
+                    )
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(
+                        if (dark) Color.Black.copy(alpha = 0.38f)
+                        else Color.White.copy(alpha = 0.42f)
+                    )
+                    .padding(horizontal = 20.dp, vertical = 18.dp)
+            ) {
+                LiquidAlertContent(title, message, animatedActions, backdrop, config)
+            }
+        }
+    }
 }
 
 @Composable

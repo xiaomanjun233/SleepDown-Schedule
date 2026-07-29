@@ -567,6 +567,7 @@ object AiImportSettingsStore {
     private const val KeyPdfDirect = "supports_pdf_direct"
     private const val KeyEncryptedApiKey = "encrypted_api_key"
     private fun apiKeyKey(providerId: String): String = "${KeyEncryptedApiKey}_${providerId}"
+    private fun providerKey(key: String, providerId: String): String = "${key}_${providerId}"
 
     fun load(context: Context): AiImportSettings {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
@@ -620,13 +621,100 @@ object AiImportSettingsStore {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         val current = load(context)
         val preset = AiProviderPresets.byId(providerId)
-        val profile = if (current.profile.id == preset.id) current.profile else preset
+        val profile = when {
+            current.profile.id == preset.id -> current.profile
+            !prefs.contains(providerKey(KeyBaseUrl, preset.id)) -> preset
+            else -> {
+                val providerType = runCatching {
+                    AiProviderType.valueOf(
+                        prefs.getString(
+                            providerKey(KeyProviderType, preset.id),
+                            preset.providerType.name
+                        ).orEmpty()
+                    )
+                }.getOrDefault(preset.providerType)
+                val endpointStyle = runCatching {
+                    AiEndpointStyle.valueOf(
+                        prefs.getString(
+                            providerKey(KeyEndpointStyle, preset.id),
+                            preset.endpointStyle.name
+                        ).orEmpty()
+                    )
+                }.getOrDefault(preset.endpointStyle)
+                val structuredOutputMode = runCatching {
+                    StructuredOutputMode.valueOf(
+                        prefs.getString(
+                            providerKey(KeyStructuredOutputMode, preset.id),
+                            preset.structuredOutputMode.name
+                        ).orEmpty()
+                    )
+                }.getOrDefault(preset.structuredOutputMode)
+                val inputMode = runCatching {
+                    AiInputMode.valueOf(
+                        prefs.getString(
+                            providerKey(KeyInputMode, preset.id),
+                            preset.inputMode.name
+                        ).orEmpty()
+                    )
+                }.getOrDefault(preset.inputMode)
+                val capabilities = preset.capabilities.copy(
+                    supportsImageInput = prefs.getBoolean(
+                        providerKey(KeyImage, preset.id),
+                        preset.capabilities.supportsImageInput
+                    ),
+                    supportsPdfFileInput = prefs.getBoolean(
+                        providerKey(KeyPdf, preset.id),
+                        preset.capabilities.supportsPdfFileInput
+                    ),
+                    supportsJsonSchema = prefs.getBoolean(
+                        providerKey(KeyJsonSchema, preset.id),
+                        preset.capabilities.supportsJsonSchema
+                    ),
+                    supportsJsonMode = prefs.getBoolean(
+                        providerKey(KeyJsonMode, preset.id),
+                        preset.capabilities.supportsJsonMode
+                    ),
+                    supportsFileUpload = prefs.getBoolean(
+                        providerKey(KeyFileUpload, preset.id),
+                        preset.capabilities.supportsFileUpload
+                    )
+                )
+                preset.copy(
+                    providerType = providerType,
+                    baseUrl = normalizeAiBaseUrlForProvider(
+                        preset.id,
+                        prefs.getString(providerKey(KeyBaseUrl, preset.id), preset.baseUrl).orEmpty()
+                    ),
+                    defaultModel = prefs.getString(
+                        providerKey(KeyModel, preset.id),
+                        preset.defaultModel
+                    ).orEmpty(),
+                    capabilities = capabilities,
+                    endpointStyle = endpointStyle,
+                    structuredOutputMode = structuredOutputMode,
+                    inputMode = inputMode,
+                    supportsVision = prefs.getBoolean(
+                        providerKey(KeyVision, preset.id),
+                        preset.supportsVision || capabilities.supportsImageInput
+                    ),
+                    supportsFileUpload = prefs.getBoolean(
+                        providerKey(KeyFileUpload, preset.id),
+                        preset.supportsFileUpload || capabilities.supportsFileUpload
+                    ),
+                    supportsPdfDirect = prefs.getBoolean(
+                        providerKey(KeyPdfDirect, preset.id),
+                        preset.supportsPdfDirect || capabilities.supportsPdfFileInput
+                    )
+                )
+            }
+        }
         val apiKey = prefs.getString(apiKeyKey(profile.id), null)?.let { decrypt(context, it) }.orEmpty()
         return AiImportSettings(profile, apiKey)
     }
 
     fun save(context: Context, settings: AiImportSettings) {
-        val editor = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE).edit()
+        val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+        val editor = prefs.edit()
             .putString(KeyProviderId, settings.profile.id)
             .putString(KeyBaseUrl, normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl))
             .putString(KeyModel, settings.profile.defaultModel)
@@ -641,6 +729,7 @@ object AiImportSettingsStore {
             .putBoolean(KeyFileUpload, settings.profile.capabilities.supportsFileUpload)
             .putBoolean(KeyVision, settings.profile.supportsVision)
             .putBoolean(KeyPdfDirect, settings.profile.supportsPdfDirect)
+        writeProviderSettings(editor, settings)
         if (settings.apiKey.isBlank()) {
             editor.remove(apiKeyKey(settings.profile.id))
         } else {
@@ -648,6 +737,37 @@ object AiImportSettingsStore {
         }
         editor
             .apply()
+    }
+
+    fun saveProvider(context: Context, settings: AiImportSettings) {
+        val editor = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE).edit()
+        writeProviderSettings(editor, settings)
+        if (settings.apiKey.isNotBlank()) {
+            editor.putString(apiKeyKey(settings.profile.id), encrypt(context, settings.apiKey))
+        }
+        editor.apply()
+    }
+
+    private fun writeProviderSettings(
+        editor: android.content.SharedPreferences.Editor,
+        settings: AiImportSettings
+    ) {
+        val profile = settings.profile
+        val id = profile.id
+        editor
+            .putString(providerKey(KeyBaseUrl, id), normalizeAiBaseUrlForProvider(id, profile.baseUrl))
+            .putString(providerKey(KeyModel, id), profile.defaultModel)
+            .putString(providerKey(KeyProviderType, id), profile.providerType.name)
+            .putString(providerKey(KeyEndpointStyle, id), profile.endpointStyle.name)
+            .putString(providerKey(KeyStructuredOutputMode, id), profile.structuredOutputMode.name)
+            .putString(providerKey(KeyInputMode, id), profile.inputMode.name)
+            .putBoolean(providerKey(KeyImage, id), profile.capabilities.supportsImageInput)
+            .putBoolean(providerKey(KeyPdf, id), profile.capabilities.supportsPdfFileInput)
+            .putBoolean(providerKey(KeyJsonSchema, id), profile.capabilities.supportsJsonSchema)
+            .putBoolean(providerKey(KeyJsonMode, id), profile.capabilities.supportsJsonMode)
+            .putBoolean(providerKey(KeyFileUpload, id), profile.capabilities.supportsFileUpload)
+            .putBoolean(providerKey(KeyVision, id), profile.supportsVision)
+            .putBoolean(providerKey(KeyPdfDirect, id), profile.supportsPdfDirect)
     }
 
     fun clearApiKey(context: Context, providerId: String? = null) {

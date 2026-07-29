@@ -465,7 +465,14 @@ fun QuickScheduleSettingsSheets(
                     SettingsDivider()
                     SettingsToggleRow(
                         title = "自动计算当前周",
-                        subtitle = "根据学期开始日期自动计算",
+                        subtitle = "学期状态：${scheduleTermStatusDescription(
+                            config.copy(
+                                totalWeeks = value.totalWeeks,
+                                currentWeek = value.currentWeek,
+                                autoCurrentWeek = value.autoCurrentWeek,
+                                termStartDate = value.termStartDate.ifBlank { null }
+                            ), LocalDate.now()
+                        )}",
                         checked = value.autoCurrentWeek,
                         backdrop = backdrop,
                         onCheckedChange = { enabled ->

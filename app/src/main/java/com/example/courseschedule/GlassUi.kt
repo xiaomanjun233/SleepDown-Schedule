@@ -38,6 +38,7 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.backdrop.shadow.InnerShadow
+import kotlin.math.roundToInt
 
 const val MulticolorCourseCardArgb = 0x00000000L
 
@@ -56,36 +57,191 @@ val LocalCourseCardColorAssignments = compositionLocalOf<Map<String, Long>> { em
 fun courseCardColorKey(course: CourseEntity): String =
     course.name.trim().lowercase().ifBlank { "course:${course.id}" }
 
+
+private fun courseCardHueDistance(first: Float, second: Float): Float {
+    val raw = kotlin.math.abs(first - second) % 360f
+    return minOf(raw, 360f - raw)
+}
+
+/** Oklab protects overall separation; this also rewards saturation/value contrast. */
+internal fun courseCardAppearanceDistance(first: Long, second: Long): Double {
+    val a = courseCardHsv(first)
+    val b = courseCardHsv(second)
+    val hue = courseCardHueDistance(a.hue, b.hue) / 180f
+    val saturation = kotlin.math.abs(a.saturation - b.saturation)
+    val value = kotlin.math.abs(a.value - b.value)
+    return kotlin.math.sqrt(
+        (hue * 0.72f) * (hue * 0.72f) +
+            (saturation * 0.92f) * (saturation * 0.92f) +
+            (value * 1.15f) * (value * 1.15f)
+    ).toDouble()
+}
+private data class CourseCardHsv(val hue: Float, val saturation: Float, val value: Float)
+
+private fun courseCardHsv(argb: Long): CourseCardHsv {
+    val red = ((argb shr 16) and 0xFF).toFloat() / 255f
+    val green = ((argb shr 8) and 0xFF).toFloat() / 255f
+    val blue = (argb and 0xFF).toFloat() / 255f
+    val max = maxOf(red, green, blue)
+    val min = minOf(red, green, blue)
+    val delta = max - min
+    val hue = when {
+        delta == 0f -> 0f
+        max == red -> 60f * (((green - blue) / delta) % 6f)
+        max == green -> 60f * ((blue - red) / delta + 2f)
+        else -> 60f * ((red - green) / delta + 4f)
+    }.let { if (it < 0f) it + 360f else it }
+    return CourseCardHsv(hue, if (max == 0f) 0f else delta / max, max)
+}
+
+private fun courseCardArgb(hsv: CourseCardHsv): Long {
+    val hue = ((hsv.hue % 360f) + 360f) % 360f
+    val saturation = hsv.saturation.coerceIn(0f, 1f)
+    val value = hsv.value.coerceIn(0f, 1f)
+    val chroma = value * saturation
+    val x = chroma * (1f - kotlin.math.abs((hue / 60f) % 2f - 1f))
+    val m = value - chroma
+    val (r1, g1, b1) = when (hue) {
+        in 0f..<60f -> Triple(chroma, x, 0f)
+        in 60f..<120f -> Triple(x, chroma, 0f)
+        in 120f..<180f -> Triple(0f, chroma, x)
+        in 180f..<240f -> Triple(0f, x, chroma)
+        in 240f..<300f -> Triple(x, 0f, chroma)
+        else -> Triple(chroma, 0f, x)
+    }
+    fun channel(value: Float) = ((value + m) * 255f).roundToInt().coerceIn(0, 255)
+    return (0xFF000000L or (channel(r1).toLong() shl 16) or
+        (channel(g1).toLong() shl 8) or channel(b1).toLong())
+}
+
+/** Oklab distance is stable for both muted wallpaper colors and highly saturated fallbacks. */
+internal fun courseCardPerceptualDistance(first: Long, second: Long): Double {
+    fun linear(channel: Long): Double {
+        val value = channel.toDouble() / 255.0
+        return if (value <= 0.04045) value / 12.92 else Math.pow((value + 0.055) / 1.055, 2.4)
+    }
+    fun lab(color: Long): DoubleArray {
+        val red = linear((color shr 16) and 0xFF)
+        val green = linear((color shr 8) and 0xFF)
+        val blue = linear(color and 0xFF)
+        val l = Math.cbrt(0.4122214708 * red + 0.5363325363 * green + 0.0514459929 * blue)
+        val m = Math.cbrt(0.2119034982 * red + 0.6806995451 * green + 0.1073969566 * blue)
+        val s = Math.cbrt(0.0883024619 * red + 0.2817188376 * green + 0.6299787005 * blue)
+        return doubleArrayOf(
+            0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+        )
+    }
+    val a = lab(first)
+    val b = lab(second)
+    return kotlin.math.sqrt(
+        (a[0] - b[0]) * (a[0] - b[0]) +
+            (a[1] - b[1]) * (a[1] - b[1]) +
+            (a[2] - b[2]) * (a[2] - b[2])
+    )
+}
+
 fun buildCourseCardColorAssignments(
     courses: List<CourseEntity>,
     representativeColors: List<Long>
 ): Map<String, Long> {
-    // Keep the mapping independent from the currently visible day/week and Room row order.
     val keys = courses.map(::courseCardColorKey).distinct().sorted()
+    val coursesByKey = courses.groupBy(::courseCardColorKey)
+    fun areCardsLikelyAdjacent(firstKey: String, secondKey: String): Boolean {
+        return coursesByKey[firstKey].orEmpty().any { first ->
+            coursesByKey[secondKey].orEmpty().any { second ->
+                val firstStart = first.periods.minOrNull() ?: return@any false
+                val firstEnd = first.periods.maxOrNull() ?: return@any false
+                val secondStart = second.periods.minOrNull() ?: return@any false
+                val secondEnd = second.periods.maxOrNull() ?: return@any false
+                val periodGap = maxOf(firstStart, secondStart) - minOf(firstEnd, secondEnd) - 1
+                when (kotlin.math.abs(first.weekday - second.weekday)) {
+                    0 -> periodGap <= 1
+                    1 -> periodGap <= 0
+                    else -> false
+                }
+            }
+        }
+    }
+    val adjacentKeys = keys.associateWith { key ->
+        keys.asSequence().filter { it != key && areCardsLikelyAdjacent(key, it) }.toSet()
+    }
     if (keys.isEmpty()) return emptyMap()
     val bases = representativeColors.ifEmpty { DefaultCourseCardPalette }
-    val generated = ArrayList<Long>(keys.size)
-    val used = HashSet<Long>()
-    keys.indices.forEach { index ->
-        val base = bases[index % bases.size].toInt()
-        val cycle = index / bases.size
-        val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(base, it) }
-        hsv[0] = (hsv[0] + cycle * 31f) % 360f
-        hsv[1] = (hsv[1].coerceAtLeast(0.34f) + cycle * 0.04f).coerceAtMost(0.88f)
-        hsv[2] = hsv[2].coerceIn(0.76f, 0.96f)
-        var color = android.graphics.Color.HSVToColor(hsv).toLong() and 0xFFFFFFFFL
-        var attempts = 0
-        while (color in used && attempts < 12) {
-            hsv[0] = (hsv[0] + 19f) % 360f
-            color = android.graphics.Color.HSVToColor(hsv).toLong() and 0xFFFFFFFFL
-            attempts++
+        .map { color ->
+            val hsv = courseCardHsv(color)
+            courseCardArgb(
+                hsv.copy(
+                    saturation = hsv.saturation.coerceIn(0.38f, 0.82f),
+                    value = hsv.value.coerceIn(0.74f, 0.94f)
+                )
+            )
         }
-        used += color
-        generated += color
-    }
-    return keys.zip(generated).toMap()
-}
+        .distinct()
+        .ifEmpty { DefaultCourseCardPalette }
 
+    val requiredCandidates = maxOf(36, keys.size * 4)
+    val candidates = ArrayList<Long>(requiredCandidates)
+    var generation = 0
+    while (candidates.size < requiredCandidates && generation < requiredCandidates * 4) {
+        val baseIndex = generation % bases.size
+        val cycle = generation / bases.size
+        val baseHsv = courseCardHsv(bases[baseIndex])
+        val saturationSteps = floatArrayOf(-0.22f, 0.18f, -0.10f, 0.28f, 0f)
+        val valueSteps = floatArrayOf(0.10f, -0.12f, 0.04f, -0.06f, 0f)
+        val candidate = if (cycle == 0) {
+            bases[baseIndex]
+        } else {
+            courseCardArgb(
+                baseHsv.copy(
+                    hue = (baseHsv.hue + cycle * 137.50776f + baseIndex * 11f) % 360f,
+                    saturation = (baseHsv.saturation + saturationSteps[(cycle - 1) % saturationSteps.size]).coerceIn(0.34f, 0.88f),
+                    value = (baseHsv.value + valueSteps[(cycle - 1) % valueSteps.size]).coerceIn(0.68f, 0.96f)
+                )
+            )
+        }
+        if (candidates.none { courseCardPerceptualDistance(it, candidate) < 0.035 }) {
+            candidates += candidate
+        }
+        generation++
+    }
+    DefaultCourseCardPalette.forEach { fallback ->
+        if (candidates.size < requiredCandidates && candidates.none { courseCardPerceptualDistance(it, fallback) < 0.035 }) {
+            candidates += fallback
+        }
+    }
+
+    val available = candidates.toMutableList()
+    val assignedByKey = linkedMapOf<String, Long>()
+    val allocationOrder = keys.sortedWith(compareByDescending<String> { adjacentKeys[it].orEmpty().size }.thenBy { it })
+    allocationOrder.forEachIndexed { index, key ->
+        if (available.isEmpty()) return@forEachIndexed
+        val preferred = (key.hashCode() and Int.MAX_VALUE) % available.size
+        val selectedIndex = if (assignedByKey.isEmpty()) {
+            preferred
+        } else {
+            available.indices.maxByOrNull { candidateIndex ->
+                val candidate = available[candidateIndex]
+                val separation = assignedByKey.values.minOf { courseCardPerceptualDistance(it, candidate) }
+                val adjacentAssigned = adjacentKeys[key].orEmpty().mapNotNull(assignedByKey::get)
+                val adjacentAppearance = adjacentAssigned.minOfOrNull { courseCardAppearanceDistance(it, candidate) } ?: 1.0
+                val sameFamilyPenalty = adjacentAssigned.count { neighbor ->
+                    val a = courseCardHsv(neighbor)
+                    val b = courseCardHsv(candidate)
+                    courseCardHueDistance(a.hue, b.hue) < 42f &&
+                        kotlin.math.abs(a.saturation - b.saturation) < 0.14f &&
+                        kotlin.math.abs(a.value - b.value) < 0.12f
+                }
+                val preferenceDistance = kotlin.math.abs(candidateIndex - preferred).toDouble() / available.size
+                separation + adjacentAppearance * 0.18 - sameFamilyPenalty * 0.20 -
+                    preferenceDistance * 0.004 - index * 0.0000001
+            } ?: 0
+        }
+        assignedByKey[key] = available.removeAt(selectedIndex)
+    }
+    return keys.associateWith { assignedByKey.getValue(it) }
+}
 @Composable
 fun courseCardBaseColor(config: ScheduleConfigEntity, course: CourseEntity? = null): Color {
     if (config.cardColorArgb != MulticolorCourseCardArgb) return Color(config.cardColorArgb.toInt())

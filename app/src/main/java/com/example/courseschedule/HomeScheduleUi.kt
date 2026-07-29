@@ -489,8 +489,7 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
         ) {
             Box(
                 modifier = Modifier
-                    .requiredSize(width = 112.dp, height = 52.dp)
-                    .clip(RoundedCornerShape(50)),
+                    .requiredSize(width = 112.dp, height = 52.dp),
                 contentAlignment = Alignment.Center
             ) {
                 LiquidBottomTabs(
@@ -846,15 +845,6 @@ private fun HomeWallpaperLayer(
 
 internal fun ScheduleConfigEntity.hasAnyWallpaper(): Boolean {
     return !wallpaperUri.isNullOrBlank() || defaultWallpaperStyle == DefaultWallpaperStyle.KANBAN
-}
-
-@Composable
-internal fun HomeWallpaperLoadingMask(config: ScheduleConfigEntity) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(if (appUsesDarkTheme(config)) ComposeColor.Black else ComposeColor.White)
-    )
 }
 
 @Composable

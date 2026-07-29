@@ -391,8 +391,23 @@ fun CourseEditorScreen(
 }
 
 @Composable
-fun DialogHeader(title: String, onCancel: () -> Unit, onSave: () -> Unit, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig()) {
-    LiquidDialogHeader(title, onCancel, backdrop, config, buttonBlurRadius = 8.dp, onConfirm = onSave)
+fun DialogHeader(
+    title: String,
+    onCancel: () -> Unit,
+    onSave: () -> Unit,
+    backdrop: Backdrop? = null,
+    config: ScheduleConfigEntity = defaultConfig(),
+    modifier: Modifier = Modifier
+) {
+    LiquidDialogHeader(
+        title,
+        onCancel,
+        backdrop,
+        config,
+        modifier = modifier,
+        buttonBlurRadius = 8.dp,
+        onConfirm = onSave
+    )
 }
 
 @Composable
@@ -600,7 +615,7 @@ fun NormalizedCourseEditorScreen(
             )
         }
         if (editorCourses.size > 1 && pickerRequest == null) {
-            CourseEditorPagerIndicator(
+            ProjectPagerIndicator(
                 pagerState = pagerState,
                 pageCount = editorCourses.size,
                 modifier = Modifier
@@ -649,7 +664,8 @@ private fun CourseEditorFormPage(
                     onCancel = onCancel,
                     backdrop = backdrop,
                     config = config,
-                    onSave = onSave
+                    onSave = onSave,
+                    modifier = if (course != null) Modifier.height(54.dp) else Modifier
                 )
             }
         }
@@ -935,7 +951,7 @@ private fun CourseEditorPickerOverlay(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun CourseEditorPagerIndicator(
+internal fun ProjectPagerIndicator(
     pagerState: PagerState,
     pageCount: Int,
     modifier: Modifier = Modifier

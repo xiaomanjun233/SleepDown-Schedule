@@ -43,6 +43,7 @@ enum class DockAlignment { LEFT, CENTER, RIGHT }
 enum class HomeStartMode { DAY, WEEK }
 enum class LiveUpdateChipTextMode { LOCATION, COUNTDOWN, SHORT, NORMAL }
 enum class PeriodSchemeMode { MANUAL, AUTO_MATCH }
+enum class ScheduleTermState { MANUAL, UPCOMING, ACTIVE, ENDED, INVALID }
 
 @Entity(tableName = "courses")
 @Immutable
@@ -77,6 +78,7 @@ data class ScheduleConfigEntity(
     val notificationLeadMinutes: Int,
     val termStartDate: String? = null,
     val autoCurrentWeek: Boolean = false,
+    @ColumnInfo(defaultValue = "'MANUAL'") val termState: ScheduleTermState = ScheduleTermState.MANUAL,
     val notificationsEnabled: Boolean = true,
     val notificationMode: NotificationMode = NotificationMode.STANDARD,
     val wallpaperUri: String? = null,
@@ -99,7 +101,7 @@ data class ScheduleConfigEntity(
     val homeTextLight: Boolean = false,
     val followSystemDarkMode: Boolean = true,
     val darkMode: Boolean = false,
-    val defaultWallpaperStyle: DefaultWallpaperStyle = DefaultWallpaperStyle.KANBAN,
+    val defaultWallpaperStyle: DefaultWallpaperStyle = DefaultWallpaperStyle.NONE,
     val hideEmptyWeekends: Boolean = false,
     val dockAlignment: DockAlignment = DockAlignment.LEFT,
     val defaultHomeMode: HomeStartMode = HomeStartMode.WEEK,
@@ -191,6 +193,13 @@ class ScheduleConverters {
 
     @TypeConverter
     fun stringToParity(value: String): WeekParity = WeekParity.valueOf(value)
+
+    @TypeConverter
+    fun scheduleTermStateToString(value: ScheduleTermState): String = value.name
+
+    @TypeConverter
+    fun stringToScheduleTermState(value: String): ScheduleTermState =
+        runCatching { ScheduleTermState.valueOf(value) }.getOrDefault(ScheduleTermState.MANUAL)
 
     @TypeConverter
     fun notificationModeToString(value: NotificationMode): String = value.name
@@ -413,9 +422,10 @@ interface AgentDao {
         PeriodSchemeEntity::class,
         PeriodSchemeTimeEntity::class,
         AgentDailySessionEntity::class,
-        AgentMessageEntity::class
+        AgentMessageEntity::class,
+        WidgetAppearanceEntity::class
     ],
-    version = 28,
+    version = 32,
     exportSchema = false
 )
 @TypeConverters(ScheduleConverters::class)
@@ -424,6 +434,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun configDao(): ConfigDao
     abstract fun periodSchemeDao(): PeriodSchemeDao
     abstract fun scheduleProfileDao(): ScheduleProfileDao
+    abstract fun widgetAppearanceDao(): WidgetAppearanceDao
     abstract fun agentDao(): AgentDao
 }
 
@@ -695,9 +706,138 @@ private val MIGRATION_27_28 = object : Migration(27, 28) {
     }
 }
 
+private val MIGRATION_28_29 = object : Migration(28, 29) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("schedule_config", "termState")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN termState TEXT NOT NULL DEFAULT 'MANUAL'")
+        }
+        val start = "replace(replace(termStartDate, '.', '-'), '/', '-')"
+        db.execSQL(
+            """
+            UPDATE schedule_config
+            SET termState = CASE
+                WHEN autoCurrentWeek = 0 THEN 'MANUAL'
+                WHEN termStartDate IS NULL OR trim(termStartDate) = '' THEN 'INVALID'
+                WHEN date($start) IS NULL THEN 'INVALID'
+                WHEN date('now', 'localtime') < date($start) THEN 'UPCOMING'
+                WHEN date('now', 'localtime') > date(
+                    $start,
+                    '-' || ((CAST(strftime('%w', $start) AS INTEGER) + 6) % 7) || ' days',
+                    '+' || ((CASE WHEN totalWeeks < 1 THEN 1 ELSE totalWeeks END) * 7 - 1) || ' days'
+                ) THEN 'ENDED'
+                ELSE 'ACTIVE'
+            END
+            """.trimIndent()
+        )
+    }
+}
+
+private val MIGRATION_29_30 = object : Migration(29, 30) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `widget_appearances` (
+                `variant` TEXT NOT NULL,
+                `appWidgetId` INTEGER NOT NULL,
+                `enabled` INTEGER NOT NULL DEFAULT 0,
+                `wallpaperUri` TEXT,
+                `centerX` REAL NOT NULL DEFAULT 0.5,
+                `centerY` REAL NOT NULL DEFAULT 0.5,
+                `scale` REAL NOT NULL DEFAULT 1,
+                `sourceWidth` INTEGER,
+                `sourceHeight` INTEGER,
+                `blurDp` REAL NOT NULL DEFAULT 6,
+                `brightness` REAL NOT NULL DEFAULT 1,
+                `updatedAt` INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(`variant`, `appWidgetId`)
+            )
+            """.trimIndent()
+        )
+    }
+}
 private fun createPeriodSchemeTables(db: SupportSQLiteDatabase) {
     db.execSQL("CREATE TABLE IF NOT EXISTS period_schemes (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, scheduleId INTEGER NOT NULL, name TEXT NOT NULL, mode TEXT NOT NULL, isActive INTEGER NOT NULL, classDurationMinutes INTEGER NOT NULL, breakDurationMinutes INTEGER NOT NULL, morningStartTime TEXT NOT NULL, afternoonStartTime TEXT NOT NULL, eveningStartTime TEXT NOT NULL, specialBreaksJson TEXT NOT NULL, overridesJson TEXT NOT NULL)")
     db.execSQL("CREATE TABLE IF NOT EXISTS period_scheme_times (schemeId INTEGER NOT NULL, periodIndex INTEGER NOT NULL, startTime TEXT NOT NULL, endTime TEXT NOT NULL, PRIMARY KEY(schemeId, periodIndex))")
+}
+
+private val MIGRATION_30_31 = object : Migration(30, 31) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `widget_appearances_v31` (
+                `variant` TEXT NOT NULL,
+                `appWidgetId` INTEGER NOT NULL,
+                `enabled` INTEGER NOT NULL DEFAULT 0,
+                `wallpaperUri` TEXT,
+                `centerX` REAL NOT NULL DEFAULT 0.5,
+                `centerY` REAL NOT NULL DEFAULT 0.5,
+                `scale` REAL NOT NULL DEFAULT 1,
+                `sourceWidth` INTEGER,
+                `sourceHeight` INTEGER,
+                `blurDp` REAL NOT NULL DEFAULT 6,
+                `brightness` REAL NOT NULL DEFAULT 1,
+                `updatedAt` INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(`variant`, `appWidgetId`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            INSERT OR REPLACE INTO `widget_appearances_v31`
+            SELECT `variant`, `appWidgetId`, `enabled`, `wallpaperUri`, `centerX`, `centerY`, `scale`,
+                   `sourceWidth`, `sourceHeight`, `blurDp`,
+                   CASE
+                       WHEN `appWidgetId` = 0 AND `updatedAt` = 0 AND `wallpaperUri` IS NULL
+                            AND `enabled` = 0 AND ABS(`brightness` - 0.85) < 0.0001 THEN 1
+                       ELSE `brightness`
+                   END,
+                   `updatedAt`
+            FROM `widget_appearances`
+            """.trimIndent()
+        )
+        db.execSQL("DROP TABLE `widget_appearances`")
+        db.execSQL("ALTER TABLE `widget_appearances_v31` RENAME TO `widget_appearances`")
+    }
+}
+
+private val MIGRATION_31_32 = object : Migration(31, 32) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `widget_appearances_v32` (
+                `variant` TEXT NOT NULL,
+                `appWidgetId` INTEGER NOT NULL,
+                `enabled` INTEGER NOT NULL DEFAULT 0,
+                `wallpaperUri` TEXT,
+                `centerX` REAL NOT NULL DEFAULT 0.5,
+                `centerY` REAL NOT NULL DEFAULT 0.5,
+                `scale` REAL NOT NULL DEFAULT 1,
+                `sourceWidth` INTEGER,
+                `sourceHeight` INTEGER,
+                `blurDp` REAL NOT NULL DEFAULT 0,
+                `brightness` REAL NOT NULL DEFAULT 1,
+                `updatedAt` INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(`variant`, `appWidgetId`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            INSERT OR REPLACE INTO `widget_appearances_v32`
+            SELECT `variant`, `appWidgetId`, `enabled`, `wallpaperUri`, `centerX`, `centerY`, `scale`,
+                   `sourceWidth`, `sourceHeight`,
+                   CASE
+                       WHEN `appWidgetId` = 0 AND `updatedAt` = 0 AND `wallpaperUri` IS NULL
+                            AND `enabled` = 0 AND ABS(`blurDp` - 6) < 0.0001 THEN 0
+                       ELSE `blurDp`
+                   END,
+                   `brightness`, `updatedAt`
+            FROM `widget_appearances`
+            """.trimIndent()
+        )
+        db.execSQL("DROP TABLE `widget_appearances`")
+        db.execSQL("ALTER TABLE `widget_appearances_v32` RENAME TO `widget_appearances`")
+    }
 }
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -735,10 +875,13 @@ class CourseScheduleApp : Application() {
     val database: AppDatabase by lazy {
         repairDatabaseFileBeforeRoomOpen(getDatabasePath("course_schedule.db"))
         Room.databaseBuilder(this, AppDatabase::class.java, "course_schedule.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32)
             .build()
     }
     val repository: ScheduleRepository by lazy { ScheduleRepository(database) }
+    val widgetAppearanceRepository: WidgetAppearanceRepository by lazy {
+        WidgetAppearanceRepository(this, database)
+    }
 }
 
 private fun repairDatabaseFileBeforeRoomOpen(path: File) {
@@ -753,6 +896,7 @@ private fun repairDatabaseFileBeforeRoomOpen(path: File) {
                 !sqliteTableExists(db, "agent_daily_sessions") ||
                 !sqliteTableExists(db, "agent_messages") ||
                 !sqliteColumnExists(db, "courses", "scheduleId") ||
+                (db.version >= 30 && !sqliteTableExists(db, "widget_appearances")) ||
                 !sqliteColumnExists(db, "periods", "scheduleId") ||
                 !sqliteColumnExists(db, "schedule_config", "dockAlignment") ||
                 !sqliteColumnExists(db, "schedule_config", "notificationMode") ||
@@ -822,6 +966,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     }
     ensureSqliteColumn(db, "schedule_config", "termStartDate", "TEXT")
     ensureSqliteColumn(db, "schedule_config", "autoCurrentWeek", "INTEGER NOT NULL DEFAULT 0")
+    ensureSqliteColumn(db, "schedule_config", "termState", "TEXT NOT NULL DEFAULT 'MANUAL'")
     ensureSqliteColumn(db, "schedule_config", "notificationsEnabled", "INTEGER NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "notificationMode", "TEXT NOT NULL DEFAULT 'STANDARD'")
     ensureSqliteColumn(db, "schedule_config", "wallpaperUri", "TEXT")
@@ -862,7 +1007,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     db.execSQL(
         """
         INSERT OR REPLACE INTO schedule_config_room_fix (
-            id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek,
+            id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek, termState,
             notificationsEnabled, notificationMode, wallpaperUri, wallpaperBlur, wallpaperBrightness,
             wallpaperPortraitCenterX, wallpaperPortraitCenterY, wallpaperPortraitScale,
             wallpaperLandscapeCenterX, wallpaperLandscapeCenterY, wallpaperLandscapeScale,
@@ -874,7 +1019,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount
         )
         SELECT
-            id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek,
+            id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek, termState,
             notificationsEnabled, notificationMode, wallpaperUri, wallpaperBlur, wallpaperBrightness,
             wallpaperPortraitCenterX, wallpaperPortraitCenterY, wallpaperPortraitScale,
             wallpaperLandscapeCenterX, wallpaperLandscapeCenterY, wallpaperLandscapeScale,
@@ -900,6 +1045,7 @@ private fun scheduleConfigCreateSql(table: String): String =
         notificationLeadMinutes INTEGER NOT NULL,
         termStartDate TEXT,
         autoCurrentWeek INTEGER NOT NULL,
+        termState TEXT NOT NULL DEFAULT 'MANUAL',
         notificationsEnabled INTEGER NOT NULL,
         notificationMode TEXT NOT NULL,
         wallpaperUri TEXT,
@@ -1564,9 +1710,12 @@ class ScheduleRepository(private val database: AppDatabase) {
         }
 
         val storedConfig = configDao.getConfig(scheduleId)
-        val repairedConfig = configWithCountsFromPeriods(
-            storedConfig ?: defaultConfig(scheduleId),
-            periods
+        val repairedConfig = normalizeConfigForSchedule(
+            configWithCountsFromPeriods(
+                storedConfig ?: defaultConfig(scheduleId),
+                periods
+            ),
+            scheduleId
         )
         if (storedConfig != repairedConfig) {
             configDao.upsertConfig(repairedConfig.copy(id = scheduleId))
@@ -1615,7 +1764,7 @@ class ScheduleRepository(private val database: AppDatabase) {
         return config.copy(
             id = scheduleId,
             weekCardHeightDp = config.weekCardHeightDp?.coerceIn(38f, 80f)
-        )
+        ).withDerivedScheduleTermState()
     }
 
     private fun configWithCountsFromPeriods(config: ScheduleConfigEntity, periods: List<PeriodEntity>): ScheduleConfigEntity {
@@ -1833,7 +1982,7 @@ private fun ScheduleConfigEntity.withGlobalSettingsFrom(global: ScheduleConfigEn
     )
 }
 
-fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, wallpaperPortraitCenterX = 0.5f, wallpaperPortraitCenterY = 0.5f, wallpaperPortraitScale = 1f, wallpaperLandscapeCenterX = 0.5f, wallpaperLandscapeCenterY = 0.5f, wallpaperLandscapeScale = 1f, wallpaperSourceWidth = null, wallpaperSourceHeight = null, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, weekCardHeightDp = null, homeTextLight = false, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.KANBAN, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false, autoCheckUpdates = true)
+fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, wallpaperPortraitCenterX = 0.5f, wallpaperPortraitCenterY = 0.5f, wallpaperPortraitScale = 1f, wallpaperLandscapeCenterX = 0.5f, wallpaperLandscapeCenterY = 0.5f, wallpaperLandscapeScale = 1f, wallpaperSourceWidth = null, wallpaperSourceHeight = null, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, weekCardHeightDp = null, homeTextLight = false, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.NONE, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false, autoCheckUpdates = true)
 
 fun defaultPeriods(scheduleId: Int = 1) = listOf(
     PeriodEntity(1, "08:00", "08:45", scheduleId), PeriodEntity(2, "08:55", "09:40", scheduleId),

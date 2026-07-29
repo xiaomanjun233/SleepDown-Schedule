@@ -3,6 +3,7 @@ package com.example.courseschedule
 import android.content.Context
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 
 data class AgentSettingDefinition(
     val key: String,
@@ -76,7 +77,9 @@ object AgentSettingRegistry {
             "WALLPAPER_LANDSCAPE_CENTER_X" to "横屏壁纸中心X",
             "WALLPAPER_LANDSCAPE_CENTER_Y" to "横屏壁纸中心Y",
             "WALLPAPER_LANDSCAPE_SCALE" to "横屏壁纸缩放",
-            "WALLPAPER_SOURCE_SIZE" to "壁纸原始尺寸"
+            "WALLPAPER_SOURCE_SIZE" to "壁纸原始尺寸",
+            "TERM_STATE" to "学期状态",
+            "TERM_STATUS" to "学期状态提示"
         )
         appendLine("结构化/只读个性化事实：")
         structuredKeys.forEach { (key, label) ->
@@ -96,13 +99,16 @@ object AgentSettingRegistry {
     fun snapshot(
         config: ScheduleConfigEntity,
         scheduleName: String?,
-        context: Context? = null
+        context: Context? = null,
+        date: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
     ): Map<String, String> = linkedMapOf(
         "SCHEDULE_NAME" to scheduleName.orEmpty(),
         "TOTAL_WEEKS" to config.totalWeeks.toString(),
         "CURRENT_WEEK" to config.currentWeek.toString(),
         "TERM_START_DATE" to config.termStartDate.orEmpty(),
         "AUTO_CURRENT_WEEK" to config.autoCurrentWeek.toString(),
+        "TERM_STATE" to derivedScheduleTermState(config, date).name,
+        "TERM_STATUS" to scheduleTermStatusDescription(config, date),
         "HIDE_EMPTY_WEEKENDS" to config.hideEmptyWeekends.toString(),
         "CLASS_DURATION_MINUTES" to config.classDurationMinutes.toString(),
         "BREAK_DURATION_MINUTES" to config.breakDurationMinutes.toString(),

@@ -132,6 +132,8 @@ internal fun GlassMiuixDetailActivityScaffold(
     showTopGradientBlur: Boolean,
     isolateContentFromBackdrop: Boolean,
     compactTopBar: Boolean,
+    centerCompactTitle: Boolean,
+    topBarVisible: Boolean,
     content: @Composable (Backdrop?) -> Unit
 ) {
     val pageConfig = settingsVisualConfig(config)
@@ -142,7 +144,6 @@ internal fun GlassMiuixDetailActivityScaffold(
         drawContent()
     }
     val scrollBehavior = rememberSettingsScrollBehavior()
-    val logRecording = DiagnosticLogCapture.recording.collectAsStateWithLifecycle().value
     val compactTopBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 58.dp
 
     GlassMiuixSettingsTheme(pageConfig) {
@@ -167,35 +168,38 @@ internal fun GlassMiuixDetailActivityScaffold(
                             .fillMaxWidth()
                             .then(if (compactTopBar) Modifier.height(compactTopBarHeight) else Modifier)
                     ) {
-                        SettingsGradientTopBar(
-                            config = pageConfig,
-                            backdrop = contentBackdrop,
-                            enabled = showTopGradientBlur
-                        ) {
-                            if (compactTopBar) {
-                                DetailTopBar(
-                                    title = title,
-                                    config = pageConfig,
-                                    backdrop = contentBackdrop,
-                                    onBack = onBack
-                                )
-                            } else {
-                                TopAppBar(
-                                    title = title,
-                                    largeTitle = title,
-                                    color = Color.Transparent,
-                                    scrollBehavior = scrollBehavior,
-                                    navigationIcon = {
-                                        TopBackButton(
-                                            backdrop = contentBackdrop,
-                                            config = pageConfig,
-                                            onClick = onBack,
-                                            modifier = Modifier
-                                                .padding(start = 8.dp)
-                                                .size(42.dp)
-                                        )
-                                    }
-                                )
+                        if (topBarVisible) {
+                            SettingsGradientTopBar(
+                                config = pageConfig,
+                                backdrop = contentBackdrop,
+                                enabled = showTopGradientBlur
+                            ) {
+                                if (compactTopBar) {
+                                    DetailTopBar(
+                                        title = title,
+                                        config = pageConfig,
+                                        backdrop = contentBackdrop,
+                                        onBack = onBack,
+                                        centerTitle = centerCompactTitle
+                                    )
+                                } else {
+                                    TopAppBar(
+                                        title = title,
+                                        largeTitle = title,
+                                        color = Color.Transparent,
+                                        scrollBehavior = scrollBehavior,
+                                        navigationIcon = {
+                                            TopBackButton(
+                                                backdrop = contentBackdrop,
+                                                config = pageConfig,
+                                                onClick = onBack,
+                                                modifier = Modifier
+                                                    .padding(start = 8.dp)
+                                                    .size(42.dp)
+                                            )
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -223,14 +227,6 @@ internal fun GlassMiuixDetailActivityScaffold(
                     }
                 }
             }
-            DiagnosticLogStopOverlay(
-                visible = logRecording,
-                config = pageConfig,
-                backdrop = contentBackdrop,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .zIndex(40f)
-            )
         }
     }
 }
