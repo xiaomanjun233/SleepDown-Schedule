@@ -371,6 +371,13 @@ sealed interface HomeDialog {
     data object SampleWallpaperColor : HomeDialog
     data class EditCourse(val course: CourseEntity?, val targetWeek: Int? = null) : HomeDialog
     data class ApplyCourseEdit(val original: CourseEntity, val edited: CourseEntity, val targetWeek: Int) : HomeDialog
+    data class ConfirmCourseConflicts(
+        val original: CourseEntity,
+        val edited: CourseEntity,
+        val targetWeek: Int,
+        val conflictWeeks: List<Int>,
+        val singleWeekOnly: Boolean = false
+    ) : HomeDialog
     data class ApplyCourseDelete(val course: CourseEntity, val targetWeek: Int) : HomeDialog
 }
 
@@ -819,6 +826,9 @@ fun CourseScheduleAppUi(
     val beforeScheduleTerm = isBeforeScheduleTerm(visualState.config, todayDate)
     val afterScheduleTerm = isAfterScheduleTerm(visualState.config, todayDate)
     var homeDisplayWeek by remember(visualState.config.id) { mutableIntStateOf(1) }
+    var pendingConflictCourseId by remember(visualState.config.id) { mutableStateOf<Long?>(null) }
+    var pendingConflictCourseKey by remember(visualState.config.id) { mutableStateOf<String?>(null) }
+    var pendingConflictWeeks by remember(visualState.config.id) { mutableStateOf<List<Int>>(emptyList()) }
     var homeWeekInitialized by remember(visualState.config.id) { mutableStateOf(false) }
     var homeDisplayDate by remember(visualState.config.id) { mutableStateOf(todayDate) }
     LaunchedEffect(
@@ -854,11 +864,17 @@ fun CourseScheduleAppUi(
     }
     val homeReturnTargetWeek = if (beforeScheduleTerm) 1 else homeCurrentWeek
     val homeShowingAnotherWeek = homeMode == HomeMode.Week && homeDisplayWeek != homeReturnTargetWeek
+    val homeCourseColorSignature = visualState.courses
+        .map(::courseCardColorKey)
+        .distinct()
+        .sorted()
     val homeCourseColorAssignments = remember(
         visualState.config.id,
-        visualState.courses,
+        homeCourseColorSignature,
         wallpaperImages.representativeColors
     ) {
+        // Card movement and resizing must not recolor the whole grid.
+        // The semantic color-key set changes only when the actual course identities do.
         buildCourseCardColorAssignments(
             visualState.courses,
             wallpaperImages.representativeColors
@@ -1572,6 +1588,19 @@ fun CourseScheduleAppUi(
                                         }
                                     },
                                     onUpdateCourseSingleWeek = viewModel::updateCourseSingleWeek,
+                                    conflictFocusCourseId = pendingConflictCourseId
+                                        ?.takeIf { homeDisplayWeek in pendingConflictWeeks },
+                                    conflictFocusCourseKey = pendingConflictCourseKey
+                                        ?.takeIf { homeDisplayWeek in pendingConflictWeeks },
+                                    onResolveCourseConflict = { course, moved, week ->
+                                            viewModel.updateCourseSingleWeek(course, moved, week)
+                                        appScope.launch {
+                                            delay(180)
+                                            pendingConflictCourseId = null
+                                            pendingConflictCourseKey = null
+                                            pendingConflictWeeks = emptyList()
+                                        }
+                                    },
                                     onDeleteCourseSingleWeek = viewModel::deleteCourseSingleWeek,
                                     onScheduleLongPress = {
                                         if (pickerState.phase is CustomizeUiState.Home) {
@@ -2016,8 +2045,18 @@ fun CourseScheduleAppUi(
             onDismissRequest = { closeCourseEditor() },
             onSave = { original, edited, targetWeek ->
                 if (courseWeeksChanged(original, edited)) {
-                    viewModel.updateCourse(edited)
-                    closeCourseEditor()
+                    val conflictWeeks = conflictWeeksForEditedCourse(original, edited, state.courses)
+                    if (conflictWeeks.isEmpty()) {
+                        viewModel.updateCourse(edited)
+                        closeCourseEditor()
+                    } else {
+                        homeDialog = HomeDialog.ConfirmCourseConflicts(
+                            original,
+                            edited,
+                            targetWeek ?: effectiveCurrentWeek(state.config),
+                            conflictWeeks
+                        )
+                    }
                 } else {
                     // Keep the editor fully mounted behind the choice dialog. Closing it first
                     // lets its Morph/interaction shield cover and stall the confirmation.
@@ -2113,16 +2152,126 @@ fun CourseScheduleAppUi(
                 backdrop = homeDialogBackdrop,
                 config = state.config,
                 onSingle = {
-                    viewModel.updateCourseSingleWeek(dialog.original, dialog.edited, dialog.targetWeek)
-                    dismissHomeDialog()
-                    closeCourseEditor()
+                    val conflictWeeks = conflictWeeksForSingleWeekEdit(
+                        dialog.original,
+                        dialog.edited,
+                        dialog.targetWeek,
+                        state.courses
+                    )
+                    if (conflictWeeks.isEmpty()) {
+                        viewModel.updateCourseSingleWeek(
+                            dialog.original,
+                            dialog.edited,
+                            dialog.targetWeek
+                        )
+                        dismissHomeDialog()
+                        closeCourseEditor()
+                    } else {
+                        homeDialog = HomeDialog.ConfirmCourseConflicts(
+                            dialog.original,
+                            dialog.edited,
+                            dialog.targetWeek,
+                            conflictWeeks,
+                            singleWeekOnly = true
+                        )
+                    }
                 },
                 onAll = {
-                    viewModel.updateCourse(dialog.edited)
-                    dismissHomeDialog()
-                    closeCourseEditor()
+                    val conflictWeeks = conflictWeeksForEditedCourse(
+                        dialog.original,
+                        dialog.edited,
+                        state.courses
+                    )
+                    if (conflictWeeks.isEmpty()) {
+                        viewModel.updateCourse(dialog.edited)
+                        dismissHomeDialog()
+                        closeCourseEditor()
+                    } else {
+                        homeDialog = HomeDialog.ConfirmCourseConflicts(
+                            dialog.original,
+                            dialog.edited,
+                            dialog.targetWeek,
+                            conflictWeeks
+                        )
+                    }
                 },
                 onCancel = { dismissHomeDialog() }
+            )
+        } else if (dialog is HomeDialog.ConfirmCourseConflicts) {
+            CourseConflictRetentionDialog(
+                course = dialog.edited,
+                conflictWeeks = dialog.conflictWeeks,
+                backdrop = homeDialogBackdrop,
+                config = state.config,
+                onKeepTemporarily = {
+                    val editorWasOpen = courseEditorRequest != null
+                    val editedRetractBounds = courseEditorRequest
+                        ?.sourceBoundsInRoot
+                        ?.takeIf { homeMode == HomeMode.Week }
+                        ?.let { source ->
+                            val periodIndexes = state.periods.map { it.periodIndex }
+                            val originalStart = dialog.original.periods
+                                .map(periodIndexes::indexOf)
+                                .filter { it >= 0 }
+                                .minOrNull()
+                            val editedPositions = dialog.edited.periods
+                                .map(periodIndexes::indexOf)
+                                .filter { it >= 0 }
+                                .distinct()
+                                .sorted()
+                            val editedStart = editedPositions.firstOrNull()
+                            if (originalStart == null || editedStart == null) {
+                                null
+                            } else {
+                                val cardHeightPx = with(density) { weekCardHeight.dp.toPx() }
+                                val cardGapPx = with(density) { 4.dp.toPx() }
+                                val left = source.left +
+                                    (dialog.edited.weekday - dialog.original.weekday) *
+                                    (source.width + cardGapPx)
+                                val top = source.top +
+                                    (editedStart - originalStart) * cardHeightPx
+                                val targetHeight = (
+                                    cardHeightPx * editedPositions.size.coerceAtLeast(1) -
+                                        cardGapPx
+                                    ).coerceAtLeast(with(density) { 18.dp.toPx() })
+                                Rect(left, top, left + source.width, top + targetHeight)
+                            }
+                        }
+                    courseEditorMotionState.retractTo(editedRetractBounds)
+                    if (dialog.singleWeekOnly) {
+                        viewModel.updateCourseSingleWeek(
+                            dialog.original,
+                            dialog.edited,
+                            dialog.targetWeek
+                        )
+                    } else {
+                        viewModel.updateCourse(dialog.edited)
+                    }
+                    pendingConflictCourseId =
+                        dialog.edited.id.takeUnless { dialog.singleWeekOnly }
+                    pendingConflictCourseKey = dialog.edited.occurrenceOverrideKey()
+                    pendingConflictWeeks = dialog.conflictWeeks
+                    dismissHomeDialog()
+                    closeCourseEditor()
+                    val conflictWeek = dialog.conflictWeeks.first()
+                    if (editorWasOpen) {
+                        appScope.launch {
+                            delay(CourseEditorCloseDurationMillis.toLong() + 32L)
+                            homeDisplayWeek = conflictWeek
+                            homeMode = HomeMode.Week
+                        }
+                    } else {
+                        homeDisplayWeek = conflictWeek
+                        homeMode = HomeMode.Week
+                    }
+                },
+                onReturn = {
+                    homeDialog = HomeDialog.ApplyCourseEdit(
+                        dialog.original,
+                        dialog.edited,
+                        dialog.targetWeek
+                    )
+                }
             )
         } else if (dialog is HomeDialog.ApplyCourseDelete) {
             ApplyCourseDeleteDialog(
@@ -2231,23 +2380,58 @@ fun CourseScheduleAppUi(
                             dismissHomeDialog()
                         }
                     )
-                    is HomeDialog.ApplyCourseEdit -> ApplyCourseEditDialog(
+                            is HomeDialog.ApplyCourseEdit -> ApplyCourseEditDialog(
                         original = dialog.original,
                         edited = dialog.edited,
                         backdrop = homeDialogBackdrop,
                         config = state.config,
                         onSingle = {
-                            viewModel.updateCourseSingleWeek(dialog.original, dialog.edited, dialog.targetWeek)
-                            dismissHomeDialog()
+                            val conflictWeeks = conflictWeeksForSingleWeekEdit(
+                                dialog.original,
+                                dialog.edited,
+                                dialog.targetWeek,
+                                state.courses
+                            )
+                            if (conflictWeeks.isEmpty()) {
+                                viewModel.updateCourseSingleWeek(
+                                    dialog.original,
+                                    dialog.edited,
+                                    dialog.targetWeek
+                                )
+                                dismissHomeDialog()
+                            } else {
+                                homeDialog = HomeDialog.ConfirmCourseConflicts(
+                                    dialog.original,
+                                    dialog.edited,
+                                    dialog.targetWeek,
+                                    conflictWeeks,
+                                    singleWeekOnly = true
+                                )
+                            }
                         },
-                        onAll = {
-                            viewModel.updateCourse(dialog.edited)
-                            dismissHomeDialog()
+                            onAll = {
+                            val conflictWeeks = conflictWeeksForEditedCourse(
+                                dialog.original,
+                                dialog.edited,
+                                state.courses
+                            )
+                            if (conflictWeeks.isEmpty()) {
+                                viewModel.updateCourse(dialog.edited)
+                                dismissHomeDialog()
+                            } else {
+                                homeDialog = HomeDialog.ConfirmCourseConflicts(
+                                    dialog.original,
+                                    dialog.edited,
+                                    dialog.targetWeek,
+                                    conflictWeeks
+                                )
+                            }
                         },
                         onCancel = {
                             dismissHomeDialog()
                         }
                     )
+                    is HomeDialog.ConfirmCourseConflicts -> Unit
                     is HomeDialog.ApplyCourseDelete -> ApplyCourseDeleteDialog(
                         course = dialog.course,
                         backdrop = homeDialogBackdrop,
@@ -4783,6 +4967,8 @@ fun ChangelogSettingsScreen(
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
+                SettingsInfoRow("1.1.0", "桌面小组件现在也能自由个性化。4×2、2×2 今日课程组件和今日助手组件可分别设置背景图片，支持独立调整取景、缩放、模糊与亮度，保存前即可预览实际效果；今日助手现在支持发送图片，并加入可随时关闭、查看和编辑的长期记忆。课程查找更准确，工具执行状态更清晰，长回复与图片预览也更加流畅稳定；新增更具流动感的液态动画。首页加号菜单、个性化面板、添加课程、手动导入和教务导入之间能够自然衔接；课程编辑弹窗的展开、背景景深与收回动画也更加连贯，并会收回到课程修改后的位置；新增动态模糊过渡。内容展开或收起时会以自然的模糊效果衔接，减少文字和页面的突兀跳变；新增课程冲突处理。修改星期、节次、周次、单周课程或全部周课程时，应用会主动提醒本次新增的冲突；你可以先保留修改并跳转到冲突周，再点击“冲突”将课程移到最近空位。被单独调整的周次也会正确保留，不会再次并回整段周次；新用户将不再默认启用看板娘壁纸；默认日间、夜间壁纸已更新，并会跟随应用深色模式自动切换。应用图标也已换新，浅色与深色模式各有对应样式；调整课程卡片的玻璃采样层级。长按提起或移动卡片时，玻璃材质可以正确透出下方课程，层次更加自然；统一优化课程编辑、弹窗、滑条、加号菜单、个性化面板和教务页之间的动画衔接，减少闪烁和突兀切换；移动课程或调整节次时不再重新打乱整页课程配色，多彩卡片的颜色更加稳定；压缩并整理课程编辑弹窗的间距，常用信息更集中，操作更顺手；优化今日助手的流式回复、图片处理和复杂动画性能，长内容场景下更加流畅；移除首次启动时的遮罩展开动画。壁纸会在首个可见画面直接呈现，随后再自然进入首页；课程保存后，编辑弹窗会收回到修改后的卡片位置，动画方向与最终结果保持一致。")
+                SettingsDivider()
                 SettingsInfoRow("1.0.9", "今日助手全面升级，能够根据需要读取当前课表和设置，连续完成查询、修改、确认结果与撤销操作，并支持 MiMo 联网搜索；新增课程卡片和今日助手打开时的背景随动缩放效果，课程卡片展开与收回采用更自然的抛物线运动轨迹，配合弹性缩放和更流畅的页面交接，动画更加灵动；增强课程、节次、作息方案和个性化设置的智能调整能力，修改节次后可更合理地处理原有课程安排；修复今日助手偶尔读取错误课表、工具调用中断、回复内容缺失，以及实时活动倒计时停止刷新、测试提醒无法取消等问题。")
                 SettingsDivider()
                 SettingsInfoRow("1.0.8", "桌面小组件新增今日助手，展示当前或下节课、倒计时、地点与教师、上下课时间、今日课程数量、天气和预警，并补齐今日课程与今日助手三款小组件在系统选择页的独立名称和预览；修复升级后部分课表的节次时间与详细设置被错误重建为默认值的问题，完善多作息方案保存和数据库迁移兼容；将周次切换字符替换为矢量图标，并修复添加单节课选择器层级等交互问题。")

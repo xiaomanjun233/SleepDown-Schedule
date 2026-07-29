@@ -737,14 +737,25 @@ private fun placeholderValues(
 ): Map<String, String> {
     val now = facts.now.toLocalTime()
     val firstTomorrow = facts.tomorrow.firstOrNull()
+    val currentSlots = facts.today.filter { !now.isBefore(it.start) && now.isBefore(it.end) }
+    val nextSlots = next?.let { firstNext ->
+        facts.today.filter { it.start == firstNext.start }
+    }.orEmpty()
+    val currentNames = currentSlots.joinToString("、") { it.course.name }.ifBlank { "当前课程" }
+    val nextNames = nextSlots.joinToString("、") { it.course.name }.ifBlank { "下一节课" }
+    val nextLocations = nextSlots
+        .mapNotNull { it.course.location?.takeIf(String::isNotBlank) }
+        .distinct()
+        .joinToString(" / ")
+        .ifBlank { "地点待确认" }
     val gap = if (next != null) Duration.between(previous?.end ?: now, next.start) else Duration.ZERO
     val weather = facts.weather
     return mapOf(
         "todayCourseCount" to facts.today.size.toString(),
-        "currentCourseName" to (current?.course?.name ?: "当前课程"),
-        "currentCourseEnd" to (current?.end?.toString() ?: "稍后"),
-        "nextCourseName" to (next?.course?.name ?: "下一节课"),
-        "nextCourseLocation" to (next?.course?.location?.takeIf { it.isNotBlank() } ?: "地点待确认"),
+        "currentCourseName" to currentNames,
+        "currentCourseEnd" to (currentSlots.maxOfOrNull { it.end }?.toString() ?: current?.end?.toString() ?: "稍后"),
+        "nextCourseName" to nextNames,
+        "nextCourseLocation" to nextLocations,
         "nextCourseStart" to (next?.start?.toString() ?: "稍后"),
         "timeUntilNext" to if (next == null) "暂无" else formatDuration(Duration.between(now, next.start)),
         "gapDuration" to formatDuration(gap),

@@ -595,6 +595,9 @@ fun HomeScreen(
     onAddCourse: (CourseEntity) -> Unit = {},
     onAgentAction: AgentActionHandler = { _, _ -> },
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
+    conflictFocusCourseId: Long? = null,
+    conflictFocusCourseKey: String? = null,
+    onResolveCourseConflict: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onScheduleLongPress: () -> Unit = {},
 ) {
@@ -675,6 +678,9 @@ fun HomeScreen(
                         weekEditMode = weekEditMode,
                         onEnterWeekEditMode = { weekEditMode = true },
                         onUpdateCourseSingleWeek = onUpdateCourseSingleWeek,
+                        conflictFocusCourseId = conflictFocusCourseId,
+                        conflictFocusCourseKey = conflictFocusCourseKey,
+                        onResolveCourseConflict = onResolveCourseConflict,
                         onDeleteCourseSingleWeek = { course, week ->
                             pendingSingleWeekDelete = course to week
                         },
@@ -903,6 +909,30 @@ fun ApplyCourseEditDialog(
         backdrop = backdrop,
         config = config,
         onDismissRequest = onCancel
+    )
+}
+
+@Composable
+fun CourseConflictRetentionDialog(
+    course: CourseEntity,
+    conflictWeeks: List<Int>,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onKeepTemporarily: () -> Unit,
+    onReturn: () -> Unit
+) {
+    val weekSummary = conflictWeeks.take(4).joinToString("、") { "第${it}周" } +
+        if (conflictWeeks.size > 4) "等${conflictWeeks.size}周" else ""
+    LiquidAlertDialog(
+        title = "检测到课程冲突",
+        message = "“${course.name}”在${weekSummary}与其他课程重合。可以暂时保留；保存后会跳到首个冲突周，点课程上的“冲突”即可移到最近空位。",
+        actions = listOf(
+            LiquidAlertAction("暂时保留", LiquidAlertActionStyle.Primary, onClick = onKeepTemporarily),
+            LiquidAlertAction("返回修改", LiquidAlertActionStyle.Secondary, onClick = onReturn)
+        ),
+        backdrop = backdrop,
+        config = config,
+        onDismissRequest = onReturn
     )
 }
 
@@ -1355,14 +1385,28 @@ fun DayScheduleScreen(
                 }
                 if (dayCourses.isEmpty()) item { HomeReadableText("这一天没有课程", color = textColor) }
                 itemsIndexed(dayCourses, key = { _, it -> it.id }) { index, course ->
-                    DayTimelineCourse(course, targetWeek, state.periods, cardColor, backdrop, state.config, onCourseClick, entranceIndex = index)
+                    val coursePeriods = course.periods.toSet()
+                    val simultaneousCount = dayCourses.count { other ->
+                        other.id == course.id || other.periods.any(coursePeriods::contains)
+                    }
+                    DayTimelineCourse(
+                        course,
+                        targetWeek,
+                        state.periods,
+                        cardColor,
+                        backdrop,
+                        state.config,
+                        onCourseClick,
+                        entranceIndex = index,
+                        simultaneousCount = simultaneousCount
+                    )
                 }
             }
     }
 }
 
 @Composable
-fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, entranceIndex: Int = 0) {
+fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, entranceIndex: Int = 0, simultaneousCount: Int = 1) {
     val resolvedCardColor = courseCardBaseColor(config, course)
     val timePillColor = deepenColor(resolvedCardColor, 0.16f)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1375,7 +1419,10 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
         ) {
             Box(Modifier.background(timePillColor.copy(alpha = 0.26f))) {
                 Text(
-                    courseTimeLabel(course, periods),
+                    buildString {
+                        append(courseTimeLabel(course, periods))
+                        if (simultaneousCount > 1) append(" · 同时${simultaneousCount}门")
+                    },
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     style = MaterialTheme.typography.labelLarge,
                     color = readableOn(timePillColor)

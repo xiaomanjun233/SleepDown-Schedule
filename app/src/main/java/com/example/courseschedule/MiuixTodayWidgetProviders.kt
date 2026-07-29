@@ -486,11 +486,24 @@ internal object TodayAssistantWidgetRenderer {
         )
         val current = facts.today.firstOrNull { !now.toLocalTime().isBefore(it.start) && now.toLocalTime().isBefore(it.end) }
         val next = facts.today.firstOrNull { now.toLocalTime().isBefore(it.start) }
+        val currentSlots = facts.today.filter {
+            !now.toLocalTime().isBefore(it.start) && now.toLocalTime().isBefore(it.end)
+        }
+        val nextSlots = next?.let { firstNext ->
+            facts.today.filter { it.start == firstNext.start }
+        }.orEmpty()
         val previewTomorrow = now.toLocalTime() >= LocalTime.of(22, 0) &&
             current == null &&
             next == null &&
             facts.tomorrow.isNotEmpty()
         val focus = current ?: next ?: facts.tomorrow.firstOrNull().takeIf { previewTomorrow }
+        val focusSlots = when {
+            current != null -> currentSlots
+            next != null -> nextSlots
+            focus != null -> listOf(focus)
+            else -> emptyList()
+        }
+        val focusTitle = focusSlots.joinToString("、") { it.course.name }
         val remaining = (current?.end ?: next?.start)?.let {
             Duration.between(now.toLocalTime(), it).toMinutes().coerceAtLeast(0)
         }
@@ -542,7 +555,7 @@ internal object TodayAssistantWidgetRenderer {
                 setInt(R.id.widget_agent_root, "setBackgroundColor", Color.TRANSPARENT)
             }
             setTextViewText(R.id.widget_agent_activity, activity)
-            setTextViewText(R.id.widget_agent_course, focus?.course?.name.orEmpty())
+            setTextViewText(R.id.widget_agent_course, focusTitle)
             setViewVisibility(R.id.widget_agent_course, if (focus == null) View.GONE else View.VISIBLE)
             setTextViewText(R.id.widget_agent_countdown, countdown)
             setViewVisibility(

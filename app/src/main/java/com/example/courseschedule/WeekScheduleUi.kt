@@ -291,6 +291,7 @@ import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 @Composable
 fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardColor: ComposeColor, textColor: ComposeColor, backdrop: Backdrop?, onSwipeWeek: (Int) -> Unit, onCourseClick: (CourseEntity, Int, Rect?) -> Unit) {
@@ -450,6 +451,9 @@ fun SinglePillWeekScheduleScreen(
     weekEditMode: Boolean = false,
     onEnterWeekEditMode: () -> Unit = {},
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
+    conflictFocusCourseId: Long? = null,
+    conflictFocusCourseKey: String? = null,
+    onResolveCourseConflict: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit
 ) {
@@ -577,6 +581,13 @@ fun SinglePillWeekScheduleScreen(
     }
     var overlayHostBounds by remember { mutableStateOf<Rect?>(null) }
     val weekEditOverlay = rememberWeekEditOverlayController(scrollState)
+    val stationaryCoursesBackdrop = rememberLayerBackdrop()
+    val floatingSamplingBase = floatingCourseBackdrop ?: backdrop
+    val liftedCourseBackdrop = if (floatingSamplingBase != null) {
+        rememberCombinedBackdrop(floatingSamplingBase, stationaryCoursesBackdrop)
+    } else {
+        null
+    }
     val overlayScreenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
     val overlayEdgePx = with(density) { 88.dp.toPx() }
     LaunchedEffect(displayWeek, weekEditMode) {
@@ -584,7 +595,6 @@ fun SinglePillWeekScheduleScreen(
     }
     LaunchedEffect(state.courses, displayWeek) {
         if (weekEditOverlay.awaitingCommit) {
-            withFrameNanos { }
             withFrameNanos { }
             delay(if (weekEditOverlay.request?.mode == WeekEditOverlayMode.Resize) 180 else 90)
             weekEditOverlay.clear()
@@ -726,7 +736,11 @@ fun SinglePillWeekScheduleScreen(
                         }
                     }
 
-                    Box(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .layerBackdrop(stationaryCoursesBackdrop)
+                    ) {
                         outgoingCourses.value?.let { oldCourses ->
                             WeekCourseColumnsLayer(
                                 modifier = Modifier.padding(start = rowHeaderWidth),
@@ -736,7 +750,9 @@ fun SinglePillWeekScheduleScreen(
                                 cardHeight = cardHeight,
                                 cardColor = cardColor,
                                 backdrop = backdrop,
-                                floatingBackdrop = floatingCourseBackdrop,
+                                // This subtree is recorded into stationaryCoursesBackdrop. It must
+                                // never receive the combined backdrop that includes that recorder.
+                                floatingBackdrop = backdrop,
                                 config = state.config,
                                 weekMotionDirection = outgoingDirection.intValue,
                                 outgoing = true,
@@ -775,7 +791,9 @@ fun SinglePillWeekScheduleScreen(
                                 cardHeight = cardHeight,
                                 cardColor = cardColor,
                                 backdrop = backdrop,
-                                floatingBackdrop = floatingCourseBackdrop,
+                                // The lifted combined backdrop is reserved for WeekEditOverlayHost,
+                                // which is outside stationaryCoursesBackdrop.
+                                floatingBackdrop = backdrop,
                                 config = state.config,
                                 weekMotionDirection = if (isActivePage) weekMotionDirection else 0,
                                 outgoing = false,
@@ -787,6 +805,11 @@ fun SinglePillWeekScheduleScreen(
                                 onEnterEditMode = onEnterWeekEditMode,
                                 onUpdateSingleWeekCourse = { original, edited ->
                                     onUpdateCourseSingleWeek(original, edited, pageWeek)
+                                },
+                                conflictFocusCourseId = conflictFocusCourseId,
+                                conflictFocusCourseKey = conflictFocusCourseKey,
+                                onResolveCourseConflict = { original, moved ->
+                                    onResolveCourseConflict(original, moved, pageWeek)
                                 },
                                 onDeleteSingleWeekCourse = { course ->
                                     onDeleteCourseSingleWeek(course, pageWeek)
@@ -836,7 +859,7 @@ fun SinglePillWeekScheduleScreen(
             gridOffsetY = weekEditOverlay.gridOffsetY,
             gridScrollCompensationY = weekEditOverlay.gridScrollCompensationY,
             heightPx = weekEditOverlay.height,
-            backdrop = floatingCourseBackdrop ?: backdrop,
+            backdrop = liftedCourseBackdrop ?: floatingSamplingBase,
             config = state.config
         )
     }
@@ -883,7 +906,8 @@ private fun WeekEditOverlayHost(
         WeekEditOverlayMode.Move -> req.course.copy(weekday = target.weekday, periods = target.periods)
         WeekEditOverlayMode.Resize -> req.course.copy(periods = target.periods)
     }
-    val conflict = !target.valid || hasWeekCourseEditConflict(req.course, previewCourse, req.weekCourses, req.editWeek)
+    val conflict = !target.valid ||
+        hasWeekCourseEditConflict(req.course, previewCourse, req.weekCourses, req.editWeek)
     val previewLeft = req.sourceBounds.left - host.left + (target.weekday - req.dayIndex) * req.gridColumnWidthPx
     val previewTop = req.sourceBounds.top - host.top - gridScrollCompensationY +
         ((target.periods.firstOrNull() ?: req.periodIndex) - req.periodIndex) * req.periodRowHeightPx
@@ -1619,6 +1643,9 @@ fun WeekDayColumn(
     editScrollState: ScrollState? = null,
     onEnterEditMode: () -> Unit = {},
     onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
+    conflictFocusCourseId: Long? = null,
+    conflictFocusCourseKey: String? = null,
+    onResolveCourseConflict: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
     onDeleteSingleWeekCourse: (CourseEntity) -> Unit = {},
     onCourseClick: (CourseEntity, Rect?) -> Unit,
     onDragStateChanged: (dayIndex: Int?, courseId: Long?) -> Unit = { _, _ -> },
@@ -1632,56 +1659,97 @@ fun WeekDayColumn(
     onFinishResizeOverlay: (Velocity) -> Unit = {},
     onCancelWeekEditOverlay: () -> Unit = {}
 ) {
-    val periodIndexes = periods.map { it.periodIndex }
-    var periodCursor = 0
-    while (periodCursor < periods.size) {
-        val period = periods[periodCursor]
-        val startingCourses = courses
-            .filter { courseStartsAt(it, period.periodIndex) }
-            .sortedBy { it.name }
-        if (startingCourses.isEmpty()) {
-            EmptyWeekCell(cardHeight, emptyBackground)
-            periodCursor += 1
-        } else {
-            val span = startingCourses.maxOf { continuousSpanFrom(it, period.periodIndex, periodIndexes) }.coerceAtLeast(1)
-            MergedWeekCell(
-                courses = startingCourses,
-                periods = periods,
-                height = cardHeight * span.toFloat(),
-                cardColor = cardColor,
-                background = emptyBackground,
-                backdrop = backdrop,
-                floatingBackdrop = floatingBackdrop,
-                config = config,
-                weekMotionDirection = weekMotionDirection,
-                weekMotionOutgoing = weekMotionOutgoing,
-                dayIndex = dayIndex,
-                gridColumnWidth = gridColumnWidth,
-                periodRowHeight = periodRowHeight,
-                periodIndex = period.periodIndex,
-                layerOffset = layerOffset,
-                layerTravel = layerTravel,
-                editMode = editMode,
-                editWeek = editWeek,
-                allWeekCourses = allWeekCourses,
-                weekdayCount = weekdayCount,
-                editScrollState = editScrollState,
-                onEnterEditMode = onEnterEditMode,
-                onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
-                onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
-                onCourseClick = onCourseClick,
-                onDragStateChanged = onDragStateChanged,
-                draggingCourseId = draggingCourseId,
-                activeOverlayCourseId = activeOverlayCourseId,
-                activeOverlayTargetKey = activeOverlayTargetKey,
-                activeOverlayTargetWeek = activeOverlayTargetWeek,
-                onStartWeekEditOverlay = onStartWeekEditOverlay,
-                onDragWeekEditOverlay = onDragWeekEditOverlay,
-                onFinishMoveOverlay = onFinishMoveOverlay,
-                onFinishResizeOverlay = onFinishResizeOverlay,
-                onCancelWeekEditOverlay = onCancelWeekEditOverlay
-            )
-            periodCursor += span
+    val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
+    val conflictGroups = remember(courses, periodIndexes) {
+        buildWeekConflictGroups(courses, periodIndexes)
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(cardHeight * periods.size.toFloat())
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            periods.forEach { EmptyWeekCell(cardHeight, emptyBackground) }
+        }
+        conflictGroups.forEachIndexed { groupIndex, group ->
+            val visibleCourse = group.courses.firstOrNull { it.id == conflictFocusCourseId }
+                ?: group.courses.firstOrNull {
+                    conflictFocusCourseKey != null &&
+                        it.occurrenceOverrideKey() == conflictFocusCourseKey
+                }
+                ?: group.courses.first()
+            group.segments
+                .filter { it.course.id == visibleCourse.id }
+                .forEach { segment ->
+                    val underlyingSegment = group.segments
+                        .asSequence()
+                        .filter { it.course.id != visibleCourse.id }
+                        .filter {
+                            it.startPosition <= segment.endPosition &&
+                                it.endPosition >= segment.startPosition
+                        }
+                        .sortedWith(
+                            compareBy<WeekCourseSegment> { it.startPosition }
+                                .thenBy { it.endPosition }
+                                .thenBy { it.course.id }
+                        )
+                        .firstOrNull()
+                    val segmentHeight = (cardHeight * segment.span.toFloat() - 4.dp)
+                        .coerceAtLeast(18.dp)
+                    Box(
+                        modifier = Modifier
+                            .offset(y = cardHeight * segment.startPosition.toFloat() + 2.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 2.dp)
+                            .height(segmentHeight)
+                            .zIndex(groupIndex.toFloat())
+                    ) {
+                        WeekCourseBlock(
+                            course = segment.course,
+                            periods = periods,
+                            height = segmentHeight,
+                            cardColor = cardColor,
+                            backdrop = backdrop,
+                            floatingBackdrop = floatingBackdrop,
+                            config = config,
+                            weekMotionDirection = weekMotionDirection,
+                            weekMotionOutgoing = weekMotionOutgoing,
+                            dayIndex = dayIndex,
+                            periodIndex = periodIndexes[segment.startPosition],
+                            gridColumnWidth = gridColumnWidth,
+                            periodRowHeight = periodRowHeight,
+                            layerOffset = layerOffset,
+                            layerTravel = layerTravel,
+                            stackIndex = groupIndex,
+                            conflictWarning = group.hasConflict,
+                            conflictUnderlyingCourse = underlyingSegment?.course,
+                            conflictUnderlyingPeriodIndex = underlyingSegment
+                                ?.let { periodIndexes[it.startPosition] },
+                            conflictUnderlyingSpan = underlyingSegment?.span ?: 0,
+                            onResolveConflict = { moved ->
+                                onResolveCourseConflict(segment.course, moved)
+                            },
+                            editMode = editMode,
+                            editWeek = editWeek,
+                            allWeekCourses = allWeekCourses,
+                            weekdayCount = weekdayCount,
+                            editScrollState = editScrollState,
+                            onEnterEditMode = onEnterEditMode,
+                            onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
+                            onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
+                            onCourseClick = onCourseClick,
+                            onDragStateChanged = onDragStateChanged,
+                            activeOverlayCourseId = activeOverlayCourseId,
+                            activeOverlayTargetKey = activeOverlayTargetKey,
+                            activeOverlayTargetWeek = activeOverlayTargetWeek,
+                            onStartWeekEditOverlay = onStartWeekEditOverlay,
+                            onDragWeekEditOverlay = onDragWeekEditOverlay,
+                            onFinishMoveOverlay = onFinishMoveOverlay,
+                            onFinishResizeOverlay = onFinishResizeOverlay,
+                            onCancelWeekEditOverlay = onCancelWeekEditOverlay
+                        )
+                    }
+                }
         }
     }
 }
@@ -1707,6 +1775,9 @@ fun WeekCourseColumnsLayer(
     editScrollState: ScrollState? = null,
     onEnterEditMode: () -> Unit = {},
     onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
+    conflictFocusCourseId: Long? = null,
+    conflictFocusCourseKey: String? = null,
+    onResolveCourseConflict: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
     onDeleteSingleWeekCourse: (CourseEntity) -> Unit = {},
     activeOverlayCourseId: Long? = null,
     activeOverlayTargetKey: String? = null,
@@ -1759,6 +1830,9 @@ fun WeekCourseColumnsLayer(
                         editScrollState = editScrollState,
                         onEnterEditMode = onEnterEditMode,
                         onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
+                        conflictFocusCourseId = conflictFocusCourseId,
+                        conflictFocusCourseKey = conflictFocusCourseKey,
+                        onResolveCourseConflict = onResolveCourseConflict,
                         onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
                         onCourseClick = onCourseClick,
                         onDragStateChanged = { dayIndex, courseId ->
@@ -2216,6 +2290,11 @@ fun WeekCourseBlock(
     layerOffset: Animatable<Float, AnimationVector1D>? = null,
     layerTravel: Float = 1f,
     stackIndex: Int = 0,
+    conflictWarning: Boolean = false,
+    conflictUnderlyingCourse: CourseEntity? = null,
+    conflictUnderlyingPeriodIndex: Int? = null,
+    conflictUnderlyingSpan: Int = 0,
+    onResolveConflict: (CourseEntity) -> Unit = {},
     editMode: Boolean = false,
     editWeek: Int = 1,
     allWeekCourses: List<CourseEntity> = emptyList(),
@@ -2273,6 +2352,10 @@ fun WeekCourseBlock(
     var bodyDragging by remember(course.id, editWeek) { mutableStateOf(false) }
     var handleDragging by remember(course.id, editWeek) { mutableStateOf(false) }
     var settlingResizeTarget by remember(course.id, editWeek) { mutableStateOf<WeekCourseEditTarget?>(null) }
+    var conflictActionResolving by remember(course.id, editWeek) { mutableStateOf(false) }
+    var conflictFlightTarget by remember(course.id, editWeek) { mutableStateOf<CourseEntity?>(null) }
+    val conflictPillDismiss = remember(course.id, editWeek) { Animatable(0f) }
+    val conflictCardFlight = remember(course.id, editWeek) { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val screenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
     val edgeScrollThresholdPx = with(density) { 92.dp.toPx() }
@@ -2308,11 +2391,13 @@ fun WeekCourseBlock(
         handleDragging -> resizeTarget()
         else -> null
     }
-    val activeCardBackdrop = if (bodyDragging || handleDragging) {
-        floatingBackdrop ?: backdrop
-    } else {
-        backdrop
-    }
+    /*
+     * WeekCourseBlock always lives inside the stationary course recorder. Sampling the
+     * lifted backdrop here would make the source card read the recorder that is currently
+     * drawing the source card, creating a recursive backdrop loop on long-press. The real
+     * lifted card is rendered by WeekEditOverlayHost outside that recorder.
+     */
+    val activeCardBackdrop = backdrop
     val editJitter by if (editMode) {
         rememberInfiniteTransition(label = "week-edit-jitter-${course.id}").animateFloat(
             initialValue = -0.35f,
@@ -2375,9 +2460,18 @@ fun WeekCourseBlock(
             editWeek = editWeek
         )
     }
-    val dragActive = bodyDragging || handleDragging || settlingResizeTarget != null
-    LaunchedEffect(dragActive) {
-        if (dragActive) onDragStateChanged(dayIndex, course.id) else onDragStateChanged(null, null)
+    val liftedVisualActive =
+        bodyDragging || handleDragging || settlingResizeTarget != null || conflictActionResolving
+    LaunchedEffect(liftedVisualActive) {
+        if (liftedVisualActive) onDragStateChanged(dayIndex, course.id) else onDragStateChanged(null, null)
+    }
+    LaunchedEffect(conflictWarning) {
+        if (!conflictWarning) {
+            conflictActionResolving = false
+            conflictFlightTarget = null
+            conflictPillDismiss.snapTo(0f)
+            conflictCardFlight.snapTo(0f)
+        }
     }
     val bodyGestureModifier = Modifier.pointerInput(editMode, course.id, editWeek, currentSpan) {
         if (editMode) {
@@ -2451,7 +2545,7 @@ fun WeekCourseBlock(
                 .then(startupModifier)
                 .then(tailModifier)
                 .then(bodyGestureModifier)
-                .zIndex(if (bodyDragging || handleDragging || settlingResizeTarget != null) 3f else 0f)
+                .zIndex(if (liftedVisualActive) 3f else 0f)
         ) {
             if (bodyDragging && liveTarget != null) {
                 val target = liveTarget
@@ -2476,8 +2570,94 @@ fun WeekCourseBlock(
                             } else {
                                 ComposeColor.Gray.copy(alpha = 0.24f)
                             }
-                        )
+                    )
                 )
+            }
+            conflictUnderlyingCourse
+                ?.takeIf { conflictActionResolving && conflictUnderlyingSpan > 0 }
+                ?.let { underlyingCourse ->
+                    val sourcePosition = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
+                    val underlyingPosition = conflictUnderlyingPeriodIndex
+                        ?.let(periodIndexes::indexOf)
+                        ?.takeIf { it >= 0 }
+                        ?: sourcePosition
+                    val underlyingHeight = (
+                        periodRowHeight * conflictUnderlyingSpan.toFloat() - 4.dp
+                        ).coerceAtLeast(18.dp)
+                    val ownerReveal =
+                        (conflictCardFlight.value / 0.14f).coerceIn(0f, 1f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .offset(
+                                y = periodRowHeight *
+                                    (underlyingPosition - sourcePosition).toFloat()
+                            )
+                            .height(underlyingHeight)
+                            .graphicsLayer { alpha = ownerReveal }
+                    ) {
+                        CourseGlassCard(
+                            backdrop = activeCardBackdrop,
+                            config = config,
+                            course = underlyingCourse,
+                            modifier = Modifier.fillMaxSize(),
+                            shape = RoundedCornerShape(8.dp),
+                            onClick = null
+                        ) {
+                            WeekCourseOverlayCardContent(underlyingCourse, config)
+                        }
+                    }
+                }
+            conflictFlightTarget?.takeIf { conflictActionResolving }?.let { target ->
+                val flightProgress = conflictCardFlight.value.coerceIn(0f, 1f)
+                val sourcePosition = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
+                val orderedSourcePeriods = course.periods
+                    .distinct()
+                    .sortedBy { periodIndexes.indexOf(it).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE }
+                val orderedTargetPeriods = target.periods
+                    .distinct()
+                    .sortedBy { periodIndexes.indexOf(it).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE }
+                val segmentPeriodOrdinal = orderedSourcePeriods.indexOf(periodIndex).coerceAtLeast(0)
+                val targetPeriod = orderedTargetPeriods
+                    .getOrNull(segmentPeriodOrdinal)
+                    ?: orderedTargetPeriods.firstOrNull()
+                    ?: periodIndex
+                val targetPosition = periodIndexes.indexOf(targetPeriod)
+                    .takeIf { it >= 0 }
+                    ?: sourcePosition
+                val targetOffsetX = (target.weekday - dayIndex) * gridColumnWidthPx
+                val targetOffsetY = (targetPosition - sourcePosition) * periodRowHeightPx
+                val flightArcPx = with(density) { 10.dp.toPx() }
+                val flightElevationPx = with(density) { 14.dp.toPx() }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(height)
+                        .graphicsLayer {
+                            translationX = targetOffsetX * flightProgress
+                            translationY = targetOffsetY * flightProgress -
+                                sin(Math.PI * flightProgress).toFloat() * flightArcPx
+                            val flightScale = 0.985f + 0.015f * flightProgress
+                            scaleX = flightScale
+                            scaleY = flightScale
+                            alpha = (flightProgress / 0.12f).coerceIn(0f, 1f)
+                            shadowElevation =
+                                sin(Math.PI * flightProgress).toFloat().coerceAtLeast(0f) *
+                                    flightElevationPx
+                            shape = RoundedCornerShape(8.dp)
+                        }
+                ) {
+                    CourseGlassCard(
+                        backdrop = activeCardBackdrop,
+                        config = config,
+                        course = target,
+                        modifier = Modifier.fillMaxSize(),
+                        shape = RoundedCornerShape(8.dp),
+                        onClick = null
+                    ) {
+                        WeekCourseOverlayCardContent(target, config)
+                    }
+                }
             }
             Box(
                 modifier = Modifier
@@ -2490,7 +2670,12 @@ fun WeekCourseBlock(
                         rotationZ = if (bodyDragging || handleDragging) 0f else editJitter
                         scaleX = activeScale
                         scaleY = activeScale
-                        alpha = if (isOverlaySource) 0f else 1f
+                        val departureAlpha = if (conflictActionResolving) {
+                            1f - (conflictCardFlight.value / 0.12f).coerceIn(0f, 1f)
+                        } else {
+                            1f
+                        }
+                        alpha = if (isOverlaySource) 0f else departureAlpha
                     }
             ) {
             Box(
@@ -2655,26 +2840,110 @@ fun WeekCourseBlock(
             }
             }
             }
+            if (conflictWarning && !editMode) {
+                val pillDismissProgress = conflictPillDismiss.value.coerceIn(0f, 1f)
+                val pillTextColor =
+                    if (glassUsesLightStyle(config)) ComposeColor.Black else ComposeColor.White
+                GlassSurface(
+                    backdrop = activeCardBackdrop,
+                    config = config,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 2.dp, y = (-4).dp)
+                        .size(width = 34.dp, height = 20.dp)
+                        .zIndex(8f)
+                        .graphicsLayer {
+                            val dismissScale = 1f - 0.30f * pillDismissProgress
+                            scaleX = dismissScale
+                            scaleY = dismissScale
+                            alpha = 1f - pillDismissProgress
+                        },
+                    shape = RoundedCornerShape(50),
+                    tokens = GlassTokens.pill(intensity = 0.86f).copy(
+                        surfaceAlpha = 0.32f,
+                        shadowAlpha = 0.18f,
+                        innerShadowAlpha = 0.12f
+                    ),
+                    selected = true,
+                    onClick = {
+                        if (!conflictActionResolving) {
+                            val moved = nearestAvailableCourseMove(
+                                course = course,
+                                week = editWeek,
+                                courses = allWeekCourses,
+                                periodIndexes = periodIndexes,
+                                weekdayCount = weekdayCount
+                            )
+                            if (moved != null) {
+                                conflictFlightTarget = moved
+                                conflictActionResolving = true
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                scope.launch {
+                                    conflictPillDismiss.snapTo(0f)
+                                    conflictCardFlight.snapTo(0f)
+                                    conflictPillDismiss.animateTo(
+                                        1f,
+                                        tween(
+                                            durationMillis = 165,
+                                            easing = CubicBezierEasing(0.32f, 0f, 0.68f, 1f)
+                                        )
+                                    )
+                                    delay(24)
+                                    conflictCardFlight.animateTo(
+                                        1f,
+                                        tween(
+                                            durationMillis = 420,
+                                            easing = CubicBezierEasing(0.16f, 0.82f, 0.18f, 1f)
+                                        )
+                                    )
+                                    onResolveConflict(moved)
+                                }
+                            } else {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                        }
+                    }
+                ) {
+                    Text(
+                        text = "冲突",
+                        modifier = Modifier.align(Alignment.Center),
+                        fontSize = 8.sp,
+                        lineHeight = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = pillTextColor
+                    )
+                }
+            }
             if (editMode) {
-                Box(
+                GlassSurface(
+                    backdrop = activeCardBackdrop,
+                    config = config,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .offset(x = (-5).dp, y = (-5).dp)
                         .size(22.dp)
-                        .zIndex(7f)
-                        .clip(RoundedCornerShape(50))
-                        .background(ComposeColor(0xFFFF1F2D).copy(alpha = 0.96f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onDeleteSingleWeekCourse(course)
-                        },
-                    contentAlignment = Alignment.Center
+                        .zIndex(7f),
+                    shape = RoundedCornerShape(50),
+                    tokens = GlassTokens.pill(intensity = 0.82f).copy(
+                        surfaceAlpha = 0.36f,
+                        shadowAlpha = 0.18f,
+                        innerShadowAlpha = 0.14f
+                    ),
+                    selected = true,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onDeleteSingleWeekCourse(course)
+                    }
                 ) {
                     Box(
                         Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(50))
+                            .background(ComposeColor(0xFFFF1F2D).copy(alpha = 0.48f))
+                    )
+                    Box(
+                        Modifier
+                            .align(Alignment.Center)
                             .width(10.dp)
                             .height(2.dp)
                             .clip(RoundedCornerShape(50))

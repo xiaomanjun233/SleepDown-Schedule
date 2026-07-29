@@ -311,13 +311,14 @@ fun CourseEditorScreen(
     var periodEnd by remember(initialCourse, periodValues) { mutableIntStateOf(initialCourse?.periods?.maxOrNull() ?: periodStart) }
     var weekStart by remember(initialCourse, state.config.totalWeeks) { mutableIntStateOf(initialCourse?.weeks?.minOrNull() ?: 1) }
     var weekEnd by remember(initialCourse, state.config.totalWeeks) { mutableIntStateOf(initialCourse?.weeks?.maxOrNull() ?: state.config.totalWeeks) }
+    val excludedWeeks = remember(initialCourse) { excludedWeeksInsideCourseRange(initialCourse) }
     var parity by remember(initialCourse) { mutableStateOf(initialCourse?.weekParity ?: WeekParity.ALL) }
     var note by remember(initialCourse) { mutableStateOf(initialCourse?.note.orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
     var periodInputValid by remember(initialCourse, periodValues) { mutableStateOf(true) }
     var weekInputValid by remember(initialCourse, state.config.totalWeeks) { mutableStateOf(true) }
     val selectedPeriods = if (periodStart <= periodEnd) periodValues.filter { it in periodStart..periodEnd } else emptyList()
-    val selectedWeeks = if (weekStart <= weekEnd) (weekStart..weekEnd).toList() else emptyList()
+    val selectedWeeks = weeksInEditorRange(weekStart, weekEnd, excludedWeeks)
     val dialogTextColor = glassForegroundColor(state.config)
 
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -490,6 +491,7 @@ private data class CourseEditorDraft(
     val periodEnd: Int,
     val weekStart: Int,
     val weekEnd: Int,
+    val excludedWeeks: Set<Int>,
     val parity: WeekParity,
     val note: String
 )
@@ -502,22 +504,56 @@ private data class CourseEditorPickerRequest(
     val onConfirm: (Int, Int?) -> Unit
 )
 
+internal fun excludedWeeksInsideCourseRange(course: CourseEntity?): Set<Int> {
+    val weeks = course?.weeks?.distinct()?.sorted().orEmpty()
+    if (weeks.size < 2) return emptySet()
+    return (weeks.first()..weeks.last()).filterNot(weeks.toHashSet()::contains).toSet()
+}
+
+internal fun weeksInEditorRange(
+    start: Int,
+    end: Int,
+    excludedWeeks: Set<Int>
+): List<Int> {
+    if (start > end) return emptyList()
+    return (start..end).filterNot(excludedWeeks::contains)
+}
+
+internal fun compactWeekSelectionLabel(weeks: List<Int>): String {
+    val sorted = weeks.distinct().sorted()
+    if (sorted.isEmpty()) return "未选择"
+    val ranges = buildList {
+        var start = sorted.first()
+        var previous = start
+        sorted.drop(1).forEach { week ->
+            if (week != previous + 1) {
+                add(if (start == previous) "$start" else "$start–$previous")
+                start = week
+            }
+            previous = week
+        }
+        add(if (start == previous) "$start" else "$start–$previous")
+    }
+    return "第${ranges.joinToString("、")}周"
+}
+
 private fun courseEditorDraft(
     course: CourseEntity?,
     periodValues: List<Int>,
     totalWeeks: Int
 ) = CourseEditorDraft(
-    name = course?.name.orEmpty(),
-    teacher = course?.teacher.orEmpty(),
-    location = course?.location.orEmpty(),
-    weekday = course?.weekday ?: 1,
-    periodStart = course?.periods?.minOrNull() ?: (periodValues.firstOrNull() ?: 1),
-    periodEnd = course?.periods?.maxOrNull() ?: (periodValues.firstOrNull() ?: 1),
-    weekStart = course?.weeks?.minOrNull() ?: 1,
-    weekEnd = course?.weeks?.maxOrNull() ?: totalWeeks.coerceAtLeast(1),
-    parity = course?.weekParity ?: WeekParity.ALL,
-    note = course?.note.orEmpty()
-)
+        name = course?.name.orEmpty(),
+        teacher = course?.teacher.orEmpty(),
+        location = course?.location.orEmpty(),
+        weekday = course?.weekday ?: 1,
+        periodStart = course?.periods?.minOrNull() ?: (periodValues.firstOrNull() ?: 1),
+        periodEnd = course?.periods?.maxOrNull() ?: (periodValues.firstOrNull() ?: 1),
+        weekStart = course?.weeks?.minOrNull() ?: 1,
+        weekEnd = course?.weeks?.maxOrNull() ?: totalWeeks.coerceAtLeast(1),
+        excludedWeeks = excludedWeeksInsideCourseRange(course),
+        parity = course?.weekParity ?: WeekParity.ALL,
+        note = course?.note.orEmpty()
+    )
 
 private fun CourseEditorDraft.toCourse(
     original: CourseEntity?,
@@ -529,7 +565,7 @@ private fun CourseEditorDraft.toCourse(
     location = location.ifBlank { null },
     weekday = weekday,
     periods = periodValues.filter { it in periodStart..periodEnd },
-    weeks = if (weekStart <= weekEnd) (weekStart..weekEnd).toList() else emptyList(),
+    weeks = weeksInEditorRange(weekStart, weekEnd, excludedWeeks),
     weekParity = parity,
     note = note.ifBlank { null },
     scheduleId = original?.scheduleId ?: 0
@@ -709,11 +745,17 @@ private fun CourseEditorFormPage(
             ) { "第${it}节" }
         }
         item(key = "week-range", contentType = "range-picker") {
+            val selectedWeeks = weeksInEditorRange(
+                draft.weekStart,
+                draft.weekEnd,
+                draft.excludedWeeks
+            )
             DialogRangeWheelSelector(
                 title = "周次",
                 values = (1..totalWeeks).toList(),
                 start = draft.weekStart,
                 end = draft.weekEnd,
+                displayValue = compactWeekSelectionLabel(selectedWeeks),
                 onRangeSelected = { start, end -> onDraftChange(draft.copy(weekStart = start, weekEnd = end)) },
                 onOpenPicker = onOpenPicker,
                 backdrop = backdrop,
@@ -759,6 +801,7 @@ private fun DialogRangeWheelSelector(
     values: List<Int>,
     start: Int,
     end: Int,
+    displayValue: String? = null,
     onRangeSelected: (Int, Int) -> Unit,
     onOpenPicker: (CourseEditorPickerRequest) -> Unit,
     backdrop: Backdrop?,
@@ -770,7 +813,7 @@ private fun DialogRangeWheelSelector(
     val endIndex = (safeValues.indexOf(end).takeIf { it >= 0 } ?: startIndex).coerceAtLeast(startIndex)
     CourseEditorPickerValue(
         title = title,
-        value = "${label(safeValues[startIndex])} - ${label(safeValues[endIndex])}",
+        value = displayValue ?: "${label(safeValues[startIndex])} - ${label(safeValues[endIndex])}",
         backdrop = backdrop,
         config = config,
         onClick = {

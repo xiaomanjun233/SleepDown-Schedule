@@ -91,7 +91,7 @@ private val CourseEditorOpenPositionEasing = CubicBezierEasing(0.18f, 0.72f, 0.1
 private val CourseEditorOpenSizeEasing = CubicBezierEasing(0.22f, 0.62f, 0.22f, 1.0f)
 private val CourseEditorClosePositionEasing = CubicBezierEasing(0.30f, 0.10f, 0.22f, 1.0f)
 private const val CourseEditorOpenDurationMillis = 380
-private const val CourseEditorCloseDurationMillis = 440
+internal const val CourseEditorCloseDurationMillis = 440
 // The background zoom runs on its own, slower timeline than the card morph so it keeps
 // settling after the card has finished expanding/collapsing — reading as inertial pull
 // on the home surface behind the editor rather than a motion locked to the card.
@@ -121,6 +121,12 @@ class CourseEditorMotionState internal constructor() {
     val backgroundZoom = Animatable(1f)
     var phase by mutableStateOf(CourseEditorOverlayPhase.Idle)
         internal set
+    var closingSourceBoundsOverride by mutableStateOf<Rect?>(null)
+        internal set
+
+    fun retractTo(boundsInRoot: Rect?) {
+        closingSourceBoundsOverride = boundsInRoot
+    }
 }
 
 @Composable
@@ -210,6 +216,7 @@ fun CourseEditorContainerOverlayHost(
 
     LaunchedEffect(request) {
         if (request != null) {
+            motionState.closingSourceBoundsOverride = null
             updatePhase(CourseEditorOverlayPhase.Preparing)
             renderedRequest = request
             editorContentAlpha.snapTo(1f)
@@ -283,6 +290,7 @@ fun CourseEditorContainerOverlayHost(
             updatePhase(CourseEditorOverlayPhase.Disposing)
             renderedRequest = null
             latestOnRenderedCourseIdChange(null)
+            motionState.closingSourceBoundsOverride = null
             updatePhase(CourseEditorOverlayPhase.Idle)
         } else {
             if (motionState.phase != CourseEditorOverlayPhase.Idle || editorContentMounted || renderedRequest != null) {
@@ -293,6 +301,7 @@ fun CourseEditorContainerOverlayHost(
             editorContentAlpha.snapTo(0f)
             editorContentReveal.snapTo(0f)
             latestOnRenderedCourseIdChange(null)
+            motionState.closingSourceBoundsOverride = null
             if (motionState.phase != CourseEditorOverlayPhase.Idle) {
                 updatePhase(CourseEditorOverlayPhase.Idle)
             }
@@ -342,7 +351,15 @@ fun CourseEditorContainerOverlayHost(
         return
     }
 
-    val validSource = validSourceRect(shownRequest.sourceBoundsInRoot, rootSize)
+    val requestedSourceBounds = if (
+        overlayPhase == CourseEditorOverlayPhase.Closing ||
+        overlayPhase == CourseEditorOverlayPhase.Disposing
+    ) {
+        motionState.closingSourceBoundsOverride ?: shownRequest.sourceBoundsInRoot
+    } else {
+        shownRequest.sourceBoundsInRoot
+    }
+    val validSource = validSourceRect(requestedSourceBounds, rootSize)
     val sourceRect = validSource ?: targetRect
     val hasSourceTransform = validSource != null
     val rawProgress = progress.value.coerceIn(0f, 1f)

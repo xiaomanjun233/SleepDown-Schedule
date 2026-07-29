@@ -57,7 +57,6 @@ internal data class HomeMenuDestinationRequest(
 internal class HomeMenuDestinationMotionState {
     val progress = Animatable(0f)
     val backgroundZoom = Animatable(1f)
-    val cornerRelease = Animatable(0f)
     var phase by mutableStateOf(HomeAnchoredOverlayPhase.Idle)
         internal set
 }
@@ -103,7 +102,6 @@ internal fun HomeMenuDestinationOverlayHost(
             motionState.phase = HomeAnchoredOverlayPhase.Preparing
             motionState.progress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
-            motionState.cornerRelease.snapTo(0f)
             var frames = 0
             while (frames < 12 && (rootSize.width <= 0 || rootSize.height <= 0)) {
                 withFrameNanos { }
@@ -138,17 +136,9 @@ internal fun HomeMenuDestinationOverlayHost(
                     )
                 }
             }
-            if (request.kind == HomeMenuDestinationKind.EduImport) {
-                delay(80L)
-                motionState.cornerRelease.animateTo(
-                    1f,
-                    tween(180, easing = DestinationBackgroundEasing)
-                )
-            }
             motionState.phase = HomeAnchoredOverlayPhase.Open
         } else if (renderedRequest != null) {
             motionState.phase = HomeAnchoredOverlayPhase.Closing
-            motionState.cornerRelease.snapTo(0f)
             coroutineScope {
                 launch {
                     motionState.progress.animateTo(
@@ -232,16 +222,22 @@ internal fun HomeMenuDestinationOverlayHost(
             if (collapseHandoffReached) latestCollapseHandoff()
         }
         val rect = geometry.rect
+        val fullScreenOpenEndpoint = isFullScreen &&
+            !destinationClosing &&
+            motionState.progress.value >= 0.999f
         val renderedCornerRadiusPx = if (isFullScreen) {
-            val progress = geometry.pathProgress
-            val sourceCorner = with(density) { 26.dp.toPx() }
-            val middleCorner = with(density) { 46.dp.toPx() }
-            val motionCorner = if (progress <= 0.35f) {
-                sourceCorner + (middleCorner - sourceCorner) * (progress / 0.35f)
+            if (fullScreenOpenEndpoint) {
+                0f
             } else {
-                middleCorner
+                val progress = geometry.pathProgress
+                val sourceCorner = with(density) { 26.dp.toPx() }
+                val middleCorner = with(density) { 46.dp.toPx() }
+                if (progress <= 0.35f) {
+                    sourceCorner + (middleCorner - sourceCorner) * (progress / 0.35f)
+                } else {
+                    middleCorner
+                }
             }
-            motionCorner * (1f - motionState.cornerRelease.value)
         } else {
             geometry.cornerRadiusPx
         }
@@ -317,7 +313,7 @@ internal fun HomeMenuDestinationOverlayHost(
                 )
                 .graphicsLayer {
                     alpha = if (collapseHandoffReached) 0f else 1f
-                    clip = !isFullScreen || motionState.cornerRelease.value < 0.999f
+                    clip = !fullScreenOpenEndpoint
                     shape = RoundedRectangle(corner)
                 },
             contentAlignment = Alignment.Center
