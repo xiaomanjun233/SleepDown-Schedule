@@ -628,6 +628,23 @@ fun AiImportSettingsSection(
     } else {
         modelOptions.indexOfFirst { it.model == model }.coerceAtLeast(0)
     }
+    val onModelOptionSelected: (Int) -> Unit = { index ->
+        if (index >= modelOptions.size) {
+            modelUsesCustomInput = true
+            model = customModelInput
+        } else {
+            val nextModel = modelOptions[index.coerceIn(modelOptions.indices)].model
+            modelUsesCustomInput = false
+            model = nextModel
+            if (
+                nextModel.contains("vl", ignoreCase = true) ||
+                nextModel.contains("vision", ignoreCase = true) ||
+                selectedProviderId == AiProviderPresets.kimi.id
+            ) {
+                supportsVision = true
+            }
+        }
+    }
     val normalizedBaseUrl = normalizeAiBaseUrlForProvider(selectedProviderId, baseUrl)
     val usesOpenAICompatibleSite = selectedProviderId == AiProviderPresets.openAI.id &&
         !normalizedBaseUrl.equals("https://api.openai.com/v1", ignoreCase = true)
@@ -809,35 +826,33 @@ fun AiImportSettingsSection(
         )
         SettingsDivider()
         if (modelOptions.isNotEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text("常用模型", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-                LiquidOptionTabs(
+            val modelLabels = modelOptions.map { it.label } + "自定义"
+            if (modelLabels.size > 3) {
+                MiuixOverlayDropdownPreference(
+                    items = modelLabels,
                     selectedIndex = selectedModelOptionIndex,
-                    labels = modelOptions.map { it.label } + "自定义",
-                    backdrop = backdrop,
-                    config = state.config,
-                    width = 320.dp,
-                    onSelected = { index ->
-                        if (index >= modelOptions.size) {
-                            modelUsesCustomInput = true
-                            model = customModelInput
-                        } else {
-                            val nextModel = modelOptions[index.coerceIn(modelOptions.indices)].model
-                            modelUsesCustomInput = false
-                            model = nextModel
-                            if (
-                                nextModel.contains("vl", ignoreCase = true) ||
-                                nextModel.contains("vision", ignoreCase = true) ||
-                                selectedProviderId == AiProviderPresets.kimi.id
-                            ) {
-                                supportsVision = true
-                            }
-                        }
-                    }
+                    title = "常用模型",
+                    modifier = Modifier.fillMaxWidth(),
+                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                    maxHeight = 318.dp,
+                    onExpandedChange = {},
+                    onSelectedIndexChange = onModelOptionSelected
                 )
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("常用模型", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                    LiquidOptionTabs(
+                        selectedIndex = selectedModelOptionIndex,
+                        labels = modelLabels,
+                        backdrop = backdrop,
+                        config = state.config,
+                        width = 320.dp,
+                        onSelected = onModelOptionSelected
+                    )
+                }
             }
             SettingsDivider()
         }
