@@ -163,8 +163,10 @@ class ScheduleRepositoryDataBoundaryTest {
     @Test
     fun globalNotificationAndDockSettingsSurviveScheduleCreationAndSwitching() = runBlocking {
         repository.ensureDefaults()
-        repository.saveConfigOnly(
-            repository.snapshot().config.copy(
+        val original = repository.snapshot().config
+        repository.saveConfigChanges(
+            original,
+            original.copy(
                 notificationMode = NotificationMode.LIVE_UPDATE,
                 dockAlignment = DockAlignment.CENTER
             )
