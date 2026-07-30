@@ -45,7 +45,7 @@ class ScheduleViewModel(
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), defaultConfig())
     val snackbar = MutableStateFlow<String?>(null)
-    private val personalizationSaveChannel = Channel<ScheduleConfigEntity>(Channel.CONFLATED)
+    private val personalizationSaveChannel = Channel<ConfigChange>(Channel.UNLIMITED)
     private val refreshCoordinator = ScheduleRefreshCoordinator(
         scope = viewModelScope,
         refresh = ::refreshScheduleSurfaces
@@ -57,8 +57,8 @@ class ScheduleViewModel(
             refreshCoordinator.refreshNow()
         }
         viewModelScope.launch {
-            for (config in personalizationSaveChannel) {
-                repository.saveConfigOnly(config)
+            for (change in personalizationSaveChannel) {
+                repository.saveConfigChanges(change.original, change.updated)
             }
         }
     }
@@ -460,7 +460,11 @@ class ScheduleViewModel(
     }
 
     fun savePersonalization(config: ScheduleConfigEntity) {
-        personalizationSaveChannel.trySend(config)
+        val original = sequenceOf(state.value.config, allSchedulesState.value.config)
+            .plus(allSchedulesState.value.allConfigs.asSequence())
+            .firstOrNull { it.id == config.id }
+            ?: return
+        personalizationSaveChannel.trySend(ConfigChange(original, config))
     }
 
     fun saveNotificationSettings(config: ScheduleConfigEntity) = viewModelScope.launch {
@@ -543,6 +547,11 @@ class ScheduleViewModel(
         TodayCoursesWidgetProvider.refreshAll(app)
     }
 }
+
+private data class ConfigChange(
+    val original: ScheduleConfigEntity,
+    val updated: ScheduleConfigEntity
+)
 
 class ScheduleViewModelFactory(
     private val app: Application,

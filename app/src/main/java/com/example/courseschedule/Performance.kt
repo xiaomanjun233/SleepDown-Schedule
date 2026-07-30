@@ -194,6 +194,19 @@ private val wallpaperRenderCache = object : LinkedHashMap<String, HomeWallpaperI
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, HomeWallpaperImages>?): Boolean = size > 4
 }
 
+@Suppress("DEPRECATION")
+internal fun shouldClearHomeWallpaperCaches(trimLevel: Int): Boolean =
+    trimLevel >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
+
+fun clearHomeWallpaperCaches() {
+    synchronized(wallpaperSourceCache) {
+        wallpaperSourceCache.clear()
+    }
+    synchronized(wallpaperRenderCache) {
+        wallpaperRenderCache.clear()
+    }
+}
+
 private fun HomeWallpaperImages.prepareToDraw() = apply {
     source?.prepareToDraw()
     reducedSource?.prepareToDraw()

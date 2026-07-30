@@ -5,7 +5,6 @@ import android.graphics.BitmapShader
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.RenderEffect
 import android.graphics.Shader
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
@@ -65,7 +64,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.TextUnit
@@ -507,13 +505,7 @@ fun CourseEditorContainerOverlayHost(
                                 alpha = sourceCoverAlpha
                                 val blurPx = sourceContentBlurPx
                                 compositingStrategy = CompositingStrategy.Offscreen
-                                renderEffect = if (blurPx > 0.01f) {
-                                    RenderEffect.createBlurEffect(
-                                        blurPx,
-                                        blurPx,
-                                        Shader.TileMode.CLAMP
-                                    ).asComposeRenderEffect()
-                                } else null
+                                renderEffect = platformBlurRenderEffect(blurPx)
                             }
                     )
                 }
@@ -569,13 +561,7 @@ private fun CourseEditorScaledContentLayer(
                 alpha = contentAlpha
                 val blurPx = contentBlurRadiusPx
                 compositingStrategy = CompositingStrategy.Offscreen
-                renderEffect = if (blurPx > 0.01f) {
-                    RenderEffect.createBlurEffect(
-                        blurPx,
-                        blurPx,
-                        Shader.TileMode.CLAMP
-                    ).asComposeRenderEffect()
-                } else null
+                renderEffect = platformBlurRenderEffect(blurPx)
             }
             .drawWithContent {
                 if (contentReveal >= 0.999f) {

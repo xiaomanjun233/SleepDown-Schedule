@@ -1,8 +1,6 @@
 package com.example.courseschedule
 
 import android.graphics.Bitmap
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
@@ -37,7 +35,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -276,15 +273,7 @@ fun DetailScheduleMorphOverlay(
                     clip = bgScale < 0.999f
                     val blurProgress = ((1f - bgScale) / (1f - 0.92f)).coerceIn(0f, 1f)
                     val blurPx = (blurProgress * 6f).coerceIn(0f, 6f) * density.density
-                    renderEffect = if (blurPx > 0.01f) {
-                        RenderEffect.createBlurEffect(
-                            blurPx,
-                            blurPx,
-                            Shader.TileMode.CLAMP
-                        ).asComposeRenderEffect()
-                    } else {
-                        null
-                    }
+                    renderEffect = platformBlurRenderEffect(blurPx)
                 }
         ) {
             Image(

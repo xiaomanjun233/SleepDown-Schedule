@@ -903,6 +903,18 @@ class CourseScheduleApp : Application() {
         })
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (shouldClearHomeWallpaperCaches(level)) {
+            clearHomeWallpaperCaches()
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        clearHomeWallpaperCaches()
+    }
+
     private fun setTaskExcludedFromRecents(excluded: Boolean) {
         val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         activityManager.appTasks.forEach { task ->
@@ -1610,9 +1622,13 @@ class ScheduleRepository(private val database: AppDatabase) {
         }
     }
 
-    suspend fun saveConfigOnly(config: ScheduleConfigEntity) {
-        val scheduleId = activeScheduleId()
-        configDao.upsertConfig(normalizeConfigForSchedule(config, scheduleId))
+    suspend fun saveConfigChanges(original: ScheduleConfigEntity, updated: ScheduleConfigEntity) {
+        val scheduleId = updated.id
+        database.withTransaction {
+            val current = configDao.getConfig(scheduleId) ?: return@withTransaction
+            val merged = current.withChangesFrom(original, updated)
+            configDao.upsertConfig(normalizeConfigForSchedule(merged, scheduleId))
+        }
     }
 
     suspend fun saveGlobalSettings(config: ScheduleConfigEntity) {
@@ -2017,6 +2033,156 @@ private fun ScheduleConfigEntity.withGlobalSettingsFrom(global: ScheduleConfigEn
         notificationsEnabled = global.notificationsEnabled,
         notificationMode = global.notificationMode,
         liveUpdateChipTextMode = global.liveUpdateChipTextMode
+    )
+}
+
+/**
+ * Applies only fields that the caller actually changed. Settings are saved asynchronously, so
+ * replacing the complete row with an older UI snapshot could otherwise roll back unrelated edits.
+ * The receiver is always the latest database row and keeps its schedule id.
+ */
+internal fun ScheduleConfigEntity.withChangesFrom(
+    original: ScheduleConfigEntity,
+    updated: ScheduleConfigEntity
+): ScheduleConfigEntity {
+    fun <T> changed(oldValue: T, newValue: T, currentValue: T): T =
+        if (oldValue != newValue) newValue else currentValue
+
+    return copy(
+        totalWeeks = changed(original.totalWeeks, updated.totalWeeks, totalWeeks),
+        currentWeek = changed(original.currentWeek, updated.currentWeek, currentWeek),
+        notificationLeadMinutes = changed(
+            original.notificationLeadMinutes,
+            updated.notificationLeadMinutes,
+            notificationLeadMinutes
+        ),
+        termStartDate = changed(original.termStartDate, updated.termStartDate, termStartDate),
+        autoCurrentWeek = changed(original.autoCurrentWeek, updated.autoCurrentWeek, autoCurrentWeek),
+        termState = changed(original.termState, updated.termState, termState),
+        notificationsEnabled = changed(
+            original.notificationsEnabled,
+            updated.notificationsEnabled,
+            notificationsEnabled
+        ),
+        notificationMode = changed(original.notificationMode, updated.notificationMode, notificationMode),
+        wallpaperUri = changed(original.wallpaperUri, updated.wallpaperUri, wallpaperUri),
+        wallpaperBlur = changed(original.wallpaperBlur, updated.wallpaperBlur, wallpaperBlur),
+        wallpaperBrightness = changed(
+            original.wallpaperBrightness,
+            updated.wallpaperBrightness,
+            wallpaperBrightness
+        ),
+        wallpaperPortraitCenterX = changed(
+            original.wallpaperPortraitCenterX,
+            updated.wallpaperPortraitCenterX,
+            wallpaperPortraitCenterX
+        ),
+        wallpaperPortraitCenterY = changed(
+            original.wallpaperPortraitCenterY,
+            updated.wallpaperPortraitCenterY,
+            wallpaperPortraitCenterY
+        ),
+        wallpaperPortraitScale = changed(
+            original.wallpaperPortraitScale,
+            updated.wallpaperPortraitScale,
+            wallpaperPortraitScale
+        ),
+        wallpaperLandscapeCenterX = changed(
+            original.wallpaperLandscapeCenterX,
+            updated.wallpaperLandscapeCenterX,
+            wallpaperLandscapeCenterX
+        ),
+        wallpaperLandscapeCenterY = changed(
+            original.wallpaperLandscapeCenterY,
+            updated.wallpaperLandscapeCenterY,
+            wallpaperLandscapeCenterY
+        ),
+        wallpaperLandscapeScale = changed(
+            original.wallpaperLandscapeScale,
+            updated.wallpaperLandscapeScale,
+            wallpaperLandscapeScale
+        ),
+        wallpaperSourceWidth = changed(
+            original.wallpaperSourceWidth,
+            updated.wallpaperSourceWidth,
+            wallpaperSourceWidth
+        ),
+        wallpaperSourceHeight = changed(
+            original.wallpaperSourceHeight,
+            updated.wallpaperSourceHeight,
+            wallpaperSourceHeight
+        ),
+        cardColorArgb = changed(original.cardColorArgb, updated.cardColorArgb, cardColorArgb),
+        cardAlpha = changed(original.cardAlpha, updated.cardAlpha, cardAlpha),
+        courseCardBlur = changed(original.courseCardBlur, updated.courseCardBlur, courseCardBlur),
+        courseCardGlassEnabled = changed(
+            original.courseCardGlassEnabled,
+            updated.courseCardGlassEnabled,
+            courseCardGlassEnabled
+        ),
+        courseCardFontScale = changed(
+            original.courseCardFontScale,
+            updated.courseCardFontScale,
+            courseCardFontScale
+        ),
+        weekCardHeightDp = changed(original.weekCardHeightDp, updated.weekCardHeightDp, weekCardHeightDp),
+        homeTextLight = changed(original.homeTextLight, updated.homeTextLight, homeTextLight),
+        followSystemDarkMode = changed(
+            original.followSystemDarkMode,
+            updated.followSystemDarkMode,
+            followSystemDarkMode
+        ),
+        darkMode = changed(original.darkMode, updated.darkMode, darkMode),
+        defaultWallpaperStyle = changed(
+            original.defaultWallpaperStyle,
+            updated.defaultWallpaperStyle,
+            defaultWallpaperStyle
+        ),
+        hideEmptyWeekends = changed(
+            original.hideEmptyWeekends,
+            updated.hideEmptyWeekends,
+            hideEmptyWeekends
+        ),
+        dockAlignment = changed(original.dockAlignment, updated.dockAlignment, dockAlignment),
+        defaultHomeMode = changed(original.defaultHomeMode, updated.defaultHomeMode, defaultHomeMode),
+        liveUpdateActionsEnabled = changed(
+            original.liveUpdateActionsEnabled,
+            updated.liveUpdateActionsEnabled,
+            liveUpdateActionsEnabled
+        ),
+        liveUpdateChipTextMode = changed(
+            original.liveUpdateChipTextMode,
+            updated.liveUpdateChipTextMode,
+            liveUpdateChipTextMode
+        ),
+        classDurationMinutes = changed(
+            original.classDurationMinutes,
+            updated.classDurationMinutes,
+            classDurationMinutes
+        ),
+        breakDurationMinutes = changed(
+            original.breakDurationMinutes,
+            updated.breakDurationMinutes,
+            breakDurationMinutes
+        ),
+        morningPeriodCount = changed(
+            original.morningPeriodCount,
+            updated.morningPeriodCount,
+            morningPeriodCount
+        ),
+        noonPeriodCount = changed(original.noonPeriodCount, updated.noonPeriodCount, noonPeriodCount),
+        afternoonPeriodCount = changed(
+            original.afternoonPeriodCount,
+            updated.afternoonPeriodCount,
+            afternoonPeriodCount
+        ),
+        eveningPeriodCount = changed(
+            original.eveningPeriodCount,
+            updated.eveningPeriodCount,
+            eveningPeriodCount
+        ),
+        hideFromRecents = changed(original.hideFromRecents, updated.hideFromRecents, hideFromRecents),
+        autoCheckUpdates = changed(original.autoCheckUpdates, updated.autoCheckUpdates, autoCheckUpdates)
     )
 }
 

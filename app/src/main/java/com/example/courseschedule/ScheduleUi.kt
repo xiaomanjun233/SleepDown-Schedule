@@ -2,6 +2,7 @@ package com.example.courseschedule
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.ActivityManager
 import android.app.DatePickerDialog
 import android.app.Application
@@ -12,6 +13,7 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.ContentValues
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -33,6 +35,7 @@ import android.view.WindowInsetsController
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
+import androidx.core.app.ActivityCompat
 import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
 import android.webkit.CookieManager
@@ -5091,10 +5094,53 @@ private fun WebView.handleSleepDownDownload(
 ) {
     when {
         url.startsWith("blob:", ignoreCase = true) -> Toast.makeText(context, "请用浏览器下载此文件", Toast.LENGTH_SHORT).show()
-        url.startsWith("data:", ignoreCase = true) -> context.handleSleepDownDataUrl(url)
-        else -> context.handleSleepDownWebDownload(url, userAgent, contentDisposition, mimeType, this.url)
+        url.startsWith("data:", ignoreCase = true) -> {
+            if (context.ensureLegacyDownloadPermission()) {
+                context.handleSleepDownDataUrl(url)
+            }
+        }
+        else -> {
+            if (context.ensureLegacyDownloadPermission()) {
+                context.handleSleepDownWebDownload(url, userAgent, contentDisposition, mimeType, this.url)
+            }
+        }
     }
 }
+
+internal fun shouldRequestLegacyDownloadPermission(
+    sdkInt: Int,
+    permissionGranted: Boolean
+): Boolean = sdkInt < Build.VERSION_CODES.Q && !permissionGranted
+
+private fun Context.ensureLegacyDownloadPermission(): Boolean {
+    val granted = ContextCompat.checkSelfPermission(
+        this,
+        Manifest.permission.WRITE_EXTERNAL_STORAGE
+    ) == PackageManager.PERMISSION_GRANTED
+    if (!shouldRequestLegacyDownloadPermission(Build.VERSION.SDK_INT, granted)) {
+        return true
+    }
+    val activity = findActivity()
+    if (activity == null) {
+        Toast.makeText(this, "无法申请存储权限，请使用系统浏览器下载", Toast.LENGTH_SHORT).show()
+        return false
+    }
+    ActivityCompat.requestPermissions(
+        activity,
+        arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+        LegacyDownloadPermissionRequestCode
+    )
+    Toast.makeText(this, "授权存储权限后，请再次点击下载", Toast.LENGTH_SHORT).show()
+    return false
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+private const val LegacyDownloadPermissionRequestCode = 60730
 
 private fun Context.handleSleepDownWebDownload(
     url: String,

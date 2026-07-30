@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : ComponentActivity() {
     private val pendingExternalIcsUri = MutableStateFlow<Uri?>(null)
+    private val pendingExternalIcsUriFlow = pendingExternalIcsUri.asStateFlow()
     private val startupContentReady = AtomicBoolean(false)
     private var startupPreDrawListener: ViewTreeObserver.OnPreDrawListener? = null
 
@@ -58,7 +59,7 @@ class MainActivity : ComponentActivity() {
                 factory = ScheduleViewModelFactory(app, app.repository)
             )
             val config by viewModel.themeConfig.collectAsStateWithLifecycle()
-            val externalIcsUri by pendingExternalIcsUri.asStateFlow().collectAsStateWithLifecycle()
+            val externalIcsUri by pendingExternalIcsUriFlow.collectAsStateWithLifecycle()
             CourseScheduleTheme(config = config) {
                 CourseScheduleAppUi(
                     viewModel = viewModel,
