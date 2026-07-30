@@ -718,66 +718,6 @@ private fun weatherAlertText(weather: AgentWeatherSnapshot): String? {
 }
 
 @Composable
-private fun AgentSuggestionPill(
-    text: String,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    val foreground = LocalAdaptiveGlass.current.contentColor
-    val isDarkTheme = appUsesDarkTheme(config)
-    if (backdrop != null) {
-        LiquidButton(
-            onClick = onClick,
-            backdrop = backdrop,
-            modifier = modifier,
-            height = 40.dp,
-            surfaceColor = if (isDarkTheme) {
-                Color.Black.copy(alpha = 0.16f)
-            } else {
-                Color.White.copy(alpha = 0.20f)
-            },
-            contentPadding = PaddingValues(horizontal = 15.dp),
-            blurRadius = if (isDarkTheme) 6.dp else 8.dp,
-            lensHeight = 16.dp,
-            lensAmount = 24.dp,
-            chromaticAberration = false
-        ) {
-            Text(
-                text,
-                color = foreground,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                maxLines = 1
-            )
-        }
-    } else {
-        AgentSimplePressSurface(
-            backdrop = null,
-            config = config,
-            modifier = modifier,
-            shape = RoundedCornerShape(50),
-            tokens = GlassTokens.pill(intensity = 0.92f).copy(
-                blur = 0.dp,
-                surfaceAlpha = if (isDarkTheme) 0.22f else 0.30f
-            ),
-            onClick = onClick
-        ) {
-            Text(
-                text,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
-                color = foreground,
-                style = MaterialTheme.typography.labelMedium,
-                textAlign = TextAlign.Center,
-                maxLines = 1
-            )
-        }
-    }
-}
-
-@Composable
 private fun AgentOperationLiquidButton(
     text: String,
     backdrop: Backdrop?,

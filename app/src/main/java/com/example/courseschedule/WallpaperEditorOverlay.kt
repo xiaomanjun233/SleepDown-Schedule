@@ -89,10 +89,11 @@ fun WallpaperEditorOverlay(
     val activeCrop = if (orientation == WallpaperPreviewOrientation.Portrait) portraitCrop else landscapeCrop
 
     LaunchedEffect(uri) {
-        bitmap = withContext(Dispatchers.IO) { loadSampledBitmap(context.applicationContext, uri, 2048) }
-    }
-    LaunchedEffect(uri) {
-        sourceSize = withContext(Dispatchers.IO) { readWallpaperSourceSize(context.applicationContext, uri) }
+        val source = withContext(Dispatchers.IO) {
+            loadWallpaperSource(context.applicationContext, uri, maxDimension = 2048)
+        }
+        bitmap = source.bitmap
+        sourceSize = source.sourceSize
     }
     LaunchedEffect(visible) {
         progress.animateTo(

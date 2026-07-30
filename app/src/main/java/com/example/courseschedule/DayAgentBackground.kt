@@ -39,7 +39,9 @@ internal object DayAgentRunCoordinator {
         val state: MutableStateFlow<DayAgentBackgroundRunState> =
             MutableStateFlow(DayAgentBackgroundRunState()),
         var job: Job? = null,
+        @Volatile
         var conversationVisible: Boolean = false,
+        @Volatile
         var generation: Long = 0L
     )
 
@@ -48,14 +50,21 @@ internal object DayAgentRunCoordinator {
 
     private fun key(scheduleId: Int, date: LocalDate): String = "$scheduleId:$date"
 
-    private fun entry(scheduleId: Int, date: LocalDate): Entry =
-        entries.getOrPut(key(scheduleId, date)) { Entry() }
+    private fun entry(scheduleId: Int, date: LocalDate): Entry {
+        val entryKey = key(scheduleId, date)
+        entries[entryKey]?.let { return it }
+        val candidate = Entry()
+        return entries.putIfAbsent(entryKey, candidate) ?: candidate
+    }
 
     fun observe(scheduleId: Int, date: LocalDate): StateFlow<DayAgentBackgroundRunState> =
         entry(scheduleId, date).state.asStateFlow()
 
     fun setConversationVisible(scheduleId: Int, date: LocalDate, visible: Boolean) {
-        entry(scheduleId, date).conversationVisible = visible
+        val entryKey = key(scheduleId, date)
+        val entry = entry(scheduleId, date)
+        entry.conversationVisible = visible
+        if (!visible) evictIfIdle(entryKey, entry)
     }
 
     fun start(
@@ -144,6 +153,7 @@ internal object DayAgentRunCoordinator {
                 synchronized(entry) {
                     if (entry.generation == generation) entry.job = null
                 }
+                evictIfIdle(key(scheduleId, facts.date), entry)
             }
         }
         return true
@@ -158,6 +168,15 @@ internal object DayAgentRunCoordinator {
             entry.state.value = DayAgentBackgroundRunState()
         }
         DayAgentForegroundService.cancelThinking(context.applicationContext)
+        evictIfIdle(key(scheduleId, date), entry)
+    }
+
+    private fun evictIfIdle(entryKey: String, entry: Entry) {
+        synchronized(entry) {
+            if (entry.job?.isActive != true && !entry.state.value.running && !entry.conversationVisible) {
+                entries.remove(entryKey, entry)
+            }
+        }
     }
 }
 

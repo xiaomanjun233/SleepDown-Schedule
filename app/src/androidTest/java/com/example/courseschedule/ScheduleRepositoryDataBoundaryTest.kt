@@ -9,6 +9,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
@@ -86,6 +87,87 @@ class ScheduleRepositoryDataBoundaryTest {
         assertEquals(importedCourse.id, editedCourse.id)
         assertEquals("Edited", editedCourse.name)
         assertEquals(1, editedCourse.scheduleId)
+    }
+
+    @Test
+    fun staleEditorCannotMoveCourseIntoAnotherSchedule() = runBlocking {
+        repository.ensureDefaults()
+        repository.importDraft(sampleDraft(totalWeeks = 18, periodCount = 14))
+        val firstScheduleCourse = repository.snapshot().courses.first()
+        val secondId = repository.createSchedule("Second")
+        repository.activateSchedule(secondId)
+
+        try {
+            repository.updateCourse(firstScheduleCourse.copy(name = "Must not move"))
+            fail("Expected stale edit to be rejected")
+        } catch (_: IllegalStateException) {
+            // Expected: the edited entity no longer belongs to the active schedule.
+        }
+
+        val allCourses = database.courseDao().getAllCourses()
+        assertTrue(allCourses.any {
+            it.id == firstScheduleCourse.id &&
+                it.scheduleId == 1 &&
+                it.name == firstScheduleCourse.name
+        })
+        assertTrue(allCourses.none { it.scheduleId == secondId && it.name == "Must not move" })
+    }
+
+    @Test
+    fun staleEditorCannotDeleteCourseFromInactiveSchedule() = runBlocking {
+        repository.ensureDefaults()
+        repository.importDraft(sampleDraft(totalWeeks = 18, periodCount = 14))
+        val firstScheduleCourse = repository.snapshot().courses.first()
+        repository.activateSchedule(repository.createSchedule("Second"))
+
+        try {
+            repository.deleteCourse(firstScheduleCourse)
+            fail("Expected stale delete to be rejected")
+        } catch (_: IllegalStateException) {
+            // Expected: an inactive schedule must never be mutated by a stale editor.
+        }
+
+        assertTrue(database.courseDao().getAllCourses().any { it.id == firstScheduleCourse.id })
+    }
+
+    @Test
+    fun staleAgentPlanCannotOverwriteNewerManualEdit() = runBlocking {
+        repository.ensureDefaults()
+        repository.addCourse(
+            CourseEntity(
+                name = "Original",
+                teacher = "Teacher",
+                location = "Room",
+                weekday = 1,
+                periods = listOf(1, 2),
+                weeks = listOf(1, 2, 3),
+                weekParity = WeekParity.ALL,
+                note = null
+            )
+        )
+        val agentSnapshot = repository.snapshot().courses.single()
+        repository.updateCourse(agentSnapshot.copy(name = "Manual edit"))
+
+        val result = repository.executeAgentPlan(
+            AgentPlan(
+                listOf(
+                    AgentValidatedAction(
+                        type = AgentValidatedActionType.UPDATE,
+                        original = agentSnapshot,
+                        edited = agentSnapshot.copy(name = "AI edit"),
+                        scope = AgentActionScope.CURRENT_WEEK,
+                        targetWeek = 2,
+                        summary = "修改第 2 周"
+                    )
+                )
+            )
+        )
+
+        assertTrue(!result.success)
+        assertTrue(result.message.contains("已发生变化"))
+        val stored = repository.snapshot().courses.single()
+        assertEquals("Manual edit", stored.name)
+        assertEquals(listOf(1, 2, 3), stored.weeks)
     }
 
     @Test

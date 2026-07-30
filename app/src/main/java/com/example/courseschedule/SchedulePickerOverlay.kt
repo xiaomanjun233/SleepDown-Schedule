@@ -679,33 +679,6 @@ fun QuickScheduleSettingsSheets(
 }
 
 @Composable
-private fun QuickSettingsToggleRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
-            Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f), fontSize = 12.sp)
-        }
-        top.yukonga.miuix.kmp.basic.Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange
-        )
-    }
-}
-
-@Composable
-private fun QuickSettingsDivider() {
-    Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)))
-}
-
-@Composable
 fun rememberSchedulePickerState(): SchedulePickerState = remember { SchedulePickerState() }
 
 fun AppState.forSchedule(scheduleId: Int): AppState {
@@ -1246,41 +1219,6 @@ fun SchedulePickerOverlay(
 }
 
 @Composable
-private fun NewScheduleCard(enabled: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntity, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(34.dp))
-            .background(Color(0xFF17171A))
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (backdrop != null) {
-                LiquidButton(
-                    onClick = { if (enabled) onClick() },
-                    backdrop = backdrop,
-                    modifier = Modifier.size(68.dp),
-                    height = 68.dp,
-                    blurRadius = 12.dp,
-                    lensHeight = 34.dp,
-                    lensAmount = 46.dp,
-                    chromaticAberration = false,
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    Text("+", color = glassForegroundColor(config), fontSize = 40.sp, fontWeight = FontWeight.Light)
-                }
-            } else {
-                Box(Modifier.size(68.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
-                    Text("+", color = Color.White, fontSize = 40.sp, fontWeight = FontWeight.Light)
-                }
-            }
-            Text("新建课表", color = Color.White, fontWeight = FontWeight.Medium)
-        }
-    }
-}
-
-@Composable
 private fun PickerHeaderButton(
     label: String,
     enabled: Boolean,
@@ -1342,29 +1280,6 @@ private fun PickerIconLiquidButton(
     } else {
         Box(modifier.clip(RoundedCornerShape(50)).background(tint.copy(alpha = 0.5f)).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
             Icon(painterResource(icon), description, tint = Color.White, modifier = Modifier.size(23.dp))
-        }
-    }
-}
-
-@Composable
-private fun PickerRoundButton(icon: Int, description: String, enabled: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntity, onClick: () -> Unit) {
-    if (backdrop != null) {
-        LiquidButton(
-            onClick = { if (enabled) onClick() },
-            backdrop = backdrop,
-            modifier = Modifier.size(42.dp),
-            height = 42.dp,
-            blurRadius = 10.dp,
-            lensHeight = 24.dp,
-            lensAmount = 32.dp,
-            chromaticAberration = false,
-            contentPadding = PaddingValues(0.dp)
-        ) {
-            Icon(painterResource(icon), description, tint = glassForegroundColor(config), modifier = Modifier.size(20.dp))
-        }
-    } else {
-        Box(Modifier.size(42.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.12f)).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
-            Icon(painterResource(icon), description, tint = Color.White, modifier = Modifier.size(20.dp))
         }
     }
 }

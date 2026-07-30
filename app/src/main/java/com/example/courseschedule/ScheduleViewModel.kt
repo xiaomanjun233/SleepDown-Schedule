@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,7 +49,11 @@ class ScheduleViewModel(
     private val personalizationSaveChannel = Channel<ConfigChange>(Channel.UNLIMITED)
     private val refreshCoordinator = ScheduleRefreshCoordinator(
         scope = viewModelScope,
-        refresh = ::refreshScheduleSurfaces
+        refresh = ::refreshScheduleSurfaces,
+        onFailure = { error ->
+            Log.w("ScheduleViewModel", "Schedule surface refresh failed", error)
+            snackbar.value = error.message ?: "系统课表界面刷新失败，请稍后重试"
+        }
     )
 
     init {
@@ -58,43 +63,59 @@ class ScheduleViewModel(
         }
         viewModelScope.launch {
             for (change in personalizationSaveChannel) {
-                repository.saveConfigChanges(change.original, change.updated)
+                try {
+                    repository.saveConfigChanges(change.original, change.updated)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    Log.w("ScheduleViewModel", "Personalization save failed", error)
+                    snackbar.value = error.message ?: "个性化设置保存失败，请重试"
+                }
             }
         }
     }
 
-    fun addCourse(course: CourseEntity) = viewModelScope.launch {
+    fun addCourse(course: CourseEntity) = launchCourseMutation {
         repository.addCourse(course)
-        refreshCoordinator.request()
     }
 
-    fun updateCourse(course: CourseEntity) = viewModelScope.launch {
+    fun updateCourse(course: CourseEntity) = launchCourseMutation("课程已更新") {
         repository.updateCourse(course)
-        refreshCoordinator.request()
-        snackbar.value = "课程已更新"
     }
 
-    fun updateCourseSingleWeek(original: CourseEntity, edited: CourseEntity, targetWeek: Int) = viewModelScope.launch {
+    fun updateCourseSingleWeek(original: CourseEntity, edited: CourseEntity, targetWeek: Int) =
+        launchCourseMutation {
         repository.updateCourseSingleWeek(original, edited, targetWeek)
-        refreshCoordinator.request()
     }
 
-    fun updateRelatedCourses(original: CourseEntity, edited: CourseEntity) = viewModelScope.launch {
+    fun updateRelatedCourses(original: CourseEntity, edited: CourseEntity) =
+        launchCourseMutation("课程已更新") {
         repository.updateRelatedCourses(original, edited)
-        refreshCoordinator.request()
-        snackbar.value = "课程已更新"
     }
 
-    fun deleteCourse(course: CourseEntity) = viewModelScope.launch {
+    fun deleteCourse(course: CourseEntity) = launchCourseMutation("课程已删除") {
         repository.deleteCourse(course)
-        refreshCoordinator.request()
-        snackbar.value = "课程已删除"
     }
 
-    fun deleteCourseSingleWeek(course: CourseEntity, targetWeek: Int) = viewModelScope.launch {
+    fun deleteCourseSingleWeek(course: CourseEntity, targetWeek: Int) =
+        launchCourseMutation("课程已删除") {
         repository.deleteCourseSingleWeek(course, targetWeek)
-        refreshCoordinator.request()
-        snackbar.value = "课程已删除"
+    }
+
+    private fun launchCourseMutation(
+        successMessage: String? = null,
+        mutation: suspend () -> Unit
+    ) = viewModelScope.launch {
+        try {
+            mutation()
+            refreshCoordinator.request()
+            successMessage?.let { snackbar.value = it }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            Log.w("ScheduleViewModel", "Course mutation rejected", error)
+            snackbar.value = error.message ?: "课程操作失败，请重试"
+        }
     }
 
     fun executeAgentPlan(
@@ -508,7 +529,7 @@ class ScheduleViewModel(
     }
 
     fun previewLiveUpdate() = viewModelScope.launch {
-        val snapshot = repository.snapshot()
+        val snapshot = repository.activeSnapshot()
         NotificationScheduler.showLiveUpdatePreview(app, snapshot.config)
         val minutes = snapshot.config.notificationLeadMinutes.coerceIn(1, 30)
         snackbar.value = "已启动测试实时活动（${minutes}分钟倒计时）"
@@ -542,7 +563,7 @@ class ScheduleViewModel(
     }
 
     private suspend fun refreshScheduleSurfaces() = withContext(Dispatchers.IO) {
-        val snapshot = repository.snapshot()
+        val snapshot = repository.activeSnapshot()
         NotificationScheduler.refreshToday(app, snapshot.courses, snapshot.config, snapshot.periods)
         TodayCoursesWidgetProvider.refreshAll(app)
     }

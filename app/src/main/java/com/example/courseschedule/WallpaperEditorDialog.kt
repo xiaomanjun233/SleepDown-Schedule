@@ -59,10 +59,11 @@ fun WallpaperEditorDialog(
     var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
     var sourceSize by remember(uri) { mutableStateOf<WallpaperSourceSize?>(null) }
     LaunchedEffect(uri) {
-        bitmap = withContext(Dispatchers.IO) { loadSampledBitmap(context.applicationContext, uri, maxDimension = 1600) }
-    }
-    LaunchedEffect(uri) {
-        sourceSize = withContext(Dispatchers.IO) { readWallpaperSourceSize(context.applicationContext, uri) }
+        val source = withContext(Dispatchers.IO) {
+            loadWallpaperSource(context.applicationContext, uri, maxDimension = 1600)
+        }
+        bitmap = source.bitmap
+        sourceSize = source.sourceSize
     }
     val initialPortrait = remember(uriText, config.wallpaperUri) {
         if (config.wallpaperUri == uriText) config.wallpaperCropState(WallpaperPreviewOrientation.Portrait) else WallpaperCropState()

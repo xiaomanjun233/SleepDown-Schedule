@@ -173,7 +173,7 @@ internal object MiuixTodayWidgetRenderer {
         if (ids.isEmpty()) return
         val app = context.applicationContext as CourseScheduleApp
         app.repository.ensureDefaults()
-        val state = app.repository.snapshot()
+        val state = app.repository.activeSnapshot()
         ids.forEach { id ->
             val appearanceVariant = variant.appearanceVariant()
             val appearance = app.widgetAppearanceRepository.get(
@@ -500,7 +500,7 @@ internal object TodayAssistantWidgetRenderer {
         if (ids.isEmpty()) return
         val app = context.applicationContext as CourseScheduleApp
         app.repository.ensureDefaults()
-        val state = app.repository.snapshot()
+        val state = app.repository.activeSnapshot()
         val weather = if (DayAgentPreferences.isWeatherEnabled(context)) {
             DayAgentWeatherRepository(context.applicationContext).getWeather()
         } else null

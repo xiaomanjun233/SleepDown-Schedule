@@ -53,6 +53,11 @@ fun extractRepresentativeWallpaperColors(bitmap: Bitmap?): List<Long> {
 
 data class WallpaperSourceSize(val width: Int, val height: Int)
 
+data class LoadedWallpaperSource(
+    val bitmap: Bitmap?,
+    val sourceSize: WallpaperSourceSize?
+)
+
 fun persistWallpaperUriPermission(context: Context, uri: Uri) {
     runCatching {
         context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -76,7 +81,10 @@ fun persistWallpaperSource(context: Context, uri: Uri): Uri? {
         // leaves those database rows pointing at missing files and makes inactive schedules fall
         // back to the bundled wallpaper when they are opened later.
         Uri.fromFile(output)
-    }.getOrNull()
+    }.getOrElse {
+        output.delete()
+        null
+    }
 }
 
 fun loadWallpaperBitmap(context: Context, config: ScheduleConfigEntity, useDarkDefaultWallpaper: Boolean): Bitmap? {
@@ -92,19 +100,31 @@ fun loadWallpaperBitmap(context: Context, config: ScheduleConfigEntity, useDarkD
 }
 
 fun loadSampledBitmap(context: Context, uri: Uri, maxDimension: Int = 2200): Bitmap? {
+    return loadWallpaperSource(context, uri, maxDimension).bitmap
+}
+
+fun loadWallpaperSource(
+    context: Context,
+    uri: Uri,
+    maxDimension: Int = 2200
+): LoadedWallpaperSource {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     runCatching {
         openWallpaperInputStream(context, uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
     }
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+        return LoadedWallpaperSource(bitmap = null, sourceSize = null)
+    }
+    val sourceSize = WallpaperSourceSize(bounds.outWidth, bounds.outHeight)
     val sampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxDimension)
     val options = BitmapFactory.Options().apply {
         inSampleSize = sampleSize
         inPreferredConfig = Bitmap.Config.ARGB_8888
     }
-    return runCatching {
+    val bitmap = runCatching {
         openWallpaperInputStream(context, uri)?.use { BitmapFactory.decodeStream(it, null, options) }
     }.getOrNull()
+    return LoadedWallpaperSource(bitmap = bitmap, sourceSize = sourceSize)
 }
 
 fun createReducedWallpaperBitmap(source: Bitmap?): Bitmap? {

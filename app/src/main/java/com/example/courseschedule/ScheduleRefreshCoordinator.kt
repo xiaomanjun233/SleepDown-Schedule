@@ -1,6 +1,7 @@
 package com.example.courseschedule
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -14,6 +15,7 @@ import kotlinx.coroutines.sync.withLock
 class ScheduleRefreshCoordinator(
     scope: CoroutineScope,
     private val refresh: suspend () -> Unit,
+    private val onFailure: (Throwable) -> Unit = {},
     debounceMillis: Long = 120L
 ) {
     private val refreshMutex = Mutex()
@@ -27,7 +29,7 @@ class ScheduleRefreshCoordinator(
         scope.launch {
             requests
                 .debounce(debounceMillis)
-                .collect { refreshSerialized() }
+                .collect { refreshSafely() }
         }
     }
 
@@ -36,10 +38,20 @@ class ScheduleRefreshCoordinator(
     }
 
     suspend fun refreshNow() {
-        refreshSerialized()
+        refreshSafely()
     }
 
     private suspend fun refreshSerialized() {
         refreshMutex.withLock { refresh() }
+    }
+
+    private suspend fun refreshSafely() {
+        try {
+            refreshSerialized()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            onFailure(error)
+        }
     }
 }

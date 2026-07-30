@@ -194,44 +194,51 @@ class EduImportBridge(
     private val onTaskCompleted: () -> Unit = {}
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val taskLock = Any()
     private var configJson: String? = null
     private var coursesJson: String? = null
     private var timeSlotsJson: String? = null
-    @Volatile
     private var taskCompletionCount: Int = 0
+    private var completionDelivered: Boolean = false
 
-    fun taskCompletionCount(): Int = taskCompletionCount
+    fun taskCompletionCount(): Int = synchronized(taskLock) { taskCompletionCount }
 
     fun beginTask() {
-        configJson = null
-        coursesJson = null
-        timeSlotsJson = null
+        synchronized(taskLock) {
+            configJson = null
+            coursesJson = null
+            timeSlotsJson = null
+            completionDelivered = false
+        }
     }
 
     @JavascriptInterface
     fun saveCourseConfig(json: String): Boolean {
-        configJson = json
+        synchronized(taskLock) { configJson = json }
         return true
     }
 
     @JavascriptInterface
     fun saveImportedCourses(json: String): Boolean {
-        coursesJson = json
+        synchronized(taskLock) { coursesJson = json }
         return true
     }
 
     @JavascriptInterface
     fun savePresetTimeSlots(json: String): Boolean {
-        timeSlotsJson = json
+        synchronized(taskLock) { timeSlotsJson = json }
         return true
     }
 
     @JavascriptInterface
     fun notifyTaskCompletion() {
-        taskCompletionCount += 1
-        val config = configJson
-        val courses = coursesJson
-        val slots = timeSlotsJson ?: "[]"
+        val payload = synchronized(taskLock) {
+            taskCompletionCount += 1
+            if (completionDelivered) return
+            completionDelivered = true
+            Triple(configJson, coursesJson, timeSlotsJson ?: "[]")
+        }
+        val (config, courses, slots) = payload
         if (courses == null) {
             mainHandler.post {
                 try {

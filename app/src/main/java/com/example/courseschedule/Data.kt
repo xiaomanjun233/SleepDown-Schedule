@@ -192,7 +192,8 @@ class ScheduleConverters {
     fun parityToString(value: WeekParity): String = value.name
 
     @TypeConverter
-    fun stringToParity(value: String): WeekParity = WeekParity.valueOf(value)
+    fun stringToParity(value: String): WeekParity =
+        runCatching { WeekParity.valueOf(value) }.getOrDefault(WeekParity.ALL)
 
     @TypeConverter
     fun scheduleTermStateToString(value: ScheduleTermState): String = value.name
@@ -205,7 +206,8 @@ class ScheduleConverters {
     fun notificationModeToString(value: NotificationMode): String = value.name
 
     @TypeConverter
-    fun stringToNotificationMode(value: String): NotificationMode = NotificationMode.valueOf(value)
+    fun stringToNotificationMode(value: String): NotificationMode =
+        runCatching { NotificationMode.valueOf(value) }.getOrDefault(NotificationMode.STANDARD)
 
     @TypeConverter
     fun liveUpdateChipTextModeToString(value: LiveUpdateChipTextMode): String = value.name
@@ -252,6 +254,9 @@ interface CourseDao {
 
     @Query("SELECT * FROM courses WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
     suspend fun getCourses(): List<CourseEntity>
+
+    @Query("SELECT * FROM courses WHERE scheduleId = :scheduleId")
+    suspend fun getCourses(scheduleId: Int): List<CourseEntity>
 
     @Query("SELECT * FROM courses")
     suspend fun getAllCourses(): List<CourseEntity>
@@ -1320,7 +1325,7 @@ class ScheduleRepository(private val database: AppDatabase) {
 
         val storedConfig = configDao.getConfig(scheduleId)
         val originalPeriods = configDao.getPeriods(scheduleId)
-        var courses = courseDao.getAllCourses().filter { it.scheduleId == scheduleId }
+        var courses = courseDao.getCourses(scheduleId)
 
         val existing = periodSchemeDao.getSchemes(scheduleId)
         val existingDrafts = existing.associate { scheme ->
@@ -1454,22 +1459,26 @@ class ScheduleRepository(private val database: AppDatabase) {
     }
 
     suspend fun updateCourse(course: CourseEntity) {
-        val scheduleId = activeScheduleId()
-        courseDao.updateCourse(normalizeCoursesForSchedule(listOf(course), scheduleId).single())
+        database.withTransaction {
+            val scheduleId = activeScheduleId()
+            requireCurrentCourse(scheduleId, course.id)
+            courseDao.updateCourse(normalizeCoursesForSchedule(listOf(course), scheduleId).single())
+        }
     }
 
     suspend fun updateCourseSingleWeek(original: CourseEntity, edited: CourseEntity, targetWeek: Int) {
         database.withTransaction {
             val scheduleId = activeScheduleId()
-            val remainingWeeks = original.weeks.filter { it != targetWeek }
+            val current = requireCurrentCourse(scheduleId, original.id)
+            val remainingWeeks = current.weeks.filter { it != targetWeek }
             if (remainingWeeks.isEmpty()) {
-                courseDao.deleteCourse(original.id)
+                courseDao.deleteCourse(current.id)
             } else {
-                courseDao.updateCourse(original.copy(weeks = remainingWeeks, scheduleId = scheduleId))
+                courseDao.updateCourse(current.copy(weeks = remainingWeeks))
             }
             val singleWeekCourse = normalizeCoursesForSchedule(listOf(edited.copy(id = 0, weeks = listOf(targetWeek))), scheduleId).single()
-            courseDao.getCourses()
-                .filter { it.id != original.id && it.weeks.distinct() == listOf(targetWeek) && it.hasSameOccurrenceSlot(singleWeekCourse) }
+            courseDao.getCourses(scheduleId)
+                .filter { it.id != current.id && it.weeks.distinct() == listOf(targetWeek) && it.hasSameOccurrenceSlot(singleWeekCourse) }
                 .forEach { courseDao.deleteCourse(it.id) }
             courseDao.insertCourse(singleWeekCourse)
             mergeCompatibleCourseFragments(scheduleId)
@@ -1479,48 +1488,65 @@ class ScheduleRepository(private val database: AppDatabase) {
     suspend fun deleteCourseSingleWeek(course: CourseEntity, targetWeek: Int) {
         database.withTransaction {
             val scheduleId = activeScheduleId()
-            val remainingWeeks = course.weeks.filter { it != targetWeek }
+            val current = requireCurrentCourse(scheduleId, course.id)
+            val remainingWeeks = current.weeks.filter { it != targetWeek }
             if (remainingWeeks.isEmpty()) {
-                courseDao.deleteCourse(course.id)
+                courseDao.deleteCourse(current.id)
             } else {
-                courseDao.updateCourse(course.copy(weeks = remainingWeeks, scheduleId = scheduleId))
+                courseDao.updateCourse(current.copy(weeks = remainingWeeks))
             }
             mergeCompatibleCourseFragments(scheduleId)
         }
     }
 
     suspend fun updateRelatedCourses(original: CourseEntity, edited: CourseEntity) {
-        val originalName = original.name.trim()
-        val related = courseDao.getCourses().filter {
-            it.id == original.id || it.name.trim() == originalName
-        }.map {
-            it.copy(
-                name = edited.name,
-                teacher = edited.teacher,
-                location = edited.location,
-                note = edited.note
-            )
+        database.withTransaction {
+            val scheduleId = activeScheduleId()
+            val current = requireCurrentCourse(scheduleId, original.id)
+            val originalName = current.name.trim()
+            val related = courseDao.getCourses(scheduleId).filter {
+                it.id == current.id || it.name.trim() == originalName
+            }.map {
+                it.copy(
+                    name = edited.name,
+                    teacher = edited.teacher,
+                    location = edited.location,
+                    note = edited.note
+                )
+            }
+            if (related.isNotEmpty()) {
+                courseDao.insertCourses(normalizeCoursesForSchedule(related, scheduleId))
+            }
         }
-        if (related.isNotEmpty()) courseDao.insertCourses(normalizeCoursesForSchedule(related, activeScheduleId()))
     }
 
     suspend fun deleteCourse(course: CourseEntity) {
-        courseDao.deleteCourse(course.id)
+        database.withTransaction {
+            val scheduleId = activeScheduleId()
+            requireCurrentCourse(scheduleId, course.id)
+            courseDao.deleteCourse(course.id)
+        }
     }
 
     suspend fun executeAgentPlan(plan: AgentPlan): AgentPlanExecutionResult {
         return runCatching {
             database.withTransaction {
                 val scheduleId = activeScheduleId()
-                val before = courseDao.getCourses().filter { it.scheduleId == scheduleId }
+                val before = courseDao.getCourses(scheduleId)
                 plan.actions.forEach { action ->
                     if (
                         action.type == AgentValidatedActionType.UPDATE ||
                         action.type == AgentValidatedActionType.DELETE
                     ) {
-                        val originalId = action.original?.id
-                        if (originalId == null || before.none { it.id == originalId }) {
+                        val original = action.original
+                        val stored = original?.let { candidate ->
+                            before.firstOrNull { it.id == candidate.id }
+                        }
+                        if (stored == null) {
                             throw AgentPlanRejectedException("操作对象不属于当前课表，已拒绝执行")
+                        }
+                        if (stored != original) {
+                            throw AgentPlanRejectedException("课程在确认前已发生变化，请让 AI 基于最新课表重新生成操作")
                         }
                     }
                 }
@@ -1599,7 +1625,7 @@ class ScheduleRepository(private val database: AppDatabase) {
                 }
 
                 mergeCompatibleCourseFragments(scheduleId)
-                val after = courseDao.getCourses().filter { it.scheduleId == scheduleId }
+                val after = courseDao.getCourses(scheduleId)
                 if (!verifyAgentPlan(after, plan)) {
                     throw AgentPlanRejectedException("数据库写入后的真实状态与操作计划不一致")
                 }
@@ -1748,21 +1774,50 @@ class ScheduleRepository(private val database: AppDatabase) {
         }
     }
 
-    suspend fun snapshot(): AppState {
-        return AppState(
-            courses = courseDao.getCourses(),
+    suspend fun snapshot(): AppState = database.withTransaction {
+        val activeId = activeScheduleId()
+        AppState(
+            courses = courseDao.getCourses(activeId),
             allCourses = courseDao.getAllCourses(),
-            schedules = profileDao.getProfiles().ifEmpty { listOf(ScheduleProfileEntity(id = 1, name = "\u9ED8\u8BA4\u8BFE\u8868", isActive = true)) },
+            schedules = profileDao.getProfiles().ifEmpty {
+                listOf(
+                    ScheduleProfileEntity(
+                        id = activeId,
+                        name = "\u9ED8\u8BA4\u8BFE\u8868",
+                        isActive = true
+                    )
+                )
+            },
             allConfigs = emptyList(),
             allPeriods = emptyList(),
-            config = configDao.getConfig() ?: defaultConfig(),
-            periods = configDao.getPeriods().ifEmpty { defaultPeriods() },
+            config = configDao.getConfig(activeId) ?: defaultConfig(activeId),
+            periods = configDao.getPeriods(activeId).ifEmpty { defaultPeriods(activeId) },
+            loaded = true
+        )
+    }
+
+    /**
+     * Coherent current-schedule snapshot for notifications, widgets and previews.
+     * These callers never need every schedule's courses, so avoid a full-table read
+     * while keeping all related rows pinned to one active schedule transaction.
+     */
+    suspend fun activeSnapshot(): AppState = database.withTransaction {
+        val activeId = activeScheduleId()
+        AppState(
+            courses = courseDao.getCourses(activeId),
+            config = configDao.getConfig(activeId) ?: defaultConfig(activeId),
+            periods = configDao.getPeriods(activeId).ifEmpty { defaultPeriods(activeId) },
             loaded = true
         )
     }
 
     private suspend fun activeScheduleId(): Int {
         return profileDao.getActiveProfile()?.id ?: 1
+    }
+
+    private suspend fun requireCurrentCourse(scheduleId: Int, courseId: Long): CourseEntity {
+        return courseDao.getCourses(scheduleId).firstOrNull { it.id == courseId }
+            ?: throw IllegalStateException("课表已切换或课程已被删除，请返回当前课表后重试")
     }
 
     /**
@@ -1966,8 +2021,7 @@ class ScheduleRepository(private val database: AppDatabase) {
     }
 
     private suspend fun mergeCompatibleCourseFragments(scheduleId: Int) {
-        val courses = courseDao.getCourses()
-            .filter { it.scheduleId == scheduleId }
+        val courses = courseDao.getCourses(scheduleId)
             .map { normalizeCoursesForSchedule(listOf(it), scheduleId).single() }
         courses
             .groupBy { it.mergeKey() }

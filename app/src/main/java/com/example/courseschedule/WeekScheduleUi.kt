@@ -1418,71 +1418,6 @@ fun WeekSwitchButton(direction: Int, config: ScheduleConfigEntity, backdrop: Bac
 }
 
 @Composable
-private fun WeekScheduleHeaderLabels(
-    weekdays: List<Int>,
-    weekStart: LocalDate,
-    today: LocalDate,
-    rowHeaderWidth: Dp,
-    textColor: ComposeColor,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier.fillMaxSize(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier.width(rowHeaderWidth - 4.dp).fillMaxHeight(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "节次",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = textColor,
-                textAlign = TextAlign.Center
-            )
-        }
-        weekdays.forEach { day ->
-            val date = weekStart.plusDays((day - 1).toLong())
-            val isToday = date == today
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxSize()
-                    .padding(vertical = 2.dp, horizontal = 2.dp)
-                    .then(
-                        if (isToday) Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                        else Modifier
-                    ),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "周${weekdayLabel(day)}",
-                    fontSize = 11.sp,
-                    lineHeight = 12.sp,
-                    fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
-                    color = textColor,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1
-                )
-                Text(
-                    text = "${date.monthValue}/${date.dayOfMonth}",
-                    fontSize = 9.sp,
-                    lineHeight = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = textColor.copy(alpha = 0.72f),
-                    textAlign = TextAlign.Center,
-                    maxLines = 1
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun WeekPagerHeaderLabels(
     pagerState: PagerState,
     displayWeek: Int,
@@ -1852,11 +1787,6 @@ fun WeekCourseColumnsLayer(
             }
         }
     }
-}
-
-private fun courseStartsAt(course: CourseEntity, periodIndex: Int): Boolean {
-    if (periodIndex !in course.periods) return false
-    return (periodIndex - 1) !in course.periods
 }
 
 private fun continuousSpanFrom(course: CourseEntity, start: Int, periodIndexes: List<Int>): Int {

@@ -210,11 +210,6 @@ data class AiProviderTextResult(
     val finishReason: String = ""
 )
 
-private data class AiChatTurn(
-    val role: String,
-    val content: String
-)
-
 class AiServiceResponseException(
     message: String,
     val rawBody: String,
@@ -1126,48 +1121,6 @@ suspend fun diagnoseAiProviderNetwork(settings: AiImportSettings): Result<String
     }
 }
 
-private suspend fun sendDeepSeekChatMessage(
-    context: Context,
-    messages: List<AiChatTurn>,
-    thinkingEnabled: Boolean
-): Result<AiProviderTextResult> {
-    return withContext(Dispatchers.IO) {
-        runCatching {
-            val settings = AiImportSettingsStore.loadProvider(context, AiProviderPresets.deepSeek.id)
-            require(settings.apiKey.isNotBlank()) { "请先在 AI 设置中配置 DeepSeek API Key" }
-            val config = settings.toProviderConfig().normalizedForRequest().copy(
-                providerId = AiProviderPresets.deepSeek.id,
-                endpointStyle = AiEndpointStyle.CHAT_COMPLETIONS
-            )
-            require(config.model.isNotBlank()) { "请先配置 DeepSeek 模型名称" }
-            val body = buildJsonObject {
-                put("model", JsonPrimitive(config.model))
-                put("messages", buildJsonArray {
-                    messages.forEach { message ->
-                        add(buildJsonObject {
-                            put("role", JsonPrimitive(message.role))
-                            put("content", JsonPrimitive(message.content))
-                        })
-                    }
-                })
-                put("thinking", buildJsonObject {
-                    put("type", JsonPrimitive(if (thinkingEnabled) "enabled" else "disabled"))
-                    if (thinkingEnabled) put("reasoning_effort", JsonPrimitive("high"))
-                })
-                put("max_tokens", JsonPrimitive(if (thinkingEnabled) 4096 else 2048))
-            }
-            val response = postJson(config.baseUrl.trimEnd('/') + "/chat/completions", config.apiKey, body.toString(), config.authType)
-            parseChatCompletionTextResult(response, requireContent = false)
-        }
-    }
-}
-
-private fun currentDeepSeekChatLabel(context: Context): String {
-    val settings = AiImportSettingsStore.loadProvider(context, AiProviderPresets.deepSeek.id)
-    val baseUrl = normalizeAiBaseUrlForProvider(AiProviderPresets.deepSeek.id, settings.profile.baseUrl)
-    return "${settings.profile.defaultModel} · $baseUrl"
-}
-
 private fun String.compactForSettingsResult(maxLength: Int = 360): String {
     val compact = replace(Regex("\\s+"), " ").trim()
     return if (compact.length <= maxLength) compact else compact.take(maxLength) + "..."
@@ -1736,37 +1689,6 @@ private fun decodePdfLiteralString(value: String): String {
         }
     }
     return builder.toString()
-}
-
-private fun renderPdfPagesForAi(context: Context, file: AiImportFile, maxPages: Int = 6): List<String> {
-    val temp = File.createTempFile("sleepdown_ai_pdf_", ".pdf", context.cacheDir)
-    return try {
-        temp.writeBytes(file.bytes)
-        ParcelFileDescriptor.open(temp, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-            PdfRenderer(descriptor).use { renderer ->
-                require(renderer.pageCount > 0) { "PDF 文件没有可解析页面" }
-                val count = minOf(renderer.pageCount, maxPages)
-                (0 until count).map { pageIndex ->
-                    renderer.openPage(pageIndex).use { page ->
-                        val scale = 1400f / maxOf(page.width, page.height).coerceAtLeast(1)
-                        val width = (page.width * scale).toInt().coerceAtLeast(1)
-                        val height = (page.height * scale).toInt().coerceAtLeast(1)
-                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                        bitmap.eraseColor(Color.WHITE)
-                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        val bytes = ByteArrayOutputStream().use { output ->
-                            bitmap.compress(Bitmap.CompressFormat.JPEG, 86, output)
-                            bitmap.recycle()
-                            output.toByteArray()
-                        }
-                        "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    }
-                }
-            }
-        }
-    } finally {
-        temp.delete()
-    }
 }
 
 private fun request(url: String, apiKey: String, method: String, body: ByteArray, contentType: String): String {

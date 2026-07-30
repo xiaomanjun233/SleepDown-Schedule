@@ -134,9 +134,17 @@ object GiteeAppUpdater {
         }
     }
 
+    @Synchronized
     private fun startDownloadService(context: Context, release: GiteeReleaseInfo, downloadUrl: String) {
         val current = _downloadState.value
-        if (current is UpdateDownloadState.Downloading && current.releaseTag == release.tagName) return
+        if (current is UpdateDownloadState.Downloading) {
+            if (current.releaseTag == release.tagName) return
+            _downloadState.value = UpdateDownloadState.Failed(
+                release.tagName,
+                "已有其他版本正在下载，请等待完成后重试"
+            )
+            return
+        }
         if (current is UpdateDownloadState.Completed && current.releaseTag == release.tagName && current.apk.exists()) return
         _downloadState.value = UpdateDownloadState.Downloading(release.tagName, release.name, 0L, -1L)
         val intent = Intent(context, UpdateDownloadForegroundService::class.java)
@@ -315,6 +323,7 @@ object GiteeAppUpdater {
 class UpdateDownloadForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var downloadJob: Job? = null
+    private var activeTag: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -331,32 +340,44 @@ class UpdateDownloadForegroundService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
-        if (downloadJob?.isActive == true) return START_REDELIVER_INTENT
+        if (downloadJob?.isActive == true) {
+            if (activeTag != tag) {
+                GiteeAppUpdater.publishDownloadState(
+                    UpdateDownloadState.Failed(tag, "已有其他版本正在下载，请等待完成后重试")
+                )
+            }
+            return START_NOT_STICKY
+        }
 
         startForeground(NOTIFICATION_ID, progressNotification(name, null))
+        activeTag = tag
         downloadJob = serviceScope.launch {
-            var lastPercent: Int? = null
-            GiteeAppUpdater.performDownload(this@UpdateDownloadForegroundService, url, tag, apkName) { downloaded, total ->
-                val state = UpdateDownloadState.Downloading(tag, name, downloaded, total)
-                GiteeAppUpdater.publishDownloadState(state)
-                val percent = state.progressPercent
-                if (percent != lastPercent || percent == null) {
-                    getSystemService(NotificationManager::class.java)
-                        .notify(NOTIFICATION_ID, progressNotification(name, percent))
-                    lastPercent = percent
-                }
-            }.fold(
-                onSuccess = { apk ->
-                    GiteeAppUpdater.publishDownloadState(UpdateDownloadState.Completed(tag, apk))
-                    finishForeground(completedNotification(name, apk))
-                },
-                onFailure = { error ->
-                    val message = error.message ?: "更新下载失败"
-                    GiteeAppUpdater.publishDownloadState(UpdateDownloadState.Failed(tag, message))
-                    finishForeground(failedNotification(name, message))
-                }
-            )
-            stopSelf(startId)
+            try {
+                var lastPercent: Int? = null
+                GiteeAppUpdater.performDownload(this@UpdateDownloadForegroundService, url, tag, apkName) { downloaded, total ->
+                    val state = UpdateDownloadState.Downloading(tag, name, downloaded, total)
+                    GiteeAppUpdater.publishDownloadState(state)
+                    val percent = state.progressPercent
+                    if (percent != lastPercent || percent == null) {
+                        getSystemService(NotificationManager::class.java)
+                            .notify(NOTIFICATION_ID, progressNotification(name, percent))
+                        lastPercent = percent
+                    }
+                }.fold(
+                    onSuccess = { apk ->
+                        GiteeAppUpdater.publishDownloadState(UpdateDownloadState.Completed(tag, apk))
+                        finishForeground(completedNotification(name, apk))
+                    },
+                    onFailure = { error ->
+                        val message = error.message ?: "更新下载失败"
+                        GiteeAppUpdater.publishDownloadState(UpdateDownloadState.Failed(tag, message))
+                        finishForeground(failedNotification(name, message))
+                    }
+                )
+            } finally {
+                activeTag = null
+                stopSelf(startId)
+            }
         }
         return START_REDELIVER_INTENT
     }

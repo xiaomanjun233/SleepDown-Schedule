@@ -1146,7 +1146,7 @@ object NotificationScheduler {
     private fun refreshVisibleLiveUpdate(context: Context) {
         val app = context.applicationContext as? CourseScheduleApp ?: return
         CoroutineScope(Dispatchers.IO).launch {
-            val snapshot = app.repository.snapshot()
+            val snapshot = app.repository.activeSnapshot()
             checkImmediateLiveUpdate(context, snapshot.courses, snapshot.config, snapshot.periods)
         }
     }
@@ -1493,7 +1493,7 @@ class CourseBootReceiver : BroadcastReceiver() {
             try {
                 val app = context.applicationContext as CourseScheduleApp
                 app.repository.ensureDefaults()
-                val snapshot = app.repository.snapshot()
+                val snapshot = app.repository.activeSnapshot()
                 NotificationScheduler.refreshToday(context, snapshot.courses, snapshot.config, snapshot.periods)
             } finally {
                 pending.finish()
