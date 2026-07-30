@@ -11,43 +11,6 @@
 
     <style name="AppTheme" parent="@style/AppThemeBase" />
 
-    <style name="WidgetCourseLargeText">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">0dp</item>
-        <item name="android:layout_weight">1</item>
-        <item name="android:layout_marginTop">6dp</item>
-        <item name="android:background">@drawable/widget_course_background</item>
-        <item name="android:ellipsize">end</item>
-        <item name="android:gravity">center_vertical</item>
-        <item name="android:includeFontPadding">false</item>
-        <item name="android:lineSpacingExtra">1dp</item>
-        <item name="android:maxLines">2</item>
-        <item name="android:paddingLeft">10dp</item>
-        <item name="android:paddingTop">6dp</item>
-        <item name="android:paddingRight">10dp</item>
-        <item name="android:paddingBottom">6dp</item>
-        <item name="android:textColor">#FF111111</item>
-        <item name="android:textSize">13sp</item>
-    </style>
-
-    <style name="WidgetCourseGridText">
-        <item name="android:layout_width">0dp</item>
-        <item name="android:layout_height">match_parent</item>
-        <item name="android:layout_weight">1</item>
-        <item name="android:background">@drawable/widget_course_background</item>
-        <item name="android:ellipsize">end</item>
-        <item name="android:gravity">center_vertical</item>
-        <item name="android:includeFontPadding">false</item>
-        <item name="android:lineSpacingExtra">1dp</item>
-        <item name="android:maxLines">2</item>
-        <item name="android:paddingLeft">8dp</item>
-        <item name="android:paddingTop">5dp</item>
-        <item name="android:paddingRight">8dp</item>
-        <item name="android:paddingBottom">5dp</item>
-        <item name="android:textColor">#FF111111</item>
-        <item name="android:textSize">11.5sp</item>
-    </style>
-
     <style name="WidgetCourseRow">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">0dp</item>
