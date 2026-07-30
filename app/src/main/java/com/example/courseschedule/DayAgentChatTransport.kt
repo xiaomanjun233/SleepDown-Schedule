@@ -1,0 +1,180 @@
+package com.example.courseschedule
+
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+
+private val AgentChatJson = Json { ignoreUnknownKeys = true; isLenient = true }
+
+internal fun AiImportSettings.usesOfficialOpenAiEndpoint(): Boolean =
+    profile.id == AiProviderPresets.openAI.id &&
+        normalizeAiBaseUrlForProvider(profile.id, profile.baseUrl)
+            .trimEnd('/')
+            .equals("https://api.openai.com/v1", ignoreCase = true)
+
+/**
+ * OpenAI-compatible Chat Completions wire transport.
+ *
+ * Agent orchestration and local tool execution stay in [DayAgentService]; this class owns request
+ * serialization, authentication, HTTP, and streaming response normalization.
+ */
+internal class DayAgentChatTransport {
+    fun post(settings: AiImportSettings, body: String): String {
+        return openConnection(settings, body).readResponse()
+    }
+
+    fun stream(settings: AiImportSettings, body: String, onDelta: (String) -> Unit): String {
+        val connection = openConnection(settings, body)
+        val code = connection.responseCode
+        if (code !in 200..299) {
+            val error = connection.errorStream
+                ?.bufferedReader()
+                ?.use { it.readText() }
+                .orEmpty()
+                .take(300)
+            throw IllegalStateException("AI 请求失败 ($code)：$error")
+        }
+        if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
+            val content = parseFullChatContent(
+                connection.inputStream.bufferedReader().use { it.readText() }
+            )
+            onDelta(content)
+            return content
+        }
+        val result = StringBuilder()
+        var hasFinalContent = false
+        BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).useLines { lines ->
+            lines.forEach { line ->
+                if (!line.startsWith("data:")) return@forEach
+                val data = line.removePrefix("data:").trim()
+                if (data == "[DONE]" || data.isBlank()) return@forEach
+                val content = runCatching {
+                    val choice = AgentChatJson.parseToJsonElement(data)
+                        .jsonObject["choices"]
+                        ?.jsonArray
+                        ?.firstOrNull()
+                        ?.jsonObject
+                        ?: return@runCatching ""
+                    val streamed = choice["delta"]?.jsonObject
+                    agentTextFromJson(streamed?.get("content"))
+                        .ifBlank { agentTextFromJson(choice["text"]) }
+                }.getOrNull().orEmpty()
+                if (content.isNotEmpty()) {
+                    hasFinalContent = true
+                    result.append(content)
+                    onDelta(content)
+                }
+            }
+        }
+        if (!hasFinalContent) throw MissingAgentBodyException()
+        return result.toString()
+    }
+
+    fun body(
+        settings: AiImportSettings,
+        messages: List<Pair<String, String>>,
+        stream: Boolean
+    ): String = buildJsonObject {
+        put("model", settings.profile.defaultModel)
+        put("stream", stream)
+        put("temperature", 0.55)
+        put("messages", buildJsonArray {
+            messages.forEach { (role, content) ->
+                add(buildJsonObject {
+                    put("role", role)
+                    put("content", content)
+                })
+            }
+        })
+        if (!stream && settings.profile.structuredOutputMode == StructuredOutputMode.JSON_OBJECT) {
+            put("response_format", buildJsonObject { put("type", "json_object") })
+        }
+    }.toString()
+
+    fun agentBody(
+        settings: AiImportSettings,
+        messages: List<JsonObject>,
+        stream: Boolean,
+        includeTools: Boolean,
+        includeMemoryTool: Boolean = false
+    ): String = buildJsonObject {
+        put("model", settings.profile.defaultModel)
+        put("stream", stream)
+        put("temperature", 0.35)
+        if (settings.usesOfficialOpenAiEndpoint()) put("store", false)
+        put("messages", buildJsonArray { messages.forEach(::add) })
+        if (includeTools) {
+            put(
+                "tools",
+                agentToolDefinitions(
+                    includeMiMoWebSearch = supportsMiMoOfficialWebSearch(
+                        providerId = settings.profile.id,
+                        baseUrl = normalizeAiBaseUrlForProvider(
+                            settings.profile.id,
+                            settings.profile.baseUrl
+                        ),
+                        model = settings.profile.defaultModel
+                    ),
+                    includeMemoryTool = includeMemoryTool,
+                    // Several compatible providers reject this Chat Completions extension.
+                    strictFunctions = settings.usesOfficialOpenAiEndpoint()
+                )
+            )
+            put("tool_choice", "auto")
+        }
+    }.toString()
+
+    private fun openConnection(
+        settings: AiImportSettings,
+        body: String
+    ): HttpURLConnection {
+        val base = normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl)
+        val path = settings.profile.chatCompletionsPath.ifBlank { "/chat/completions" }
+        val connection = URL(
+            base.trimEnd('/') + "/" + path.trimStart('/')
+        ).openConnection() as HttpURLConnection
+        connection.requestMethod = "POST"
+        connection.connectTimeout = 30_000
+        connection.readTimeout = 120_000
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+        if (settings.profile.authType == AiAuthType.CustomHeader) {
+            connection.setRequestProperty("api-key", settings.apiKey)
+        } else {
+            connection.setRequestProperty("Authorization", "Bearer ${settings.apiKey}")
+        }
+        connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        return connection
+    }
+}
+
+internal fun parseFullChatContent(response: String): String {
+    val root = AgentChatJson.parseToJsonElement(response).jsonObject
+    val choice = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
+        ?: throw MissingAgentBodyException()
+    val message = choice["message"]?.jsonObject
+    return agentTextFromJson(message?.get("content"))
+        .ifBlank { agentTextFromJson(choice["text"]) }
+        .takeIf(String::isNotBlank)
+        ?: throw MissingAgentBodyException()
+}
+
+internal class MissingAgentBodyException : IllegalStateException("AI 没有返回最终正文")
+
+private fun HttpURLConnection.readResponse(): String {
+    val code = responseCode
+    val stream = if (code in 200..299) inputStream else errorStream
+    val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+    if (code !in 200..299) {
+        throw IllegalStateException("AI 请求失败 ($code)：${text.take(300)}")
+    }
+    return text
+}

@@ -397,8 +397,14 @@ interface AgentDao {
     @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId AND sessionDate = :date ORDER BY createdAt, id")
     fun observeMessages(scheduleId: Int, date: String): Flow<List<AgentMessageEntity>>
 
-    @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId AND sessionDate = :date ORDER BY createdAt DESC, id DESC LIMIT :limit")
+    @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId AND sessionDate = :date AND status = 'READY' ORDER BY createdAt DESC, id DESC LIMIT :limit")
     suspend fun getRecentMessages(scheduleId: Int, date: String, limit: Int): List<AgentMessageEntity>
+
+    @Query("UPDATE agent_messages SET status = :status WHERE id = :messageId")
+    suspend fun updateMessageStatus(messageId: Long, status: String)
+
+    @Query("UPDATE agent_messages SET status = 'FAILED' WHERE status = 'PENDING' AND createdAt < :cutoff")
+    suspend fun failPendingMessagesBefore(cutoff: Long)
 
     @Query("SELECT content FROM agent_messages")
     suspend fun getAllMessageContents(): List<String>

@@ -1,7 +1,6 @@
 package com.example.courseschedule
 
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -25,8 +24,6 @@ enum class AgentToolName {
     GET_SEMESTER_SCHEDULE,
     GET_PERIODS,
     GET_SETTINGS,
-    PREVIEW_SETTING_CHANGES,
-    PROPOSE_ACTION_PLAN,
     UPDATE_MEMORY
 }
 
@@ -71,10 +68,6 @@ internal fun AgentToolName.runStatus(): AgentRunStatus = when (this) {
         AgentRunStatus(AgentRunStatusIcon.PERIOD, "读取节次时间")
     AgentToolName.GET_SETTINGS ->
         AgentRunStatus(AgentRunStatusIcon.SETTINGS, "读取应用设置")
-    AgentToolName.PREVIEW_SETTING_CHANGES ->
-        AgentRunStatus(AgentRunStatusIcon.SETTINGS, "校验设置修改")
-    AgentToolName.PROPOSE_ACTION_PLAN ->
-        AgentRunStatus(AgentRunStatusIcon.SETTINGS, "准备操作方案")
     AgentToolName.UPDATE_MEMORY ->
         AgentRunStatus(AgentRunStatusIcon.SETTINGS, "更新助手记忆")
 }
@@ -86,35 +79,42 @@ internal fun AgentToolName.runStatus(): AgentRunStatus = when (this) {
  */
 internal fun agentToolDefinitions(
     includeMiMoWebSearch: Boolean = false,
-    includeMemoryTool: Boolean = false
+    includeMemoryTool: Boolean = false,
+    strictFunctions: Boolean = false
 ): JsonArray = buildJsonArray {
     add(agentToolDefinition(
         AgentToolName.GET_CURRENT_OVERVIEW,
-        "读取当前日期、时间、明确的学期状态、有效教学周、今天/明天课程摘要和天气。需要回答当前状态时使用；未开学或已结束时不得误称为第一周或最后一周。"
+        "读取当前日期、时间、明确的学期状态、有效教学周、今天/明天课程摘要和天气。需要回答当前状态时使用；未开学或已结束时不得误称为第一周或最后一周。",
+        strict = strictFunctions
     ))
     add(agentToolDefinition(
         AgentToolName.SEARCH_COURSES,
         "在当前正在使用的课表中按课程名、教师或地点查找课程记录。修改具体课程前应先使用。",
-        queryRequired = true
+        queryRequired = true,
+        strict = strictFunctions
     ))
     add(agentToolDefinition(
         AgentToolName.GET_WEEK_SCHEDULE,
-        "读取当前正在使用课表的本周完整日程，用于空档、冲突和本周安排。"
+        "读取当前正在使用课表的本周完整日程，用于空档、冲突和本周安排。",
+        strict = strictFunctions
     ))
     add(agentToolDefinition(
         AgentToolName.GET_SEMESTER_SCHEDULE,
-        "读取当前正在使用课表的本学期全部课程记录，用于课程总览或跨周修改。"
+        "读取当前正在使用课表的本学期全部课程记录，用于课程总览或跨周修改。",
+        strict = strictFunctions
     ))
     add(agentToolDefinition(
         AgentToolName.GET_PERIODS,
-        "读取当前正在使用课表的全部节次及准确上下课时间。涉及节次或时间修改时使用。"
+        "读取当前正在使用课表的全部节次及准确上下课时间。涉及节次或时间修改时使用。",
+        strict = strictFunctions
     ))
     add(agentToolDefinition(
         AgentToolName.GET_SETTINGS,
-        "读取当前课表和应用可由助手访问的设置键、类型、范围与当前真实值。回答或修改设置前使用。"
+        "读取当前课表和应用可由助手访问的设置键、类型、范围与当前真实值。回答或修改设置前使用。",
+        strict = strictFunctions
     ))
     if (includeMemoryTool) {
-        add(agentMemoryToolDefinition())
+        add(agentMemoryToolDefinition(strictFunctions))
     }
     /*
      * Only fact acquisition is exposed as a model tool. Write plans deliberately remain the
@@ -137,7 +137,29 @@ internal fun agentToolDefinitions(
     }
 }
 
-private fun agentMemoryToolDefinition() = buildJsonObject {
+/**
+ * Responses API function tools use a flattened declaration while Chat Completions nests the
+ * same fields under `function`. Keep one schema source and adapt only the wire shape.
+ */
+internal fun agentResponsesToolDefinitions(
+    includeMemoryTool: Boolean = false
+): JsonArray = buildJsonArray {
+    agentToolDefinitions(
+        includeMemoryTool = includeMemoryTool,
+        strictFunctions = true
+    ).forEach { declaration ->
+        val function = declaration.jsonObject["function"]?.jsonObject ?: return@forEach
+        add(buildJsonObject {
+            put("type", "function")
+            function["name"]?.let { put("name", it) }
+            function["description"]?.let { put("description", it) }
+            function["parameters"]?.let { put("parameters", it) }
+            function["strict"]?.let { put("strict", it) }
+        })
+    }
+}
+
+private fun agentMemoryToolDefinition(strict: Boolean) = buildJsonObject {
     put("type", "function")
     put("function", buildJsonObject {
         put("name", AgentToolName.UPDATE_MEMORY.name)
@@ -161,203 +183,7 @@ private fun agentMemoryToolDefinition() = buildJsonObject {
             put("required", buildJsonArray { add(JsonPrimitive("memory")) })
             put("additionalProperties", false)
         })
-    })
-}
-
-@Suppress("unused")
-private fun agentActionPlanToolDefinition() = buildJsonObject {
-    put("type", "function")
-    put("function", buildJsonObject {
-        put("name", AgentToolName.PROPOSE_ACTION_PLAN.name)
-        put(
-            "description",
-            "向用户提交一个可确认的完整操作计划。可在同一 actions 数组中组合新增、修改、删除课程、打开设置页和覆盖设置值；应用会预演、让用户确认、事务执行、回读验证并提供撤销。此工具只提交计划，不得声称已执行。"
-        )
-        put("parameters", buildJsonObject {
-            put("type", "object")
-            put("properties", buildJsonObject {
-                put("summary", buildJsonObject {
-                    put("type", "string")
-                    put("description", "面向用户的一句话计划摘要")
-                })
-                put("actions", buildJsonObject {
-                    put("type", "array")
-                    put("minItems", 1)
-                    put("description", "完整原子操作列表；同一目标的所有操作必须一次提交")
-                    put("items", buildJsonObject {
-                        put("type", "object")
-                        put("properties", buildJsonObject {
-                            put("type", buildJsonObject {
-                                put("type", "string")
-                                put("enum", buildJsonArray {
-                                    listOf(
-                                        "ADD_COURSE",
-                                        "UPDATE_COURSE",
-                                        "DELETE_COURSE",
-                                        "OPEN_SETTINGS",
-                                        "SET_SETTING",
-                                        "SET_PERIOD_SETTINGS"
-                                    ).forEach { add(JsonPrimitive(it)) }
-                                })
-                            })
-                            put("courseId", buildJsonObject { put("type", "integer") })
-                            put("scope", buildJsonObject {
-                                put("type", "string")
-                                put("enum", buildJsonArray {
-                                    add(JsonPrimitive("CURRENT_WEEK"))
-                                    add(JsonPrimitive("ALL_WEEKS"))
-                                })
-                            })
-                            put("course", buildJsonObject {
-                                put("type", "object")
-                                put("description", "课程字段；新增时提供完整必要字段，修改时只提供变化字段")
-                                put("properties", buildJsonObject {
-                                    put("name", buildJsonObject { put("type", "string") })
-                                    put("teacher", buildJsonObject { put("type", "string") })
-                                    put("location", buildJsonObject { put("type", "string") })
-                                    put("weekday", buildJsonObject { put("type", "integer") })
-                                    put("periods", buildJsonObject {
-                                        put("type", "array")
-                                        put("items", buildJsonObject { put("type", "integer") })
-                                    })
-                                    put("weeks", buildJsonObject {
-                                        put("type", "array")
-                                        put("items", buildJsonObject { put("type", "integer") })
-                                    })
-                                    put("weekParity", buildJsonObject {
-                                        put("type", "string")
-                                        put("enum", buildJsonArray {
-                                            add(JsonPrimitive("ALL"))
-                                            add(JsonPrimitive("ODD"))
-                                            add(JsonPrimitive("EVEN"))
-                                        })
-                                    })
-                                    put("note", buildJsonObject { put("type", "string") })
-                                })
-                                put("additionalProperties", false)
-                            })
-                            put("settingsPage", buildJsonObject { put("type", "string") })
-                            put("settingKey", buildJsonObject { put("type", "string") })
-                            put("settingValue", buildJsonObject { put("type", "string") })
-                            put("periodSettings", agentPeriodSettingsSchema())
-                            put("summary", buildJsonObject { put("type", "string") })
-                        })
-                        put("required", buildJsonArray {
-                            add(JsonPrimitive("type"))
-                            add(JsonPrimitive("summary"))
-                        })
-                        put("additionalProperties", false)
-                    })
-                })
-            })
-            put("required", buildJsonArray {
-                add(JsonPrimitive("summary"))
-                add(JsonPrimitive("actions"))
-            })
-            put("additionalProperties", false)
-        })
-    })
-}
-
-private fun agentPeriodSettingsSchema() = buildJsonObject {
-    put("type", "object")
-    put(
-        "description",
-        "当前课表完整节次/作息修改。模型直接填写目标 JSON；应用负责校验、预演、保存到当前作息方案并刷新物化节次。只填写需要变化的参数；改变节次数量时四个时段数量必须全部填写，手动模式建议同时提交完整 periods。"
-    )
-    put("properties", buildJsonObject {
-        put("schemeName", buildJsonObject { put("type", "string") })
-        put("mode", buildJsonObject {
-            put("type", "string")
-            put("enum", buildJsonArray {
-                add(JsonPrimitive("MANUAL"))
-                add(JsonPrimitive("AUTO_MATCH"))
-            })
-        })
-        listOf(
-            "morningPeriodCount",
-            "noonPeriodCount",
-            "afternoonPeriodCount",
-            "eveningPeriodCount",
-            "classDurationMinutes",
-            "breakDurationMinutes"
-        ).forEach { key -> put(key, buildJsonObject { put("type", "integer") }) }
-        listOf(
-            "morningStartTime",
-            "noonStartTime",
-            "afternoonStartTime",
-            "eveningStartTime"
-        ).forEach { key ->
-            put(key, buildJsonObject {
-                put("type", "string")
-                put("description", "HH:mm")
-            })
-        }
-        put("periods", buildJsonObject {
-            put("type", "array")
-            put("description", "手动模式或精确覆盖时提交完整连续时间线")
-            put("items", buildJsonObject {
-                put("type", "object")
-                put("properties", buildJsonObject {
-                    put("periodIndex", buildJsonObject { put("type", "integer") })
-                    put("startTime", buildJsonObject { put("type", "string") })
-                    put("endTime", buildJsonObject { put("type", "string") })
-                })
-                put("required", buildJsonArray {
-                    add(JsonPrimitive("periodIndex"))
-                    add(JsonPrimitive("startTime"))
-                    add(JsonPrimitive("endTime"))
-                })
-                put("additionalProperties", false)
-            })
-        })
-        put("specialBreaks", buildJsonObject {
-            put("type", "object")
-            put("description", "特殊课间；键为前一节节次编号，值为分钟数")
-            put("additionalProperties", buildJsonObject { put("type", "integer") })
-        })
-        put("overriddenPeriods", buildJsonObject {
-            put("type", "array")
-            put("items", buildJsonObject { put("type", "integer") })
-        })
-    })
-    put("additionalProperties", false)
-}
-
-@Suppress("unused")
-private fun agentSettingPreviewToolDefinition() = buildJsonObject {
-    put("type", "function")
-    put("function", buildJsonObject {
-        put("name", AgentToolName.PREVIEW_SETTING_CHANGES.name)
-        put(
-            "description",
-            "在不写入数据库的情况下校验一组设置修改并生成规范化计划。调整节次时间、学期、通知、外观等设置时，先读取 GET_SETTINGS，再调用本工具；通过后才在最终答复输出对应 SET_SETTING 操作。"
-        )
-        put("parameters", buildJsonObject {
-            put("type", "object")
-            put("properties", buildJsonObject {
-                put("changes", buildJsonObject {
-                    put("type", "array")
-                    put("description", "要作为一个整体预演的设置修改；多节时间必须一次全部传入")
-                    put("items", buildJsonObject {
-                        put("type", "object")
-                        put("properties", buildJsonObject {
-                            put("key", buildJsonObject { put("type", "string") })
-                            put("value", buildJsonObject { put("type", "string") })
-                            put("summary", buildJsonObject { put("type", "string") })
-                        })
-                        put("required", buildJsonArray {
-                            add(JsonPrimitive("key"))
-                            add(JsonPrimitive("value"))
-                        })
-                        put("additionalProperties", false)
-                    })
-                    put("minItems", 1)
-                })
-            })
-            put("required", buildJsonArray { add(JsonPrimitive("changes")) })
-            put("additionalProperties", false)
-        })
+        if (strict) put("strict", true)
     })
 }
 
@@ -382,7 +208,8 @@ internal fun supportsMiMoOfficialWebSearch(
 private fun agentToolDefinition(
     name: AgentToolName,
     description: String,
-    queryRequired: Boolean = false
+    queryRequired: Boolean = false,
+    strict: Boolean = false
 ) = buildJsonObject {
     put("type", "function")
     put("function", buildJsonObject {
@@ -403,6 +230,7 @@ private fun agentToolDefinition(
             })
             put("additionalProperties", false)
         })
+        if (strict) put("strict", true)
     })
 }
 
@@ -456,77 +284,10 @@ internal fun executeAgentReadTools(
                             periods = scopedFacts.periodDefinitions,
                             currentValues = scopedFacts.settingSnapshot
                         )
-                    AgentToolName.PREVIEW_SETTING_CHANGES ->
-                        previewAgentSettingChanges(call.arguments["changes"], scopedFacts)
-                    AgentToolName.PROPOSE_ACTION_PLAN ->
-                        "操作计划只能交给确认层处理，不能作为只读工具执行"
                     AgentToolName.UPDATE_MEMORY ->
                         "记忆更新只能由助手会话层处理"
                 }
         )
-    }
-}
-
-internal fun renderProposedAgentActionPlan(call: AgentToolCall): String? {
-    if (call.name != AgentToolName.PROPOSE_ACTION_PLAN) return null
-    val actions = runCatching {
-        AgentToolsJson.parseToJsonElement(call.arguments["actions"].orEmpty()) as? JsonArray
-    }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
-    val summary = call.arguments["summary"].orEmpty().trim()
-        .ifBlank { "已根据你的目标准备好修改，请确认后执行。" }
-    return "$summary\n<agent_actions>${actions}</agent_actions>"
-}
-
-private val AgentToolsJson = Json { ignoreUnknownKeys = true; isLenient = true }
-
-/**
- * Deterministic preflight for write plans. It does not mutate state: the normalized SET_SETTING
- * actions still have to be shown to the user and executed by the existing confirmation pipeline.
- */
-private fun previewAgentSettingChanges(rawChanges: String?, facts: DayAgentFacts): String {
-    val changes = runCatching {
-        AgentToolsJson.parseToJsonElement(rawChanges.orEmpty()) as? JsonArray
-    }.getOrNull()?.mapNotNull { element ->
-        val item = runCatching { element.jsonObject }.getOrNull() ?: return@mapNotNull null
-        val key = item["key"]?.jsonPrimitive?.contentOrNull
-        val value = item["value"]?.jsonPrimitive?.contentOrNull
-        val summary = item["summary"]?.jsonPrimitive?.contentOrNull
-        Triple(key, value, summary)
-    }.orEmpty()
-    if (changes.isEmpty()) return "预演失败：没有收到有效的设置修改"
-
-    val normalized = changes.map { (key, value, summary) ->
-        val pair = AgentSettingRegistry.normalize(key, value)
-            ?: return "预演失败：设置 ${key ?: "UNKNOWN"} 的值无效或不受支持"
-        Triple(pair.first, pair.second, summary.orEmpty().ifBlank { "修改${pair.first}" })
-    }
-    val periodChanges = normalized.filter { AgentSettingRegistry.isPeriodTimeSetting(it.first) }
-    if (periodChanges.isNotEmpty()) {
-        val result = AgentSettingRegistry.applyPeriodTimes(
-            periods = facts.periodDefinitions,
-            changes = periodChanges.map { it.first to it.second }
-        ) ?: return "预演失败：节次时间存在重叠、倒序、无效节次，或没有一次提交完整的关联修改"
-        if (result.size != facts.periodDefinitions.size) {
-            return "预演失败：节次结构与当前课表不一致"
-        }
-    }
-    return buildString {
-        appendLine("预演通过；未写入数据库；当前课表ID=${facts.scheduleId}；事实版本=${facts.sourceHash}")
-        appendLine("最终答复必须把以下修改合并为一个 agent_actions 数组，等待用户确认：")
-        normalized.forEach { (key, value, summary) ->
-            appendLine(
-                """{"type":"SET_SETTING","settingKey":"$key","settingValue":"$value","summary":"${summary.replace("\"", "\\\"")}"}"""
-            )
-        }
-    }.trim()
-}
-
-internal fun renderAgentToolResults(results: List<AgentToolResult>): String = buildString {
-    appendLine("以下内容是应用刚刚读取的内部可信事实，仅用于推理。不得逐字复述本段、不得展示字段清单，也不得用聊天历史覆盖：")
-    results.forEach { result ->
-        appendLine("内部工具 ${result.name}（${result.callId}）读取结果：")
-        appendLine(result.content)
-        appendLine("——")
     }
 }
 

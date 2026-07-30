@@ -1513,182 +1513,31 @@ private class OpenAiResponsesProvider : AiScheduleImportProvider {
         }
         val body = buildJsonObject {
             put("model", JsonPrimitive(config.model))
+            // Course files can contain names, locations and school identifiers. Keep the
+            // request stateless so an official OpenAI Responses call is not retained remotely
+            // by default.
+            put("store", JsonPrimitive(false))
             put("input", buildJsonArray {
                 add(buildJsonObject {
                     put("role", JsonPrimitive("user"))
                     put("content", content)
                 })
             })
+            put("reasoning", buildJsonObject {
+                put("summary", JsonPrimitive("auto"))
+            })
             if (config.structuredOutputMode == StructuredOutputMode.JSON_SCHEMA) {
                 put("text", buildJsonObject { put("format", scheduleJsonSchemaFormat()) })
             }
         }
-        return AiProviderTextResult(
-            content = extractResponsesText(postJson(config.baseUrl.trimEnd('/') + "/responses", config.apiKey, body.toString(), config.authType))
+        return parseResponsesTextResult(
+            postJson(
+                config.baseUrl.trimEnd('/') + "/responses",
+                config.apiKey,
+                body.toString(),
+                config.authType
+            )
         )
-    }
-}
-
-private interface AiProviderAdapter {
-    fun parse(context: Context, file: AiImportFile, settings: AiImportSettings): String
-}
-
-private class OpenAIResponsesAdapter : AiProviderAdapter {
-    override fun parse(context: Context, file: AiImportFile, settings: AiImportSettings): String {
-        val profile = settings.profile
-        val inputContent = buildJsonArray {
-            add(buildJsonObject {
-                put("type", JsonPrimitive("input_text"))
-                put("text", JsonPrimitive(aiSchedulePrompt()))
-            })
-            when {
-                file.isPdf && !(profile.capabilities.supportsPdfFileInput && profile.capabilities.supportsFileUpload) && profile.capabilities.supportsImageInput -> {
-                    renderPdfPagesForAi(context, file).forEach { dataUrl ->
-                        add(buildJsonObject {
-                            put("type", JsonPrimitive("input_image"))
-                            put("image_url", JsonPrimitive(dataUrl))
-                        })
-                    }
-                }
-                file.isPdf -> {
-                    require(profile.capabilities.supportsPdfFileInput && profile.capabilities.supportsFileUpload) {
-                        "当前模型配置不支持 PDF 文件解析，请换支持文件输入的模型，或导出图片后使用图片导入"
-                    }
-                    val fileId = uploadFile(profile, settings.apiKey, file)
-                    add(buildJsonObject {
-                        put("type", JsonPrimitive("input_file"))
-                        put("file_id", JsonPrimitive(fileId))
-                    })
-                }
-                file.isImage -> {
-                    require(profile.capabilities.supportsImageInput) { "当前模型配置不支持图片解析，请换多模态模型" }
-                    add(buildJsonObject {
-                        put("type", JsonPrimitive("input_image"))
-                        put("image_url", JsonPrimitive(file.toDataUrl()))
-                    })
-                }
-                file.isText -> {
-                    add(buildJsonObject {
-                        put("type", JsonPrimitive("input_text"))
-                        put("text", JsonPrimitive(file.bytes.toString(Charsets.UTF_8)))
-                    })
-                }
-                else -> error("暂不支持该文件类型，请使用 PDF、图片、TXT 或 CSV")
-            }
-        }
-        val body = buildJsonObject {
-            put("model", JsonPrimitive(profile.defaultModel))
-            put("input", buildJsonArray {
-                add(buildJsonObject {
-                    put("role", JsonPrimitive("user"))
-                    put("content", inputContent)
-                })
-            })
-            if (profile.capabilities.supportsJsonSchema) {
-                put("text", buildJsonObject {
-                    put("format", scheduleJsonSchemaFormat())
-                })
-            }
-        }
-        return extractResponsesText(postJson(profile.baseUrl.trimEnd('/') + profile.responsesPath, settings.apiKey, body.toString(), profile.authType))
-    }
-
-    private fun uploadFile(profile: AiProviderProfile, apiKey: String, file: AiImportFile): String {
-        val boundary = "SleepDownBoundary${System.currentTimeMillis()}"
-        val lineEnd = "\r\n"
-        val body = ByteArrayOutputStream()
-        fun write(value: String) = body.write(value.toByteArray(Charsets.UTF_8))
-        write("--$boundary$lineEnd")
-        write("Content-Disposition: form-data; name=\"purpose\"$lineEnd$lineEnd")
-        write("user_data$lineEnd")
-        write("--$boundary$lineEnd")
-        write("Content-Disposition: form-data; name=\"file\"; filename=\"${file.displayName}\"$lineEnd")
-        write("Content-Type: ${file.mimeType}$lineEnd$lineEnd")
-        body.write(file.bytes)
-        write(lineEnd)
-        write("--$boundary--$lineEnd")
-        val response = safeRequest(
-            url = profile.baseUrl.trimEnd('/') + profile.filesPath,
-            apiKey = apiKey,
-            method = "POST",
-            body = body.toByteArray(),
-            contentType = "multipart/form-data; boundary=$boundary"
-        )
-        return Json.parseToJsonElement(response).jsonObject["id"]?.jsonPrimitive?.contentOrNull
-            ?: error("文件上传成功但没有返回 file id")
-    }
-}
-
-private class OpenAIChatCompletionsAdapter : AiProviderAdapter {
-    override fun parse(context: Context, file: AiImportFile, settings: AiImportSettings): String {
-        val profile = settings.profile
-        if (file.isPdf && !profile.capabilities.supportsImageInput) {
-            error("当前模型配置不支持 PDF 文件解析，请换 OpenAI/支持文件输入的模型，或导出图片后使用图片导入")
-        }
-        val userContent: JsonElement = when {
-            file.isPdf -> {
-                buildJsonArray {
-                    add(buildJsonObject {
-                        put("type", JsonPrimitive("text"))
-                        put("text", JsonPrimitive(aiSchedulePrompt() + "\n\n下面是 PDF 渲染得到的页面图片，请按页面顺序识别课表。"))
-                    })
-                    renderPdfPagesForAi(context, file).forEach { dataUrl ->
-                        add(buildJsonObject {
-                            put("type", JsonPrimitive("image_url"))
-                            put("image_url", buildJsonObject {
-                                put("url", JsonPrimitive(dataUrl))
-                            })
-                        })
-                    }
-                }
-            }
-            file.isImage -> {
-                require(profile.capabilities.supportsImageInput) { "当前模型配置不支持图片解析，请换多模态模型" }
-                buildJsonArray {
-                    add(buildJsonObject {
-                        put("type", JsonPrimitive("text"))
-                        put("text", JsonPrimitive(aiSchedulePrompt()))
-                    })
-                    add(buildJsonObject {
-                        put("type", JsonPrimitive("image_url"))
-                        put("image_url", buildJsonObject {
-                            put("url", JsonPrimitive(file.toDataUrl()))
-                        })
-                    })
-                }
-            }
-            file.isText -> JsonPrimitive(aiSchedulePrompt() + "\n\n课表文件内容：\n" + file.bytes.toString(Charsets.UTF_8))
-            else -> error("暂不支持该文件类型，请使用 PDF、图片、TXT 或 CSV")
-        }
-        val body = buildJsonObject {
-            put("model", JsonPrimitive(profile.defaultModel))
-            put("messages", buildJsonArray {
-                add(buildJsonObject {
-                    put("role", JsonPrimitive("system"))
-                    put("content", JsonPrimitive("你是课程表结构化助手，只输出可解析的 JSON，不要输出解释文字。"))
-                })
-                add(buildJsonObject {
-                    put("role", JsonPrimitive("user"))
-                    put("content", userContent)
-                })
-            })
-            if (profile.capabilities.supportsJsonSchema) {
-                put("response_format", buildJsonObject {
-                    put("type", JsonPrimitive("json_schema"))
-                    put("json_schema", scheduleJsonSchema())
-                })
-            } else if (profile.capabilities.supportsJsonMode) {
-                put("response_format", buildJsonObject {
-                    put("type", JsonPrimitive("json_object"))
-                })
-            }
-            put("temperature", JsonPrimitive(0.1))
-        }
-        val response = postJson(profile.baseUrl.trimEnd('/') + profile.chatCompletionsPath, settings.apiKey, body.toString(), profile.authType)
-        return Json.parseToJsonElement(response)
-            .jsonObject["choices"]?.jsonArray?.firstOrNull()
-            ?.jsonObject?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
-            ?: error("AI 没有返回课程表内容")
     }
 }
 
@@ -2071,17 +1920,38 @@ private fun parseChatCompletionTextResult(response: String, requireContent: Bool
     return AiProviderTextResult(content = finalContent, reasoning = reasoning, finishReason = finishReason)
 }
 
-private fun extractResponsesText(response: String): String {
+private fun parseResponsesTextResult(response: String): AiProviderTextResult {
     val root = Json.parseToJsonElement(response).jsonObject
-    root["output_text"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let { return it }
+    val rootText = root["output_text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val contentParts = mutableListOf<String>()
+    val reasoningParts = mutableListOf<String>()
     val output = root["output"]?.jsonArray.orEmpty()
     output.forEach { item ->
-        item.jsonObject["content"]?.jsonArray.orEmpty().forEach { content ->
-            val obj = content.jsonObject
-            obj["text"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let { return it }
+        val itemObject = item.jsonObject
+        if (itemObject["type"]?.jsonPrimitive?.contentOrNull == "reasoning") {
+            itemObject["summary"]?.jsonArray.orEmpty().forEach { summary ->
+                val summaryObject = summary.jsonObject
+                summaryObject["text"]?.jsonPrimitive?.contentOrNull
+                    ?.takeIf(String::isNotBlank)
+                    ?.let(reasoningParts::add)
+            }
+        }
+        itemObject["content"]?.jsonArray.orEmpty().forEach { responseContent ->
+            val contentObject = responseContent.jsonObject
+            contentObject["text"]?.jsonPrimitive?.contentOrNull
+                ?.takeIf(String::isNotBlank)
+                ?.let(contentParts::add)
         }
     }
-    error("AI 没有返回课程表内容")
+    val finalContent = rootText.ifBlank { contentParts.joinToString("\n") }.trim()
+    if (finalContent.isBlank()) {
+        throw AiServiceResponseException("AI 没有返回课程表内容。", response)
+    }
+    return AiProviderTextResult(
+        content = finalContent,
+        reasoning = reasoningParts.distinct().joinToString("\n\n"),
+        finishReason = root["status"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    )
 }
 
 private fun redactReasoningFields(output: String): String {

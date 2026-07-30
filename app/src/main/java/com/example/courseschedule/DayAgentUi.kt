@@ -2065,7 +2065,7 @@ private fun AgentReasoningTrace(
         AgentRunStatusRow(
             status = AgentRunStatus(
                 AgentRunStatusIcon.THINKING,
-                if (expanded) "收起思考过程" else "查看思考过程"
+                if (expanded) "收起处理摘要" else "查看处理摘要"
             ),
             foreground = foreground
         )

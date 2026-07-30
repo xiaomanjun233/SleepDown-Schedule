@@ -802,30 +802,6 @@ private fun AiManualImportDialogContent(
 }
 
 @Composable
-fun AiManualImportScreen(state: AppState, onParsed: (ImportDraft) -> Unit) {
-    val context = LocalContext.current
-    var jsonText by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    val textColor = glassForegroundColor(state.config)
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("复制 Prompt 到 AI，粘贴返回的 JSON 后导入。", color = textColor)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LiquidMenuButton(null, "复制 Prompt", onClick = {
-                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("课表导入 Prompt", SchedulePromptBuilder.build()))
-            })
-            LiquidMenuButton(null, "清理格式", onClick = { jsonText = ScheduleImportParser.cleanMarkdown(jsonText) })
-        }
-        OutlinedTextField(jsonText, { jsonText = it }, label = { Text("AI 返回 JSON") }, minLines = 12, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor))
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        LiquidMenuButton(null, "解析并预览", modifier = Modifier.fillMaxWidth(), onClick = {
-            val result = ScheduleImportParser.parse(jsonText, state.config)
-            result.onSuccess { error = null; onParsed(it) }.onFailure { error = it.message ?: "JSON 解析失败" }
-        })
-    }
-}
-
-@Composable
 fun DonateSettingsScreen(state: AppState, backdrop: Backdrop?) {
     val topPadding = detailContentTopPadding()
     LazyColumn(
@@ -1376,76 +1352,6 @@ private fun inspectEduPageCapture(pageText: String): EduPageCaptureIssue? {
     }
 
     return null
-}
-
-data class AiEduImportProgress(
-    val steps: List<String> = emptyList(),
-    val routeLabel: String = "",
-    val requestPreview: String = "",
-    val pageText: String = "",
-    val screenshotPreviews: List<RenderedPageImage> = emptyList(),
-    val reasoningOutput: String = "",
-    val aiOutput: String = "",
-    val awaitingConfirmation: Boolean = false,
-    val confirmActionLabel: String = "",
-    val secondaryConfirmActionLabel: String = "",
-    val screenModeActionLabel: String = "",
-    val cancelActionLabel: String = "返回重抓",
-    val finished: Boolean = false,
-    val error: String? = null
-)
-
-enum class AiEduImportStepStatus {
-    Done,
-    Current,
-    Pending,
-    Error
-}
-
-data class AiEduImportStepRow(
-    val text: String,
-    val status: AiEduImportStepStatus
-)
-
-private val AiEduImportPendingSteps = listOf(
-    "读取当前页面",
-    "DOM 深度抓取",
-    "滚动补抓页面",
-    "截图兜底判断",
-    "检查是否为课表页",
-    "读取 AI 配置",
-    "发送给 AI 解析",
-    "等待 AI 返回",
-    "本地校验",
-    "进入导入预览"
-)
-
-fun aiEduImportStepRows(progress: AiEduImportProgress): List<AiEduImportStepRow> {
-    val rows = progress.steps.mapIndexed { index, step ->
-        val isLast = index == progress.steps.lastIndex
-        val status = when {
-            progress.error != null && isLast -> AiEduImportStepStatus.Error
-            progress.finished -> AiEduImportStepStatus.Done
-            isLast -> AiEduImportStepStatus.Current
-            else -> AiEduImportStepStatus.Done
-        }
-        AiEduImportStepRow(step, status)
-    }.toMutableList()
-    if (!progress.finished && progress.error == null) {
-        AiEduImportPendingSteps.drop(progress.steps.size).forEach { step ->
-            rows += AiEduImportStepRow(step, AiEduImportStepStatus.Pending)
-        }
-    }
-    return rows
-}
-
-private fun aiEduStepColor(status: AiEduImportStepStatus, fallback: ComposeColor): ComposeColor {
-    return when (status) {
-        AiEduImportStepStatus.Done -> fallback.copy(alpha = 0.42f)
-        AiEduImportStepStatus.Current -> ComposeColor(0xFF0A84FF)
-        AiEduImportStepStatus.Pending -> fallback.copy(alpha = 0.92f)
-        AiEduImportStepStatus.Error -> ComposeColor(0xFFFF453A)
-    }
 }
 
 private fun aiEduRequestPreview(settings: AiImportSettings, pageTextLength: Int): String {

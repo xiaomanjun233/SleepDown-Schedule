@@ -1,5 +1,8 @@
 package com.example.courseschedule
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.util.Base64
@@ -7,28 +10,23 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,72 +45,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.delay
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.catalog.components.LiquidButton
+import com.kyant.backdrop.catalog.components.LiquidPanel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
-
-object AiEduImportProgressSession {
-    val progress = MutableStateFlow<AiEduImportProgress?>(null)
-    var onConfirm: (() -> Unit)? = null
-        private set
-    var onSecondaryConfirm: (() -> Unit)? = null
-        private set
-    var onScreenMode: (() -> Unit)? = null
-        private set
-    var onCancel: (() -> Unit)? = null
-        private set
-
-    fun update(progress: AiEduImportProgress?) {
-        this.progress.value = progress
-    }
-
-    fun setActions(
-        onConfirm: (() -> Unit)? = null,
-        onSecondaryConfirm: (() -> Unit)? = null,
-        onScreenMode: (() -> Unit)? = null,
-        onCancel: (() -> Unit)? = null
-    ) {
-        this.onConfirm = onConfirm
-        this.onSecondaryConfirm = onSecondaryConfirm
-        this.onScreenMode = onScreenMode
-        this.onCancel = onCancel
-    }
-
-    fun clearActions() {
-        onConfirm = null
-        onSecondaryConfirm = null
-        onScreenMode = null
-        onCancel = null
-    }
-
-    fun confirm() {
-        onConfirm?.invoke()
-    }
-
-    fun secondaryConfirm() {
-        onSecondaryConfirm?.invoke()
-    }
-
-    fun useScreenMode() {
-        onScreenMode?.invoke()
-    }
-
-    fun cancel() {
-        onCancel?.invoke()
-    }
-}
 
 class AiEduImportProgressActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -140,35 +86,14 @@ private fun AiEduImportProgressPage(config: ScheduleConfigEntity, onClose: () ->
     val progress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     val current = progress ?: AiEduImportProgress(steps = listOf("等待 AI 教务导入任务"))
     val listState = rememberLazyListState()
-    val context = LocalContext.current
-    val dark = appUsesDarkTheme(config)
-    val textColor = if (dark) Color.White else Color(0xFF111111)
-    val statusText = when {
+    val textColor = glassForegroundColor(settingsVisualConfig(config))
+    val statusLabel = when {
         current.error != null -> "解析失败"
         current.finished -> "已完成"
         current.steps.isNotEmpty() -> current.steps.last()
         else -> "准备中"
     }
-    val visibleStatusText = if (current.error == null && !current.finished && current.routeLabel.isNotBlank()) {
-        current.routeLabel
-    } else {
-        statusText
-    }
     val pageTitle = current.routeLabel.takeIf { it.isNotBlank() } ?: "AI 教务导入"
-    val pageSubtitle = if (current.routeLabel.contains("手动")) {
-        "文件内容、提示词摘要和模型原始返回会保留在这里。"
-    } else {
-        if (current.routeLabel.isNotBlank()) {
-            "${current.routeLabel} 路 页面内容、提示词摘要和模型原始返回会保留在这里。"
-        } else {
-            "页面内容、提示词摘要和模型原始返回会保留在这里。"
-        }
-    }
-    val unusedSubTitleA = if (current.routeLabel.isNotBlank()) {
-        "${current.routeLabel} 路 页面内容、提示词摘要和模型原始返回会保留在这里。"
-    } else {
-        "页面内容、提示词摘要和模型原始返回会保留在这里。"
-    }
     val statusColor by animateColorAsState(
         targetValue = when {
             current.error != null -> Color(0xFFFF453A)
@@ -178,17 +103,7 @@ private fun AiEduImportProgressPage(config: ScheduleConfigEntity, onClose: () ->
         animationSpec = tween(180),
         label = "ai-edu-status-color"
     )
-    val capsuleScale by animateFloatAsState(
-        targetValue = if (current.finished || current.error != null) 0.98f else 1f,
-        animationSpec = tween(180),
-        label = "ai-edu-status-scale"
-    )
     val messages = aiEduProgressMessages(current)
-    val unusedSubTitleB = if (current.routeLabel.isNotBlank()) {
-        "${current.routeLabel} · 页面内容、提示词摘要和模型原始返回会保留在这里。"
-    } else {
-        "页面内容、提示词摘要和模型原始返回会保留在这里。"
-    }
     BackHandler(enabled = current.awaitingConfirmation) {
         AiEduImportProgressSession.cancel()
         onClose()
@@ -200,145 +115,217 @@ private fun AiEduImportProgressPage(config: ScheduleConfigEntity, onClose: () ->
             listState.animateScrollToItem(messages.lastIndex)
         }
     }
-    LaunchedEffect(current.finished, current.error) {
-        if (current.finished && current.error == null) {
-            delay(850)
-            onClose()
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(if (dark) Color(0xFF050506) else Color(0xFFF6F7FB))
-    ) {
+    DetailActivityScaffold(
+        title = pageTitle,
+        config = config,
+        onBack = onClose,
+        compactTopBar = true,
+        centerCompactTitle = true
+    ) { backdrop ->
         Column(Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = detailContentTopPadding() + 10.dp,
+                    bottom = 18.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(textColor.copy(alpha = if (dark) 0.12f else 0.08f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onClose
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    androidx.compose.foundation.Image(
-                        painter = painterResource(R.drawable.ic_arrow_back),
-                        contentDescription = "返回",
-                        modifier = Modifier.size(24.dp),
-                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(textColor)
+                item {
+                    AiEduProgressHero(
+                        progress = current,
+                        statusLabel = statusLabel,
+                        statusColor = statusColor,
+                        textColor = textColor,
+                        config = config,
+                        backdrop = backdrop
                     )
                 }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        pageTitle,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = textColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        pageSubtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = textColor.copy(alpha = 0.58f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                item {
+                    AiEduStepTimeline(
+                        progress = current,
+                        textColor = textColor,
+                        config = config,
+                        backdrop = backdrop
                     )
                 }
-                Box(
-                    modifier = Modifier
-                        .graphicsLayer(scaleX = capsuleScale, scaleY = capsuleScale)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(statusColor.copy(alpha = if (current.error != null) 0.18f else 0.16f))
-                        .padding(horizontal = 13.dp, vertical = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        visibleStatusText,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = statusColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                items(messages.size) { index ->
+                    AiEduMessageCard(
+                        message = messages[index],
+                        textColor = textColor,
+                        config = config,
+                        backdrop = backdrop
                     )
                 }
             }
             if (current.awaitingConfirmation) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    current.screenModeActionLabel.takeIf { it.isNotBlank() }?.let { label ->
-                        AiEduActionChip(
-                            label = label,
-                            accent = Color(0xFFFF9F0A),
-                            textColor = textColor,
-                            dark = dark,
-                            modifier = Modifier.weight(1f),
-                            onClick = {
-                                AiEduImportProgressSession.useScreenMode()
-                                (context as? ComponentActivity)?.finish()
-                            }
-                        )
-                    }
-                    AiEduActionChip(
-                        label = current.confirmActionLabel.ifBlank { "确认发送给 AI" },
-                        accent = Color(0xFF0A84FF),
-                        textColor = textColor,
-                        dark = dark,
-                        modifier = Modifier.weight(1f),
-                        onClick = { AiEduImportProgressSession.confirm() }
-                    )
-                    current.secondaryConfirmActionLabel.takeIf { it.isNotBlank() }?.let { label ->
-                        AiEduActionChip(
-                            label = label,
-                            accent = Color(0xFF30D158),
-                            textColor = textColor,
-                            dark = dark,
-                            modifier = Modifier.weight(1f),
-                            onClick = { AiEduImportProgressSession.secondaryConfirm() }
-                        )
-                    }
-                    AiEduActionChip(
-                        label = current.cancelActionLabel.ifBlank { "取消" },
-                        accent = Color(0xFFFF453A),
-                        textColor = textColor,
-                        dark = dark,
-                        modifier = Modifier.weight(0.72f),
-                        onClick = {
-                            AiEduImportProgressSession.cancel()
-                            onClose()
-                        }
-                    )
-                }
+                AiEduConfirmationPanel(
+                    progress = current,
+                    config = config,
+                    backdrop = backdrop,
+                    onClose = onClose
+                )
             }
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        }
+    }
+}
+
+@Composable
+private fun AiEduProgressHero(
+    progress: AiEduImportProgress,
+    statusLabel: String,
+    statusColor: Color,
+    textColor: Color,
+    config: ScheduleConfigEntity,
+    backdrop: com.kyant.backdrop.Backdrop?
+) {
+    AiEduLiquidPanel(
+        backdrop = backdrop,
+        config = config,
+        modifier = Modifier.fillMaxWidth(),
+        accent = statusColor
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(statusColor.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
             ) {
-                items(messages.size) { index ->
-                    val message = messages[index]
-                    AiEduMessageBubble(message, textColor, dark)
+                Text(
+                    text = if (progress.error != null) "!" else if (progress.finished) "✓" else "AI",
+                    color = statusColor,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = when {
+                        progress.error != null -> "本次处理未完成"
+                        progress.finished -> "课表内容已处理完成"
+                        progress.awaitingConfirmation -> "发送前需要你的确认"
+                        else -> "正在整理课表内容"
+                    },
+                    color = textColor,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = statusLabel,
+                    color = statusColor,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (progress.finished) {
+                        "结果会保留在本页，确认无误后再返回。"
+                    } else {
+                        "页面仅展示可验证的处理步骤和模型摘要。"
+                    },
+                    color = textColor.copy(alpha = 0.58f),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiEduStepTimeline(
+    progress: AiEduImportProgress,
+    textColor: Color,
+    config: ScheduleConfigEntity,
+    backdrop: com.kyant.backdrop.Backdrop?
+) {
+    val rows = aiEduImportStepRows(progress)
+    AiEduLiquidPanel(
+        backdrop = backdrop,
+        config = config,
+        modifier = Modifier.fillMaxWidth(),
+        accent = Color(0xFF0A84FF)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                "处理过程",
+                color = textColor,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            rows.forEachIndexed { index, row ->
+                val rowColor = when (row.status) {
+                    AiEduImportStepStatus.Done -> Color(0xFF30D158)
+                    AiEduImportStepStatus.Current -> Color(0xFF0A84FF)
+                    AiEduImportStepStatus.Pending -> textColor.copy(alpha = 0.28f)
+                    AiEduImportStepStatus.Error -> Color(0xFFFF453A)
                 }
-                item {
-                    Spacer(Modifier.height(1.dp))
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(11.dp)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(rowColor.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(if (row.status == AiEduImportStepStatus.Current) 8.dp else 6.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(rowColor)
+                            )
+                        }
+                        if (index < rows.lastIndex) {
+                            Box(
+                                Modifier
+                                    .width(2.dp)
+                                    .height(18.dp)
+                                    .background(textColor.copy(alpha = 0.10f))
+                            )
+                        }
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            row.text,
+                            color = textColor.copy(
+                                alpha = if (row.status == AiEduImportStepStatus.Pending) 0.46f else 0.86f
+                            ),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            when (row.status) {
+                                AiEduImportStepStatus.Done -> "已完成"
+                                AiEduImportStepStatus.Current -> "正在处理"
+                                AiEduImportStepStatus.Pending -> "等待执行"
+                                AiEduImportStepStatus.Error -> "处理失败"
+                            },
+                            color = rowColor,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
             }
         }
@@ -346,34 +333,214 @@ private fun AiEduImportProgressPage(config: ScheduleConfigEntity, onClose: () ->
 }
 
 @Composable
-private fun AiEduActionChip(
+private fun AiEduConfirmationPanel(
+    progress: AiEduImportProgress,
+    config: ScheduleConfigEntity,
+    backdrop: com.kyant.backdrop.Backdrop?,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    AiEduLiquidPanel(
+        backdrop = backdrop,
+        config = config,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        accent = Color(0xFF0A84FF)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            val actions = buildList<AiEduFooterAction> {
+                add(
+                    AiEduFooterAction(
+                        label = compactAiEduActionLabel(
+                            progress.confirmActionLabel.ifBlank { "确认发送给 AI" },
+                            AiEduFooterActionKind.Confirm
+                        ),
+                        role = DialogButtonRole.Confirm
+                    ) { AiEduImportProgressSession.confirm() }
+                )
+                progress.screenModeActionLabel.takeIf(String::isNotBlank)?.let { label ->
+                    add(
+                        AiEduFooterAction(
+                            label = compactAiEduActionLabel(label, AiEduFooterActionKind.Screen),
+                            role = DialogButtonRole.Neutral
+                        ) {
+                            AiEduImportProgressSession.useScreenMode()
+                            (context as? ComponentActivity)?.finish()
+                        }
+                    )
+                }
+                progress.secondaryConfirmActionLabel.takeIf(String::isNotBlank)?.let { label ->
+                    add(
+                        AiEduFooterAction(
+                            label = compactAiEduActionLabel(label, AiEduFooterActionKind.Secondary),
+                            role = DialogButtonRole.Neutral
+                        ) { AiEduImportProgressSession.secondaryConfirm() }
+                    )
+                }
+                add(
+                    AiEduFooterAction(
+                        label = compactAiEduActionLabel(
+                            progress.cancelActionLabel.ifBlank { "取消" },
+                            AiEduFooterActionKind.Cancel
+                        ),
+                        role = DialogButtonRole.Cancel
+                    ) {
+                        AiEduImportProgressSession.cancel()
+                        onClose()
+                    }
+                )
+            }
+            val actionRows = if (actions.size == 4) actions.chunked(2) else listOf(actions)
+            actionRows.forEach { rowActions ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    rowActions.forEach { action ->
+                        DialogLiquidButton(
+                            backdrop = backdrop,
+                            label = action.label,
+                            role = action.role,
+                            roundIcon = false,
+                            destructiveFilled = action.role == DialogButtonRole.Cancel,
+                            modifier = Modifier.weight(1f),
+                            onClick = action.onClick
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private enum class AiEduFooterActionKind {
+    Confirm,
+    Screen,
+    Secondary,
+    Cancel
+}
+
+private data class AiEduFooterAction(
+    val label: String,
+    val role: DialogButtonRole,
+    val onClick: () -> Unit
+)
+
+private fun compactAiEduActionLabel(
+    original: String,
+    kind: AiEduFooterActionKind
+): String = when (kind) {
+    AiEduFooterActionKind.Confirm -> when {
+        original.contains("截图") -> "发送截图"
+        original.contains("文本") -> "发送文本"
+        else -> original.removePrefix("确认").take(6)
+    }
+    AiEduFooterActionKind.Screen -> "识屏模式"
+    AiEduFooterActionKind.Secondary ->
+        if (original.contains("截图")) "只发截图" else original.take(6)
+    AiEduFooterActionKind.Cancel ->
+        if (original.contains("重抓")) "重新抓取" else "取消"
+}
+
+@Composable
+private fun AiEduLiquidPanel(
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    modifier: Modifier = Modifier,
+    accent: Color,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val shape = RoundedCornerShape(28.dp)
+    val lightStyle = glassUsesLightStyle(config)
+    val surfaceColor = if (lightStyle) {
+        lerp(Color.White, accent, 0.10f).copy(alpha = 0.22f)
+    } else {
+        lerp(Color(0xFF121212), accent, 0.12f).copy(alpha = 0.34f)
+    }
+    if (backdrop != null) {
+        LiquidPanel(
+            backdrop = backdrop,
+            modifier = modifier,
+            shape = shape,
+            surfaceColor = surfaceColor,
+            blurRadius = 12.dp,
+            content = content
+        )
+    } else {
+        Box(
+            modifier = Modifier
+                .then(modifier)
+                .clip(shape)
+                .background(
+                    if (appUsesDarkTheme(config)) {
+                        lerp(Color(0xFF1C1C1E), accent, 0.10f)
+                    } else {
+                        lerp(Color.White, accent, 0.08f)
+                    }
+                ),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun AiEduInlineLiquidButton(
     label: String,
     accent: Color,
-    textColor: Color,
-    dark: Boolean,
-    modifier: Modifier = Modifier,
+    config: ScheduleConfigEntity,
+    backdrop: Backdrop?,
     onClick: () -> Unit
 ) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(accent.copy(alpha = if (dark) 0.18f else 0.12f))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
+    val dark = appUsesDarkTheme(config)
+    val textColor = lerp(accent, if (dark) Color.White else Color.Black, if (dark) 0.22f else 0.38f)
+    val modifier = Modifier.height(36.dp)
+    if (backdrop != null) {
+        LiquidButton(
+            onClick = onClick,
+            backdrop = backdrop,
+            modifier = modifier,
+            height = 36.dp,
+            tint = accent,
+            surfaceColor = accent.copy(alpha = if (dark) 0.18f else 0.14f),
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            blurRadius = 7.dp,
+            lensHeight = 12.dp,
+            lensAmount = 18.dp,
+            chromaticAberration = false
+        ) {
+            Text(
+                text = label,
+                color = textColor,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false
             )
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = if (accent == Color(0xFFFF453A)) accent else textColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        }
+    } else {
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(50))
+                .background(accent.copy(alpha = if (dark) 0.18f else 0.12f))
+                .clickable(onClick = onClick)
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                color = textColor,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
     }
 }
 
@@ -389,24 +556,11 @@ private data class AiEduProgressMessage(
 
 private fun aiEduProgressMessages(progress: AiEduImportProgress): List<AiEduProgressMessage> {
     val messages = mutableListOf<AiEduProgressMessage>()
-    messages += AiEduProgressMessage(
-        title = "执行进度",
-        body = aiEduImportStepRows(progress).mapIndexed { index, row ->
-            val prefix = when (row.status) {
-                AiEduImportStepStatus.Done -> "已完成"
-                AiEduImportStepStatus.Current -> "正在"
-                AiEduImportStepStatus.Pending -> "待执行"
-                AiEduImportStepStatus.Error -> "失败"
-            }
-            "${index + 1}. $prefix：${row.text}"
-        }.joinToString("\n"),
-        accent = Color(0xFF0A84FF)
-    )
     if (progress.requestPreview.isNotBlank()) {
         messages += AiEduProgressMessage("请求摘要", progress.requestPreview, Color(0xFF64D2FF), copyable = true)
     }
     messages += AiEduProgressMessage(
-        "提示词原文",
+        "课表解析协议",
         aiSchedulePrompt(),
         Color(0xFFBF5AF2),
         copyable = true,
@@ -436,7 +590,7 @@ private fun aiEduProgressMessages(progress: AiEduImportProgress): List<AiEduProg
     }
     if (progress.reasoningOutput.isNotBlank()) {
         messages += AiEduProgressMessage(
-            "思考过程",
+            "模型处理摘要",
             progress.reasoningOutput,
             Color(0xFFFF9F0A),
             copyable = true,
@@ -445,14 +599,14 @@ private fun aiEduProgressMessages(progress: AiEduImportProgress): List<AiEduProg
         )
     } else if (!progress.finished && progress.error == null && progress.steps.any { it.contains("AI") }) {
         messages += AiEduProgressMessage(
-            "正在思考",
-            "模型正在阅读页面内容并组织课表结构。若当前模型支持 reasoning_content，返回后会在这里单独显示思考过程；最终正文会显示在下方，不会和思考过程混在一起。",
+            "模型处理中",
+            "模型正在阅读输入并组织课表结构。支持摘要的模型会在完成后显示处理摘要；应用不会展示或保存模型的原始思维链。",
             Color(0xFFFF9F0A)
         )
     }
     if (progress.aiOutput.isNotBlank()) {
         messages += AiEduProgressMessage(
-            "AI 原始返回",
+            "模型返回内容",
             progress.aiOutput,
             Color(0xFF30D158),
             copyable = true,
@@ -461,8 +615,8 @@ private fun aiEduProgressMessages(progress: AiEduImportProgress): List<AiEduProg
         )
     } else if (progress.error == null) {
         messages += AiEduProgressMessage(
-            "AI 原始返回",
-            "等待模型返回。隐藏推理过程不会显示；这里会展示模型最终返回文本。",
+            "模型返回内容",
+            "等待模型返回最终可见文本。",
             Color(0xFF8E8E93)
         )
     }
@@ -470,8 +624,12 @@ private fun aiEduProgressMessages(progress: AiEduImportProgress): List<AiEduProg
 }
 
 @Composable
-private fun AiEduMessageBubble(message: AiEduProgressMessage, textColor: Color, dark: Boolean) {
-    val clipboard = LocalClipboardManager.current
+private fun AiEduMessageCard(
+    message: AiEduProgressMessage,
+    textColor: Color,
+    config: ScheduleConfigEntity,
+    backdrop: com.kyant.backdrop.Backdrop?
+) {
     val context = LocalContext.current
     var collapsed by remember(message.title, message.body) { mutableStateOf(message.initiallyCollapsed) }
     val shownBody = if (message.collapsible && collapsed && message.body.length > 900) {
@@ -479,17 +637,22 @@ private fun AiEduMessageBubble(message: AiEduProgressMessage, textColor: Color, 
     } else {
         message.body
     }
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+    AiEduLiquidPanel(
+        backdrop = backdrop,
+        config = config,
+        modifier = Modifier.fillMaxWidth(),
+        accent = message.accent
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(max = 560.dp)
-                .clip(RoundedCornerShape(26.dp))
-                .background(if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.86f))
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Box(
                     modifier = Modifier
                         .size(8.dp)
@@ -505,38 +668,38 @@ private fun AiEduMessageBubble(message: AiEduProgressMessage, textColor: Color, 
                     color = textColor
                 )
                 if (message.copyable) {
-                    Text(
-                        "复制",
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = {
-                                    clipboard.setText(AnnotatedString(message.body))
-                                    android.widget.Toast.makeText(context, "已复制", android.widget.Toast.LENGTH_SHORT).show()
-                                }
+                    Spacer(Modifier.width(6.dp))
+                    AiEduInlineLiquidButton(
+                        label = "复制",
+                        accent = message.accent,
+                        config = config,
+                        backdrop = backdrop,
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                as ClipboardManager
+                            clipboard.setPrimaryClip(
+                                ClipData.newPlainText(message.title, message.body)
                             )
-                            .padding(horizontal = 9.dp, vertical = 5.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = message.accent
+                            android.widget.Toast.makeText(
+                                context,
+                                "已复制",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     )
                 }
                 if (message.collapsible) {
-                    Text(
-                        if (collapsed) "展开" else "收起",
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = { collapsed = !collapsed }
-                            )
-                            .padding(horizontal = 9.dp, vertical = 5.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = textColor.copy(alpha = 0.72f)
+                    Spacer(Modifier.width(6.dp))
+                    AiEduInlineLiquidButton(
+                        label = if (collapsed) "展开" else "收起",
+                        accent = lerp(
+                            message.accent,
+                            if (appUsesDarkTheme(config)) Color.White else Color.Black,
+                            0.18f
+                        ),
+                        config = config,
+                        backdrop = backdrop,
+                        onClick = { collapsed = !collapsed }
                     )
                 }
             }

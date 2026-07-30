@@ -195,7 +195,8 @@ class AgentToolsTest {
             AgentToolCall(index.toString(), name, mapOf("query" to "课程"))
         }
 
-        val rendered = renderAgentToolResults(executeAgentReadTools(calls, facts))
+        val rendered = executeAgentReadTools(calls, facts)
+            .joinToString("\n") { it.content }
 
         assertTrue(rendered.contains("当前课表课程"))
         assertFalse(rendered.contains("其他课表课程"))
@@ -440,10 +441,104 @@ class AgentToolsTest {
             AgentToolName.GET_PERIODS,
             AgentToolName.GET_SETTINGS
         ).forEach { tool -> assertTrue(definitions.contains("\"name\":\"${tool.name}\"")) }
-        assertFalse(definitions.contains("\"name\":\"${AgentToolName.PROPOSE_ACTION_PLAN.name}\""))
-        assertFalse(definitions.contains("\"name\":\"${AgentToolName.PREVIEW_SETTING_CHANGES.name}\""))
         assertTrue(definitions.contains("\"required\":[\"query\"]"))
         assertTrue(definitions.contains("\"additionalProperties\":false"))
+    }
+
+    @Test
+    fun officialResponsesToolsUseFlattenedStrictFunctionSchema() {
+        val definitions = agentResponsesToolDefinitions(includeMemoryTool = true)
+
+        assertTrue(definitions.isNotEmpty())
+        definitions.forEach { element ->
+            val definition = element.jsonObject
+            assertEquals("function", definition["type"]?.jsonPrimitive?.content)
+            assertTrue(definition["name"]?.jsonPrimitive?.content.orEmpty().isNotBlank())
+            assertEquals(true, definition["strict"]?.jsonPrimitive?.boolean)
+            assertTrue(definition["parameters"]?.jsonObject?.containsKey("additionalProperties") == true)
+            assertFalse(definition.containsKey("function"))
+        }
+    }
+
+    @Test
+    fun responsesFunctionCallKeepsCallIdAndDoesNotExposeReasoningSummary() {
+        val turn = parseAgentResponsesTurn(
+            """
+                {
+                  "status": "completed",
+                  "output": [
+                    {
+                      "id": "rs_1",
+                      "type": "reasoning",
+                      "summary": [{"type": "summary_text", "text": "内部处理摘要"}]
+                    },
+                    {
+                      "id": "fc_1",
+                      "type": "function_call",
+                      "call_id": "call_schedule",
+                      "name": "get-week-schedule",
+                      "arguments": "{\"unused\":\"value\"}"
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        assertEquals("call_schedule", turn.calls.single().id)
+        assertEquals(AgentToolName.GET_WEEK_SCHEDULE, turn.calls.single().name)
+        assertEquals("value", turn.calls.single().arguments["unused"])
+        assertEquals("", turn.content)
+        assertEquals(0, turn.unparsedToolCallCount)
+        assertEquals(2, turn.outputItems.size)
+    }
+
+    @Test
+    fun responsesFinalTextReadsOutputMessageWithoutDuplicatingTopLevelText() {
+        val turn = parseAgentResponsesTurn(
+            """
+                {
+                  "status": "completed",
+                  "output_text": "课表读取完成。",
+                  "output": [{
+                    "id": "msg_1",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{
+                      "type": "output_text",
+                      "text": "课表读取完成。"
+                    }]
+                  }]
+                }
+            """.trimIndent()
+        )
+
+        assertEquals("课表读取完成。", turn.content)
+        assertTrue(turn.calls.isEmpty())
+    }
+
+    @Test
+    fun contextKeepsOnlyTheLastCompletedUserAssistantPair() {
+        fun message(id: Long, role: String, content: String, status: String) =
+            AgentMessageEntity(
+                id = id,
+                scheduleId = 1,
+                sessionDate = "2026-07-30",
+                role = role,
+                content = content,
+                createdAt = id,
+                status = status
+            )
+
+        val compact = compactAgentHistory(
+            listOf(
+                message(1, "user", "上一轮问题", "READY"),
+                message(2, "assistant", "上一轮答案", "READY"),
+                message(3, "user", "失败问题", "FAILED"),
+                message(4, "user", "仍在发送的问题", "PENDING")
+            )
+        )
+
+        assertEquals(listOf("上一轮问题", "上一轮答案"), compact.map { it.content })
     }
 
     @Test
@@ -494,44 +589,6 @@ class AgentToolsTest {
                 model = "mimo-v2.5"
             )
         )
-    }
-
-    @Test
-    fun writePlanningToolsAreInternalAndNotExposedAsModelCapabilities() {
-        val names = agentToolDefinitions()
-            .mapNotNull { definition ->
-                definition.jsonObject["function"]
-                    ?.jsonObject
-                    ?.get("name")
-                    ?.jsonPrimitive
-                    ?.content
-            }
-
-        assertFalse(names.contains(AgentToolName.PREVIEW_SETTING_CHANGES.name))
-        assertFalse(names.contains(AgentToolName.PROPOSE_ACTION_PLAN.name))
-    }
-
-    @Test
-    fun nativeActionPlanToolBecomesExistingConfirmedActionProtocol() {
-        val rendered = renderProposedAgentActionPlan(
-            AgentToolCall(
-                id = "plan",
-                name = AgentToolName.PROPOSE_ACTION_PLAN,
-                arguments = mapOf(
-                    "summary" to "准备调整前两节时间",
-                    "actions" to """
-                        [
-                          {"type":"SET_SETTING","settingKey":"PERIOD_1_TIME","settingValue":"08:10-08:55","summary":"调整第1节"},
-                          {"type":"SET_SETTING","settingKey":"PERIOD_2_TIME","settingValue":"09:05-09:50","summary":"调整第2节"}
-                        ]
-                    """.trimIndent()
-                )
-            )
-        ).orEmpty()
-
-        assertTrue(rendered.startsWith("准备调整前两节时间"))
-        assertTrue(rendered.contains("<agent_actions>"))
-        assertTrue(rendered.contains("\"PERIOD_2_TIME\""))
     }
 
     private fun course(id: Long, name: String, scheduleId: Int) = CourseEntity(

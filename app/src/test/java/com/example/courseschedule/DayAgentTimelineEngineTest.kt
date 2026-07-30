@@ -190,14 +190,6 @@ class DayAgentTimelineEngineTest {
     }
 
     @Test
-    fun expandsContextOnlyForSemesterQuestions() {
-        assertTrue(needsSemesterCourseContext("帮我总结整个学期的课程安排"))
-        assertTrue(needsSemesterCourseContext("哪几周最忙"))
-        assertTrue(needsSemesterCourseContext("我有哪些课"))
-        assertFalse(needsSemesterCourseContext("今天有什么课"))
-    }
-
-    @Test
     fun currentWeekAddActionMayOmitRedundantWeeksArray() {
         val facts = factsAt(15, 0, emptyList()).copy(
             scheduleId = 1,
