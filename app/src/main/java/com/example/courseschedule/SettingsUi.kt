@@ -1364,35 +1364,6 @@ private fun DefaultWallpaperTabs(
 }
 
 @Composable
-fun LegacyGeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: (ScheduleConfigEntity) -> Unit) {
-    LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = DockScrollPadding),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsToggleRow(
-                    title = "跟随系统",
-                    subtitle = "开启后将跟随系统切换浅色或深色模式。",
-                    checked = state.config.followSystemDarkMode,
-                    backdrop = backdrop,
-                    onCheckedChange = { onUpdateConfig(state.config.copy(followSystemDarkMode = it)) }
-                )
-                SettingsDivider()
-                SettingsToggleRow(
-                    title = "深色模式",
-                    subtitle = if (state.config.followSystemDarkMode) "当前由系统外观决定。" else "手动切换应用外观。",
-                    checked = state.config.darkMode,
-                    backdrop = backdrop,
-                    enabled = !state.config.followSystemDarkMode,
-                    onCheckedChange = { onUpdateConfig(state.config.copy(darkMode = it, followSystemDarkMode = false)) }
-                )
-            }
-        }
-    }
-}
-
-@Composable
 fun SettingsGroup(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,

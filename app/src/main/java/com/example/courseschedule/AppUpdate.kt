@@ -8,7 +8,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import androidx.core.content.ContextCompat
@@ -175,7 +174,7 @@ object GiteeAppUpdater {
     }
 
     fun canRequestPackageInstalls(context: Context): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()
+        context.packageManager.canRequestPackageInstalls()
 
     fun unknownSourcesSettingsIntent(context: Context): Intent =
         Intent(
@@ -426,12 +425,7 @@ class UpdateDownloadForegroundService : Service() {
 
     private fun finishForeground(notification: Notification) {
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_DETACH)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(false)
-        }
+        stopForeground(STOP_FOREGROUND_DETACH)
     }
 
     private fun createChannel() {

@@ -108,9 +108,9 @@ fun StartupJankStats(
             }
             val thermalStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 context.getSystemService(PowerManager::class.java)?.currentThermalStatus
-                    ?: PowerManager.THERMAL_STATUS_NONE
+                    ?: ThermalStatusNone
             } else {
-                PowerManager.THERMAL_STATUS_NONE
+                ThermalStatusNone
             }
             val state = PerformanceMetricsState.getHolderForHierarchy(view).state
             state?.putState("startup_phase", phase.name)
@@ -126,6 +126,8 @@ fun StartupJankStats(
         }
     }
 }
+
+private const val ThermalStatusNone = 0
 
 @Composable
 fun PerformanceAnimationState(animation: String, active: Boolean) {

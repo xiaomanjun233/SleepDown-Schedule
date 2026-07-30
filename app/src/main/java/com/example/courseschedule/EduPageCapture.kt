@@ -7,7 +7,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Rect
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
@@ -604,7 +603,6 @@ private suspend fun captureVisibleWebViewBitmap(webView: WebView, pageIndex: Int
 }
 
 private suspend fun captureWebViewPixels(webView: WebView): Bitmap? {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
     val activity = webView.context.findActivity() ?: return null
     val window = activity.window ?: return null
     val location = IntArray(2)
