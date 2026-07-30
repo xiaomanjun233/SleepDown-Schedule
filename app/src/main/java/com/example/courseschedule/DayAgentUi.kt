@@ -1,8 +1,12 @@
 package com.example.courseschedule
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.BitmapFactory
 import android.util.Base64
+import android.view.Window
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,7 +18,11 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -58,6 +66,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -73,21 +82,23 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
@@ -140,8 +151,8 @@ private data class AgentSourceHandoffTransform(
 
 /**
  * The day page is disposed while the week page is entering. Keep the expensive, immutable Agent
- * projection outside that short-lived composition so switching back does not decode the generated
- * JSON and scan/sort the whole timetable inside the transition frame budget again.
+ * projection outside that short-lived composition so switching back does not scan and sort the
+ * whole timetable inside the transition frame budget again.
  */
 private object DayAgentRenderCache {
     private data class FactsKey(
@@ -157,20 +168,6 @@ private object DayAgentRenderCache {
     private val facts = object : LinkedHashMap<FactsKey, DayAgentFacts>(6, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<FactsKey, DayAgentFacts>?): Boolean =
             size > 6
-    }
-    private val packs = object : LinkedHashMap<String, DailyAgentPack>(6, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, DailyAgentPack>?): Boolean =
-            size > 6
-    }
-    private data class RenderKey(
-        val packIdentity: String?,
-        val sourceHash: String,
-        val minute: LocalDateTime,
-        val weatherHash: Int
-    )
-    private val renderedMessages = object : LinkedHashMap<RenderKey, RenderedAgentMessage>(12, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<RenderKey, RenderedAgentMessage>?): Boolean =
-            size > 12
     }
     private var lastCleanupDate: LocalDate? = null
 
@@ -205,24 +202,6 @@ private object DayAgentRenderCache {
     }
 
     @Synchronized
-    fun pack(json: String?): DailyAgentPack {
-        if (json.isNullOrBlank()) return DailyAgentPack()
-        return packs.getOrPut(json) { DailyAgentPack.decodeOrDefault(json) }
-    }
-
-    @Synchronized
-    fun rendered(json: String?, pack: DailyAgentPack, facts: DayAgentFacts): RenderedAgentMessage {
-        val minute = facts.now.withSecond(0).withNano(0)
-        val key = RenderKey(
-            packIdentity = json,
-            sourceHash = facts.sourceHash,
-            minute = minute,
-            weatherHash = facts.weather.hashCode()
-        )
-        return renderedMessages.getOrPut(key) { TodayAgentTimelineEngine.render(pack, facts) }
-    }
-
-    @Synchronized
     fun shouldCleanup(date: LocalDate): Boolean {
         if (lastCleanupDate == date) return false
         lastCleanupDate = date
@@ -252,6 +231,44 @@ private val AgentMorphSizeEasing = CubicBezierEasing(0.22f, 0.62f, 0.22f, 1.0f)
 private val AgentMorphClosePositionEasing = CubicBezierEasing(0.30f, 0.10f, 0.22f, 1.0f)
 private const val AgentMorphOpenDurationMillis = 520
 private const val AgentMorphCloseDurationMillis = 520
+
+/**
+ * On a landscape tablet the conversation remains spatially attached to the Today Agent card:
+ * its left, top and right edges stay fixed while only the bottom edge grows toward the centre
+ * line of the home Dock. The floating input then straddles that same visual axis.
+ */
+internal fun tabletDayAgentConversationTargetRect(
+    source: Rect,
+    windowHeightPx: Float,
+    density: Float,
+    safeBottom: Dp
+): Rect {
+    val safeDensity = density.coerceAtLeast(0.001f)
+    val dockCenterFromBottomDp = safeBottom.value + 8f + 27f
+    val dockCenterY = windowHeightPx - dockCenterFromBottomDp * safeDensity
+    val targetTop = source.bottom + 12f * safeDensity
+    return Rect(
+        left = source.left,
+        top = targetTop,
+        right = source.right,
+        bottom = dockCenterY.coerceAtLeast(targetTop + safeDensity)
+    )
+}
+
+internal fun tabletDayAgentConversationSourceRect(source: Rect, density: Float): Rect {
+    val safeDensity = density.coerceAtLeast(0.001f)
+    val halfWidth = 18f * safeDensity
+    // Start inside the lower edge of the assistant card. The dialog shell remains transparent
+    // for the first part of the morph, so it reads as flowing out from behind the card instead
+    // of exposing a separate capsule below it.
+    val top = source.bottom - 10f * safeDensity
+    return Rect(
+        left = source.center.x - halfWidth,
+        top = top,
+        right = source.center.x + halfWidth,
+        bottom = source.bottom - 2f * safeDensity
+    )
+}
 
 private data class DayAgentCardVisual(
     val activityLabel: String,
@@ -366,6 +383,7 @@ fun TodayAgentCard(
     val repository = remember(context) { DayAgentRepository(context.applicationContext) }
     val weatherRepository = remember(context) { DayAgentWeatherRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
+    val inlineTabletConversation = rememberHomeAdaptiveMetrics().isTabletLandscape
     var weather by remember(date, weatherEnabled) {
         mutableStateOf(if (weatherEnabled) DayAgentWeatherStore.load(context) else null)
     }
@@ -665,10 +683,12 @@ fun TodayAgentCard(
             sourceGlassTokens = cardTokens,
             backgroundMotionState = backgroundMotionState,
             onAgentAction = onAgentAction,
-            onOverlayReady = { sourceCardHidden = true },
+            onOverlayReady = {
+                if (!inlineTabletConversation) sourceCardHidden = true
+            },
             onPrepareDismiss = {},
             onSourceHandoff = {
-                sourceCardHidden = false
+                if (!inlineTabletConversation) sourceCardHidden = false
             },
             onDismiss = {
                 dialogOpen = false
@@ -724,8 +744,8 @@ private fun AgentOperationLiquidButton(
     config: ScheduleConfigEntity,
     destructive: Boolean,
     applied: Boolean,
-    enabled: Boolean = true,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     val textColor = when {
@@ -976,6 +996,16 @@ private fun DayAgentConversationDialog(
     var runStatusesExpanded by remember { mutableStateOf(true) }
     var closing by remember { mutableStateOf(false) }
     val dialogContext = LocalContext.current
+    val hostWindow = remember(dialogContext) { dialogContext.findAgentHostActivity()?.window }
+    DisposableEffect(hostWindow) {
+        val previousSoftInputMode = hostWindow?.attributes?.softInputMode
+        hostWindow?.let(::keepHostBehindAgentIme)
+        onDispose {
+            if (previousSoftInputMode != null) {
+                hostWindow.setSoftInputMode(previousSoftInputMode)
+            }
+        }
+    }
     val backgroundRun by remember(state.config.id, facts.date) {
         DayAgentRunCoordinator.observe(state.config.id, facts.date)
     }.collectAsStateWithLifecycle()
@@ -987,9 +1017,7 @@ private fun DayAgentConversationDialog(
         AiImportSettingsStore.load(dialogContext)
     }
     val providerName = agentAiSettings.profile.displayName
-    val attachmentUploadEnabled =
-        !AiProviderPresets.isCustomId(agentAiSettings.profile.id) ||
-            agentAiSettings.profile.supportsFileUpload
+    val attachmentUploadEnabled = AiProviderPresets.supportsImageInput(agentAiSettings.profile)
     val appliedActionKeys = remember(state.config.id) {
         mutableStateOf(DayAgentPreferences.getAppliedActions(dialogContext, state.config.id))
     }
@@ -1004,27 +1032,88 @@ private fun DayAgentConversationDialog(
     val agentInputBackdrop = if (backdrop != null) {
         rememberCombinedBackdrop(backdrop, agentCardContentBackdrop)
     } else null
-    val configuration = LocalConfiguration.current
     val density = LocalDensity.current
+    val adaptiveMetrics = rememberHomeAdaptiveMetrics()
+    val windowWidth = adaptiveMetrics.screenWidth
+    val windowHeight = adaptiveMetrics.screenHeight
+    val sourceCardRect = sourceBounds
+    val anchoredTabletConversation = adaptiveMetrics.isTabletLandscape
+    val anchoredTargetRect = remember(
+        sourceCardRect,
+        windowHeight,
+        adaptiveMetrics.safeBottom,
+        density.density,
+        anchoredTabletConversation
+    ) {
+        if (anchoredTabletConversation) {
+            tabletDayAgentConversationTargetRect(
+                source = sourceCardRect,
+                windowHeightPx = with(density) { windowHeight.toPx() },
+                density = density.density,
+                safeBottom = adaptiveMetrics.safeBottom
+            )
+        } else null
+    }
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val answerTopPadding = statusBarTop + (configuration.screenHeightDp.dp * 0.018f).coerceIn(10.dp, 20.dp)
-    val answerMaxHeight = (configuration.screenHeightDp.dp * 0.58f).coerceIn(280.dp, 560.dp)
-    val targetWidthPx = with(density) { (configuration.screenWidthDp.dp - 28.dp).toPx() }
+    val answerTopPadding = if (anchoredTargetRect != null) {
+        with(density) { anchoredTargetRect.top.toDp() }
+    } else if (adaptiveMetrics.isLargeScreen) {
+        adaptiveMetrics.tabletContentTop
+    } else {
+        statusBarTop + (windowHeight * 0.018f).coerceIn(10.dp, 20.dp)
+    }
+    val answerWidth = if (anchoredTargetRect != null) {
+        with(density) { anchoredTargetRect.width.toDp() }
+    } else if (adaptiveMetrics.isLargeScreen) {
+        val availableWidth = windowWidth - adaptiveMetrics.tabletContentMargin * 2f
+        minOf(availableWidth, 760.dp).coerceAtLeast(minOf(availableWidth, 560.dp))
+    } else {
+        windowWidth - 28.dp
+    }
+    val answerMaxHeight = if (anchoredTargetRect != null) {
+        with(density) { anchoredTargetRect.height.toDp() }
+    } else if (adaptiveMetrics.isLargeScreen) {
+        val availableHeight = windowHeight - adaptiveMetrics.tabletContentTop - adaptiveMetrics.safeBottom - 36.dp
+        minOf(availableHeight, 640.dp).coerceAtLeast(minOf(availableHeight, 420.dp))
+    } else {
+        (windowHeight * 0.58f).coerceIn(280.dp, 560.dp)
+    }
+    val targetWidthPx = with(density) { answerWidth.toPx() }
     val targetHeightPx = with(density) { answerMaxHeight.toPx() }
-    val targetTopPx = with(density) { answerTopPadding.toPx() }
-    val targetLeftPx = with(density) { 14.dp.toPx() }
-    val screenCenterXPx = with(density) { configuration.screenWidthDp.dp.toPx() / 2f }
-    val targetRect = remember(targetLeftPx, targetTopPx, targetWidthPx, targetHeightPx) {
-        Rect(
+    val targetTopPx = anchoredTargetRect?.top ?: with(density) {
+        if (adaptiveMetrics.isLargeScreen) {
+            val availableTop = answerTopPadding
+            val availableBottom = windowHeight - adaptiveMetrics.safeBottom - 18.dp
+            (availableTop + (availableBottom - availableTop - answerMaxHeight) / 2f).coerceAtLeast(availableTop).toPx()
+        } else {
+            answerTopPadding.toPx()
+        }
+    }
+    val targetLeftPx = anchoredTargetRect?.left ?: with(density) {
+        if (adaptiveMetrics.isLargeScreen) {
+            ((windowWidth - answerWidth) / 2f).toPx()
+        } else {
+            14.dp.toPx()
+        }
+    }
+    val screenCenterXPx = with(density) { windowWidth.toPx() / 2f }
+    val targetRect = remember(anchoredTargetRect, targetLeftPx, targetTopPx, targetWidthPx, targetHeightPx) {
+        anchoredTargetRect ?: Rect(
             left = targetLeftPx,
             top = targetTopPx,
             right = targetLeftPx + targetWidthPx,
             bottom = targetTopPx + targetHeightPx
         )
     }
-    val sourceRect = sourceBounds
-    val sourceRadiusPx = with(density) { sourceCornerRadius.toPx() }
-    val targetRadiusPx = with(density) { 32.dp.toPx() }
+    val sourceRect = remember(sourceCardRect, anchoredTabletConversation, density.density) {
+        if (anchoredTabletConversation) {
+            tabletDayAgentConversationSourceRect(sourceCardRect, density.density)
+        } else sourceCardRect
+    }
+    val sourceRadiusPx = with(density) {
+        if (anchoredTabletConversation) 4.dp.toPx() else sourceCornerRadius.toPx()
+    }
+    val targetRadiusPx = with(density) { if (anchoredTabletConversation) 28.dp.toPx() else 32.dp.toPx() }
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri ->
@@ -1102,7 +1191,7 @@ private fun DayAgentConversationDialog(
                         target = targetRect,
                         positionProgress = agentMorphPositionProgress(raw, closing = true),
                         sizeProgress = agentMorphSizeProgress(raw, closing = true),
-                        maxArcPx = with(density) { 48.dp.toPx() }
+                        maxArcPx = with(density) { adaptiveMetrics.animationArc.toPx() }
                     )
                     onSourceHandoff(
                         AgentSourceHandoffTransform(
@@ -1113,23 +1202,27 @@ private fun DayAgentConversationDialog(
                         )
                     )
                 }
-                launch {
-                    backgroundMotionState.progress.animateTo(
-                        0f,
-                        tween(BACKGROUND_EXIT_DURATION, easing = BackgroundExitEasing)
-                    )
+                if (!anchoredTabletConversation) {
+                    launch {
+                        backgroundMotionState.progress.animateTo(
+                            0f,
+                            tween(BACKGROUND_EXIT_DURATION, easing = BackgroundExitEasing)
+                        )
+                    }
                 }
                 // Mirror the open: the background keeps easing back after the card has
                 // collapsed, so closing reads as the home surface settling home rather
                 // than snapping with the card.
-                launch {
-                    backgroundMotionState.backgroundZoom.animateTo(
-                        1f,
-                        tween(
-                            DayAgentBackgroundZoomCloseDurationMillis,
-                            easing = CubicBezierEasing(0.16f, 0.84f, 0.24f, 1.0f)
+                if (!anchoredTabletConversation) {
+                    launch {
+                        backgroundMotionState.backgroundZoom.animateTo(
+                            1f,
+                            tween(
+                                DayAgentBackgroundZoomCloseDurationMillis,
+                                easing = CubicBezierEasing(0.16f, 0.84f, 0.24f, 1.0f)
+                            )
                         )
-                    )
+                    }
                 }
             }
             // The pixel-aligned source cover is already above the warmed card. Remove the Dialog
@@ -1184,7 +1277,7 @@ private fun DayAgentConversationDialog(
                  // The hand-authored frozen-background Morph owns all depth treatment. Android's
                  // Dialog dim flag was the actual full-screen darkening seen behind the Agent.
                  clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-                 setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                 enableLegacyImeResize(this)
                  setDimAmount(0f)
                  // The geometry below is the only entrance/exit animation.
                  setWindowAnimations(0)
@@ -1214,7 +1307,7 @@ private fun DayAgentConversationDialog(
                             target = targetRect,
                             positionProgress = agentMorphPositionProgress(raw, closing),
                             sizeProgress = agentMorphSizeProgress(raw, closing),
-                            maxArcPx = with(density) { 48.dp.toPx() }
+                            maxArcPx = with(density) { adaptiveMetrics.animationArc.toPx() }
                         )
                         IntOffset(geometry.left.roundToInt(), geometry.top.roundToInt())
                     }
@@ -1225,7 +1318,7 @@ private fun DayAgentConversationDialog(
                             target = targetRect,
                             positionProgress = agentMorphPositionProgress(raw, closing),
                             sizeProgress = agentMorphSizeProgress(raw, closing),
-                            maxArcPx = 48.dp.toPx()
+                            maxArcPx = adaptiveMetrics.animationArc.toPx()
                         )
                         val width = geometry.width.roundToInt().coerceAtLeast(1)
                         val height = geometry.height.roundToInt().coerceAtLeast(1)
@@ -1234,10 +1327,13 @@ private fun DayAgentConversationDialog(
                             placeable.place(0, 0)
                         }
                     }
-                    .graphicsLayer {
-                        val raw = expansion.value.coerceIn(0f, 1f)
-                        val sizeProgress = agentMorphSizeProgress(raw, closing)
-                        val cornerProgress = agentSmoothStep(0.04f, 0.90f, sizeProgress)
+                     .graphicsLayer {
+                         val raw = expansion.value.coerceIn(0f, 1f)
+                         val sizeProgress = agentMorphSizeProgress(raw, closing)
+                         alpha = if (anchoredTabletConversation) {
+                             agentSmoothStep(0.08f, 0.26f, sizeProgress)
+                         } else 1f
+                         val cornerProgress = agentSmoothStep(0.04f, 0.90f, sizeProgress)
                         val visualRadiusPx =
                             sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * cornerProgress
                         shape = CourseEditorMorphCornerShape(
@@ -1265,26 +1361,28 @@ private fun DayAgentConversationDialog(
                     // wallpaper treatment instead of maintaining a second drifting parameter set.
                     tokens = sourceGlassTokens
                 ) {}
-                DayAgentCardVisualContent(
-                    visual = sourceVisual,
-                    foreground = sourceForeground,
-                    activityAccent = sourceActivityAccent,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .graphicsLayer {
-                            val raw = expansion.value.coerceIn(0f, 1f)
-                            alpha = if (closing) {
-                                1f - agentSmoothStep(0.32f, 0.56f, raw)
-                            } else {
-                                1f - agentSmoothStep(0.10f, 0.38f, raw)
+                if (!anchoredTabletConversation) {
+                    DayAgentCardVisualContent(
+                        visual = sourceVisual,
+                        foreground = sourceForeground,
+                        activityAccent = sourceActivityAccent,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                val raw = expansion.value.coerceIn(0f, 1f)
+                                alpha = if (closing) {
+                                    1f - agentSmoothStep(0.32f, 0.56f, raw)
+                                } else {
+                                    1f - agentSmoothStep(0.10f, 0.38f, raw)
+                                }
+                                val blurPx = 5.dp.toPx() * agentSmoothStep(0f, 0.56f, raw)
+                                compositingStrategy = CompositingStrategy.Offscreen
+                                renderEffect = if (blurPx > 0.01f) {
+                                    BlurEffect(blurPx, blurPx, TileMode.Clamp)
+                                } else null
                             }
-                            val blurPx = 5.dp.toPx() * agentSmoothStep(0f, 0.56f, raw)
-                            compositingStrategy = CompositingStrategy.Offscreen
-                            renderEffect = if (blurPx > 0.01f) {
-                                BlurEffect(blurPx, blurPx, TileMode.Clamp)
-                            } else null
-                        }
-                )
+                    )
+                }
                   Column(
                       Modifier
                           .graphicsLayer {
@@ -1325,7 +1423,9 @@ private fun DayAgentConversationDialog(
                       LazyColumn(
                          state = conversationListState,
                          modifier = Modifier.weight(1f),
-                         contentPadding = PaddingValues(bottom = 16.dp),
+                         contentPadding = PaddingValues(
+                             bottom = if (anchoredTabletConversation) 58.dp else 16.dp
+                         ),
                          verticalArrangement = Arrangement.spacedBy(10.dp)
                      ) {
                          if (messages.isEmpty() && streamingText.isBlank()) {
@@ -1406,11 +1506,12 @@ private fun DayAgentConversationDialog(
                                   }
                                   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                       if (message.id == tracedAssistantMessageId) {
-                                          AgentRunTrace(
-                                              statuses = runStatuses,
-                                              expanded = runStatusesExpanded,
-                                              foreground = foreground,
-                                              onToggle = {
+                                           AgentRunTrace(
+                                               statuses = runStatuses,
+                                               expanded = runStatusesExpanded,
+                                               foreground = foreground,
+                                               active = sending,
+                                               onToggle = {
                                                   runStatusesExpanded = !runStatusesExpanded
                                               }
                                           )
@@ -1549,11 +1650,12 @@ private fun DayAgentConversationDialog(
                          }
                            if (runStatuses.isNotEmpty() && tracedAssistantMessageId == null) {
                                item {
-                                   AgentRunTrace(
-                                      statuses = runStatuses,
-                                      expanded = runStatusesExpanded,
-                                      foreground = foreground,
-                                      onToggle = {
+                                    AgentRunTrace(
+                                       statuses = runStatuses,
+                                       expanded = runStatusesExpanded,
+                                       foreground = foreground,
+                                       active = sending,
+                                       onToggle = {
                                           runStatusesExpanded = !runStatusesExpanded
                                       }
                                   )
@@ -1586,9 +1688,10 @@ private fun DayAgentConversationDialog(
                                       status = AgentRunStatus(
                                           AgentRunStatusIcon.THINKING,
                                           "正在准备"
-                                      ),
-                                      foreground = foreground
-                                  )
+                                       ),
+                                       foreground = foreground,
+                                       shimmer = true
+                                   )
                               }
                           }
                          (error ?: attachmentError)?.let { message ->
@@ -1604,7 +1707,12 @@ private fun DayAgentConversationDialog(
                       .align(Alignment.BottomStart)
                       .imePadding()
                       .navigationBarsPadding()
-                      .padding(start = 14.dp, bottom = 78.dp)
+                      .padding(
+                          start = if (anchoredTabletConversation) {
+                              with(density) { targetLeftPx.toDp() } + 14.dp
+                          } else 14.dp,
+                          bottom = 78.dp
+                      )
                       .graphicsLayer {
                           val p = expansion.value
                           alpha = ((p - 0.12f) / 0.58f).coerceIn(0f, 1f)
@@ -1678,11 +1786,25 @@ private fun DayAgentConversationDialog(
                      backdrop = agentInputBackdrop,
                     config = state.config,
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
+                        .align(
+                            if (anchoredTabletConversation) Alignment.BottomStart
+                            else Alignment.BottomCenter
+                        )
+                        .then(
+                            if (anchoredTabletConversation) {
+                                Modifier
+                                    .offset(x = with(density) { targetLeftPx.toDp() })
+                                    .width(answerWidth)
+                            } else {
+                                Modifier.fillMaxWidth()
+                            }
+                        )
                         .imePadding()
                         .navigationBarsPadding()
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .padding(
+                            horizontal = if (anchoredTabletConversation) 0.dp else 14.dp,
+                            vertical = 10.dp
+                        )
                         .graphicsLayer {
                             val p = expansion.value
                             alpha = ((p - 0.12f) / 0.58f).coerceIn(0f, 1f)
@@ -1823,23 +1945,27 @@ private fun DayAgentConversationDialog(
                           tween(AgentMorphOpenDurationMillis, easing = LinearEasing)
                      )
                  }
-                 launch {
-                     backgroundMotionState.progress.animateTo(
-                         1f,
-                         tween(BACKGROUND_OPEN_DURATION, easing = BackgroundOpenEasing)
-                     )
-                 }
+                  if (!anchoredTabletConversation) {
+                      launch {
+                          backgroundMotionState.progress.animateTo(
+                              1f,
+                              tween(BACKGROUND_OPEN_DURATION, easing = BackgroundOpenEasing)
+                          )
+                      }
+                  }
                  // The background depth trails the card on a longer ease-out so it keeps
                  // receding after the card has opened — the inertial pull on the home surface.
-                 launch {
-                     backgroundMotionState.backgroundZoom.animateTo(
-                         DayAgentBackgroundZoomRestScale,
-                         tween(
-                             DayAgentBackgroundZoomOpenDurationMillis,
-                             easing = CubicBezierEasing(0.16f, 0.84f, 0.24f, 1.0f)
-                         )
-                     )
-                 }
+                  if (!anchoredTabletConversation) {
+                      launch {
+                          backgroundMotionState.backgroundZoom.animateTo(
+                              DayAgentBackgroundZoomRestScale,
+                              tween(
+                                  DayAgentBackgroundZoomOpenDurationMillis,
+                                  easing = CubicBezierEasing(0.16f, 0.84f, 0.24f, 1.0f)
+                              )
+                          )
+                      }
+                  }
              }
              focusRequester.requestFocus()
              keyboard?.show()
@@ -1923,6 +2049,7 @@ private fun AgentRunTrace(
     statuses: List<AgentRunStatus>,
     expanded: Boolean,
     foreground: Color,
+    active: Boolean,
     onToggle: () -> Unit
 ) {
     Column(
@@ -1936,8 +2063,12 @@ private fun AgentRunTrace(
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         if (expanded) {
-            statuses.forEach { status ->
-                AgentRunStatusRow(status = status, foreground = foreground)
+            statuses.forEachIndexed { index, status ->
+                AgentRunStatusRow(
+                    status = status,
+                    foreground = foreground,
+                    shimmer = active && index == statuses.lastIndex
+                )
             }
         } else {
             AgentRunStatusRow(
@@ -1945,7 +2076,8 @@ private fun AgentRunTrace(
                 // state while the request is still thinking or executing a tool.
                 status = statuses.lastOrNull()
                     ?: AgentRunStatus(AgentRunStatusIcon.THINKING, "正在思考"),
-                foreground = foreground
+                foreground = foreground,
+                shimmer = active
             )
         }
     }
@@ -1954,7 +2086,8 @@ private fun AgentRunTrace(
 @Composable
 private fun AgentRunStatusRow(
     status: AgentRunStatus,
-    foreground: Color
+    foreground: Color,
+    shimmer: Boolean = false
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -1973,14 +2106,81 @@ private fun AgentRunStatusRow(
                 modifier = Modifier.size(15.dp)
             )
         }
-        Text(
+        AgentStatusText(
             text = status.text,
-            color = foreground.copy(
+            baseColor = foreground.copy(
                 alpha = if (status.icon == AgentRunStatusIcon.THINKING) 0.43f else 0.57f
             ),
-            style = MaterialTheme.typography.labelMedium
+            shimmer = shimmer
         )
     }
+}
+
+@Suppress("DEPRECATION") // No replacement preserves the same Dialog window behavior on every supported API.
+private fun enableLegacyImeResize(window: Window) {
+    window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+}
+
+@Suppress("DEPRECATION")
+private fun keepHostBehindAgentIme(window: Window) {
+    // The Agent dialog owns IME resizing for its floating input. Keep the Activity window at its
+    // original height so the home Dock stays underneath the keyboard on phones and tablets.
+    window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+}
+
+private tailrec fun Context.findAgentHostActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findAgentHostActivity()
+    else -> null
+}
+
+@Composable
+private fun AgentStatusText(
+    text: String,
+    baseColor: Color,
+    shimmer: Boolean
+) {
+    if (!shimmer) {
+        Text(
+            text = text,
+            color = baseColor,
+            style = MaterialTheme.typography.labelMedium
+        )
+        return
+    }
+    var textWidth by remember(text) { mutableIntStateOf(1) }
+    val transition = rememberInfiniteTransition(label = "agent-status-shimmer")
+    val phase by transition.animateFloat(
+        initialValue = -0.85f,
+        targetValue = 1.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = 1_550,
+                delayMillis = 180,
+                easing = LinearEasing
+            ),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "agent-status-shimmer-phase"
+    )
+    val width = textWidth.coerceAtLeast(1).toFloat()
+    val brush = Brush.linearGradient(
+        colors = listOf(
+            baseColor,
+            baseColor,
+            Color.White.copy(alpha = 0.96f),
+            baseColor,
+            baseColor
+        ),
+        start = Offset((phase - 0.42f) * width, 0f),
+        end = Offset((phase + 0.42f) * width, 0f)
+    )
+    Text(
+        text = text,
+        modifier = Modifier.onSizeChanged { textWidth = it.width.coerceAtLeast(1) },
+        color = Color.Unspecified,
+        style = MaterialTheme.typography.labelMedium.copy(brush = brush)
+    )
 }
 
 @Composable

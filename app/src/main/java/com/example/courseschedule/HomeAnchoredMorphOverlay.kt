@@ -1,11 +1,13 @@
 package com.example.courseschedule
 
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,10 +37,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -49,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.drawPlainBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
@@ -122,6 +128,19 @@ internal data class HomeAnchoredMorphGeometry(
     val pathProgress: Float,
     val expansionProgress: Float
 )
+
+/**
+ * Keeps the tablet personalization backdrop tied to both animation state and slider preview.
+ * The preview progress is already animated by the caller, so this value can drive blur radius
+ * and opacity without snapping when a drag starts or finishes.
+ */
+internal fun personalizeBackdropBlurLayerProgress(
+    expansionProgress: Float,
+    previewProgress: Float
+): Float = (
+    homeMorphSmoothStep(0.12f, 0.46f, expansionProgress.coerceIn(0f, 1f)) *
+        (1f - previewProgress.coerceIn(0f, 1f))
+    ).coerceIn(0f, 1f)
 
 internal fun homeAnchoredMorphGeometry(
     source: Rect,
@@ -246,7 +265,8 @@ internal fun homeAddMenuTargetRect(
     source: Rect,
     rootSize: IntSize,
     density: Float,
-    actionCount: Int
+    actionCount: Int,
+    adaptiveMetrics: HomeAdaptiveMetrics? = null
 ): Rect {
     val width = 202f * density
     val height = (16f + 48f * actionCount + 4f * (actionCount - 1).coerceAtLeast(0)) * density
@@ -256,13 +276,57 @@ internal fun homeAddMenuTargetRect(
         right = source.center.x + width / 2f,
         bottom = source.bottom + 4f * density + height
     )
-    return clampHomeMorphTarget(proposed, rootSize, 12f * density)
+    return clampHomeMorphTarget(proposed, rootSize, 12f * density, adaptiveMetrics?.contentRectPx(rootSize, density))
 }
 
 internal fun homePersonalizeTargetRect(
     rootSize: IntSize,
-    density: Float
+    density: Float,
+    adaptiveMetrics: HomeAdaptiveMetrics? = null
 ): Rect {
+    if (adaptiveMetrics != null) {
+        val content = adaptiveMetrics.contentRectPx(rootSize, density)
+        if (!adaptiveMetrics.isLargeScreen) {
+            val maxHeightDp = content.height / density.coerceAtLeast(0.001f)
+            val heightRatio = when {
+                maxHeightDp < 520f -> 0.78f
+                maxHeightDp < 700f -> 0.74f
+                else -> 0.70f
+            }
+            val panelHeight = minOf(content.height * heightRatio, 680f * density)
+                .coerceAtLeast(minOf(content.height, 280f * density))
+            val panelWidth = (content.width * 0.95f).coerceAtLeast(1f)
+            val proposed = Rect(
+                left = content.left + (content.width - panelWidth) / 2f,
+                top = content.top + (content.height - panelHeight) / 2f,
+                right = content.left + (content.width + panelWidth) / 2f,
+                bottom = content.top + (content.height + panelHeight) / 2f
+            )
+            return clampHomeMorphTarget(proposed, rootSize, 0f, content)
+        }
+        val landscape = adaptiveMetrics.isTabletLandscape
+        val minWidth = minOf((if (landscape) 380f else 400f) * density, content.width)
+        val panelWidth = minOf(
+            content.width * if (landscape) 0.40f else 0.72f,
+            (if (landscape) 448f else 480f) * density
+        ).coerceAtLeast(minWidth)
+        val panelHeight = minOf(
+            content.height * if (landscape) 0.84f else 0.78f,
+            (if (landscape) 760f else 720f) * density
+        ).coerceAtLeast(minOf(content.height, 420f * density))
+        val left = if (adaptiveMetrics.isTabletLandscape) {
+            content.right - panelWidth
+        } else {
+            content.left + (content.width - panelWidth) / 2f
+        }
+        val top = content.top + (content.height - panelHeight) / 2f
+        return Rect(
+            left = left,
+            top = top,
+            right = left + panelWidth,
+            bottom = top + panelHeight
+        )
+    }
     val rootWidth = rootSize.width.toFloat()
     val rootHeight = rootSize.height.toFloat()
     val maxHeightDp = rootHeight / density.coerceAtLeast(0.001f)
@@ -287,15 +351,21 @@ internal fun homePersonalizeTargetRect(
 internal fun clampHomeMorphTarget(
     target: Rect,
     rootSize: IntSize,
-    marginPx: Float
+    marginPx: Float,
+    bounds: Rect? = null
 ): Rect {
     if (rootSize.width <= 0 || rootSize.height <= 0) return Rect.Zero
-    val availableWidth = (rootSize.width - marginPx * 2f).coerceAtLeast(1f)
-    val availableHeight = (rootSize.height - marginPx * 2f).coerceAtLeast(1f)
+    val safeBounds = bounds ?: Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
+    val minLeft = safeBounds.left + marginPx
+    val minTop = safeBounds.top + marginPx
+    val maxRight = safeBounds.right - marginPx
+    val maxBottom = safeBounds.bottom - marginPx
+    val availableWidth = (maxRight - minLeft).coerceAtLeast(1f)
+    val availableHeight = (maxBottom - minTop).coerceAtLeast(1f)
     val width = min(target.width, availableWidth)
     val height = min(target.height, availableHeight)
-    val left = target.left.coerceIn(marginPx, rootSize.width - marginPx - width)
-    val top = target.top.coerceIn(marginPx, rootSize.height - marginPx - height)
+    val left = target.left.coerceIn(minLeft, maxRight - width)
+    val top = target.top.coerceIn(minTop, maxBottom - height)
     return Rect(left, top, left + width, top + height)
 }
 
@@ -306,6 +376,7 @@ internal fun HomeAnchoredMorphOverlayHost(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     addActions: List<AddMenuAction>,
+    adaptiveMetrics: HomeAdaptiveMetrics,
     modifier: Modifier = Modifier,
     onDismissRequest: () -> Unit,
     onAddMenuBoundsChanged: (Rect) -> Unit = {},
@@ -314,14 +385,16 @@ internal fun HomeAnchoredMorphOverlayHost(
     personalizeContent: @Composable (Modifier) -> Unit
 ) {
     var renderedRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
+    var panelContentPrepared by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val latestOnDismissRequest by rememberUpdatedState(onDismissRequest)
     val latestOnAddMenuBoundsChanged by rememberUpdatedState(onAddMenuBoundsChanged)
 
-    LaunchedEffect(request) {
+    LaunchedEffect(request, adaptiveMetrics.profile) {
         if (request != null) {
             motionState.phase = HomeAnchoredOverlayPhase.Preparing
             renderedRequest = request
+            panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize
             motionState.renderedKind = request.kind
             motionState.progress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
@@ -329,6 +402,12 @@ internal fun HomeAnchoredMorphOverlayHost(
             while (waitedFrames < 12 && (rootSize.width <= 0 || rootSize.height <= 0)) {
                 withFrameNanos { }
                 waitedFrames++
+            }
+            if (request.kind == HomeAnchoredOverlayKind.Personalize) {
+                // Personalization contains several sliders and glass sections. Compose and measure
+                // them before the panel starts moving so the first expansion frame stays cheap.
+                panelContentPrepared = true
+                withFrameNanos { }
             }
             motionState.phase = HomeAnchoredOverlayPhase.Opening
             coroutineScope {
@@ -338,7 +417,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                         tween(HomeAnchoredMorphOpenDurationMillis, easing = LinearEasing)
                     )
                 }
-                if (request.kind == HomeAnchoredOverlayKind.Personalize) {
+                if (request.kind == HomeAnchoredOverlayKind.Personalize && !adaptiveMetrics.isLargeScreen) {
                     launch {
                         motionState.backgroundZoom.animateTo(
                             HomeAnchoredMorphBackgroundScale,
@@ -375,10 +454,12 @@ internal fun HomeAnchoredMorphOverlayHost(
                 }
             }
             motionState.phase = HomeAnchoredOverlayPhase.Disposing
+            panelContentPrepared = false
             renderedRequest = null
             motionState.renderedKind = null
             motionState.phase = HomeAnchoredOverlayPhase.Idle
         } else {
+            panelContentPrepared = false
             motionState.progress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
             motionState.renderedKind = null
@@ -400,17 +481,28 @@ internal fun HomeAnchoredMorphOverlayHost(
         if (rootSize.width <= 0 || rootSize.height <= 0) return@Box
 
         val density = androidx.compose.ui.platform.LocalDensity.current
-        val targetRect = when (shown.kind) {
-            HomeAnchoredOverlayKind.Add -> homeAddMenuTargetRect(
-                source = shown.sourceBoundsInRoot,
-                rootSize = rootSize,
-                density = density.density,
-                actionCount = addActions.size
-            )
-            HomeAnchoredOverlayKind.Personalize -> homePersonalizeTargetRect(
-                rootSize = rootSize,
-                density = density.density
-            )
+        val targetRect = remember(
+            shown.kind,
+            shown.sourceBoundsInRoot,
+            rootSize,
+            density.density,
+            addActions.size,
+            adaptiveMetrics
+        ) {
+            when (shown.kind) {
+                HomeAnchoredOverlayKind.Add -> homeAddMenuTargetRect(
+                    source = shown.sourceBoundsInRoot,
+                    rootSize = rootSize,
+                    density = density.density,
+                    actionCount = addActions.size,
+                    adaptiveMetrics = adaptiveMetrics
+                )
+                HomeAnchoredOverlayKind.Personalize -> homePersonalizeTargetRect(
+                    rootSize = rootSize,
+                    density = density.density,
+                    adaptiveMetrics = adaptiveMetrics
+                )
+            }
         }
         LaunchedEffect(shown.kind, targetRect) {
             if (shown.kind == HomeAnchoredOverlayKind.Add) {
@@ -429,7 +521,7 @@ internal fun HomeAnchoredMorphOverlayHost(
             pinchDiameterPx = with(density) { 18.dp.toPx() },
             minimumDropPx = with(density) { 36.dp.toPx() },
             maximumDropPx = with(density) { 72.dp.toPx() },
-            maximumArcPx = with(density) { 48.dp.toPx() },
+            maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() },
             targetCornerRadiusPx = targetCornerPx
         )
         val animatedRect = geometry.rect
@@ -452,6 +544,10 @@ internal fun HomeAnchoredMorphOverlayHost(
         } else {
             RoundedCornerShape(corner)
         }
+        val personalizeBlurLayerProgress = personalizeBackdropBlurLayerProgress(
+            expansionProgress = geometry.expansionProgress,
+            previewProgress = personalizePreviewProgress
+        )
 
         Box(
             modifier = Modifier
@@ -461,6 +557,38 @@ internal fun HomeAnchoredMorphOverlayHost(
                     indication = null
                 ) { latestOnDismissRequest() }
         )
+
+        if (
+            shown.kind == HomeAnchoredOverlayKind.Personalize &&
+            adaptiveMetrics.isLargeScreen &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            backdrop != null &&
+            personalizeBlurLayerProgress > 0.001f
+        ) {
+            val auraProgress = geometry.expansionProgress.coerceIn(0f, 1f)
+            val leftFeather = 104.dp * auraProgress
+            val leftFeatherPx = with(density) { leftFeather.toPx() }
+            val auraLeftPx = (animatedRect.left - leftFeatherPx).coerceAtLeast(0f)
+            PersonalizeBackdropAura(
+                backdrop = backdrop,
+                leftFeather = leftFeather,
+                blurProgress = personalizeBlurLayerProgress,
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            auraLeftPx.roundToInt(),
+                            0
+                        )
+                    }
+                    .size(
+                        with(density) { (rootSize.width - auraLeftPx).toDp() },
+                        with(density) { rootSize.height.toDp() }
+                    )
+                    .graphicsLayer {
+                        alpha = geometry.surfaceAlpha * personalizeBlurLayerProgress
+                    }
+            )
+        }
 
         Box(
             modifier = Modifier
@@ -508,12 +636,22 @@ internal fun HomeAnchoredMorphOverlayHost(
                     config = config,
                     targetWidth = targetWidth,
                     targetHeight = targetHeight,
-                    surfaceAlpha = geometry.surfaceAlpha * (1f - personalizePreviewProgress.coerceIn(0f, 1f)),
+                    surfaceAlpha = geometry.surfaceAlpha * if (adaptiveMetrics.isLargeScreen) {
+                        1f
+                    } else {
+                        1f - personalizePreviewProgress.coerceIn(0f, 1f)
+                    },
                     contentAlpha = geometry.contentAlpha,
                     contentBlurRadiusPx = morphContentBlurPx,
                     corner = corner,
+                    progressiveBlur = adaptiveMetrics.isLargeScreen,
+                    backdropBlurProgress = personalizeBlurLayerProgress,
                     modifier = Modifier.fillMaxSize(),
-                    content = personalizeContent
+                    content = { contentModifier ->
+                        if (panelContentPrepared) {
+                            personalizeContent(contentModifier)
+                        }
+                    }
                 )
             }
 
@@ -561,24 +699,39 @@ private fun HomePersonalizeMorphPanel(
     contentAlpha: Float,
     contentBlurRadiusPx: Float,
     corner: androidx.compose.ui.unit.Dp,
+    progressiveBlur: Boolean,
+    backdropBlurProgress: Float,
     modifier: Modifier,
     content: @Composable (Modifier) -> Unit
 ) {
     val lightGlass = glassUsesLightStyle(config)
     Box(modifier) {
         if (backdrop != null) {
-            LiquidPanel(
-                backdrop = backdrop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = surfaceAlpha },
-                shape = RoundedRectangle(corner),
-                surfaceColor = if (lightGlass) {
-                    Color.White.copy(alpha = 0.18f)
-                } else {
-                    Color(0xFF121212).copy(alpha = 0.30f)
-                }
-            ) { }
+            val surfaceColor = if (lightGlass) {
+                HomeLightGlassSurfaceColor.copy(alpha = HomeLightGlassPanelTintAlpha)
+            } else {
+                Color(0xFF121212).copy(alpha = 0.30f)
+            }
+            if (progressiveBlur && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ProgressivePersonalizeSurface(
+                    backdrop = backdrop,
+                    corner = corner,
+                    surfaceColor = surfaceColor,
+                    blurProgress = backdropBlurProgress,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = surfaceAlpha }
+                )
+            } else {
+                LiquidPanel(
+                    backdrop = backdrop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = surfaceAlpha },
+                    shape = RoundedRectangle(corner),
+                    surfaceColor = surfaceColor
+                ) { }
+            }
         } else {
             GlassDialogSurface(
                 backdrop = null,
@@ -589,21 +742,122 @@ private fun HomePersonalizeMorphPanel(
                 shape = RoundedCornerShape(corner)
             ) { }
         }
+        val contentEffects = if (contentBlurRadiusPx > 0.01f) {
+            Modifier.graphicsLayer {
+                alpha = contentAlpha
+                compositingStrategy = CompositingStrategy.Offscreen
+                renderEffect = BlurEffect(contentBlurRadiusPx, contentBlurRadiusPx, TileMode.Clamp)
+            }
+        } else {
+            Modifier.graphicsLayer { alpha = contentAlpha }
+        }
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
                 .requiredSize(targetWidth, targetHeight)
-                .graphicsLayer {
-                    alpha = contentAlpha
-                    compositingStrategy = CompositingStrategy.Offscreen
-                    renderEffect = if (contentBlurRadiusPx > 0.01f) {
-                        BlurEffect(contentBlurRadiusPx, contentBlurRadiusPx, TileMode.Clamp)
-                    } else null
-                }
+                .then(contentEffects)
         ) {
             content(Modifier.fillMaxSize())
         }
     }
+}
+
+@Composable
+private fun ProgressivePersonalizeSurface(
+    backdrop: Backdrop,
+    corner: androidx.compose.ui.unit.Dp,
+    surfaceColor: Color,
+    blurProgress: Float,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedRectangle(corner)
+    val safeBlurProgress = blurProgress.coerceIn(0f, 1f)
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                this.shape = shape
+                clip = true
+            }
+    ) {
+        if (safeBlurProgress > 0.001f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = safeBlurProgress }
+                    .drawPlainBackdrop(
+                        backdrop = backdrop,
+                        shape = { shape },
+                        effects = { blur((7.dp * safeBlurProgress).toPx()) }
+                    )
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                brush = Brush.horizontalGradient(
+                    0f to surfaceColor.copy(
+                        alpha = (surfaceColor.alpha + if (surfaceColor.red > 0.5f) 0.08f else 0.07f)
+                            .coerceAtMost(0.42f)
+                    ),
+                    0.56f to surfaceColor,
+                    1f to surfaceColor.copy(
+                        alpha = (surfaceColor.alpha * 0.72f).coerceAtLeast(0.07f)
+                    )
+                ),
+                shape = shape
+            )
+                .border(
+                    width = 1.dp,
+                    brush = Brush.linearGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.28f),
+                            Color.White.copy(alpha = 0.08f)
+                        )
+                    ),
+                    shape = shape
+                )
+        )
+    }
+}
+
+@Composable
+private fun PersonalizeBackdropAura(
+    backdrop: Backdrop,
+    leftFeather: androidx.compose.ui.unit.Dp,
+    blurProgress: Float,
+    modifier: Modifier = Modifier
+) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val safeBlurProgress = blurProgress.coerceIn(0f, 1f)
+    Box(
+        modifier = modifier
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                val left = with(density) { leftFeather.toPx() }
+                val leftStop = (left / size.width.coerceAtLeast(1f)).coerceIn(0f, 0.48f)
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        0f to Color.Transparent,
+                        leftStop to Color.White,
+                        1f to Color.White
+                    ),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+            .drawPlainBackdrop(
+                backdrop = backdrop,
+                // Lens requires a rounded/corner-based SDF shape. A zero-radius continuous
+                // rectangle remains visually square while satisfying that contract.
+                shape = { RoundedRectangle(0.dp) },
+                effects = {
+                    vibrancy()
+                    blur((5.dp * safeBlurProgress).toPx())
+                    lens(24.dp.toPx(), 34.dp.toPx(), chromaticAberration = false)
+                }
+            )
+    )
 }
 
 @Composable
@@ -711,8 +965,8 @@ internal fun HomeAddMenuMorphPanel(
                     },
                     onDrawSurface = {
                         drawRect(
-                            (if (lightGlass) Color.White else Color(0xFF050505))
-                                .copy(alpha = if (lightGlass) 0.16f else 0.26f)
+                            (if (lightGlass) HomeLightGlassSurfaceColor else Color(0xFF050505))
+                                .copy(alpha = if (lightGlass) HomeLightGlassMenuTintAlpha else 0.26f)
                         )
                         drawRect(Color.Black.copy(alpha = if (lightGlass) 0.018f else 0.055f))
                     }
@@ -724,16 +978,19 @@ internal fun HomeAddMenuMorphPanel(
             }
         )
 
+        val contentEffects = if (contentBlurRadiusPx > 0.01f) {
+            Modifier.graphicsLayer {
+                alpha = contentAlpha
+                compositingStrategy = CompositingStrategy.Offscreen
+                renderEffect = BlurEffect(contentBlurRadiusPx, contentBlurRadiusPx, TileMode.Clamp)
+            }
+        } else {
+            Modifier.graphicsLayer { alpha = contentAlpha }
+        }
         Column(
             modifier = Modifier
                 .requiredSize(targetWidth, targetHeight)
-                .graphicsLayer {
-                    alpha = contentAlpha
-                    compositingStrategy = CompositingStrategy.Offscreen
-                    renderEffect = if (contentBlurRadiusPx > 0.01f) {
-                        BlurEffect(contentBlurRadiusPx, contentBlurRadiusPx, TileMode.Clamp)
-                    } else null
-                }
+                .then(contentEffects)
                 .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {

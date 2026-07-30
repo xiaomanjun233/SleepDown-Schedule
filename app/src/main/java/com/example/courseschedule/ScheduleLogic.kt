@@ -10,6 +10,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
+import androidx.core.content.edit
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.Icon
@@ -769,7 +770,7 @@ object NotificationScheduler {
             // Always clear stale alarms outside the term, even if this process has
             // already seen today's signature before the boundary check was fixed.
             scheduleToday(context, courses, config, periods)
-            prefs.edit().putString(KEY_SCHEDULE_SIGNATURE, signature).apply()
+            prefs.edit {putString(KEY_SCHEDULE_SIGNATURE, signature)}
         }
         checkImmediateLiveUpdate(context, courses, config, periods)
     }
@@ -811,7 +812,7 @@ object NotificationScheduler {
                 }
             }
         }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_REQUEST_CODES, scheduledCodes.joinToString(",")).apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {putString(KEY_REQUEST_CODES, scheduledCodes.joinToString(","))}
     }
 
     internal fun scheduleSignature(
@@ -927,7 +928,7 @@ object NotificationScheduler {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val codes = prefs.getString(KEY_REQUEST_CODES, "").orEmpty().split(",").mapNotNull { it.toIntOrNull() }
         codes.forEach { alarmManager.cancel(emptyPendingIntent(context, it)) }
-        prefs.edit().remove(KEY_REQUEST_CODES).apply()
+        prefs.edit {remove(KEY_REQUEST_CODES)}
     }
 
     private fun pendingIntent(context: Context, course: CourseEntity, config: ScheduleConfigEntity, periods: List<PeriodEntity>, requestCode: Int = course.requestCode()): PendingIntent {
@@ -1105,7 +1106,7 @@ object NotificationScheduler {
         val until = prefs.getString(KEY_MUTED_UNTIL, null)?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: return false
         val now = LocalTime.now()
         if (!now.isBefore(until)) {
-            prefs.edit().remove(KEY_MUTED_COURSE).remove(KEY_MUTED_UNTIL).apply()
+            prefs.edit {remove(KEY_MUTED_COURSE).remove(KEY_MUTED_UNTIL)}
             return false
         }
         return key == course.muteKey() && until == endTime
@@ -1113,10 +1114,10 @@ object NotificationScheduler {
 
     fun cancelCurrentLiveUpdate(context: Context, muteKey: String?, muteUntil: String?) {
         if (!muteKey.isNullOrBlank() && !muteUntil.isNullOrBlank()) {
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString(KEY_MUTED_COURSE, muteKey)
-                .putString(KEY_MUTED_UNTIL, muteUntil)
-                .apply()
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+                    putString(KEY_MUTED_COURSE, muteKey)
+                    .putString(KEY_MUTED_UNTIL, muteUntil)
+                }
         }
         NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
         stopLiveUpdateService(context)
@@ -1128,10 +1129,10 @@ object NotificationScheduler {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             if (prefs.getBoolean(KEY_DND_ENABLED_BY_APP, false)) {
                 manager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
-                prefs.edit().putBoolean(KEY_DND_ENABLED_BY_APP, false).apply()
+                prefs.edit {putBoolean(KEY_DND_ENABLED_BY_APP, false)}
             } else {
                 manager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY)
-                prefs.edit().putBoolean(KEY_DND_ENABLED_BY_APP, true).apply()
+                prefs.edit {putBoolean(KEY_DND_ENABLED_BY_APP, true)}
             }
             refreshVisibleLiveUpdate(context)
         } else {
@@ -1145,7 +1146,7 @@ object NotificationScheduler {
 
     private fun refreshVisibleLiveUpdate(context: Context) {
         val app = context.applicationContext as? CourseScheduleApp ?: return
-        CoroutineScope(Dispatchers.IO).launch {
+        app.applicationScope.launch(Dispatchers.IO) {
             val snapshot = app.repository.activeSnapshot()
             checkImmediateLiveUpdate(context, snapshot.courses, snapshot.config, snapshot.periods)
         }
@@ -1210,9 +1211,9 @@ object NotificationScheduler {
 
     fun stopLiveUpdateService(context: Context) {
         context.getSharedPreferences(LiveUpdatePayload.PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .apply()
+            .edit {
+                clear()
+            }
         runCatching {
             context.stopService(Intent(context, LiveUpdateForegroundService::class.java))
         }
@@ -1335,15 +1336,15 @@ class LiveUpdateForegroundService : Service() {
     }
 
     private fun storePayload(payload: LiveUpdatePayload) {
-        getSharedPreferences(LiveUpdatePayload.PREFS, MODE_PRIVATE).edit()
-            .putString("name", payload.name)
-            .putString("time", payload.timeText)
-            .putString("location", payload.location)
-            .putBoolean("actions", payload.showActions)
-            .putString("mute_key", payload.muteKey)
-            .putString("mute_until", payload.muteUntil)
-            .putString("chip_mode", payload.chipTextMode.name)
-            .apply()
+        getSharedPreferences(LiveUpdatePayload.PREFS, MODE_PRIVATE).edit {
+                putString("name", payload.name)
+                .putString("time", payload.timeText)
+                .putString("location", payload.location)
+                .putBoolean("actions", payload.showActions)
+                .putString("mute_key", payload.muteKey)
+                .putString("mute_until", payload.muteUntil)
+                .putString("chip_mode", payload.chipTextMode.name)
+            }
     }
 
     private fun restorePayload(): LiveUpdatePayload? {
@@ -1368,7 +1369,7 @@ class LiveUpdateForegroundService : Service() {
 
     private fun clearStoredPayload() {
         activePayload = null
-        getSharedPreferences(LiveUpdatePayload.PREFS, MODE_PRIVATE).edit().clear().apply()
+        getSharedPreferences(LiveUpdatePayload.PREFS, MODE_PRIVATE).edit {clear()}
     }
 }
 
@@ -1489,9 +1490,9 @@ class CourseBootReceiver : BroadcastReceiver() {
             return
         }
         val pending = goAsync()
-        CoroutineScope(Dispatchers.IO).launch {
+        val app = context.applicationContext as CourseScheduleApp
+        app.applicationScope.launch(Dispatchers.IO) {
             try {
-                val app = context.applicationContext as CourseScheduleApp
                 app.repository.ensureDefaults()
                 val snapshot = app.repository.activeSnapshot()
                 NotificationScheduler.refreshToday(context, snapshot.courses, snapshot.config, snapshot.periods)

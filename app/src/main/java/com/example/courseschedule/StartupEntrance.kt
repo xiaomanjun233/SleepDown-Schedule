@@ -12,7 +12,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
@@ -118,10 +117,10 @@ fun Modifier.startupFlyIn(
         val cardMotionDisabled = respectCardLimit && spec.maxAnimatedCards == 0
         if (cardMotionDisabled) return@composed this
         val density = LocalDensity.current
-        val configuration = LocalConfiguration.current
-        val screenWidthDp = configuration.screenWidthDp.dp
-        val screenHeightDp = configuration.screenHeightDp.dp
-        val largeScreenBoost = if (configuration.screenWidthDp >= 600) 1.12f else 1f
+        val windowSize = currentWindowSizeDp()
+        val screenWidthDp = windowSize.width
+        val screenHeightDp = windowSize.height
+        val largeScreenBoost = if (screenWidthDp >= 600.dp) 1.12f else 1f
         val fadeOnly = respectCardLimit && index >= spec.maxAnimatedCards
         val safeIntensity = intensity.coerceIn(0.35f, 1.5f) * largeScreenBoost
         val startXdp = when (origin) {

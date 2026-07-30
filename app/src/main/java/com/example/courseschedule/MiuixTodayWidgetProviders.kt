@@ -11,12 +11,12 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Build
 import android.util.SizeF
+import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -33,10 +33,108 @@ private fun TodayWidgetVariant.appearanceVariant(): WidgetAppearanceVariant = wh
     TodayWidgetVariant.SQUARE -> WidgetAppearanceVariant.COURSES_SQUARE
 }
 
-private val widgetWorkScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+private data class CoursesWidgetTypography(
+    val titleSp: Float,
+    val subtitleSp: Float,
+    val emptySp: Float,
+    val timeSp: Float,
+    val courseNameSp: Float,
+    val courseDetailSp: Float,
+    val compactNameSp: Float,
+    val compactDetailSp: Float
+)
 
-internal fun launchWidgetWork(block: suspend CoroutineScope.() -> Unit): Job =
-    widgetWorkScope.launch(block = block)
+private data class AssistantWidgetTypography(
+    val activitySp: Float,
+    val courseSp: Float,
+    val countdownSp: Float,
+    val detailSp: Float,
+    val timeSp: Float,
+    val countSp: Float,
+    val weatherSp: Float,
+    val trailingSp: Float
+)
+
+private fun widgetTextScale(
+    context: Context,
+    size: WidgetRenderSize,
+    comfortableHeightDp: Int,
+    compactHeightDp: Int,
+    compactWidthDp: Int
+): Float {
+    val heightScale = when {
+        size.heightDp < compactHeightDp -> 0.86f
+        size.heightDp < comfortableHeightDp -> 0.93f
+        else -> 1f
+    }
+    val widthScale = if (size.widthDp < compactWidthDp) 0.92f else 1f
+    val fontScale = context.resources.configuration.fontScale.coerceAtLeast(1f)
+    val fontScaleCompensation = when {
+        fontScale >= 1.45f -> 0.78f
+        fontScale >= 1.30f -> 0.84f
+        fontScale >= 1.15f -> 0.92f
+        else -> 1f
+    }
+    return minOf(heightScale, widthScale, fontScaleCompensation)
+}
+
+private fun coursesWidgetTypography(
+    context: Context,
+    variant: TodayWidgetVariant,
+    size: WidgetRenderSize
+): CoursesWidgetTypography {
+    val scale = widgetTextScale(
+        context = context,
+        size = size,
+        comfortableHeightDp = if (variant == TodayWidgetVariant.SQUARE) 150 else 148,
+        compactHeightDp = 122,
+        compactWidthDp = if (variant == TodayWidgetVariant.SQUARE) 132 else 250
+    )
+    fun sp(base: Float, minimum: Float): Float = (base * scale).coerceAtLeast(minimum)
+    return CoursesWidgetTypography(
+        titleSp = sp(if (variant == TodayWidgetVariant.SQUARE) 15f else 16f, 12f),
+        subtitleSp = sp(if (variant == TodayWidgetVariant.SQUARE) 11f else 14f, 10f),
+        emptySp = sp(if (variant == TodayWidgetVariant.SQUARE) 12f else 14f, 10.5f),
+        timeSp = sp(13f, 10.5f),
+        courseNameSp = sp(15f, 12f),
+        courseDetailSp = sp(11f, 9f),
+        compactNameSp = sp(12f, 10f),
+        compactDetailSp = sp(9.5f, 8.5f)
+    )
+}
+
+private fun assistantWidgetTypography(context: Context, size: WidgetRenderSize): AssistantWidgetTypography {
+    val scale = widgetTextScale(
+        context = context,
+        size = size,
+        comfortableHeightDp = 148,
+        compactHeightDp = 122,
+        compactWidthDp = 250
+    )
+    fun sp(base: Float, minimum: Float): Float = (base * scale).coerceAtLeast(minimum)
+    return AssistantWidgetTypography(
+        activitySp = sp(19f, 14.5f),
+        courseSp = sp(19f, 14.5f),
+        countdownSp = sp(17f, 13f),
+        detailSp = sp(13f, 10.5f),
+        timeSp = sp(13f, 10.5f),
+        countSp = sp(17f, 13f),
+        weatherSp = sp(15f, 12f),
+        trailingSp = sp(14f, 11f)
+    )
+}
+
+private fun RemoteViews.setWidgetTextSize(viewId: Int, sp: Float) {
+    setTextViewTextSize(viewId, TypedValue.COMPLEX_UNIT_SP, sp)
+}
+
+internal fun launchWidgetWork(
+    context: Context,
+    block: suspend CoroutineScope.() -> Unit
+): Job {
+    val app = context.applicationContext as CourseScheduleApp
+    return app.applicationScope.launch(Dispatchers.IO, block = block)
+}
 
 internal fun AppWidgetProvider.keepBroadcastAliveUntil(job: Job) {
     val pendingResult = goAsync()
@@ -72,7 +170,7 @@ class TodayCoursesSquareWidgetProvider : AppWidgetProvider() {
         super.onDeleted(context, appWidgetIds)
         val app = context.applicationContext as CourseScheduleApp
         keepBroadcastAliveUntil(
-            launchWidgetWork {
+            launchWidgetWork(context) {
                 appWidgetIds.forEach {
                     app.widgetAppearanceRepository.deleteInstance(WidgetAppearanceVariant.COURSES_SQUARE, it)
                 }
@@ -101,7 +199,7 @@ class TodayAssistantWidgetProvider : AppWidgetProvider() {
         super.onDeleted(context, appWidgetIds)
         val app = context.applicationContext as CourseScheduleApp
         keepBroadcastAliveUntil(
-            launchWidgetWork {
+            launchWidgetWork(context) {
                 appWidgetIds.forEach {
                     app.widgetAppearanceRepository.deleteInstance(WidgetAppearanceVariant.TODAY_ASSISTANT, it)
                 }
@@ -126,7 +224,7 @@ internal object MiuixTodayWidgetRenderer {
         refreshAllAsync(context)
     }
 
-    internal fun refreshAllAsync(context: Context): Job = launchWidgetWork {
+    internal fun refreshAllAsync(context: Context): Job = launchWidgetWork(context) {
         val manager = AppWidgetManager.getInstance(context)
         refreshComponentNow(context, manager, TodayCoursesWidgetProvider::class.java, TodayWidgetVariant.LARGE)
         refreshComponentNow(context, manager, TodayCoursesSquareWidgetProvider::class.java, TodayWidgetVariant.SQUARE)
@@ -160,7 +258,7 @@ internal object MiuixTodayWidgetRenderer {
         manager: AppWidgetManager,
         ids: IntArray,
         variant: TodayWidgetVariant
-    ): Job = launchWidgetWork {
+    ): Job = launchWidgetWork(context) {
         refreshNow(context, manager, ids, variant)
     }
 
@@ -220,9 +318,13 @@ internal object MiuixTodayWidgetRenderer {
         }
         val dark = usesDarkTheme(context, state.config)
         val custom = WidgetBackgroundRenderer.render(context, appearance, size, courses.size, dark)
+        val typography = coursesWidgetTypography(context, variant, size)
         return RemoteViews(context.packageName, layout).apply {
             applyTheme(dark, variant)
             applyCustomBackground(custom)
+            setWidgetTextSize(R.id.widget_title, typography.titleSp)
+            setWidgetTextSize(R.id.widget_subtitle, typography.subtitleSp)
+            setWidgetTextSize(R.id.widget_empty, typography.emptySp)
             val dayLabel = chineseWeekday(targetDate)
             val dayPrefix = if (targetDate == today) "今日" else "明日"
             setTextViewText(
@@ -250,9 +352,13 @@ internal object MiuixTodayWidgetRenderer {
                         if (!useGrid && courses.isNotEmpty()) View.VISIBLE else View.GONE
                     )
                     setViewVisibility(R.id.widget_grid_courses, if (useGrid) View.VISIBLE else View.GONE)
-                    if (useGrid) fillGridCourses(state, courses, dark, custom) else fillLargeCourses(state, courses, dark, custom)
+                    if (useGrid) {
+                        fillGridCourses(state, courses, dark, custom, typography)
+                    } else {
+                        fillLargeCourses(state, courses, dark, custom, typography)
+                    }
                 }
-                TodayWidgetVariant.SQUARE -> fillCompactCourses(state, courses, dark, 2, custom)
+                TodayWidgetVariant.SQUARE -> fillCompactCourses(state, courses, dark, 2, custom, typography)
             }
         }
     }
@@ -274,7 +380,8 @@ internal object MiuixTodayWidgetRenderer {
         state: AppState,
         courses: List<CourseEntity>,
         dark: Boolean,
-        custom: WidgetBackgroundResult?
+        custom: WidgetBackgroundResult?,
+        typography: CoursesWidgetTypography
     ) {
         val rows = intArrayOf(R.id.widget_course_row_1, R.id.widget_course_row_2)
         val starts = intArrayOf(R.id.widget_course_time_1, R.id.widget_course_time_2)
@@ -303,6 +410,10 @@ internal object MiuixTodayWidgetRenderer {
                 setTextViewText(ends[index], courseEndTime(course, state.periods)?.format(timeFormatter).orEmpty())
                 setTextViewText(names[index], course.name)
                 setTextViewText(details[index], courseDetail(course))
+                setWidgetTextSize(starts[index], typography.timeSp)
+                setWidgetTextSize(ends[index], typography.timeSp)
+                setWidgetTextSize(names[index], typography.courseNameSp)
+                setWidgetTextSize(details[index], typography.courseDetailSp)
                 setInt(indicators[index], "setColorFilter", stableCourseColor(state.config, course))
                 val primary = custom?.content?.getOrNull(index)
                 val secondary = custom?.contentSecondary?.getOrNull(index)
@@ -318,7 +429,8 @@ internal object MiuixTodayWidgetRenderer {
         state: AppState,
         courses: List<CourseEntity>,
         dark: Boolean,
-        custom: WidgetBackgroundResult?
+        custom: WidgetBackgroundResult?,
+        typography: CoursesWidgetTypography
     ) {
         val cells = intArrayOf(R.id.widget_grid_cell_1, R.id.widget_grid_cell_2, R.id.widget_grid_cell_3, R.id.widget_grid_cell_4)
         val indicators = intArrayOf(R.id.widget_grid_indicator_1, R.id.widget_grid_indicator_2, R.id.widget_grid_indicator_3, R.id.widget_grid_indicator_4)
@@ -338,6 +450,8 @@ internal object MiuixTodayWidgetRenderer {
                 val time = courseStartTime(course, state.periods)?.format(timeFormatter).orEmpty()
                 val location = course.location?.takeIf(String::isNotBlank)
                 setTextViewText(details[index], listOfNotNull(time.takeIf(String::isNotBlank), location).joinToString(" · "))
+                setWidgetTextSize(names[index], typography.compactNameSp)
+                setWidgetTextSize(details[index], typography.compactDetailSp)
                 setInt(indicators[index], "setColorFilter", stableCourseColor(state.config, course))
                 setTextColor(names[index], custom?.content?.getOrNull(index) ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17))
                 setTextColor(details[index], custom?.contentSecondary?.getOrNull(index) ?: if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
@@ -350,7 +464,8 @@ internal object MiuixTodayWidgetRenderer {
         courses: List<CourseEntity>,
         dark: Boolean,
         count: Int,
-        custom: WidgetBackgroundResult?
+        custom: WidgetBackgroundResult?,
+        typography: CoursesWidgetTypography
     ) {
         val rows = intArrayOf(R.id.widget_compact_row_1, R.id.widget_compact_row_2, R.id.widget_compact_row_3)
         val indicators = intArrayOf(R.id.widget_compact_indicator_1, R.id.widget_compact_indicator_2, R.id.widget_compact_indicator_3)
@@ -379,6 +494,8 @@ internal object MiuixTodayWidgetRenderer {
                 val time = courseStartTime(course, state.periods)?.format(timeFormatter).orEmpty()
                 val location = course.location?.takeIf(String::isNotBlank)
                 setTextViewText(details[index], listOfNotNull(time.takeIf(String::isNotBlank), location).joinToString(" · "))
+                setWidgetTextSize(names[index], typography.compactNameSp)
+                setWidgetTextSize(details[index], typography.compactDetailSp)
                 setInt(indicators[index], "setColorFilter", stableCourseColor(state.config, course))
                 setTextColor(names[index], custom?.content?.getOrNull(index) ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17))
                 setTextColor(details[index], custom?.contentSecondary?.getOrNull(index) ?: if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
@@ -488,7 +605,7 @@ internal object TodayAssistantWidgetRenderer {
         context: Context,
         manager: AppWidgetManager,
         ids: IntArray
-    ): Job = launchWidgetWork {
+    ): Job = launchWidgetWork(context) {
         refreshNow(context, manager, ids)
     }
 
@@ -596,6 +713,7 @@ internal object TodayAssistantWidgetRenderer {
             mode == Configuration.UI_MODE_NIGHT_YES
         }
         val custom = WidgetBackgroundRenderer.render(context, appearance, size, 2, dark)
+        val typography = assistantWidgetTypography(context, size)
         val primary = custom?.header ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17)
         val secondary = custom?.headerSecondary ?: if (dark) Color.argb(170, 255, 255, 255) else Color.argb(150, 0, 0, 0)
         val accent = custom?.accent ?: if (dark) AccentDark else AccentLight
@@ -630,6 +748,14 @@ internal object TodayAssistantWidgetRenderer {
             setTextViewText(R.id.widget_agent_weather, weatherText)
             setTextViewText(R.id.widget_agent_trailing, trailingText)
             setViewVisibility(R.id.widget_agent_trailing, if (trailingText.isBlank()) View.GONE else View.VISIBLE)
+            setWidgetTextSize(R.id.widget_agent_activity, typography.activitySp)
+            setWidgetTextSize(R.id.widget_agent_course, typography.courseSp)
+            setWidgetTextSize(R.id.widget_agent_countdown, typography.countdownSp)
+            setWidgetTextSize(R.id.widget_agent_detail, typography.detailSp)
+            setWidgetTextSize(R.id.widget_agent_time, typography.timeSp)
+            setWidgetTextSize(R.id.widget_agent_count, typography.countSp)
+            setWidgetTextSize(R.id.widget_agent_weather, typography.weatherSp)
+            setWidgetTextSize(R.id.widget_agent_trailing, typography.trailingSp)
             setTextColor(R.id.widget_agent_activity, accent)
             setTextColor(R.id.widget_agent_countdown, accent)
             setTextColor(R.id.widget_agent_course, primary)

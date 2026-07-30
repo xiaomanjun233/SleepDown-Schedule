@@ -3,15 +3,22 @@ package com.example.courseschedule
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.scale
+import androidx.core.net.toUri
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.net.Uri
+import android.os.Build
 import androidx.palette.graphics.Palette
 import java.io.File
+import java.util.UUID
 import kotlin.math.max
 import kotlin.math.roundToInt
 
 const val WallpaperBlurMaxDp = 12f
+private const val WallpaperDirectoryName = "wallpaper"
+private const val StoredWallpaperQuality = 88
 
 fun wallpaperBlurPercent(blurDp: Float): Float =
     blurDp.coerceIn(0f, WallpaperBlurMaxDp) / WallpaperBlurMaxDp * 100f
@@ -67,30 +74,81 @@ fun persistWallpaperUriPermission(context: Context, uri: Uri) {
 fun persistWallpaperSource(context: Context, uri: Uri): Uri? {
     if (uri.scheme == "file") return uri
     persistWallpaperUriPermission(context, uri)
-    val wallpaperDir = File(context.filesDir, "wallpaper")
-    if (!wallpaperDir.exists()) wallpaperDir.mkdirs()
-    val extension = runCatching {
-        context.contentResolver.getType(uri)?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
-    }.getOrNull() ?: "jpg"
-    val output = File(wallpaperDir, "source_wallpaper_${System.currentTimeMillis()}.$extension")
+    return persistManagedWallpaperImage(
+        context = context,
+        uri = uri,
+        directoryName = WallpaperDirectoryName,
+        filePrefix = "source_wallpaper",
+        maxDimension = 2600
+    )
+}
+
+internal fun persistManagedWallpaperImage(
+    context: Context,
+    uri: Uri,
+    directoryName: String,
+    filePrefix: String,
+    maxDimension: Int
+): Uri? {
+    if (uri.scheme == "file") return uri
+    val bitmap = loadSampledBitmap(context, uri, maxDimension) ?: return null
+    val directory = File(context.filesDir, directoryName).apply { mkdirs() }
+    val output = File(directory, "${filePrefix}_${UUID.randomUUID()}.webp")
+    val temporary = File(directory, "${output.name}.tmp")
     return runCatching {
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            output.outputStream().use { outputStream -> input.copyTo(outputStream) }
-        } ?: return null
-        // Every schedule persists its own wallpaper URI. Deleting the other source files here
-        // leaves those database rows pointing at missing files and makes inactive schedules fall
-        // back to the bundled wallpaper when they are opened later.
+        temporary.outputStream().buffered().use { stream ->
+            check(compressStoredWallpaper(bitmap, stream)) { "壁纸压缩失败" }
+        }
+        if (!temporary.renameTo(output)) {
+            temporary.copyTo(output, overwrite = true)
+            temporary.delete()
+        }
         Uri.fromFile(output)
     }.getOrElse {
+        temporary.delete()
         output.delete()
         null
+    }.also {
+        bitmap.recycle()
     }
 }
+
+@Suppress("DEPRECATION")
+private fun compressStoredWallpaper(bitmap: Bitmap, output: java.io.OutputStream): Boolean {
+    val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        Bitmap.CompressFormat.WEBP_LOSSY
+    } else {
+        Bitmap.CompressFormat.WEBP
+    }
+    return bitmap.compress(format, StoredWallpaperQuality, output)
+}
+
+internal fun unreferencedScheduleWallpaperUris(
+    referencedUris: Collection<String>,
+    candidateUris: Collection<String>
+): Set<String> {
+    val referenced = referencedUris.filterTo(linkedSetOf()) { it.isNotBlank() }
+    return candidateUris.filterTo(linkedSetOf()) { it !in referenced }
+}
+
+fun cleanupUnreferencedScheduleWallpapers(context: Context, referencedUris: Collection<String>) {
+    val wallpaperDir = wallpaperDirectory(context)
+    val filesByUri = wallpaperDir.listFiles()
+        ?.asSequence()
+        ?.filter { it.isFile }
+        ?.associateBy { Uri.fromFile(it).toString() }
+        .orEmpty()
+    unreferencedScheduleWallpaperUris(referencedUris, filesByUri.keys).forEach { uri ->
+        runCatching { filesByUri[uri]?.delete() }
+    }
+}
+
+private fun wallpaperDirectory(context: Context): File = File(context.filesDir, WallpaperDirectoryName)
 
 fun loadWallpaperBitmap(context: Context, config: ScheduleConfigEntity, useDarkDefaultWallpaper: Boolean): Bitmap? {
     val customUri = config.wallpaperUri
     if (!customUri.isNullOrBlank()) {
-        loadSampledBitmap(context, Uri.parse(customUri), maxDimension = 2600)?.let { return it }
+        loadSampledBitmap(context, customUri.toUri(), maxDimension = 2600)?.let { return it }
     }
     if (config.defaultWallpaperStyle == DefaultWallpaperStyle.KANBAN) {
         val defaultRes = if (useDarkDefaultWallpaper) R.drawable.default_wallpaper_dark else R.drawable.default_wallpaper_light
@@ -135,7 +193,7 @@ fun createReducedWallpaperBitmap(source: Bitmap?): Bitmap? {
     if (scale >= 0.999f) return source
     val width = (source.width * scale).roundToInt().coerceAtLeast(1)
     val height = (source.height * scale).roundToInt().coerceAtLeast(1)
-    return Bitmap.createScaledBitmap(source, width, height, true)
+    return source.scale(width, height)
 }
 
 /**
@@ -149,7 +207,7 @@ fun createWallpaperReadabilityBitmap(source: Bitmap?): Bitmap? {
     val scale = (128f / largest).coerceAtMost(1f)
     val width = (source.width * scale).roundToInt().coerceAtLeast(1)
     val height = (source.height * scale).roundToInt().coerceAtLeast(1)
-    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { target ->
+    return createBitmap(width, height).also { target ->
         Canvas(target).drawBitmap(source, null, android.graphics.Rect(0, 0, width, height), null)
     }
 }
@@ -161,7 +219,7 @@ fun createBlurredWallpaperBitmap(source: Bitmap?, blurRadius: Int): Bitmap? {
     val scale = (maxBlurDimension.toFloat() / largest).coerceAtMost(1f)
     val width = (source.width * scale).roundToInt().coerceAtLeast(1)
     val height = (source.height * scale).roundToInt().coerceAtLeast(1)
-    val working = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val working = createBitmap(width, height)
     Canvas(working).drawBitmap(source, null, android.graphics.Rect(0, 0, width, height), null)
     return runCatching {
         boxBlurBitmap(working, (blurRadius * scale).roundToInt().coerceIn(2, 18))
@@ -269,19 +327,9 @@ private fun openWallpaperInputStream(context: Context, uri: Uri) =
         context.contentResolver.openInputStream(uri)
     }
 
-fun extractWallpaperColor(context: Context, uri: String?): Long? {
-    if (uri.isNullOrBlank()) return null
-    val bitmap = loadSampledBitmap(context, Uri.parse(uri), maxDimension = 720) ?: return null
-    val color = runCatching {
-        val palette = Palette.from(bitmap).generate()
-        palette.getVibrantColor(palette.getMutedColor(android.graphics.Color.rgb(233, 221, 255)))
-    }.getOrDefault(android.graphics.Color.rgb(233, 221, 255))
-    return (color.toLong() and 0xFFFFFFFFL)
-}
-
 fun wallpaperPrefersLightText(context: Context, uri: String?): Boolean {
     if (uri.isNullOrBlank()) return false
-    val bitmap = loadSampledBitmap(context, Uri.parse(uri), maxDimension = 720) ?: return false
+    val bitmap = loadSampledBitmap(context, uri.toUri(), maxDimension = 720) ?: return false
     val palette = runCatching { Palette.from(bitmap).generate() }.getOrNull()
     val color = palette?.getDominantColor(android.graphics.Color.WHITE) ?: android.graphics.Color.WHITE
     val red = android.graphics.Color.red(color) / 255.0

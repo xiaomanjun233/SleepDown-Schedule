@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlin.math.PI
+import kotlin.math.sin
 
 val DetailOpenEasing = Easing { fraction ->
     val inverse = 1f - fraction
@@ -65,6 +67,14 @@ const val DETAIL_SYSTEM_BACK_DURATION = 370
 const val DETAIL_TOOLBAR_BACK_DURATION = 400
 const val BACKGROUND_OPEN_DURATION = 520
 const val BACKGROUND_EXIT_DURATION = 370
+private const val DETAIL_MOTION_BLUR_MAX_DP = 8f
+
+internal fun detailMotionBlurRadiusDp(progress: Float): Float {
+    val normalized = progress.coerceIn(0f, 1f)
+    if (normalized <= 0.001f || normalized >= 0.999f) return 0f
+    return (sin(PI * normalized).toFloat() * DETAIL_MOTION_BLUR_MAX_DP)
+        .coerceIn(0f, DETAIL_MOTION_BLUR_MAX_DP)
+}
 
 sealed interface DetailMorphState {
     data object Idle : DetailMorphState
@@ -312,6 +322,9 @@ fun DetailScheduleMorphOverlay(
                     translationY = values.translationY
                     shape = animatedClipShape
                     clip = values.progress < 1f
+                    renderEffect = platformBlurRenderEffect(
+                        detailMotionBlurRadiusDp(values.progress) * density.density
+                    )
                 }
         ) {
             if (showSourceSnapshot) {

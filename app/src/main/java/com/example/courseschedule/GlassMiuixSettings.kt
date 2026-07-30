@@ -125,6 +125,71 @@ fun GlassMiuixRootSettingsScaffold(
 }
 
 @Composable
+internal fun GlassMiuixTabletDetailPaneScaffold(
+    title: String,
+    config: ScheduleConfigEntity,
+    modifier: Modifier = Modifier,
+    topBarVisible: Boolean = true,
+    horizontalContentInset: Dp = 16.dp,
+    content: @Composable (Backdrop?) -> Unit
+) {
+    val pageConfig = settingsVisualConfig(config)
+    val pageColor = settingsPageBackground(pageConfig)
+    val backgroundBackdrop = rememberLayerBackdrop()
+    val contentBackdrop = rememberLayerBackdrop {
+        drawRect(pageColor)
+        drawContent()
+    }
+    GlassMiuixSettingsTheme(pageConfig) {
+        Box(modifier.background(pageColor)) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(pageColor)
+                    .layerBackdrop(backgroundBackdrop)
+            )
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = Color.Transparent,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                topBar = {
+                    if (topBarVisible) {
+                        SettingsGradientTopBar(
+                            config = pageConfig,
+                            backdrop = contentBackdrop,
+                            enabled = true
+                        ) {
+                            DetailTopBar(
+                                title = title,
+                                config = pageConfig,
+                                backdrop = contentBackdrop,
+                                onBack = {},
+                                centerTitle = true,
+                                showBackButton = false
+                            )
+                        }
+                    }
+                }
+            ) { innerPadding ->
+                CompositionLocalProvider(
+                    LocalGlassSettingsContentTopPadding provides innerPadding.calculateTopPadding(),
+                    LocalSettingsPopupBackdrop provides contentBackdrop
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = horizontalContentInset)
+                            .layerBackdrop(contentBackdrop)
+                    ) {
+                        content(backgroundBackdrop)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun GlassMiuixDetailActivityScaffold(
     title: String,
     config: ScheduleConfigEntity,

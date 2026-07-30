@@ -11,10 +11,8 @@ import android.os.IBinder
 import androidx.core.content.ContextCompat
 import java.time.LocalDate
 import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,7 +43,6 @@ internal object DayAgentRunCoordinator {
         var generation: Long = 0L
     )
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val entries = ConcurrentHashMap<String, Entry>()
 
     private fun key(scheduleId: Int, date: LocalDate): String = "$scheduleId:$date"
@@ -75,6 +72,7 @@ internal object DayAgentRunCoordinator {
         imageAttachment: AgentImageAttachment? = null
     ): Boolean {
         val appContext = context.applicationContext
+        val app = appContext as CourseScheduleApp
         val entry = entry(scheduleId, facts.date)
         synchronized(entry) {
             if (entry.job?.isActive == true || entry.state.value.running) return false
@@ -83,59 +81,80 @@ internal object DayAgentRunCoordinator {
                 running = true,
                 statuses = listOf(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在准备"))
             )
-            DayAgentForegroundService.startThinking(appContext)
-            entry.job = scope.launch {
+            val foregroundError = runCatching {
+                DayAgentForegroundService.startThinking(appContext)
+            }.exceptionOrNull()
+            if (foregroundError != null) {
+                entry.state.value = DayAgentBackgroundRunState(
+                    error = foregroundError.message ?: "无法启动后台思考服务"
+                )
+                evictIfIdle(key(scheduleId, facts.date), entry)
+                return false
+            }
+            entry.job = app.applicationScope.launch(Dispatchers.IO) {
                 val buffer = StringBuilder()
                 var lastStreamPublishUptime = 0L
-                val result = DayAgentRepository(appContext).sendMessage(
-                    scheduleId = scheduleId,
-                    facts = facts,
-                    question = question,
-                    imageAttachment = imageAttachment,
-                    onStatus = statusCallback@{ status ->
-                        if (entry.generation != generation) return@statusCallback
-                        entry.state.update { current ->
-                            val statuses = if (
-                                status.icon == AgentRunStatusIcon.THINKING &&
-                                current.statuses.lastOrNull()?.icon == AgentRunStatusIcon.THINKING
-                            ) {
-                                current.statuses.dropLast(1) + status
-                            } else {
-                                current.statuses + status
+                val result = runCatching {
+                    DayAgentRepository(appContext).sendMessage(
+                        scheduleId = scheduleId,
+                        facts = facts,
+                        question = question,
+                        imageAttachment = imageAttachment,
+                        onStatus = statusCallback@{ status ->
+                            if (entry.generation != generation) return@statusCallback
+                            entry.state.update { current ->
+                                val statuses = if (
+                                    status.icon == AgentRunStatusIcon.THINKING &&
+                                    current.statuses.lastOrNull()?.icon == AgentRunStatusIcon.THINKING
+                                ) {
+                                    current.statuses.dropLast(1) + status
+                                } else {
+                                    current.statuses + status
+                                }
+                                current.copy(statuses = statuses)
                             }
-                            current.copy(statuses = statuses)
+                        },
+                        onDelta = deltaCallback@{ delta ->
+                            if (entry.generation != generation) return@deltaCallback
+                            /*
+                             * Coalesce high-frequency deltas. Every publish hands the full
+                             * accumulated text back to the conversation UI, which re-runs the
+                             * reasoning split and markdown parse on the whole string, so raw
+                             * per-token publishing degrades quadratically on long answers.
+                             * Trailing text withheld here is never lost: completion clears the
+                             * stream and the persisted message carries the full content.
+                             */
+                            val snapshot = synchronized(buffer) {
+                                buffer.append(delta)
+                                val now = android.os.SystemClock.uptimeMillis()
+                                if (now - lastStreamPublishUptime < 48L) return@deltaCallback
+                                lastStreamPublishUptime = now
+                                buffer.toString()
+                            }
+                            entry.state.update { it.copy(streamingText = snapshot) }
+                        },
+                        onStreamReset = resetCallback@{
+                            if (entry.generation != generation) return@resetCallback
+                            synchronized(buffer) {
+                                buffer.setLength(0)
+                                lastStreamPublishUptime = 0L
+                            }
+                            entry.state.update { it.copy(streamingText = "") }
                         }
-                    },
-                    onDelta = deltaCallback@{ delta ->
-                        if (entry.generation != generation) return@deltaCallback
-                        /*
-                         * Coalesce high-frequency deltas. Every publish hands the full
-                         * accumulated text back to the conversation UI, which re-runs the
-                         * reasoning split and markdown parse on the whole string, so raw
-                         * per-token publishing degrades quadratically on long answers.
-                         * Trailing text withheld here is never lost: completion clears the
-                         * stream and the persisted message carries the full content.
-                         */
-                        val snapshot = synchronized(buffer) {
-                            buffer.append(delta)
-                            val now = android.os.SystemClock.uptimeMillis()
-                            if (now - lastStreamPublishUptime < 48L) return@deltaCallback
-                            lastStreamPublishUptime = now
-                            buffer.toString()
-                        }
-                        entry.state.update { it.copy(streamingText = snapshot) }
-                    }
-                )
+                    )
+                }.getOrElse { Result.failure(it) }
                 if (entry.generation != generation) return@launch
                 val failure = result.exceptionOrNull()
                 if (failure == null) {
                     entry.state.update {
                         it.copy(running = false, streamingText = "", error = null)
                     }
-                    DayAgentForegroundService.finishThinking(
-                        appContext,
-                        alertUser = !entry.conversationVisible
-                    )
+                    runCatching {
+                        DayAgentForegroundService.finishThinking(
+                            appContext,
+                            alertUser = !entry.conversationVisible
+                        )
+                    }
                 } else {
                     entry.state.update {
                         it.copy(
@@ -144,11 +163,13 @@ internal object DayAgentRunCoordinator {
                             error = failure.message ?: "模型回复失败"
                         )
                     }
-                    DayAgentForegroundService.failThinking(
-                        appContext,
-                        failure.message ?: "模型回复失败",
-                        alertUser = !entry.conversationVisible
-                    )
+                    runCatching {
+                        DayAgentForegroundService.failThinking(
+                            appContext,
+                            failure.message ?: "模型回复失败",
+                            alertUser = !entry.conversationVisible
+                        )
+                    }
                 }
                 synchronized(entry) {
                     if (entry.generation == generation) entry.job = null

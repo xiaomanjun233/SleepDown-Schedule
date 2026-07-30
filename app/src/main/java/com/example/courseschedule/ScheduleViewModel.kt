@@ -65,6 +65,7 @@ class ScheduleViewModel(
             for (change in personalizationSaveChannel) {
                 try {
                     repository.saveConfigChanges(change.original, change.updated)
+                    cleanupScheduleWallpaperFiles()
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Throwable) {
@@ -521,6 +522,7 @@ class ScheduleViewModel(
     fun deleteSchedule(scheduleId: Int) = viewModelScope.launch {
         Log.d("ScheduleManager", "viewModel.deleteSchedule id=$scheduleId")
         repository.deleteSchedule(scheduleId)
+        cleanupScheduleWallpaperFiles()
         refreshCoordinator.request()
     }
 
@@ -566,6 +568,10 @@ class ScheduleViewModel(
         val snapshot = repository.activeSnapshot()
         NotificationScheduler.refreshToday(app, snapshot.courses, snapshot.config, snapshot.periods)
         TodayCoursesWidgetProvider.refreshAll(app)
+    }
+
+    private suspend fun cleanupScheduleWallpaperFiles() = withContext(Dispatchers.IO) {
+        cleanupUnreferencedScheduleWallpapers(app, repository.referencedWallpaperUris())
     }
 }
 

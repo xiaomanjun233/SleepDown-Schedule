@@ -2,6 +2,7 @@ package com.example.courseschedule
 
 import android.content.Context
 import android.graphics.Bitmap
+import androidx.core.graphics.createBitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
@@ -44,10 +45,25 @@ object ScheduleSnapshotStore {
         runCatching { file(context, scheduleId).delete() }
     }
 
+    suspend fun cleanupUnreferenced(context: Context, referencedScheduleIds: Collection<Int>) =
+        withContext(Dispatchers.IO) {
+            val referenced = referencedScheduleIds.toSet()
+            directory(context).listFiles().orEmpty().forEach { snapshot ->
+                if (!snapshot.isFile) return@forEach
+                val scheduleId = snapshot.name
+                    .removePrefix("schedule-")
+                    .substringBefore('.')
+                    .toIntOrNull()
+                if (scheduleId == null || scheduleId !in referenced) {
+                    runCatching { snapshot.delete() }
+                }
+            }
+        }
+
     fun createEmptySchedulePlaceholder(context: Context, width: Int, height: Int, dark: Boolean): Bitmap {
         val safeWidth = width.coerceAtLeast(1)
         val safeHeight = height.coerceAtLeast(1)
-        val output = Bitmap.createBitmap(safeWidth, safeHeight, Bitmap.Config.ARGB_8888)
+        val output = createBitmap(safeWidth, safeHeight)
         val canvas = Canvas(output)
         val wallpaper = BitmapFactory.decodeResource(
             context.resources,

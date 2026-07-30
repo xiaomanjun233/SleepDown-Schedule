@@ -40,6 +40,7 @@ internal class OpenAiResponsesAgentRunner {
         includeMemoryTool: Boolean,
         onStatus: (AgentRunStatus) -> Unit,
         onDelta: (String) -> Unit,
+        onStreamReset: () -> Unit,
         executeTool: (AgentToolCall) -> AgentToolResult
     ): String {
         val instructions = chatMessages
@@ -59,8 +60,7 @@ internal class OpenAiResponsesAgentRunner {
                     responsesBody(
                         settings = settings,
                         instructions = instructions + "\n\n" +
-                            "这是工具决策阶段。需要应用事实时直接调用工具；若已有信息足够，" +
-                            "只输出 FINAL_ANSWER_READY，不要在本阶段撰写最终正文。",
+                            DayAgentPrompts.ToolDecisionStage,
                         input = input,
                         stream = false,
                         includeTools = true,
@@ -79,7 +79,8 @@ internal class OpenAiResponsesAgentRunner {
                     instructions = instructions,
                     input = input,
                     onStatus = onStatus,
-                    onDelta = onDelta
+                    onDelta = onDelta,
+                    onStreamReset = onStreamReset
                 )
             }
 
@@ -98,10 +99,11 @@ internal class OpenAiResponsesAgentRunner {
 
         return streamFinal(
             settings = settings,
-            instructions = instructions + "\n\n工具调用轮次已经结束。请根据已有结果直接输出最终答复。",
+            instructions = instructions,
             input = input,
             onStatus = onStatus,
-            onDelta = onDelta
+            onDelta = onDelta,
+            onStreamReset = onStreamReset
         )
     }
 
@@ -110,24 +112,34 @@ internal class OpenAiResponsesAgentRunner {
         instructions: String,
         input: List<JsonObject>,
         onStatus: (AgentRunStatus) -> Unit,
-        onDelta: (String) -> Unit
+        onDelta: (String) -> Unit,
+        onStreamReset: () -> Unit
     ): String {
         onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "整理结果"))
+        val finalInstructions = instructions + "\n\n" + DayAgentPrompts.FinalAnswerStage
         val body = responsesBody(
             settings = settings,
-            instructions = instructions,
+            instructions = finalInstructions,
             input = input,
             stream = true,
             includeTools = false,
             includeMemoryTool = false
         )
         return try {
-            stream(settings, body, onDelta)
-        } catch (missing: MissingResponsesBodyException) {
+            val gate = AgentFinalOutputGate(onDelta)
+            gate.finish(stream(settings, body, gate::accept))
+        } catch (error: Throwable) {
+            if (error !is MissingResponsesBodyException &&
+                error !is MissingAgentBodyException &&
+                error !is AgentProtocolViolationException
+            ) {
+                throw error
+            }
+            onStreamReset()
+            onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "修正输出格式"))
             val retry = responsesBody(
                 settings = settings,
-                instructions = instructions +
-                    "\n\n上一轮没有生成最终正文。停止继续分析，直接输出简洁结论和必要操作。",
+                instructions = finalInstructions + "\n\n" + DayAgentPrompts.FinalAnswerProtocolRetry,
                 input = input,
                 stream = false,
                 includeTools = false,
@@ -135,7 +147,10 @@ internal class OpenAiResponsesAgentRunner {
             )
             val content = parseAgentResponsesTurn(post(settings, retry)).content
                 .takeIf(String::isNotBlank)
-                ?: throw missing
+                ?: throw MissingResponsesBodyException()
+            if (containsLeakedAgentFunctionProtocol(content)) {
+                throw AgentProtocolViolationException()
+            }
             onDelta(content)
             content
         }

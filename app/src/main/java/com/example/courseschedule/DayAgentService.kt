@@ -3,18 +3,14 @@ package com.example.courseschedule
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import androidx.core.content.edit
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -37,11 +33,16 @@ import java.net.URL
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
-import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 
 private val DayAgentJson = Json { ignoreUnknownKeys = true; isLenient = true }
 private const val MaxAgentToolRounds = 6
+private const val DayAgentWeatherCacheMillis = 30 * 60 * 1000L
+
+internal fun isDayAgentWeatherCacheFresh(fetchedAt: Long, now: Long): Boolean {
+    if (fetchedAt <= 0L) return false
+    return now - fetchedAt in 0L..DayAgentWeatherCacheMillis
+}
 
 internal data class AgentToolDecision(
     val assistantMessage: JsonObject,
@@ -178,12 +179,11 @@ private fun agentMemoryContext(memory: String): String = buildJsonObject {
 
 object DayAgentWeatherStore {
     private const val Prefs = "day_agent_weather"
-    private const val CacheMillis = 30 * 60 * 1000L
 
     fun load(context: Context): AgentWeatherSnapshot? {
         val prefs = context.getSharedPreferences(Prefs, Context.MODE_PRIVATE)
         val fetchedAt = prefs.getLong("fetched_at", 0L)
-        if (System.currentTimeMillis() - fetchedAt > CacheMillis) return null
+        if (!isDayAgentWeatherCacheFresh(fetchedAt, System.currentTimeMillis())) return null
         val summary = prefs.getString("summary", null) ?: return null
         return AgentWeatherSnapshot(
             summary = summary,
@@ -196,14 +196,14 @@ object DayAgentWeatherStore {
     }
 
     fun save(context: Context, weather: AgentWeatherSnapshot) {
-        context.getSharedPreferences(Prefs, Context.MODE_PRIVATE).edit()
-            .putLong("fetched_at", weather.fetchedAt)
-            .putString("summary", weather.summary)
-            .putInt("temperature", weather.temperature)
-            .putInt("apparent_temperature", weather.apparentTemperature)
-            .putInt("precipitation_probability", weather.precipitationProbability)
-            .putInt("wind_speed", weather.windSpeed)
-            .apply()
+        context.getSharedPreferences(Prefs, Context.MODE_PRIVATE).edit {
+                putLong("fetched_at", weather.fetchedAt)
+                .putString("summary", weather.summary)
+                .putInt("temperature", weather.temperature)
+                .putInt("apparent_temperature", weather.apparentTemperature)
+                .putInt("precipitation_probability", weather.precipitationProbability)
+                .putInt("wind_speed", weather.windSpeed)
+            }
     }
 
 }
@@ -251,7 +251,9 @@ class DayAgentWeatherRepository(private val context: Context) {
         val times = hourly?.get("time")?.jsonArray.orEmpty()
         val probabilities = hourly?.get("precipitation_probability")?.jsonArray.orEmpty()
         val currentHour = current["time"]?.jsonPrimitive?.contentOrNull?.take(13)
-        val index = times.indexOfFirst { it.jsonPrimitive.contentOrNull?.startsWith(currentHour.orEmpty()) == true }
+        val index = currentHour?.let { hour ->
+            times.indexOfFirst { it.jsonPrimitive.contentOrNull?.startsWith(hour) == true }
+        } ?: -1
         val probability = probabilities.getOrNull(index)?.jsonPrimitive?.intOrNull ?: 0
         val summary = "${weatherCodeLabel(code)}，${temperature}°C，体感 ${apparent}°C，降雨概率 ${probability}%"
         return AgentWeatherSnapshot(summary, temperature, apparent, probability, wind, System.currentTimeMillis())
@@ -261,53 +263,14 @@ class DayAgentWeatherRepository(private val context: Context) {
 class DayAgentService(private val context: Context) {
     private val chatTransport = DayAgentChatTransport()
 
-    suspend fun generateDailyPack(facts: DayAgentFacts): DailyAgentPack = withContext(Dispatchers.IO) {
-        val settings = AiImportSettingsStore.load(context)
-        require(settings.profile.id != AiProviderPresets.none.id) { "请先在 AI 设置中选择服务商" }
-        require(settings.apiKey.isNotBlank()) { "请先在 AI 设置中配置 API Key" }
-        val prompt = dailyPackPrompt(facts)
-        val body = chatTransport.body(
-            settings,
-            listOf("system" to DayAgentPrompts.DailySystem, "user" to prompt),
-            stream = false
-        )
-        val response = chatTransport.post(settings, body)
-        val content = parseFullChatContent(response)
-        val objectText = content.substringAfter('{', missingDelimiterValue = "")
-            .let { if (it.isBlank()) "" else "{$it" }
-            .substringBeforeLast('}', missingDelimiterValue = "")
-            .let { if (it.isBlank()) "" else "$it}" }
-        val root = DayAgentJson.parseToJsonElement(objectText).jsonObject
-        val templates = root["templates"]?.jsonObject
-            ?.mapValues { it.value.jsonPrimitive.content }
-            .orEmpty()
-        val quickQuestions = root["quickQuestions"]?.jsonArray
-            ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
-            ?.filter { it.isNotBlank() && it.length <= 24 }
-            ?.distinct()
-            ?.take(3)
-            .orEmpty()
-        val valid = validateAgentTemplates(templates)
-        require(valid.isNotEmpty()) { "AI 没有返回可用的文案模板" }
-        DailyAgentPack(
-            generatedAt = System.currentTimeMillis(),
-            providerId = settings.profile.id,
-            model = settings.profile.defaultModel,
-            sourceHash = facts.sourceHash,
-            templates = defaultAgentTemplates() + valid,
-            quickQuestions = quickQuestions.takeIf { it.size >= 2 }
-                ?: defaultAgentQuickQuestions(facts),
-            generationStatus = "READY"
-        )
-    }
-
     suspend fun chat(
         facts: DayAgentFacts,
         history: List<AgentMessageEntity>,
         question: String,
         imageAttachment: AgentImageAttachment? = null,
         onStatus: (AgentRunStatus) -> Unit,
-        onDelta: (String) -> Unit
+        onDelta: (String) -> Unit,
+        onStreamReset: () -> Unit = {}
     ): String = withContext(Dispatchers.IO) {
         require(facts.scheduleId > 0) { "当前课表尚未就绪" }
         require(facts.semesterCourses.all { it.scheduleId == facts.scheduleId }) {
@@ -328,7 +291,7 @@ class DayAgentService(private val context: Context) {
         val savedMemory = DayAgentPreferences.memory(context)
         val memoryToolAvailable = DayAgentPreferences.shouldOfferMemoryUpdate(context, facts.date)
         if (imageAttachment != null) {
-            require(settings.profile.supportsVision) {
+            require(AiProviderPresets.supportsImageInput(settings.profile)) {
                 "当前模型没有启用图片理解能力，请切换支持视觉输入的模型"
             }
         }
@@ -392,6 +355,7 @@ class DayAgentService(private val context: Context) {
                 includeMemoryTool = memoryToolAvailable,
                 onStatus = onStatus,
                 onDelta = onDelta,
+                onStreamReset = onStreamReset,
                 executeTool = { call -> executeAgentToolCall(call, facts) }
             )
         }
@@ -401,8 +365,7 @@ class DayAgentService(private val context: Context) {
                 settings = settings,
                 messages = messages + agentTextMessage(
                     "system",
-                    "这是工具决策阶段。需要应用事实时直接调用工具；若已有信息足够，" +
-                        "只输出 FINAL_ANSWER_READY，不要在本阶段撰写最终正文。"
+                    DayAgentPrompts.ToolDecisionStage
                 ),
                 stream = false,
                 includeTools = true,
@@ -422,7 +385,8 @@ class DayAgentService(private val context: Context) {
                     settings = settings,
                     messages = messages,
                     onStatus = onStatus,
-                    onDelta = onDelta
+                    onDelta = onDelta,
+                    onStreamReset = onStreamReset
                 )
             }
 
@@ -441,13 +405,10 @@ class DayAgentService(private val context: Context) {
 
         streamFinalAnswer(
             settings = settings,
-            messages = messages + agentTextMessage(
-                "system",
-                "工具调用轮次已经结束。请根据已有工具结果直接输出最终答复；" +
-                    "如需用户确认操作，在正文末尾输出合法的 <agent_actions> 标记。"
-            ),
+            messages = messages,
             onStatus = onStatus,
-            onDelta = onDelta
+            onDelta = onDelta,
+            onStreamReset = onStreamReset
         )
     }
 
@@ -460,21 +421,32 @@ class DayAgentService(private val context: Context) {
         settings: AiImportSettings,
         messages: List<JsonObject>,
         onStatus: (AgentRunStatus) -> Unit,
-        onDelta: (String) -> Unit
+        onDelta: (String) -> Unit,
+        onStreamReset: () -> Unit
     ): String {
         onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "整理结果"))
+        val finalMessages = messages + agentTextMessage(
+            "system",
+            DayAgentPrompts.FinalAnswerStage
+        )
         val finalBody = chatTransport.agentBody(
             settings = settings,
-            messages = messages,
+            messages = finalMessages,
             stream = true,
             includeTools = false
         )
         return try {
-            chatTransport.stream(settings, finalBody, onDelta)
-        } catch (_: MissingAgentBodyException) {
-            val retryMessages = messages + agentTextMessage(
+            val gate = AgentFinalOutputGate(onDelta)
+            gate.finish(chatTransport.stream(settings, finalBody, gate::accept))
+        } catch (error: Throwable) {
+            if (error !is MissingAgentBodyException && error !is AgentProtocolViolationException) {
+                throw error
+            }
+            onStreamReset()
+            onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "修正输出格式"))
+            val retryMessages = finalMessages + agentTextMessage(
                 "system",
-                "上一轮没有生成最终正文。停止继续分析，直接输出简洁结论和必要的操作标记。"
+                DayAgentPrompts.FinalAnswerProtocolRetry
             )
             val retryBody = chatTransport.agentBody(
                 settings = settings,
@@ -483,6 +455,9 @@ class DayAgentService(private val context: Context) {
                 includeTools = false
             )
             val retryContent = parseFullChatContent(chatTransport.post(settings, retryBody))
+            if (containsLeakedAgentFunctionProtocol(retryContent)) {
+                throw AgentProtocolViolationException()
+            }
             onDelta(retryContent)
             retryContent
         }
@@ -529,9 +504,6 @@ private fun AgentToolResult.asAgentToolMessage(): JsonObject = buildJsonObject {
 
 class DayAgentRepository(private val context: Context) {
     companion object {
-        private val generationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        private val sessionCache = ConcurrentHashMap<String, AgentDailySessionEntity>()
-        private val generationLocks = ConcurrentHashMap<String, Mutex>()
         private val attachmentMutex = Mutex()
     }
 
@@ -539,17 +511,6 @@ class DayAgentRepository(private val context: Context) {
     private val dao = database.agentDao()
     private val scheduleRepository = ScheduleRepository(database)
     private val service = DayAgentService(context.applicationContext)
-    fun observeSession(scheduleId: Int, date: LocalDate): Flow<AgentDailySessionEntity?> {
-        val key = "$scheduleId:$date"
-        return dao.observeSession(scheduleId, date.toString())
-            .distinctUntilChanged()
-            .onEach { session ->
-                if (session != null) sessionCache[key] = session
-            }
-    }
-
-    fun cachedSession(scheduleId: Int, date: LocalDate): AgentDailySessionEntity? = sessionCache["$scheduleId:$date"]
-
     fun observeMessages(scheduleId: Int, date: LocalDate): Flow<List<AgentMessageEntity>> =
         dao.observeMessages(scheduleId, date.toString()).distinctUntilChanged()
 
@@ -561,14 +522,6 @@ class DayAgentRepository(private val context: Context) {
             val oldest = today.minusDays(2).toString()
             dao.deleteMessagesBefore(oldest)
             dao.deleteSessionsBefore(oldest)
-            sessionCache.keys
-                .filter { it.substringAfter(':', missingDelimiterValue = "") < oldest }
-                .forEach(sessionCache::remove)
-            generationLocks.entries
-                .filter { (key, lock) ->
-                    key.substringAfter(':', missingDelimiterValue = "") < oldest && !lock.isLocked
-                }
-                .forEach { (key, lock) -> generationLocks.remove(key, lock) }
             val referencedNames = dao.getAllMessageContents()
                 .mapNotNull { parseAgentMessageContent(it).attachmentFileName }
                 .toSet()
@@ -585,76 +538,14 @@ class DayAgentRepository(private val context: Context) {
         }
     }
 
-    suspend fun ensureDailyPack(scheduleId: Int, facts: DayAgentFacts, force: Boolean = false): Result<DailyAgentPack> {
-        val key = "$scheduleId:${facts.date}"
-        return generationScope.async {
-            val candidateLock = Mutex()
-            val generationLock = generationLocks.putIfAbsent(key, candidateLock) ?: candidateLock
-            generationLock.withLock {
-                var preservedPackJson: String? = null
-                runCatching {
-                val settings = AiImportSettingsStore.load(context)
-                if (settings.apiKey.isBlank()) return@runCatching DailyAgentPack(sourceHash = facts.sourceHash)
-                val existing = daoCurrentSession(scheduleId, facts)
-                preservedPackJson = existing?.dailyPackJson
-                if (!force && existing != null) return@runCatching DailyAgentPack.decodeOrDefault(existing.dailyPackJson)
-                val now = System.currentTimeMillis()
-                saveSession(
-                    AgentDailySessionEntity(
-                        scheduleId = scheduleId,
-                        date = facts.date.toString(),
-                        dailyPackJson = existing?.dailyPackJson
-                            ?: DailyAgentPack(sourceHash = facts.sourceHash, generationStatus = "GENERATING").encode(),
-                        providerId = settings.profile.id,
-                        model = settings.profile.defaultModel,
-                        createdAt = existing?.createdAt ?: now,
-                        updatedAt = now,
-                        generationStatus = "GENERATING"
-                    )
-                )
-                val pack = service.generateDailyPack(facts)
-                saveSession(
-                    AgentDailySessionEntity(
-                        scheduleId = scheduleId,
-                        date = facts.date.toString(),
-                        dailyPackJson = pack.encode(),
-                        providerId = pack.providerId,
-                        model = pack.model,
-                        createdAt = existing?.createdAt ?: now,
-                        updatedAt = System.currentTimeMillis(),
-                        generationStatus = "READY"
-                    )
-                )
-                pack
-            }.onFailure { error ->
-                val settings = AiImportSettingsStore.load(context)
-                val now = System.currentTimeMillis()
-                saveSession(
-                    AgentDailySessionEntity(
-                        scheduleId,
-                        facts.date.toString(),
-                        preservedPackJson
-                            ?: DailyAgentPack(sourceHash = facts.sourceHash, generationStatus = "FAILED", lastError = error.message).encode(),
-                        settings.profile.id,
-                        settings.profile.defaultModel,
-                        now,
-                        now,
-                        "FAILED",
-                        error.message
-                    )
-                )
-                }
-            }
-        }.await()
-    }
-
     suspend fun sendMessage(
         scheduleId: Int,
         facts: DayAgentFacts,
         question: String,
         imageAttachment: AgentImageAttachment? = null,
         onStatus: (AgentRunStatus) -> Unit,
-        onDelta: (String) -> Unit
+        onDelta: (String) -> Unit,
+        onStreamReset: () -> Unit = {}
     ): Result<String> = runCatching {
         require(scheduleId == facts.scheduleId) {
             "课表已切换，请重新发送这条消息"
@@ -732,9 +623,12 @@ class DayAgentRepository(private val context: Context) {
                 question = question,
                 imageAttachment = imageAttachment,
                 onStatus = onStatus,
-                onDelta = onDelta
+                onDelta = onDelta,
+                onStreamReset = onStreamReset
             )
             val cleanAnswer = sanitizeAgentToolOutput(answer)
+                .takeIf(String::isNotBlank)
+                ?: throw IllegalStateException("AI 没有返回可显示的最终答复，请重试")
             dao.insertMessage(
                 AgentMessageEntity(
                     scheduleId = scheduleId,
@@ -753,17 +647,6 @@ class DayAgentRepository(private val context: Context) {
         }
     }
 
-    private suspend fun daoCurrentSession(scheduleId: Int, facts: DayAgentFacts): AgentDailySessionEntity? {
-        return dao.observeSession(
-            scheduleId,
-            facts.date.toString()
-        ).first()
-    }
-
-    private suspend fun saveSession(session: AgentDailySessionEntity) {
-        sessionCache["${session.scheduleId}:${session.date}"] = session
-        dao.upsertSession(session)
-    }
 }
 
 private val ManagedAgentAttachmentName =
@@ -794,7 +677,7 @@ internal fun compactAgentHistory(history: List<AgentMessageEntity>): List<AgentM
     val assistant = ready[assistantIndex]
     return listOf(user, assistant)
         .mapNotNull { message ->
-            val clean = parseAgentMessageContent(message.content).text
+            val clean = sanitizeAgentToolOutput(parseAgentMessageContent(message.content).text)
                 .replace(
                     Regex(
                         "<think\\s*>[\\s\\S]*?(?:</think\\s*>|$)",

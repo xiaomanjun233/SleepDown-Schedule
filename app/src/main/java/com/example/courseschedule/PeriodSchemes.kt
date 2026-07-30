@@ -34,6 +34,91 @@ data class SchedulePeriodSchemesDraft(
 )
 
 private val PeriodTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+internal const val LastMinuteOfDay = 23 * 60 + 59
+
+internal data class PeriodTimePickerBounds(
+    val minimumStartMinute: Int,
+    val maximumEndMinute: Int
+)
+
+internal data class PeriodTimeSelection(
+    val startMinute: Int,
+    val endMinute: Int
+)
+
+internal enum class PeriodTimeSelectionAnchor { START, END, NONE }
+
+internal fun parseMinuteOfDay(value: String?): Int? = value
+    ?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+    ?.let { it.hour * 60 + it.minute }
+
+internal fun periodTimePickerBounds(previousEnd: String?, nextStart: String?): PeriodTimePickerBounds {
+    val minimumStart = (parseMinuteOfDay(previousEnd) ?: 0).coerceIn(0, LastMinuteOfDay - 1)
+    val maximumEnd = (parseMinuteOfDay(nextStart) ?: LastMinuteOfDay)
+        .coerceIn(minimumStart + 1, LastMinuteOfDay)
+    return PeriodTimePickerBounds(minimumStart, maximumEnd)
+}
+
+internal fun constrainPeriodTimeSelection(
+    startMinute: Int,
+    endMinute: Int,
+    bounds: PeriodTimePickerBounds,
+    anchor: PeriodTimeSelectionAnchor = PeriodTimeSelectionAnchor.NONE
+): PeriodTimeSelection {
+    val minimumStart = bounds.minimumStartMinute.coerceIn(0, LastMinuteOfDay - 1)
+    val maximumEnd = bounds.maximumEndMinute.coerceIn(minimumStart + 1, LastMinuteOfDay)
+    return when (anchor) {
+        PeriodTimeSelectionAnchor.START -> {
+            val safeEnd = endMinute.coerceIn(minimumStart + 1, maximumEnd)
+            PeriodTimeSelection(startMinute.coerceIn(minimumStart, safeEnd - 1), safeEnd)
+        }
+        PeriodTimeSelectionAnchor.END -> {
+            val safeStart = startMinute.coerceIn(minimumStart, maximumEnd - 1)
+            PeriodTimeSelection(safeStart, endMinute.coerceIn(safeStart + 1, maximumEnd))
+        }
+        PeriodTimeSelectionAnchor.NONE -> {
+            val safeStart = startMinute.coerceIn(minimumStart, maximumEnd - 1)
+            PeriodTimeSelection(safeStart, endMinute.coerceIn(safeStart + 1, maximumEnd))
+        }
+    }
+}
+
+internal fun automaticPartSpanMinutes(
+    config: ScheduleConfigEntity,
+    draft: PeriodSchemeDraft,
+    part: PeriodDayPart
+): Int {
+    val indices = config.periodRange(part).toList()
+    if (indices.isEmpty()) return 0
+    val lessonMinutes = draft.scheme.classDurationMinutes.coerceIn(1, 300)
+    val normalBreak = draft.scheme.breakDurationMinutes.coerceIn(0, 300)
+    return indices.sumOf { lessonMinutes } + indices.dropLast(1).sumOf { index ->
+        (draft.specialBreaks[index] ?: normalBreak).coerceIn(0, 300)
+    }
+}
+
+internal fun constrainAutomaticPartStarts(
+    config: ScheduleConfigEntity,
+    draft: PeriodSchemeDraft,
+    requestedStarts: Map<PeriodDayPart, Int>
+): Map<PeriodDayPart, Int> {
+    val enabledParts = PeriodDayPart.entries.filter { config.periodCount(it) > 0 }
+    val spans = enabledParts.associateWith { automaticPartSpanMinutes(config, draft, it) }
+    var previousEnd = 0
+    return buildMap {
+        enabledParts.forEachIndexed { index, part ->
+            val remainingSpan = enabledParts.drop(index).sumOf { spans.getValue(it) }
+            val maximumStart = (LastMinuteOfDay - remainingSpan)
+                .coerceAtLeast(previousEnd)
+                .coerceAtMost(LastMinuteOfDay)
+            val start = requestedStarts[part].orEmptyMinute().coerceIn(previousEnd.coerceAtMost(maximumStart), maximumStart)
+            put(part, start)
+            previousEnd = (start + spans.getValue(part)).coerceAtMost(LastMinuteOfDay)
+        }
+    }
+}
+
+private fun Int?.orEmptyMinute(): Int = (this ?: 0).coerceIn(0, LastMinuteOfDay)
 
 fun ScheduleConfigEntity.periodCount(part: PeriodDayPart): Int = when (part) {
     PeriodDayPart.MORNING -> morningPeriodCount

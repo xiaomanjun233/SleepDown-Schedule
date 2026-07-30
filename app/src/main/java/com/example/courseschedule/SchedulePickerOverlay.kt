@@ -122,7 +122,7 @@ private fun daysInMonth(year: Int, month: Int): Int =
     LocalDate.of(year, month, 1).lengthOfMonth()
 
 @Composable
-internal fun quickSheetBackdropModifier(
+internal fun Modifier.quickSheetBackdropModifier(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     blurRadius: androidx.compose.ui.unit.Dp,
@@ -136,7 +136,7 @@ internal fun quickSheetBackdropModifier(
     }
     val dark = appUsesDarkTheme(config)
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
-        return Modifier
+        return this
             .clip(shape)
             .background(
                 if (inner) {
@@ -146,7 +146,7 @@ internal fun quickSheetBackdropModifier(
                 }
             )
     }
-    return Modifier.drawBackdrop(
+    return drawBackdrop(
         backdrop = backdrop,
         shape = { shape },
         effects = { blur(blurRadius.toPx()) },
@@ -184,12 +184,13 @@ internal fun QuickSheetLiquidAction(
     enabled: Boolean,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
+    modifier: Modifier = Modifier,
     primary: Boolean = false,
     destructive: Boolean = false,
-    modifier: Modifier = Modifier.width(84.dp),
     height: androidx.compose.ui.unit.Dp = 38.dp,
     onClick: () -> Unit
 ) {
+    val actionModifier = if (modifier == Modifier) Modifier.width(84.dp) else modifier
     if (backdrop != null) {
         val dark = appUsesDarkTheme(config)
         val neutralSurface = if (dark) {
@@ -214,7 +215,7 @@ internal fun QuickSheetLiquidAction(
         LiquidButton(
             onClick = { if (enabled) onClick() },
             backdrop = backdrop,
-            modifier = modifier,
+            modifier = actionModifier,
             height = height,
             blurRadius = 18.dp,
             lensHeight = 8.dp,
@@ -243,7 +244,7 @@ internal fun QuickSheetLiquidAction(
             else -> MaterialTheme.colorScheme.onSurface
         }
         Box(
-            modifier = modifier
+            modifier = actionModifier
                 .height(height)
                 .clip(RoundedCornerShape(50))
                 .background(background.copy(alpha = if (enabled) 0.94f else 0.46f))
@@ -406,7 +407,7 @@ fun QuickScheduleSettingsSheets(
         allowDismiss = !saving,
         backgroundColor = Color.Transparent,
         modifier = Modifier.heightIn(max = 590.dp),
-        surfaceModifier = quickSheetBackdropModifier(backdrop, config, blurRadius = 28.dp)
+        surfaceModifier = Modifier.quickSheetBackdropModifier(backdrop, config, blurRadius = 28.dp)
     ) {
         retainedDraft?.let { value ->
             Column(
@@ -419,7 +420,7 @@ fun QuickScheduleSettingsSheets(
                     backdrop = backdrop,
                     config = config,
                     modifier = Modifier.fillMaxWidth(),
-                    surfaceModifier = quickSheetBackdropModifier(
+                    surfaceModifier = Modifier.quickSheetBackdropModifier(
                         backdrop = backdrop,
                         config = config,
                         blurRadius = 16.dp,
@@ -640,7 +641,7 @@ fun QuickScheduleSettingsSheets(
         onDismissRequest = { showDatePicker = false },
         backgroundColor = Color.Transparent,
         modifier = Modifier.heightIn(max = 330.dp),
-        surfaceModifier = quickSheetBackdropModifier(backdrop, config, blurRadius = 28.dp)
+        surfaceModifier = Modifier.quickSheetBackdropModifier(backdrop, config, blurRadius = 28.dp)
     ) {
         val maxDay = daysInMonth(dateYear, dateMonth)
         LaunchedEffect(maxDay) {
@@ -697,7 +698,6 @@ fun SchedulePickerOverlay(
     pickerState: SchedulePickerState,
     allState: AppState,
     backdrop: Backdrop?,
-    dialogBackdrop: Backdrop? = backdrop,
     onPageSelected: (Int) -> Unit,
     onApply: (Int) -> Unit,
     onClose: () -> Unit,
@@ -707,7 +707,8 @@ fun SchedulePickerOverlay(
     onCustomize: (Int) -> Unit,
     onRename: (Int, String) -> Unit,
     onDeleteRequest: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    dialogBackdrop: Backdrop? = backdrop
 ) {
     if (!pickerState.overlayVisible) return
 
@@ -1285,14 +1286,15 @@ private fun PickerIconLiquidButton(
 }
 
 @Composable
-private fun PickerTextButton(label: String, enabled: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier.width(176.dp), onClick: () -> Unit) {
+private fun PickerTextButton(label: String, enabled: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val latestEnabled by rememberUpdatedState(enabled)
     val latestOnClick by rememberUpdatedState(onClick)
+    val buttonModifier = if (modifier == Modifier) Modifier.width(176.dp) else modifier
     if (backdrop != null) {
         LiquidButton(
             onClick = { if (latestEnabled) latestOnClick() },
             backdrop = backdrop,
-            modifier = modifier,
+            modifier = buttonModifier,
             height = 52.dp,
             blurRadius = 10.dp,
             lensHeight = 26.dp,
@@ -1303,6 +1305,6 @@ private fun PickerTextButton(label: String, enabled: Boolean, backdrop: Backdrop
             Text(label, color = Color.White.copy(alpha = if (enabled) 1f else 0.42f), fontWeight = FontWeight.SemiBold)
         }
     } else {
-        Text(label, color = Color.White.copy(alpha = if (enabled) 1f else 0.42f), fontWeight = FontWeight.Medium, modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.12f)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 20.dp, vertical = 11.dp))
+        Text(label, color = Color.White.copy(alpha = if (enabled) 1f else 0.42f), fontWeight = FontWeight.Medium, modifier = buttonModifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.12f)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 20.dp, vertical = 11.dp))
     }
 }

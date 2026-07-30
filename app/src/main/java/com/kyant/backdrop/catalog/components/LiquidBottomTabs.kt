@@ -82,19 +82,24 @@ fun LiquidBottomTabs(
     officialHighlightAlpha: Float = 1f,
     officialShadowAlpha: Float = 1f,
     officialInnerShadowAlpha: Float = 1f,
+    containerShadowEnabled: Boolean = true,
+    indicatorShadowEnabled: Boolean = true,
+    indicatorInnerShadowEnabled: Boolean = true,
     pressedContentScale: Float = 1.2f,
     movingAccentContent: Boolean = true,
     chromaticAberrationEnabled: Boolean = false,
     isLightThemeOverride: Boolean? = null,
+    lightContainerColor: Color = Color(0xFFFAFAFA),
+    lightAccentColor: Color = Color(0xFF0088FF),
     useOfficialGlassParameters: Boolean = false,
     content: @Composable RowScope.() -> Unit
 ) {
     val isLightTheme = isLightThemeOverride ?: !isSystemInDarkTheme()
     val accentColor =
-        if (isLightTheme) Color(0xFF0088FF)
+        if (isLightTheme) lightAccentColor
         else Color(0xFF0091FF)
     val containerColor =
-        if (isLightTheme) Color(0xFFFAFAFA).copy(containerAlpha)
+        if (isLightTheme) lightContainerColor.copy(containerAlpha)
         else Color(0xFF121212).copy(containerAlpha)
 
     val tabsBackdrop = rememberLayerBackdrop()
@@ -205,6 +210,7 @@ fun LiquidBottomTabs(
                         scaleX = scale
                         scaleY = scale
                     },
+                    shadow = if (containerShadowEnabled) ({ Shadow.Default }) else null,
                     onDrawSurface = { drawRect(containerColor) }
                 )
                 .then(interactiveHighlight.modifier)
@@ -246,6 +252,7 @@ fun LiquidBottomTabs(
                                 val progress = dampedDragAnimation.pressProgress
                                 Highlight.Default.copy(alpha = progress * if (useOfficialGlassParameters) officialHighlightAlpha else 0.45f)
                             },
+                            shadow = if (containerShadowEnabled) ({ Shadow.Default }) else null,
                             onDrawSurface = { drawRect(containerColor) }
                         )
                         .then(interactiveHighlight.modifier)
@@ -288,17 +295,21 @@ fun LiquidBottomTabs(
                         val progress = dampedDragAnimation.pressProgress
                         Highlight.Default.copy(alpha = progress * if (useOfficialGlassParameters) officialHighlightAlpha else 0.45f)
                     },
-                    shadow = {
-                        val progress = dampedDragAnimation.pressProgress
-                        Shadow(alpha = progress * if (useOfficialGlassParameters) officialShadowAlpha else 1f)
-                    },
-                    innerShadow = {
-                        val progress = dampedDragAnimation.pressProgress
-                        InnerShadow(
-                            radius = 8f.dp * progress,
-                            alpha = progress * if (useOfficialGlassParameters) officialInnerShadowAlpha else 1f
-                        )
-                    },
+                    shadow = if (indicatorShadowEnabled) {
+                        {
+                            val progress = dampedDragAnimation.pressProgress
+                            Shadow(alpha = progress * if (useOfficialGlassParameters) officialShadowAlpha else 1f)
+                        }
+                    } else null,
+                    innerShadow = if (indicatorInnerShadowEnabled) {
+                        {
+                            val progress = dampedDragAnimation.pressProgress
+                            InnerShadow(
+                                radius = 8f.dp * progress,
+                                alpha = progress * if (useOfficialGlassParameters) officialInnerShadowAlpha else 1f
+                            )
+                        }
+                    } else null,
                     layerBlock = {
                         scaleX = dampedDragAnimation.scaleX
                         scaleY = dampedDragAnimation.scaleY

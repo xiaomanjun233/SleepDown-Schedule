@@ -190,7 +190,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -293,152 +292,10 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 @Composable
-fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardColor: ComposeColor, textColor: ComposeColor, backdrop: Backdrop?, onSwipeWeek: (Int) -> Unit, onCourseClick: (CourseEntity, Int, Rect?) -> Unit) {
-    val weekdays = FullWeekdays
-    val rowHeaderWidth = 56.dp
-    val today = LocalDate.now()
-    val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-    val now = LocalTime.now()
-    val currentPeriod = currentTimelinePeriod(state.periods, now)
-    val weekBuckets = remember(state.courses, displayWeek) {
-        weekCourseBuckets(state.courses, displayWeek)
-    }
-    var horizontalDrag by remember { mutableFloatStateOf(0f) }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(displayWeek, state.config.totalWeeks) {
-                detectHorizontalDragGestures(
-                    onDragStart = { horizontalDrag = 0f },
-                    onHorizontalDrag = { _, dragAmount -> horizontalDrag += dragAmount },
-                    onDragEnd = {
-                        when {
-                            horizontalDrag <= -80f -> onSwipeWeek(1)
-                            horizontalDrag >= 80f -> onSwipeWeek(-1)
-                        }
-                        horizontalDrag = 0f
-                    },
-                    onDragCancel = { horizontalDrag = 0f }
-                )
-            }
-            .verticalScroll(rememberScrollState())
-    ) {
-        Column {
-            Row(modifier = Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                WeekSwitchButton(-1, state.config, backdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
-                HomeReadableText(
-                    "第${displayWeek}周",
-                    modifier = Modifier.padding(horizontal = 8.dp),
-                    style = MaterialTheme.typography.titleSmall,
-                    textAlign = TextAlign.Center,
-                    color = textColor
-                )
-                WeekSwitchButton(1, state.config, backdrop, enabled = displayWeek < state.config.totalWeeks) { onSwipeWeek(1) }
-            }
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.width(rowHeaderWidth)) {
-                    Box(Modifier.height(42.dp).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("节次", style = MaterialTheme.typography.labelMedium, color = textColor) }
-                    state.periods.forEach { period ->
-                        Box(
-                            Modifier
-                                .height(cardHeight)
-                                .fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            HomeReadableRegion(color = textColor) {
-                                HomeReadableRegion(color = textColor) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                    val isCurrent = currentPeriod?.periodIndex == period.periodIndex
-                                    Box(
-                                        modifier = if (isCurrent) Modifier
-                                            .background(ComposeColor(0xFF0A84FF), RoundedCornerShape(5.dp))
-                                            .padding(horizontal = 4.dp, vertical = 1.dp)
-                                        else Modifier,
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (isCurrent) {
-                                            Text(
-                                                period.periodIndex.toString(),
-                                                fontSize = 13.sp,
-                                                lineHeight = 15.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                textAlign = TextAlign.Center,
-                                                color = ComposeColor.White
-                                            )
-                                        } else {
-                                            HomeReadableText(
-                                                period.periodIndex.toString(),
-                                                fontSize = 13.sp,
-                                                lineHeight = 15.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                textAlign = TextAlign.Center,
-                                                color = textColor
-                                            )
-                                        }
-                                    }
-                                    HomeReadableText(
-                                        period.startTime,
-                                        fontSize = 10.sp,
-                                        lineHeight = 11.sp,
-                                        fontWeight = FontWeight.Light,
-                                        textAlign = TextAlign.Center,
-                                        color = textColor.copy(alpha = 0.86f)
-                                    )
-                                    HomeReadableText(
-                                        period.endTime,
-                                        fontSize = 10.sp,
-                                        lineHeight = 11.sp,
-                                        fontWeight = FontWeight.Light,
-                                        textAlign = TextAlign.Center,
-                                        color = textColor.copy(alpha = 0.86f)
-                                    )
-                                }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                weekdays.forEach { day ->
-                    Column(modifier = Modifier.weight(1f)) {
-                        Box(Modifier.height(42.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        val isToday = day == LocalDate.now().dayOfWeek.toChineseWeekday()
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = if (isToday) MaterialTheme.colorScheme.primaryContainer else ComposeColor.Transparent
-                        ) {
-                            Text(
-                                "周" + weekdayLabel(day),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.SemiBold,
-                                color = textColor
-                            )
-                        }
-                    }
-                    WeekDayColumn(
-                        courses = weekBuckets.byWeekday[day].orEmpty(),
-                        periods = state.periods,
-                        cardHeight = cardHeight,
-                        cardColor = cardColor,
-                        emptyBackground = ComposeColor.Transparent,
-                        backdrop = backdrop,
-                        config = state.config,
-                        onCourseClick = { course, sourceBounds -> onCourseClick(course, displayWeek, sourceBounds) }
-                    )
-                }
-                }
-            }
-            Spacer(Modifier.height(WeekDockScrollPadding))
-        }
-    }
-}
-
-@Composable
-fun SinglePillWeekScheduleScreen(
+internal fun SinglePillWeekScheduleScreen(
     state: AppState,
     displayWeek: Int,
+    adaptiveMetrics: HomeAdaptiveMetrics,
     cardHeight: Dp,
     cardColor: ComposeColor,
     textColor: ComposeColor,
@@ -481,7 +338,18 @@ fun SinglePillWeekScheduleScreen(
     val outgoingLayerOffset = remember { Animatable(0f) }
     var gestureCommittedWeek by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
-    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val screenWidth = adaptiveMetrics.screenWidth
+    val topSpacerHeight = adaptiveMetrics.weekTopSpacerHeight
+    val horizontalContentPadding = if (adaptiveMetrics.isLargeScreen) {
+        adaptiveMetrics.tabletContentMargin
+    } else {
+        0.dp
+    }
+    val transitionTravelWidth = if (adaptiveMetrics.isLargeScreen) {
+        (adaptiveMetrics.screenWidth - horizontalContentPadding * 2f - rowHeaderWidth).coerceAtLeast(1.dp)
+    } else {
+        screenWidth
+    }
     val pagerState = rememberPagerState(
         initialPage = (displayWeek - 1).coerceAtLeast(0),
         pageCount = { state.config.totalWeeks.coerceAtLeast(1) }
@@ -543,7 +411,7 @@ fun SinglePillWeekScheduleScreen(
         weekMotionDirection = direction
         previousDisplayWeek = displayWeek
             if (direction != 0) {
-                val offscreenOffset = with(density) { (screenWidth + 88.dp).toPx() } * direction
+                val offscreenOffset = with(density) { (transitionTravelWidth + 88.dp).toPx() } * direction
                 incomingLayerOffset.snapTo(offscreenOffset)
                 outgoingLayerOffset.snapTo(0f)
                 launch {
@@ -587,8 +455,8 @@ fun SinglePillWeekScheduleScreen(
     } else {
         null
     }
-    val overlayScreenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
-    val overlayEdgePx = with(density) { 88.dp.toPx() }
+    val overlayScreenHeightPx = with(density) { adaptiveMetrics.screenHeight.toPx() }
+    val overlayEdgePx = with(density) { if (adaptiveMetrics.isLargeScreen) 64.dp.toPx() else 88.dp.toPx() }
     LaunchedEffect(displayWeek, weekEditMode) {
         if (!weekEditMode) weekEditOverlay.clear()
     }
@@ -610,8 +478,8 @@ fun SinglePillWeekScheduleScreen(
             .fillMaxSize()
             .verticalScroll(scrollState)
     ) {
-        Column {
-            Spacer(Modifier.height(HomeInitialTopInset - 22.dp))
+        Column(modifier = Modifier.padding(horizontal = horizontalContentPadding)) {
+            Spacer(Modifier.height(topSpacerHeight))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -883,6 +751,14 @@ private fun WeekEditOverlayHost(
     val density = LocalDensity.current
     val widthDp = with(density) { req.sourceBounds.width.toDp() }
     val heightDp = with(density) { heightPx.toDp() }
+    val windowSize = currentWindowSizeDp()
+    val cardCorner = adaptiveWeekCardCornerRadius(
+        cardWidth = widthDp,
+        cardHeight = heightDp,
+        windowWidth = windowSize.width,
+        windowHeight = windowSize.height
+    )
+    val cardShape = remember(cardCorner) { RoundedRectangle(cardCorner) }
     val left = req.sourceBounds.left - host.left + offsetX
     val top = req.sourceBounds.top - host.top + offsetY
     val target = when (req.mode) {
@@ -921,7 +797,7 @@ private fun WeekEditOverlayHost(
                 .offset { IntOffset(previewLeft.roundToInt(), previewTop.roundToInt()) }
                 .width(widthDp)
                 .height(with(density) { previewHeight.toDp() })
-                .clip(RoundedCornerShape(9.dp))
+                .clip(cardShape)
                 .background(
                     if (conflict) MaterialTheme.colorScheme.error.copy(alpha = 0.32f)
                     else ComposeColor.Gray.copy(alpha = 0.24f)
@@ -942,7 +818,7 @@ private fun WeekEditOverlayHost(
                 config = config,
                 course = req.course,
                 modifier = Modifier.fillMaxSize(),
-                shape = RoundedCornerShape(8.dp),
+                shape = cardShape,
                 onClick = null
             ) {
                 WeekCourseOverlayCardContent(req.course, config)
@@ -1171,207 +1047,9 @@ private fun WeekResizeCornerHandle(
 }
 
 @Composable
-fun LiquidWeekScheduleScreen(
-    state: AppState,
-    displayWeek: Int,
-    cardHeight: Dp,
-    cardColor: ComposeColor,
-    textColor: ComposeColor,
-    backdrop: Backdrop?,
-    headerBackdrop: Backdrop? = backdrop,
-    onSwipeWeek: (Int) -> Unit,
-    onCourseClick: (CourseEntity, Int, Rect?) -> Unit
-) {
-    val weekdays = FullWeekdays
-    val rowHeaderWidth = 56.dp
-    val today = LocalDate.now()
-    val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-    val now = LocalTime.now()
-    val currentPeriod = currentTimelinePeriod(state.periods, now)
-    val weekBuckets = remember(state.courses, displayWeek) {
-        weekCourseBuckets(state.courses, displayWeek)
-    }
-    var horizontalDrag by remember { mutableFloatStateOf(0f) }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(displayWeek, state.config.totalWeeks) {
-                detectHorizontalDragGestures(
-                    onDragStart = { horizontalDrag = 0f },
-                    onHorizontalDrag = { _, dragAmount -> horizontalDrag += dragAmount },
-                    onDragEnd = {
-                        when {
-                            horizontalDrag <= -80f -> onSwipeWeek(1)
-                            horizontalDrag >= 80f -> onSwipeWeek(-1)
-                        }
-                        horizontalDrag = 0f
-                    },
-                    onDragCancel = { horizontalDrag = 0f }
-                )
-            }
-            .verticalScroll(rememberScrollState())
-    ) {
-        Column {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                WeekSwitchButton(-1, state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
-                HomeReadableText(
-                    text = "第${displayWeek}周",
-                    modifier = Modifier.padding(horizontal = 10.dp),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
-                    color = textColor
-                )
-                WeekSwitchButton(1, state.config, headerBackdrop, enabled = displayWeek < state.config.totalWeeks) { onSwipeWeek(1) }
-            }
-
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.width(rowHeaderWidth)) {
-                        Box(
-                            modifier = Modifier
-                                .height(44.dp)
-                                .fillMaxWidth()
-                                .padding(horizontal = 3.dp, vertical = 3.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                        WeekHeaderPill(headerBackdrop, state.config, selected = false) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = "节次",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = textColor,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-                    }
-                    state.periods.forEach { period ->
-                        Box(
-                            modifier = Modifier
-                                .height(cardHeight)
-                                .fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            HomeReadableRegion(color = textColor) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                val isCurrent = currentPeriod?.periodIndex == period.periodIndex
-                                Box(
-                                    modifier = if (isCurrent) Modifier
-                                        .background(ComposeColor(0xFF0A84FF), RoundedCornerShape(5.dp))
-                                        .padding(horizontal = 4.dp, vertical = 1.dp)
-                                    else Modifier,
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                        if (isCurrent) {
-                                            Text(
-                                                period.periodIndex.toString(),
-                                                fontSize = 13.sp,
-                                                lineHeight = 15.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                textAlign = TextAlign.Center,
-                                                color = ComposeColor.White
-                                            )
-                                        } else {
-                                            HomeReadableText(
-                                                period.periodIndex.toString(),
-                                                fontSize = 13.sp,
-                                                lineHeight = 15.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                textAlign = TextAlign.Center,
-                                                color = textColor
-                                            )
-                                        }
-                                    }
-                                    HomeReadableText(
-                                        period.startTime,
-                                    fontSize = 10.sp,
-                                    lineHeight = 11.sp,
-                                    fontWeight = FontWeight.Light,
-                                    textAlign = TextAlign.Center,
-                                    color = textColor.copy(alpha = 0.86f)
-                                )
-                                    HomeReadableText(
-                                        period.endTime,
-                                    fontSize = 10.sp,
-                                    lineHeight = 11.sp,
-                                    fontWeight = FontWeight.Light,
-                                    textAlign = TextAlign.Center,
-                                    color = textColor.copy(alpha = 0.86f)
-                                )
-                            }
-                            }
-                        }
-                    }
-                }
-
-                weekdays.forEach { day ->
-                    val isToday = day == today.dayOfWeek.toChineseWeekday()
-                    val date = weekStart.plusDays((day - 1).toLong())
-                    Column(modifier = Modifier.weight(1f)) {
-                        Box(
-                            modifier = Modifier
-                                .height(44.dp)
-                                .fillMaxWidth()
-                                .padding(horizontal = 2.dp, vertical = 3.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            WeekHeaderPill(headerBackdrop, state.config, selected = isToday) {
-                                Column(
-                                    modifier = Modifier.fillMaxSize(),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = "周${weekdayLabel(day)}",
-                                        fontSize = 11.sp,
-                                        lineHeight = 12.sp,
-                                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.SemiBold,
-                                        color = textColor,
-                                        textAlign = TextAlign.Center,
-                                        maxLines = 1
-                                    )
-                                    Text(
-                                        text = "${date.monthValue}/${date.dayOfMonth}",
-                                        fontSize = 9.sp,
-                                        lineHeight = 10.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = textColor.copy(alpha = 0.72f),
-                                        textAlign = TextAlign.Center,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-                        WeekDayColumn(
-                            courses = weekBuckets.byWeekday[day].orEmpty(),
-                            periods = state.periods,
-                            cardHeight = cardHeight,
-                            cardColor = cardColor,
-                            emptyBackground = ComposeColor.Transparent,
-                            backdrop = backdrop,
-                            config = state.config,
-                            onCourseClick = { course, sourceBounds -> onCourseClick(course, displayWeek, sourceBounds) }
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(WeekDockScrollPadding))
-        }
-    }
-}
-
-@Composable
 fun WeekSwitchButton(direction: Int, config: ScheduleConfigEntity, backdrop: Backdrop?, enabled: Boolean, onClick: () -> Unit) {
     val lightGlass = glassUsesLightStyle(config)
-    val surfaceColor = if (lightGlass) ComposeColor.White else ComposeColor(0xFF121212)
+    val surfaceColor = if (lightGlass) HomeLightGlassSurfaceColor else ComposeColor(0xFF121212)
     val textColor = glassForegroundColor(config)
     if (backdrop != null) {
         LiquidButton(
@@ -1549,6 +1227,7 @@ fun WeekHeaderPill(backdrop: Backdrop?, config: ScheduleConfigEntity, selected: 
         shape = RoundedCornerShape(50),
         tokens = homeHeaderGlassTokens(glassUsesLightStyle(config)),
         selected = selected,
+        baseSurfaceColorOverride = if (glassUsesLightStyle(config)) HomeLightGlassSurfaceColor else null,
         content = content
     )
 }
@@ -1724,7 +1403,6 @@ fun WeekCourseColumnsLayer(
     onCourseClick: (CourseEntity, Rect?) -> Unit
 ) {
     val density = LocalDensity.current
-    val travel = with(density) { (LocalConfiguration.current.screenWidthDp.dp + 96.dp).toPx() }
     val coursesByWeekday = remember(courses) { courses.groupBy { it.weekday } }
     BoxWithConstraints(
         modifier = modifier
@@ -1732,6 +1410,7 @@ fun WeekCourseColumnsLayer(
             .graphicsLayer { translationX = layerOffset.value + gestureOffset() }
     ) {
         val dayColumnWidth = maxWidth / weekdays.size.coerceAtLeast(1)
+        val travel = with(density) { (maxWidth + 96.dp).toPx() }
         var draggingDayIndex by remember { mutableStateOf<Int?>(null) }
         var draggingCourseId by remember { mutableStateOf<Long?>(null) }
         Row(modifier = Modifier.fillMaxWidth()) {
@@ -2110,98 +1789,6 @@ fun EmptyWeekCell(height: Dp, background: ComposeColor) {
 }
 
 @Composable
-fun MergedWeekCell(
-    courses: List<CourseEntity>,
-    periods: List<PeriodEntity>,
-    height: Dp,
-    cardColor: ComposeColor,
-    background: ComposeColor,
-    backdrop: Backdrop?,
-    floatingBackdrop: Backdrop? = backdrop,
-    config: ScheduleConfigEntity,
-    weekMotionDirection: Int = 0,
-    weekMotionOutgoing: Boolean = false,
-    dayIndex: Int = 1,
-    periodIndex: Int = 1,
-    gridColumnWidth: Dp = 0.dp,
-    periodRowHeight: Dp = height,
-    layerOffset: Animatable<Float, AnimationVector1D>? = null,
-    layerTravel: Float = 1f,
-    editMode: Boolean = false,
-    editWeek: Int = 1,
-    allWeekCourses: List<CourseEntity> = emptyList(),
-    weekdayCount: Int = 7,
-    editScrollState: ScrollState? = null,
-    onEnterEditMode: () -> Unit = {},
-    onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
-    onDeleteSingleWeekCourse: (CourseEntity) -> Unit = {},
-    onCourseClick: (CourseEntity, Rect?) -> Unit,
-    onDragStateChanged: (dayIndex: Int?, courseId: Long?) -> Unit = { _, _ -> },
-    draggingCourseId: Long? = null,
-    activeOverlayCourseId: Long? = null,
-    activeOverlayTargetKey: String? = null,
-    activeOverlayTargetWeek: Int = 0,
-    onStartWeekEditOverlay: (WeekEditOverlayRequest) -> Unit = {},
-    onDragWeekEditOverlay: (Offset) -> Unit = {},
-    onFinishMoveOverlay: (Velocity) -> Unit = {},
-    onFinishResizeOverlay: (Velocity) -> Unit = {},
-    onCancelWeekEditOverlay: () -> Unit = {}
-) {
-    val hasDraggingCourse = draggingCourseId?.let { id -> courses.any { it.id == id } } == true
-    Box(
-        modifier = Modifier
-            .height(height)
-            .fillMaxWidth()
-            .padding(2.dp)
-            .background(background)
-            .zIndex(if (hasDraggingCourse) 1f else 0f)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            courses.take(2).forEachIndexed { stackIndex, course ->
-                val courseHeight = if (courses.size > 1) (height - 8.dp) / 2 else height - 4.dp
-                WeekCourseBlock(
-                    course = course,
-                    periods = periods,
-                    height = courseHeight,
-                    cardColor = cardColor,
-                    backdrop = backdrop,
-                    floatingBackdrop = floatingBackdrop,
-                    config = config,
-                    weekMotionDirection = weekMotionDirection,
-                    weekMotionOutgoing = weekMotionOutgoing,
-                    dayIndex = dayIndex,
-                    periodIndex = periodIndex,
-                    gridColumnWidth = gridColumnWidth,
-                    periodRowHeight = periodRowHeight,
-                    layerOffset = layerOffset,
-                    layerTravel = layerTravel,
-                    stackIndex = stackIndex,
-                    editMode = editMode,
-                    editWeek = editWeek,
-                    allWeekCourses = allWeekCourses,
-                    weekdayCount = weekdayCount,
-                    editScrollState = editScrollState,
-                    onEnterEditMode = onEnterEditMode,
-                    onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
-                    onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
-                    onCourseClick = onCourseClick,
-                    onDragStateChanged = onDragStateChanged,
-                    activeOverlayCourseId = activeOverlayCourseId,
-                    activeOverlayTargetKey = activeOverlayTargetKey,
-                    activeOverlayTargetWeek = activeOverlayTargetWeek,
-                    onStartWeekEditOverlay = onStartWeekEditOverlay,
-                    onDragWeekEditOverlay = onDragWeekEditOverlay,
-                    onFinishMoveOverlay = onFinishMoveOverlay,
-                    onFinishResizeOverlay = onFinishResizeOverlay,
-                    onCancelWeekEditOverlay = onCancelWeekEditOverlay
-                )
-            }
-            if (courses.size > 2) Text("+${courses.size - 2}", modifier = Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelSmall)
-        }
-    }
-}
-
-@Composable
 fun WeekCourseBlock(
     course: CourseEntity,
     periods: List<PeriodEntity>,
@@ -2286,7 +1873,7 @@ fun WeekCourseBlock(
     val conflictPillDismiss = remember(course.id, editWeek) { Animatable(0f) }
     val conflictCardFlight = remember(course.id, editWeek) { Animatable(0f) }
     val scope = rememberCoroutineScope()
-    val screenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
+    val screenHeightPx = with(density) { currentWindowSizeDp().height.toPx() }
     val edgeScrollThresholdPx = with(density) { 92.dp.toPx() }
     val measuredCardWidthPx = ownBounds?.width?.coerceAtLeast(1f) ?: with(density) { 48.dp.toPx() }
     val gridColumnWidthPx = with(density) { gridColumnWidth.toPx() }
@@ -2352,6 +1939,17 @@ fun WeekCourseBlock(
         label = "week-edit-saved-height-${course.id}"
     )
     val displayedHeight = if (settlingResizeTarget != null) animatedSettledResizeHeight else height
+    val windowSize = currentWindowSizeDp()
+    val cardWidthForCorner = gridColumnWidth
+        .takeIf { it > 0.dp }
+        ?: (windowSize.width / 8f)
+    val cardCorner = adaptiveWeekCardCornerRadius(
+        cardWidth = (cardWidthForCorner - 4.dp).coerceAtLeast(1.dp),
+        cardHeight = displayedHeight,
+        windowWidth = windowSize.width,
+        windowHeight = windowSize.height
+    )
+    val cardShape = remember(cardCorner) { RoundedRectangle(cardCorner) }
     val resizeStartIndex = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
     val resizeMaxSpan = (periodIndexes.size - resizeStartIndex).coerceAtLeast(1)
     val baseHeightPx = with(density) { height.toPx() }
@@ -2467,7 +2065,7 @@ fun WeekCourseBlock(
         visible = editingId != course.id,
         sharedScope = sharedScope,
         modifier = baseModifier,
-        shape = RoundedCornerShape(8.dp)
+        shape = cardShape
     ) { sharedModifier ->
         Box(
             modifier = sharedModifier
@@ -2492,7 +2090,7 @@ fun WeekCourseBlock(
                             translationX = targetOffsetX
                             translationY = targetOffsetY
                         }
-                        .clip(RoundedCornerShape(9.dp))
+                        .clip(cardShape)
                         .background(
                             if (targetHasConflict) {
                                 MaterialTheme.colorScheme.error.copy(alpha = 0.32f)
@@ -2530,7 +2128,7 @@ fun WeekCourseBlock(
                             config = config,
                             course = underlyingCourse,
                             modifier = Modifier.fillMaxSize(),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = cardShape,
                             onClick = null
                         ) {
                             WeekCourseOverlayCardContent(underlyingCourse, config)
@@ -2573,7 +2171,7 @@ fun WeekCourseBlock(
                             shadowElevation =
                                 sin(Math.PI * flightProgress).toFloat().coerceAtLeast(0f) *
                                     flightElevationPx
-                            shape = RoundedCornerShape(8.dp)
+                            shape = cardShape
                         }
                 ) {
                     CourseGlassCard(
@@ -2581,7 +2179,7 @@ fun WeekCourseBlock(
                         config = config,
                         course = target,
                         modifier = Modifier.fillMaxSize(),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = cardShape,
                         onClick = null
                     ) {
                         WeekCourseOverlayCardContent(target, config)
@@ -2620,7 +2218,7 @@ fun WeekCourseBlock(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(resizeGlassShellHeight),
-                shape = RoundedCornerShape(8.dp),
+                shape = cardShape,
                 onClick = null
             ) {}
             BoxWithConstraints(Modifier.fillMaxWidth().height(displayedHeight).clipToBounds()) {

@@ -1,6 +1,8 @@
+import argparse
 from collections import deque
+import math
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageChops, ImageDraw
 
 
 ROOT = Path(r"D:/Android studio/CourseSchedule/app/src/main/res")
@@ -13,6 +15,11 @@ ICON_SIZES = {
     "xxhdpi": 144,
     "xxxhdpi": 192,
 }
+# The widget renders this at 23-24 dp; 128 px still covers xxxhdpi without shipping
+# two half-megabyte source bitmaps in every APK.
+WIDGET_PREVIEW_SIZE = 128
+WIDGET_CORNER_EXPONENT = 4.5
+WIDGET_MASK_SUPERSAMPLING = 4
 
 
 def remove_connected_black_corners(image: Image.Image) -> Image.Image:
@@ -57,24 +64,60 @@ def prepare_icon(source: Path) -> Image.Image:
     return square
 
 
-def write_variant(source: Path, night: bool) -> None:
+def continuous_corner_mask(size: int) -> Image.Image:
+    """Return an antialiased superellipse mask with continuous corner curvature."""
+    scale = WIDGET_MASK_SUPERSAMPLING
+    canvas_size = size * scale
+    center = (canvas_size - 1) / 2
+    radius = center
+    power = 2 / WIDGET_CORNER_EXPONENT
+    points = []
+    for step in range(1440):
+        angle = math.tau * step / 1440
+        cosine = math.cos(angle)
+        sine = math.sin(angle)
+        x = center + radius * math.copysign(abs(cosine) ** power, cosine)
+        y = center + radius * math.copysign(abs(sine) ** power, sine)
+        points.append((x, y))
+    mask = Image.new("L", (canvas_size, canvas_size), 0)
+    ImageDraw.Draw(mask).polygon(points, fill=255)
+    return mask.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def write_variant(source: Path, night: bool, launcher_icons: bool) -> None:
     icon = prepare_icon(source)
     qualifier = "night-" if night else ""
-    for density, size in ICON_SIZES.items():
-        output_dir = ROOT / f"mipmap-{qualifier}{density}"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        resized = icon.resize((size, size), Image.Resampling.LANCZOS)
-        resized.save(output_dir / "ic_launcher.png", optimize=True)
-        resized.save(output_dir / "ic_launcher_round.png", optimize=True)
+    if launcher_icons:
+        for density, size in ICON_SIZES.items():
+            output_dir = ROOT / f"mipmap-{qualifier}{density}"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            resized = icon.resize((size, size), Image.Resampling.LANCZOS)
+            resized.save(output_dir / "ic_launcher.png", optimize=True)
+            resized.save(output_dir / "ic_launcher_round.png", optimize=True)
 
     preview_dir = ROOT / ("drawable-night" if night else "drawable")
     preview_dir.mkdir(parents=True, exist_ok=True)
-    icon.resize((512, 512), Image.Resampling.LANCZOS).save(
+    preview = icon.resize((WIDGET_PREVIEW_SIZE, WIDGET_PREVIEW_SIZE), Image.Resampling.LANCZOS)
+    preview.putalpha(ImageChops.multiply(preview.getchannel("A"), continuous_corner_mask(WIDGET_PREVIEW_SIZE)))
+    preview.save(
         preview_dir / "ic_launcher_preview.png",
         optimize=True,
     )
 
 
-write_variant(LIGHT_SOURCE, night=False)
-write_variant(DARK_SOURCE, night=True)
-print("Generated light and night launcher icon resources.")
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--widget-previews-only",
+        action="store_true",
+        help="Regenerate only the widget header icons, leaving launcher resources untouched.",
+    )
+    args = parser.parse_args()
+    launcher_icons = not args.widget_previews_only
+    write_variant(LIGHT_SOURCE, night=False, launcher_icons=launcher_icons)
+    write_variant(DARK_SOURCE, night=True, launcher_icons=launcher_icons)
+    print("Generated continuous-corner widget icons." if args.widget_previews_only else "Generated launcher resources.")
+
+
+if __name__ == "__main__":
+    main()

@@ -20,6 +20,13 @@ internal fun AiImportSettings.usesOfficialOpenAiEndpoint(): Boolean =
             .trimEnd('/')
             .equals("https://api.openai.com/v1", ignoreCase = true)
 
+internal fun AiImportSettings.usesDeepSeekChatEndpoint(): Boolean =
+    profile.id == AiProviderPresets.deepSeek.id ||
+        runCatching {
+            URL(normalizeAiBaseUrlForProvider(profile.id, profile.baseUrl)).host
+                .equals("api.deepseek.com", ignoreCase = true)
+        }.getOrDefault(false)
+
 /**
  * OpenAI-compatible Chat Completions wire transport.
  *
@@ -28,54 +35,64 @@ internal fun AiImportSettings.usesOfficialOpenAiEndpoint(): Boolean =
  */
 internal class DayAgentChatTransport {
     fun post(settings: AiImportSettings, body: String): String {
-        return openConnection(settings, body).readResponse()
+        val connection = openConnection(settings, body)
+        return try {
+            connection.readResponse()
+        } finally {
+            connection.disconnect()
+        }
     }
 
     fun stream(settings: AiImportSettings, body: String, onDelta: (String) -> Unit): String {
         val connection = openConnection(settings, body)
-        val code = connection.responseCode
-        if (code !in 200..299) {
-            val error = connection.errorStream
-                ?.bufferedReader()
-                ?.use { it.readText() }
-                .orEmpty()
-                .take(300)
-            throw IllegalStateException("AI 请求失败 ($code)：$error")
-        }
-        if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
-            val content = parseFullChatContent(
-                connection.inputStream.bufferedReader().use { it.readText() }
-            )
-            onDelta(content)
-            return content
-        }
-        val result = StringBuilder()
-        var hasFinalContent = false
-        BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).useLines { lines ->
-            lines.forEach { line ->
-                if (!line.startsWith("data:")) return@forEach
-                val data = line.removePrefix("data:").trim()
-                if (data == "[DONE]" || data.isBlank()) return@forEach
-                val content = runCatching {
-                    val choice = AgentChatJson.parseToJsonElement(data)
-                        .jsonObject["choices"]
-                        ?.jsonArray
-                        ?.firstOrNull()
-                        ?.jsonObject
-                        ?: return@runCatching ""
-                    val streamed = choice["delta"]?.jsonObject
-                    agentTextFromJson(streamed?.get("content"))
-                        .ifBlank { agentTextFromJson(choice["text"]) }
-                }.getOrNull().orEmpty()
-                if (content.isNotEmpty()) {
-                    hasFinalContent = true
-                    result.append(content)
-                    onDelta(content)
-                }
+        return try {
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                val error = connection.errorStream
+                    ?.bufferedReader()
+                    ?.use { it.readText() }
+                    .orEmpty()
+                    .take(300)
+                throw IllegalStateException("AI 请求失败 ($code)：$error")
             }
+            if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
+                val content = parseFullChatContent(
+                    connection.inputStream.bufferedReader().use { it.readText() }
+                )
+                onDelta(content)
+                content
+            } else {
+                val result = StringBuilder()
+                var hasFinalContent = false
+                BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).useLines { lines ->
+                    lines.forEach { line ->
+                        if (!line.startsWith("data:")) return@forEach
+                        val data = line.removePrefix("data:").trim()
+                        if (data == "[DONE]" || data.isBlank()) return@forEach
+                        val content = runCatching {
+                            val choice = AgentChatJson.parseToJsonElement(data)
+                                .jsonObject["choices"]
+                                ?.jsonArray
+                                ?.firstOrNull()
+                                ?.jsonObject
+                                ?: return@runCatching ""
+                            val streamed = choice["delta"]?.jsonObject
+                            agentTextFromJson(streamed?.get("content"))
+                                .ifBlank { agentTextFromJson(choice["text"]) }
+                        }.getOrNull().orEmpty()
+                        if (content.isNotEmpty()) {
+                            hasFinalContent = true
+                            result.append(content)
+                            onDelta(content)
+                        }
+                    }
+                }
+                if (!hasFinalContent) throw MissingAgentBodyException()
+                result.toString()
+            }
+        } finally {
+            connection.disconnect()
         }
-        if (!hasFinalContent) throw MissingAgentBodyException()
-        return result.toString()
     }
 
     fun body(
@@ -129,6 +146,10 @@ internal class DayAgentChatTransport {
                 )
             )
             put("tool_choice", "auto")
+        } else if (settings.usesDeepSeekChatEndpoint()) {
+            // DeepSeek otherwise occasionally serializes an imagined function as DSML text even
+            // though this final-answer request intentionally exposes no native tools.
+            put("tool_choice", "none")
         }
     }.toString()
 

@@ -25,7 +25,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
@@ -73,12 +72,50 @@ private const val SourceMenuUnloadDelayMillis = 52L
 private const val EduSourceMenuUnloadDelayMillis = 32L
 private val DestinationBackgroundEasing = CubicBezierEasing(0.30f, 0f, 0.20f, 1f)
 
+internal fun homeMenuDestinationTargetRect(
+    kind: HomeMenuDestinationKind,
+    rootSize: IntSize,
+    density: Float,
+    adaptiveMetrics: HomeAdaptiveMetrics
+): Rect {
+    if (rootSize.width <= 0 || rootSize.height <= 0) return Rect.Zero
+    if (kind == HomeMenuDestinationKind.EduImport) {
+        return Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
+    }
+
+    val safeDensity = density.coerceAtLeast(0.001f)
+    val content = adaptiveMetrics.contentRectPx(rootSize, safeDensity)
+    val width = if (adaptiveMetrics.isLargeScreen) {
+        val minimum = minOf(600f * safeDensity, content.width)
+        minOf(content.width, 680f * safeDensity).coerceAtLeast(minimum)
+    } else {
+        minOf(content.width * 0.96f, 600f * safeDensity)
+    }.coerceAtLeast(1f)
+    val maximumHeight = when (kind) {
+        HomeMenuDestinationKind.AddCourse -> 548f * safeDensity
+        HomeMenuDestinationKind.ManualImport -> 500f * safeDensity
+        HomeMenuDestinationKind.EduImport -> content.height
+    }
+    val height = if (adaptiveMetrics.isLargeScreen) {
+        minOf(content.height * 0.82f, maximumHeight).coerceAtLeast(
+            minOf(content.height, 360f * safeDensity)
+        )
+    } else {
+        val availableRatio = if (kind == HomeMenuDestinationKind.AddCourse) 0.88f else 1f
+        minOf(content.height * availableRatio, maximumHeight)
+    }.coerceAtLeast(1f)
+    val left = content.left + (content.width - width) / 2f
+    val top = content.top + (content.height - height) / 2f
+    return Rect(left, top, left + width, top + height)
+}
+
 @Composable
 internal fun HomeMenuDestinationOverlayHost(
     request: HomeMenuDestinationRequest?,
     motionState: HomeMenuDestinationMotionState,
     state: AppState,
     backdrop: Backdrop?,
+    adaptiveMetrics: HomeAdaptiveMetrics,
     modifier: Modifier = Modifier,
     onDismissRequest: () -> Unit,
     sourceActions: List<AddMenuAction>,
@@ -90,6 +127,7 @@ internal fun HomeMenuDestinationOverlayHost(
     onEduAdapterSelected: (EduAdapter) -> Unit
 ) {
     var renderedRequest by remember { mutableStateOf<HomeMenuDestinationRequest?>(null) }
+    var destinationContentPrepared by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val latestDismiss by rememberUpdatedState(onDismissRequest)
     val latestSourceHandoff by rememberUpdatedState(onSourceHandoff)
@@ -99,6 +137,7 @@ internal fun HomeMenuDestinationOverlayHost(
     LaunchedEffect(request) {
         if (request != null) {
             renderedRequest = request
+            destinationContentPrepared = false
             motionState.phase = HomeAnchoredOverlayPhase.Preparing
             motionState.progress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
@@ -107,6 +146,11 @@ internal fun HomeMenuDestinationOverlayHost(
                 withFrameNanos { }
                 frames++
             }
+            // Build and measure the destination while the source menu is still stationary. The
+            // editor/import screens are comparatively heavy; creating them during the moving
+            // part of the morph is visible as a dropped frame on mid-range devices.
+            destinationContentPrepared = true
+            withFrameNanos { }
             motionState.phase = HomeAnchoredOverlayPhase.Opening
             coroutineScope {
                 launch {
@@ -154,6 +198,7 @@ internal fun HomeMenuDestinationOverlayHost(
                 }
             }
             motionState.phase = HomeAnchoredOverlayPhase.Disposing
+            destinationContentPrepared = false
             renderedRequest = null
             motionState.phase = HomeAnchoredOverlayPhase.Idle
             latestClosed()
@@ -172,25 +217,13 @@ internal fun HomeMenuDestinationOverlayHost(
         if (rootSize.width <= 0 || rootSize.height <= 0) return@Box
         val density = androidx.compose.ui.platform.LocalDensity.current
         val isFullScreen = shown.kind == HomeMenuDestinationKind.EduImport
-        val target = if (isFullScreen) {
-            Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
-        } else {
-            val width = minOf(rootSize.width * 0.92f, with(density) { 600.dp.toPx() })
-            val safeHeight = (rootSize.height - with(density) { 32.dp.toPx() }).coerceAtLeast(1f)
-            val height = when (shown.kind) {
-                HomeMenuDestinationKind.AddCourse -> minOf(
-                    rootSize.height * 0.82f,
-                    with(density) { 548.dp.toPx() }
-                )
-                HomeMenuDestinationKind.ManualImport -> minOf(
-                    safeHeight,
-                    with(density) { 500.dp.toPx() }
-                )
-                HomeMenuDestinationKind.EduImport -> safeHeight
-            }
-            val left = (rootSize.width - width) / 2f
-            val top = (rootSize.height - height) / 2f
-            Rect(left, top, left + width, top + height)
+        val target = remember(shown.kind, rootSize, density.density, adaptiveMetrics) {
+            homeMenuDestinationTargetRect(
+                kind = shown.kind,
+                rootSize = rootSize,
+                density = density.density,
+                adaptiveMetrics = adaptiveMetrics
+            )
         }
         val destinationClosing = motionState.phase == HomeAnchoredOverlayPhase.Closing ||
             motionState.phase == HomeAnchoredOverlayPhase.Disposing
@@ -212,8 +245,8 @@ internal fun HomeMenuDestinationOverlayHost(
             },
             pinchDiameterPx = with(density) { 18.dp.toPx() },
             minimumDropPx = with(density) { 12.dp.toPx() },
-            maximumDropPx = with(density) { 48.dp.toPx() },
-            maximumArcPx = with(density) { 64.dp.toPx() },
+            maximumDropPx = with(density) { adaptiveMetrics.animationArc.toPx() },
+            maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() + 16.dp.toPx() },
             targetCornerRadiusPx = with(density) { if (isFullScreen) 0.dp.toPx() else 32.dp.toPx() }
         )
         val collapseHandoffReached = destinationClosing &&
@@ -318,12 +351,13 @@ internal fun HomeMenuDestinationOverlayHost(
                 },
             contentAlignment = Alignment.Center
         ) {
+            val lightGlass = glassUsesLightStyle(state.config)
             if (backdrop != null) {
                 LiquidPanel(
                     backdrop = backdrop,
                     modifier = Modifier.fillMaxSize().graphicsLayer { alpha = destinationSurfaceAlpha },
                     shape = RoundedRectangle(corner),
-                    surfaceColor = if (glassUsesLightStyle(state.config)) {
+                    surfaceColor = if (lightGlass) {
                         Color.White.copy(alpha = 0.18f)
                     } else {
                         Color(0xFF121212).copy(alpha = 0.30f)
@@ -360,7 +394,7 @@ internal fun HomeMenuDestinationOverlayHost(
                     )
                 }
             }
-            if (isFullScreen) {
+            if (isFullScreen && destinationContentPrepared) {
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -368,53 +402,55 @@ internal fun HomeMenuDestinationOverlayHost(
                         .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
                 )
             }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .requiredSize(targetWidth, targetHeight)
-                    .graphicsLayer {
-                        alpha = destinationContentAlpha
-                        compositingStrategy = CompositingStrategy.Offscreen
-                        renderEffect = if (destinationContentBlurPx > 0.01f) {
-                            BlurEffect(
-                                destinationContentBlurPx,
-                                destinationContentBlurPx,
-                                TileMode.Clamp
+            if (destinationContentPrepared) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .requiredSize(targetWidth, targetHeight)
+                        .graphicsLayer {
+                            alpha = destinationContentAlpha
+                            compositingStrategy = CompositingStrategy.Offscreen
+                            renderEffect = if (destinationContentBlurPx > 0.01f) {
+                                BlurEffect(
+                                    destinationContentBlurPx,
+                                    destinationContentBlurPx,
+                                    TileMode.Clamp
+                                )
+                            } else null
+                        }
+                ) {
+                    when (shown.kind) {
+                        HomeMenuDestinationKind.AddCourse -> top.yukonga.miuix.kmp.basic.Scaffold(
+                            modifier = Modifier.fillMaxSize(),
+                            containerColor = Color.Transparent,
+                            contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                        ) {
+                            NormalizedCourseEditorScreen(
+                                state = state,
+                                initialCourse = null,
+                                onCancel = { latestDismiss() },
+                                onSave = onAddCourse,
+                                onDelete = {},
+                                backdrop = backdrop,
+                                pickerRenderInRootScaffold = false
                             )
-                        } else null
-                    }
-            ) {
-                when (shown.kind) {
-                    HomeMenuDestinationKind.AddCourse -> top.yukonga.miuix.kmp.basic.Scaffold(
-                        modifier = Modifier.fillMaxSize(),
-                        containerColor = Color.Transparent,
-                        contentWindowInsets = WindowInsets(0, 0, 0, 0)
-                    ) {
-                        NormalizedCourseEditorScreen(
+                        }
+                        HomeMenuDestinationKind.ManualImport -> NormalizedAiManualImportScreen(
                             state = state,
-                            initialCourse = null,
-                            onCancel = { latestDismiss() },
-                            onSave = onAddCourse,
-                            onDelete = {},
                             backdrop = backdrop,
-                            pickerRenderInRootScaffold = false
+                            onCancel = { latestDismiss() },
+                            onParsed = onManualImportParsed
                         )
-                    }
-                    HomeMenuDestinationKind.ManualImport -> NormalizedAiManualImportScreen(
-                        state = state,
-                        backdrop = backdrop,
-                        onCancel = { latestDismiss() },
-                        onParsed = onManualImportParsed
-                    )
-                    HomeMenuDestinationKind.EduImport -> DetailActivityScaffold(
-                        title = "选择学校",
-                        config = state.config,
-                        onBack = { latestDismiss() }
-                    ) {
-                        EduSchoolPickerScreen(
-                            state = state,
-                            onSelect = onEduAdapterSelected
-                        )
+                        HomeMenuDestinationKind.EduImport -> DetailActivityScaffold(
+                            title = "选择学校",
+                            config = state.config,
+                            onBack = { latestDismiss() }
+                        ) {
+                            EduSchoolPickerScreen(
+                                state = state,
+                                onSelect = onEduAdapterSelected
+                            )
+                        }
                     }
                 }
             }

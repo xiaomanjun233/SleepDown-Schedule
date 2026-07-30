@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -8,6 +9,7 @@
         android:layout_width="match_parent" android:layout_height="match_parent"
         android:background="@drawable/widget_today_background"
         android:clipToOutline="true" android:contentDescription="@null"
+        tools:targetApi="s"
         android:scaleType="fitXY" android:visibility="gone" />
     <LinearLayout android:id="@+id/widget_content"
         android:layout_width="match_parent" android:layout_height="match_parent"
@@ -30,7 +32,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:ellipsize="end"
-            android:includeFontPadding="false"
+            android:includeFontPadding="true"
             android:maxLines="1"
             android:textColor="#FF111111"
             android:textSize="16sp"
@@ -40,7 +42,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:includeFontPadding="false"
+            android:includeFontPadding="true"
             android:textColor="#99000000"
             android:textSize="14sp" />
     </LinearLayout>
@@ -63,12 +65,12 @@
         android:orientation="vertical">
         <LinearLayout android:id="@+id/widget_course_row_1" style="@style/WidgetCourseRow">
             <LinearLayout style="@style/WidgetCourseTimeColumn"><TextView android:id="@+id/widget_course_time_1" style="@style/WidgetCourseTimePrimary" /><TextView android:id="@+id/widget_course_end_1" style="@style/WidgetCourseTimeSecondary" /></LinearLayout>
-            <ImageView android:id="@+id/widget_course_indicator_1" style="@style/WidgetCourseIndicator" />
+            <ImageView android:id="@+id/widget_course_indicator_1" style="@style/WidgetCourseIndicator" android:contentDescription="@null" />
             <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_course_name_1" style="@style/WidgetCourseName" /><TextView android:id="@+id/widget_course_detail_1" style="@style/WidgetCourseDetail" /></LinearLayout>
         </LinearLayout>
         <LinearLayout android:id="@+id/widget_course_row_2" style="@style/WidgetCourseRow">
             <LinearLayout style="@style/WidgetCourseTimeColumn"><TextView android:id="@+id/widget_course_time_2" style="@style/WidgetCourseTimePrimary" /><TextView android:id="@+id/widget_course_end_2" style="@style/WidgetCourseTimeSecondary" /></LinearLayout>
-            <ImageView android:id="@+id/widget_course_indicator_2" style="@style/WidgetCourseIndicator" />
+            <ImageView android:id="@+id/widget_course_indicator_2" style="@style/WidgetCourseIndicator" android:contentDescription="@null" />
             <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_course_name_2" style="@style/WidgetCourseName" /><TextView android:id="@+id/widget_course_detail_2" style="@style/WidgetCourseDetail" /></LinearLayout>
         </LinearLayout>
     </LinearLayout>
@@ -86,11 +88,11 @@
             android:layout_weight="1"
             android:orientation="horizontal">
             <LinearLayout android:id="@+id/widget_grid_cell_1" style="@style/WidgetCourseGridCell" android:layout_marginEnd="4dp">
-                <ImageView android:id="@+id/widget_grid_indicator_1" style="@style/WidgetCompactIndicator" />
+                <ImageView android:id="@+id/widget_grid_indicator_1" style="@style/WidgetCompactIndicator" android:contentDescription="@null" />
                 <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_1" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_1" style="@style/WidgetCompactCourseDetail" /></LinearLayout>
             </LinearLayout>
             <LinearLayout android:id="@+id/widget_grid_cell_2" style="@style/WidgetCourseGridCell" android:layout_marginStart="4dp">
-                <ImageView android:id="@+id/widget_grid_indicator_2" style="@style/WidgetCompactIndicator" />
+                <ImageView android:id="@+id/widget_grid_indicator_2" style="@style/WidgetCompactIndicator" android:contentDescription="@null" />
                 <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_2" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_2" style="@style/WidgetCompactCourseDetail" /></LinearLayout>
             </LinearLayout>
         </LinearLayout>
@@ -101,11 +103,11 @@
             android:layout_weight="1"
             android:orientation="horizontal">
             <LinearLayout android:id="@+id/widget_grid_cell_3" style="@style/WidgetCourseGridCell" android:layout_marginEnd="4dp">
-                <ImageView android:id="@+id/widget_grid_indicator_3" style="@style/WidgetCompactIndicator" />
+                <ImageView android:id="@+id/widget_grid_indicator_3" style="@style/WidgetCompactIndicator" android:contentDescription="@null" />
                 <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_3" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_3" style="@style/WidgetCompactCourseDetail" /></LinearLayout>
             </LinearLayout>
             <LinearLayout android:id="@+id/widget_grid_cell_4" style="@style/WidgetCourseGridCell" android:layout_marginStart="4dp">
-                <ImageView android:id="@+id/widget_grid_indicator_4" style="@style/WidgetCompactIndicator" />
+                <ImageView android:id="@+id/widget_grid_indicator_4" style="@style/WidgetCompactIndicator" android:contentDescription="@null" />
                 <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_4" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_4" style="@style/WidgetCompactCourseDetail" /></LinearLayout>
             </LinearLayout>
         </LinearLayout>

@@ -11,6 +11,8 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
+import androidx.core.content.edit
+import androidx.core.graphics.createBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -237,7 +239,8 @@ fun extractAiReasoningForDisplay(output: String): String {
 
 data class AiModelOption(
     val label: String,
-    val model: String
+    val model: String,
+    val supportsImageInput: Boolean = false
 )
 
 data class AiImportFile(
@@ -504,13 +507,13 @@ object AiProviderPresets {
 
     fun modelOptions(providerId: String): List<AiModelOption> = when (providerId) {
         openAI.id -> listOf(
-            AiModelOption("GPT-5.6", "gpt-5.6"),
-            AiModelOption("5.6 Terra", "gpt-5.6-terra"),
-            AiModelOption("5.6 Luna", "gpt-5.6-luna"),
-            AiModelOption("GPT-5.5", "gpt-5.5"),
-            AiModelOption("GPT-5.4", "gpt-5.4"),
-            AiModelOption("5.4 mini", "gpt-5.4-mini"),
-            AiModelOption("5.4 nano", "gpt-5.4-nano")
+            AiModelOption("GPT-5.6", "gpt-5.6", supportsImageInput = true),
+            AiModelOption("5.6 Terra", "gpt-5.6-terra", supportsImageInput = true),
+            AiModelOption("5.6 Luna", "gpt-5.6-luna", supportsImageInput = true),
+            AiModelOption("GPT-5.5", "gpt-5.5", supportsImageInput = true),
+            AiModelOption("GPT-5.4", "gpt-5.4", supportsImageInput = true),
+            AiModelOption("5.4 mini", "gpt-5.4-mini", supportsImageInput = true),
+            AiModelOption("5.4 nano", "gpt-5.4-nano", supportsImageInput = true)
         )
         deepSeek.id -> listOf(
             AiModelOption("V4 Flash", "deepseek-v4-flash"),
@@ -518,17 +521,17 @@ object AiProviderPresets {
         )
         dashScope.id -> listOf(
             AiModelOption("Qwen Plus", "qwen-plus"),
-            AiModelOption("Qwen VL Plus", "qwen-vl-plus"),
-            AiModelOption("Qwen VL Max", "qwen-vl-max")
+            AiModelOption("Qwen VL Plus", "qwen-vl-plus", supportsImageInput = true),
+            AiModelOption("Qwen VL Max", "qwen-vl-max", supportsImageInput = true)
         )
         kimi.id -> listOf(
-            AiModelOption("K2.6", "kimi-k2.6"),
-            AiModelOption("K2.5", "kimi-k2.5"),
-            AiModelOption("Vision 32K", "moonshot-v1-32k-vision-preview")
+            AiModelOption("K2.6", "kimi-k2.6", supportsImageInput = true),
+            AiModelOption("K2.5", "kimi-k2.5", supportsImageInput = true),
+            AiModelOption("Vision 32K", "moonshot-v1-32k-vision-preview", supportsImageInput = true)
         )
         zhipu.id -> listOf(
             AiModelOption("GLM 4 Flash", "glm-4-flash"),
-            AiModelOption("GLM 4V Flash", "glm-4v-flash"),
+            AiModelOption("GLM 4V Flash", "glm-4v-flash", supportsImageInput = true),
             AiModelOption("GLM 4 Plus", "glm-4-plus")
         )
         qianfan.id -> listOf(
@@ -537,15 +540,15 @@ object AiProviderPresets {
         )
         doubao.id -> listOf(
             AiModelOption("Doubao Seed", "doubao-seed-1-6"),
-            AiModelOption("Doubao Vision", "doubao-1-5-vision-pro")
+            AiModelOption("Doubao Vision", "doubao-1-5-vision-pro", supportsImageInput = true)
         )
         hunyuan.id -> listOf(
             AiModelOption("Hunyuan Turbo", "hunyuan-turbos-latest"),
-            AiModelOption("Hunyuan Vision", "hunyuan-vision")
+            AiModelOption("Hunyuan Vision", "hunyuan-vision", supportsImageInput = true)
         )
         siliconFlow.id -> listOf(
             AiModelOption("Qwen 72B", "Qwen/Qwen2.5-72B-Instruct"),
-            AiModelOption("Qwen VL", "Qwen/Qwen2.5-VL-72B-Instruct"),
+            AiModelOption("Qwen VL", "Qwen/Qwen2.5-VL-72B-Instruct", supportsImageInput = true),
             AiModelOption("DeepSeek V3", "deepseek-ai/DeepSeek-V3")
         )
         miniMax.id -> listOf(
@@ -553,10 +556,23 @@ object AiProviderPresets {
             AiModelOption("MiniMax Text", "abab6.5s-chat")
         )
         mimo.id, mimoTokenPlan.id -> listOf(
-            AiModelOption("MiMo V2.5 Pro", "mimo-v2.5-pro"),
-            AiModelOption("MiMo V2.5", "mimo-v2.5")
+            AiModelOption("MiMo V2.5 Pro", "mimo-v2.5-pro", supportsImageInput = true),
+            AiModelOption("MiMo V2.5", "mimo-v2.5", supportsImageInput = true)
         )
         else -> emptyList()
+    }
+
+    /**
+     * Provider capabilities describe the endpoint, while this answers whether the concrete
+     * selected model accepts image input. Known presets are explicit; a custom/unknown model
+     * keeps the user's saved capability switch.
+     */
+    fun supportsImageInput(profile: AiProviderProfile): Boolean {
+        val selected = modelOptions(profile.id).firstOrNull {
+            it.model.equals(profile.defaultModel.trim(), ignoreCase = true)
+        }
+        return selected?.supportsImageInput
+            ?: (profile.supportsVision || profile.capabilities.supportsImageInput)
     }
 }
 
@@ -605,19 +621,41 @@ object AiImportSettingsStore {
         return builtIns + additionalCustomProfiles
     }
 
-    fun createCustomProvider(context: Context): AiProviderProfile {
-        val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
-        val entries = readCustomProviders(prefs)
+    fun createCustomProvider(): AiProviderProfile {
         val id = "${AiProviderPresets.custom.id}:${UUID.randomUUID()}"
-        val customCount = entries.count { AiProviderPresets.isCustomId(it.id) } + 1
-        val profile = AiProviderPresets.customProfile(id, "自定义接口 $customCount")
-        prefs.edit()
-            .putString(
-                KeyCustomProviders,
-                settingsJson.encodeToString(entries + AiCustomProviderEntry(profile.id, profile.displayName))
-            )
-            .apply()
-        return profile
+        // This remains an in-memory draft until the user enters actual content.
+        // Merely opening "add custom provider" must not grow the saved list.
+        return AiProviderPresets.customProfile(id, "")
+    }
+
+    fun deleteCustomProvider(context: Context, providerId: String): Boolean {
+        if (!AiProviderPresets.isCustomId(providerId)) return false
+        val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+        val wasActive = prefs.getString(KeyProviderId, AiProviderPresets.none.id) == providerId
+        val remainingEntries = readCustomProviders(prefs).filterNot { it.id == providerId }
+        prefs.edit {
+            putString(KeyCustomProviders, settingsJson.encodeToString(remainingEntries))
+            remove(apiKeyKey(providerId))
+            listOf(
+                KeyBaseUrl,
+                KeyModel,
+                KeyProviderType,
+                KeyImage,
+                KeyPdf,
+                KeyJsonSchema,
+                KeyJsonMode,
+                KeyFileUpload,
+                KeyEndpointStyle,
+                KeyStructuredOutputMode,
+                KeyInputMode,
+                KeyVision,
+                KeyPdfDirect
+            ).forEach { key -> remove(providerKey(key, providerId)) }
+        }
+        if (wasActive) {
+            save(context, AiImportSettings(AiProviderPresets.none, ""))
+        }
+        return true
     }
 
     private fun presetFor(context: Context, providerId: String): AiProviderProfile =
@@ -688,10 +726,10 @@ object AiImportSettingsStore {
         val apiKey = scopedEncryptedApiKey?.let { decrypt(context, it) }
             ?: legacyEncryptedApiKey?.let { decrypt(context, it) }.orEmpty()
         if (scopedEncryptedApiKey == null && legacyEncryptedApiKey != null) {
-            prefs.edit()
-                .putString(apiKeyKey(profile.id), legacyEncryptedApiKey)
-                .remove(KeyEncryptedApiKey)
-                .apply()
+            prefs.edit {
+                putString(apiKeyKey(profile.id), legacyEncryptedApiKey)
+                remove(KeyEncryptedApiKey)
+            }
         }
         return AiImportSettings(profile, apiKey)
     }
@@ -793,41 +831,40 @@ object AiImportSettingsStore {
 
     fun save(context: Context, settings: AiImportSettings) {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
-        val editor = prefs.edit()
-            .putString(KeyProviderId, settings.profile.id)
-            .putString(KeyBaseUrl, normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl))
-            .putString(KeyModel, settings.profile.defaultModel)
-            .putString(KeyProviderType, settings.profile.providerType.name)
-            .putString(KeyEndpointStyle, settings.profile.endpointStyle.name)
-            .putString(KeyStructuredOutputMode, settings.profile.structuredOutputMode.name)
-            .putString(KeyInputMode, settings.profile.inputMode.name)
-            .putBoolean(KeyImage, settings.profile.capabilities.supportsImageInput)
-            .putBoolean(KeyPdf, settings.profile.capabilities.supportsPdfFileInput)
-            .putBoolean(KeyJsonSchema, settings.profile.capabilities.supportsJsonSchema)
-            .putBoolean(KeyJsonMode, settings.profile.capabilities.supportsJsonMode)
-            .putBoolean(KeyFileUpload, settings.profile.capabilities.supportsFileUpload)
-            .putBoolean(KeyVision, settings.profile.supportsVision)
-            .putBoolean(KeyPdfDirect, settings.profile.supportsPdfDirect)
-        writeCustomProviderEntry(prefs, editor, settings.profile)
-        writeProviderSettings(editor, settings)
-        if (settings.apiKey.isBlank()) {
-            editor.remove(apiKeyKey(settings.profile.id))
-        } else {
-            editor.putString(apiKeyKey(settings.profile.id), encrypt(context, settings.apiKey))
+        prefs.edit {
+            putString(KeyProviderId, settings.profile.id)
+            putString(KeyBaseUrl, normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl))
+            putString(KeyModel, settings.profile.defaultModel)
+            putString(KeyProviderType, settings.profile.providerType.name)
+            putString(KeyEndpointStyle, settings.profile.endpointStyle.name)
+            putString(KeyStructuredOutputMode, settings.profile.structuredOutputMode.name)
+            putString(KeyInputMode, settings.profile.inputMode.name)
+            putBoolean(KeyImage, settings.profile.capabilities.supportsImageInput)
+            putBoolean(KeyPdf, settings.profile.capabilities.supportsPdfFileInput)
+            putBoolean(KeyJsonSchema, settings.profile.capabilities.supportsJsonSchema)
+            putBoolean(KeyJsonMode, settings.profile.capabilities.supportsJsonMode)
+            putBoolean(KeyFileUpload, settings.profile.capabilities.supportsFileUpload)
+            putBoolean(KeyVision, settings.profile.supportsVision)
+            putBoolean(KeyPdfDirect, settings.profile.supportsPdfDirect)
+            writeCustomProviderEntry(prefs, this, settings.profile)
+            writeProviderSettings(this, settings)
+            if (settings.apiKey.isBlank()) {
+                remove(apiKeyKey(settings.profile.id))
+            } else {
+                putString(apiKeyKey(settings.profile.id), encrypt(context, settings.apiKey))
+            }
         }
-        editor
-            .apply()
     }
 
     fun saveProvider(context: Context, settings: AiImportSettings) {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
-        val editor = prefs.edit()
-        writeCustomProviderEntry(prefs, editor, settings.profile)
-        writeProviderSettings(editor, settings)
-        if (settings.apiKey.isNotBlank()) {
-            editor.putString(apiKeyKey(settings.profile.id), encrypt(context, settings.apiKey))
+        prefs.edit {
+            writeCustomProviderEntry(prefs, this, settings.profile)
+            writeProviderSettings(this, settings)
+            if (settings.apiKey.isNotBlank()) {
+                putString(apiKeyKey(settings.profile.id), encrypt(context, settings.apiKey))
+            }
         }
-        editor.apply()
     }
 
     private fun writeProviderSettings(
@@ -855,9 +892,9 @@ object AiImportSettingsStore {
     fun clearApiKey(context: Context, providerId: String? = null) {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         val currentProviderId = providerId ?: prefs.getString(KeyProviderId, AiProviderPresets.none.id).orEmpty()
-        context.getSharedPreferences(PrefName, Context.MODE_PRIVATE).edit()
-            .remove(apiKeyKey(currentProviderId))
-            .apply()
+        context.getSharedPreferences(PrefName, Context.MODE_PRIVATE).edit {
+            remove(apiKeyKey(currentProviderId))
+        }
     }
 
     private fun encrypt(context: Context, value: String): String {
@@ -897,6 +934,13 @@ object AiImportSettingsStore {
         return generator.generateKey()
     }
 }
+
+internal fun customProviderDraftHasContent(
+    name: String,
+    baseUrl: String,
+    model: String,
+    apiKey: String
+): Boolean = listOf(name, baseUrl, model, apiKey).any { it.isNotBlank() }
 
 fun normalizeAiBaseUrlForProvider(providerId: String, value: String): String {
     if (value.isBlank()) return ""
@@ -1135,7 +1179,7 @@ private fun AiImportSettings.toProviderConfig(): AiProviderConfig {
         model = profile.defaultModel,
         endpointStyle = profile.endpointStyle,
         structuredOutputMode = profile.structuredOutputMode,
-        supportsVision = profile.supportsVision || profile.capabilities.supportsImageInput,
+        supportsVision = AiProviderPresets.supportsImageInput(profile),
         supportsFileUpload = profile.supportsFileUpload || profile.capabilities.supportsFileUpload,
         supportsPdfDirect = profile.supportsPdfDirect || profile.capabilities.supportsPdfFileInput,
         inputMode = profile.inputMode,
@@ -1602,7 +1646,7 @@ private fun renderPdfPageImages(context: Context, file: AiImportFile, maxPages: 
                         val scale = 1400f / maxOf(page.width, page.height).coerceAtLeast(1)
                         val width = (page.width * scale).toInt().coerceAtLeast(1)
                         val height = (page.height * scale).toInt().coerceAtLeast(1)
-                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        val bitmap = createBitmap(width, height)
                         bitmap.eraseColor(Color.WHITE)
                         page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                         val bytes = ByteArrayOutputStream().use { output ->
@@ -1915,7 +1959,6 @@ private fun collectTextLeaves(element: JsonElement): List<String> {
         is JsonPrimitive -> listOfNotNull(element.contentOrNull)
         is JsonObject -> element.values.flatMap { collectTextLeaves(it) }
         is JsonArray -> element.flatMap { collectTextLeaves(it) }
-        else -> emptyList()
     }
 }
 

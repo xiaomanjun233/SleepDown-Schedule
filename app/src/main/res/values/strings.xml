@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">SleepDown课程表</string>
     <string name="widget_today_courses_description">今日课程安排</string>
     <string name="widget_today_courses_name">今日课程</string>
@@ -8,4 +8,20 @@
     <string name="widget_today_assistant_description">今日助手实时课程、天气与预警</string>
     <string name="widget_refresh_symbol">&#x21BB;</string>
     <string name="widget_refresh_description">刷新课程</string>
+    <string name="widget_preview_next_course">下节课</string>
+    <string name="widget_preview_materials_chemistry">材料化学</string>
+    <string name="widget_preview_countdown">68 分钟后</string>
+    <string name="widget_preview_location" tools:ignore="TypographyDashes">北区 | J8&#45;0302</string>
+    <string name="widget_preview_today_count">今天有 1 节课</string>
+    <string name="widget_preview_weather">☀️ 25°C 晴</string>
+    <string name="widget_preview_assistant_hint">点击卡片和助手对话</string>
+    <string name="widget_preview_tomorrow_friday">明日课程 · 周五</string>
+    <string name="widget_preview_week_three">第3周</string>
+    <string name="widget_preview_morning_time">10:05\n11:40</string>
+    <string name="widget_preview_materials_detail" tools:ignore="TypographyDashes">材料化学\n第3&#45;4节 | 北区 J8&#45;0302</string>
+    <string name="widget_preview_afternoon_time">14:30\n16:05</string>
+    <string name="widget_preview_signal_detail" tools:ignore="TypographyDashes">数字信号处理\n第7&#45;8节 | 南区 B0203</string>
+    <string name="widget_preview_tomorrow">明日课程</string>
+    <string name="widget_preview_animation_detail">动漫鉴赏\n10:00 · A-105</string>
+    <string name="widget_preview_japanese_detail">日语入门\n14:00 · B-208</string>
 </resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <issue id="ModifierParameter">
+        <!-- Vendored upstream source: keep its public API byte-for-byte compatible. -->
+        <ignore path="src/main/java/com/kyant/backdrop/catalog/components/LiquidSlider.kt" />
+    </issue>
+</lint>

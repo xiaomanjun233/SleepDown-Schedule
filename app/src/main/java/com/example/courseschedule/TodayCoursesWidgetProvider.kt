@@ -44,7 +44,7 @@ class TodayCoursesWidgetProvider : AppWidgetProvider() {
         super.onDeleted(context, appWidgetIds)
         val app = context.applicationContext as CourseScheduleApp
         keepBroadcastAliveUntil(
-            launchWidgetWork {
+            launchWidgetWork(context) {
                 appWidgetIds.forEach {
                     app.widgetAppearanceRepository.deleteInstance(WidgetAppearanceVariant.COURSES_LARGE, it)
                 }

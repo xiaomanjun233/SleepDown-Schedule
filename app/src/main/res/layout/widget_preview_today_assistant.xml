@@ -1,17 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent" android:layout_height="match_parent"
     android:background="@drawable/widget_today_background_dark" android:orientation="vertical" android:padding="15dp">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="下节课" android:textColor="#FF62B5FF" android:textSize="17sp" android:textStyle="bold" />
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="7dp" android:layout_weight="1" android:text="材料化学" android:textColor="#FFFFFFFF" android:textSize="17sp" android:textStyle="bold" />
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="68 分钟后" android:textColor="#FF62B5FF" android:textSize="15sp" android:textStyle="bold" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_next_course" android:textColor="#FF62B5FF" android:textSize="17sp" android:textStyle="bold" />
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="7dp" android:layout_weight="1" android:text="@string/widget_preview_materials_chemistry" android:textColor="#FFFFFFFF" android:textSize="17sp" android:textStyle="bold" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_countdown" android:textColor="#FF62B5FF" android:textSize="15sp" android:textStyle="bold" />
     </LinearLayout>
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="北区 | J8-0302" android:textColor="#AAFFFFFF" android:textSize="11sp" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="@string/widget_preview_location" android:textColor="#AAFFFFFF" android:textSize="11sp" />
     <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginTop="9dp" android:layout_marginBottom="8dp" android:background="#1CFFFFFF" />
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="今天有 1 节课" android:textColor="#FFFFFFFF" android:textSize="14sp" android:textStyle="bold" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/widget_preview_today_count" android:textColor="#FFFFFFFF" android:textSize="14sp" android:textStyle="bold" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_marginTop="4dp" android:layout_weight="1" android:gravity="bottom" android:orientation="horizontal">
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="☀️ 25°C 晴" android:textColor="#AAFFFFFF" android:textSize="12sp" />
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="点击卡片和助手对话" android:textColor="#AAFFFFFF" android:textSize="10sp" />
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/widget_preview_weather" android:textColor="#AAFFFFFF" android:textSize="12sp" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_assistant_hint" android:textColor="#AAFFFFFF" android:textSize="10sp" tools:ignore="SmallSp" />
     </LinearLayout>
 </LinearLayout>

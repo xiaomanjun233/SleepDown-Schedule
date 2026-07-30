@@ -292,113 +292,13 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 @Composable
-fun CourseEditorScreen(
-    state: AppState,
-    initialCourse: CourseEntity?,
-    onCancel: () -> Unit,
-    onSave: (CourseEntity) -> Unit,
-    onDelete: (CourseEntity) -> Unit,
-    backdrop: Backdrop?
-) {
-    var name by remember(initialCourse) { mutableStateOf(initialCourse?.name.orEmpty()) }
-    var teacher by remember(initialCourse) { mutableStateOf(initialCourse?.teacher.orEmpty()) }
-    var location by remember(initialCourse) { mutableStateOf(initialCourse?.location.orEmpty()) }
-    var weekday by remember(initialCourse) { mutableStateOf(initialCourse?.weekday ?: 1) }
-    val rawPeriodValues = state.periods.map { it.periodIndex }
-    val coursePeriodValues = initialCourse?.periods.orEmpty()
-    val periodValues = (rawPeriodValues + coursePeriodValues).distinct().sorted()
-    var periodStart by remember(initialCourse, periodValues) { mutableIntStateOf(initialCourse?.periods?.minOrNull() ?: (periodValues.firstOrNull() ?: 1)) }
-    var periodEnd by remember(initialCourse, periodValues) { mutableIntStateOf(initialCourse?.periods?.maxOrNull() ?: periodStart) }
-    var weekStart by remember(initialCourse, state.config.totalWeeks) { mutableIntStateOf(initialCourse?.weeks?.minOrNull() ?: 1) }
-    var weekEnd by remember(initialCourse, state.config.totalWeeks) { mutableIntStateOf(initialCourse?.weeks?.maxOrNull() ?: state.config.totalWeeks) }
-    val excludedWeeks = remember(initialCourse) { excludedWeeksInsideCourseRange(initialCourse) }
-    var parity by remember(initialCourse) { mutableStateOf(initialCourse?.weekParity ?: WeekParity.ALL) }
-    var note by remember(initialCourse) { mutableStateOf(initialCourse?.note.orEmpty()) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var periodInputValid by remember(initialCourse, periodValues) { mutableStateOf(true) }
-    var weekInputValid by remember(initialCourse, state.config.totalWeeks) { mutableStateOf(true) }
-    val selectedPeriods = if (periodStart <= periodEnd) periodValues.filter { it in periodStart..periodEnd } else emptyList()
-    val selectedWeeks = weeksInEditorRange(weekStart, weekEnd, excludedWeeks)
-    val dialogTextColor = glassForegroundColor(state.config)
-
-    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item(key = "header", contentType = "header") {
-            NormalizedDialogHeader(
-                title = if (initialCourse == null) "添加单节课" else "编辑单节课",
-                onCancel = onCancel,
-                backdrop = backdrop,
-                config = state.config,
-                onSave = {
-                    when {
-                        name.isBlank() -> error = "课程名称不能为空"
-                        !periodInputValid -> error = "请先修正节次范围"
-                        !weekInputValid -> error = "请先修正周次范围"
-                        selectedPeriods.isEmpty() -> error = "请选择节次"
-                        selectedWeeks.isEmpty() -> error = "请选择周次"
-                        else -> onSave(
-                            CourseEntity(
-                                id = initialCourse?.id ?: 0,
-                                name = name.trim(),
-                                teacher = teacher.ifBlank { null },
-                                location = location.ifBlank { null },
-                                weekday = weekday,
-                                periods = selectedPeriods,
-                                weeks = selectedWeeks,
-                                weekParity = parity,
-                                note = note.ifBlank { null },
-                                scheduleId = initialCourse?.scheduleId ?: 0
-                            )
-                        )
-                    }
-                }
-            )
-        }
-        item { OutlinedTextField(name, { name = it }, label = { Text("课程名称") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodyLarge.copy(color = dialogTextColor)) }
-        item { OutlinedTextField(teacher, { teacher = it }, label = { Text("教师") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodyLarge.copy(color = dialogTextColor)) }
-        item { OutlinedTextField(location, { location = it }, label = { Text("地点") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodyLarge.copy(color = dialogTextColor)) }
-        item { WheelPicker("星期", (1..7).toList(), weekday, { weekday = it }) { "周" + weekdayLabel(it) } }
-        item(key = "period-range", contentType = "range-picker") {
-            RangeWheelPicker(
-                title = "节次",
-                values = periodValues,
-                start = periodStart,
-                end = periodEnd,
-                onStart = { periodStart = it },
-                onEnd = { periodEnd = it },
-                enforceOrderedInput = true,
-                onInputValidChange = { periodInputValid = it }
-            ) { "第" + it + "节" }
-        }
-        item(key = "week-range", contentType = "range-picker") {
-            RangeWheelPicker(
-                title = "周次",
-                values = (1..state.config.totalWeeks).toList(),
-                start = weekStart,
-                end = weekEnd,
-                onStart = { weekStart = it },
-                onEnd = { weekEnd = it },
-                enforceOrderedInput = true,
-                onInputValidChange = { weekInputValid = it },
-                invalidRangeMessage = "当前结束周早于开始周"
-            ) { "第" + it + "周" }
-        }
-        item { WheelPicker("单双周", WeekParity.entries, parity, { parity = it }) { parityLabel(it) } }
-        item { OutlinedTextField(note, { note = it }, label = { Text("备注") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodyLarge.copy(color = dialogTextColor)) }
-        if (initialCourse != null) {
-            item { LiquidMenuButton(backdrop, "删除课程", destructive = true, onClick = { onDelete(initialCourse) }) }
-        }
-        error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-    }
-}
-
-@Composable
 fun DialogHeader(
     title: String,
     onCancel: () -> Unit,
     onSave: () -> Unit,
+    modifier: Modifier = Modifier,
     backdrop: Backdrop? = null,
-    config: ScheduleConfigEntity = defaultConfig(),
-    modifier: Modifier = Modifier
+    config: ScheduleConfigEntity = defaultConfig()
 ) {
     LiquidDialogHeader(
         title,
@@ -412,14 +312,6 @@ fun DialogHeader(
 }
 
 @Composable
-fun DialogScaffold(title: String, onCancel: () -> Unit, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxSize()) {
-        LiquidDialogHeader(title, onCancel, backdrop, config)
-        content()
-    }
-}
-
-@Composable
 fun NormalizedDialogHeader(
     title: String,
     onCancel: () -> Unit,
@@ -428,23 +320,6 @@ fun NormalizedDialogHeader(
     config: ScheduleConfigEntity
 ) {
     LiquidDialogHeader(title, onCancel, backdrop, config, onConfirm = onSave)
-}
-
-@Composable
-fun NormalizedDialogScaffold(
-    title: String,
-    onCancel: () -> Unit,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    contentColor: ComposeColor = glassForegroundColor(config),
-    content: @Composable () -> Unit
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        LiquidDialogHeader(title, onCancel, backdrop, config)
-        CompositionLocalProvider(LocalContentColor provides contentColor) {
-            content()
-        }
-    }
 }
 
 @Composable
@@ -688,6 +563,8 @@ private fun CourseEditorFormPage(
     onOpenPicker: (CourseEditorPickerRequest) -> Unit,
     pageCount: Int
 ) {
+    val editorContentColor = glassForegroundColor(config)
+    CompositionLocalProvider(LocalContentColor provides editorContentColor) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = if (pageCount > 1) 52.dp else 16.dp),
@@ -792,6 +669,7 @@ private fun CourseEditorFormPage(
         error?.let { message ->
             item(key = "error", contentType = "message") { Text(message, modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error) }
         }
+    }
     }
 }
 
@@ -934,7 +812,7 @@ private fun CourseEditorPickerOverlay(
         backgroundColor = ComposeColor.Transparent,
         forceCenter = true,
         renderInRootScaffold = renderInRootScaffold,
-        surfaceModifier = quickSheetBackdropModifier(
+        surfaceModifier = Modifier.quickSheetBackdropModifier(
             backdrop = backdrop,
             config = config,
             blurRadius = 28.dp,
@@ -1021,178 +899,6 @@ internal fun ProjectPagerIndicator(
             radius = 5.dp.toPx(),
             center = Offset(horizontalPaddingPx + position * dotSpacingPx, size.height / 2f)
         )
-    }
-}
-
-@Composable
-fun <T> WheelPicker(
-    title: String,
-    values: List<T>,
-    selected: T,
-    onSelected: (T) -> Unit,
-    backdrop: Backdrop? = null,
-    config: ScheduleConfigEntity = defaultConfig(),
-    label: (T) -> String
-) {
-    DialogOptionPicker(title, values, selected, onSelected, label, backdrop, config)
-}
-
-@Composable
-fun RangeWheelPicker(
-    title: String,
-    values: List<Int>,
-    start: Int,
-    end: Int,
-    onStart: (Int) -> Unit,
-    onEnd: (Int) -> Unit,
-    backdrop: Backdrop? = null,
-    config: ScheduleConfigEntity = defaultConfig(),
-    enforceOrderedInput: Boolean = false,
-    onInputValidChange: (Boolean) -> Unit = {},
-    invalidRangeMessage: String = "当前结束节早于开始节",
-    label: (Int) -> String
-) {
-    var startText by remember(start) { mutableStateOf(start.toString()) }
-    var endText by remember(end) { mutableStateOf(end.toString()) }
-    fun clamp(value: String): Int? {
-        val parsed = value.toIntOrNull() ?: return null
-        return parsed.coerceIn(values.firstOrNull() ?: parsed, values.lastOrNull() ?: parsed)
-    }
-    val draftStart = clamp(startText)
-    val draftEnd = clamp(endText)
-    val inputComplete = draftStart != null && draftEnd != null
-    val orderedInvalid = enforceOrderedInput && draftStart != null && draftEnd != null && draftEnd < draftStart
-    val inputValid = inputComplete && !orderedInvalid
-    LaunchedEffect(inputValid) { onInputValidChange(inputValid) }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                value = startText,
-                onValueChange = {
-                    startText = it.filter(Char::isDigit)
-                    clamp(startText)?.let(onStart)
-                },
-                label = { Text("开始") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(1f)
-            )
-            OutlinedTextField(
-                value = endText,
-                onValueChange = {
-                    endText = it.filter(Char::isDigit)
-                    clamp(endText)?.let(onEnd)
-                },
-                label = { Text("结束") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(1f)
-            )
-        }
-        if (orderedInvalid) {
-            Text(invalidRangeMessage, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
-        } else {
-            val previewStart = draftStart ?: start
-            val previewEnd = draftEnd ?: end
-            Text("${label(minOf(previewStart, previewEnd))} - ${label(maxOf(previewStart, previewEnd))}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-        }
-    }
-}
-
-@Composable
-fun DialogRangePicker(
-    title: String,
-    values: List<Int>,
-    start: Int,
-    end: Int,
-    onStart: (Int) -> Unit,
-    onEnd: (Int) -> Unit,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    enforceOrderedInput: Boolean = false,
-    onInputValidChange: (Boolean) -> Unit = {},
-    invalidRangeMessage: String = "\u5F53\u524D\u7ED3\u675F\u8282\u65E9\u4E8E\u5F00\u59CB\u8282",
-    label: (Int) -> String
-) {
-    var startText by remember(start) { mutableStateOf(start.toString()) }
-    var endText by remember(end) { mutableStateOf(end.toString()) }
-    fun clamp(value: String): Int? {
-        val parsed = value.toIntOrNull() ?: return null
-        return parsed.coerceIn(values.firstOrNull() ?: parsed, values.lastOrNull() ?: parsed)
-    }
-    val draftStart = clamp(startText)
-    val draftEnd = clamp(endText)
-    val inputComplete = draftStart != null && draftEnd != null
-    val orderedInvalid = enforceOrderedInput && draftStart != null && draftEnd != null && draftEnd < draftStart
-    val inputValid = inputComplete && !orderedInvalid
-    LaunchedEffect(inputValid) { onInputValidChange(inputValid) }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            DialogCapsuleField(
-                value = startText,
-                onValueChange = {
-                    startText = it.filter(Char::isDigit)
-                    clamp(startText)?.let(onStart)
-                },
-                placeholder = "\u5F00\u59CB",
-                config = config,
-                keyboardType = KeyboardType.Number,
-                modifier = Modifier.weight(1f)
-            )
-            DialogCapsuleField(
-                value = endText,
-                onValueChange = {
-                    endText = it.filter(Char::isDigit)
-                    clamp(endText)?.let(onEnd)
-                },
-                placeholder = "\u7ED3\u675F",
-                config = config,
-                keyboardType = KeyboardType.Number,
-                modifier = Modifier.weight(1f)
-            )
-        }
-        if (orderedInvalid) {
-            Text(
-                invalidRangeMessage,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.error
-            )
-        } else {
-            val previewStart = draftStart ?: start
-            val previewEnd = draftEnd ?: end
-            Text(
-                "${label(minOf(previewStart, previewEnd))} - ${label(maxOf(previewStart, previewEnd))}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-    }
-}
-
-@Composable
-fun MultiWheelPicker(title: String, values: List<Int>, selected: Set<Int>, onSelected: (Set<Int>) -> Unit, label: (Int) -> String) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp)
-        ) {
-            items(values.size) { index ->
-                val value = values[index]
-                val active = value in selected
-                Text(
-                    label(value),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f) else ComposeColor.Transparent)
-                        .clickable { onSelected(if (active) selected - value else selected + value) }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    color = if (active) MaterialTheme.colorScheme.primary else LocalContentColor.current,
-                    style = if (active) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
     }
 }
 

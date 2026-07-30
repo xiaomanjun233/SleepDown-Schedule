@@ -2,13 +2,13 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent"
     android:background="@drawable/widget_today_background_compact_dark" android:orientation="vertical" android:padding="11dp">
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="明日课程" android:textColor="#FFFFFFFF" android:textSize="15sp" android:textStyle="bold" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/widget_preview_tomorrow" android:textColor="#FFFFFFFF" android:textSize="15sp" android:textStyle="bold" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_marginTop="7dp" android:layout_weight="1" android:background="@drawable/widget_course_background_compact_dark" android:gravity="center_vertical" android:orientation="horizontal" android:padding="7dp">
-        <ImageView android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginEnd="7dp" android:src="@drawable/widget_course_indicator" android:tint="#FFB69AE8" />
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="动漫鉴赏\n10:00 · A-105" android:textColor="#FFFFFFFF" android:textSize="11sp" />
+        <ImageView android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginEnd="7dp" android:contentDescription="@null" android:src="@drawable/widget_course_indicator" android:tint="#FFB69AE8" />
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/widget_preview_animation_detail" android:textColor="#FFFFFFFF" android:textSize="11sp" />
     </LinearLayout>
     <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_marginTop="5dp" android:layout_weight="1" android:background="@drawable/widget_course_background_compact_dark" android:gravity="center_vertical" android:orientation="horizontal" android:padding="7dp">
-        <ImageView android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginEnd="7dp" android:src="@drawable/widget_course_indicator" android:tint="#FFFFCB65" />
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="日语入门\n14:00 · B-208" android:textColor="#FFFFFFFF" android:textSize="11sp" />
+        <ImageView android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginEnd="7dp" android:contentDescription="@null" android:src="@drawable/widget_course_indicator" android:tint="#FFFFCB65" />
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/widget_preview_japanese_detail" android:textColor="#FFFFFFFF" android:textSize="11sp" />
     </LinearLayout>
 </LinearLayout>

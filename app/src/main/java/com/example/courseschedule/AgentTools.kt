@@ -301,6 +301,58 @@ private val IncompleteAgentToolResult = Regex(
     RegexOption.IGNORE_CASE
 )
 
+private val LeakedAgentFunctionProtocol = Regex(
+    "(?:<\\s*[|｜]\\s*DSML\\s*[|｜]\\s*(?:tool_calls?|invoke|parameter)\\b|" +
+        "<\\s*(?:tool_calls|function_call|invoke|parameter)\\b|" +
+        "[\"'](?:tool_calls|function_call)[\"']\\s*:)",
+    setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+)
+
+internal fun containsLeakedAgentFunctionProtocol(content: String): Boolean =
+    LeakedAgentFunctionProtocol.containsMatchIn(content)
+
+internal class AgentProtocolViolationException :
+    IllegalStateException("模型输出了无效的内部工具协议")
+
+/**
+ * Streams normal answer text with a short look-behind window while keeping provider-internal
+ * function syntax out of the UI. A protocol failure can therefore be retried without briefly
+ * flashing DSML or persisting it as an assistant message.
+ */
+internal class AgentFinalOutputGate(
+    private val onDelta: (String) -> Unit,
+    private val holdBackCharacters: Int = 64
+) {
+    private val content = StringBuilder()
+    private var forwardedCharacters = 0
+
+    fun accept(delta: String) {
+        if (delta.isEmpty()) return
+        val scanStart = (content.length - holdBackCharacters).coerceAtLeast(0)
+        content.append(delta)
+        if (containsLeakedAgentFunctionProtocol(content.substring(scanStart))) {
+            throw AgentProtocolViolationException()
+        }
+        forwardUntil((content.length - holdBackCharacters).coerceAtLeast(0))
+    }
+
+    fun finish(answer: String): String {
+        if (answer.isBlank()) throw MissingAgentBodyException()
+        if (containsLeakedAgentFunctionProtocol(answer)) throw AgentProtocolViolationException()
+        if (content.toString() != answer) {
+            throw IllegalStateException("AI 流式响应内容不完整，请重试")
+        }
+        forwardUntil(content.length)
+        return answer
+    }
+
+    private fun forwardUntil(endExclusive: Int) {
+        if (endExclusive <= forwardedCharacters) return
+        onDelta(content.substring(forwardedCharacters, endExclusive))
+        forwardedCharacters = endExclusive
+    }
+}
+
 /**
  * Tool payloads are an internal transport detail. Never persist or render them as assistant text.
  *
@@ -309,6 +361,7 @@ private val IncompleteAgentToolResult = Regex(
  * answer after it becomes visible immediately.
  */
 internal fun sanitizeAgentToolOutput(content: String): String {
+    if (containsLeakedAgentFunctionProtocol(content)) return ""
     val completeMatches = CompleteAgentToolResult.findAll(content).toList()
     if (completeMatches.isNotEmpty()) {
         return content

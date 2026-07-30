@@ -43,7 +43,11 @@ android {
             "UnusedResources",
             "IconLauncherShape",
             "IconLocation",
-            "IconDuplicates"
+            "IconDuplicates",
+            // API 37 is still used only for compilation; changing target behavior is a release decision.
+            "OldTargetApi",
+            // The benchmark variant must stay unshrunk so baseline-profile tooling can inspect it.
+            "NotShrinkingResources"
         )
     }
 
@@ -51,8 +55,8 @@ android {
         applicationId = "com.example.courseschedule"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "1.1.0"
+        versionCode = 21
+        versionName = "1.1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -74,7 +78,9 @@ android {
 
     buildTypes {
         getByName("release") {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             // Keep local release builds installable without publishing a private key.
             // Official builds provide the four sleepdown.release* Gradle properties.
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
@@ -84,6 +90,8 @@ android {
             matchingFallbacks += listOf("release")
             signingConfig = signingConfigs.getByName("debug")
             isDebuggable = false
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 
@@ -134,7 +142,7 @@ dependencies {
     implementation("androidx.room:room-runtime:2.8.3")
     implementation("androidx.room:room-ktx:2.8.3")
     ksp("androidx.room:room-compiler:2.8.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:core:1.6.1")

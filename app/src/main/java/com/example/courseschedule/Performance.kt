@@ -291,12 +291,3 @@ fun bucketWallpaperBlur(blur: Float): Int {
     val clampedBlur = blur.coerceIn(0f, WallpaperBlurMaxDp)
     return clampedBlur.roundToInt()
 }
-
-@Composable
-fun WaitForPrewarmFrames(onReady: () -> Unit) {
-    LaunchedEffect(Unit) {
-        withFrameNanos { }
-        withFrameNanos { }
-        onReady()
-    }
-}

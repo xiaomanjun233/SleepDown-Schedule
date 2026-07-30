@@ -2,6 +2,7 @@ package com.example.courseschedule
 
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -70,6 +71,43 @@ class HomeAnchoredMorphGeometryTest {
         assertEquals(1008f, clamped.width, Tolerance)
         assertEquals(2328f, clamped.height, Tolerance)
         assertInBounds(clamped, root, margin = 36f)
+    }
+
+    @Test
+    fun tabletPersonalizePanelIsTallNarrowAndInsideAdaptiveContent() {
+        val metrics = calculateHomeAdaptiveMetrics(
+            widthDp = 1280,
+            heightDp = 800,
+            safeTop = 24.dp,
+            safeBottom = 24.dp,
+            fontScale = 1f
+        )
+        val root = IntSize(2560, 1600)
+        val content = metrics.contentRectPx(root, density = 2f)
+        val personalize = homePersonalizeTargetRect(
+            rootSize = root,
+            density = 2f,
+            adaptiveMetrics = metrics
+        )
+
+        assertTrue(personalize.height > personalize.width)
+        assertTrue(personalize.width <= 896f)
+        assertEquals(content.right, personalize.right, Tolerance)
+        assertTrue(personalize.top >= content.top)
+        assertTrue(personalize.bottom <= content.bottom)
+    }
+
+    @Test
+    fun personalizationBackdropBlurFollowsMorphAndSliderPreview() {
+        assertEquals(0f, personalizeBackdropBlurLayerProgress(0f, 0f), Tolerance)
+        assertEquals(1f, personalizeBackdropBlurLayerProgress(1f, 0f), Tolerance)
+        assertEquals(0f, personalizeBackdropBlurLayerProgress(1f, 1f), Tolerance)
+
+        val opening = personalizeBackdropBlurLayerProgress(0.30f, 0f)
+        val dragging = personalizeBackdropBlurLayerProgress(1f, 0.45f)
+        assertTrue(opening in 0f..1f)
+        assertTrue(opening > 0f && opening < 1f)
+        assertEquals(0.55f, dragging, Tolerance)
     }
 
     private fun geometry(

@@ -53,6 +53,11 @@ schools:
     initial: "W"
     resource_folder: "WHU"
 
+  - id: "WUST"
+    name: "武汉科技大学"
+    initial: "W"
+    resource_folder: "WUST"
+
   - id: "CQJTU"
     name: "重庆交通大学"
     initial: "C"

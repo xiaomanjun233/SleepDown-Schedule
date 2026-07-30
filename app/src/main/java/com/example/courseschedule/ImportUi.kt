@@ -179,7 +179,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -623,10 +622,10 @@ private fun AiManualImportDialogContent(
     onPrimaryAction: () -> Unit
 ) {
     val textColor = glassForegroundColor(state.config)
-    val configuration = LocalConfiguration.current
+    val windowSize = currentWindowSizeDp()
     val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
     val safeHeight = (
-        configuration.screenHeightDp.dp -
+        windowSize.height -
             safeInsets.calculateTopPadding() -
             safeInsets.calculateBottomPadding() -
             32.dp
@@ -1406,6 +1405,10 @@ fun EduImportBrowserScreen(
     var aiProgress by remember { mutableStateOf<AiEduImportProgress?>(null) }
     var isScreenCapturing by remember { mutableStateOf(false) }
     var screenCaptureStatus by remember { mutableStateOf<String?>(null) }
+    var pendingOriginalImportScript by remember(adapter) { mutableStateOf<String?>(null) }
+    var pendingImportCompletionCount by remember(adapter) { mutableIntStateOf(0) }
+    var pendingImportGeneration by remember(adapter) { mutableIntStateOf(0) }
+    var importGeneration by remember(adapter) { mutableIntStateOf(0) }
     val topPadding = if (useDetailTopPadding) detailContentTopPadding() else 0.dp
     val normalizedUrl = remember(addressText) {
         normalizeEduUrl(addressText)
@@ -1693,6 +1696,28 @@ fun EduImportBrowserScreen(
         }
     }
 
+    fun executePendingOriginalImportScript(target: WebView) {
+        val script = pendingOriginalImportScript ?: return
+        val completionCountAtStart = pendingImportCompletionCount
+        val generation = pendingImportGeneration
+        pendingOriginalImportScript = null
+        onMessage("已安全启用导入桥接，正在执行拾光适配器")
+        target.evaluateJavascript(
+            """
+            console.log('SleepDown bridge check', !!window.AndroidBridgePromise, typeof window.AndroidBridgePromise?.showAlert, typeof window.AndroidBridge?.notifyTaskCompletion);
+            try { $script } catch (e) { console.error('SleepDown import script error', e && (e.stack || e.message || e)); throw e; }
+            """.trimIndent(),
+            null
+        )
+        scope.launch {
+            delay(10_000)
+            if (importGeneration == generation && bridge.taskCompletionCount() == completionCountAtStart) {
+                target.detachEduImportBridge()
+                onMessage("拾光适配器暂未返回课程数据，可以点击 AI 兜底扒页，强制读取当前页面文字后交给 AI 解析。")
+            }
+        }
+    }
+
     fun runOriginalImportScript() {
         val target = webView
         if (target == null) {
@@ -1705,22 +1730,25 @@ fun EduImportBrowserScreen(
                 ?.let { onMessage("${it.message}；仍将尝试执行原有拾光导入脚本。") }
         }
         runCatching { ShiguangWarehouse.loadScript(context, adapter) }
-            .onSuccess {
-                val completionCountAtStart = bridge.taskCompletionCount()
-                onMessage("已加载拾光仓库脚本，正在执行导入")
+            .onSuccess { script ->
+                importGeneration += 1
+                pendingImportGeneration = importGeneration
+                pendingImportCompletionCount = bridge.taskCompletionCount()
+                pendingOriginalImportScript = script
                 bridge.beginTask()
                 target.attachEduImportBridge(bridge)
-                target.evaluateJavascript(
-                    """
-                    console.log('SleepDown bridge check', !!window.AndroidBridgePromise, typeof window.AndroidBridgePromise?.showAlert, typeof window.AndroidBridge?.notifyTaskCompletion);
-                    try { $it } catch (e) { console.error('SleepDown import script error', e && (e.stack || e.message || e)); throw e; }
-                    """.trimIndent(),
-                    null
-                )
+                // addJavascriptInterface becomes visible to page JavaScript only after a navigation.
+                // Reload the current page while the narrowly-scoped bridge is attached, run the
+                // adapter from onPageFinished, then detach on completion or timeout.
+                onMessage("已加载拾光仓库脚本，正在安全重载当前页面")
+                target.reload()
+                val generation = pendingImportGeneration
                 scope.launch {
-                    delay(10_000)
-                    if (bridge.taskCompletionCount() == completionCountAtStart) {
-                        onMessage("拾光适配器暂未返回课程数据，可以点击 AI 兜底扒页，强制读取当前页面文字后交给 AI 解析。")
+                    delay(15_000)
+                    if (importGeneration == generation && pendingOriginalImportScript != null) {
+                        pendingOriginalImportScript = null
+                        target.detachEduImportBridge()
+                        onMessage("当前页面重载超时，导入桥接已关闭，请检查网络后重试。")
                     }
                 }
             }
@@ -1767,7 +1795,9 @@ fun EduImportBrowserScreen(
             applyEduWebMode(this, desktopMode)
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                    view?.detachEduImportBridge()
+                    if (pendingOriginalImportScript == null) {
+                        view?.detachEduImportBridge()
+                    }
                     super.onPageStarted(view, url, favicon)
                 }
 
@@ -1785,6 +1815,7 @@ fun EduImportBrowserScreen(
                         )
                         CookieManager.getInstance().flush()
                     }
+                    view?.let(::executePendingOriginalImportScript)
                 }
             }
             webChromeClient = WebChromeClient()

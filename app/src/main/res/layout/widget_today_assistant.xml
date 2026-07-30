@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/widget_agent_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -7,6 +8,7 @@
     <ImageView android:id="@+id/widget_agent_background_image"
         android:layout_width="match_parent" android:layout_height="match_parent"
         android:background="@drawable/widget_today_background" android:clipToOutline="true"
+        tools:targetApi="s"
         android:contentDescription="@null" android:scaleType="fitXY" android:visibility="gone" />
     <LinearLayout android:id="@+id/widget_agent_content"
         android:layout_width="match_parent" android:layout_height="match_parent"
@@ -26,9 +28,9 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <TextView android:id="@+id/widget_agent_activity" android:layout_width="wrap_content" android:layout_height="wrap_content" android:includeFontPadding="false" android:textColor="#FF006EDC" android:textSize="19sp" android:textStyle="bold" />
-            <TextView android:id="@+id/widget_agent_course" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:layout_weight="1" android:ellipsize="end" android:includeFontPadding="false" android:maxLines="1" android:textColor="#FF111111" android:textSize="19sp" android:textStyle="bold" />
-            <TextView android:id="@+id/widget_agent_countdown" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:includeFontPadding="false" android:textColor="#FF006EDC" android:textSize="17sp" android:textStyle="bold" />
+            <TextView android:id="@+id/widget_agent_activity" android:layout_width="wrap_content" android:layout_height="wrap_content" android:includeFontPadding="true" android:textColor="#FF006EDC" android:textSize="19sp" android:textStyle="bold" />
+            <TextView android:id="@+id/widget_agent_course" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:layout_weight="1" android:ellipsize="end" android:includeFontPadding="true" android:maxLines="1" android:textColor="#FF111111" android:textSize="19sp" android:textStyle="bold" />
+            <TextView android:id="@+id/widget_agent_countdown" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:includeFontPadding="true" android:textColor="#FF006EDC" android:textSize="17sp" android:textStyle="bold" />
         </LinearLayout>
 
         <LinearLayout
@@ -38,8 +40,8 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <TextView android:id="@+id/widget_agent_detail" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:ellipsize="end" android:includeFontPadding="false" android:maxLines="1" android:textColor="#99000000" android:textSize="13sp" />
-            <TextView android:id="@+id/widget_agent_time" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:includeFontPadding="false" android:maxLines="1" android:textColor="#99000000" android:textSize="13sp" />
+            <TextView android:id="@+id/widget_agent_detail" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:ellipsize="end" android:includeFontPadding="true" android:maxLines="1" android:textColor="#99000000" android:textSize="13sp" />
+            <TextView android:id="@+id/widget_agent_time" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:includeFontPadding="true" android:maxLines="1" android:textColor="#99000000" android:textSize="13sp" />
         </LinearLayout>
     </LinearLayout>
 
@@ -59,7 +61,7 @@
         android:gravity="top"
         android:orientation="vertical">
 
-        <TextView android:id="@+id/widget_agent_count" android:layout_width="match_parent" android:layout_height="wrap_content" android:includeFontPadding="false" android:textColor="#FF111111" android:textSize="17sp" android:textStyle="bold" />
+        <TextView android:id="@+id/widget_agent_count" android:layout_width="match_parent" android:layout_height="wrap_content" android:includeFontPadding="true" android:textColor="#FF111111" android:textSize="17sp" android:textStyle="bold" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -68,8 +70,8 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <TextView android:id="@+id/widget_agent_weather" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:ellipsize="end" android:includeFontPadding="false" android:maxLines="1" android:textColor="#99000000" android:textSize="15sp" />
-            <TextView android:id="@+id/widget_agent_trailing" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:ellipsize="end" android:includeFontPadding="false" android:maxLines="1" android:textColor="#99000000" android:textSize="14sp" />
+            <TextView android:id="@+id/widget_agent_weather" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:ellipsize="end" android:includeFontPadding="true" android:maxLines="1" android:textColor="#99000000" android:textSize="15sp" />
+            <TextView android:id="@+id/widget_agent_trailing" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:ellipsize="end" android:includeFontPadding="true" android:maxLines="1" android:textColor="#99000000" android:textSize="14sp" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

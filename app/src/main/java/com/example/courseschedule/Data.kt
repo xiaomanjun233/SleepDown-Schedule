@@ -1,10 +1,9 @@
 package com.example.courseschedule
 
-import android.app.Application
-import android.app.ActivityManager
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import androidx.compose.runtime.Immutable
+import androidx.core.database.sqlite.transaction
 import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
@@ -19,9 +18,6 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.room.withTransaction
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -396,9 +392,6 @@ interface ScheduleProfileDao {
 
 @Dao
 interface AgentDao {
-    @Query("SELECT * FROM agent_daily_sessions WHERE scheduleId = :scheduleId AND date = :date LIMIT 1")
-    fun observeSession(scheduleId: Int, date: String): Flow<AgentDailySessionEntity?>
-
     @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId AND sessionDate = :date ORDER BY createdAt, id")
     fun observeMessages(scheduleId: Int, date: String): Flow<List<AgentMessageEntity>>
 
@@ -413,9 +406,6 @@ interface AgentDao {
 
     @Query("SELECT content FROM agent_messages")
     suspend fun getAllMessageContents(): List<String>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertSession(session: AgentDailySessionEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: AgentMessageEntity): Long
@@ -683,15 +673,22 @@ private val MIGRATION_25_26 = object : Migration(25, 26) {
 
 private val MIGRATION_26_27 = object : Migration(26, 27) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("ALTER TABLE schedule_config ADD COLUMN morningPeriodCount INTEGER NOT NULL DEFAULT 0")
-        db.execSQL("ALTER TABLE schedule_config ADD COLUMN afternoonPeriodCount INTEGER NOT NULL DEFAULT 0")
-        db.execSQL("ALTER TABLE schedule_config ADD COLUMN eveningPeriodCount INTEGER NOT NULL DEFAULT 0")
-        db.execSQL("""
-            UPDATE schedule_config SET
-              morningPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) < 12),
-              afternoonPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) >= 12 AND CAST(substr(p.startTime, 1, 2) AS INTEGER) < 18),
-              eveningPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) >= 18)
-        """.trimIndent())
+        val addedCountAssignments = mutableListOf<String>()
+        if (!db.hasColumn("schedule_config", "morningPeriodCount")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN morningPeriodCount INTEGER NOT NULL DEFAULT 0")
+            addedCountAssignments += "morningPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) < 12)"
+        }
+        if (!db.hasColumn("schedule_config", "afternoonPeriodCount")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN afternoonPeriodCount INTEGER NOT NULL DEFAULT 0")
+            addedCountAssignments += "afternoonPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) >= 12 AND CAST(substr(p.startTime, 1, 2) AS INTEGER) < 18)"
+        }
+        if (!db.hasColumn("schedule_config", "eveningPeriodCount")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN eveningPeriodCount INTEGER NOT NULL DEFAULT 0")
+            addedCountAssignments += "eveningPeriodCount = (SELECT COUNT(*) FROM periods p WHERE p.scheduleId = schedule_config.id AND CAST(substr(p.startTime, 1, 2) AS INTEGER) >= 18)"
+        }
+        if (addedCountAssignments.isNotEmpty()) {
+            db.execSQL("UPDATE schedule_config SET ${addedCountAssignments.joinToString()}")
+        }
         createPeriodSchemeTables(db)
         db.execSQL("""
             INSERT INTO period_schemes (
@@ -704,29 +701,78 @@ private val MIGRATION_26_27 = object : Migration(26, 27) {
               COALESCE((SELECT MIN(startTime) FROM periods p WHERE p.scheduleId=c.id AND CAST(substr(p.startTime,1,2) AS INTEGER)>=18), '19:00'),
               '{}', '{}'
             FROM schedule_config c
+            WHERE NOT EXISTS (SELECT 1 FROM period_schemes existing WHERE existing.scheduleId = c.id)
         """.trimIndent())
         db.execSQL("""
-            INSERT INTO period_scheme_times (schemeId, periodIndex, startTime, endTime)
+            INSERT OR IGNORE INTO period_scheme_times (schemeId, periodIndex, startTime, endTime)
             SELECT s.id, p.periodIndex, p.startTime, p.endTime
             FROM period_schemes s JOIN periods p ON p.scheduleId=s.scheduleId
         """.trimIndent())
     }
 }
-
 private val MIGRATION_27_28 = object : Migration(27, 28) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("ALTER TABLE schedule_config ADD COLUMN noonPeriodCount INTEGER NOT NULL DEFAULT 0")
-        db.execSQL("ALTER TABLE period_schemes ADD COLUMN noonStartTime TEXT NOT NULL DEFAULT '12:00'")
+        if (!db.hasColumn("schedule_config", "noonPeriodCount")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN noonPeriodCount INTEGER NOT NULL DEFAULT 0")
+        }
+        rebuildPeriodSchemesWithNoonColumn(db)
         // v27 had no independent noon segment. Keep its original afternoon structure intact;
         // interpreting periods by clock hour here used to silently reset existing timetables.
     }
 }
 
+private fun rebuildPeriodSchemesWithNoonColumn(db: SupportSQLiteDatabase) {
+    createPeriodSchemeTables(db)
+    val noonStartTime = if (db.hasColumn("period_schemes", "noonStartTime")) {
+        "COALESCE(noonStartTime, '12:00')"
+    } else {
+        "'12:00'"
+    }
+    db.execSQL("DROP TABLE IF EXISTS period_schemes_v28")
+    db.execSQL(
+        """
+        CREATE TABLE period_schemes_v28 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            scheduleId INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            isActive INTEGER NOT NULL,
+            classDurationMinutes INTEGER NOT NULL,
+            breakDurationMinutes INTEGER NOT NULL,
+            morningStartTime TEXT NOT NULL,
+            noonStartTime TEXT NOT NULL,
+            afternoonStartTime TEXT NOT NULL,
+            eveningStartTime TEXT NOT NULL,
+            specialBreaksJson TEXT NOT NULL,
+            overridesJson TEXT NOT NULL
+        )
+        """.trimIndent()
+    )
+    db.execSQL(
+        """
+        INSERT INTO period_schemes_v28 (
+            id, scheduleId, name, mode, isActive, classDurationMinutes, breakDurationMinutes,
+            morningStartTime, noonStartTime, afternoonStartTime, eveningStartTime,
+            specialBreaksJson, overridesJson
+        )
+        SELECT
+            id, scheduleId, name, mode, isActive, classDurationMinutes, breakDurationMinutes,
+            morningStartTime, $noonStartTime, afternoonStartTime, eveningStartTime,
+            specialBreaksJson, overridesJson
+        FROM period_schemes
+        """.trimIndent()
+    )
+    db.execSQL("DROP TABLE period_schemes")
+    db.execSQL("ALTER TABLE period_schemes_v28 RENAME TO period_schemes")
+}
+
 private val MIGRATION_28_29 = object : Migration(28, 29) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        if (!db.hasColumn("schedule_config", "termState")) {
+        val addedTermState = !db.hasColumn("schedule_config", "termState")
+        if (addedTermState) {
             db.execSQL("ALTER TABLE schedule_config ADD COLUMN termState TEXT NOT NULL DEFAULT 'MANUAL'")
         }
+        if (!addedTermState) return
         val start = "replace(replace(termStartDate, '.', '-'), '/', '-')"
         db.execSQL(
             """
@@ -938,49 +984,14 @@ private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
     if (!db.hasColumn("schedule_config", "wallpaperSourceHeight")) db.execSQL("ALTER TABLE schedule_config ADD COLUMN wallpaperSourceHeight INTEGER")
 }
 
-class CourseScheduleApp : Application() {
-    override fun onCreate() {
-        super.onCreate()
-        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) {
-                setTaskExcludedFromRecents(false)
-            }
-
-            override fun onStop(owner: LifecycleOwner) {
-                if (hideFromRecentsEnabled) setTaskExcludedFromRecents(true)
-            }
-        })
-    }
-
-    override fun onTrimMemory(level: Int) {
-        super.onTrimMemory(level)
-        if (shouldClearHomeWallpaperCaches(level)) {
-            clearHomeWallpaperCaches()
-        }
-    }
-
-    override fun onLowMemory() {
-        super.onLowMemory()
-        clearHomeWallpaperCaches()
-    }
-
-    private fun setTaskExcludedFromRecents(excluded: Boolean) {
-        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        activityManager.appTasks.forEach { task ->
-            runCatching { task.setExcludeFromRecents(excluded) }
-        }
-    }
-
-    val database: AppDatabase by lazy {
-        repairDatabaseFileBeforeRoomOpen(getDatabasePath("course_schedule.db"))
-        Room.databaseBuilder(this, AppDatabase::class.java, "course_schedule.db")
-            .addMigrations(*APP_DATABASE_MIGRATIONS.toTypedArray())
-            .build()
-    }
-    val repository: ScheduleRepository by lazy { ScheduleRepository(database) }
-    val widgetAppearanceRepository: WidgetAppearanceRepository by lazy {
-        WidgetAppearanceRepository(this, database)
-    }
+internal fun createAppDatabase(
+    context: Context,
+    databaseName: String = "course_schedule.db"
+): AppDatabase {
+    repairDatabaseFileBeforeRoomOpen(context.getDatabasePath(databaseName))
+    return Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
+        .addMigrations(*APP_DATABASE_MIGRATIONS.toTypedArray())
+        .build()
 }
 
 private fun repairDatabaseFileBeforeRoomOpen(path: File) {
@@ -995,6 +1006,14 @@ private fun repairDatabaseFileBeforeRoomOpen(path: File) {
                 !sqliteTableExists(db, "agent_daily_sessions") ||
                 !sqliteTableExists(db, "agent_messages") ||
                 !sqliteColumnExists(db, "courses", "scheduleId") ||
+                (db.version >= 27 && !sqliteTableExists(db, "period_schemes")) ||
+                (db.version >= 27 && !sqliteTableExists(db, "period_scheme_times")) ||
+                (db.version >= 27 && !sqliteColumnExists(db, "schedule_config", "morningPeriodCount")) ||
+                (db.version >= 27 && !sqliteColumnExists(db, "schedule_config", "afternoonPeriodCount")) ||
+                (db.version >= 27 && !sqliteColumnExists(db, "schedule_config", "eveningPeriodCount")) ||
+                (db.version >= 28 && !sqliteColumnExists(db, "schedule_config", "noonPeriodCount")) ||
+                (db.version >= 28 && !sqliteColumnExists(db, "period_schemes", "noonStartTime")) ||
+                (db.version >= 29 && !sqliteColumnExists(db, "schedule_config", "termState")) ||
                 (db.version >= 30 && !sqliteTableExists(db, "widget_appearances")) ||
                 !sqliteColumnExists(db, "periods", "scheduleId") ||
                 !sqliteColumnExists(db, "schedule_config", "dockAlignment") ||
@@ -1010,23 +1029,49 @@ private fun repairDatabaseFileBeforeRoomOpen(path: File) {
 }
 
 private fun repairSQLiteDatabase(db: SQLiteDatabase) {
-    db.beginTransaction()
-    try {
-        db.execSQL("CREATE TABLE IF NOT EXISTS schedule_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, isActive INTEGER NOT NULL)")
-        db.execSQL("INSERT INTO schedule_profiles (id, name, isActive) SELECT 1, '\u9ED8\u8BA4\u8BFE\u8868', 1 WHERE NOT EXISTS (SELECT 1 FROM schedule_profiles)")
-        if (!sqliteColumnExists(db, "courses", "scheduleId")) {
-            db.execSQL("ALTER TABLE courses ADD COLUMN scheduleId INTEGER NOT NULL DEFAULT 1")
-        }
-        repairScheduleConfigTable(db)
-        repairPeriodsTable(db)
-        repairAgentTables(db)
-        repairActiveScheduleProfiles(db)
-        db.execSQL("DROP TABLE IF EXISTS room_master_table")
-        db.setVersion(26)
-        db.setTransactionSuccessful()
-    } finally {
-        db.endTransaction()
+    db.transaction {
+        execSQL("CREATE TABLE IF NOT EXISTS schedule_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, isActive INTEGER NOT NULL)")
+        execSQL("INSERT INTO schedule_profiles (id, name, isActive) SELECT 1, '\u9ED8\u8BA4\u8BFE\u8868', 1 WHERE NOT EXISTS (SELECT 1 FROM schedule_profiles)")
+        repairCoursesTable(this)
+        repairScheduleConfigTable(this)
+        repairPeriodsTable(this)
+        repairAgentTables(this)
+        repairPeriodSchemeTables(this)
+        repairActiveScheduleProfiles(this)
+        execSQL("DROP TABLE IF EXISTS room_master_table")
+        setVersion(26)
     }
+}
+
+private fun repairCoursesTable(db: SQLiteDatabase) {
+    if (!sqliteTableExists(db, "courses")) {
+        db.execSQL("CREATE TABLE courses (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, teacher TEXT, location TEXT, weekday INTEGER NOT NULL, periods TEXT NOT NULL, weeks TEXT NOT NULL, weekParity TEXT NOT NULL, note TEXT, scheduleId INTEGER NOT NULL DEFAULT 1)")
+        return
+    }
+    if (!sqliteColumnExists(db, "courses", "scheduleId")) {
+        db.execSQL("ALTER TABLE courses ADD COLUMN scheduleId INTEGER NOT NULL DEFAULT 1")
+    }
+}
+
+private fun repairPeriodSchemeTables(db: SQLiteDatabase) {
+    if (!sqliteTableExists(db, "period_schemes")) {
+        db.execSQL(
+            "CREATE TABLE period_schemes (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, scheduleId INTEGER NOT NULL, name TEXT NOT NULL, mode TEXT NOT NULL, isActive INTEGER NOT NULL, classDurationMinutes INTEGER NOT NULL, breakDurationMinutes INTEGER NOT NULL, morningStartTime TEXT NOT NULL, noonStartTime TEXT NOT NULL, afternoonStartTime TEXT NOT NULL, eveningStartTime TEXT NOT NULL, specialBreaksJson TEXT NOT NULL, overridesJson TEXT NOT NULL)"
+        )
+    } else if (!sqliteColumnExists(db, "period_schemes", "noonStartTime")) {
+        db.execSQL("DROP TABLE IF EXISTS period_schemes_room_fix")
+        db.execSQL(
+            "CREATE TABLE period_schemes_room_fix (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, scheduleId INTEGER NOT NULL, name TEXT NOT NULL, mode TEXT NOT NULL, isActive INTEGER NOT NULL, classDurationMinutes INTEGER NOT NULL, breakDurationMinutes INTEGER NOT NULL, morningStartTime TEXT NOT NULL, noonStartTime TEXT NOT NULL, afternoonStartTime TEXT NOT NULL, eveningStartTime TEXT NOT NULL, specialBreaksJson TEXT NOT NULL, overridesJson TEXT NOT NULL)"
+        )
+        db.execSQL(
+            "INSERT INTO period_schemes_room_fix (id, scheduleId, name, mode, isActive, classDurationMinutes, breakDurationMinutes, morningStartTime, noonStartTime, afternoonStartTime, eveningStartTime, specialBreaksJson, overridesJson) SELECT id, scheduleId, name, mode, isActive, classDurationMinutes, breakDurationMinutes, morningStartTime, '12:00', afternoonStartTime, eveningStartTime, specialBreaksJson, overridesJson FROM period_schemes"
+        )
+        db.execSQL("DROP TABLE period_schemes")
+        db.execSQL("ALTER TABLE period_schemes_room_fix RENAME TO period_schemes")
+    }
+    db.execSQL(
+        "CREATE TABLE IF NOT EXISTS period_scheme_times (schemeId INTEGER NOT NULL, periodIndex INTEGER NOT NULL, startTime TEXT NOT NULL, endTime TEXT NOT NULL, PRIMARY KEY(schemeId, periodIndex))"
+    )
 }
 
 private fun sqliteTableExists(db: SQLiteDatabase, table: String): Boolean {
@@ -1699,6 +1744,14 @@ class ScheduleRepository(private val database: AppDatabase) {
             val merged = current.withChangesFrom(original, updated)
             configDao.upsertConfig(normalizeConfigForSchedule(merged, scheduleId))
         }
+    }
+
+    suspend fun referencedWallpaperUris(): Set<String> = database.withTransaction {
+        configDao.getAllConfigs().mapNotNullTo(linkedSetOf()) { it.wallpaperUri }
+    }
+
+    suspend fun referencedScheduleIds(): Set<Int> = database.withTransaction {
+        profileDao.getProfiles().mapTo(linkedSetOf()) { it.id }
     }
 
     suspend fun saveGlobalSettings(config: ScheduleConfigEntity) {

@@ -1,6 +1,7 @@
 package com.example.courseschedule
 
 import android.content.Context
+import androidx.core.content.edit
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -99,9 +100,9 @@ object EduLoginHistoryStore {
             )
         }
         val encrypted = encrypt(array.toString()) ?: return
-        context.getSharedPreferences(Prefs, Context.MODE_PRIVATE).edit()
-            .putString(Payload, encrypted)
-            .apply()
+        context.getSharedPreferences(Prefs, Context.MODE_PRIVATE).edit {
+                putString(Payload, encrypted)
+            }
     }
 
     private fun encrypt(value: String): String? = runCatching {

@@ -34,10 +34,10 @@
 
     <style name="WidgetCourseTimePrimary">
         <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">0dp</item>
-        <item name="android:layout_weight">1</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">0</item>
         <item name="android:gravity">center_vertical</item>
-        <item name="android:includeFontPadding">false</item>
+        <item name="android:includeFontPadding">true</item>
         <item name="android:maxLines">1</item>
         <item name="android:textColor">#AA111111</item>
         <item name="android:textSize">13sp</item>
@@ -65,11 +65,11 @@
 
     <style name="WidgetCourseName">
         <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">0dp</item>
-        <item name="android:layout_weight">1</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">0</item>
         <item name="android:ellipsize">end</item>
         <item name="android:gravity">center_vertical</item>
-        <item name="android:includeFontPadding">false</item>
+        <item name="android:includeFontPadding">true</item>
         <item name="android:maxLines">1</item>
         <item name="android:textColor">#FF111111</item>
         <item name="android:textSize">15sp</item>
@@ -78,11 +78,11 @@
 
     <style name="WidgetCourseDetail">
         <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">0dp</item>
-        <item name="android:layout_weight">1</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">0</item>
         <item name="android:ellipsize">end</item>
         <item name="android:gravity">center_vertical</item>
-        <item name="android:includeFontPadding">false</item>
+        <item name="android:includeFontPadding">true</item>
         <item name="android:maxLines">1</item>
         <item name="android:textColor">#66111111</item>
         <item name="android:textSize">11sp</item>

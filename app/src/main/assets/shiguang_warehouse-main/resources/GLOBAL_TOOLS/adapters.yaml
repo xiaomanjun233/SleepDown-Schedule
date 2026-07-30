@@ -1,20 +1,12 @@
 # resources/GLOBAL_TOOLS/adapters.yaml
 adapters:
   - adapter_id: "GENERAL_TOOL_01"
-    adapter_name: "组件测试"
+    adapter_name: "通用教务导入自检"
     category: "GENERAL_TOOL"
     asset_js_path: "school.js"
     import_url: ""
-    maintainer: "星河欲转"
-    description: "这是一个空网站，用于组件测试与演示模式"
-
-  - adapter_id: "GENERAL_TOOL_02"
-    adapter_name: "适配代码测试"
-    category: "GENERAL_TOOL"
-    asset_js_path: "test.js"
-    import_url: ""
-    maintainer: "星河欲转"
-    description: "空网站以及不存在适配代码,用于在不更新索引的情况下给开发者进行适配的软件测试"    
+    maintainer: "SleepDown"
+    description: "无需登录校园网，生成包含连续周、单双周、离散周和完整作息的安全预览，用于检查教务导入链路；确认前不会写入课表"
 
   # 该适配器已经失效因此注释掉，适配代码暂时不移除
   # - adapter_id: "WakeUp"

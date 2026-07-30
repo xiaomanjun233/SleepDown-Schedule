@@ -15,6 +15,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import androidx.core.graphics.get
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.MediaStore
@@ -122,6 +123,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
@@ -301,19 +303,44 @@ data class HomeReadabilityContext(
 )
 
 val LocalHomeReadability = compositionLocalOf { HomeReadabilityContext() }
-private val LocalHomeReadableOutline = compositionLocalOf<Boolean?> { null }
 
-private fun regionNeedsDarkTextShadow(
+internal enum class HomeReadabilityShadow {
+    None,
+    Dark,
+    Light
+}
+
+internal fun homeReadabilityShadowForLuminance(
+    textLuminance: Float,
+    backgroundLuminance: Float,
+    current: HomeReadabilityShadow
+): HomeReadabilityShadow = when {
+    textLuminance >= 0.62f -> {
+        if (backgroundLuminance >= if (current == HomeReadabilityShadow.Dark) 0.43f else 0.53f) {
+            HomeReadabilityShadow.Dark
+        } else HomeReadabilityShadow.None
+    }
+    textLuminance <= 0.38f -> {
+        if (backgroundLuminance <= if (current == HomeReadabilityShadow.Light) 0.42f else 0.32f) {
+            HomeReadabilityShadow.Light
+        } else HomeReadabilityShadow.None
+    }
+    else -> HomeReadabilityShadow.None
+}
+
+private fun regionTextShadow(
     context: HomeReadabilityContext,
     bounds: Rect,
     textColor: ComposeColor,
-    currentlyEnabled: Boolean
-): Boolean {
-    if (textColor.luminance() < 0.62f || bounds.width <= 0f || bounds.height <= 0f) return false
-    val bitmap = context.bitmap ?: return false
-    val config = context.config ?: return false
+    current: HomeReadabilityShadow
+): HomeReadabilityShadow {
+    if (bounds.width <= 0f || bounds.height <= 0f) return HomeReadabilityShadow.None
+    val bitmap = context.bitmap ?: return HomeReadabilityShadow.None
+    val config = context.config ?: return HomeReadabilityShadow.None
     val root = context.rootSize
-    if (root.width <= 0 || root.height <= 0 || bitmap.width <= 0 || bitmap.height <= 0) return false
+    if (root.width <= 0 || root.height <= 0 || bitmap.width <= 0 || bitmap.height <= 0) {
+        return HomeReadabilityShadow.None
+    }
     val useSavedCrop = !config.wallpaperUri.isNullOrBlank()
     val cropState = if (useSavedCrop) {
         config.wallpaperCropState(
@@ -328,7 +355,7 @@ private fun regionNeedsDarkTextShadow(
         containerHeight = root.height.toFloat(),
         cropState = cropState
     )
-    if (drawn.width <= 0f || drawn.height <= 0f) return false
+    if (drawn.width <= 0f || drawn.height <= 0f) return HomeReadabilityShadow.None
     var weightedLuminance = 0f
     var samples = 0
     for (row in 0 until 3) {
@@ -339,7 +366,7 @@ private fun regionNeedsDarkTextShadow(
                 .roundToInt().coerceIn(0, bitmap.width - 1)
             val y = (((rootY - drawn.top) / drawn.height) * bitmap.height)
                 .roundToInt().coerceIn(0, bitmap.height - 1)
-            val pixel = bitmap.getPixel(x, y)
+            val pixel = bitmap[x, y]
             val color = ComposeColor(pixel)
             weightedLuminance += color.luminance()
             samples++
@@ -347,9 +374,10 @@ private fun regionNeedsDarkTextShadow(
     }
     val dim = (1f - config.wallpaperBrightness.coerceIn(0.35f, 1f)).coerceIn(0f, 0.65f)
     val visibleLuminance = weightedLuminance / samples.coerceAtLeast(1) * (1f - dim)
-    // A small hysteresis band keeps labels near the threshold from toggling
-    // while the pager or list is moving by a fraction of a pixel.
-    return visibleLuminance >= if (currentlyEnabled) 0.43f else 0.53f
+    // Symmetric adaptive contrast: light text receives a dark shadow on bright wallpaper, while
+    // dark text receives a very soft white shadow only over locally dark wallpaper. Hysteresis in
+    // both directions prevents labels from toggling during fractional pager/list motion.
+    return homeReadabilityShadowForLuminance(textColor.luminance(), visibleLuminance, current)
 }
 
 @Composable
@@ -367,35 +395,41 @@ fun HomeReadableText(
     overflow: TextOverflow = TextOverflow.Clip
 ) {
     val readability = LocalHomeReadability.current
-    val outlineOverride = LocalHomeReadableOutline.current
-    var needsOutline by remember(readability.bitmap, readability.config, readability.rootSize, color) {
-        mutableStateOf(false)
+    var readabilityShadow by remember(readability.bitmap, readability.config, readability.rootSize, color) {
+        mutableStateOf(HomeReadabilityShadow.None)
     }
-    val effectiveOutline = outlineOverride ?: needsOutline
-    val measuredModifier = if (outlineOverride == null) {
-        modifier.onGloballyPositioned { coordinates ->
-            val next = regionNeedsDarkTextShadow(
-                readability,
-                coordinates.boundsInRoot(),
-                color,
-                needsOutline
-            )
-            if (next != needsOutline) needsOutline = next
-        }
-    } else modifier
+    val measuredModifier = modifier.onGloballyPositioned { coordinates ->
+        val next = regionTextShadow(
+            readability,
+            coordinates.boundsInRoot(),
+            color,
+            readabilityShadow
+        )
+        if (next != readabilityShadow) readabilityShadow = next
+    }
     Box(
         modifier = measuredModifier
     ) {
         Text(
             text = text,
             color = color,
-            style = if (effectiveOutline) style.copy(
-                shadow = androidx.compose.ui.graphics.Shadow(
-                    color = ComposeColor.Black.copy(alpha = 0.44f),
-                    offset = Offset(0f, 1.2f),
-                    blurRadius = 12f
+            style = when (readabilityShadow) {
+                HomeReadabilityShadow.Dark -> style.copy(
+                    shadow = androidx.compose.ui.graphics.Shadow(
+                        color = ComposeColor.Black.copy(alpha = 0.44f),
+                        offset = Offset(0f, 1.2f),
+                        blurRadius = 12f
+                    )
                 )
-            ) else style,
+                HomeReadabilityShadow.Light -> style.copy(
+                    shadow = androidx.compose.ui.graphics.Shadow(
+                        color = ComposeColor.White.copy(alpha = 0.38f),
+                        offset = Offset(0f, 1f),
+                        blurRadius = 9f
+                    )
+                )
+                HomeReadabilityShadow.None -> style
+            },
             fontWeight = fontWeight,
             fontSize = fontSize,
             lineHeight = lineHeight,
@@ -404,33 +438,6 @@ fun HomeReadableText(
             softWrap = softWrap,
             overflow = overflow
         )
-    }
-}
-
-@Composable
-fun HomeReadableRegion(
-    color: ComposeColor,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    val readability = LocalHomeReadability.current
-    var needsOutline by remember(readability.bitmap, readability.config, readability.rootSize, color) {
-        mutableStateOf(false)
-    }
-    Box(
-        modifier = modifier.onGloballyPositioned { coordinates ->
-            val next = regionNeedsDarkTextShadow(
-                readability,
-                coordinates.boundsInRoot(),
-                color,
-                needsOutline
-            )
-            if (next != needsOutline) needsOutline = next
-        }
-    ) {
-        CompositionLocalProvider(LocalHomeReadableOutline provides needsOutline) {
-            content()
-        }
     }
 }
 
@@ -511,8 +518,13 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
                     officialHighlightAlpha = HomeHeaderGlassHighlightAlpha,
                     officialShadowAlpha = 0f,
                     officialInnerShadowAlpha = HomeHeaderGlassInnerShadowAlpha,
+                    containerShadowEnabled = false,
+                    indicatorShadowEnabled = false,
+                    indicatorInnerShadowEnabled = false,
                     chromaticAberrationEnabled = true,
                     isLightThemeOverride = lightGlass,
+                    lightContainerColor = HomeLightGlassSurfaceColor,
+                    lightAccentColor = HomeLightGlassSelectedAccentColor,
                     useOfficialGlassParameters = true
                 ) {
                     LiquidBottomTab(onClick = { onModeChange(HomeMode.Day) }) {
@@ -572,10 +584,11 @@ fun HomeModePill(backdrop: Backdrop?, config: ScheduleConfigEntity, iconRes: Int
 
 @OptIn(ExperimentalAnimationApi::class, ExperimentalFoundationApi::class)
 @Composable
-fun HomeScreen(
+internal fun HomeScreen(
     state: AppState,
     agentState: AppState = state,
     mode: HomeMode,
+    adaptiveMetrics: HomeAdaptiveMetrics,
     weekCardHeight: Dp,
     displayWeek: Int,
     displayDate: LocalDate,
@@ -608,6 +621,10 @@ fun HomeScreen(
     var weekEditMode by remember { mutableStateOf(false) }
     var pendingSingleWeekDelete by remember { mutableStateOf<Pair<CourseEntity, Int>?>(null) }
     val haptic = LocalHapticFeedback.current
+    // `weekCardHeight` already resolves to the adaptive value when the user has not chosen one.
+    // Recomputing it here on tablets discarded live slider updates and made personalization look
+    // broken even though the config was saved correctly.
+    val effectiveWeekCardHeight = weekCardHeight
 
     Box(
         modifier = Modifier
@@ -645,6 +662,7 @@ fun HomeScreen(
                     DayScheduleScreen(
                         state = state,
                         agentState = agentState,
+                        adaptiveMetrics = adaptiveMetrics,
                         displayDate = displayDate,
                         displayWeek = effectiveCurrentWeek(state.config, displayDate),
                         cardColor = cardColor,
@@ -666,7 +684,8 @@ fun HomeScreen(
                     SinglePillWeekScheduleScreen(
                         state = state,
                         displayWeek = displayWeek,
-                        cardHeight = weekCardHeight,
+                        adaptiveMetrics = adaptiveMetrics,
+                        cardHeight = effectiveWeekCardHeight,
                         cardColor = cardColor,
                         textColor = textColor,
                         backdrop = backdrop,
@@ -1127,7 +1146,7 @@ fun sampleCroppedBitmapColor(
     if (rect == androidx.compose.ui.geometry.Rect.Zero || rect.width <= 0f || rect.height <= 0f) return null
     val bitmapX = ((tapX - rect.left) * bitmap.width / rect.width).roundToInt().coerceIn(0, bitmap.width - 1)
     val bitmapY = ((tapY - rect.top) * bitmap.height / rect.height).roundToInt().coerceIn(0, bitmap.height - 1)
-    return bitmap.getPixel(bitmapX, bitmapY).toLong() and 0xFFFFFFFFL
+    return bitmap[bitmapX, bitmapY].toLong() and 0xFFFFFFFFL
 }
 
 @Composable
@@ -1184,9 +1203,10 @@ fun appPanelForegroundColor(config: ScheduleConfigEntity): ComposeColor {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun DayScheduleScreen(
+internal fun DayScheduleScreen(
     state: AppState,
     agentState: AppState = state,
+    adaptiveMetrics: HomeAdaptiveMetrics,
     displayDate: LocalDate,
     displayWeek: Int,
     cardColor: ComposeColor,
@@ -1328,79 +1348,212 @@ fun DayScheduleScreen(
                     onContentUnderTopBarChange(contentUnderTopBar)
                 }
             }
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                state = listState,
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = HomeInitialTopInset, bottom = DayDockScrollPadding),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                item {
-                    val isToday = targetDate == LocalDate.now()
-                    val currentPeriod = if (isToday && targetWeekOrNull != null) {
-                        val now = LocalTime.now()
-                        currentTimelinePeriod(state.periods, now)
-                    } else null
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-            HomeReadableText(
-                            "${targetDate.monthValue}月${targetDate.dayOfMonth}日 周${weekdayLabel(targetWeekday)} · ${termStatus ?: "第${targetWeek}周"}",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = textColor
-                        )
-                        if (currentPeriod != null) {
-                            Spacer(Modifier.width(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .background(ComposeColor(0xFF0A84FF), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    "第${currentPeriod.periodIndex}节",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = ComposeColor.White,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
+            val isToday = targetDate == LocalDate.now()
+            val currentPeriod = if (isToday && targetWeekOrNull != null) {
+                val now = LocalTime.now()
+                currentTimelinePeriod(state.periods, now)
+            } else null
+            val headerContent: @Composable () -> Unit = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    HomeReadableText(
+                        "${targetDate.monthValue}月${targetDate.dayOfMonth}日 周${weekdayLabel(targetWeekday)} · ${termStatus ?: "第${targetWeek}周"}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textColor
+                    )
+                    if (currentPeriod != null) {
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(ComposeColor(0xFF0A84FF), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                "第${currentPeriod.periodIndex}节",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ComposeColor.White,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
-                if (
-                    targetDate == LocalDate.now() &&
-                    abs(page - pagerState.currentPage) <= 1
-                ) {
-                    item(key = "today-agent-${state.config.id}") {
-                        TodayAgentHost(
-                            state = agentState,
-                            date = targetDate,
-                            backdrop = dayAgentBackdrop,
-                            textColor = textColor,
-                            collapsed = agentCollapsed,
-                            isActive = page == pagerState.settledPage,
-                            backgroundMotionState = dayAgentBackgroundMotionState,
-                            onPrepareOpen = onAgentPrepareOpen,
-                            onAgentDismissed = onAgentDismissed,
-                            onAgentAction = onAgentAction
-                        )
-                    }
-                }
-                if (dayCourses.isEmpty()) item { HomeReadableText("这一天没有课程", color = textColor) }
-                itemsIndexed(dayCourses, key = { _, it -> it.id }) { index, course ->
-                    val coursePeriods = course.periods.toSet()
-                    val simultaneousCount = dayCourses.count { other ->
-                        other.id == course.id || other.periods.any(coursePeriods::contains)
-                    }
-                    DayTimelineCourse(
-                        course,
-                        targetWeek,
-                        state.periods,
-                        cardColor,
-                        backdrop,
-                        state.config,
-                        onCourseClick,
-                        entranceIndex = index,
-                        simultaneousCount = simultaneousCount
+            }
+            val agentContent: @Composable () -> Unit = {
+                if (isToday && abs(page - pagerState.currentPage) <= 1) {
+                    TodayAgentHost(
+                        state = agentState,
+                        date = targetDate,
+                        backdrop = dayAgentBackdrop,
+                        textColor = textColor,
+                        collapsed = agentCollapsed,
+                        isActive = page == pagerState.settledPage,
+                        backgroundMotionState = dayAgentBackgroundMotionState,
+                        onPrepareOpen = onAgentPrepareOpen,
+                        onAgentDismissed = onAgentDismissed,
+                        onAgentAction = onAgentAction
                     )
                 }
             }
+            val groupedDayCourses = remember(dayCourses, state.config) {
+                PeriodDayPart.entries.mapNotNull { part ->
+                    dayCourses.filter { course -> courseDayPart(state.config, course) == part }
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { part to it }
+                }
+            }
+            val courseList: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
+                if (dayCourses.isEmpty()) item { HomeReadableText("这一天没有课程", color = textColor) }
+                groupedDayCourses.forEach { (part, coursesInPart) ->
+                    item(key = "day-part-${part.name}") {
+                        DayPartHeader(
+                            part = part,
+                            courses = coursesInPart,
+                            periods = state.periods,
+                            textColor = textColor
+                        )
+                    }
+                    itemsIndexed(coursesInPart, key = { _, it -> it.id }) { _, course ->
+                        val coursePeriods = course.periods.toSet()
+                        val simultaneousCount = dayCourses.count { other ->
+                            other.id == course.id || other.periods.any(coursePeriods::contains)
+                        }
+                        DayTimelineCourse(
+                            course,
+                            targetWeek,
+                            state.periods,
+                            cardColor,
+                            backdrop,
+                            state.config,
+                            onCourseClick,
+                            entranceIndex = dayCourses.indexOf(course).coerceAtLeast(0),
+                            simultaneousCount = simultaneousCount
+                        )
+                    }
+                }
+            }
+            if (adaptiveMetrics.isTabletLandscape) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(
+                            start = adaptiveMetrics.tabletContentMargin,
+                            end = adaptiveMetrics.tabletContentMargin
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(adaptiveMetrics.dayPaneGap)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .width(adaptiveMetrics.daySidePaneWidth)
+                            .fillMaxHeight()
+                            .padding(
+                                top = adaptiveMetrics.dayContentTopPadding,
+                                bottom = DayDockScrollPadding
+                            )
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        headerContent()
+                        agentContent()
+                    }
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        state = listState,
+                        contentPadding = PaddingValues(
+                            top = adaptiveMetrics.dayContentTopPadding,
+                            bottom = DayDockScrollPadding
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        content = courseList
+                    )
+                }
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                    LazyColumn(
+                        modifier = if (adaptiveMetrics.isLargeScreen) {
+                            Modifier
+                                .widthIn(max = 760.dp)
+                                .fillMaxWidth()
+                                .fillMaxHeight()
+                        } else {
+                            Modifier.fillMaxSize()
+                        },
+                        state = listState,
+                        contentPadding = PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = adaptiveMetrics.dayContentTopPadding,
+                            bottom = DayDockScrollPadding
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        item { headerContent() }
+                        if (isToday && abs(page - pagerState.currentPage) <= 1) {
+                            item(key = "today-agent-${state.config.id}") { agentContent() }
+                        }
+                        courseList()
+                    }
+                }
+            }
+    }
+}
+
+internal fun courseDayPart(
+    config: ScheduleConfigEntity,
+    course: CourseEntity
+): PeriodDayPart? {
+    val firstPeriod = course.periods.minOrNull() ?: return null
+    return PeriodDayPart.entries.firstOrNull { firstPeriod in config.periodRange(it) }
+}
+
+private fun dayPartLabel(part: PeriodDayPart): String = when (part) {
+    PeriodDayPart.MORNING -> "上午"
+    PeriodDayPart.NOON -> "中午"
+    PeriodDayPart.AFTERNOON -> "下午"
+    PeriodDayPart.EVENING -> "晚上"
+}
+
+@Composable
+private fun DayPartHeader(
+    part: PeriodDayPart,
+    courses: List<CourseEntity>,
+    periods: List<PeriodEntity>,
+    textColor: ComposeColor
+) {
+    val periodByIndex = remember(periods) { periods.associateBy { it.periodIndex } }
+    val firstPeriod = courses.flatMap(CourseEntity::periods).minOrNull()
+    val lastPeriod = courses.flatMap(CourseEntity::periods).maxOrNull()
+    val timeRange = remember(firstPeriod, lastPeriod, periodByIndex) {
+        val start = firstPeriod?.let(periodByIndex::get)?.startTime
+        val end = lastPeriod?.let(periodByIndex::get)?.endTime
+        if (start != null && end != null) "$start–$end" else null
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        HomeReadableText(
+            text = dayPartLabel(part),
+            style = MaterialTheme.typography.titleSmall,
+            color = textColor,
+            fontWeight = FontWeight.SemiBold
+        )
+        Box(
+            Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(textColor.copy(alpha = 0.18f))
+        )
+        timeRange?.let {
+            HomeReadableText(
+                text = it,
+                style = MaterialTheme.typography.labelMedium,
+                color = textColor.copy(alpha = 0.66f)
+            )
+        }
     }
 }
 
@@ -1414,7 +1567,8 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
             config = config,
             modifier = Modifier.wrapContentWidth(),
             shape = RoundedCornerShape(50),
-            tokens = GlassTokens.pill(intensity = 0.75f)
+            tokens = GlassTokens.pill(intensity = 0.75f),
+            baseSurfaceColorOverride = if (glassUsesLightStyle(config)) HomeLightGlassSurfaceColor else null
         ) {
             Box(Modifier.background(timePillColor.copy(alpha = 0.26f))) {
                 Text(

@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
 import com.kyant.backdrop.Backdrop
+import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -133,7 +134,8 @@ fun rememberCourseEditorMotionState(): CourseEditorMotionState = remember { Cour
 data class CourseEditorOverlayRequest(
     val course: CourseEntity,
     val targetWeek: Int?,
-    val sourceBoundsInRoot: Rect?
+    val sourceBoundsInRoot: Rect?,
+    val sourceIsDayCard: Boolean = false
 )
 
 
@@ -184,11 +186,12 @@ internal class CourseEditorMorphCornerShape(
 }
 
 @Composable
-fun CourseEditorContainerOverlayHost(
+internal fun CourseEditorContainerOverlayHost(
     request: CourseEditorOverlayRequest?,
     state: AppState,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
+    adaptiveMetrics: HomeAdaptiveMetrics,
     modifier: Modifier = Modifier,
     onDismissRequest: () -> Unit,
     onSave: (original: CourseEntity, edited: CourseEntity, targetWeek: Int?) -> Unit,
@@ -327,10 +330,20 @@ fun CourseEditorContainerOverlayHost(
     }
 
     val density = LocalDensity.current
-    val targetRect = remember(rootSize, density) {
+    val targetRect = remember(rootSize, density, adaptiveMetrics) {
         with(density) {
             if (rootSize.width <= 0 || rootSize.height <= 0) {
                 Rect.Zero
+            } else if (adaptiveMetrics.isLargeScreen) {
+                val content = adaptiveMetrics.contentRectPx(rootSize, density.density)
+                val minWidth = minOf(600.dp.toPx(), content.width)
+                val maxWidth = minOf(680.dp.toPx(), content.width).coerceAtLeast(minWidth)
+                val maxHeight = minOf(content.height * 0.82f, 640.dp.toPx()).coerceAtLeast(
+                    minOf(content.height, 420.dp.toPx())
+                )
+                val left = content.left + (content.width - maxWidth) / 2f
+                val top = content.top + (content.height - maxHeight) / 2f
+                Rect(left, top, left + maxWidth, top + maxHeight)
             } else {
                 val maxWidth = minOf(rootSize.width * 0.92f, 600.dp.toPx())
                 val maxHeight = minOf(rootSize.height * 0.82f, 600.dp.toPx())
@@ -360,6 +373,9 @@ fun CourseEditorContainerOverlayHost(
     val validSource = validSourceRect(requestedSourceBounds, rootSize)
     val sourceRect = validSource ?: targetRect
     val hasSourceTransform = validSource != null
+    // targetWeek is also required when a day-view course is edited, so it cannot identify
+    // the visual source. Keep the source layout captured with the request instead.
+    val sourceIsWeekCard = !shownRequest.sourceIsDayCard
     val rawProgress = progress.value.coerceIn(0f, 1f)
     val visualProgress = courseEditorVisualProgress(rawProgress, overlayPhase)
     val positionProgress = visualProgress.position
@@ -372,7 +388,7 @@ fun CourseEditorContainerOverlayHost(
         positionProgress = positionProgress,
         sizeProgress = sizeProgress,
         pulseScale = pulseScale,
-        maxArcPx = with(density) { 48.dp.toPx() }
+        maxArcPx = with(density) { adaptiveMetrics.animationArc.toPx() }
     )
     val animatedModifier = Modifier
         .offset {
@@ -385,8 +401,19 @@ fun CourseEditorContainerOverlayHost(
             width = with(density) { animatedRect.width.toDp() },
             height = with(density) { animatedRect.height.toDp() }
         )
-    val sourceCornerPx = remember(sourceRect, density) {
-        with(density) { if (sourceRect.width >= 220.dp.toPx()) 24.dp.toPx() else 8.dp.toPx() }
+    val sourceCornerPx = remember(sourceRect, density, adaptiveMetrics, sourceIsWeekCard) {
+        with(density) {
+            if (sourceIsWeekCard) {
+                adaptiveWeekCardCornerRadius(
+                    cardWidth = sourceRect.width.toDp(),
+                    cardHeight = sourceRect.height.toDp(),
+                    windowWidth = adaptiveMetrics.screenWidth,
+                    windowHeight = adaptiveMetrics.screenHeight
+                ).toPx()
+            } else {
+                24.dp.toPx()
+            }
+        }
     }
     val corner = with(density) {
         interpolateFloat(sourceCornerPx, 32.dp.toPx(), cornerProgress)
@@ -471,7 +498,7 @@ fun CourseEditorContainerOverlayHost(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(corner))
+                    .clip(RoundedRectangle(corner))
             ) {
                 if (editorContentMounted) {
                     CourseEditorScaledContentLayer(
@@ -498,7 +525,7 @@ fun CourseEditorContainerOverlayHost(
                         course = shownRequest.course,
                         backdrop = backdrop,
                         config = config,
-                        sourceIsWide = sourceRect.width >= with(density) { 220.dp.toPx() },
+                        sourceIsWide = !sourceIsWeekCard,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
@@ -556,7 +583,7 @@ private fun CourseEditorScaledContentLayer(
             .fillMaxSize()
             // Follow the shell's animated corner instead of a fixed 32dp, which turned the
             // small early rectangle into a pill and rounded the reveal window too hard.
-            .clip(RoundedCornerShape(corner))
+            .clip(RoundedRectangle(corner))
             .graphicsLayer {
                 alpha = contentAlpha
                 val blurPx = contentBlurRadiusPx
@@ -626,7 +653,7 @@ private fun CourseEditorAnimatedContainer(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val shape = RoundedCornerShape(corner)
+    val shape = RoundedRectangle(corner)
     val finalDialogBlur = 10f
     val editorBlur = interpolateFloat(
         config.courseCardBlur,
@@ -924,19 +951,6 @@ private fun courseEditorVisualProgress(
                 size = CourseEditorOpenSizeEasing.transform(delayedSizeProgress).coerceIn(0f, 1f)
             )
         }
-    }
-}
-
-internal fun courseEditorBackgroundBlurProgress(
-    rawProgress: Float,
-    phase: CourseEditorOverlayPhase
-): Float {
-    val position = courseEditorVisualProgress(rawProgress, phase).position
-    return when (phase) {
-        CourseEditorOverlayPhase.Open -> 1f
-        CourseEditorOverlayPhase.Closing,
-        CourseEditorOverlayPhase.Disposing -> smoothStep(0f, 0.72f, position)
-        else -> smoothStep(0f, 0.72f, position)
     }
 }
 

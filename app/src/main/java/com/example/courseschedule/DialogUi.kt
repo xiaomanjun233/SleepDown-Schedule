@@ -9,6 +9,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,7 +47,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -84,15 +85,15 @@ fun LiquidDialogSurface(
     blurRadius: Dp = 10.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val configuration = LocalConfiguration.current
+    val windowSize = currentWindowSizeDp()
     val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
     val safeHeight = (
-        configuration.screenHeightDp.dp -
+        windowSize.height -
             safeInsets.calculateTopPadding() -
             safeInsets.calculateBottomPadding() -
             32.dp
         ).coerceAtLeast(280.dp)
-    val dialogWidth = (configuration.screenWidthDp.dp * 0.92f).coerceAtMost(600.dp)
+    val dialogWidth = (windowSize.width * 0.92f).coerceAtMost(600.dp)
     val dialogMaxHeight = (safeHeight * 0.82f).coerceAtMost(600.dp)
     val shape = RoundedCornerShape(32.dp)
     val lightGlass = glassUsesLightStyle(config)
@@ -225,34 +226,6 @@ fun LiquidDialogFooter(
 }
 
 @Composable
-fun LiquidAlertSurface(
-    title: String,
-    message: String,
-    actions: List<LiquidAlertAction>,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    modifier: Modifier = Modifier
-) {
-    require(actions.size in 1..3) { "LiquidAlertSurface supports one to three actions" }
-    LiquidDialogSurface(
-        backdrop = backdrop,
-        config = config,
-        modifier = modifier,
-        size = LiquidDialogSize.Compact,
-        blurRadius = 28.dp
-    ) {
-        LiquidAlertContent(
-            title = title,
-            message = message,
-            actions = actions,
-            backdrop = backdrop,
-            config = config,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)
-        )
-    }
-}
-
-@Composable
 private fun LiquidAlertContent(
     title: String,
     message: String,
@@ -274,6 +247,10 @@ private fun LiquidAlertContent(
         )
         Text(
             text = message,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 240.dp)
+                .verticalScroll(rememberScrollState()),
             style = MaterialTheme.typography.bodyMedium,
             lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
             color = foreground.copy(alpha = 0.68f)
@@ -342,7 +319,7 @@ fun LiquidAlertDialog(
         enableWindowDim = true,
         backgroundColor = Color.Transparent,
         forceCenter = true,
-        surfaceModifier = quickSheetBackdropModifier(
+        surfaceModifier = Modifier.quickSheetBackdropModifier(
             backdrop = backdrop,
             config = config,
             blurRadius = 28.dp,
@@ -439,7 +416,7 @@ fun LiquidAlertOverlay(
                         onClick = {}
                     )
                     .then(
-                        quickSheetBackdropModifier(
+                        Modifier.quickSheetBackdropModifier(
                             backdrop = backdrop,
                             config = config,
                             blurRadius = 28.dp,

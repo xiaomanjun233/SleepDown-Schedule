@@ -19,6 +19,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.core.net.toUri
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Base64
@@ -114,7 +115,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -177,6 +180,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -193,12 +197,13 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -351,7 +356,18 @@ internal val DockScrollPadding = 132.dp
 internal val HomeHeaderGlassBlur = 2.dp
 internal val HomeHeaderGlassLensHeight = 12.dp
 internal val HomeHeaderGlassLensAmount = 24.dp
-internal fun homeChromeGlassSurfaceAlpha(lightGlass: Boolean): Float = if (lightGlass) 0.68f else 0.45f
+internal val HomeLightGlassSurfaceColor = ComposeColor(0xFFF2F4F8)
+internal val HomeLightGlassGradientColor = ComposeColor(0xFFF7F8FB)
+internal val HomeLightGlassAccentColor = ComposeColor(0xFF0A84FF)
+internal val HomeLightGlassSelectedAccentColor = ComposeColor(0xFF006FD6)
+internal const val HomeLightGlassChromeTintAlpha = 0.54f
+internal const val HomeLightGlassAccentTintAlpha = 0.24f
+internal const val HomeLightGlassPanelTintAlpha = 0.15f
+internal const val HomeLightGlassMenuTintAlpha = 0.14f
+internal fun homeChromeGlassSurfaceAlpha(lightGlass: Boolean): Float =
+    if (lightGlass) HomeLightGlassChromeTintAlpha else 0.45f
+internal fun dockImeCompensationPx(imeBottomPx: Int, systemBottomPx: Int): Int =
+    (imeBottomPx - systemBottomPx).coerceAtLeast(0)
 internal const val HomeHeaderGlassHighlightAlpha = 0.09f
 internal const val HomeHeaderGlassShadowAlpha = 0.05f
 internal const val HomeHeaderGlassOuterShadowAlpha = 0.018f
@@ -450,7 +466,12 @@ fun CourseScheduleAppUi(
     val courseEditorOverlayPhase = courseEditorMotionState.phase
     fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?) {
         if (courseEditorRequest != null) return
-        courseEditorRequest = CourseEditorOverlayRequest(course, targetWeek, sourceBounds)
+        courseEditorRequest = CourseEditorOverlayRequest(
+            course = course,
+            targetWeek = targetWeek,
+            sourceBoundsInRoot = sourceBounds,
+            sourceIsDayCard = homeMode == HomeMode.Day && sourceBounds != null
+        )
     }
     fun closeCourseEditor() {
         courseEditorRequest = null
@@ -507,8 +528,9 @@ fun CourseScheduleAppUi(
         }
     }
 
-    val configuration = LocalConfiguration.current
+    val windowContainerSize = LocalWindowInfo.current.containerSize
     val density = LocalDensity.current
+    val homeAdaptiveMetrics = rememberHomeAdaptiveMetrics()
 
     LaunchedEffect(
         pendingHomeAnchoredOverlay,
@@ -586,7 +608,8 @@ fun CourseScheduleAppUi(
             source = sourceButton,
             rootSize = homeReadabilityRootSize,
             density = density.density,
-            actionCount = 3
+            actionCount = 3,
+            adaptiveMetrics = homeAdaptiveMetrics
         )
         homeMenuDestinationRequest = HomeMenuDestinationRequest(
             kind = kind,
@@ -989,8 +1012,8 @@ fun CourseScheduleAppUi(
                 ?: ScheduleSnapshotStore.load(context, currentId)
                 ?: ScheduleSnapshotStore.createEmptySchedulePlaceholder(
                     context,
-                    (configuration.screenWidthDp * density.density).roundToInt(),
-                    (configuration.screenHeightDp * density.density).roundToInt(),
+                    windowContainerSize.width,
+                    windowContainerSize.height,
                     if (state.config.followSystemDarkMode) systemDark else state.config.darkMode
                 )
             pickerState.currentSnapshot = currentSnapshot
@@ -1456,6 +1479,7 @@ fun CourseScheduleAppUi(
                                      state = visualState,
                                      agentState = state,
                                     mode = homeMode,
+                                    adaptiveMetrics = homeAdaptiveMetrics,
                                     weekCardHeight = weekCardHeight.dp,
                                     displayWeek = homeDisplayWeek,
                                     displayDate = homeDisplayDate,
@@ -1792,17 +1816,22 @@ fun CourseScheduleAppUi(
     }
     } // end HomeBackgroundZoomLayer
 
-    val homeAddActions = listOf(
-        AddMenuAction(R.drawable.ic_add_course, "添加单节课") {
-            openHomeMenuDestination(HomeMenuDestinationKind.AddCourse)
-        },
-        AddMenuAction(R.drawable.ic_ai_import, "手动导入课表") {
-            openHomeMenuDestination(HomeMenuDestinationKind.ManualImport)
-        },
-        AddMenuAction(R.drawable.ic_school_import, "教务系统导入") {
-            openHomeMenuDestination(HomeMenuDestinationKind.EduImport)
-        }
-    )
+    val latestOpenHomeMenuDestination = rememberUpdatedState<(HomeMenuDestinationKind) -> Unit> {
+        kind -> openHomeMenuDestination(kind)
+    }
+    val homeAddActions = remember {
+        listOf(
+            AddMenuAction(R.drawable.ic_add_course, "添加单节课") {
+                latestOpenHomeMenuDestination.value(HomeMenuDestinationKind.AddCourse)
+            },
+            AddMenuAction(R.drawable.ic_ai_import, "手动导入课表") {
+                latestOpenHomeMenuDestination.value(HomeMenuDestinationKind.ManualImport)
+            },
+            AddMenuAction(R.drawable.ic_school_import, "教务系统导入") {
+                latestOpenHomeMenuDestination.value(HomeMenuDestinationKind.EduImport)
+            }
+        )
+    }
 
     fun closeHomeMenuDestination() {
         homeAnchoredOverlayRequest = null
@@ -1815,6 +1844,7 @@ fun CourseScheduleAppUi(
         backdrop = homeAnchoredOverlayBackdrop,
         config = state.config,
         addActions = homeAddActions,
+        adaptiveMetrics = homeAdaptiveMetrics,
         modifier = Modifier
             .zIndex(24f)
             .graphicsLayer { alpha = if (homeMenuSourceHidden) 0f else 1f },
@@ -1828,7 +1858,11 @@ fun CourseScheduleAppUi(
                     config = state.config,
                     iconRes = R.drawable.ic_add_course,
                     contentDescription = "添加",
-                    accentColor = ComposeColor(0xFF0A84FF),
+                    accentColor = if (glassUsesLightStyle(state.config)) {
+                        HomeLightGlassAccentColor
+                    } else {
+                        ComposeColor(0xFF0A84FF)
+                    },
                     modifier = sourceModifier,
                     isInteractive = false
                 )
@@ -1887,6 +1921,7 @@ fun CourseScheduleAppUi(
         motionState = homeMenuDestinationMotionState,
         state = state,
         backdrop = homeMenuDestinationBackdrop,
+        adaptiveMetrics = homeAdaptiveMetrics,
         modifier = Modifier.zIndex(90f),
         onDismissRequest = ::closeHomeMenuDestination,
         sourceActions = homeAddActions,
@@ -2020,6 +2055,7 @@ fun CourseScheduleAppUi(
             state = state,
             backdrop = courseEditorBackdrop,
             config = state.config,
+            adaptiveMetrics = homeAdaptiveMetrics,
             modifier = Modifier.zIndex(100f),
             onDismissRequest = { closeCourseEditor() },
             onSave = { original, edited, targetWeek ->
@@ -2112,6 +2148,7 @@ fun CourseScheduleAppUi(
             config = state.config,
             backdrop = chromeBackdrop,
             visible = homeDialogVisible,
+            adaptiveMetrics = homeAdaptiveMetrics,
             onCancel = { dismissHomeDialog() },
             onApply = { nextConfig ->
                 viewModel.savePersonalization(nextConfig)
@@ -2472,7 +2509,7 @@ fun CourseScheduleAppUi(
             },
             onDownload = ::downloadAutomaticUpdate,
             onOpenRelease = { release ->
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.releaseUrl)))
+                context.startActivity(Intent(Intent.ACTION_VIEW, release.releaseUrl.toUri()))
             },
             onOpenBackup = {
                 automaticUpdateDialog = null
@@ -2508,7 +2545,7 @@ private fun HomeBackgroundZoomLayer(
     )
 }
 
-private val HomeTopOverlayHeight = 178.dp
+internal val HomeTopOverlayHeight = 178.dp
 private val DetailTopBarHeight = 58.dp
 private val DetailTopOverlayExtra = 74.dp
 private val DetailContentTopGap = 44.dp
@@ -2542,7 +2579,7 @@ private fun HomeBackgroundBlurLayer(
 @Composable
 private fun rootTopBarLayoutHeight(screen: Screen): Dp {
     return when (screen) {
-        Screen.Home -> HomeTopOverlayHeight
+        Screen.Home -> rememberHomeAdaptiveMetrics().topOverlayHeight
         Screen.Config -> detailTopOverlayHeight()
     }
 }
@@ -2557,7 +2594,7 @@ internal fun detailTopOverlayHeight(): Dp {
 @Composable
 private fun rootTopGradientHeight(screen: Screen): Dp {
     return when (screen) {
-        Screen.Home -> HomeTopOverlayHeight
+        Screen.Home -> rememberHomeAdaptiveMetrics().topGradientHeight
         Screen.Config -> detailTopOverlayHeight()
     }
 }
@@ -2630,7 +2667,8 @@ fun DetailTopBar(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     onBack: () -> Unit,
-    centerTitle: Boolean = false
+    centerTitle: Boolean = false,
+    showBackButton: Boolean = true
 ) {
     val density = LocalDensity.current
     val statusTop = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
@@ -2646,12 +2684,14 @@ fun DetailTopBar(
                     .height(DetailTopBarHeight)
                     .align(Alignment.BottomCenter)
             ) {
-                TopBackButton(
-                    backdrop = backdrop,
-                    config = config,
-                    onClick = onBack,
-                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp).size(42.dp)
-                )
+                if (showBackButton) {
+                    TopBackButton(
+                        backdrop = backdrop,
+                        config = config,
+                        onClick = onBack,
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp).size(42.dp)
+                    )
+                }
                 Text(
                     title,
                     style = MaterialTheme.typography.titleLarge,
@@ -2671,7 +2711,9 @@ fun DetailTopBar(
                 .padding(start = 8.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TopBackButton(backdrop = backdrop, config = config, onClick = onBack, modifier = Modifier.size(42.dp))
+            if (showBackButton) {
+                TopBackButton(backdrop = backdrop, config = config, onClick = onBack, modifier = Modifier.size(42.dp))
+            }
             Box(
                 modifier = Modifier
                     .height(42.dp)
@@ -2710,21 +2752,22 @@ fun settingsVisualConfig(config: ScheduleConfigEntity): ScheduleConfigEntity {
 fun HomeTopGradientBlur(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
-    height: Dp = HomeTopOverlayHeight,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    height: Dp = HomeTopOverlayHeight
 ) {
-    val tintColor = if (glassUsesLightStyle(config)) ComposeColor.White else ComposeColor(0xFF111111)
+    val lightGlass = glassUsesLightStyle(config)
+    val tintColor = if (lightGlass) HomeLightGlassGradientColor else ComposeColor(0xFF111111)
     ProgressiveBackdropBlur(
         backdrop = backdrop,
         modifier = modifier,
         tintColor = tintColor,
         height = height,
         blurRadius = 18.dp,
-        tintIntensity = 0.18f,
+        tintIntensity = if (lightGlass) 0.15f else 0.18f,
         direction = ProgressiveBlurDirection.TopToBottom,
         fallbackTintStops = listOf(
-            0f to tintColor.copy(alpha = 0.42f),
-            0.42f to tintColor.copy(alpha = 0.18f),
+            0f to tintColor.copy(alpha = if (lightGlass) 0.34f else 0.42f),
+            0.42f to tintColor.copy(alpha = if (lightGlass) 0.14f else 0.18f),
             1f to ComposeColor.Transparent
         )
     )
@@ -2809,7 +2852,12 @@ internal fun AppTopBar(
         },
         navigationIcon = {
             if (screen is Screen.Config && settingsPage != SettingsPage.Root) {
-                TopBackButton(backdrop = backdrop, config = state.config, onClick = onBackHome)
+                TopBackButton(
+                    backdrop = backdrop,
+                    config = state.config,
+                    onClick = onBackHome,
+                    modifier = Modifier.padding(start = 8.dp).size(42.dp)
+                )
             }
         },
         actions = {
@@ -2837,7 +2885,11 @@ internal fun AppTopBar(
                         iconRes = R.drawable.ic_add_course,
                         contentDescription = "添加",
                         selected = activeHomeOverlay == HomeAnchoredOverlayKind.Add,
-                        accentColor = ComposeColor(0xFF0A84FF),
+                        accentColor = if (glassUsesLightStyle(state.config)) {
+                            HomeLightGlassAccentColor
+                        } else {
+                            ComposeColor(0xFF0A84FF)
+                        },
                         visible = activeHomeOverlay != HomeAnchoredOverlayKind.Add,
                         onClick = {
                             performButtonHaptic(view)
@@ -2866,8 +2918,8 @@ internal fun CourseBoundsSource(
     courseId: Long,
     visible: Boolean,
     sharedScope: SharedTransitionScope?,
-    modifier: Modifier,
-    shape: RoundedCornerShape,
+    shape: Shape,
+    modifier: Modifier = Modifier,
     content: @Composable (Modifier) -> Unit
 ) {
     content(
@@ -2878,7 +2930,7 @@ internal fun CourseBoundsSource(
 }
 
 @Composable
-fun TopBackButton(backdrop: Backdrop?, config: ScheduleConfigEntity, onClick: () -> Unit, modifier: Modifier = Modifier.padding(start = 8.dp).size(42.dp)) {
+fun TopBackButton(backdrop: Backdrop?, config: ScheduleConfigEntity, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val lightGlass = glassUsesLightStyle(config)
     if (backdrop != null) {
         LiquidButton(
@@ -2919,8 +2971,8 @@ fun HomeIconButton(
     iconRes: Int,
     contentDescription: String,
     selected: Boolean,
-    accentColor: ComposeColor = ComposeColor.Unspecified,
     modifier: Modifier = Modifier,
+    accentColor: ComposeColor = ComposeColor.Unspecified,
     visible: Boolean = true,
     onClick: () -> Unit,
     onButtonPositioned: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null
@@ -2958,17 +3010,17 @@ internal fun HomeIconButtonVisual(
     config: ScheduleConfigEntity,
     iconRes: Int,
     contentDescription: String,
+    modifier: Modifier = Modifier,
     selected: Boolean = false,
     accentColor: ComposeColor = ComposeColor.Unspecified,
-    modifier: Modifier = Modifier,
     isInteractive: Boolean = true,
     onClick: () -> Unit = {}
 ) {
     val adaptiveGlass = LocalAdaptiveGlass.current
     val lightGlass = adaptiveGlass.lightGlass
-    val baseSurfaceColor = if (lightGlass) ComposeColor.White else ComposeColor(0xFF121212)
+    val baseSurfaceColor = if (lightGlass) HomeLightGlassSurfaceColor else ComposeColor(0xFF121212)
     val buttonSurfaceColor = if (accentColor.isSpecified) {
-        accentColor.copy(alpha = if (lightGlass) 0.28f else 0.32f)
+        accentColor.copy(alpha = if (lightGlass) HomeLightGlassAccentTintAlpha else 0.32f)
     } else {
         baseSurfaceColor.copy(alpha = homeChromeGlassSurfaceAlpha(lightGlass))
     }
@@ -3025,7 +3077,8 @@ fun AddMenuLiquidItem(
     itemHeight: Dp
 ) {
     val baseText = glassForegroundColor(config)
-    val textColor = if (highlighted) ComposeColor(0xFF0A84FF) else baseText
+    val accentColor = if (glassUsesLightStyle(config)) HomeLightGlassSelectedAccentColor else ComposeColor(0xFF0A84FF)
+    val textColor = if (highlighted) accentColor else baseText
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -3037,7 +3090,7 @@ fun AddMenuLiquidItem(
                 .fillMaxWidth()
                 .height(itemHeight - 6.dp)
                 .clip(RoundedCornerShape(50))
-                .background(if (highlighted) ComposeColor(0xFF0A84FF).copy(alpha = 0.10f) else ComposeColor.Transparent)
+                .background(if (highlighted) accentColor.copy(alpha = 0.10f) else ComposeColor.Transparent)
                 .padding(horizontal = 16.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -3064,11 +3117,24 @@ fun AddMenuLiquidItem(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier, onHome: () -> Unit, onConfig: () -> Unit) {
     val lightGlass = LocalAdaptiveGlass.current.lightGlass
     val density = LocalDensity.current
-    val bottomInset = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).getBottom(this).toDp() }
+    // MIUI reports the IME-sized bottom edge through safeDrawing for the underlying Activity
+    // while a transparent Compose Dialog owns the keyboard. That makes a bottom-aligned Dock jump
+    // above the keyboard even though the Activity itself uses adjustNothing. Use the stable
+    // navigation-bar inset as the physical screen edge; the separate IME compensation still
+    // handles devices that genuinely resize the Activity window.
+    val systemBottomPx = WindowInsets.navigationBarsIgnoringVisibility
+        .only(WindowInsetsSides.Bottom)
+        .getBottom(density)
+    val bottomInset = with(density) { systemBottomPx.toDp() }
+    val imeCompensationPx = dockImeCompensationPx(
+        imeBottomPx = WindowInsets.ime.getBottom(density),
+        systemBottomPx = systemBottomPx
+    )
     val bottomOffset = (bottomInset + 8.dp).coerceAtLeast(8.dp)
     val dockTextColor = LocalAdaptiveGlass.current.contentColor
     val dockAlignment = when (config.dockAlignment) {
@@ -3084,7 +3150,10 @@ fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEn
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontalPadding),
+            .padding(horizontalPadding)
+            // MainActivity keeps adjustResize for text fields. Counter only the IME portion
+            // here so the home dock stays at its physical bottom position behind the keyboard.
+            .graphicsLayer { translationY = imeCompensationPx.toFloat() },
         contentAlignment = dockAlignment
     ) {
         if (backdrop != null) {
@@ -3110,6 +3179,8 @@ fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEn
                     officialInnerShadowAlpha = 0.08f,
                     chromaticAberrationEnabled = true,
                     isLightThemeOverride = lightGlass,
+                    lightContainerColor = HomeLightGlassSurfaceColor,
+                    lightAccentColor = HomeLightGlassSelectedAccentColor,
                     useOfficialGlassParameters = true
                 ) {
                     LiquidBottomTab(onClick = onHome) {
@@ -3186,7 +3257,7 @@ fun ScheduleManagerEntryPill(
                     blurRadius = 2.dp,
                     lensHeight = 12.dp,
                     lensAmount = 24.dp,
-                    surfaceColor = if (lightGlass) ComposeColor.White.copy(alpha = 0.075f) else ComposeColor(0xFF121212).copy(alpha = 0.075f),
+                    surfaceColor = if (lightGlass) HomeLightGlassSurfaceColor.copy(alpha = 0.075f) else ComposeColor(0xFF121212).copy(alpha = 0.075f),
                     chromaticAberration = false,
                     contentPadding = PaddingValues(horizontal = 18.dp)
                 ) {
@@ -3871,66 +3942,6 @@ fun DialogCapsuleField(
     )
 }
 
-@Composable
-fun OutlinedTextField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    label: @Composable (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
-    textStyle: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyLarge,
-    minLines: Int = 1,
-    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-    enabled: Boolean = true
-) {
-    val config = defaultConfig()
-    DialogCapsuleField(
-        value = value,
-        onValueChange = onValueChange,
-        placeholder = "",
-        config = config,
-        modifier = modifier.graphicsLayer(alpha = if (enabled) 1f else 0.48f),
-        keyboardType = keyboardOptions.keyboardType,
-        minLines = minLines
-    )
-}
-
-@Composable
-fun <T> DialogOptionPicker(
-    title: String,
-    values: List<T>,
-    selected: T,
-    onSelected: (T) -> Unit,
-    label: (T) -> String,
-    backdrop: Backdrop? = null,
-    config: ScheduleConfigEntity = defaultConfig()
-) {
-    val textColor = glassForegroundColor(config)
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            title,
-            modifier = Modifier.padding(horizontal = 16.dp),
-            style = MaterialTheme.typography.titleSmall,
-            color = textColor
-        )
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(values.size) { index ->
-                val value = values[index]
-                val active = value == selected
-                DialogLiquidButton(
-                    backdrop = backdrop,
-                    label = label(value),
-                    onClick = { onSelected(value) },
-                    role = if (active) DialogButtonRole.Confirm else DialogButtonRole.Neutral
-                )
-            }
-        }
-    }
-}
-
 class SettingsDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -4402,26 +4413,140 @@ fun SettingsScreen(
 ) {
     val pageConfig = settingsVisualConfig(state.config)
     val pageState = state.copy(config = pageConfig)
+    val adaptiveMetrics = rememberHomeAdaptiveMetrics()
     GlassMiuixSettingsTheme(pageConfig) {
-        when (page) {
-            SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange)
-            SettingsPage.General -> GeneralSettingsScreen(state, backdrop, onUpdateConfig)
-            SettingsPage.Widgets -> WidgetCustomizationScreen(state, backdrop)
-            SettingsPage.AiImport -> AiImportSettingsScreen(state, backdrop)
-            SettingsPage.DayAgent -> DayAgentSettingsScreen(state, backdrop)
-            SettingsPage.Schedule -> ScheduleConfigScreen(state, backdrop, SettingsSection.Schedule, onSave, onPreviewLiveUpdate)
-            SettingsPage.Notifications -> ScheduleConfigScreen(state, backdrop, SettingsSection.Notifications, onSave, onPreviewLiveUpdate)
-            SettingsPage.ScheduleManager -> ScheduleManagerScreen(state, backdrop, onCreateSchedule, onActivateSchedule, onRenameSchedule, onDeleteSchedule)
-            SettingsPage.About -> AboutSettingsScreen(pageState, backdrop)
-            SettingsPage.Changelog -> ChangelogSettingsScreen(pageState, backdrop) {}
-            SettingsPage.Download -> DownloadUpdateScreen(pageState, backdrop)
-            SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
+        if (page == SettingsPage.Root && adaptiveMetrics.isLargeScreen) {
+            var selectedPageName by rememberSaveable { mutableStateOf(SettingsPage.General.name) }
+            var tabletWidgetEditorVisible by remember { mutableStateOf(false) }
+            val selectedPage = runCatching { SettingsPage.valueOf(selectedPageName) }
+                .getOrDefault(SettingsPage.General)
+                .takeUnless { it == SettingsPage.Root }
+                ?: SettingsPage.General
+            val portrait = adaptiveMetrics.screenHeight > adaptiveMetrics.screenWidth
+            val navigationWidth = if (portrait) {
+                (adaptiveMetrics.screenWidth * 0.38f).coerceIn(280.dp, 328.dp)
+            } else {
+                (adaptiveMetrics.screenWidth * 0.31f).coerceIn(336.dp, 408.dp)
+            }
+            LaunchedEffect(selectedPage) {
+                if (selectedPage != SettingsPage.Widgets) tabletWidgetEditorVisible = false
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(settingsPageBackground(pageConfig))
+            ) {
+                Box(Modifier.width(navigationWidth).fillMaxHeight()) {
+                    SettingsRootScreen(
+                        state = pageState,
+                        backdrop = backdrop,
+                        selectedPage = selectedPage,
+                        onPageChange = { selectedPageName = it.name }
+                    )
+                }
+                Box(
+                    Modifier
+                        .width(1.dp)
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.46f))
+                )
+                GlassMiuixTabletDetailPaneScaffold(
+                    title = selectedPage.title(),
+                    config = pageConfig,
+                    topBarVisible = !(selectedPage == SettingsPage.Widgets && tabletWidgetEditorVisible),
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                ) { paneBackdrop ->
+                    SettingsPageContent(
+                        page = selectedPage,
+                        state = state,
+                        pageState = pageState,
+                        backdrop = paneBackdrop,
+                        onPageChange = { selectedPageName = it.name },
+                        onSave = onSave,
+                        onUpdateConfig = onUpdateConfig,
+                        onPreviewLiveUpdate = onPreviewLiveUpdate,
+                        onCreateSchedule = onCreateSchedule,
+                        onActivateSchedule = onActivateSchedule,
+                        onRenameSchedule = onRenameSchedule,
+                        onDeleteSchedule = onDeleteSchedule,
+                        onWidgetEditorVisibilityChange = { tabletWidgetEditorVisible = it }
+                    )
+                }
+            }
+        } else {
+            SettingsPageContent(
+                page = page,
+                state = state,
+                pageState = pageState,
+                backdrop = backdrop,
+                onPageChange = onPageChange,
+                onSave = onSave,
+                onUpdateConfig = onUpdateConfig,
+                onPreviewLiveUpdate = onPreviewLiveUpdate,
+                onCreateSchedule = onCreateSchedule,
+                onActivateSchedule = onActivateSchedule,
+                onRenameSchedule = onRenameSchedule,
+                onDeleteSchedule = onDeleteSchedule
+            )
         }
     }
 }
 
 @Composable
-fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (SettingsPage) -> Unit) {
+private fun SettingsPageContent(
+    page: SettingsPage,
+    state: AppState,
+    pageState: AppState,
+    backdrop: Backdrop?,
+    onPageChange: (SettingsPage) -> Unit,
+    onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
+    onUpdateConfig: (ScheduleConfigEntity) -> Unit,
+    onPreviewLiveUpdate: () -> Unit,
+    onCreateSchedule: (String) -> Unit,
+    onActivateSchedule: (Int, (() -> Unit)?) -> Unit,
+    onRenameSchedule: (Int, String) -> Unit,
+    onDeleteSchedule: (Int) -> Unit,
+    onWidgetEditorVisibilityChange: (Boolean) -> Unit = {}
+) {
+    when (page) {
+        SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange = onPageChange)
+        SettingsPage.General -> GeneralSettingsScreen(state, backdrop, onUpdateConfig)
+        SettingsPage.Widgets -> WidgetCustomizationScreen(
+            state,
+            backdrop,
+            onEditorVisibilityChange = onWidgetEditorVisibilityChange
+        )
+        SettingsPage.AiImport -> AiImportSettingsScreen(state, backdrop)
+        SettingsPage.DayAgent -> DayAgentSettingsScreen(state, backdrop)
+        SettingsPage.Schedule -> ScheduleConfigScreen(state, backdrop, SettingsSection.Schedule, onSave, onPreviewLiveUpdate)
+        SettingsPage.Notifications -> ScheduleConfigScreen(state, backdrop, SettingsSection.Notifications, onSave, onPreviewLiveUpdate)
+        SettingsPage.ScheduleManager -> ScheduleManagerScreen(
+            state,
+            backdrop,
+            onCreateSchedule,
+            onActivateSchedule,
+            onRenameSchedule,
+            onDeleteSchedule
+        )
+        SettingsPage.About -> AboutSettingsScreen(pageState, backdrop)
+        SettingsPage.Changelog -> ChangelogSettingsScreen(
+            pageState,
+            backdrop,
+            onDownload = { onPageChange(SettingsPage.Download) },
+            onDonate = { onPageChange(SettingsPage.Donate) }
+        )
+        SettingsPage.Download -> DownloadUpdateScreen(pageState, backdrop)
+        SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
+    }
+}
+
+@Composable
+fun SettingsRootScreen(
+    state: AppState,
+    backdrop: Backdrop?,
+    selectedPage: SettingsPage? = null,
+    onPageChange: (SettingsPage) -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val versionName = remember {
@@ -4530,7 +4655,13 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
                             maxLines = 1
                         )
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            MaterialTheme.colorScheme.primary.copy(
+                                alpha = if (selectedPage == SettingsPage.Changelog) 0.12f else 0f
+                            )
+                        ),
                     insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                     onClick = { onPageChange(SettingsPage.Changelog) }
                 )
@@ -4549,33 +4680,64 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
         item {
             GlassPreferenceSection("应用") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                    SettingsNavigationRow("通用设置", "深色模式与系统外观", onClick = { onPageChange(SettingsPage.General) })
+                    SettingsNavigationRow(
+                        "通用设置",
+                        "深色模式与系统外观",
+                        selected = selectedPage == SettingsPage.General,
+                        onClick = { onPageChange(SettingsPage.General) }
+                    )
                     SettingsDivider()
-                    SettingsNavigationRow("小组件设置", "自定义小组件背景", onClick = { onPageChange(SettingsPage.Widgets) })
+                    SettingsNavigationRow(
+                        "小组件设置",
+                        "自定义小组件背景",
+                        selected = selectedPage == SettingsPage.Widgets,
+                        onClick = { onPageChange(SettingsPage.Widgets) }
+                    )
                     SettingsDivider()
                     SettingsNavigationRow(
                         "当前课表详细设置",
                         "编辑当前课表的周数、节次与显示规则",
+                        selected = selectedPage == SettingsPage.Schedule,
                         onClick = { onPageChange(SettingsPage.Schedule) }
                     )
                     SettingsDivider()
-                    SettingsNavigationRow("通知设置", "上课提醒与实时活动", onClick = { onPageChange(SettingsPage.Notifications) })
+                    SettingsNavigationRow(
+                        "通知设置",
+                        "上课提醒与实时活动",
+                        selected = selectedPage == SettingsPage.Notifications,
+                        onClick = { onPageChange(SettingsPage.Notifications) }
+                    )
                 }
             }
         }
         item {
             GlassPreferenceSection("智能助手") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                    SettingsNavigationRow("AI 设置", "配置智能功能共用的服务商、模型和 API Key。", onClick = { onPageChange(SettingsPage.AiImport) })
+                    SettingsNavigationRow(
+                        "AI 设置",
+                        "配置智能功能共用的服务商、模型和 API Key。",
+                        selected = selectedPage == SettingsPage.AiImport,
+                        onClick = { onPageChange(SettingsPage.AiImport) }
+                    )
                     SettingsDivider()
-                    SettingsNavigationRow("今日助手", "管理日视图助手、天气与预警。", onClick = { onPageChange(SettingsPage.DayAgent) })
+                    SettingsNavigationRow(
+                        "今日助手",
+                        "管理日视图助手、天气与预警。",
+                        selected = selectedPage == SettingsPage.DayAgent,
+                        onClick = { onPageChange(SettingsPage.DayAgent) }
+                    )
                 }
             }
         }
         item {
             GlassPreferenceSection("其他") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                    SettingsNavigationRow("关于", "软件信息与开源引用", onClick = { onPageChange(SettingsPage.About) })
+                    SettingsNavigationRow(
+                        "关于",
+                        "软件信息与开源引用",
+                        selected = selectedPage == SettingsPage.About,
+                        onClick = { onPageChange(SettingsPage.About) }
+                    )
                 }
             }
         }
@@ -4590,7 +4752,7 @@ fun SettingsRootScreen(state: AppState, backdrop: Backdrop?, onPageChange: (Sett
         onRetry = ::checkForUpdate,
         onDownload = ::downloadAndInstall,
         onOpenRelease = { release ->
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.releaseUrl)))
+            context.startActivity(Intent(Intent.ACTION_VIEW, release.releaseUrl.toUri()))
         },
         onOpenBackup = { onPageChange(SettingsPage.Download); updateDialog = null },
         onRequestInstallPermission = {
@@ -4633,7 +4795,7 @@ private fun SettingsUpdateDialogHost(
         )
         is SettingsUpdateDialog.Available -> {
             val release = dialog.release
-            val notes = release.notes.trim().take(520).ifBlank { "该版本没有填写更新说明。" }
+            val notes = release.notes.trim().ifBlank { "该版本没有填写更新说明。" }
             LiquidAlertDialog(
                 title = "发现新版本 ${release.name}",
                 message = "$notes\n\n当前将从 Gitee 下载 APK，安装前仍会由系统向你确认。",
@@ -4938,6 +5100,8 @@ fun ChangelogSettingsScreen(
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
+                SettingsInfoRow("1.1.1", "本次更新进一步缩小安装包，减少安装后的空间占用，并优化壁纸、桌面组件和助手历史等数据的存储，长期使用更省空间；修复部分用户从旧版本升级后闪退的问题；新增武汉科技大学教务导入适配；优化平板等大屏设备的界面布局与操作体验，并提升整体性能和稳定性。支持直接覆盖安装，已有课表和设置不会丢失。")
+                SettingsDivider()
                 SettingsInfoRow("1.1.0", "桌面小组件现在也能自由个性化，4×2、2×2 今日课程组件和今日助手组件可分别设置背景图片，支持独立调整取景、缩放、模糊与亮度，保存前即可预览实际效果；今日助手现在支持发送图片，并加入可随时关闭、查看和编辑的长期记忆，课程查找更准确，工具执行状态更清晰，长回复与图片预览也更加流畅稳定；新增更具流动感的液态动画，首页加号菜单、个性化面板、添加课程、手动导入和教务导入之间能够自然衔接，课程编辑弹窗的展开、背景景深与收回动画也更加连贯，并会收回到课程修改后的位置；新增动态模糊过渡，内容展开或收起时会以自然的模糊效果衔接，减少文字和页面的突兀跳变；新增课程冲突处理，修改星期、节次、周次、单周课程或全部周课程时，应用会主动提醒本次新增的冲突，你可以先保留修改并跳转到冲突周，再点击“冲突”将课程移到最近空位，被单独调整的周次也会正确保留，不会再次并回整段周次；新用户将不再默认启用看板娘壁纸，默认日间、夜间壁纸已更新，并会跟随应用深色模式自动切换，应用图标也已换新，浅色与深色模式各有对应样式；调整课程卡片的玻璃采样层级，长按提起或移动卡片时，玻璃材质可以正确透出下方课程，层次更加自然；统一优化课程编辑、弹窗、滑条、加号菜单、个性化面板和教务页之间的动画衔接，减少闪烁和突兀切换；移动课程或调整节次时不再重新打乱整页课程配色，多彩卡片的颜色更加稳定；压缩并整理课程编辑弹窗的间距，常用信息更集中，操作更顺手；优化今日助手的流式回复、图片处理和复杂动画性能，长内容场景下更加流畅；移除首次启动时的遮罩展开动画，壁纸会在首个可见画面直接呈现，随后再自然进入首页；课程保存后，编辑弹窗会收回到修改后的卡片位置，动画方向与最终结果保持一致。")
                 SettingsDivider()
                 SettingsInfoRow("1.0.9", "今日助手全面升级，能够根据需要读取当前课表和设置，连续完成查询、修改、确认结果与撤销操作，并支持 MiMo 联网搜索；新增课程卡片和今日助手打开时的背景随动缩放效果，课程卡片展开与收回采用更自然的抛物线运动轨迹，配合弹性缩放和更流畅的页面交接，动画更加灵动；增强课程、节次、作息方案和个性化设置的智能调整能力，修改节次后可更合理地处理原有课程安排；修复今日助手偶尔读取错误课表、工具调用中断、回复内容缺失，以及实时活动倒计时停止刷新、测试提醒无法取消等问题。")
@@ -5026,6 +5190,9 @@ fun DownloadUpdateScreen(state: AppState, backdrop: Backdrop?) {
 internal fun WebView.releaseSleepDownWebView() {
     runCatching { stopLoading() }
     runCatching { clearHistory() }
+    // Resource cache can grow into tens of megabytes after repeated school-site imports.
+    // Cookies and DOM storage are intentionally retained so login state is not lost.
+    runCatching { clearCache(true) }
     runCatching { detachEduImportBridge() }
     runCatching { destroy() }
 }
@@ -5110,10 +5277,10 @@ private fun Context.handleSleepDownWebDownload(
     mimeType: String?,
     referer: String? = null
 ) {
-    val uri = runCatching { Uri.parse(url) }.getOrNull()
+    val uri = runCatching { url.toUri() }.getOrNull()
     if (uri == null || (uri.scheme != "http" && uri.scheme != "https")) {
         runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }.onFailure {
             Toast.makeText(this, "无法处理下载链接", Toast.LENGTH_SHORT).show()
         }

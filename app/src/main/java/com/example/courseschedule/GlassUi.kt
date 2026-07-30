@@ -325,6 +325,7 @@ fun GlassSurface(
     tokens: GlassTokens = GlassTokens.pill(),
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
+    baseSurfaceColorOverride: Color? = null,
     content: @Composable () -> Unit
 ) {
     val glassBackdrop = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
@@ -334,7 +335,7 @@ fun GlassSurface(
     val pressed by interactionSource.collectIsPressedAsState()
     val pressProgress by animateFloatAsState(if (pressed) 1f else 0f, label = "glass-press")
     val lightGlass = glassUsesLightStyle(config)
-    val base = if (lightGlass) Color.White else Color(0xFF050505)
+    val base = baseSurfaceColorOverride ?: if (lightGlass) Color.White else Color(0xFF050505)
     val selectedColor = if (useGlass) {
         if (lightGlass) Color.Black.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.08f)
     } else {
@@ -504,8 +505,8 @@ fun GlassDialogSurface(
 fun CourseGlassCard(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
-    course: CourseEntity? = null,
     modifier: Modifier = Modifier,
+    course: CourseEntity? = null,
     shape: Shape = RoundedCornerShape(12.dp),
     blurOverride: Float? = null,
     onClick: (() -> Unit)? = null,

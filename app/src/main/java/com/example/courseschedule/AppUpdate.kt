@@ -12,6 +12,8 @@ import android.os.IBinder
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -91,7 +93,7 @@ object GiteeAppUpdater {
         preferences(context).getString(LastCheckDateKey, null) != date.toString()
 
     fun markDailyCheckStarted(context: Context, date: LocalDate = LocalDate.now()) {
-        preferences(context).edit().putString(LastCheckDateKey, date.toString()).apply()
+        preferences(context).edit {putString(LastCheckDateKey, date.toString())}
     }
 
     fun recordCheckResult(context: Context, result: GiteeUpdateCheckResult) {
@@ -99,7 +101,7 @@ object GiteeAppUpdater {
             is GiteeUpdateCheckResult.UpdateAvailable -> result.release
             is GiteeUpdateCheckResult.UpToDate -> result.release
         }
-        preferences(context).edit().putString(LatestTagKey, release.tagName).apply()
+        preferences(context).edit {putString(LatestTagKey, release.tagName)}
         _updateAvailable.value = result is GiteeUpdateCheckResult.UpdateAvailable
     }
 
@@ -187,7 +189,7 @@ object GiteeAppUpdater {
     fun unknownSourcesSettingsIntent(context: Context): Intent =
         Intent(
             Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-            Uri.parse("package:${context.packageName}")
+            "package:${context.packageName}".toUri()
         )
 
     fun launchInstaller(context: Context, apk: File) {

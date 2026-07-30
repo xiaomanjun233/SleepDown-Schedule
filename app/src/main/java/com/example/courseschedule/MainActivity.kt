@@ -128,6 +128,13 @@ fun CourseScheduleTheme(
 ) {
     val darkTheme = appUsesDarkTheme(config)
     val view = LocalView.current
+    LaunchedEffect(config.followSystemDarkMode, darkTheme, view.context) {
+        AppIconManager.syncAppearance(
+            context = view.context,
+            followsSystemDarkMode = config.followSystemDarkMode,
+            darkTheme = darkTheme
+        )
+    }
     LaunchedEffect(darkTheme, view) {
         val window = (view.context as? ComponentActivity)?.window ?: return@LaunchedEffect
         window.makeSystemBarsTransparent()

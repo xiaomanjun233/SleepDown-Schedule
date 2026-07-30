@@ -2,91 +2,13 @@ package com.example.courseschedule
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 
-class DayAgentTimelineEngineTest {
+class DayAgentActionsTest {
     private val date = LocalDate.of(2026, 7, 15)
-
-    @Test
-    fun selectsBeforeClassAndFillsLiveCountdown() {
-        val facts = factsAt(
-            hour = 7,
-            minute = 30,
-            today = listOf(slot("数据库原理", "一教 203", 8, 0, 8, 45))
-        )
-
-        val rendered = TodayAgentTimelineEngine.render(DailyAgentPack(), facts)
-
-        assertEquals(AgentTemplateKind.BEFORE_NEXT_CLASS, rendered.kind)
-        assertTrue(rendered.text.contains("数据库原理"))
-        assertTrue(rendered.text.contains("30分钟"))
-    }
-
-    @Test
-    fun selectsDuringClass() {
-        val facts = factsAt(
-            hour = 8,
-            minute = 20,
-            today = listOf(slot("数据库原理", "一教 203", 8, 0, 8, 45))
-        )
-
-        val rendered = TodayAgentTimelineEngine.render(DailyAgentPack(), facts)
-
-        assertEquals(AgentTemplateKind.DURING_CLASS, rendered.kind)
-        assertTrue(rendered.text.contains("08:45"))
-    }
-
-    @Test
-    fun selectsLongBreakBetweenCourses() {
-        val facts = factsAt(
-            hour = 9,
-            minute = 10,
-            today = listOf(
-                slot("高等数学", "二教 101", 8, 0, 8, 45),
-                slot("大学英语", "三教 302", 10, 0, 10, 45)
-            )
-        )
-
-        val rendered = TodayAgentTimelineEngine.render(DailyAgentPack(), facts)
-
-        assertEquals(AgentTemplateKind.LONG_BREAK, rendered.kind)
-        assertTrue(rendered.text.contains("1小时15分钟"))
-    }
-
-    @Test
-    fun showsTomorrowPreviewAfterLastClass() {
-        val tomorrow = slot("材料力学", "北区 38-0304", 8, 0, 8, 45, date.plusDays(1))
-        val facts = factsAt(
-            hour = 20,
-            minute = 0,
-            today = listOf(slot("数据库原理", "一教 203", 8, 0, 8, 45)),
-            tomorrow = listOf(tomorrow)
-        )
-
-        val rendered = TodayAgentTimelineEngine.render(DailyAgentPack(), facts)
-
-        assertEquals(AgentTemplateKind.TOMORROW_PREVIEW, rendered.kind)
-        assertTrue(rendered.text.contains("材料力学"))
-    }
-
-    @Test
-    fun rejectsTemplatesWithUnknownPlaceholders() {
-        val validated = validateAgentTemplates(
-            mapOf(
-                AgentTemplateKind.MORNING_OVERVIEW.name to "今天有 {{todayCourseCount}} 门课",
-                AgentTemplateKind.BEFORE_NEXT_CLASS.name to "请前往 {{inventedLocation}}",
-                "UNKNOWN" to "无效模板"
-            )
-        )
-
-        assertTrue(AgentTemplateKind.MORNING_OVERVIEW.name in validated)
-        assertFalse(AgentTemplateKind.BEFORE_NEXT_CLASS.name in validated)
-        assertFalse("UNKNOWN" in validated)
-    }
 
     @Test
     fun parsesConfirmedCourseDraftIntoActiveSchedule() {
@@ -106,17 +28,6 @@ class DayAgentTimelineEngineTest {
         assertEquals("高等数学", parsed.course?.name)
         assertEquals(7, parsed.course?.scheduleId)
         assertEquals(listOf(1, 2), parsed.course?.periods)
-    }
-
-    @Test
-    fun usesGeneratedQuickQuestionsWhenPackProvidesThem() {
-        val facts = factsAt(9, 0, emptyList())
-        val rendered = TodayAgentTimelineEngine.render(
-            DailyAgentPack(quickQuestions = listOf("上午怎么安排", "帮我调整课程")),
-            facts
-        )
-
-        assertEquals(listOf("上午怎么安排", "帮我调整课程"), rendered.quickQuestions)
     }
 
     @Test

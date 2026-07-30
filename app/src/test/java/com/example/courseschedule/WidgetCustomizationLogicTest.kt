@@ -7,6 +7,22 @@ import org.junit.Test
 
 class WidgetCustomizationLogicTest {
     @Test
+    fun tabletPreviewUsesRemoteViewsLogicalSizeWithoutUpscaling() {
+        assertEquals(
+            WidgetRenderSize(336, 168),
+            canonicalWidgetPreviewSize(WidgetAppearanceVariant.COURSES_LARGE)
+        )
+        assertEquals(
+            WidgetRenderSize(168, 168),
+            canonicalWidgetPreviewSize(WidgetAppearanceVariant.COURSES_SQUARE)
+        )
+        assertEquals(
+            WidgetRenderSize(336, 168),
+            canonicalWidgetPreviewSize(WidgetAppearanceVariant.TODAY_ASSISTANT)
+        )
+    }
+
+    @Test
     fun copiedDefaultBecomesIndependentInstance() {
         val default = WidgetAppearanceEntity.defaults(WidgetAppearanceVariant.COURSES_LARGE).copy(
             enabled = true,

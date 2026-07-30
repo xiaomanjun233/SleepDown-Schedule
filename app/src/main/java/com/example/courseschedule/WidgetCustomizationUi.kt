@@ -61,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -70,6 +71,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -113,7 +115,9 @@ fun WidgetCustomizationScreen(
     var editRequest by remember { mutableStateOf<WidgetEditRequest?>(null) }
     var editorSourceHandedOff by remember { mutableStateOf(false) }
     var currentPreviewBounds by remember { mutableStateOf(Rect.Zero) }
-    val topPadding = detailContentTopPadding()
+    val adaptiveMetrics = rememberHomeAdaptiveMetrics()
+    val topPadding = detailContentTopPadding() +
+        if (adaptiveMetrics.isLargeScreen) 18.dp else 0.dp
 
     fun installedIds(type: WidgetAppearanceVariant): IntArray {
         val provider = when (type) {
@@ -202,7 +206,11 @@ fun WidgetCustomizationScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
-                        val cardWidth = maxWidth * 0.84f
+                        val cardWidth = if (adaptiveMetrics.isLargeScreen) {
+                            minOf(maxWidth, 392.dp)
+                        } else {
+                            maxWidth * 0.84f
+                        }
                         HorizontalPager(
                             state = pagerState,
                             pageSize = PageSize.Fixed(cardWidth),
@@ -235,17 +243,26 @@ fun WidgetCustomizationScreen(
                                         type,
                                         appearance,
                                         state,
+                                        preserveCanonicalSize = adaptiveMetrics.isLargeScreen,
                                         onBoundsChanged = {
                                             if (page == pagerState.currentPage) currentPreviewBounds = it
                                         }
                                     )
                                 } else {
+                                    val placeholderSize = canonicalWidgetPreviewSize(type)
                                     Box(
-                                        Modifier
-                                            .fillMaxWidth(
-                                                if (type == WidgetAppearanceVariant.COURSES_SQUARE) 0.50f else 1f
+                                        if (adaptiveMetrics.isLargeScreen) {
+                                            Modifier.requiredSize(
+                                                placeholderSize.widthDp.dp,
+                                                placeholderSize.heightDp.dp
                                             )
-                                            .aspectRatio(type.canonicalAspect)
+                                        } else {
+                                            Modifier
+                                                .fillMaxWidth(
+                                                    if (type == WidgetAppearanceVariant.COURSES_SQUARE) 0.50f else 1f
+                                                )
+                                                .aspectRatio(type.canonicalAspect)
+                                        }
                                     )
                                 }
                                 Spacer(Modifier.height(8.dp))
@@ -458,17 +475,15 @@ private fun WidgetRemoteViewsPreview(
     type: WidgetAppearanceVariant,
     appearance: WidgetAppearanceEntity,
     state: AppState,
-    fillFraction: Float = if (type == WidgetAppearanceVariant.COURSES_SQUARE) 0.50f else 1f,
-    transparentBackground: Boolean = false,
     modifier: Modifier = Modifier,
+    fillFraction: Float = if (type == WidgetAppearanceVariant.COURSES_SQUARE) 0.50f else 1f,
+    preserveCanonicalSize: Boolean = false,
+    transparentBackground: Boolean = false,
     onBoundsChanged: (Rect) -> Unit = {},
     onReady: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val renderSize = remember(type) {
-        if (type == WidgetAppearanceVariant.COURSES_SQUARE) WidgetRenderSize(168, 168)
-        else WidgetRenderSize(336, 168)
-    }
+    val renderSize = remember(type) { canonicalWidgetPreviewSize(type) }
     var remoteViews by remember { mutableStateOf<RemoteViews?>(null) }
     var previewBackground by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(type, appearance, state, transparentBackground) {
@@ -550,10 +565,16 @@ private fun WidgetRemoteViewsPreview(
     }
     val density = LocalDensity.current
     val logicalCornerRadius = if (type == WidgetAppearanceVariant.COURSES_SQUARE) 16.dp else 18.dp
-    BoxWithConstraints(
-        modifier = modifier
+    val previewFrame = if (preserveCanonicalSize) {
+        Modifier.requiredSize(renderSize.widthDp.dp, renderSize.heightDp.dp)
+    } else {
+        Modifier
             .fillMaxWidth(fillFraction)
             .aspectRatio(type.canonicalAspect)
+    }
+    BoxWithConstraints(
+        modifier = modifier
+            .then(previewFrame)
             .onGloballyPositioned { onBoundsChanged(it.boundsInWindow()) }
             .clip(RoundedCornerShape(logicalCornerRadius)),
         contentAlignment = Alignment.Center
@@ -610,6 +631,13 @@ private fun WidgetRemoteViewsPreview(
     }
 }
 
+internal fun canonicalWidgetPreviewSize(type: WidgetAppearanceVariant): WidgetRenderSize =
+    if (type == WidgetAppearanceVariant.COURSES_SQUARE) {
+        WidgetRenderSize(168, 168)
+    } else {
+        WidgetRenderSize(336, 168)
+    }
+
 @Composable
 private fun WidgetWallpaperEditor(
     request: WidgetEditRequest,
@@ -631,6 +659,8 @@ private fun WidgetWallpaperEditor(
         mutableStateOf(WallpaperCropState(request.appearance.centerX, request.appearance.centerY, request.appearance.scale))
     }
     val progress = remember { Animatable(0f) }
+    val adaptiveMetrics = rememberHomeAdaptiveMetrics()
+    var editorHostOrigin by remember { mutableStateOf(Offset.Zero) }
     var closing by remember { mutableStateOf(false) }
     var sourceReplicaReady by remember { mutableStateOf(false) }
     var returnToEditedAppearance by remember { mutableStateOf(false) }
@@ -685,19 +715,45 @@ private fun WidgetWallpaperEditor(
         Modifier
             .fillMaxSize()
             .zIndex(300f)
+            .onGloballyPositioned { editorHostOrigin = it.positionInWindow() }
             .background(Color.Black.copy(alpha = 0.92f * p))
     ) {
         val density = LocalDensity.current
         val ratio = request.appearance.type.canonicalAspect
-        val availableHeight = (maxHeight - 240.dp).coerceAtLeast(260.dp)
+        val availableHeight = (maxHeight - if (adaptiveMetrics.isLargeScreen) 284.dp else 240.dp)
+            .coerceAtLeast(260.dp)
+        val widthFraction = when {
+            !adaptiveMetrics.isLargeScreen ->
+                if (request.appearance.type == WidgetAppearanceVariant.COURSES_SQUARE) 0.68f else 0.88f
+            request.appearance.type == WidgetAppearanceVariant.COURSES_SQUARE -> 0.56f
+            else -> 0.78f
+        }
+        val largeScreenWidthCap = when (request.appearance.type) {
+            // Preview at the exact RemoteViews design size on large screens. It may scale down
+            // when space is tight, but must never be enlarged to fill a tablet pane.
+            WidgetAppearanceVariant.COURSES_SQUARE -> 168.dp
+            WidgetAppearanceVariant.COURSES_LARGE,
+            WidgetAppearanceVariant.TODAY_ASSISTANT -> 336.dp
+        }
         val desiredWidth = minOf(
-            if (request.appearance.type == WidgetAppearanceVariant.COURSES_SQUARE) maxWidth * 0.68f else maxWidth * 0.88f,
-            availableHeight * ratio
-        ).coerceAtLeast(210.dp)
+            maxWidth * widthFraction,
+            availableHeight * ratio,
+            if (adaptiveMetrics.isLargeScreen) largeScreenWidthCap else maxWidth
+        ).coerceAtLeast(
+            if (request.appearance.type == WidgetAppearanceVariant.COURSES_SQUARE) 140.dp else 210.dp
+        )
         val desiredHeight = desiredWidth / ratio
         val validSourceBounds = request.sourceBounds.width > 8f && request.sourceBounds.height > 8f
-        val startLeft = if (validSourceBounds) with(density) { request.sourceBounds.left.toDp() } else (maxWidth - desiredWidth) / 2
-        val startTop = if (validSourceBounds) with(density) { request.sourceBounds.top.toDp() } else (maxHeight - desiredHeight) / 2
+        val startLeft = if (validSourceBounds) {
+            with(density) { (request.sourceBounds.left - editorHostOrigin.x).toDp() }
+        } else {
+            (maxWidth - desiredWidth) / 2
+        }
+        val startTop = if (validSourceBounds) {
+            with(density) { (request.sourceBounds.top - editorHostOrigin.y).toDp() }
+        } else {
+            (maxHeight - desiredHeight) / 2
+        }
         val startWidth = if (validSourceBounds) with(density) { request.sourceBounds.width.toDp() } else desiredWidth
         val startHeight = if (validSourceBounds) with(density) { request.sourceBounds.height.toDp() } else desiredHeight
         val targetLeft = (maxWidth - desiredWidth) / 2

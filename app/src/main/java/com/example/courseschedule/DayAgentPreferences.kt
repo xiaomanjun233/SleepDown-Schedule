@@ -1,6 +1,7 @@
 package com.example.courseschedule
 
 import android.content.Context
+import androidx.core.content.edit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.time.LocalDate
@@ -34,10 +35,10 @@ object DayAgentPreferences {
         } else {
             1
         }
-        storage.edit()
-            .putString("memory_turn_day", today)
-            .putInt("memory_turn_count", nextCount)
-            .apply()
+        storage.edit {
+                putString("memory_turn_day", today)
+                .putInt("memory_turn_count", nextCount)
+            }
     }
 
     fun shouldOfferMemoryUpdate(context: Context, date: LocalDate): Boolean {
@@ -50,25 +51,25 @@ object DayAgentPreferences {
     }
 
     fun setEnabled(context: Context, enabled: Boolean, markDecided: Boolean = true) {
-        prefs(context).edit()
-            .putBoolean("enabled", enabled)
-            .putBoolean("has_decision", markDecided)
-            .apply()
+        prefs(context).edit {
+                putBoolean("enabled", enabled)
+                .putBoolean("has_decision", markDecided)
+            }
         mutableChanges.value += 1
     }
 
     fun saveOptions(context: Context, dailyAiEnabled: Boolean, weatherEnabled: Boolean) {
-        prefs(context).edit()
-            .putBoolean("daily_ai_enabled", dailyAiEnabled)
-            .putBoolean("weather_enabled", weatherEnabled)
-            .apply()
+        prefs(context).edit {
+                putBoolean("daily_ai_enabled", dailyAiEnabled)
+                .putBoolean("weather_enabled", weatherEnabled)
+            }
         mutableChanges.value += 1
     }
 
     fun setMemoryEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit()
-            .putBoolean("memory_enabled", enabled)
-            .apply()
+        prefs(context).edit {
+                putBoolean("memory_enabled", enabled)
+            }
         mutableChanges.value += 1
     }
 
@@ -78,9 +79,9 @@ object DayAgentPreferences {
 
     fun saveMemoryFromAgent(context: Context, memory: String, date: LocalDate) {
         saveMemoryInternal(context, memory)
-        prefs(context).edit()
-            .putString("memory_last_agent_update_day", date.toString())
-            .apply()
+        prefs(context).edit {
+                putString("memory_last_agent_update_day", date.toString())
+            }
     }
 
     private fun saveMemoryInternal(context: Context, memory: String) {
@@ -90,14 +91,14 @@ object DayAgentPreferences {
             .replace(Regex("\n{3,}"), "\n\n")
             .trim()
             .take(MemoryMaxLength)
-        prefs(context).edit()
-            .putString("memory", normalized)
-            .apply()
+        prefs(context).edit {
+                putString("memory", normalized)
+            }
         mutableChanges.value += 1
     }
 
     fun clearMemory(context: Context) {
-        prefs(context).edit().remove("memory").apply()
+        prefs(context).edit {remove("memory")}
         mutableChanges.value += 1
     }
 
@@ -108,18 +109,18 @@ object DayAgentPreferences {
     fun markActionApplied(context: Context, scheduleId: Int, actionKey: String) {
         val existing = getAppliedActions(context, scheduleId).toMutableSet()
         if (existing.add(actionKey)) {
-            prefs(context).edit()
-                .putStringSet("applied_actions_$scheduleId", existing)
-                .apply()
+            prefs(context).edit {
+                    putStringSet("applied_actions_$scheduleId", existing)
+                }
         }
     }
 
     fun unmarkActionApplied(context: Context, scheduleId: Int, actionKey: String) {
         val existing = getAppliedActions(context, scheduleId).toMutableSet()
         if (existing.remove(actionKey)) {
-            prefs(context).edit()
-                .putStringSet("applied_actions_$scheduleId", existing)
-                .apply()
+            prefs(context).edit {
+                    putStringSet("applied_actions_$scheduleId", existing)
+                }
         }
     }
 

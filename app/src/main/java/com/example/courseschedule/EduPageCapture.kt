@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.scale
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Rect
@@ -312,7 +314,7 @@ suspend fun captureEduPage(
         waitForWebViewStable(webView)
         val initialY = webView.scrollY
         val viewportHeight = webView.height.coerceAtLeast(1)
-        val contentHeight = (webView.contentHeight * webView.scale).toInt().coerceAtLeast(viewportHeight)
+        val contentHeight = webView.scaledContentHeight().coerceAtLeast(viewportHeight)
         val positions = scrollSamplePositions(initialY, viewportHeight, contentHeight, maxScreenshots)
         val snapshots = mutableListOf<EduPageSnapshot>()
 
@@ -405,6 +407,9 @@ suspend fun captureEduPage(
         EduPageCaptureResult(text = text, screenshots = screenshots, warnings = warnings.distinct(), mode = mode)
     }
 }
+
+@Suppress("DEPRECATION") // WebView exposes no non-deprecated equivalent that preserves the page zoom factor.
+private fun WebView.scaledContentHeight(): Int = (contentHeight * scale).toInt()
 
 fun shouldUseScreenshotFallback(text: String, snapshots: List<EduPageSnapshot>): Boolean {
     val compactLength = text.count { !it.isWhitespace() }
@@ -580,12 +585,7 @@ private suspend fun captureVisibleWebViewBitmap(webView: WebView, pageIndex: Int
         ?: return null
     return withContext(Dispatchers.Default) {
         val outputBitmap = if (scale < 1f) {
-            Bitmap.createScaledBitmap(
-                bitmap,
-                (bitmap.width * scale).toInt().coerceAtLeast(1),
-                (bitmap.height * scale).toInt().coerceAtLeast(1),
-                true
-            )
+            bitmap.scale((bitmap.width * scale).toInt().coerceAtLeast(1), (bitmap.height * scale).toInt().coerceAtLeast(1))
         } else {
             bitmap
         }
@@ -614,7 +614,7 @@ private suspend fun captureWebViewPixels(webView: WebView): Bitmap? {
         location[1] + webView.height
     )
     if (sourceRect.width() <= 0 || sourceRect.height() <= 0) return null
-    val bitmap = Bitmap.createBitmap(sourceRect.width(), sourceRect.height(), Bitmap.Config.ARGB_8888)
+    val bitmap = createBitmap(sourceRect.width(), sourceRect.height())
     return suspendCancellableCoroutine { continuation ->
         runCatching {
             PixelCopy.request(
@@ -644,7 +644,7 @@ private fun captureWebViewByDraw(webView: WebView): Bitmap? {
     val width = webView.width
     val height = webView.height
     if (width <= 0 || height <= 0) return null
-    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val bitmap = createBitmap(width, height)
     val canvas = Canvas(bitmap)
     webView.draw(canvas)
     return bitmap
@@ -675,7 +675,7 @@ private suspend fun stitchRenderedImages(images: List<RenderedPageImage>): Rende
             val longScale = minOf(1f, 7200f / totalHeight.toFloat())
             val targetWidth = (sourceWidth * longScale).toInt().coerceAtLeast(1)
             val targetHeights = rawHeights.map { (it * longScale).toInt().coerceAtLeast(1) }
-            val stitched = Bitmap.createBitmap(targetWidth, targetHeights.sum(), Bitmap.Config.ARGB_8888)
+            val stitched = createBitmap(targetWidth, targetHeights.sum())
             val canvas = Canvas(stitched)
             var top = 0
             bitmaps.forEachIndexed { index, bitmap ->

@@ -3,6 +3,11 @@ package com.example.courseschedule
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.graphics.Bitmap
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.get
+import androidx.core.graphics.withClip
+import androidx.core.net.toUri
+import androidx.core.os.BundleCompat
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
@@ -42,7 +47,11 @@ internal fun widgetRenderSizes(manager: AppWidgetManager, id: Int, type: WidgetA
     val fallback = widgetRenderSize(manager, id, type)
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return listOf(fallback)
     val options = manager.getAppWidgetOptions(id) ?: return listOf(fallback)
-    val sizes = options.getParcelableArrayList<SizeF>(AppWidgetManager.OPTION_APPWIDGET_SIZES)
+    val sizes = BundleCompat.getParcelableArrayList(
+        options,
+        AppWidgetManager.OPTION_APPWIDGET_SIZES,
+        SizeF::class.java
+    )
         .orEmpty()
         .map { WidgetRenderSize(it.width.roundToInt(), it.height.roundToInt()) }
         .filter { it.widthDp >= 80 && it.heightDp >= 80 }
@@ -70,9 +79,9 @@ object WidgetBackgroundRenderer {
             appearance.blurDp, appearance.brightness, appearance.variant, size.widthDp, size.heightDp, courseCount, darkMode
         ).joinToString("|")
         synchronized(cache) { cache[cacheKey]?.let { return it } }
-        val source = loadSampledBitmap(context, Uri.parse(uri), 1800) ?: return null
+        val source = loadSampledBitmap(context, uri.toUri(), 1800) ?: return null
         val (width, height) = cappedPixels(context, size)
-        val crop = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val crop = createBitmap(width, height)
         val destination = calculateFocusCropRect(
             source.width, source.height, width.toFloat(), height.toFloat(),
             WallpaperCropState(appearance.centerX, appearance.centerY, appearance.scale)
@@ -106,7 +115,7 @@ object WidgetBackgroundRenderer {
     }
 
     private fun applyBrightness(source: Bitmap, brightness: Float): Bitmap {
-        val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+        val output = createBitmap(source.width, source.height)
         val matrix = ColorMatrix().apply { setScale(brightness, brightness, brightness, 1f) }
         Canvas(output).drawBitmap(source, 0f, 0f, filteredPaint().apply { colorFilter = ColorMatrixColorFilter(matrix) })
         return output
@@ -150,17 +159,16 @@ object WidgetBackgroundRenderer {
         ) < 0.48
         regions.forEach { region ->
             val path = Path().apply { addRoundRect(region, 14f * sx, 14f * sy, Path.Direction.CW) }
-            canvas.save()
-            canvas.clipPath(path)
-            canvas.drawBitmap(extraBlur, 0f, 0f, null)
-            canvas.drawColor(
-                if (darkBackground) {
-                    Color.argb(66, 0, 0, 0)
-                } else {
-                    Color.argb(78, 255, 255, 255)
-                }
-            )
-            canvas.restore()
+            canvas.withClip(path) {
+                drawBitmap(extraBlur, 0f, 0f, null)
+                drawColor(
+                    if (darkBackground) {
+                        Color.argb(66, 0, 0, 0)
+                    } else {
+                        Color.argb(78, 255, 255, 255)
+                    }
+                )
+            }
             primary += if (darkBackground) Color.WHITE else Color.rgb(17, 17, 17)
             secondary += if (darkBackground) {
                 Color.argb(190, 255, 255, 255)
@@ -214,7 +222,7 @@ object WidgetBackgroundRenderer {
         val dx = ((right - left) / 12).coerceAtLeast(1)
         val dy = ((bottom - top) / 8).coerceAtLeast(1)
         for (y in top until bottom step dy) for (x in left until right step dx) {
-            total += relativeLuminance(bitmap.getPixel(x, y)); count++
+            total += relativeLuminance(bitmap[x, y]); count++
         }
         return if (count == 0) 0.5 else total / count
     }

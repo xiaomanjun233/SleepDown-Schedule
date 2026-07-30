@@ -19,7 +19,9 @@ import com.kyant.backdrop.effects.runtimeShaderEffect
 
 enum class ProgressiveBlurDirection {
     TopToBottom,
-    BottomToTop
+    BottomToTop,
+    LeftToRight,
+    RightToLeft
 }
 
 @Composable
@@ -90,11 +92,21 @@ fun Modifier.progressiveBackdropBlur(
             }
         )
     } else {
-        background(Brush.verticalGradient(*fallbackTintStops.toTypedArray()))
+        val brush = when (direction) {
+            ProgressiveBlurDirection.TopToBottom -> Brush.verticalGradient(*fallbackTintStops.toTypedArray())
+            ProgressiveBlurDirection.BottomToTop -> Brush.verticalGradient(
+                *fallbackTintStops.map { (stop, color) -> 1f - stop to color }.reversed().toTypedArray()
+            )
+            ProgressiveBlurDirection.LeftToRight -> Brush.horizontalGradient(*fallbackTintStops.toTypedArray())
+            ProgressiveBlurDirection.RightToLeft -> Brush.horizontalGradient(
+                *fallbackTintStops.map { (stop, color) -> 1f - stop to color }.reversed().toTypedArray()
+            )
+        }
+        background(brush)
     }
 }
 
-private fun progressiveBlurShaderSource(direction: ProgressiveBlurDirection): String {
+internal fun progressiveBlurShaderSource(direction: ProgressiveBlurDirection): String {
     val maskExpression = when (direction) {
         ProgressiveBlurDirection.TopToBottom -> """
             float mask = 1.0 - smoothstep(maskFadeStart, maskFadeEnd, y);
@@ -104,6 +116,16 @@ private fun progressiveBlurShaderSource(direction: ProgressiveBlurDirection): St
         ProgressiveBlurDirection.BottomToTop -> """
             float mask = smoothstep(0.0, 0.55, y);
             float tintMask = smoothstep(0.0, 0.65, y);
+        """.trimIndent()
+
+        ProgressiveBlurDirection.LeftToRight -> """
+            float mask = smoothstep(maskFadeStart, maskFadeEnd, x);
+            float tintMask = smoothstep(tintFadeStart, tintFadeEnd, x);
+        """.trimIndent()
+
+        ProgressiveBlurDirection.RightToLeft -> """
+            float mask = 1.0 - smoothstep(maskFadeStart, maskFadeEnd, x);
+            float tintMask = 1.0 - smoothstep(tintFadeStart, tintFadeEnd, x);
         """.trimIndent()
     }
     return """
@@ -117,6 +139,7 @@ private fun progressiveBlurShaderSource(direction: ProgressiveBlurDirection): St
         uniform float tintFadeEnd;
 
         half4 main(float2 coord) {
+            float x = coord.x / size.x;
             float y = coord.y / size.y;
             $maskExpression
             return mix(content.eval(coord) * mask, tint * tintMask, tintIntensity);

@@ -3,6 +3,7 @@ package com.example.courseschedule
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.boolean
@@ -17,6 +18,55 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolsTest {
+    @Test
+    fun deepSeekFinalRequestExplicitlyDisablesNativeTools() {
+        val body = DayAgentChatTransport().agentBody(
+            settings = AiImportSettings(
+                profile = AiProviderPresets.deepSeek,
+                apiKey = "test-key"
+            ),
+            messages = listOf(buildJsonObject {
+                put("role", "system")
+                put("content", DayAgentPrompts.FinalAnswerStage)
+            }),
+            stream = true,
+            includeTools = false
+        )
+        val json = Json.parseToJsonElement(body).jsonObject
+
+        assertFalse(json.containsKey("tools"))
+        assertEquals("none", json["tool_choice"]?.jsonPrimitive?.content)
+        val finalInstruction = json["messages"]?.jsonArray?.single()?.jsonObject
+            ?.get("content")?.jsonPrimitive?.content.orEmpty()
+        assertTrue(finalInstruction.contains("DSML"))
+        assertTrue(finalInstruction.contains("<agent_actions>"))
+    }
+
+    @Test
+    fun splitDsmlProtocolNeverReachesStreamingUi() {
+        val forwarded = mutableListOf<String>()
+        val gate = AgentFinalOutputGate(forwarded::add)
+
+        gate.accept("<｜DSM")
+        val rejected = runCatching { gate.accept("L｜tool_calls>") }.exceptionOrNull()
+
+        assertTrue(rejected is AgentProtocolViolationException)
+        assertTrue(forwarded.isEmpty())
+        assertEquals("", sanitizeAgentToolOutput("<｜DSML｜invoke name=\"OPEN_SETTINGS\">"))
+    }
+
+    @Test
+    fun normalFinalAnswerStillStreamsAndFlushesHeldTail() {
+        val forwarded = mutableListOf<String>()
+        val gate = AgentFinalOutputGate(forwarded::add, holdBackCharacters = 8)
+        val answer = "可以打开通知设置。<agent_actions>[]</agent_actions>"
+
+        gate.accept(answer.take(14))
+        gate.accept(answer.drop(14))
+        assertEquals(answer, gate.finish(answer))
+        assertEquals(answer, forwarded.joinToString(""))
+    }
+
     @Test
     fun nullToolCallsMeansTheModelHasReturnedItsFinalAnswer() {
         val decision = parseAgentToolDecision(

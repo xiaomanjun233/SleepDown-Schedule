@@ -16,6 +16,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.core.net.toUri
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Base64
@@ -212,6 +213,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -296,6 +298,9 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
     val topPadding = detailContentTopPadding()
     var draft by remember { mutableStateOf(state.config) }
     var lastSaved by remember { mutableStateOf(state.config) }
+    var appIconMode by remember(context) {
+        mutableStateOf(AppIconManager.currentMode(context))
+    }
     LaunchedEffect(state.config) {
         if (draft == lastSaved) {
             draft = state.config
@@ -330,6 +335,16 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
                         backdrop = backdrop,
                         enabled = !draft.followSystemDarkMode,
                         onCheckedChange = { applyChange(draft.copy(darkMode = it, followSystemDarkMode = false)) }
+                    )
+                    SettingsDivider()
+                    SettingsAppIconModeRow(
+                        selected = appIconMode,
+                        backdrop = backdrop,
+                        config = visualConfig,
+                        onSelected = { mode ->
+                            appIconMode = mode
+                            AppIconManager.setMode(context, mode)
+                        }
                     )
                     SettingsDivider()
                     SettingsDockAlignmentRow(
@@ -499,7 +514,7 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
         enableWindowDim = false,
         backgroundColor = ComposeColor.Transparent,
         forceCenter = true,
-        surfaceModifier = quickSheetBackdropModifier(
+        surfaceModifier = Modifier.quickSheetBackdropModifier(
             backdrop = popupBackdrop,
             config = state.config,
             blurRadius = 28.dp,
@@ -597,6 +612,7 @@ fun AiImportSettingsSection(
     var supportsPdfDirect by remember(saved.profile.supportsPdfDirect) { mutableStateOf(saved.profile.supportsPdfDirect) }
     var message by remember { mutableStateOf<String?>(null) }
     var testResult by remember { mutableStateOf<String?>(null) }
+    var showDeleteProviderConfirm by remember { mutableStateOf(false) }
     var providerMenuExpanded by remember { mutableStateOf(false) }
     var providerListRevision by remember { mutableIntStateOf(0) }
     var modelUsesCustomInput by remember(saved.profile.id) {
@@ -610,12 +626,20 @@ fun AiImportSettingsSection(
         )
     }
     val presets = remember(providerListRevision) { AiImportSettingsStore.selectableProfiles(context) }
-    val selectedPreset = presets.firstOrNull { it.id == selectedProviderId } ?: AiProviderPresets.openAI
+    val selectedPreset = presets.firstOrNull { it.id == selectedProviderId }
+        ?: saved.profile.takeIf { it.id == selectedProviderId }
+        ?: AiProviderPresets.byId(selectedProviderId)
     val isCustomProvider = AiProviderPresets.isCustomId(selectedProviderId)
     val effectiveCustomProviderName = customProviderName.trim().ifBlank { selectedPreset.displayName }
+    val customProviderDisplayName = effectiveCustomProviderName.ifBlank { "未命名自定义接口" }
     val pickerPresets = if (isCustomProvider) {
-        presets.map { preset ->
-            if (preset.id == selectedProviderId) preset.copy(displayName = effectiveCustomProviderName) else preset
+        val updatedPresets = presets.map { preset ->
+            if (preset.id == selectedProviderId) preset.copy(displayName = customProviderDisplayName) else preset
+        }
+        if (updatedPresets.any { it.id == selectedProviderId }) {
+            updatedPresets
+        } else {
+            updatedPresets + selectedPreset.copy(displayName = customProviderDisplayName)
         }
     } else {
         presets
@@ -633,16 +657,11 @@ fun AiImportSettingsSection(
             modelUsesCustomInput = true
             model = customModelInput
         } else {
-            val nextModel = modelOptions[index.coerceIn(modelOptions.indices)].model
+            val selectedOption = modelOptions[index.coerceIn(modelOptions.indices)]
+            val nextModel = selectedOption.model
             modelUsesCustomInput = false
             model = nextModel
-            if (
-                nextModel.contains("vl", ignoreCase = true) ||
-                nextModel.contains("vision", ignoreCase = true) ||
-                selectedProviderId == AiProviderPresets.kimi.id
-            ) {
-                supportsVision = true
-            }
+            supportsVision = selectedOption.supportsImageInput
         }
     }
     val normalizedBaseUrl = normalizeAiBaseUrlForProvider(selectedProviderId, baseUrl)
@@ -657,13 +676,16 @@ fun AiImportSettingsSection(
     } else {
         AiEndpointStyle.CHAT_COMPLETIONS
     }
+    val selectedModelSupportsVision = modelOptions.firstOrNull {
+        it.model.equals(model.trim(), ignoreCase = true)
+    }?.supportsImageInput ?: supportsVision
     val profile = selectedPreset.copy(
         displayName = if (isCustomProvider) effectiveCustomProviderName else selectedPreset.displayName,
         baseUrl = normalizedBaseUrl,
         defaultModel = model.trim(),
         providerType = if (usesOpenAICompatibleSite) AiProviderType.OpenAIChatCompatible else selectedPreset.providerType,
         capabilities = selectedPreset.capabilities.copy(
-            supportsImageInput = supportsVision,
+            supportsImageInput = selectedModelSupportsVision,
             supportsPdfFileInput = supportsPdfDirect && !usesOpenAICompatibleSite,
             supportsFileUpload = supportsFileUpload && !usesOpenAICompatibleSite,
             supportsJsonSchema = structuredOutputMode == StructuredOutputMode.JSON_SCHEMA,
@@ -672,7 +694,7 @@ fun AiImportSettingsSection(
         endpointStyle = endpointStyle,
         structuredOutputMode = structuredOutputMode,
         inputMode = inputMode,
-        supportsVision = supportsVision,
+        supportsVision = selectedModelSupportsVision,
         supportsFileUpload = supportsFileUpload && !usesOpenAICompatibleSite,
         supportsPdfDirect = supportsPdfDirect && !usesOpenAICompatibleSite
     )
@@ -699,7 +721,12 @@ fun AiImportSettingsSection(
         // custom compatible endpoint must not fall back to its empty preset whenever
         // the user temporarily selects another provider.
         val outgoingKey = apiKeyInput.ifBlank { saved.apiKey }
-        AiImportSettingsStore.saveProvider(context, AiImportSettings(profile, outgoingKey))
+        if (
+            !isCustomProvider ||
+            customProviderDraftHasContent(customProviderName, baseUrl, model, outgoingKey)
+        ) {
+            AiImportSettingsStore.saveProvider(context, AiImportSettings(profile, outgoingKey))
+        }
         providerListRevision++
         val providerSettings = AiImportSettingsStore.loadProvider(context, providerId)
         val providerModelOptions = AiProviderPresets.modelOptions(providerSettings.profile.id)
@@ -720,6 +747,33 @@ fun AiImportSettingsSection(
         customModelInput = if (providerUsesPresetModel) "" else providerSettings.profile.defaultModel
         providerMenuExpanded = false
     }
+    fun addCustomProvider() {
+        val outgoingKey = apiKeyInput.ifBlank { saved.apiKey }
+        if (
+            !isCustomProvider ||
+            customProviderDraftHasContent(customProviderName, baseUrl, model, outgoingKey)
+        ) {
+            AiImportSettingsStore.saveProvider(context, AiImportSettings(profile, outgoingKey))
+        }
+        val newProfile = AiImportSettingsStore.createCustomProvider()
+        saved = AiImportSettings(newProfile, "")
+        selectedProviderId = newProfile.id
+        customProviderName = ""
+        baseUrl = ""
+        model = ""
+        apiKeyInput = ""
+        structuredOutputMode = newProfile.structuredOutputMode
+        inputMode = newProfile.inputMode
+        supportsVision = newProfile.supportsVision
+        supportsFileUpload = newProfile.supportsFileUpload
+        supportsPdfDirect = newProfile.supportsPdfDirect
+        testResult = null
+        modelUsesCustomInput = true
+        customModelInput = ""
+        providerMenuExpanded = false
+        providerListRevision++
+        message = "填写接口名称或连接信息后才会加入列表"
+    }
     fun save(showMessage: Boolean = true): Boolean {
         val nextKey = apiKeyInput.ifBlank { saved.apiKey }
         if (!aiDisabled && (profile.baseUrl.isBlank() || profile.defaultModel.isBlank())) {
@@ -735,6 +789,12 @@ fun AiImportSettingsSection(
     }
     fun persistForExit() {
         val nextKey = apiKeyInput.ifBlank { saved.apiKey }
+        if (
+            isCustomProvider &&
+            !customProviderDraftHasContent(customProviderName, baseUrl, model, nextKey)
+        ) {
+            return
+        }
         val nextSettings = AiImportSettings(
             profile,
             nextKey.takeUnless { aiDisabled }.orEmpty()
@@ -766,33 +826,16 @@ fun AiImportSettingsSection(
             "配置今日助手、AI 对话、教务课表解析等智能功能共用的模型服务。API Key 按服务商分别加密保存在本机，不会写入课表数据库或诊断日志。选择“无”可停用所有联网 AI 能力，本地课表功能不受影响。"
         )
         AiProviderPickerRow(
-            value = if (isCustomProvider) effectiveCustomProviderName else selectedPreset.displayName,
+            value = if (isCustomProvider) customProviderDisplayName else selectedPreset.displayName,
             expanded = providerMenuExpanded,
             presets = pickerPresets,
             selectedProviderId = selectedProviderId,
             backdrop = backdrop,
             config = state.config,
             onExpandedChange = { providerMenuExpanded = it },
-            onSelected = { selectProvider(it) }
+            onSelected = { selectProvider(it) },
+            onAddCustomProvider = { addCustomProvider() }
         )
-        SettingsDivider()
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)
-        ) {
-            SettingsActionButton(
-                "新增自定义接口",
-                backdrop,
-                onClick = {
-                    val outgoingKey = apiKeyInput.ifBlank { saved.apiKey }
-                    AiImportSettingsStore.saveProvider(context, AiImportSettings(profile, outgoingKey))
-                    val newProfile = AiImportSettingsStore.createCustomProvider(context)
-                    providerListRevision++
-                    selectProvider(newProfile.id)
-                    message = "已新增 ${newProfile.displayName}"
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
         if (aiDisabled) {
             SettingsDivider()
             SettingsInfoRow(
@@ -943,7 +986,8 @@ fun AiImportSettingsSection(
         }
         SettingsDivider()
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             SettingsActionButton(
                 "清除 Key",
@@ -954,9 +998,18 @@ fun AiImportSettingsSection(
                     apiKeyInput = ""
                     message = "API Key 已清除"
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.weight(1f),
                 destructive = true
             )
+            if (isCustomProvider) {
+                SettingsActionButton(
+                    "删除接口",
+                    backdrop,
+                    onClick = { showDeleteProviderConfirm = true },
+                    modifier = Modifier.weight(1f),
+                    destructive = true
+                )
+            }
         }
         }
         message?.let {
@@ -967,6 +1020,28 @@ fun AiImportSettingsSection(
                 color = if (it.contains("请先")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
             )
         }
+    }
+    if (showDeleteProviderConfirm) {
+        LiquidAlertDialog(
+            title = "删除自定义接口？",
+            message = "将删除此接口的名称、地址、模型和本机保存的 API Key，不会影响其他接口。",
+            actions = listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) {
+                    showDeleteProviderConfirm = false
+                },
+                LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive) {
+                    val deletedName = effectiveCustomProviderName
+                    AiImportSettingsStore.deleteCustomProvider(context, selectedProviderId)
+                    providerListRevision++
+                    showDeleteProviderConfirm = false
+                    reload()
+                    message = "已删除 $deletedName"
+                }
+            ),
+            backdrop = backdrop,
+            config = state.config,
+            onDismissRequest = { showDeleteProviderConfirm = false }
+        )
     }
 }
 
@@ -979,12 +1054,13 @@ private fun AiProviderPickerRow(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     onExpandedChange: (Boolean) -> Unit,
-    onSelected: (String) -> Unit
+    onSelected: (String) -> Unit,
+    onAddCustomProvider: () -> Unit
 ) {
     if (LocalGlassMiuixEnabled.current) {
         val selectedIndex = presets.indexOfFirst { it.id == selectedProviderId }.coerceAtLeast(0)
         MiuixOverlayDropdownPreference(
-            items = presets.map { it.displayName },
+            items = presets.map { it.displayName } + "新增自定义接口",
             selectedIndex = selectedIndex,
             title = "服务商",
             modifier = Modifier.fillMaxWidth(),
@@ -992,7 +1068,11 @@ private fun AiProviderPickerRow(
             maxHeight = 318.dp,
             onExpandedChange = onExpandedChange,
             onSelectedIndexChange = { index ->
-                presets.getOrNull(index)?.let { onSelected(it.id) }
+                if (index == presets.size) {
+                    onAddCustomProvider()
+                } else {
+                    presets.getOrNull(index)?.let { onSelected(it.id) }
+                }
             }
         )
         return
@@ -1110,14 +1190,20 @@ private fun AiProviderPickerRow(
                                         .padding(vertical = 6.dp)
                                         .verticalScroll(rememberScrollState())
                                 ) {
-                                    presets.forEachIndexed { index, preset ->
+                                    presets.forEach { preset ->
                                         AiProviderMenuRow(
                                             name = preset.displayName,
                                             selected = preset.id == selectedProviderId,
                                             onClick = { onSelected(preset.id) }
                                         )
-                                        if (index != presets.lastIndex) SettingsDivider()
+                                        SettingsDivider()
                                     }
+                                    AiProviderMenuRow(
+                                        name = "新增自定义接口",
+                                        selected = false,
+                                        accent = true,
+                                        onClick = onAddCustomProvider
+                                    )
                                 }
                             }
                         }
@@ -1133,14 +1219,20 @@ private fun AiProviderPickerRow(
                                     .padding(vertical = 6.dp)
                                     .verticalScroll(rememberScrollState())
                             ) {
-                                presets.forEachIndexed { index, preset ->
+                                presets.forEach { preset ->
                                     AiProviderMenuRow(
                                         name = preset.displayName,
                                         selected = preset.id == selectedProviderId,
                                         onClick = { onSelected(preset.id) }
                                     )
-                                    if (index != presets.lastIndex) SettingsDivider()
+                                    SettingsDivider()
                                 }
+                                AiProviderMenuRow(
+                                    name = "新增自定义接口",
+                                    selected = false,
+                                    accent = true,
+                                    onClick = onAddCustomProvider
+                                )
                             }
                         }
                     }
@@ -1151,7 +1243,12 @@ private fun AiProviderPickerRow(
 }
 
 @Composable
-private fun AiProviderMenuRow(name: String, selected: Boolean, onClick: () -> Unit) {
+private fun AiProviderMenuRow(
+    name: String,
+    selected: Boolean,
+    accent: Boolean = false,
+    onClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1169,8 +1266,8 @@ private fun AiProviderMenuRow(name: String, selected: Boolean, onClick: () -> Un
             name,
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.titleSmall,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            color = if (selected) MaterialTheme.colorScheme.primary else LocalContentColor.current
+            fontWeight = if (selected || accent) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (selected || accent) MaterialTheme.colorScheme.primary else LocalContentColor.current
         )
         if (selected) {
             Text(
@@ -1179,6 +1276,63 @@ private fun AiProviderMenuRow(name: String, selected: Boolean, onClick: () -> Un
                 color = MaterialTheme.colorScheme.primary
             )
         }
+    }
+}
+
+@Composable
+fun SettingsAppIconModeRow(
+    selected: AppIconMode,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onSelected: (AppIconMode) -> Unit
+) {
+    val options = AppIconMode.entries
+    val selectedIndex = options.indexOf(selected).coerceAtLeast(0)
+    val control: @Composable () -> Unit = {
+        LiquidOptionTabs(
+            selectedIndex = selectedIndex,
+            labels = options.map { it.label },
+            backdrop = backdrop,
+            config = config,
+            width = 168.dp,
+            onSelected = { index ->
+                options.getOrNull(index)?.let(onSelected)
+            }
+        )
+    }
+    if (LocalGlassMiuixEnabled.current) {
+        GlassMiuixInteractivePreference(
+            title = "应用图标",
+            summary = "选择浅色、深色或跟随应用深色模式",
+            controlWidth = 168.dp,
+            content = control
+        )
+        return
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(76.dp)
+            .padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                "应用图标",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                "浅色、深色或跟随深色模式",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        control()
     }
 }
 
@@ -1477,13 +1631,19 @@ fun SettingsNavigationRow(
     title: String,
     subtitle: String,
     badgeText: String? = null,
+    selected: Boolean = false,
     onClick: () -> Unit
 ) {
+    val neutralSelection = MaterialTheme.colorScheme.onSurface
     if (LocalGlassMiuixEnabled.current) {
         MiuixArrowPreference(
             title = title,
             summary = subtitle,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    neutralSelection.copy(alpha = if (selected) 0.10f else 0f)
+                ),
             insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
             endActions = {
                 if (badgeText != null) {
@@ -1508,7 +1668,15 @@ fun SettingsNavigationRow(
         modifier = Modifier
             .fillMaxWidth()
             .height(70.dp)
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = if (pressed) 0.12f else 0f))
+            .background(
+                neutralSelection.copy(
+                    alpha = when {
+                        pressed -> 0.12f
+                        selected -> 0.10f
+                        else -> 0f
+                    }
+                )
+            )
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1798,8 +1966,8 @@ fun SettingsPickerValueRow(
     title: String,
     value: String,
     onClick: () -> Unit,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     if (LocalGlassMiuixEnabled.current) {
         MiuixArrowPreference(
@@ -1895,7 +2063,7 @@ fun SettingsDatePickerRow(
         enableWindowDim = false,
         backgroundColor = ComposeColor.Transparent,
         forceCenter = true,
-        surfaceModifier = quickSheetBackdropModifier(
+        surfaceModifier = Modifier.quickSheetBackdropModifier(
             backdrop = popupBackdrop,
             config = config,
             blurRadius = 28.dp,
@@ -1981,7 +2149,9 @@ fun SettingsTimePickerRow(
     onValueChange: (String) -> Unit,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    minimumMinute: Int = 0,
+    maximumMinute: Int = LastMinuteOfDay
 ) {
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     var showPicker by remember { mutableStateOf(false) }
@@ -1991,6 +2161,11 @@ fun SettingsTimePickerRow(
     }
     var pickerHour by remember(initialTime, showPicker) { mutableIntStateOf(initialTime.hour) }
     var pickerMinute by remember(initialTime, showPicker) { mutableIntStateOf(initialTime.minute) }
+    val safeMinimum = minimumMinute.coerceIn(0, LastMinuteOfDay)
+    val safeMaximum = maximumMinute.coerceIn(safeMinimum, LastMinuteOfDay)
+    val selectedMinute = (pickerHour * 60 + pickerMinute).coerceIn(safeMinimum, safeMaximum)
+    val selectedHour = selectedMinute / 60
+    val allowedMinuteRange = minuteRangeForHour(selectedHour, safeMinimum, safeMaximum)
     SettingsPickerValueRow(title = title, value = value, enabled = enabled, onClick = { showPicker = true })
     top.yukonga.miuix.kmp.overlay.OverlayDialog(
         show = showPicker,
@@ -1999,7 +2174,7 @@ fun SettingsTimePickerRow(
         enableWindowDim = false,
         backgroundColor = ComposeColor.Transparent,
         forceCenter = true,
-        surfaceModifier = quickSheetBackdropModifier(
+        surfaceModifier = Modifier.quickSheetBackdropModifier(
             backdrop = popupBackdrop,
             config = config,
             blurRadius = 28.dp,
@@ -2012,17 +2187,21 @@ fun SettingsTimePickerRow(
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = pickerHour,
-                    onValueChange = { pickerHour = it },
-                    range = 0..23,
+                    value = selectedHour,
+                    onValueChange = { hour ->
+                        val minute = pickerMinute.coerceIn(minuteRangeForHour(hour, safeMinimum, safeMaximum))
+                        pickerHour = hour
+                        pickerMinute = minute
+                    },
+                    range = (safeMinimum / 60)..(safeMaximum / 60),
                     visibleItemCount = 3,
                     label = { "%02d时".format(it) },
                     modifier = Modifier.weight(1f)
                 )
                 top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = pickerMinute,
+                    value = selectedMinute % 60,
                     onValueChange = { pickerMinute = it },
-                    range = 0..59,
+                    range = allowedMinuteRange,
                     visibleItemCount = 3,
                     label = { "%02d分".format(it) },
                     modifier = Modifier.weight(1f)
@@ -2037,9 +2216,122 @@ fun SettingsTimePickerRow(
                     "确定", true, popupBackdrop, config, primary = true,
                     modifier = Modifier.weight(1f), height = 50.dp
                 ) {
-                    onValueChange("%02d:%02d".format(pickerHour, pickerMinute))
+                    onValueChange("%02d:%02d".format(selectedMinute / 60, selectedMinute % 60))
                     showPicker = false
                 }
+            }
+        }
+    }
+}
+
+private fun minuteRangeForHour(hour: Int, minimumMinute: Int, maximumMinute: Int): IntRange {
+    val lower = if (hour == minimumMinute / 60) minimumMinute % 60 else 0
+    val upper = if (hour == maximumMinute / 60) maximumMinute % 60 else 59
+    return lower.coerceAtMost(upper)..upper
+}
+
+@Composable
+private fun ConstrainedPeriodTimePickers(
+    startMinute: Int,
+    endMinute: Int,
+    bounds: PeriodTimePickerBounds,
+    onSelectionChange: (PeriodTimeSelection) -> Unit,
+    textStyle: TextStyle,
+    showSectionLabels: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val selection = constrainPeriodTimeSelection(startMinute, endMinute, bounds)
+    LaunchedEffect(selection, startMinute, endMinute) {
+        if (selection.startMinute != startMinute || selection.endMinute != endMinute) {
+            onSelectionChange(selection)
+        }
+    }
+    val latestStart = selection.endMinute - 1
+    val earliestEnd = selection.startMinute + 1
+    val startHour = selection.startMinute / 60
+    val endHour = selection.endMinute / 60
+    val startMinuteRange = minuteRangeForHour(startHour, bounds.minimumStartMinute, latestStart)
+    val endMinuteRange = minuteRangeForHour(endHour, earliestEnd, bounds.maximumEndMinute)
+
+    fun updateStart(candidate: Int) {
+        onSelectionChange(
+            constrainPeriodTimeSelection(
+                candidate,
+                selection.endMinute,
+                bounds,
+                PeriodTimeSelectionAnchor.START
+            )
+        )
+    }
+
+    fun updateEnd(candidate: Int) {
+        onSelectionChange(
+            constrainPeriodTimeSelection(
+                selection.startMinute,
+                candidate,
+                bounds,
+                PeriodTimeSelectionAnchor.END
+            )
+        )
+    }
+
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(if (showSectionLabels) 14.dp else 4.dp)) {
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (showSectionLabels) {
+                Text("开始时间", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(Modifier.fillMaxWidth()) {
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = startHour,
+                    onValueChange = { hour ->
+                        val minute = (selection.startMinute % 60)
+                            .coerceIn(minuteRangeForHour(hour, bounds.minimumStartMinute, latestStart))
+                        updateStart(hour * 60 + minute)
+                    },
+                    range = (bounds.minimumStartMinute / 60)..(latestStart / 60),
+                    visibleItemCount = 3,
+                    label = { "%02d时".format(it) },
+                    textStyle = textStyle,
+                    modifier = Modifier.weight(1f)
+                )
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = selection.startMinute % 60,
+                    onValueChange = { updateStart(startHour * 60 + it) },
+                    range = startMinuteRange,
+                    visibleItemCount = 3,
+                    label = { "%02d分".format(it) },
+                    textStyle = textStyle,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (showSectionLabels) {
+                Text("结束时间", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(Modifier.fillMaxWidth()) {
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = endHour,
+                    onValueChange = { hour ->
+                        val minute = (selection.endMinute % 60)
+                            .coerceIn(minuteRangeForHour(hour, earliestEnd, bounds.maximumEndMinute))
+                        updateEnd(hour * 60 + minute)
+                    },
+                    range = (earliestEnd / 60)..(bounds.maximumEndMinute / 60),
+                    visibleItemCount = 3,
+                    label = { "%02d时".format(it) },
+                    textStyle = textStyle,
+                    modifier = Modifier.weight(1f)
+                )
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = selection.endMinute % 60,
+                    onValueChange = { updateEnd(endHour * 60 + it) },
+                    range = endMinuteRange,
+                    visibleItemCount = 3,
+                    label = { "%02d分".format(it) },
+                    textStyle = textStyle,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }
@@ -2074,6 +2366,7 @@ fun SettingsInfoRow(title: String, body: String) {
 internal val LocalCollapsibleSettingsInfoRows = compositionLocalOf { false }
 
 private val changelogReleaseDates = mapOf(
+    "1.1.1" to "2026-08-01",
     "1.1.0" to "2026-07-30",
     "1.0.9" to "2026-07-26",
     "1.0.8" to "2026-07-22",
@@ -2572,14 +2865,29 @@ fun ScheduleSettingsContent(
             item { Text("节次时间", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
             item {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                    periods.forEachIndexed { idx, period ->
+                    val sortedPeriods = periods.sortedBy { it.periodIndex }
+                    sortedPeriods.forEachIndexed { idx, period ->
+                        val bounds = periodTimePickerBounds(
+                            previousEnd = sortedPeriods.getOrNull(idx - 1)?.endTime,
+                            nextStart = sortedPeriods.getOrNull(idx + 1)?.startTime
+                        )
+                        val startMinute = parseMinuteOfDay(period.startTime) ?: bounds.minimumStartMinute
+                        val endMinute = parseMinuteOfDay(period.endTime) ?: (startMinute + 1)
                         SettingsValueRow("第 ${period.periodIndex} 节", "")
                         SettingsTimePickerRow("开始时间", period.startTime, { value ->
-                            onPeriodsChange(periods.toMutableList().also { it[idx] = period.copy(startTime = value) })
-                        }, backdrop, state.config)
+                            onPeriodsChange(periods.map { if (it.periodIndex == period.periodIndex) it.copy(startTime = value) else it })
+                        }, backdrop, state.config,
+                            minimumMinute = bounds.minimumStartMinute,
+                            maximumMinute = minOf(endMinute - 1, bounds.maximumEndMinute - 1)
+                                .coerceAtLeast(bounds.minimumStartMinute)
+                        )
                         SettingsTimePickerRow("结束时间", period.endTime, { value ->
-                            onPeriodsChange(periods.toMutableList().also { it[idx] = period.copy(endTime = value) })
-                        }, backdrop, state.config)
+                            onPeriodsChange(periods.map { if (it.periodIndex == period.periodIndex) it.copy(endTime = value) else it })
+                        }, backdrop, state.config,
+                            minimumMinute = maxOf(startMinute + 1, bounds.minimumStartMinute + 1)
+                                .coerceAtMost(bounds.maximumEndMinute),
+                            maximumMinute = bounds.maximumEndMinute
+                        )
                         if (idx != periods.lastIndex) SettingsDivider()
                     }
                 }
@@ -2932,7 +3240,7 @@ fun ScheduleSettingsContentFixed(
         enableWindowDim = false,
         backgroundColor = ComposeColor.Transparent,
         forceCenter = true,
-        surfaceModifier = quickSheetBackdropModifier(
+        surfaceModifier = Modifier.quickSheetBackdropModifier(
             backdrop = periodPickerBackdrop,
             config = state.config,
             blurRadius = 28.dp,
@@ -2944,44 +3252,26 @@ fun ScheduleSettingsContentFixed(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             val compactPickerStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(fontSize = 22.sp)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = pickerStartHour,
-                    onValueChange = { pickerStartHour = it },
-                    range = 0..23,
-                    visibleItemCount = 3,
-                    label = { "%02d时".format(it) },
-                    textStyle = compactPickerStyle,
-                    modifier = Modifier.weight(1f)
-                )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = pickerStartMinute,
-                    onValueChange = { pickerStartMinute = it },
-                    range = 0..59,
-                    visibleItemCount = 3,
-                    label = { "%02d分".format(it) },
-                    textStyle = compactPickerStyle,
-                    modifier = Modifier.weight(1f)
-                )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = pickerEndHour,
-                    onValueChange = { pickerEndHour = it },
-                    range = 0..23,
-                    visibleItemCount = 3,
-                    label = { "%02d时".format(it) },
-                    textStyle = compactPickerStyle,
-                    modifier = Modifier.weight(1f)
-                )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = pickerEndMinute,
-                    onValueChange = { pickerEndMinute = it },
-                    range = 0..59,
-                    visibleItemCount = 3,
-                    label = { "%02d分".format(it) },
-                    textStyle = compactPickerStyle,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            val sortedPeriods = currentPeriods.sortedBy { it.periodIndex }
+            val editingPosition = sortedPeriods.indexOfFirst { it.periodIndex == editingPeriodIndex }
+            val pickerBounds = periodTimePickerBounds(
+                previousEnd = sortedPeriods.getOrNull(editingPosition - 1)?.endTime,
+                nextStart = sortedPeriods.getOrNull(editingPosition + 1)?.startTime
+            )
+            ConstrainedPeriodTimePickers(
+                startMinute = pickerStartHour * 60 + pickerStartMinute,
+                endMinute = pickerEndHour * 60 + pickerEndMinute,
+                bounds = pickerBounds,
+                onSelectionChange = { selection ->
+                    pickerStartHour = selection.startMinute / 60
+                    pickerStartMinute = selection.startMinute % 60
+                    pickerEndHour = selection.endMinute / 60
+                    pickerEndMinute = selection.endMinute % 60
+                },
+                textStyle = compactPickerStyle,
+                showSectionLabels = false,
+                modifier = Modifier.fillMaxWidth()
+            )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 QuickSheetLiquidAction(
                     "取消", true, periodPickerBackdrop, state.config,
@@ -2998,8 +3288,13 @@ fun ScheduleSettingsContentFixed(
                     "确定", true, periodPickerBackdrop, state.config, primary = true,
                     modifier = Modifier.weight(1f), height = 50.dp
                 ) {
-                    val startStr = "%02d:%02d".format(pickerStartHour.coerceIn(0, 23), pickerStartMinute.coerceIn(0, 59))
-                    val endStr = "%02d:%02d".format(pickerEndHour.coerceIn(0, 23), pickerEndMinute.coerceIn(0, 59))
+                    val selection = constrainPeriodTimeSelection(
+                        pickerStartHour * 60 + pickerStartMinute,
+                        pickerEndHour * 60 + pickerEndMinute,
+                        pickerBounds
+                    )
+                    val startStr = "%02d:%02d".format(selection.startMinute / 60, selection.startMinute % 60)
+                    val endStr = "%02d:%02d".format(selection.endMinute / 60, selection.endMinute % 60)
                     onPeriodsChange(currentPeriods.map {
                         if (it.periodIndex == editingPeriodIndex) it.copy(startTime = startStr, endTime = endStr) else it
                     })
@@ -3017,7 +3312,7 @@ fun ScheduleSettingsContentFixed(
         enableWindowDim = false,
         backgroundColor = ComposeColor.Transparent,
         forceCenter = true,
-        surfaceModifier = quickSheetBackdropModifier(
+        surfaceModifier = Modifier.quickSheetBackdropModifier(
             backdrop = lbPickerBackdrop,
             config = state.config,
             blurRadius = 28.dp,
@@ -3601,7 +3896,7 @@ private fun PeriodSchemeEditor(
         enableWindowDim = false,
         backgroundColor = ComposeColor.Transparent,
         forceCenter = true,
-        surfaceModifier = quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
+        surfaceModifier = Modifier.quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("总节次", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -3728,20 +4023,19 @@ private fun PeriodSchemeEditor(
         enableWindowDim = false,
         backgroundColor = ComposeColor.Transparent,
         forceCenter = true,
-        surfaceModifier = quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
+        surfaceModifier = Modifier.quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            fun formatStartMinute(value: Int) = "%02d:%02d".format(value / 60, value % 60)
+            val requestedStarts = mapOf(
+                PeriodDayPart.MORNING to morningStartMinute,
+                PeriodDayPart.NOON to noonStartMinute,
+                PeriodDayPart.AFTERNOON to afternoonStartMinute,
+                PeriodDayPart.EVENING to eveningStartMinute
+            )
+            val constrainedStarts = constrainAutomaticPartStarts(config, active, requestedStarts)
+            val partSpans = enabledParts.associateWith { automaticPartSpanMinutes(config, active, it) }
             BoxWithConstraints(Modifier.fillMaxWidth()) {
-                fun formatStartMinute(value: Int) = "%02d:%02d".format(value / 60, value % 60)
-                val pickerDraft = active.copy(
-                    scheme = active.scheme.copy(
-                        morningStartTime = formatStartMinute(morningStartMinute),
-                        noonStartTime = formatStartMinute(noonStartMinute),
-                        afternoonStartTime = formatStartMinute(afternoonStartMinute),
-                        eveningStartTime = formatStartMinute(eveningStartMinute)
-                    )
-                )
-                val pickerResolvedByIndex = resolveSchemeTimes(config, pickerDraft).associateBy { it.periodIndex }
                 val fontScale = LocalDensity.current.fontScale
                 val columnWidth = maxWidth / enabledParts.size.coerceAtLeast(1)
                 val pickerStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
@@ -3753,24 +4047,16 @@ private fun PeriodSchemeEditor(
                 )
                 Row(Modifier.fillMaxWidth()) {
                     enabledParts.forEach { part ->
-                        val rawValue = when (part) {
-                            PeriodDayPart.MORNING -> morningStartMinute
-                            PeriodDayPart.NOON -> noonStartMinute
-                            PeriodDayPart.AFTERNOON -> afternoonStartMinute
-                            PeriodDayPart.EVENING -> eveningStartMinute
-                        }
-                        val previousPart = enabledParts.getOrNull(enabledParts.indexOf(part) - 1)
-                        val minimumMinute = previousPart
-                            ?.let(config::periodRange)
-                            ?.lastOrNull()
-                            ?.let(pickerResolvedByIndex::get)
-                            ?.endTime
-                            ?.split(":")
-                            ?.takeIf { it.size == 2 }
-                            ?.let { it[0].toIntOrNull()?.times(60)?.plus(it[1].toIntOrNull() ?: 0) }
-                            ?.coerceIn(0, 1439)
-                            ?: 0
-                        val value = rawValue.coerceIn(minimumMinute, 1439)
+                        val partPosition = enabledParts.indexOf(part)
+                        val previousPart = enabledParts.getOrNull(partPosition - 1)
+                        val minimumMinute = previousPart?.let {
+                            constrainedStarts.getValue(it) + partSpans.getValue(it)
+                        }?.coerceIn(0, LastMinuteOfDay) ?: 0
+                        val remainingSpan = enabledParts.drop(partPosition).sumOf { partSpans.getValue(it) }
+                        val maximumMinute = (LastMinuteOfDay - remainingSpan)
+                            .coerceAtLeast(minimumMinute)
+                            .coerceAtMost(LastMinuteOfDay)
+                        val value = constrainedStarts.getValue(part).coerceIn(minimumMinute, maximumMinute)
                         val name = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.NOON -> "中午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
                         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -3784,7 +4070,7 @@ private fun PeriodSchemeEditor(
                                         PeriodDayPart.EVENING -> eveningStartMinute = changed
                                     }
                                 },
-                                range = minimumMinute..1439,
+                                range = minimumMinute..maximumMinute,
                                 visibleItemCount = 3,
                                 label = { minute -> "%02d:%02d".format(minute / 60, minute % 60) },
                                 textStyle = pickerStyle,
@@ -3799,13 +4085,12 @@ private fun PeriodSchemeEditor(
                     showSegmentStartPicker = false
                 }
                 QuickSheetLiquidAction("确定", true, popupBackdrop, state.config, primary = true, modifier = Modifier.weight(1f), height = 48.dp) {
-                    fun formatMinute(value: Int) = "%02d:%02d".format(value / 60, value % 60)
                     val candidate = normalizeAutoSchemeStarts(config, active.copy(
                         scheme = active.scheme.copy(
-                            morningStartTime = formatMinute(morningStartMinute),
-                            noonStartTime = formatMinute(noonStartMinute),
-                            afternoonStartTime = formatMinute(afternoonStartMinute),
-                            eveningStartTime = formatMinute(eveningStartMinute)
+                            morningStartTime = formatStartMinute(constrainedStarts[PeriodDayPart.MORNING] ?: morningStartMinute),
+                            noonStartTime = formatStartMinute(constrainedStarts[PeriodDayPart.NOON] ?: noonStartMinute),
+                            afternoonStartTime = formatStartMinute(constrainedStarts[PeriodDayPart.AFTERNOON] ?: afternoonStartMinute),
+                            eveningStartTime = formatStartMinute(constrainedStarts[PeriodDayPart.EVENING] ?: eveningStartMinute)
                         )
                     ))
                     val conflict = validateResolvedPeriodTimes(candidate.times)
@@ -3825,9 +4110,15 @@ private fun PeriodSchemeEditor(
         enableWindowDim = false,
         backgroundColor = ComposeColor.Transparent,
         forceCenter = true,
-        surfaceModifier = quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
+        surfaceModifier = Modifier.quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            val resolvedPickerTimes = resolveSchemeTimes(config, active).sortedBy { it.periodIndex }
+            val editingPosition = resolvedPickerTimes.indexOfFirst { it.periodIndex == editingPeriod }
+            val pickerBounds = periodTimePickerBounds(
+                previousEnd = resolvedPickerTimes.getOrNull(editingPosition - 1)?.endTime,
+                nextStart = resolvedPickerTimes.getOrNull(editingPosition + 1)?.startTime
+            )
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val columnCount = if (editingPeriod > 0) 4 else 2
                 val fontScale = LocalDensity.current.fontScale
@@ -3840,22 +4131,20 @@ private fun PeriodSchemeEditor(
                     }
                 )
                 if (editingPeriod > 0) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("开始时间", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(Modifier.fillMaxWidth()) {
-                                top.yukonga.miuix.kmp.basic.NumberPicker(value = pickerStartHour, onValueChange = { pickerStartHour = it }, range = 0..23, visibleItemCount = 3, label = { "%02d时".format(it) }, textStyle = pickerStyle, modifier = Modifier.weight(1f))
-                                top.yukonga.miuix.kmp.basic.NumberPicker(value = pickerStartMinute, onValueChange = { pickerStartMinute = it }, range = 0..59, visibleItemCount = 3, label = { "%02d分".format(it) }, textStyle = pickerStyle, modifier = Modifier.weight(1f))
-                            }
-                        }
-                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("结束时间", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(Modifier.fillMaxWidth()) {
-                                top.yukonga.miuix.kmp.basic.NumberPicker(value = pickerEndHour, onValueChange = { pickerEndHour = it }, range = 0..23, visibleItemCount = 3, label = { "%02d时".format(it) }, textStyle = pickerStyle, modifier = Modifier.weight(1f))
-                                top.yukonga.miuix.kmp.basic.NumberPicker(value = pickerEndMinute, onValueChange = { pickerEndMinute = it }, range = 0..59, visibleItemCount = 3, label = { "%02d分".format(it) }, textStyle = pickerStyle, modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
+                    ConstrainedPeriodTimePickers(
+                        startMinute = pickerStartHour * 60 + pickerStartMinute,
+                        endMinute = pickerEndHour * 60 + pickerEndMinute,
+                        bounds = pickerBounds,
+                        onSelectionChange = { selection ->
+                            pickerStartHour = selection.startMinute / 60
+                            pickerStartMinute = selection.startMinute % 60
+                            pickerEndHour = selection.endMinute / 60
+                            pickerEndMinute = selection.endMinute % 60
+                        },
+                        textStyle = pickerStyle,
+                        showSectionLabels = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 } else {
                     Row(Modifier.fillMaxWidth()) {
                         top.yukonga.miuix.kmp.basic.NumberPicker(value = pickerStartHour, onValueChange = { pickerStartHour = it }, range = 0..23, visibleItemCount = 3, label = { "%02d时".format(it) }, textStyle = pickerStyle, modifier = Modifier.weight(1f))
@@ -3877,9 +4166,14 @@ private fun PeriodSchemeEditor(
                     }
                 }
                 QuickSheetLiquidAction("确定", true, popupBackdrop, state.config, primary = true, modifier = Modifier.weight(1f), height = 48.dp) {
-                    val start = "%02d:%02d".format(pickerStartHour, pickerStartMinute)
                     if (editingPeriod > 0) {
-                        val end = "%02d:%02d".format(pickerEndHour, pickerEndMinute)
+                        val selection = constrainPeriodTimeSelection(
+                            pickerStartHour * 60 + pickerStartMinute,
+                            pickerEndHour * 60 + pickerEndMinute,
+                            pickerBounds
+                        )
+                        val start = "%02d:%02d".format(selection.startMinute / 60, selection.startMinute % 60)
+                        val end = "%02d:%02d".format(selection.endMinute / 60, selection.endMinute % 60)
                         val updated = active.times.filterNot { it.periodIndex == editingPeriod } +
                             PeriodSchemeTimeEntity(active.scheme.id, editingPeriod, start, end)
                         val candidate = active.copy(
@@ -3894,6 +4188,7 @@ private fun PeriodSchemeEditor(
                             showTimePicker = false
                         }
                     } else editingPart?.let { part ->
+                        val start = "%02d:%02d".format(pickerStartHour, pickerStartMinute)
                         val scheme = when (part) {
                             PeriodDayPart.MORNING -> active.scheme.copy(morningStartTime = start)
                             PeriodDayPart.NOON -> active.scheme.copy(noonStartTime = start)
@@ -3921,7 +4216,7 @@ private fun PeriodSchemeEditor(
         enableWindowDim = false,
         backgroundColor = ComposeColor.Transparent,
         forceCenter = true,
-        surfaceModifier = quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
+        surfaceModifier = Modifier.quickSheetBackdropModifier(popupBackdrop, state.config, 28.dp, centered = true)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -4203,6 +4498,9 @@ fun ScheduleConfigScreen(
                 val end = ScheduleImportParser.parseTimeForUi(it.endTime)
                 require(start < end) { "第" + it.periodIndex + "节结束时间必须晚于开始时间" }
             }
+            validateResolvedPeriodTimes(
+                nextPeriods.map { PeriodSchemeTimeEntity(0, it.periodIndex, it.startTime, it.endTime) }
+            )?.let { throw IllegalArgumentException(it) }
             // Keep the stored manual week as a fallback. The visible automatic week
             // is derived from the date at render time and must not turn an upcoming
             // term into a persisted "week 1" merely because settings were saved.
@@ -4452,41 +4750,13 @@ private fun autoMatchPeriodTimes(
     }
 }
 
-@Composable
-fun SettingsSectionSwitch(selected: SettingsSection, onSelected: (SettingsSection) -> Unit) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(
-            "课表设置",
-            modifier = Modifier
-                .clip(RoundedCornerShape(50))
-                .background(if (selected == SettingsSection.Schedule) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
-                .clickable { onSelected(SettingsSection.Schedule) }
-                .padding(horizontal = 14.dp, vertical = 8.dp)
-        )
-        Text(
-            "通知设置",
-            modifier = Modifier
-                .clip(RoundedCornerShape(50))
-                .background(if (selected == SettingsSection.Notifications) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
-                .clickable { onSelected(SettingsSection.Notifications) }
-                .padding(horizontal = 14.dp, vertical = 8.dp)
-        )
-    }
-}
-
 fun openKeepAliveSettings(context: Context) {
     val intents = listOf(
         Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
         Intent().setComponent(ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerUsageModelActivity")),
         Intent().setComponent(ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")),
         Intent().setComponent(ComponentName("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity")),
-        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())
     )
     intents.firstOrNull { intent ->
         runCatching {
@@ -4501,34 +4771,16 @@ private fun openBatteryOptimizationSettings(context: Context) {
         context.startActivity(
             Intent(
                 Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                Uri.parse("package:${context.packageName}")
+                "package:${context.packageName}".toUri()
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
     }.onFailure {
         context.startActivity(
             Intent(
                 Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.parse("package:${context.packageName}")
+                "package:${context.packageName}".toUri()
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun <T> ChoiceRow(values: List<T>, selected: T, onSelected: (T) -> Unit, label: (T) -> String) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        values.forEach { value -> FilterChip(selected = value == selected, onClick = { onSelected(value) }, label = { Text(label(value)) }) }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun MultiChoiceRow(values: List<Int>, selected: Set<Int>, onSelected: (Set<Int>) -> Unit, label: (Int) -> String) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        values.forEach { value ->
-            FilterChip(selected = value in selected, onClick = { onSelected(if (value in selected) selected - value else selected + value) }, label = { Text(label(value)) })
-        }
     }
 }
 

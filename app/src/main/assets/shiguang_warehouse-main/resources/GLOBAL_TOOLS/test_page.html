@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>SleepDown 教务导入测试页</title>
+    <title>SleepDown 通用教务导入自检</title>
     <style>
         :root {
             color-scheme: light dark;
@@ -41,10 +41,11 @@
 </head>
 <body>
 <main>
-    <h1>教务导入桥接测试页</h1>
-    <p>这个页面不访问校园网，用来运行仓库里的组件测试脚本。</p>
+    <h1>通用教务导入自检</h1>
+    <p>这个页面不访问校园网，也不会读取你的真实课表。</p>
     <div class="card">
-        <p>点击右下角导入按钮后，会依次测试弹窗、输入、单选、课程数据、时间段和配置保存。</p>
+        <p>点击右下角导入按钮后，将生成 4 门测试课程和 12 节标准作息，用来检查课程、周次、节次与时间映射。</p>
+        <p>出现导入预览即表示链路正常。返回或点击“取消”不会写入数据；只有在预览页再次确认才会创建或覆盖课表。</p>
         <p>脚本路径：<code>GLOBAL_TOOLS/school.js</code></p>
     </div>
 </main>

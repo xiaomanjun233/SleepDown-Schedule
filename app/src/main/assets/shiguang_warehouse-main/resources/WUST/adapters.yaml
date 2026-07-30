@@ -1,0 +1,9 @@
+# resources/WUST/adapters.yaml
+adapters:
+  - adapter_id: "WUST_01"
+    adapter_name: "武汉科技大学本科教务"
+    category: "BACHELOR_AND_ASSOCIATE"
+    asset_js_path: "wust_01.js"
+    import_url: "https://bkjx.wust.edu.cn/jsxsd/"
+    maintainer: "xsddszrc"
+    description: "适配武汉科技大学强智教务。登录后进入学期理论课表再执行导入；默认使用黄家湖校区作息，页面含青山校区信息时会自动切换上午作息"

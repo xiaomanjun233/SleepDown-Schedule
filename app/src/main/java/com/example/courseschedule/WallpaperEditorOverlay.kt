@@ -67,12 +67,13 @@ import kotlinx.coroutines.withContext
 private val WallpaperMorphEasing = CubicBezierEasing(0.3f, 0.72f, 0.2f, 1f)
 
 @Composable
-fun WallpaperEditorOverlay(
+internal fun WallpaperEditorOverlay(
     uri: Uri,
     entrySnapshot: Bitmap?,
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     visible: Boolean,
+    adaptiveMetrics: HomeAdaptiveMetrics,
     onCancel: () -> Unit,
     onApply: (ScheduleConfigEntity) -> Unit,
     modifier: Modifier = Modifier
@@ -150,10 +151,18 @@ fun WallpaperEditorOverlay(
     ) {
         val aspect = remember(context, orientation) { calculateWallpaperPreviewAspect(context, orientation) }
         val availableHeight = (maxHeight - 250.dp).coerceAtLeast(280.dp)
-        val desiredWidth = minOf(
-            if (orientation == WallpaperPreviewOrientation.Portrait) maxWidth * 0.70f else maxWidth * 0.88f,
-            availableHeight * aspect
-        ).coerceAtLeast(210.dp)
+        val desiredWidth = if (adaptiveMetrics.isLargeScreen) {
+            minOf(
+                if (orientation == WallpaperPreviewOrientation.Portrait) maxWidth * 0.42f else maxWidth * 0.62f,
+                availableHeight * aspect,
+                if (orientation == WallpaperPreviewOrientation.Portrait) 460.dp else 760.dp
+            ).coerceAtLeast(210.dp)
+        } else {
+            minOf(
+                if (orientation == WallpaperPreviewOrientation.Portrait) maxWidth * 0.70f else maxWidth * 0.88f,
+                availableHeight * aspect
+            ).coerceAtLeast(210.dp)
+        }
         val targetWidth by animateDpAsState(desiredWidth, tween(460, easing = WallpaperMorphEasing), label = "wallpaperTargetWidth")
         val targetHeight by animateDpAsState(desiredWidth / aspect, tween(460, easing = WallpaperMorphEasing), label = "wallpaperTargetHeight")
         val cardWidth = maxWidth + (targetWidth - maxWidth) * p

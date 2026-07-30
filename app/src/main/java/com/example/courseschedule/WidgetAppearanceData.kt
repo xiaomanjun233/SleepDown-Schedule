@@ -169,23 +169,16 @@ class WidgetAppearanceRepository(
     }
 
     suspend fun persistSelectedImage(uri: Uri): Uri? {
-        val directory = File(context.filesDir, "widget_wallpaper").apply { mkdirs() }
-        val extension = runCatching {
-            context.contentResolver.getType(uri)?.substringAfterLast('/')?.takeIf(String::isNotBlank)
-        }.getOrNull() ?: "jpg"
-        val output = File(directory, "widget_${System.currentTimeMillis()}.$extension")
-        return runCatching {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                output.outputStream().use(input::copyTo)
-            } ?: return null
-            Uri.fromFile(output)
-        }.getOrElse {
-            output.delete()
-            null
-        }
+        return persistManagedWallpaperImage(
+            context = context,
+            uri = uri,
+            directoryName = "widget_wallpaper",
+            filePrefix = "widget",
+            maxDimension = 2200
+        )
     }
 
-    private suspend fun cleanupUnreferencedFiles() {
+    internal suspend fun cleanupUnreferencedFiles() {
         val directory = File(context.filesDir, "widget_wallpaper")
         val files = directory.listFiles().orEmpty()
         val unused = unreferencedWidgetWallpaperUris(dao.getAll(), files.map { Uri.fromFile(it).toString() })
