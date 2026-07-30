@@ -1,50 +1,67 @@
 # SleepDown 课程表
 
-可能是安卓首个液态玻璃课程表 APP。
+> 一款本地优先、无广告的 Android 课程表。把日常课表、提醒、导入、桌面组件和液态玻璃界面放在同一个顺手的应用里。
 
-SleepDown 课程表是一款注重视觉体验和日常效率的本地课程表应用。它不仅能管理课程、提醒上课，还加入了液态玻璃界面、自定义壁纸、实时活动、桌面小组件、AI 辅助导入和教务系统导入等功能，让课程表更好看，也更顺手，最重要的是无广告。
+SleepDown 课程表当前版本为 **1.1.0**。应用使用 Jetpack Compose 构建，最低支持 Android 8.0（API 26）。课表和偏好默认只保存在设备本地；仅在你主动使用 AI 导入、今日助手天气或版本更新时才会访问相应的网络服务。
 
-## 特色功能
+## 功能一览
 
-- **液态玻璃界面** — 应用内 Dock、按钮、弹窗、课程卡片等元素采用 LiquidGlass 风格设计，支持浅色、深色和壁纸环境下的自适应玻璃效果（液态玻璃来自 [@Kyant0](https://github.com/Kyant0) 的开源项目）
-- **喊你上课岛** — 在支持安卓实时活动 API 的系统上（原生 Android 16、Xiaomi HyperOS 3.0.300 以上、ColorOS 16、荣耀magicOS 10），可将即将上课的信息上岛提醒，并支持取消本次提醒、开启或关闭勿扰模式
-- **自定义岛上缩略态** — 实时活动缩略态可选择显示上课地点、剩余时间、短标签模式
-- **AI 课表导入** — 支持在应用内配置 OpenAI、DeepSeek、小米 MiMo 或多个自定义兼容接口，直接解析文本、PDF 和图片；不同模型的输入能力以设置页提示为准
-- **教务系统导入** — 支持通过学校教务系统网页导入课程，并可手动修改网址；适配脚本无法覆盖时，可在确认页选择发送网页文本或识屏截图给 AI 兜底解析（教务系统导入来自 [@拾光开发者](https://github.com/xingheyuzhuan) 的开源项目）
-- **今日智能助手** — 可按需读取当前课表、节次、设置与天气生成建议，课程和设置修改会先展示计划并等待确认
-- **个性化课程卡片** — 支持调整课程卡片颜色、透明度、液态玻璃效果和周视图卡片高度
-- **桌面小组件** — 可在桌面查看当日课程
-- **Beta 诊断日志** — 内置日志导出功能，方便定位实时活动、闪退和导入问题
+### 课表与日常使用
 
-## 基础使用
+- 日视图与周视图：按当前教学周展示课程，支持自定义学期起始日、总周数、当前周和节次时间。
+- 自动周次：开启后按学期开始日期自动推算当前周，并正确处理开学前、教学中和学期结束后的边界。
+- 灵活编辑：支持新增、编辑、删除课程；可单独修改某一周，也可同步修改同类课程。
+- 冲突提醒与处理：变更星期、节次或周次时会提示新增冲突；可跳转到冲突周，并把课程移动到最近的空闲位置。
+- 导入预览：所有导入结果都先经过本地校验并显示预览，确认前不会覆盖现有课表。
+- ICS 支持：可通过文件打开或分享方式导入 `.ics` 日历课表。
 
-首次打开应用后，建议先进入"设置 > 课表设置"，配置总周数、当前周、学期开始日期和节次时间（导入课表后将自动设置部分信息）。开启"自动计算当前周"后，应用会根据学期开始日期自动判断当前是第几周。
+### 导入方式
 
-点击首页右上角加号，可以添加单节课或进行手动导入。编辑已有课程时，可选择只修改当前课程，或同步修改同类课程。
+- 手动导入：粘贴课程文本或按界面逐项录入。
+- AI 课表导入：可解析 TXT、CSV、图片和 PDF；PDF 会优先提取文本，必要时再由支持视觉输入的模型识别页面图像。
+- 教务系统导入：内置学校适配资源，支持登录教务网页、抓取课表并导入。默认适配无法覆盖时，可在确认后将页面文本或截图交给 AI 解析。
+- 多 AI 服务：内置 OpenAI、DeepSeek、小米 MiMo 和自定义 OpenAI 兼容接口入口；扩展列表还包含多家预设服务。不同模型是否支持图片、PDF 原文件、流式回复和工具调用，以应用设置页的能力提示及服务商实际限制为准。
 
-## 课表导入
+### 提醒、组件与更新
 
-手动导入既可以粘贴标准课表口令，也可以在配置 AI 服务后直接选择 PDF 或图片。应用会展示请求摘要、处理步骤和模型返回内容，并在本地校验通过后进入导入预览；确认预览前不会写入现有课表。
+- 课程提醒：可设置提前提醒时间，支持普通通知或系统支持时的实时活动样式；实时活动内可提供勿扰和取消本次提醒等操作。
+- 今日课程组件：提供 4×2 和 2×2 两种今日课程组件。
+- 今日助手组件：在桌面展示课程、天气与预警摘要。
+- 组件个性化：三种组件均可分别设置背景图、取景、缩放、模糊和亮度，并在保存前预览。
+- 应用更新：应用可检查并下载 Gitee Release 中的最新 APK；是否自动检查可在设置中控制。
 
-教务系统导入可从学校列表进入。如果默认网址无法访问，可以在顶部网址栏手动修改教务系统地址。使用 AI 兜底时，应用会先展示准备发送的页面文本和截图，由用户确认后才发起请求。
+### 今日智能助手
 
-AI 服务配置和 API Key 保存在本机应用存储中。使用第三方或自定义接口时，请同时遵循对应服务商的隐私政策和数据处理规则。
+- 按需读取当前日期、教学周、当日/本周课表、节次、应用设置及可选天气信息，生成日程建议。
+- 支持流式回复、图片附件和可开关、查看、编辑的本地长期记忆。
+- 涉及修改课程或设置时，先展示执行计划，须经确认后才会写入本地数据。
 
-## 提醒与实时活动
+### 外观与体验
 
-在"设置 > 通知设置"中可开启课程提醒，设置提前提醒分钟数，并选择普通通知或实时活动。实时活动目前仅支持原生安卓系统、ColorOS 16、HyperOS 3.0.300 以上版本。为保证稳定通知，需要允许通知，并打开允许后台运行（或锁定后台）、关闭电池优化或允许自启动（这些设置都可能增加手机的耗电）。
+- 自适应液态玻璃：Dock、按钮、弹窗和课程卡片使用基于 backdrop 的玻璃渲染，并适配浅色、深色与壁纸背景。
+- 个性化：首页壁纸支持独立横竖屏取景、缩放、模糊和亮度；可调整课程卡片配色、透明度、玻璃效果、周视图卡片高度和 Dock 位置。
+- 动画与性能：课程卡片、编辑弹窗、加号菜单及导入页使用连续转场；项目提供 Macrobenchmark 和 Baseline Profile 配置用于启动与交互性能验证。
+- Beta 诊断日志：可导出日志，便于定位实时活动、导入和闪退问题。
 
-## 个性化
+## 开始使用
 
-首页个性化菜单中可以设置壁纸、壁纸模糊、亮度、课程卡片颜色、课程卡片玻璃效果和 Dock 栏位置。
+1. 首次进入应用后，打开“设置 → 课表设置”，配置总周数、学期开始日期和节次时间。
+2. 在首页右上角添加课程，或选择手动导入、AI 导入、教务系统导入、ICS 文件导入。
+3. 在“设置 → 通知设置”开启课程提醒。为了可靠到达，Android 设备通常还需要允许通知、后台运行/自启动，并按系统情况关闭电池优化。
+4. 若启用 AI，请在设置中选定服务商、模型和输入能力后填写自己的 API Key。密钥保存在本机应用私有存储中，课表内容会按你确认的请求发送给所选服务商。
 
-## 数据说明
+> 实时活动的展示能力取决于手机厂商和系统版本。请以设备实际的通知权限、实时活动支持和后台限制为准。
 
-SleepDown 课程表主要数据保存在本机，不依赖云端同步。卸载应用可能会清除课表和设置数据，重要课表建议保留原始导入文本或自行备份。
+## 数据与隐私
 
-## 获取源码与版本策略
+- 课表、设置、壁纸取景和助手记忆使用本地 Room 数据库或应用私有存储保存，不提供云同步。
+- 卸载应用可能清除本地数据；重要课表建议保留原始导入文件或自行备份。
+- AI 导入、AI 助手和天气功能会把实现该功能所需的数据发送到你选择的服务端；请确认服务商的隐私政策、计费规则和数据处理条款。
+- 教务系统登录在 WebView/Custom Tabs 流程中完成；请只在可信的学校站点输入账号与密码。
 
-GitHub 和 Gitee 镜像使用同一套提交历史，默认分支均为 `main`：
+## 获取项目
+
+两个代码托管平台保持同一份 `main` 分支代码：
 
 ```bash
 # GitHub
@@ -54,146 +71,105 @@ git clone https://github.com/xiaomanjun233/SleepDown-Schedule.git
 git clone https://gitee.com/xiaomanjun233/SleepDown-Schedule.git
 ```
 
-- `main` 始终指向已经验证的最新稳定代码，普通使用者和构建者只需 clone 默认分支。
-- 正式版本使用 `v<版本号>` 标签（例如 `v1.1.0`），标签用于复现已发布版本。
-- `feature/*`、`fix/*`、`release/*` 或 `codex/*` 为临时开发分支；完成验证并合入 `main` 后即可删除，不作为长期下载入口。
-- 功能开发采用短分支和 Pull Request / Merge Request，避免直接改写 `main` 历史。
+- `main`：已验证的最新稳定代码。
+- `v<版本号>`：正式发布版本标签，例如 `v1.1.0`。
+- `feature/*`、`fix/*`、`release/*`、`codex/*`：短期开发分支，不作为长期下载入口。
 
-## 项目结构
+## 构建源码
 
-```
-CourseSchedule/
-├── app/
-│   ├── build.gradle.kts                          # 应用构建、依赖与签名配置
-│   └── src/main/
-│       ├── AndroidManifest.xml
-│       ├── assets/
-│       │   └── shiguang_warehouse-main/          # 教务适配资源（来自上游仓库）
-│       ├── java/com/example/courseschedule/
-│       │   ├── MainActivity.kt                   # 应用入口
-│       │   ├── ScheduleUi.kt                     # 主界面编排、导航与公共页面
-│       │   ├── HomeScheduleUi.kt                 # 首页日视图与周视图入口
-│       │   ├── WeekScheduleUi.kt                 # 周课表、冲突处理与拖拽编辑
-│       │   ├── SettingsUi.kt                     # 设置与课表详细配置
-│       │   ├── ImportUi.kt                       # 手动、AI 与教务导入界面
-│       │   ├── Data.kt                           # Room 实体、DAO、迁移与 Repository
-│       │   ├── ScheduleViewModel.kt              # UI 状态与写入协调
-│       │   ├── ScheduleLogic.kt                  # 课表计算与通知调度
-│       │   ├── DayAgent*.kt / Agent*.kt          # 今日助手、工具协议与执行
-│       │   ├── GlassUi.kt / *Morph*.kt           # 液态玻璃与转场实现
-│       │   ├── EduImport.kt / EduPageCapture.kt  # 教务适配与网页识屏
-│       │   └── *Widget*.kt                       # 桌面小组件与个性化
-│       ├── java/com/kyant/
-│       │   └── backdrop/catalog/                 # 基于上游修改的内嵌 UI 组件
-│       └── res/
-├── benchmark/                                    # Macrobenchmark 与基准配置
-├── docs/                                         # 性能基线、版本说明与开发文档
-├── gradle/wrapper/
-├── THIRD_PARTY_NOTICES.md                        # 第三方代码与许可证说明
-├── build.gradle.kts / settings.gradle.kts        # 根构建与仓库配置
-└── gradlew / gradlew.bat                         # Gradle Wrapper 9.6.1
-```
+### 环境
 
-## 技术栈
-
-| 类别 | 库 |
-|------|-----|
-| UI 框架 | Jetpack Compose + Material 3 |
-| 数据库 | Room + KSP |
-| 序列化 | Kotlin Serialization |
-| 玻璃渲染 | kyant/backdrop + 自定义 drawBackdrop 管线 |
-| 设置组件 | compose-miuix-ui/miuix |
-| 教务适配 | shiguang_warehouse（assets 内嵌） |
-| 浏览器 | AndroidX Browser（Custom Tabs） |
-| 桌面小组件 | RemoteViews |
-
-## 构建
-
-环境要求：
-
-- JDK 17
-- Android SDK 37（`targetSdk` 为 36，`minSdk` 为 26）
-- 使用仓库自带的 Gradle Wrapper 9.6.1
-
-```bash
-# macOS / Linux
-./gradlew assembleDebug
-
-# Windows
-gradlew.bat assembleDebug
-```
-
-| 配置 | 值 |
-|------|-----|
-| compileSdk | 37 |
-| minSdk | 26 |
-| targetSdk | 36 |
+| 项目 | 当前配置 |
+| --- | --- |
+| JDK | 17 |
+| Gradle Wrapper | 9.6.1 |
 | Android Gradle Plugin | 9.2.1 |
 | Kotlin | 2.3.10 |
-| JDK | 17 |
+| compileSdk | 37 |
+| minSdk / targetSdk | 26 / 36 |
 
-项目在 Miuix 0.9.3 上维护了一个很小的透明补丁，用于让弹窗和底部面板的自定义玻璃材质与原动画处于同一渲染节点，并支持手机上的居中弹窗。首次构建前准备相邻的源码依赖：
+项目默认使用经过补丁处理的 Miuix 0.9.3 源码组合构建。首次构建前，在项目同级目录准备该源码并应用仓库中的补丁：
 
 ```bash
 git clone --branch v0.9.3 https://github.com/compose-miuix-ui/miuix.git ../miuix-reference
 git -C ../miuix-reference apply ../CourseSchedule/patches/miuix-0.9.3-sleepdown.patch
 ```
 
-`settings.gradle.kts` 会自动使用 `../miuix-reference`。也可以通过 `sleepdown.miuixSourcePath` 指向已应用同一补丁的其他目录。补丁文件受版本控制，避免依赖某台电脑上不可见的第三方源码改动。
+然后执行：
 
-需要本地 Maven 镜像或不同的 Miuix 源码目录时，在用户级 `~/.gradle/gradle.properties` 中设置（不要提交个人绝对路径）：
+```bash
+# Windows
+gradlew.bat assembleDebug
 
-```properties
-sleepdown.localMavenPath=/absolute/path/to/local-maven
-sleepdown.miuixSourcePath=/absolute/path/to/miuix
+# macOS / Linux
+./gradlew assembleDebug
 ```
 
-本地未配置发布证书时，`release` 构建回退到 Android 调试签名以便安装测试。正式发布通过用户级 Gradle 属性或 CI Secret 提供 `sleepdown.releaseStoreFile`、`sleepdown.releaseStorePassword`、`sleepdown.releaseKeyAlias` 和 `sleepdown.releaseKeyPassword`。
+`settings.gradle.kts` 默认查找 `../miuix-reference`。如果源码位于其他位置，可在用户级 `~/.gradle/gradle.properties` 设置（不要提交个人绝对路径）：
 
-## 引用与修改说明
+```properties
+sleepdown.miuixSourcePath=/absolute/path/to/miuix
+# 可选：设为 false，改为直接解析远程 Miuix 依赖
+sleepdown.useLocalMiuix=false
+# 可选：本地 Maven 镜像
+sleepdown.localMavenPath=/absolute/path/to/local-maven
+```
 
-### [kyant/backdrop](https://github.com/Kyant0/backdrop) — 液态玻璃渲染引擎
+未配置发布签名时，`release` 构建会回退到调试签名，便于本地安装验证。正式发布请在用户级 Gradle 属性或 CI Secret 中提供：
 
-- `io.github.kyant0:backdrop:2.0.0-alpha03` 提供 `Backdrop` 和 `drawBackdrop` 渲染管线
-- `com.kyant.backdrop.catalog.*` 内嵌了上游 UI 组件（LiquidButton、LiquidPanel、LiquidSlider、LiquidToggle、LiquidBottomTab/Tabs）及交互工具类
-- 在此基础上扩展了 `GlassSurface`、`GlassPill`、`GlassLens`、`GlassDialogSurface`、`CourseGlassCard` 等自定义玻璃组件
-- `GlassTokens` 封装了 Pill / Dialog / CourseCard 三种场景的模糊、透镜、表面透明度和边框透明度参数预设
-- `CourseGlassCard` 额外应用了 `vibrancy()` 效果和配置驱动的动态模糊/透镜参数
+```properties
+sleepdown.releaseStoreFile=/path/to/keystore
+sleepdown.releaseStorePassword=...
+sleepdown.releaseKeyAlias=...
+sleepdown.releaseKeyPassword=...
+```
 
-### [compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix) — 设置页与教务导入组件
+## 项目结构
 
-- 使用 `miuix-ui-android:0.9.3` 与 `miuix-preference-android:0.9.3`
-- 本项目将 Miuix 布局和交互组件与现有液态玻璃表面组合使用
-- Miuix blur 模块未引入；本地组合构建只替换上述两个依赖
-- `patches/miuix-0.9.3-sleepdown.patch` 记录了 `surfaceModifier` 与 `forceCenter` 扩展，未改动其他 Miuix 行为
+```text
+CourseSchedule/
+├── app/
+│   ├── src/main/java/com/example/courseschedule/
+│   │   ├── MainActivity.kt                  # 应用入口与页面容器
+│   │   ├── Data.kt                          # Room 实体、DAO、迁移和 Repository
+│   │   ├── Schedule*.kt                     # 课表状态、逻辑、选择器与刷新协调
+│   │   ├── *ScheduleUi.kt                   # 首页、周视图、编辑与设置界面
+│   │   ├── AiImport.kt / ImportUi.kt        # AI、文件与手动导入
+│   │   ├── EduImport.kt / EduPageCapture.kt # 教务网页导入和页面抓取
+│   │   ├── DayAgent*.kt / Agent*.kt         # 今日助手、工具和服务端传输
+│   │   ├── *Widget*.kt                      # 桌面组件及其个性化
+│   │   └── GlassUi.kt / *Morph*.kt          # 玻璃材质与转场
+│   ├── src/main/assets/shiguang_warehouse-main/
+│   │                                        # 教务系统适配资源
+│   └── src/test/ / src/androidTest/          # 单元测试、迁移和仪器测试
+├── benchmark/                                # Macrobenchmark 与 Baseline Profile
+├── docs/                                     # 版本说明、性能基线和节次方案文档
+├── patches/miuix-0.9.3-sleepdown.patch      # Miuix 组合构建补丁
+├── THIRD_PARTY_NOTICES.md                    # 第三方代码与许可声明
+└── gradlew / gradlew.bat                     # Gradle Wrapper
+```
 
-### [shiguang_warehouse](https://github.com/xingheyuzhuan/shiguang_warehouse) — 教务适配资源
+## 技术栈
 
-- `assets/shiguang_warehouse-main/` 内嵌了学校教务适配资源（YAML 配置 + JS 适配脚本）
-- `EduImport.kt` 通过 WebView 加载学校教务登录页，注入 JS 适配脚本自动抓取课表数据
-- 支持通过 Custom Tabs 进行 CAS/OAuth 登录流程
-- 适配器注册表由 `index/root_index.yaml` 索引，各校适配脚本位于 `resources/<学校代码>/`
+| 类别 | 主要实现 |
+| --- | --- |
+| UI | Jetpack Compose、Material 3、Miuix |
+| 数据 | Room、KSP、Kotlin Serialization |
+| 图形 | `kyant/backdrop`、自定义玻璃与动态模糊管线 |
+| 导入 | Android WebView / Custom Tabs、PDF Renderer、ICS 解析 |
+| 通知 | Alarm、Foreground Service、实时活动兼容逻辑 |
+| 桌面组件 | RemoteViews |
+| 性能 | Macrobenchmark、Baseline Profile |
 
-### 自定义动画体系
+## 第三方项目与许可证
 
-- **周视图甩尾动画** — `Animatable` + `spring()` 驱动 `graphicsLayer.translationX`，按行计算滞后系数实现分层拖尾
-- **课程卡片展开** — `drawWithContent` + `clipPath` + `RoundRect` 实现从卡片形状到弹窗全尺寸的裁剪遮罩过渡，跨分辨率坐标变换
-- **加号菜单变形** — `updateTransition` + `keyframes` 控制七属性同步变形（width/height/sinkOffset/radius/iconAlpha/contentAlpha/dynamicBlur）
-- **启动页圆形展开** — `Path` + `PathFillType.EvenOdd` 构造环形遮罩，从屏幕中心向外扩散至对角线消失
+- [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)：液态玻璃目录组件基础，Apache-2.0。
+- [compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix)：设置和教务导入页面组件，Apache-2.0。
+- [xingheyuzhuan/shiguang_warehouse](https://github.com/xingheyuzhuan/shiguang_warehouse)：教务系统适配资源，MIT。
+- AndroidX、Jetpack Compose、Kotlin Serialization 等依赖遵循各自许可证。
 
-## 开源引用
-
-本项目使用了以下开源项目：
-
-| 项目 | 作者 | 协议 | 用途 |
-|------|------|------|------|
-| [backdrop](https://github.com/Kyant0/backdrop) | Kyant0 | Apache 2.0 | 液态玻璃渲染引擎 |
-| [compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix) | compose-miuix-ui | Apache 2.0 | 设置页与教务导入组件 |
-| [shiguang_warehouse](https://github.com/xingheyuzhuan/shiguang_warehouse) | 星河欲转 / 拾光开发者 | MIT | 教务系统适配资源 |
-| [AndroidX / Jetpack](https://developer.android.com/jetpack) | Google | Apache 2.0 | UI 框架、数据库、生命周期 |
-| [Kotlin Serialization](https://github.com/Kotlin/kotlinx.serialization) | JetBrains | Apache 2.0 | JSON 序列化 |
-| [Material 3](https://m3.material.io) | Google | Apache 2.0 | 设计系统组件 |
+本项目对第三方代码的引用和修改范围见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 许可证
 
-本项目仅供学习与参考。第三方代码与资源继续遵循各自的原始许可证，具体修改与引用范围见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+本项目仅供学习与参考。仓库中的第三方代码和资源继续遵循其原始许可证。
