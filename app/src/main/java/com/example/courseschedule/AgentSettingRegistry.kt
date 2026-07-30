@@ -3,7 +3,6 @@ package com.example.courseschedule
 import android.content.Context
 import java.time.LocalDate
 import java.time.LocalTime
-import java.time.ZoneId
 
 data class AgentSettingDefinition(
     val key: String,
@@ -100,7 +99,7 @@ object AgentSettingRegistry {
         config: ScheduleConfigEntity,
         scheduleName: String?,
         context: Context? = null,
-        date: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+        date: LocalDate = LocalDate.now()
     ): Map<String, String> = linkedMapOf(
         "SCHEDULE_NAME" to scheduleName.orEmpty(),
         "TOTAL_WEEKS" to config.totalWeeks.toString(),

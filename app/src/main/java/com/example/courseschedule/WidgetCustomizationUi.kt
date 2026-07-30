@@ -473,7 +473,7 @@ private fun WidgetRemoteViewsPreview(
     var previewBackground by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(type, appearance, state, transparentBackground) {
         val rendered = withContext(Dispatchers.IO) {
-            val zone = ZoneId.of("Asia/Shanghai")
+            val zone = ZoneId.systemDefault()
             val today = LocalDate.now(zone)
             val now = LocalTime.now(zone)
             val targetDate = if (now >= LocalTime.of(22, 0)) today.plusDays(1) else today

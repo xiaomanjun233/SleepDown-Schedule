@@ -278,7 +278,6 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
 import java.time.LocalTime
-import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.io.File
 import java.net.HttpURLConnection
@@ -1336,9 +1335,9 @@ fun DayScheduleScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
-                    val isToday = targetDate == LocalDate.now(ZoneId.of("Asia/Shanghai"))
+                    val isToday = targetDate == LocalDate.now()
                     val currentPeriod = if (isToday && targetWeekOrNull != null) {
-                        val now = LocalTime.now(ZoneId.of("Asia/Shanghai"))
+                        val now = LocalTime.now()
                         currentTimelinePeriod(state.periods, now)
                     } else null
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1365,7 +1364,7 @@ fun DayScheduleScreen(
                     }
                 }
                 if (
-                    targetDate == LocalDate.now(ZoneId.of("Asia/Shanghai")) &&
+                    targetDate == LocalDate.now() &&
                     abs(page - pagerState.currentPage) <= 1
                 ) {
                     item(key = "today-agent-${state.config.id}") {

@@ -8,7 +8,6 @@ import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
-import java.time.ZoneId
 
 @Serializable
 enum class AgentTemplateKind {
@@ -291,7 +290,7 @@ fun buildDayAgentFacts(
     date: LocalDate,
     weather: AgentWeatherSnapshot?,
     scheduleName: String? = null,
-    now: LocalDateTime = LocalDateTime.now(ZoneId.of("Asia/Shanghai")),
+    now: LocalDateTime = LocalDateTime.now(),
     settingContext: android.content.Context? = null
 ): DayAgentFacts {
     val scheduleCourses = courses.filter { it.scheduleId == config.id }

@@ -19,7 +19,6 @@ object IcsScheduleCodec {
     private val compactDateTime = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
     private val compactDateTimeMinutes = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmm")
     private val displayTime = DateTimeFormatter.ofPattern("HH:mm")
-    private val shanghaiZone = ZoneId.of("Asia/Shanghai")
 
     fun parse(bytes: ByteArray, baseConfig: ScheduleConfigEntity): Result<ImportDraft> = runCatching {
         val text = bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF")
@@ -121,7 +120,7 @@ object IcsScheduleCodec {
         require(courses.isNotEmpty()) { "ICS 中没有可导入的课程" }
 
         val termStart = metadata.termStartDate ?: firstMonday
-        val today = LocalDate.now(shanghaiZone)
+        val today = LocalDate.now()
         val detectedWeek = (ChronoUnit.DAYS.between(termStart, today).toInt() / 7 + 1).coerceIn(1, totalWeeks)
         val inferredCounts = inferPeriodCounts(periods)
         val counts = metadata.partCounts?.takeIf {
@@ -148,8 +147,9 @@ object IcsScheduleCodec {
         config: ScheduleConfigEntity,
         periods: List<PeriodEntity>,
         courses: List<CourseEntity>,
-        today: LocalDate = LocalDate.now(shanghaiZone)
+        today: LocalDate = LocalDate.now()
     ): String {
+        val timeZoneId = ZoneId.systemDefault().id
         val periodsByIndex = periods.associateBy { it.periodIndex }
         val stamp = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
             .withZone(ZoneOffset.UTC)
@@ -180,8 +180,8 @@ object IcsScheduleCodec {
                             appendLine("BEGIN:VEVENT")
                             appendLine("UID:sleepdown-${config.id}-${course.id}-$week-$rangeIndex@sleepdown.local")
                             appendLine("DTSTAMP:$stamp")
-                            appendLine("DTSTART;TZID=Asia/Shanghai:${start.format(compactDateTime)}")
-                            appendLine("DTEND;TZID=Asia/Shanghai:${end.format(compactDateTime)}")
+                            appendLine("DTSTART;TZID=$timeZoneId:${start.format(compactDateTime)}")
+                            appendLine("DTEND;TZID=$timeZoneId:${end.format(compactDateTime)}")
                             appendLine("SUMMARY:${escapeText(course.name)}")
                             appendLine("X-SLEEPDOWN-COURSE-ID:${course.id}")
                             course.location?.takeIf { it.isNotBlank() }?.let { appendLine("LOCATION:${escapeText(it)}") }
@@ -377,7 +377,9 @@ object IcsScheduleCodec {
     private fun parseDateTime(property: IcsProperty): LocalDateTime? {
         val value = property.value.trim()
         if (property.parameters["VALUE"].equals("DATE", ignoreCase = true) || (!value.contains('T') && value.length == 8)) return null
-        val zone = property.parameters["TZID"]?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: shanghaiZone
+        val zone = property.parameters["TZID"]
+            ?.let { runCatching { ZoneId.of(it) }.getOrNull() }
+            ?: ZoneId.systemDefault()
         val utc = value.endsWith('Z', ignoreCase = true)
         val raw = if (utc) value.dropLast(1) else value
         val local = runCatching { LocalDateTime.parse(raw, compactDateTime) }

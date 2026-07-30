@@ -15,6 +15,8 @@ import android.view.View
 import android.widget.RemoteViews
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -31,16 +33,23 @@ private fun TodayWidgetVariant.appearanceVariant(): WidgetAppearanceVariant = wh
     TodayWidgetVariant.SQUARE -> WidgetAppearanceVariant.COURSES_SQUARE
 }
 
+private val widgetWorkScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+internal fun launchWidgetWork(block: suspend CoroutineScope.() -> Unit): Job =
+    widgetWorkScope.launch(block = block)
+
+internal fun AppWidgetProvider.keepBroadcastAliveUntil(job: Job) {
+    val pendingResult = goAsync()
+    job.invokeOnCompletion {
+        runCatching { pendingResult.finish() }
+    }
+}
+
 class TodayCoursesSquareWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        MiuixTodayWidgetRenderer.refresh(context, manager, ids, TodayWidgetVariant.SQUARE)
-    }
-
-    override fun onReceive(context: Context, intent: Intent) {
-        super.onReceive(context, intent)
-        if (MiuixTodayWidgetRenderer.isRefreshAction(intent.action)) {
-            TodayCoursesWidgetProvider.refreshAll(context)
-        }
+        keepBroadcastAliveUntil(
+            MiuixTodayWidgetRenderer.refreshAsync(context, manager, ids, TodayWidgetVariant.SQUARE)
+        )
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -49,30 +58,32 @@ class TodayCoursesSquareWidgetProvider : AppWidgetProvider() {
         appWidgetId: Int,
         newOptions: android.os.Bundle
     ) {
-        MiuixTodayWidgetRenderer.refresh(context, manager, intArrayOf(appWidgetId), TodayWidgetVariant.SQUARE)
+        keepBroadcastAliveUntil(
+            MiuixTodayWidgetRenderer.refreshAsync(
+                context,
+                manager,
+                intArrayOf(appWidgetId),
+                TodayWidgetVariant.SQUARE
+            )
+        )
     }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
         super.onDeleted(context, appWidgetIds)
         val app = context.applicationContext as CourseScheduleApp
-        CoroutineScope(Dispatchers.IO).launch {
-            appWidgetIds.forEach {
-                app.widgetAppearanceRepository.deleteInstance(WidgetAppearanceVariant.COURSES_SQUARE, it)
+        keepBroadcastAliveUntil(
+            launchWidgetWork {
+                appWidgetIds.forEach {
+                    app.widgetAppearanceRepository.deleteInstance(WidgetAppearanceVariant.COURSES_SQUARE, it)
+                }
             }
-        }
+        )
     }
 }
 
 class TodayAssistantWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        TodayAssistantWidgetRenderer.refresh(context, manager, ids)
-    }
-
-    override fun onReceive(context: Context, intent: Intent) {
-        super.onReceive(context, intent)
-        if (MiuixTodayWidgetRenderer.isRefreshAction(intent.action)) {
-            TodayCoursesWidgetProvider.refreshAll(context)
-        }
+        keepBroadcastAliveUntil(TodayAssistantWidgetRenderer.refreshAsync(context, manager, ids))
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -81,17 +92,21 @@ class TodayAssistantWidgetProvider : AppWidgetProvider() {
         appWidgetId: Int,
         newOptions: android.os.Bundle
     ) {
-        TodayAssistantWidgetRenderer.refresh(context, manager, intArrayOf(appWidgetId))
+        keepBroadcastAliveUntil(
+            TodayAssistantWidgetRenderer.refreshAsync(context, manager, intArrayOf(appWidgetId))
+        )
     }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
         super.onDeleted(context, appWidgetIds)
         val app = context.applicationContext as CourseScheduleApp
-        CoroutineScope(Dispatchers.IO).launch {
-            appWidgetIds.forEach {
-                app.widgetAppearanceRepository.deleteInstance(WidgetAppearanceVariant.TODAY_ASSISTANT, it)
+        keepBroadcastAliveUntil(
+            launchWidgetWork {
+                appWidgetIds.forEach {
+                    app.widgetAppearanceRepository.deleteInstance(WidgetAppearanceVariant.TODAY_ASSISTANT, it)
+                }
             }
-        }
+        )
     }
 }
 
@@ -102,24 +117,33 @@ internal object MiuixTodayWidgetRenderer {
     fun isRefreshAction(action: String?): Boolean =
         action == ACTION_REFRESH ||
             action == Intent.ACTION_MY_PACKAGE_REPLACED ||
-            action == Intent.ACTION_BOOT_COMPLETED
+            action == Intent.ACTION_BOOT_COMPLETED ||
+            action == Intent.ACTION_DATE_CHANGED ||
+            action == Intent.ACTION_TIME_CHANGED ||
+            action == Intent.ACTION_TIMEZONE_CHANGED
 
     fun refreshAll(context: Context) {
-        val manager = AppWidgetManager.getInstance(context)
-        refreshComponent(context, manager, TodayCoursesWidgetProvider::class.java, TodayWidgetVariant.LARGE)
-        refreshComponent(context, manager, TodayCoursesSquareWidgetProvider::class.java, TodayWidgetVariant.SQUARE)
-        val assistantIds = manager.getAppWidgetIds(ComponentName(context, TodayAssistantWidgetProvider::class.java))
-        if (assistantIds.isNotEmpty()) TodayAssistantWidgetRenderer.refresh(context, manager, assistantIds)
+        refreshAllAsync(context)
     }
 
-    private fun refreshComponent(
+    internal fun refreshAllAsync(context: Context): Job = launchWidgetWork {
+        val manager = AppWidgetManager.getInstance(context)
+        refreshComponentNow(context, manager, TodayCoursesWidgetProvider::class.java, TodayWidgetVariant.LARGE)
+        refreshComponentNow(context, manager, TodayCoursesSquareWidgetProvider::class.java, TodayWidgetVariant.SQUARE)
+        val assistantIds = manager.getAppWidgetIds(ComponentName(context, TodayAssistantWidgetProvider::class.java))
+        if (assistantIds.isNotEmpty()) {
+            TodayAssistantWidgetRenderer.refreshNow(context, manager, assistantIds)
+        }
+    }
+
+    private suspend fun refreshComponentNow(
         context: Context,
         manager: AppWidgetManager,
         provider: Class<*>,
         variant: TodayWidgetVariant
     ) {
         val ids = manager.getAppWidgetIds(ComponentName(context, provider))
-        if (ids.isNotEmpty()) refresh(context, manager, ids, variant)
+        if (ids.isNotEmpty()) refreshNow(context, manager, ids, variant)
     }
 
     fun refresh(
@@ -128,30 +152,46 @@ internal object MiuixTodayWidgetRenderer {
         ids: IntArray,
         variant: TodayWidgetVariant
     ) {
+        refreshAsync(context, manager, ids, variant)
+    }
+
+    internal fun refreshAsync(
+        context: Context,
+        manager: AppWidgetManager,
+        ids: IntArray,
+        variant: TodayWidgetVariant
+    ): Job = launchWidgetWork {
+        refreshNow(context, manager, ids, variant)
+    }
+
+    internal suspend fun refreshNow(
+        context: Context,
+        manager: AppWidgetManager,
+        ids: IntArray,
+        variant: TodayWidgetVariant
+    ) {
         if (ids.isEmpty()) return
-        CoroutineScope(Dispatchers.IO).launch {
-            val app = context.applicationContext as CourseScheduleApp
-            app.repository.ensureDefaults()
-            val state = app.repository.snapshot()
-            ids.forEach { id ->
-                val appearanceVariant = variant.appearanceVariant()
-                val appearance = app.widgetAppearanceRepository.get(
-                    appearanceVariant,
-                    WidgetDefaultAppearanceId
-                )
-                val sizes = widgetRenderSizes(manager, id, appearanceVariant)
-                val views = sizes.map { size ->
-                    size to buildViews(context, state, variant, appearance, size)
-                }
-                val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && views.size > 1) {
-                    RemoteViews(views.associate { (size, remote) ->
-                        SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to remote
-                    })
-                } else views.first().second
-                manager.updateAppWidget(id, result)
+        val app = context.applicationContext as CourseScheduleApp
+        app.repository.ensureDefaults()
+        val state = app.repository.snapshot()
+        ids.forEach { id ->
+            val appearanceVariant = variant.appearanceVariant()
+            val appearance = app.widgetAppearanceRepository.get(
+                appearanceVariant,
+                WidgetDefaultAppearanceId
+            )
+            val sizes = widgetRenderSizes(manager, id, appearanceVariant)
+            val views = sizes.map { size ->
+                size to buildViews(context, state, variant, appearance, size)
             }
-            scheduleNextBoundaryRefresh(context, state)
+            val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && views.size > 1) {
+                RemoteViews(views.associate { (size, remote) ->
+                    SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to remote
+                })
+            } else views.first().second
+            manager.updateAppWidget(id, result)
         }
+        scheduleNextBoundaryRefresh(context, state)
     }
 
     internal fun buildViews(
@@ -161,7 +201,7 @@ internal object MiuixTodayWidgetRenderer {
         appearance: WidgetAppearanceEntity,
         size: WidgetRenderSize
     ): RemoteViews {
-        val zone = ZoneId.of("Asia/Shanghai")
+        val zone = ZoneId.systemDefault()
         val today = LocalDate.now(zone)
         val now = LocalTime.now(zone)
         val targetDate = if (now >= LocalTime.of(22, 0)) today.plusDays(1) else today
@@ -410,7 +450,7 @@ internal object MiuixTodayWidgetRenderer {
     }
 
     private fun scheduleNextBoundaryRefresh(context: Context, state: AppState) {
-        val zone = ZoneId.of("Asia/Shanghai")
+        val zone = ZoneId.systemDefault()
         val today = LocalDate.now(zone)
         val now = LocalTime.now(zone)
         val targetDate = if (now >= LocalTime.of(22, 0)) today.plusDays(1) else today
@@ -441,29 +481,43 @@ internal object TodayAssistantWidgetRenderer {
     private const val AccentDark = 0xFF62B5FF.toInt()
 
     fun refresh(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        refreshAsync(context, manager, ids)
+    }
+
+    internal fun refreshAsync(
+        context: Context,
+        manager: AppWidgetManager,
+        ids: IntArray
+    ): Job = launchWidgetWork {
+        refreshNow(context, manager, ids)
+    }
+
+    internal suspend fun refreshNow(
+        context: Context,
+        manager: AppWidgetManager,
+        ids: IntArray
+    ) {
         if (ids.isEmpty()) return
-        CoroutineScope(Dispatchers.IO).launch {
-            val app = context.applicationContext as CourseScheduleApp
-            app.repository.ensureDefaults()
-            val state = app.repository.snapshot()
-            val weather = if (DayAgentPreferences.isWeatherEnabled(context)) {
-                DayAgentWeatherRepository(context.applicationContext).getWeather()
-            } else null
-            ids.forEach { id ->
-                val variant = WidgetAppearanceVariant.TODAY_ASSISTANT
-                val appearance = app.widgetAppearanceRepository.get(
-                    variant,
-                    WidgetDefaultAppearanceId
-                )
-                val sizes = widgetRenderSizes(manager, id, variant)
-                val views = sizes.map { size -> size to buildViews(context, state, weather, appearance, size) }
-                val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && views.size > 1) {
-                    RemoteViews(views.associate { (size, remote) ->
-                        SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to remote
-                    })
-                } else views.first().second
-                manager.updateAppWidget(id, result)
-            }
+        val app = context.applicationContext as CourseScheduleApp
+        app.repository.ensureDefaults()
+        val state = app.repository.snapshot()
+        val weather = if (DayAgentPreferences.isWeatherEnabled(context)) {
+            DayAgentWeatherRepository(context.applicationContext).getWeather()
+        } else null
+        ids.forEach { id ->
+            val variant = WidgetAppearanceVariant.TODAY_ASSISTANT
+            val appearance = app.widgetAppearanceRepository.get(
+                variant,
+                WidgetDefaultAppearanceId
+            )
+            val sizes = widgetRenderSizes(manager, id, variant)
+            val views = sizes.map { size -> size to buildViews(context, state, weather, appearance, size) }
+            val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && views.size > 1) {
+                RemoteViews(views.associate { (size, remote) ->
+                    SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to remote
+                })
+            } else views.first().second
+            manager.updateAppWidget(id, result)
         }
     }
 
@@ -474,7 +528,7 @@ internal object TodayAssistantWidgetRenderer {
         appearance: WidgetAppearanceEntity,
         size: WidgetRenderSize
     ): RemoteViews {
-        val zone = ZoneId.of("Asia/Shanghai")
+        val zone = ZoneId.systemDefault()
         val now = LocalDateTime.now(zone)
         val facts = buildDayAgentFacts(
             courses = state.courses,

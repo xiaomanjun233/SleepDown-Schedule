@@ -121,7 +121,6 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.Duration
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.io.File
 import java.util.LinkedHashMap
@@ -370,7 +369,7 @@ fun TodayAgentCard(
     var weather by remember(date, weatherEnabled) {
         mutableStateOf(if (weatherEnabled) DayAgentWeatherStore.load(context) else null)
     }
-    var now by remember(date) { mutableStateOf(LocalDateTime.now(ShanghaiZone)) }
+    var now by remember(date) { mutableStateOf(LocalDateTime.now()) }
     var dialogOpen by remember(date, scheduleId) { mutableStateOf(false) }
     var dialogOpening by remember(date, scheduleId) { mutableStateOf(false) }
     val messageFlow = remember(repository, scheduleId, date, dialogOpen) {
@@ -398,7 +397,7 @@ fun TodayAgentCard(
 
     LaunchedEffect(date) {
         while (true) {
-            now = LocalDateTime.now(ShanghaiZone)
+            now = LocalDateTime.now()
             delay(60_000L - (System.currentTimeMillis() % 60_000L))
         }
     }
@@ -2231,5 +2230,3 @@ private fun agentSmoothStep(edge0: Float, edge1: Float, value: Float): Float {
     val t = ((value - edge0) / (edge1 - edge0).coerceAtLeast(0.0001f)).coerceIn(0f, 1f)
     return t * t * (3f - 2f * t)
 }
-
-private val ShanghaiZone = ZoneId.of("Asia/Shanghai")

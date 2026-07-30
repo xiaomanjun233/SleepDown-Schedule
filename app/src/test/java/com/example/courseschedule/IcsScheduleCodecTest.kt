@@ -1,6 +1,7 @@
 package com.example.courseschedule
 
 import java.time.LocalDate
+import java.util.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -75,5 +76,37 @@ class IcsScheduleCodecTest {
         assertEquals(listOf("08:45", "09:40"), imported.periods.map { it.endTime })
         assertEquals(2, imported.config.morningPeriodCount)
         assertEquals(0, imported.config.noonPeriodCount)
+    }
+
+    @Test
+    fun exportUsesCurrentSystemTimeZone() {
+        val previous = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Europe/London"))
+
+            val exported = IcsScheduleCodec.export(
+                calendarName = "系统时区",
+                config = defaultConfig().copy(termStartDate = "2026-09-07"),
+                periods = listOf(PeriodEntity(1, "08:00", "08:45")),
+                courses = listOf(
+                    CourseEntity(
+                        name = "测试课程",
+                        teacher = null,
+                        location = null,
+                        weekday = 1,
+                        periods = listOf(1),
+                        weeks = listOf(1),
+                        weekParity = WeekParity.ALL,
+                        note = null
+                    )
+                ),
+                today = LocalDate.of(2026, 9, 7)
+            )
+
+            assertTrue(exported.contains("DTSTART;TZID=Europe/London:"))
+            assertTrue(exported.contains("DTEND;TZID=Europe/London:"))
+        } finally {
+            TimeZone.setDefault(previous)
+        }
     }
 }

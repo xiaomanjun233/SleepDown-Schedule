@@ -276,7 +276,6 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
 import java.time.LocalTime
-import java.time.ZoneId
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URLDecoder
@@ -299,7 +298,7 @@ fun WeekScheduleScreen(state: AppState, displayWeek: Int, cardHeight: Dp, cardCo
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-    val now = LocalTime.now(ZoneId.of("Asia/Shanghai"))
+    val now = LocalTime.now()
     val currentPeriod = currentTimelinePeriod(state.periods, now)
     val weekBuckets = remember(state.courses, displayWeek) {
         weekCourseBuckets(state.courses, displayWeek)
@@ -460,7 +459,7 @@ fun SinglePillWeekScheduleScreen(
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-    val now = LocalTime.now(ZoneId.of("Asia/Shanghai"))
+    val now = LocalTime.now()
     val currentPeriod = currentTimelinePeriod(state.periods, now)
     val weekBuckets = remember(state.courses, displayWeek) {
         weekCourseBuckets(state.courses, displayWeek)
@@ -1187,7 +1186,7 @@ fun LiquidWeekScheduleScreen(
     val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-    val now = LocalTime.now(ZoneId.of("Asia/Shanghai"))
+    val now = LocalTime.now()
     val currentPeriod = currentTimelinePeriod(state.periods, now)
     val weekBuckets = remember(state.courses, displayWeek) {
         weekCourseBuckets(state.courses, displayWeek)
