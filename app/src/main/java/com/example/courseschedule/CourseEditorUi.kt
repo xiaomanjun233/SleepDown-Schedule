@@ -694,7 +694,7 @@ private fun CourseEditorFormPage(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item(key = "header", contentType = "header") {
-            Box(Modifier.padding(horizontal = 16.dp)) {
+            Box(Modifier.padding(start = 16.dp, top = 6.dp, end = 16.dp)) {
                 DialogHeader(
                     title = if (course == null) "添加单节课" else "编辑单节课",
                     onCancel = onCancel,
