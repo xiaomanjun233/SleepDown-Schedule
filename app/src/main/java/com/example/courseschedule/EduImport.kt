@@ -94,8 +94,6 @@ fun aiEduImportAdapter(): EduAdapter = EduAdapter(
     description = "打开学校教务系统课表页后，使用 AI 解析当前页面内容。"
 )
 
-private const val EduBridgeTestPageUrl = "file:///android_asset/shiguang_warehouse-main/resources/GLOBAL_TOOLS/test_page.html"
-
 object ShiguangWarehouse {
     private const val Root = "shiguang_warehouse-main"
     private val quotedValue = Regex("""^\s*([A-Za-z_]+):\s*"?(.*?)"?\s*(?:#.*)?$""")
@@ -110,7 +108,7 @@ object ShiguangWarehouse {
                 )
             }.getOrDefault(emptyList())
         }.map { adapter ->
-            if (adapter.isEduTestTool()) adapter.copy(importUrl = EduBridgeTestPageUrl) else adapter
+            if (adapter.isEduTestTool()) adapter.copy(importUrl = EDU_BRIDGE_TEST_PAGE_URL) else adapter
         }.filter { it.assetJsPath.isNotBlank() && (it.importUrl.isNotBlank() || it.isGeneralEduTool()) }
             .sortedWith(compareBy<EduAdapter> { it.school.initial }.thenBy { it.school.name }.thenBy { it.adapterName })
         return listOf(aiEduImportAdapter()) + warehouseAdapters
@@ -192,7 +190,8 @@ class EduImportBridge(
     private val baseConfig: () -> ScheduleConfigEntity,
     private val basePeriods: () -> List<PeriodEntity> = { defaultPeriods() },
     private val onDraft: (ImportDraft) -> Unit,
-    private val onMessage: (String) -> Unit
+    private val onMessage: (String) -> Unit,
+    private val onTaskCompleted: () -> Unit = {}
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var configJson: String? = null
@@ -202,6 +201,12 @@ class EduImportBridge(
     private var taskCompletionCount: Int = 0
 
     fun taskCompletionCount(): Int = taskCompletionCount
+
+    fun beginTask() {
+        configJson = null
+        coursesJson = null
+        timeSlotsJson = null
+    }
 
     @JavascriptInterface
     fun saveCourseConfig(json: String): Boolean {
@@ -228,15 +233,33 @@ class EduImportBridge(
         val courses = coursesJson
         val slots = timeSlotsJson ?: "[]"
         if (courses == null) {
-            mainHandler.post { onMessage("导入脚本没有返回课程数据，可以尝试 AI 兜底扒页。") }
+            mainHandler.post {
+                try {
+                    onMessage("导入脚本没有返回课程数据，可以尝试 AI 兜底扒页。")
+                } finally {
+                    runCatching(onTaskCompleted)
+                }
+            }
             return
         }
         runCatching {
             ShiguangImportMapper.toDraft(adapter, baseConfig(), basePeriods(), config ?: "{}", courses, slots)
         }.onSuccess {
-            mainHandler.post { onDraft(it) }
+            mainHandler.post {
+                try {
+                    onDraft(it)
+                } finally {
+                    runCatching(onTaskCompleted)
+                }
+            }
         }.onFailure {
-            mainHandler.post { onMessage(it.message ?: "教务数据解析失败") }
+            mainHandler.post {
+                try {
+                    onMessage(it.message ?: "教务数据解析失败")
+                } finally {
+                    runCatching(onTaskCompleted)
+                }
+            }
         }
     }
 

@@ -307,8 +307,6 @@ private fun performButtonHaptic(view: android.view.View) {
 sealed interface Screen {
     data object Home : Screen
     data object Config : Screen
-    data object EduImport : Screen
-    data class Confirm(val draft: ImportDraft) : Screen
 }
 
 enum class HomeMode { Day, Week }
@@ -327,11 +325,6 @@ private fun agentSettingsPage(value: String?): SettingsPage? = when (value) {
     "DOWNLOAD" -> SettingsPage.Download
     "DONATE" -> SettingsPage.Donate
     else -> null
-}
-
-sealed interface EduImportPage {
-    data object SelectSchool : EduImportPage
-    data class Import(val adapter: EduAdapter) : EduImportPage
 }
 
 private const val SettingsDetailPageExtra = "settings_page"
@@ -1383,7 +1376,6 @@ fun CourseScheduleAppUi(
                             screen = screen,
                             state = if (screen is Screen.Home) visualState else state,
                             settingsPage = SettingsPage.Root,
-                            eduImportPage = EduImportPage.SelectSchool,
                             backdrop = chromeBackdrop,
                             homeMode = homeMode,
                             onHomeModeChange = { homeMode = it },
@@ -1458,7 +1450,7 @@ fun CourseScheduleAppUi(
                         message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                     }
                     ContentEntranceContainer(phase = startupPhase, modifier = Modifier.weight(1f)) {
-                        when (val current = screen) {
+                        when (screen) {
                             Screen.Home -> {
                                  HomeScreen(
                                      state = visualState,
@@ -1633,22 +1625,6 @@ fun CourseScheduleAppUi(
                                         onUpdateConfig = viewModel::savePersonalization,
                                         onPreviewLiveUpdate = viewModel::previewLiveUpdate
                                     )
-                            }
-                            Screen.EduImport -> Box(Modifier.fillMaxSize().padding(padding)) {
-                                EduImportFlowScreen(
-                                        page = EduImportPage.SelectSchool,
-                                        state = state,
-                                        onPageChange = {},
-                                        onParsed = { screen = Screen.Confirm(it) }
-                                    )
-                            }
-                            is Screen.Confirm -> Box(Modifier.fillMaxSize().padding(padding)) {
-                                ConfirmScheduleScreen(current.draft, onCancel = { screen = Screen.Home }, onConfirm = { createNewSchedule ->
-                                    viewModel.importDraft(current.draft, createNewSchedule) { scheduleId ->
-                                        screen = Screen.Home
-                                        pendingImportedSetupId = scheduleId
-                                    }
-                                })
                             }
                         }
                         if (screen is Screen.Home) {
@@ -2568,7 +2544,6 @@ private fun rootTopBarLayoutHeight(screen: Screen): Dp {
     return when (screen) {
         Screen.Home -> HomeTopOverlayHeight
         Screen.Config -> detailTopOverlayHeight()
-        else -> HomeInitialTopInset
     }
 }
 
@@ -2584,7 +2559,6 @@ private fun rootTopGradientHeight(screen: Screen): Dp {
     return when (screen) {
         Screen.Home -> HomeTopOverlayHeight
         Screen.Config -> detailTopOverlayHeight()
-        else -> HomeInitialTopInset
     }
 }
 
@@ -2762,7 +2736,6 @@ internal fun AppTopBar(
     screen: Screen,
     state: AppState,
     settingsPage: SettingsPage,
-    eduImportPage: EduImportPage,
     backdrop: Backdrop?,
     homeMode: HomeMode,
     onHomeModeChange: (HomeMode) -> Unit,
@@ -2826,11 +2799,6 @@ internal fun AppTopBar(
                                 SettingsPage.Download -> "下载新版"
                                 SettingsPage.Donate -> "捐赠支持"
                             }
-                            Screen.EduImport -> when (eduImportPage) {
-                                EduImportPage.SelectSchool -> "选择学校"
-                                is EduImportPage.Import -> "教务导入"
-                            }
-                            is Screen.Confirm -> "确认导入"
                         },
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
@@ -2840,7 +2808,7 @@ internal fun AppTopBar(
             }
         },
         navigationIcon = {
-            if (screen is Screen.Confirm || screen is Screen.EduImport || (screen is Screen.Config && settingsPage != SettingsPage.Root)) {
+            if (screen is Screen.Config && settingsPage != SettingsPage.Root) {
                 TopBackButton(backdrop = backdrop, config = state.config, onClick = onBackHome)
             }
         },
@@ -5058,15 +5026,8 @@ fun DownloadUpdateScreen(state: AppState, backdrop: Backdrop?) {
 internal fun WebView.releaseSleepDownWebView() {
     runCatching { stopLoading() }
     runCatching { clearHistory() }
-    runCatching { removeJavascriptInterface("AndroidBridgePromise") }
-    runCatching { removeJavascriptInterface("AndroidBridge") }
+    runCatching { detachEduImportBridge() }
     runCatching { destroy() }
-}
-
-@SuppressLint("JavascriptInterface")
-internal fun WebView.addEduImportBridge(bridge: EduImportBridge) {
-    addJavascriptInterface(bridge, "AndroidBridgePromise")
-    addJavascriptInterface(bridge, "AndroidBridge")
 }
 
 private fun sleepDownWebViewClient(context: Context) = object : WebViewClient() {

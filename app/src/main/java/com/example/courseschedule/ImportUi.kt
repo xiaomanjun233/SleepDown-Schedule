@@ -855,72 +855,6 @@ fun DonateSettingsScreen(state: AppState, backdrop: Backdrop?) {
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-fun EduImportFlowScreen(page: EduImportPage, state: AppState, onPageChange: (EduImportPage) -> Unit, onParsed: (ImportDraft) -> Unit) {
-    val context = LocalContext.current
-    val adapters = remember { runCatching { ShiguangWarehouse.loadAdapters(context) }.getOrDefault(emptyList()) }
-    var query by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf<String?>(null) }
-    var webView by remember { mutableStateOf<WebView?>(null) }
-    var showEmbeddedEduPage by remember { mutableStateOf(false) }
-    val selectedAdapter = (page as? EduImportPage.Import)?.adapter
-    val bridge = remember(state.config, selectedAdapter) {
-        EduImportBridge(
-            context = context,
-            adapter = selectedAdapter,
-            baseConfig = { state.config },
-            basePeriods = { state.periods },
-            onDraft = onParsed,
-            onMessage = { message = it }
-        )
-    }
-    val filtered = remember(query, adapters) {
-        val keyword = query.trim()
-        val sorted = adapters.sortedWith(
-            compareBy<EduAdapter> { it.school.initial.ifBlank { "#" } }
-                .thenBy { it.school.name }
-                .thenBy { it.adapterName }
-        )
-        if (keyword.isBlank()) sorted else sorted.filter {
-            it.displayName.contains(keyword, ignoreCase = true) ||
-                    it.school.id.contains(keyword, ignoreCase = true) ||
-                    it.adapterId.contains(keyword, ignoreCase = true) ||
-                    it.school.name.contains(keyword, ignoreCase = true) ||
-                    it.adapterName.contains(keyword, ignoreCase = true)
-        }
-    }
-
-    GlassMiuixSettingsTheme(settingsVisualConfig(state.config)) {
-        if (selectedAdapter == null) {
-            EduSchoolIndexedSelectScreen(
-                state = state,
-                adapters = filtered,
-                query = query,
-                onQueryChange = { query = it },
-                onSelect = {
-                    message = null
-                    webView = null
-                    showEmbeddedEduPage = false
-                    onPageChange(EduImportPage.Import(it))
-                }
-            )
-        } else {
-            EduImportWebScreen(
-                state = state,
-                adapter = selectedAdapter,
-                message = message,
-                webView = webView,
-                onWebView = { webView = it },
-                showEmbeddedPage = showEmbeddedEduPage,
-                onShowEmbeddedPage = { showEmbeddedEduPage = true },
-                bridge = bridge,
-                onMessage = { message = it }
-            )
-        }
-    }
-}
-
 @Composable
 fun EduSchoolPickerScreen(
     state: AppState,
@@ -1117,7 +1051,8 @@ fun EduImportActivityScreen(
             baseConfig = { state.config },
             basePeriods = { state.periods },
             onDraft = onParsed,
-            onMessage = { message = it }
+            onMessage = { message = it },
+            onTaskCompleted = { webView?.detachEduImportBridge() }
         )
     }
     if (showGeneralUrlDialog) {
@@ -1258,16 +1193,6 @@ fun GeneralEduUrlDialog(
                 color = glassForegroundColor(config).copy(alpha = 0.52f)
             )
         }
-    }
-}
-
-fun normalizeEduUrl(input: String): String {
-    val trimmed = input.trim()
-    return when {
-        trimmed.isBlank() || trimmed == "https://" -> ""
-        trimmed.startsWith("file://", ignoreCase = true) -> trimmed
-        trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true) -> trimmed
-        else -> "https://$trimmed"
     }
 }
 
@@ -1543,39 +1468,6 @@ private fun aiEduRequestPreview(settings: AiImportSettings, pageTextLength: Int)
         appendLine("输入文本：$pageTextLength 字符")
         appendLine("提示词：已附加完整 SleepDown JSON 解析协议与字段示例")
         append("密钥：已从本机安全存储读取，未显示")
-    }
-}
-
-@Composable
-fun EduSchoolSelectScreen(
-    state: AppState,
-    adapters: List<EduAdapter>,
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onSelect: (EduAdapter) -> Unit
-) {
-    val context = LocalContext.current
-    LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = DockScrollPadding),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            SettingsGroup(backdrop = null, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsTextFieldRow("搜索", query, onQueryChange)
-            }
-        }
-        if (adapters.isEmpty()) {
-            item { Text("没有找到学校适配资源", color = MaterialTheme.colorScheme.error) }
-        } else {
-            item {
-                SettingsGroup(backdrop = null, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                    adapters.forEachIndexed { index, adapter ->
-                        SettingsNavigationRow(adapter.school.name, adapter.adapterName, onClick = { onSelect(adapter) })
-                        if (index != adapters.lastIndex) SettingsDivider()
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1910,6 +1802,8 @@ fun EduImportBrowserScreen(
             .onSuccess {
                 val completionCountAtStart = bridge.taskCompletionCount()
                 onMessage("已加载拾光仓库脚本，正在执行导入")
+                bridge.beginTask()
+                target.attachEduImportBridge(bridge)
                 target.evaluateJavascript(
                     """
                     console.log('SleepDown bridge check', !!window.AndroidBridgePromise, typeof window.AndroidBridgePromise?.showAlert, typeof window.AndroidBridge?.notifyTaskCompletion);
@@ -1950,6 +1844,7 @@ fun EduImportBrowserScreen(
         return WebView(context).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            configureEduImportSecurity(adapter)
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
             settings.setSupportZoom(true)
@@ -1965,6 +1860,11 @@ fun EduImportBrowserScreen(
             )
             applyEduWebMode(this, desktopMode)
             webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                    view?.detachEduImportBridge()
+                    super.onPageStarted(view, url, favicon)
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     updateNavigationState(view)
@@ -1983,7 +1883,6 @@ fun EduImportBrowserScreen(
             }
             webChromeClient = WebChromeClient()
             enableSleepDownDownloads()
-            addEduImportBridge(bridge)
             onWebView(this)
             updateNavigationState(this)
             if (normalizedUrl.isNotBlank()) loadUrl(normalizedUrl)
@@ -2158,74 +2057,6 @@ fun EduImportBrowserScreen(
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-fun EduImportWebScreen(
-    state: AppState,
-    adapter: EduAdapter,
-    message: String?,
-    webView: WebView?,
-    onWebView: (WebView) -> Unit,
-    showEmbeddedPage: Boolean,
-    onShowEmbeddedPage: () -> Unit,
-    bridge: EduImportBridge,
-    onMessage: (String) -> Unit
-) {
-    val context = LocalContext.current
-    val topPadding = LocalGlassSettingsContentTopPadding.current ?: 16.dp
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(start = 16.dp, end = 16.dp, top = topPadding, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        Text(adapter.school.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-        SettingsGroup(backdrop = null, config = state.config, modifier = Modifier.fillMaxWidth()) {
-            SettingsValueRow("适配器", adapter.adapterName)
-            SettingsDivider()
-            SettingsValueRow("维护者", adapter.maintainer.ifBlank { "-" })
-            SettingsDivider()
-            SettingsValueRow("登录地址", adapter.importUrl)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SettingsActionButton("使用内置页面", null, onClick = {
-                onMessage("已打开内置页面，登录完成后执行导入脚本。")
-                onShowEmbeddedPage()
-            })
-        }
-        SettingsActionButton("执行导入脚本", null, onClick = {
-            runCatching { ShiguangWarehouse.loadScript(context, adapter) }
-                .onSuccess {
-                    onMessage("已执行导入脚本")
-                    webView?.evaluateJavascript(it, null) ?: onMessage("请先打开内置页面")
-                }
-                .onFailure { onMessage(it.message ?: "脚本加载失败") }
-        }, modifier = Modifier.fillMaxWidth())
-        message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
-        if (showEmbeddedPage) {
-            AndroidView(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                factory = {
-                    WebView(it).apply {
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        webViewClient = WebViewClient()
-                        webChromeClient = WebChromeClient()
-                        enableSleepDownDownloads()
-                        addEduImportBridge(bridge)
-                        onWebView(this)
-                        if (adapter.importUrl.isNotBlank()) loadUrl(adapter.importUrl)
-                    }
-                },
-                update = {},
-                onRelease = { it.releaseSleepDownWebView() }
-            )
-        } else {
-            Spacer(Modifier.weight(1f))
-        }
-    }
-}
-
 @Composable
 fun EduWebNavButton(
     backdrop: Backdrop,
@@ -2316,111 +2147,6 @@ fun EduWebImportButton(
             contentDescription = contentDescription,
             tint = ComposeColor.White,
             modifier = Modifier.size(25.dp)
-        )
-    }
-}
-
-@Composable
-fun EduImportScreen(state: AppState, onParsed: (ImportDraft) -> Unit) {
-    val context = LocalContext.current
-    val adapters = remember { runCatching { ShiguangWarehouse.loadAdapters(context) }.getOrDefault(emptyList()) }
-    var query by remember { mutableStateOf("") }
-    var selected by remember(adapters) { mutableStateOf(adapters.firstOrNull()) }
-    var message by remember { mutableStateOf<String?>(null) }
-    var webView by remember { mutableStateOf<WebView?>(null) }
-    val bridge = remember(state.config, selected) {
-        EduImportBridge(
-            context = context,
-            adapter = selected,
-            baseConfig = { state.config },
-            basePeriods = { state.periods },
-            onDraft = onParsed,
-            onMessage = { message = it }
-        )
-    }
-    val filtered = remember(query, adapters) {
-        val keyword = query.trim()
-        if (keyword.isBlank()) adapters else adapters.filter {
-            it.displayName.contains(keyword, ignoreCase = true) ||
-                    it.school.id.contains(keyword, ignoreCase = true) ||
-                    it.adapterId.contains(keyword, ignoreCase = true)
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        if (adapters.isEmpty()) {
-            Text("没有找到 shiguang_warehouse 适配资源", color = MaterialTheme.colorScheme.error)
-            return@Column
-        }
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            label = { Text("搜索学校或适配器") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(132.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            items(filtered, key = { it.adapterId }) { adapter ->
-                val active = adapter == selected
-                Text(
-                    adapter.displayName,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
-                        .clickable { selected = adapter }
-                        .padding(horizontal = 12.dp, vertical = 9.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-        selected?.let { adapter ->
-            Text(adapter.importUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                LiquidMenuButton(null, "打开登录页", onClick = {
-                    message = "已在内置页面打开，请登录后再执行导入脚本。"
-                    webView?.loadUrl(adapter.importUrl)
-                })
-                LiquidMenuButton(null, "执行导入脚本", onClick = {
-                    runCatching { ShiguangWarehouse.loadScript(context, adapter) }
-                        .onSuccess {
-                            message = "已执行导入脚本"
-                            webView?.evaluateJavascript(it, null)
-                        }
-                        .onFailure { message = it.message ?: "脚本加载失败" }
-                })
-            }
-        }
-        message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
-        AndroidView(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            factory = {
-                WebView(it).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    webViewClient = WebViewClient()
-                    webChromeClient = WebChromeClient()
-                    enableSleepDownDownloads()
-                    addEduImportBridge(bridge)
-                    webView = this
-                    selected?.importUrl?.let(::loadUrl)
-                }
-            },
-            update = {},
-            onRelease = { it.releaseSleepDownWebView() }
         )
     }
 }
