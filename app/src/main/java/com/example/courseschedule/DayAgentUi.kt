@@ -1048,7 +1048,7 @@ private fun DayAgentConversationDialog(
     }
     val providerName = agentAiSettings.profile.displayName
     val attachmentUploadEnabled =
-        agentAiSettings.profile.id != AiProviderPresets.custom.id ||
+        !AiProviderPresets.isCustomId(agentAiSettings.profile.id) ||
             agentAiSettings.profile.supportsFileUpload
     val appliedActionKeys = remember(state.config.id) {
         mutableStateOf(DayAgentPreferences.getAppliedActions(dialogContext, state.config.id))

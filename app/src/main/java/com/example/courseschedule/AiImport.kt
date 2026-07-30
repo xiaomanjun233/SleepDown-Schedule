@@ -14,6 +14,8 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonArrayBuilder
@@ -37,6 +39,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
 import java.security.KeyStore
+import java.util.UUID
 import java.util.zip.InflaterInputStream
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -296,7 +299,7 @@ object AiProviderPresets {
         displayName = "OpenAI",
         providerType = AiProviderType.OpenAIResponses,
         baseUrl = "https://api.openai.com/v1",
-        defaultModel = "gpt-5.5",
+        defaultModel = "gpt-5.6",
         capabilities = AiProviderCapabilities(
             supportsPdfFileInput = true,
             supportsImageInput = true,
@@ -494,10 +497,21 @@ object AiProviderPresets {
 
     val all = listOf(none, openAI, deepSeek, dashScope, kimi, zhipu, qianfan, doubao, hunyuan, siliconFlow, miniMax, mimo, mimoTokenPlan, custom)
 
-    fun byId(id: String): AiProviderProfile = all.firstOrNull { it.id == id } ?: openAI
+    fun isCustomId(id: String): Boolean = id == custom.id || id.startsWith("${custom.id}:")
+
+    fun customProfile(id: String, displayName: String = custom.displayName): AiProviderProfile =
+        custom.copy(id = id, displayName = displayName)
+
+    fun byId(id: String): AiProviderProfile = when {
+        isCustomId(id) -> customProfile(id)
+        else -> all.firstOrNull { it.id == id } ?: openAI
+    }
 
     fun modelOptions(providerId: String): List<AiModelOption> = when (providerId) {
         openAI.id -> listOf(
+            AiModelOption("GPT-5.6", "gpt-5.6"),
+            AiModelOption("5.6 Terra", "gpt-5.6-terra"),
+            AiModelOption("5.6 Luna", "gpt-5.6-luna"),
             AiModelOption("GPT-5.5", "gpt-5.5"),
             AiModelOption("GPT-5.4", "gpt-5.4"),
             AiModelOption("5.4 mini", "gpt-5.4-mini"),
@@ -551,6 +565,12 @@ object AiProviderPresets {
     }
 }
 
+@Serializable
+private data class AiCustomProviderEntry(
+    val id: String,
+    val displayName: String
+)
+
 object AiImportSettingsStore {
     private const val PrefName = "ai_import_settings"
     private const val KeyProviderId = "provider_id"
@@ -568,13 +588,75 @@ object AiImportSettingsStore {
     private const val KeyVision = "supports_vision"
     private const val KeyPdfDirect = "supports_pdf_direct"
     private const val KeyEncryptedApiKey = "encrypted_api_key"
+    private const val KeyCustomProviders = "custom_provider_profiles_v1"
+    private val settingsJson = Json { ignoreUnknownKeys = true }
     private fun apiKeyKey(providerId: String): String = "${KeyEncryptedApiKey}_${providerId}"
     private fun providerKey(key: String, providerId: String): String = "${key}_${providerId}"
+
+    fun selectableProfiles(context: Context): List<AiProviderProfile> {
+        val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+        val entries = readCustomProviders(prefs)
+        val namesById = entries.associate { it.id to it.displayName }
+        val builtIns = AiProviderPresets.selectable.map { preset ->
+            if (AiProviderPresets.isCustomId(preset.id)) {
+                preset.copy(displayName = namesById[preset.id] ?: preset.displayName)
+            } else {
+                preset
+            }
+        }
+        val additionalCustomProfiles = entries
+            .filter { entry -> entry.id != AiProviderPresets.custom.id }
+            .map { entry -> AiProviderPresets.customProfile(entry.id, entry.displayName) }
+        return builtIns + additionalCustomProfiles
+    }
+
+    fun createCustomProvider(context: Context): AiProviderProfile {
+        val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+        val entries = readCustomProviders(prefs)
+        val id = "${AiProviderPresets.custom.id}:${UUID.randomUUID()}"
+        val customCount = entries.count { AiProviderPresets.isCustomId(it.id) } + 1
+        val profile = AiProviderPresets.customProfile(id, "自定义接口 $customCount")
+        prefs.edit()
+            .putString(
+                KeyCustomProviders,
+                settingsJson.encodeToString(entries + AiCustomProviderEntry(profile.id, profile.displayName))
+            )
+            .apply()
+        return profile
+    }
+
+    private fun presetFor(context: Context, providerId: String): AiProviderProfile =
+        selectableProfiles(context).firstOrNull { it.id == providerId }
+            ?: AiProviderPresets.byId(providerId)
+
+    private fun readCustomProviders(prefs: android.content.SharedPreferences): List<AiCustomProviderEntry> {
+        val encoded = prefs.getString(KeyCustomProviders, null) ?: return emptyList()
+        return runCatching {
+            settingsJson.decodeFromString<List<AiCustomProviderEntry>>(encoded)
+                .filter { AiProviderPresets.isCustomId(it.id) }
+                .distinctBy { it.id }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun writeCustomProviderEntry(
+        prefs: android.content.SharedPreferences,
+        editor: android.content.SharedPreferences.Editor,
+        profile: AiProviderProfile
+    ) {
+        if (!AiProviderPresets.isCustomId(profile.id)) return
+        val displayName = profile.displayName.trim().ifBlank { AiProviderPresets.custom.displayName }
+        val entries = readCustomProviders(prefs).toMutableList()
+        val index = entries.indexOfFirst { it.id == profile.id }
+        val entry = AiCustomProviderEntry(profile.id, displayName)
+        if (index >= 0) entries[index] = entry else entries += entry
+        editor.putString(KeyCustomProviders, settingsJson.encodeToString(entries))
+    }
 
     fun load(context: Context): AiImportSettings {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         val savedProviderId = prefs.getString(KeyProviderId, AiProviderPresets.none.id).orEmpty()
-        val preset = AiProviderPresets.selectable.firstOrNull { it.id == savedProviderId } ?: AiProviderPresets.none
+        val preset = selectableProfiles(context).firstOrNull { it.id == savedProviderId }
+            ?: AiProviderPresets.none
         val providerType = runCatching {
             AiProviderType.valueOf(prefs.getString(KeyProviderType, preset.providerType.name).orEmpty())
         }.getOrDefault(preset.providerType)
@@ -622,7 +704,7 @@ object AiImportSettingsStore {
     fun loadProvider(context: Context, providerId: String): AiImportSettings {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         val current = load(context)
-        val preset = AiProviderPresets.byId(providerId)
+        val preset = presetFor(context, providerId)
         val profile = when {
             current.profile.id == preset.id -> current.profile
             !prefs.contains(providerKey(KeyBaseUrl, preset.id)) -> preset
@@ -731,6 +813,7 @@ object AiImportSettingsStore {
             .putBoolean(KeyFileUpload, settings.profile.capabilities.supportsFileUpload)
             .putBoolean(KeyVision, settings.profile.supportsVision)
             .putBoolean(KeyPdfDirect, settings.profile.supportsPdfDirect)
+        writeCustomProviderEntry(prefs, editor, settings.profile)
         writeProviderSettings(editor, settings)
         if (settings.apiKey.isBlank()) {
             editor.remove(apiKeyKey(settings.profile.id))
@@ -742,7 +825,9 @@ object AiImportSettingsStore {
     }
 
     fun saveProvider(context: Context, settings: AiImportSettings) {
-        val editor = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE).edit()
+        val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        writeCustomProviderEntry(prefs, editor, settings.profile)
         writeProviderSettings(editor, settings)
         if (settings.apiKey.isNotBlank()) {
             editor.putString(apiKeyKey(settings.profile.id), encrypt(context, settings.apiKey))

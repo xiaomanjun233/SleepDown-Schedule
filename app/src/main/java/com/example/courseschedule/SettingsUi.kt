@@ -586,6 +586,7 @@ fun AiImportSettingsSection(
     val scope = rememberCoroutineScope()
     var saved by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
     var selectedProviderId by remember(saved.profile.id) { mutableStateOf(saved.profile.id) }
+    var customProviderName by remember(saved.profile.id) { mutableStateOf(saved.profile.displayName) }
     var baseUrl by remember(saved.profile.baseUrl) { mutableStateOf(saved.profile.baseUrl) }
     var model by remember(saved.profile.defaultModel) { mutableStateOf(saved.profile.defaultModel) }
     var apiKeyInput by remember(saved.apiKey) { mutableStateOf("") }
@@ -597,6 +598,7 @@ fun AiImportSettingsSection(
     var message by remember { mutableStateOf<String?>(null) }
     var testResult by remember { mutableStateOf<String?>(null) }
     var providerMenuExpanded by remember { mutableStateOf(false) }
+    var providerListRevision by remember { mutableIntStateOf(0) }
     var modelUsesCustomInput by remember(saved.profile.id) {
         mutableStateOf(AiProviderPresets.modelOptions(saved.profile.id).none { it.model == saved.profile.defaultModel })
     }
@@ -607,8 +609,17 @@ fun AiImportSettingsSection(
             }.orEmpty()
         )
     }
-    val presets = AiProviderPresets.selectable
+    val presets = remember(providerListRevision) { AiImportSettingsStore.selectableProfiles(context) }
     val selectedPreset = presets.firstOrNull { it.id == selectedProviderId } ?: AiProviderPresets.openAI
+    val isCustomProvider = AiProviderPresets.isCustomId(selectedProviderId)
+    val effectiveCustomProviderName = customProviderName.trim().ifBlank { selectedPreset.displayName }
+    val pickerPresets = if (isCustomProvider) {
+        presets.map { preset ->
+            if (preset.id == selectedProviderId) preset.copy(displayName = effectiveCustomProviderName) else preset
+        }
+    } else {
+        presets
+    }
     val aiDisabled = selectedProviderId == AiProviderPresets.none.id
     val modelOptions = AiProviderPresets.modelOptions(selectedProviderId)
     val modelEditable = modelOptions.isEmpty() || modelUsesCustomInput
@@ -630,6 +641,7 @@ fun AiImportSettingsSection(
         AiEndpointStyle.CHAT_COMPLETIONS
     }
     val profile = selectedPreset.copy(
+        displayName = if (isCustomProvider) effectiveCustomProviderName else selectedPreset.displayName,
         baseUrl = normalizedBaseUrl,
         defaultModel = model.trim(),
         providerType = if (usesOpenAICompatibleSite) AiProviderType.OpenAIChatCompatible else selectedPreset.providerType,
@@ -650,6 +662,7 @@ fun AiImportSettingsSection(
     fun reload() {
         saved = AiImportSettingsStore.load(context)
         selectedProviderId = saved.profile.id
+        customProviderName = saved.profile.displayName
         baseUrl = saved.profile.baseUrl
         model = saved.profile.defaultModel
         apiKeyInput = ""
@@ -670,11 +683,13 @@ fun AiImportSettingsSection(
         // the user temporarily selects another provider.
         val outgoingKey = apiKeyInput.ifBlank { saved.apiKey }
         AiImportSettingsStore.saveProvider(context, AiImportSettings(profile, outgoingKey))
+        providerListRevision++
         val providerSettings = AiImportSettingsStore.loadProvider(context, providerId)
         val providerModelOptions = AiProviderPresets.modelOptions(providerSettings.profile.id)
         val providerUsesPresetModel = providerModelOptions.any { it.model == providerSettings.profile.defaultModel }
         saved = providerSettings
         selectedProviderId = providerSettings.profile.id
+        customProviderName = providerSettings.profile.displayName
         baseUrl = providerSettings.profile.baseUrl
         model = providerSettings.profile.defaultModel
         apiKeyInput = ""
@@ -734,15 +749,33 @@ fun AiImportSettingsSection(
             "配置今日助手、AI 对话、教务课表解析等智能功能共用的模型服务。API Key 按服务商分别加密保存在本机，不会写入课表数据库或诊断日志。选择“无”可停用所有联网 AI 能力，本地课表功能不受影响。"
         )
         AiProviderPickerRow(
-            value = selectedPreset.displayName,
+            value = if (isCustomProvider) effectiveCustomProviderName else selectedPreset.displayName,
             expanded = providerMenuExpanded,
-            presets = presets,
+            presets = pickerPresets,
             selectedProviderId = selectedProviderId,
             backdrop = backdrop,
             config = state.config,
             onExpandedChange = { providerMenuExpanded = it },
             onSelected = { selectProvider(it) }
         )
+        SettingsDivider()
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)
+        ) {
+            SettingsActionButton(
+                "新增自定义接口",
+                backdrop,
+                onClick = {
+                    val outgoingKey = apiKeyInput.ifBlank { saved.apiKey }
+                    AiImportSettingsStore.saveProvider(context, AiImportSettings(profile, outgoingKey))
+                    val newProfile = AiImportSettingsStore.createCustomProvider(context)
+                    providerListRevision++
+                    selectProvider(newProfile.id)
+                    message = "已新增 ${newProfile.displayName}"
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         if (aiDisabled) {
             SettingsDivider()
             SettingsInfoRow(
@@ -751,6 +784,15 @@ fun AiImportSettingsSection(
             )
         } else {
         SettingsDivider()
+        if (isCustomProvider) {
+            SettingsTextFieldRow(
+                title = "接口名称",
+                value = customProviderName,
+                onValueChange = { customProviderName = it },
+                placeholder = "自定义接口"
+            )
+            SettingsDivider()
+        }
         SettingsTextFieldRow("接口地址", baseUrl, { baseUrl = it }, KeyboardType.Uri)
         SettingsDivider()
         SettingsTextFieldRow(
@@ -806,7 +848,7 @@ fun AiImportSettingsSection(
             keyboardType = KeyboardType.Password
         )
         SettingsDivider()
-        if (selectedProviderId == AiProviderPresets.custom.id) {
+        if (isCustomProvider) {
             SettingsToggleRow(
                 title = "文件上传",
                 subtitle = "允许今日助手向该兼容接口发送图片附件。",
@@ -1592,7 +1634,8 @@ fun SettingsTextFieldRow(
     value: String,
     onValueChange: (String) -> Unit,
     keyboardType: KeyboardType = KeyboardType.Text,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    placeholder: String = ""
 ) {
     val context = LocalContext.current
     val isTimePicker = keyboardType == KeyboardType.Text && value.matches(Regex("\\d{1,2}:\\d{2}"))
@@ -1632,7 +1675,20 @@ fun SettingsTextFieldRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.End
                     ),
-                    modifier = Modifier.width(170.dp)
+                    modifier = Modifier.width(170.dp),
+                    decorationBox = { innerTextField ->
+                        Box(contentAlignment = Alignment.CenterEnd) {
+                            if (value.isEmpty() && placeholder.isNotEmpty()) {
+                                Text(
+                                    placeholder,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                                    textAlign = TextAlign.End
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
                 )
             }
         )
@@ -1666,7 +1722,20 @@ fun SettingsTextFieldRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.End
             ),
-            modifier = Modifier.width(170.dp)
+            modifier = Modifier.width(170.dp),
+            decorationBox = { innerTextField ->
+                Box(contentAlignment = Alignment.CenterEnd) {
+                    if (value.isEmpty() && placeholder.isNotEmpty()) {
+                        Text(
+                            placeholder,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                            textAlign = TextAlign.End
+                        )
+                    }
+                    innerTextField()
+                }
+            }
         )
     }
 }
