@@ -400,6 +400,9 @@ interface AgentDao {
     @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId AND sessionDate = :date ORDER BY createdAt DESC, id DESC LIMIT :limit")
     suspend fun getRecentMessages(scheduleId: Int, date: String, limit: Int): List<AgentMessageEntity>
 
+    @Query("SELECT content FROM agent_messages")
+    suspend fun getAllMessageContents(): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSession(session: AgentDailySessionEntity)
 

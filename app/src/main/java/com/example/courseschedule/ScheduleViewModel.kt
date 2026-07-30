@@ -18,6 +18,14 @@ import kotlinx.coroutines.withContext
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
+private data class DayAgentPreferenceSnapshot(
+    val hasDecision: Boolean,
+    val enabled: Boolean,
+    val dailyAiEnabled: Boolean,
+    val weatherEnabled: Boolean,
+    val memoryEnabled: Boolean
+)
+
 class ScheduleViewModel(
     private val app: Application,
     private val repository: ScheduleRepository
@@ -118,8 +126,7 @@ class ScheduleViewModel(
         val scheduleId = before.config.id
         val beforeSchemes = repository.loadPeriodSchemes(scheduleId)
         val beforeName = before.schedules.firstOrNull { it.id == scheduleId }?.name
-        val beforeAgentEnabled = DayAgentPreferences.isEnabled(app)
-        val beforeWeatherEnabled = DayAgentPreferences.isWeatherEnabled(app)
+        val beforeAgentPreferences = captureDayAgentPreferences()
         var targetConfig = before.config
         var targetPeriods = before.periods
         var targetName = beforeName
@@ -220,12 +227,7 @@ class ScheduleViewModel(
             runCatching {
                 repository.saveScheduleDetail(before.config, beforeSchemes)
                 beforeName?.let { repository.renameSchedule(scheduleId, it) }
-                DayAgentPreferences.setEnabled(app, beforeAgentEnabled)
-                DayAgentPreferences.saveOptions(
-                    app,
-                    DayAgentPreferences.isDailyAiEnabled(app),
-                    beforeWeatherEnabled
-                )
+                restoreDayAgentPreferences(beforeAgentPreferences)
             }
             refreshCoordinator.request()
             onResult(
@@ -266,12 +268,7 @@ class ScheduleViewModel(
         if (!verified) {
             repository.saveScheduleDetail(before.config, beforeSchemes)
             beforeName?.let { repository.renameSchedule(scheduleId, it) }
-            DayAgentPreferences.setEnabled(app, beforeAgentEnabled)
-            DayAgentPreferences.saveOptions(
-                app,
-                DayAgentPreferences.isDailyAiEnabled(app),
-                beforeWeatherEnabled
-            )
+            restoreDayAgentPreferences(beforeAgentPreferences)
             refreshCoordinator.request()
             onResult(
                 AgentPlanExecutionResult(
@@ -294,12 +291,7 @@ class ScheduleViewModel(
                         val restored = runCatching {
                             repository.saveScheduleDetail(before.config, beforeSchemes)
                             beforeName?.let { repository.renameSchedule(scheduleId, it) }
-                            DayAgentPreferences.setEnabled(app, beforeAgentEnabled)
-                            DayAgentPreferences.saveOptions(
-                                app,
-                                DayAgentPreferences.isDailyAiEnabled(app),
-                                beforeWeatherEnabled
-                            )
+                            restoreDayAgentPreferences(beforeAgentPreferences)
                             refreshCoordinator.request()
                         }.isSuccess
                         undoResult(
@@ -520,6 +512,29 @@ class ScheduleViewModel(
 
     fun refreshNotifications() {
         refreshCoordinator.request()
+    }
+
+    private fun captureDayAgentPreferences(): DayAgentPreferenceSnapshot =
+        DayAgentPreferenceSnapshot(
+            hasDecision = DayAgentPreferences.hasDecision(app),
+            enabled = DayAgentPreferences.isEnabled(app),
+            dailyAiEnabled = DayAgentPreferences.isDailyAiEnabled(app),
+            weatherEnabled = DayAgentPreferences.isWeatherEnabled(app),
+            memoryEnabled = DayAgentPreferences.isMemoryEnabled(app)
+        )
+
+    private fun restoreDayAgentPreferences(snapshot: DayAgentPreferenceSnapshot) {
+        DayAgentPreferences.setEnabled(
+            app,
+            enabled = snapshot.enabled,
+            markDecided = snapshot.hasDecision
+        )
+        DayAgentPreferences.saveOptions(
+            app,
+            dailyAiEnabled = snapshot.dailyAiEnabled,
+            weatherEnabled = snapshot.weatherEnabled
+        )
+        DayAgentPreferences.setMemoryEnabled(app, snapshot.memoryEnabled)
     }
 
     private suspend fun refreshScheduleSurfaces() = withContext(Dispatchers.IO) {

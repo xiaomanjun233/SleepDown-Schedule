@@ -513,7 +513,7 @@ private fun formatNumberRanges(values: List<Int>): String {
 }
 
 fun todayCourses(state: AppState): List<CourseEntity> {
-    val today = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    val today = LocalDate.now()
     val weekday = today.dayOfWeek.toChineseWeekday()
     // Do not fold dates before/after the term into week 1/the final week. Widgets,
     // notifications and the live activity all consume this shared query.
@@ -543,7 +543,7 @@ fun currentTimelinePeriod(periods: List<PeriodEntity>, now: LocalTime): PeriodEn
 
 fun derivedScheduleTermState(
     config: ScheduleConfigEntity,
-    today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    today: LocalDate = LocalDate.now()
 ): ScheduleTermState {
     if (!config.autoCurrentWeek) return ScheduleTermState.MANUAL
     val startDate = parseScheduleDate(config.termStartDate) ?: return ScheduleTermState.INVALID
@@ -554,12 +554,12 @@ fun derivedScheduleTermState(
 }
 
 internal fun ScheduleConfigEntity.withDerivedScheduleTermState(
-    today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    today: LocalDate = LocalDate.now()
 ): ScheduleConfigEntity {
     val derived = derivedScheduleTermState(this, today)
     return if (termState == derived) this else copy(termState = derived)
 }
-fun effectiveCurrentWeek(config: ScheduleConfigEntity, today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))): Int {
+fun effectiveCurrentWeek(config: ScheduleConfigEntity, today: LocalDate = LocalDate.now()): Int {
     if (!config.autoCurrentWeek || config.termStartDate.isNullOrBlank()) return config.currentWeek.coerceIn(1, config.totalWeeks)
     val startDate = parseScheduleDate(config.termStartDate) ?: return config.currentWeek.coerceIn(1, config.totalWeeks)
     val start = startDate.minusDays((startDate.dayOfWeek.toChineseWeekday() - 1).toLong())
@@ -578,7 +578,7 @@ fun resolveScheduleCurrentWeek(
     manualCurrentWeek: Int,
     termStartDate: String?,
     autoCurrentWeek: Boolean,
-    today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    today: LocalDate = LocalDate.now()
 ): Int {
     val safeTotal = totalWeeks.coerceIn(1, 60)
     val safeManual = manualCurrentWeek.coerceIn(1, safeTotal)
@@ -595,7 +595,7 @@ fun resolveScheduleCurrentWeek(
         ?: safeManual
 }
 
-fun isBeforeScheduleTerm(config: ScheduleConfigEntity, today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))): Boolean {
+fun isBeforeScheduleTerm(config: ScheduleConfigEntity, today: LocalDate = LocalDate.now()): Boolean {
     if (!config.autoCurrentWeek || config.termStartDate.isNullOrBlank()) return false
     val startDate = parseScheduleDate(config.termStartDate) ?: return false
     return today.isBefore(startDate)
@@ -610,7 +610,7 @@ fun scheduleTermEndDate(config: ScheduleConfigEntity): LocalDate? {
 
 fun isAfterScheduleTerm(
     config: ScheduleConfigEntity,
-    today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    today: LocalDate = LocalDate.now()
 ): Boolean = scheduleTermEndDate(config)?.let(today::isAfter) == true
 
 fun scheduleTermStatusLabel(config: ScheduleConfigEntity, date: LocalDate): String? = when (derivedScheduleTermState(config, date)) {
@@ -644,7 +644,7 @@ fun scheduleWeekForDateOrNull(config: ScheduleConfigEntity, date: LocalDate): In
 
 fun scheduleDayNavigationRange(
     config: ScheduleConfigEntity,
-    today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    today: LocalDate = LocalDate.now()
 ): ClosedRange<LocalDate>? {
     if (!config.autoCurrentWeek || config.termStartDate.isNullOrBlank()) return null
     val start = parseScheduleDate(config.termStartDate) ?: return null
@@ -657,7 +657,7 @@ fun scheduleDayNavigationRange(
 fun scheduleWeekStartDate(
     config: ScheduleConfigEntity,
     displayWeek: Int,
-    today: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    today: LocalDate = LocalDate.now()
 ): LocalDate {
     val safeWeek = displayWeek.coerceAtLeast(1)
     val termStart = if (config.autoCurrentWeek) parseScheduleDate(config.termStartDate) else null
@@ -763,7 +763,7 @@ object NotificationScheduler {
         val signature = scheduleSignature(courses, config, periods)
         val todayIsInTerm = scheduleWeekForDateOrNull(
             config,
-            LocalDate.now(ZoneId.of("Asia/Shanghai"))
+            LocalDate.now()
         ) != null
         if (!todayIsInTerm || prefs.getString(KEY_SCHEDULE_SIGNATURE, null) != signature) {
             // Always clear stale alarms outside the term, even if this process has
@@ -783,11 +783,17 @@ object NotificationScheduler {
         }
         val today = todayCourses(AppState(courses = courses, config = config, periods = periods))
         val now = System.currentTimeMillis()
+        val scheduleZone = ZoneId.systemDefault()
+        val scheduleDate = LocalDate.now(scheduleZone)
         val scheduledCodes = mutableListOf<Int>()
         today.forEach { course ->
             val start = courseStartTime(course, periods) ?: return@forEach
-            val trigger = LocalDate.now(ZoneId.of("Asia/Shanghai")).atTime(start).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli() -
-                config.notificationLeadMinutes.coerceAtLeast(0) * 60_000L
+            val trigger = notificationTriggerEpochMillis(
+                date = scheduleDate,
+                time = start,
+                leadMinutes = config.notificationLeadMinutes,
+                zone = scheduleZone
+            )
             if (trigger > now) {
                 val retryTriggers = if (config.notificationMode == NotificationMode.LIVE_UPDATE) {
                     listOf(trigger, trigger + 60_000L, trigger + 3 * 60_000L, trigger + 5 * 60_000L)
@@ -796,7 +802,7 @@ object NotificationScheduler {
                 }
                 retryTriggers.forEachIndexed { index, retryTrigger ->
                     val courseEnd = courseEndTime(course, periods) ?: start
-                    val retryEnd = LocalDate.now(ZoneId.of("Asia/Shanghai")).atTime(courseEnd).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    val retryEnd = scheduleDate.atTime(courseEnd).atZone(scheduleZone).toInstant().toEpochMilli()
                     if (retryTrigger > now && retryTrigger < retryEnd) {
                         val requestCode = course.requestCode(index)
                         scheduleAlarm(alarmManager, retryTrigger, pendingIntent(context, course, config, periods, requestCode))
@@ -808,14 +814,19 @@ object NotificationScheduler {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_REQUEST_CODES, scheduledCodes.joinToString(",")).apply()
     }
 
-    private fun scheduleSignature(courses: List<CourseEntity>, config: ScheduleConfigEntity, periods: List<PeriodEntity>): String {
-        val today = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    internal fun scheduleSignature(
+        courses: List<CourseEntity>,
+        config: ScheduleConfigEntity,
+        periods: List<PeriodEntity>,
+        today: LocalDate = LocalDate.now()
+    ): String {
         val coursePart = courses
             .sortedBy { it.id }
             .joinToString(";") {
                 listOf(
                     it.id,
                     it.name,
+                    it.location.orEmpty(),
                     it.weekday,
                     it.periods.joinToString(","),
                     it.weeks.joinToString(","),
@@ -838,6 +849,17 @@ object NotificationScheduler {
             periodPart
         ).joinToString("|")
     }
+
+    internal fun notificationTriggerEpochMillis(
+        date: LocalDate,
+        time: LocalTime,
+        leadMinutes: Int,
+        zone: ZoneId = ZoneId.systemDefault()
+    ): Long = date
+        .atTime(time)
+        .atZone(zone)
+        .toInstant()
+        .toEpochMilli() - leadMinutes.coerceAtLeast(0) * 60_000L
 
     private fun scheduleAlarm(alarmManager: AlarmManager, trigger: Long, pending: PendingIntent) {
         try {
@@ -862,13 +884,13 @@ object NotificationScheduler {
             stopLiveUpdateService(context)
             return
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        if (!canPostNotifications(context)) {
             Log.w(TAG, "skip immediate live update: POST_NOTIFICATIONS denied")
             NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
             stopLiveUpdateService(context)
             return
         }
-        val now = LocalTime.now(ZoneId.of("Asia/Shanghai"))
+        val now = LocalTime.now()
         val lead = config.notificationLeadMinutes.coerceAtLeast(0).toLong()
         val active = todayCourses(AppState(courses = courses, config = config, periods = periods))
             .firstOrNull { course ->
@@ -938,9 +960,9 @@ object NotificationScheduler {
 
     fun showLiveUpdatePreview(context: Context, config: ScheduleConfigEntity) {
         createChannel(context)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        if (!canPostNotifications(context)) return
         val previewMinutes = config.notificationLeadMinutes.coerceIn(1, 30)
-        val start = LocalTime.now(ZoneId.of("Asia/Shanghai"))
+        val start = LocalTime.now()
             .plusMinutes(previewMinutes.toLong())
             .withSecond(0)
             .withNano(0)
@@ -1057,7 +1079,7 @@ object NotificationScheduler {
     private fun minutesUntil(timeText: String): Int {
         val startText = timeText.substringBefore("-").trim()
         val start = runCatching { LocalTime.parse(startText) }.getOrNull() ?: return 0
-        val now = LocalTime.now(ZoneId.of("Asia/Shanghai"))
+        val now = LocalTime.now()
         return max(0, ChronoUnit.MINUTES.between(now, start).toInt())
     }
 
@@ -1181,7 +1203,7 @@ object NotificationScheduler {
         NotificationManagerCompat.from(context).notify(LIVE_UPDATE_ID, notification)
     }
 
-    private fun canPostNotifications(context: Context): Boolean {
+    internal fun canPostNotifications(context: Context): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
     }
@@ -1255,7 +1277,7 @@ class LiveUpdateForegroundService : Service() {
                 val payload = activePayload ?: break
                 val start = payload.startTime()
                 val reachedStart = start == null ||
-                    !LocalTime.now(ZoneId.of("Asia/Shanghai")).isBefore(start)
+                    !LocalTime.now().isBefore(start)
                 if (reachedStart && !payload.isPreview()) {
                     clearStoredPayload()
                     NotificationManagerCompat.from(this@LiveUpdateForegroundService)
@@ -1264,10 +1286,25 @@ class LiveUpdateForegroundService : Service() {
                     stopSelf()
                     break
                 }
-                NotificationManagerCompat.from(this@LiveUpdateForegroundService).notify(
-                    NotificationScheduler.liveUpdateId(),
-                    payload.buildNotification(this@LiveUpdateForegroundService)
-                )
+                if (!NotificationScheduler.canPostNotifications(this@LiveUpdateForegroundService)) {
+                    Log.w("SleepDownLiveUpdate", "stop live update: POST_NOTIFICATIONS denied")
+                    clearStoredPayload()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    break
+                }
+                try {
+                    NotificationManagerCompat.from(this@LiveUpdateForegroundService).notify(
+                        NotificationScheduler.liveUpdateId(),
+                        payload.buildNotification(this@LiveUpdateForegroundService)
+                    )
+                } catch (securityException: SecurityException) {
+                    Log.w("SleepDownLiveUpdate", "stop live update: notification permission revoked", securityException)
+                    clearStoredPayload()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    break
+                }
                 // Align updates with the wall-clock minute boundary. The native
                 // chronometer keeps ticking in SystemUI between these refreshes.
                 val now = System.currentTimeMillis()
@@ -1380,14 +1417,16 @@ class CourseAlarmReceiver : BroadcastReceiver() {
             val muteKey = intent.getStringExtra("muteKey").orEmpty()
             val muteUntil = intent.getStringExtra("muteUntil").orEmpty()
             val startTime = runCatching { LocalTime.parse(timeText.substringBefore("-").trim()) }.getOrNull()
-            if (mode == NotificationMode.LIVE_UPDATE && startTime != null && !LocalTime.now(ZoneId.of("Asia/Shanghai")).isBefore(startTime)) {
+            if (mode == NotificationMode.LIVE_UPDATE && startTime != null && !LocalTime.now().isBefore(startTime)) {
                 Log.d("SleepDownLiveUpdate", "skip alarm live update: course already started name=$name, start=$startTime")
                 return@withShortWakeLock
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return@withShortWakeLock
-                val notification = if (mode == NotificationMode.LIVE_UPDATE) {
-                    null
-                } else {
+            if (!NotificationScheduler.canPostNotifications(context)) {
+                return@withShortWakeLock
+            }
+            val notification = if (mode == NotificationMode.LIVE_UPDATE) {
+                null
+            } else {
                 NotificationCompat.Builder(context, NotificationScheduler.channelId())
                     .setSmallIcon(R.mipmap.ic_launcher)
                     .setContentTitle("快上课了：$name")
@@ -1409,7 +1448,11 @@ class CourseAlarmReceiver : BroadcastReceiver() {
                 )
             } else {
                 val notificationId = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
-                NotificationManagerCompat.from(context).notify(notificationId, requireNotNull(notification))
+                try {
+                    NotificationManagerCompat.from(context).notify(notificationId, requireNotNull(notification))
+                } catch (securityException: SecurityException) {
+                    Log.w("SleepDownLiveUpdate", "skip course notification: permission revoked", securityException)
+                }
             }
         }
     }
@@ -1437,7 +1480,10 @@ class CourseBootReceiver : BroadcastReceiver() {
         if (intent.action !in setOf(
                 Intent.ACTION_BOOT_COMPLETED,
                 Intent.ACTION_LOCKED_BOOT_COMPLETED,
-                Intent.ACTION_MY_PACKAGE_REPLACED
+                Intent.ACTION_MY_PACKAGE_REPLACED,
+                Intent.ACTION_DATE_CHANGED,
+                Intent.ACTION_TIME_CHANGED,
+                Intent.ACTION_TIMEZONE_CHANGED
             )
         ) {
             return

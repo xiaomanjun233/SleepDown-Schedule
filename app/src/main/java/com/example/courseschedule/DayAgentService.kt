@@ -770,6 +770,7 @@ class DayAgentRepository(private val context: Context) {
     companion object {
         private val generationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val sessionCache = ConcurrentHashMap<String, AgentDailySessionEntity>()
+        private val attachmentMutex = Mutex()
     }
 
     private val database = (context.applicationContext as CourseScheduleApp).database
@@ -793,9 +794,24 @@ class DayAgentRepository(private val context: Context) {
         dao.observeMessages(scheduleId, date.toString()).distinctUntilChanged()
 
     suspend fun cleanup(today: LocalDate) {
-        val oldest = today.minusDays(2).toString()
-        dao.deleteMessagesBefore(oldest)
-        dao.deleteSessionsBefore(oldest)
+        attachmentMutex.withLock {
+            val oldest = today.minusDays(2).toString()
+            dao.deleteMessagesBefore(oldest)
+            dao.deleteSessionsBefore(oldest)
+            val referencedNames = dao.getAllMessageContents()
+                .mapNotNull { parseAgentMessageContent(it).attachmentFileName }
+                .toSet()
+            val directory = File(context.filesDir, "agent_attachments")
+            val existingNames = directory.listFiles()
+                ?.asSequence()
+                ?.filter { it.isFile }
+                ?.map { it.name }
+                ?.toSet()
+                .orEmpty()
+            orphanedAgentAttachmentNames(existingNames, referencedNames).forEach { fileName ->
+                runCatching { File(directory, fileName).delete() }
+            }
+        }
     }
 
     suspend fun ensureDailyPack(scheduleId: Int, facts: DayAgentFacts, force: Boolean = false): Result<DailyAgentPack> {
@@ -871,31 +887,42 @@ class DayAgentRepository(private val context: Context) {
             "课表已切换，请重新发送这条消息"
         }
         cleanup(facts.date)
-        val persistedAttachmentName = imageAttachment?.let { attachment ->
-            runCatching {
-                val directory = File(context.filesDir, "agent_attachments").apply { mkdirs() }
-                val extension = when (attachment.mimeType.lowercase()) {
-                    "image/png" -> "png"
-                    "image/webp" -> "webp"
-                    else -> "jpg"
-                }
-                val fileName = "${UUID.randomUUID()}.$extension"
-                File(directory, fileName).writeBytes(
-                    android.util.Base64.decode(attachment.base64, android.util.Base64.DEFAULT)
+        attachmentMutex.withLock {
+            var createdAttachment: File? = null
+            val attachmentName = imageAttachment?.let { attachment ->
+                runCatching {
+                    val directory = File(context.filesDir, "agent_attachments").apply { mkdirs() }
+                    val extension = when (attachment.mimeType.lowercase()) {
+                        "image/png" -> "png"
+                        "image/webp" -> "webp"
+                        else -> "jpg"
+                    }
+                    val fileName = "${UUID.randomUUID()}.$extension"
+                    val target = File(directory, fileName)
+                    target.writeBytes(
+                        android.util.Base64.decode(attachment.base64, android.util.Base64.DEFAULT)
+                    )
+                    createdAttachment = target
+                    fileName
+                }.getOrNull()
+            }
+            try {
+                dao.insertMessage(
+                    AgentMessageEntity(
+                        scheduleId = scheduleId,
+                        sessionDate = facts.date.toString(),
+                        role = "user",
+                        content = agentMessageContent(question, attachmentName),
+                        createdAt = System.currentTimeMillis(),
+                        status = "READY"
+                    )
                 )
-                fileName
-            }.getOrNull()
+                attachmentName
+            } catch (error: Throwable) {
+                createdAttachment?.delete()
+                throw error
+            }
         }
-        dao.insertMessage(
-            AgentMessageEntity(
-                scheduleId = scheduleId,
-                sessionDate = facts.date.toString(),
-                role = "user",
-                content = agentMessageContent(question, persistedAttachmentName),
-                createdAt = System.currentTimeMillis(),
-                status = "READY"
-            )
-        )
         DayAgentPreferences.noteConversationTurn(context, facts.date)
         val history = dao.getRecentMessages(scheduleId, facts.date.toString(), 20).reversed().dropLast(1)
         /*
@@ -950,6 +977,16 @@ class DayAgentRepository(private val context: Context) {
         sessionCache["${session.scheduleId}:${session.date}"] = session
         dao.upsertSession(session)
     }
+}
+
+private val ManagedAgentAttachmentName =
+    Regex("""^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.(?:jpg|png|webp)$""")
+
+internal fun orphanedAgentAttachmentNames(
+    existingNames: Set<String>,
+    referencedNames: Set<String>
+): Set<String> = existingNames.filterTo(mutableSetOf()) { fileName ->
+    ManagedAgentAttachmentName.matches(fileName) && fileName !in referencedNames
 }
 
 private fun compactAgentHistory(history: List<AgentMessageEntity>): List<AgentMessageEntity> {

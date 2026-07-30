@@ -30,6 +30,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -43,6 +44,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 private const val AiImportLogTag = "AiImport"
+internal const val MaxAiImportFileBytes = 20 * 1024 * 1024
 
 enum class AiEndpointStyle {
     CHAT_COMPLETIONS,
@@ -858,7 +860,7 @@ class AiScheduleImportService(private val context: Context) {
                 require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
                 require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
                 require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
-                require(file.bytes.size <= 20 * 1024 * 1024) { "文件不能超过 20MB" }
+                require(file.bytes.size <= MaxAiImportFileBytes) { "文件不能超过 20MB" }
                 val config = settings.toProviderConfig().normalizedForRequest()
                 val preprocess = DefaultScheduleFilePreprocessor(context).preprocess(file, config)
                 val input = preprocess.toScheduleInput(file)
@@ -1610,11 +1612,47 @@ suspend fun loadAiImportFile(context: Context, uri: Uri): Result<AiImportFile> =
         runCatching {
             val resolver = context.contentResolver
             val mime = resolver.getType(uri) ?: "application/octet-stream"
-            val name = resolver.query(uri, null, null, null, null)?.use { cursor ->
-                val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                if (cursor.moveToFirst() && index >= 0) cursor.getString(index) else null
-            } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "schedule-file"
-            val rawBytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: error("无法读取文件")
+            val metadata = runCatching {
+                resolver.query(
+                    uri,
+                    arrayOf(
+                        android.provider.OpenableColumns.DISPLAY_NAME,
+                        android.provider.OpenableColumns.SIZE
+                    ),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (!cursor.moveToFirst()) {
+                        null
+                    } else {
+                        val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        val sizeIndex = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                        val displayName = if (nameIndex >= 0 && !cursor.isNull(nameIndex)) {
+                            cursor.getString(nameIndex)
+                        } else {
+                            null
+                        }
+                        val size = if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
+                            cursor.getLong(sizeIndex)
+                        } else {
+                            null
+                        }
+                        displayName to size
+                    }
+                }
+            }.getOrNull()
+            val name = metadata?.first
+                ?: uri.lastPathSegment?.substringAfterLast('/')
+                ?: "schedule-file"
+            metadata?.second
+                ?.takeIf { it >= 0 }
+                ?.let { size ->
+                    require(size <= MaxAiImportFileBytes) { "文件不能超过 20MB" }
+                }
+            val rawBytes = resolver.openInputStream(uri)
+                ?.use { it.readBytesWithLimit(MaxAiImportFileBytes) }
+                ?: error("无法读取文件")
             val bytes = if (mime.startsWith("image/", ignoreCase = true)) {
                 compressAiImportImage(rawBytes)
             } else {
@@ -1623,6 +1661,22 @@ suspend fun loadAiImportFile(context: Context, uri: Uri): Result<AiImportFile> =
             AiImportFile(uri, name, mime, bytes)
         }
     }
+
+internal fun InputStream.readBytesWithLimit(maxBytes: Int): ByteArray {
+    require(maxBytes > 0) { "读取上限必须大于 0" }
+    val output = ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    var total = 0
+    while (true) {
+        val count = read(buffer)
+        if (count < 0) break
+        if (count == 0) continue
+        require(total <= maxBytes - count) { "文件不能超过 20MB" }
+        output.write(buffer, 0, count)
+        total += count
+    }
+    return output.toByteArray()
+}
 
 private fun compressAiImportImage(bytes: ByteArray): ByteArray {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
