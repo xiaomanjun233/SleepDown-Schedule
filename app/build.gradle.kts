@@ -8,6 +8,17 @@ plugins {
     id("androidx.baselineprofile")
 }
 
+val releaseStoreFilePath = providers.gradleProperty("sleepdown.releaseStoreFile").orNull
+val releaseStorePassword = providers.gradleProperty("sleepdown.releaseStorePassword").orNull
+val releaseKeyAlias = providers.gradleProperty("sleepdown.releaseKeyAlias").orNull
+val releaseKeyPassword = providers.gradleProperty("sleepdown.releaseKeyPassword").orNull
+val hasReleaseSigning = listOf(
+    releaseStoreFilePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { !it.isNullOrBlank() }
+
 @Suppress("UnstableApiUsage")
 android {
     namespace = "com.example.courseschedule"
@@ -46,19 +57,23 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file("C:/Users/23085/.android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-            enableV2Signing = true
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseStoreFilePath))
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                enableV2Signing = true
+            }
         }
     }
 
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            // Keep local release builds installable without publishing a private key.
+            // Official builds provide the four sleepdown.release* Gradle properties.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
         create("benchmark") {
             initWith(getByName("release"))

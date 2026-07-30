@@ -39,37 +39,56 @@ SleepDown 课程表是一款注重视觉体验和日常效率的本地课程表�
 
 SleepDown 课程表主要数据保存在本机，不依赖云端同步。卸载应用可能会清除课表和设置数据，重要课表建议保留原始导入文本或自行备份。
 
+## 获取源码与版本策略
+
+GitHub 和 Gitee 镜像使用同一套提交历史，默认分支均为 `main`：
+
+```bash
+# GitHub
+git clone https://github.com/xiaomanjun233/SleepDown-Schedule.git
+
+# Gitee
+git clone https://gitee.com/xiaomanjun233/SleepDown-Schedule.git
+```
+
+- `main` 始终指向已经验证的最新稳定代码，普通使用者和构建者只需 clone 默认分支。
+- 正式版本使用 `v<版本号>` 标签（例如 `v1.1.0`），标签用于复现已发布版本。
+- `feature/*`、`fix/*`、`release/*` 或 `codex/*` 为临时开发分支；完成验证并合入 `main` 后即可删除，不作为长期下载入口。
+- 功能开发采用短分支和 Pull Request / Merge Request，避免直接改写 `main` 历史。
+
 ## 项目结构
 
 ```
 CourseSchedule/
 ├── app/
-│   ├── build.gradle.kts                          # 应用构建配置
+│   ├── build.gradle.kts                          # 应用构建、依赖与签名配置
 │   └── src/main/
 │       ├── AndroidManifest.xml
 │       ├── assets/
 │       │   └── shiguang_warehouse-main/          # 教务适配资源（来自上游仓库）
 │       ├── java/com/example/courseschedule/
-│       │   ├── MainActivity.kt                   # 主 Activity，包含全部 UI 组件与页面
-│       │   ├── Data.kt                           # Room 实体、DAO、Repository、ViewModel
-│       │   ├── GlassUi.kt                        # 液态玻璃效果组件
-│       │   ├── ScheduleLogic.kt                  # 课表解析、导入导出、通知调度
-│       │   ├── EduImport.kt                      # 教务导入 WebView 适配
-│       │   └── TodayCoursesWidgetProvider.kt     # 桌面小组件（Glance）
+│       │   ├── MainActivity.kt                   # 应用入口
+│       │   ├── ScheduleUi.kt                     # 主界面编排、导航与公共页面
+│       │   ├── HomeScheduleUi.kt                 # 首页日视图与周视图入口
+│       │   ├── WeekScheduleUi.kt                 # 周课表、冲突处理与拖拽编辑
+│       │   ├── SettingsUi.kt                     # 设置与课表详细配置
+│       │   ├── ImportUi.kt                       # 手动、AI 与教务导入界面
+│       │   ├── Data.kt                           # Room 实体、DAO、迁移与 Repository
+│       │   ├── ScheduleViewModel.kt              # UI 状态与写入协调
+│       │   ├── ScheduleLogic.kt                  # 课表计算与通知调度
+│       │   ├── DayAgent*.kt / Agent*.kt          # 今日助手、工具协议与执行
+│       │   ├── GlassUi.kt / *Morph*.kt           # 液态玻璃与转场实现
+│       │   ├── EduImport.kt / EduPageCapture.kt  # 教务适配与网页识屏
+│       │   └── *Widget*.kt                       # 桌面小组件与个性化
 │       ├── java/com/kyant/
-│       │   └── backdrop/catalog/                 # backdrop 库内嵌 UI 组件
+│       │   └── backdrop/catalog/                 # 基于上游修改的内嵌 UI 组件
 │       └── res/
-│           ├── drawable/                         # 图标资源
-│           ├── drawable-nodpi/                   # 默认壁纸与捐赠二维码
-│           ├── mipmap/                           # 启动图标
-│           ├── values/                           # 字符串、颜色、主题
-│           ├── layout/                           # 通知与小组件布局
-│           └── xml/                              # 小组件配置
+├── benchmark/                                    # Macrobenchmark 与基准配置
+├── docs/                                         # 性能基线、版本说明与开发文档
 ├── gradle/wrapper/
-├── build.gradle.kts                              # 根构建配置
-├── settings.gradle.kts                           # 项目设置
-├── gradle.properties                             # Gradle 属性
-└── gradlew / gradlew.bat                         # Gradle Wrapper
+├── THIRD_PARTY_NOTICES.md                        # 第三方代码与许可证说明
+├── build.gradle.kts / settings.gradle.kts        # 根构建与仓库配置
+└── gradlew / gradlew.bat                         # Gradle Wrapper 9.6.1
 ```
 
 ## 技术栈
@@ -80,22 +99,53 @@ CourseSchedule/
 | 数据库 | Room + KSP |
 | 序列化 | Kotlin Serialization |
 | 玻璃渲染 | kyant/backdrop + 自定义 drawBackdrop 管线 |
+| 设置组件 | compose-miuix-ui/miuix |
 | 教务适配 | shiguang_warehouse（assets 内嵌） |
 | 浏览器 | AndroidX Browser（Custom Tabs） |
-| 桌面小组件 | Glance |
+| 桌面小组件 | RemoteViews |
 
 ## 构建
 
+环境要求：
+
+- JDK 17
+- Android SDK 37（`targetSdk` 为 36，`minSdk` 为 26）
+- 使用仓库自带的 Gradle Wrapper 9.6.1
+
 ```bash
+# macOS / Linux
 ./gradlew assembleDebug
+
+# Windows
+gradlew.bat assembleDebug
 ```
 
 | 配置 | 值 |
 |------|-----|
-| compileSdk | 36 |
+| compileSdk | 37 |
 | minSdk | 26 |
 | targetSdk | 36 |
-| JDK | 17+ |
+| Android Gradle Plugin | 9.2.1 |
+| Kotlin | 2.3.10 |
+| JDK | 17 |
+
+项目在 Miuix 0.9.3 上维护了一个很小的透明补丁，用于让弹窗和底部面板的自定义玻璃材质与原动画处于同一渲染节点，并支持手机上的居中弹窗。首次构建前准备相邻的源码依赖：
+
+```bash
+git clone --branch v0.9.3 https://github.com/compose-miuix-ui/miuix.git ../miuix-reference
+git -C ../miuix-reference apply ../CourseSchedule/patches/miuix-0.9.3-sleepdown.patch
+```
+
+`settings.gradle.kts` 会自动使用 `../miuix-reference`。也可以通过 `sleepdown.miuixSourcePath` 指向已应用同一补丁的其他目录。补丁文件受版本控制，避免依赖某台电脑上不可见的第三方源码改动。
+
+需要本地 Maven 镜像或不同的 Miuix 源码目录时，在用户级 `~/.gradle/gradle.properties` 中设置（不要提交个人绝对路径）：
+
+```properties
+sleepdown.localMavenPath=/absolute/path/to/local-maven
+sleepdown.miuixSourcePath=/absolute/path/to/miuix
+```
+
+本地未配置发布证书时，`release` 构建回退到 Android 调试签名以便安装测试。正式发布通过用户级 Gradle 属性或 CI Secret 提供 `sleepdown.releaseStoreFile`、`sleepdown.releaseStorePassword`、`sleepdown.releaseKeyAlias` 和 `sleepdown.releaseKeyPassword`。
 
 ## 引用与修改说明
 
@@ -106,6 +156,13 @@ CourseSchedule/
 - 在此基础上扩展了 `GlassSurface`、`GlassPill`、`GlassLens`、`GlassDialogSurface`、`CourseGlassCard` 等自定义玻璃组件
 - `GlassTokens` 封装了 Pill / Dialog / CourseCard 三种场景的模糊、透镜、表面透明度和边框透明度参数预设
 - `CourseGlassCard` 额外应用了 `vibrancy()` 效果和配置驱动的动态模糊/透镜参数
+
+### [compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix) — 设置页与教务导入组件
+
+- 使用 `miuix-ui-android:0.9.3` 与 `miuix-preference-android:0.9.3`
+- 本项目将 Miuix 布局和交互组件与现有液态玻璃表面组合使用
+- Miuix blur 模块未引入；本地组合构建只替换上述两个依赖
+- `patches/miuix-0.9.3-sleepdown.patch` 记录了 `surfaceModifier` 与 `forceCenter` 扩展，未改动其他 Miuix 行为
 
 ### [shiguang_warehouse](https://github.com/xingheyuzhuan/shiguang_warehouse) — 教务适配资源
 
@@ -128,6 +185,7 @@ CourseSchedule/
 | 项目 | 作者 | 协议 | 用途 |
 |------|------|------|------|
 | [backdrop](https://github.com/Kyant0/backdrop) | Kyant0 | Apache 2.0 | 液态玻璃渲染引擎 |
+| [compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix) | compose-miuix-ui | Apache 2.0 | 设置页与教务导入组件 |
 | [shiguang_warehouse](https://github.com/xingheyuzhuan/shiguang_warehouse) | 星河欲转 / 拾光开发者 | MIT | 教务系统适配资源 |
 | [AndroidX / Jetpack](https://developer.android.com/jetpack) | Google | Apache 2.0 | UI 框架、数据库、生命周期 |
 | [Kotlin Serialization](https://github.com/Kotlin/kotlinx.serialization) | JetBrains | Apache 2.0 | JSON 序列化 |
@@ -135,4 +193,4 @@ CourseSchedule/
 
 ## 许可证
 
-本项目仅供学习与参考。代码中嵌入的 `kyant/backdrop` 组件和 `shiguang_warehouse` 资源分别遵循其原项目的 Apache 2.0 和 MIT 协议。
+本项目仅供学习与参考。第三方代码与资源继续遵循各自的原始许可证，具体修改与引用范围见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

@@ -1,0 +1,216 @@
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
+index d540c7e..4cbc25a 100644
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
+@@ -126,6 +126,7 @@ internal fun BottomSheetContentLayout(
+     dragHandleColor: Color,
+     popupHost: @Composable (visible: Boolean, content: @Composable () -> Unit) -> Unit,
+     modifier: Modifier = Modifier,
++    surfaceModifier: Modifier = Modifier,
+     title: String? = null,
+     startAction: @Composable (() -> Unit)? = null,
+     endAction: @Composable (() -> Unit)? = null,
+@@ -299,6 +300,7 @@ internal fun BottomSheetContentLayout(
+                     }
+                 },
+                 modifier = sheetModifier,
++                surfaceModifier = surfaceModifier,
+                 topInset = topInset,
+                 enableNestedScroll = enableNestedScroll,
+                 startAction = startAction?.let { action ->
+@@ -335,6 +337,7 @@ internal fun BottomSheetContent(
+     dragSnapChannel: Channel<Float>,
+     onDismissRequest: (() -> Unit)?,
+     modifier: Modifier = Modifier,
++    surfaceModifier: Modifier = Modifier,
+     topInset: Dp? = null,
+     enableNestedScroll: Boolean = true,
+     startAction: @Composable (() -> Unit)? = null,
+@@ -564,6 +567,7 @@ internal fun BottomSheetContent(
+         onSettle = performSettle,
+         onUpdateAlpha = updateDimAlpha,
+         modifier = modifier,
++        surfaceModifier = surfaceModifier,
+         content = content,
+     )
+ }
+@@ -593,6 +597,7 @@ private fun BottomSheetColumn(
+     onSettle: (velocity: Float) -> Unit,
+     onUpdateAlpha: (Float) -> Unit,
+     modifier: Modifier = Modifier,
++    surfaceModifier: Modifier = Modifier,
+     content: @Composable () -> Unit,
+ ) {
+     val density = LocalDensity.current
+@@ -627,6 +632,7 @@ private fun BottomSheetColumn(
+                 }
+                 .then(if (defaultWindowInsetsPadding) Modifier.imePadding() else Modifier)
+                 .padding(horizontal = outsideMargin.width)
++                .then(surfaceModifier)
+                 .squircleSurface(
+                     color = backgroundColor,
+                     topStart = cornerRadius,
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/DialogContentLayout.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/DialogContentLayout.kt
+index 844bcdf..60896b1 100644
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/DialogContentLayout.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/DialogContentLayout.kt
+@@ -102,6 +102,7 @@ internal fun DialogContentLayout(
+     insideMargin: DpSize,
+     popupHost: @Composable (visible: Boolean, content: @Composable () -> Unit) -> Unit,
+     modifier: Modifier = Modifier,
++    surfaceModifier: Modifier = Modifier,
+     title: String? = null,
+     summary: String? = null,
+     enableWindowDim: Boolean = true,
+@@ -109,6 +110,7 @@ internal fun DialogContentLayout(
+     onDismissFinished: (() -> Unit)? = null,
+     defaultWindowInsetsPadding: Boolean = true,
+     topInset: Dp? = null,
++    forceCenter: Boolean = false,
+     content: @Composable () -> Unit,
+ ) {
+     val animationProgress = remember { Animatable(0f, visibilityThreshold = 0.0001f) }
+@@ -124,7 +126,7 @@ internal fun DialogContentLayout(
+     LaunchedEffect(show) {
+         // Snapshot at launch so a window-resize crossing the breakpoint mid-animation does not
+         // swap the spec or relaunch the effect.
+-        val largeAtStart = isLargeScreen
++        val largeAtStart = isLargeScreen || forceCenter
+         if (show) {
+             internalVisible.value = true
+             if (enableWindowDim) {
+@@ -219,7 +221,7 @@ internal fun DialogContentLayout(
+ 
+         val contentModifier = modifier.graphicsLayer {
+             val progress = animationProgress.value
+-            if (isLargeScreen) {
++            if (isLargeScreen || forceCenter) {
+                 val scale = 0.8f + 0.2f * progress
+                 scaleX = scale
+                 scaleY = scale
+@@ -243,7 +245,9 @@ internal fun DialogContentLayout(
+             dialogHeightPx = dialogHeightPx,
+             onDismissRequest = requestDismiss,
+             modifier = contentModifier,
++            surfaceModifier = surfaceModifier,
+             topInset = topInset,
++            forceCenter = forceCenter,
+             content = {
+                 CompositionLocalProvider(LocalDismissState provides requestDismiss) {
+                     content()
+@@ -268,19 +272,22 @@ internal fun DialogContent(
+     dialogHeightPx: MutableIntState,
+     onDismissRequest: (() -> Unit)?,
+     modifier: Modifier = Modifier,
++    surfaceModifier: Modifier = Modifier,
+     topInset: Dp? = null,
++    forceCenter: Boolean = false,
+     content: @Composable () -> Unit,
+ ) {
+     val density = LocalDensity.current
+     val windowInfo = LocalWindowInfo.current
+     val windowHeight = windowInfo.containerDpSize.height
+     val isLargeScreen = DialogDefaults.isLargeScreen()
+-    val contentAlignment = remember(isLargeScreen) {
+-        if (isLargeScreen) Alignment.Center else Alignment.BottomCenter
++    val centered = isLargeScreen || forceCenter
++    val contentAlignment = remember(centered) {
++        if (centered) Alignment.Center else Alignment.BottomCenter
+     }
+     val roundedCorner = getRoundedCorner()
+-    val bottomCornerRadius = remember(roundedCorner, outsideMargin.width, isLargeScreen) {
+-        val offset = if (isLargeScreen) 0.dp else outsideMargin.width
++    val bottomCornerRadius = remember(roundedCorner, outsideMargin.width, centered) {
++        val offset = if (centered) 0.dp else outsideMargin.width
+         (roundedCorner - offset).coerceAtLeast(32.dp)
+     }
+     val currentOnDismiss by rememberUpdatedState(onDismissRequest)
+@@ -308,14 +315,14 @@ internal fun DialogContent(
+ 
+     val contentModifier = modifier
+         .widthIn(max = DialogDefaults.MaxWidth)
+-        .heightIn(max = if (isLargeScreen) windowHeight * (2f / 3f) else Dp.Unspecified)
++        .heightIn(max = if (centered) windowHeight * (2f / 3f) else Dp.Unspecified)
+         .onGloballyPositioned { coordinates ->
+             dialogHeightPx.intValue = coordinates.size.height
+         }
+         .graphicsLayer {
+             // Apply predictive back animation; branch inside the block so the modifier chain
+             // produces a single graphicsLayer node instead of swapping nodes per recomposition.
+-            if (isLargeScreen) {
++            if (centered) {
+                 val scale = 1f - (backProgress.value * 0.2f)
+                 scaleX = scale
+                 scaleY = scale
+@@ -328,6 +335,7 @@ internal fun DialogContent(
+                 translationY = backProgress.value * maxOffset
+             }
+         }
++        .then(surfaceModifier)
+         .pointerInput(Unit) {
+             detectTapGestures { /* Consume click */ }
+         }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
+index 098206f..c65ba84 100644
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
+@@ -22,6 +22,8 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
+  *
+  * @param show Whether the [OverlayBottomSheet] is shown.
+  * @param modifier The modifier to be applied to the [OverlayBottomSheet].
++ * @param surfaceModifier The modifier applied to the sheet surface itself, immediately before
++ *   the squircle surface. This keeps custom materials in the same animated node as the sheet.
+  * @param title Optional title to display at the top of the [OverlayBottomSheet].
+  * @param startAction Optional [Composable] to display on the start side of the title (e.g. a close button).
+  * @param endAction Optional [Composable] to display on the end side of the title (e.g. a submit button).
+@@ -46,6 +48,7 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
+ fun OverlayBottomSheet(
+     show: Boolean,
+     modifier: Modifier = Modifier,
++    surfaceModifier: Modifier = Modifier,
+     title: String? = null,
+     startAction: @Composable (() -> Unit)? = null,
+     endAction: @Composable (() -> Unit)? = null,
+@@ -87,6 +90,7 @@ fun OverlayBottomSheet(
+             }
+         },
+         modifier = modifier,
++        surfaceModifier = surfaceModifier,
+         title = title,
+         startAction = startAction,
+         endAction = endAction,
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayDialog.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayDialog.kt
+index 815962d..66374c4 100644
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayDialog.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayDialog.kt
+@@ -40,6 +40,7 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
+ fun OverlayDialog(
+     show: Boolean,
+     modifier: Modifier = Modifier,
++    surfaceModifier: Modifier = Modifier,
+     title: String? = null,
+     titleColor: Color = DialogDefaults.titleColor(),
+     summary: String? = null,
+@@ -52,6 +53,7 @@ fun OverlayDialog(
+     insideMargin: DpSize = DialogDefaults.insideMargin,
+     defaultWindowInsetsPadding: Boolean = true,
+     renderInRootScaffold: Boolean = true,
++    forceCenter: Boolean = false,
+     content: @Composable () -> Unit,
+ ) {
+     DialogContentLayout(
+@@ -76,12 +78,14 @@ fun OverlayDialog(
+             }
+         },
+         modifier = modifier,
++        surfaceModifier = surfaceModifier,
+         title = title,
+         summary = summary,
+         enableWindowDim = enableWindowDim,
+         onDismissRequest = onDismissRequest,
+         onDismissFinished = onDismissFinished,
+         defaultWindowInsetsPadding = defaultWindowInsetsPadding,
++        forceCenter = forceCenter,
+         content = content,
+     )
+ }
