@@ -1,6 +1,6 @@
 # SleepDown 课程表
 
-> 一款本地优先、无广告，并兼顾实用性与视觉体验的 Android 课程表。
+> 一款基于 Jetpack Compose 与 Miuix 构建，融合液态玻璃视觉效果和 AI 能力的 Android 课程表。
 
 > [!IMPORTANT]
 > 本仓库是**源码可见项目，并非 OSI 定义的开源项目**。允许个人、非商业地克隆、编译和修改；分发修改版源码或 APK/AAB 时，必须在发布页面和 App 内显著注明原作者 `xiaomanjun233`、原项目链接及“非官方修改版”，不得冒充原创或官方版本。完整条款见 [SleepDown 署名非商业许可 1.0](LICENSE.md)。
