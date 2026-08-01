@@ -11,6 +11,31 @@ SleepDown 围绕课表的导入、维护、提醒与日常查看进行设计，�
 
 当前版本为 **1.1.1**，最低支持 Android 8.0（API 26）。安装包可以在 [GitHub Releases](https://github.com/xiaomanjun233/SleepDown-Schedule/releases) 或 [Gitee 发行版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases) 下载。
 
+## 界面预览
+
+<p align="center">
+  <img src="docs/images/readme/tablet-overview.jpg" width="100%" alt="SleepDown 平板日视图与今日助手" />
+</p>
+<p align="center"><sub>平板日视图与内嵌今日助手</sub></p>
+
+<table>
+  <tr>
+    <td align="center" width="33%"><img src="docs/images/readme/home-week.jpg" alt="周视图" /><br /><sub>周视图</sub></td>
+    <td align="center" width="33%"><img src="docs/images/readme/home-day.jpg" alt="日视图" /><br /><sub>日视图</sub></td>
+    <td align="center" width="33%"><img src="docs/images/readme/personalization.jpg" alt="个性化设置" /><br /><sub>液态玻璃个性化</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><img src="docs/images/readme/agent.jpg" alt="今日助手" /><br /><sub>今日助手</sub></td>
+    <td align="center" width="33%"><img src="docs/images/readme/course-editor.jpg" alt="课程编辑" /><br /><sub>课程编辑</sub></td>
+    <td align="center" width="33%"><img src="docs/images/readme/widget-settings.jpg" alt="桌面组件设置" /><br /><sub>桌面组件设置</sub></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/images/readme/tablet-settings.jpg" width="100%" alt="SleepDown 平板双栏设置页" />
+</p>
+<p align="center"><sub>平板双栏设置页</sub></p>
+
 ## 它能做什么
 
 ### 课表
