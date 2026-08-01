@@ -2,6 +2,9 @@
 
 > 一款本地优先、无广告的 Android 课程表。把日常课表、提醒、导入、桌面组件和液态玻璃界面放在同一个顺手的应用里。
 
+> [!IMPORTANT]
+> 本仓库是**源码可见项目，并非 OSI 定义的开源项目**。允许个人、非商业地克隆、编译和修改；分发修改版源码或 APK/AAB 时，必须在发布页面和 App 内显著注明原作者 `xiaomanjun233`、原项目链接及“非官方修改版”，不得冒充原创或官方版本。完整条款见 [SleepDown 署名非商业许可 1.0](LICENSE.md)。
+
 SleepDown 课程表当前版本为 **1.1.1**。应用使用 Jetpack Compose 构建，最低支持 Android 8.0（API 26）。课表和偏好默认只保存在设备本地；仅在你主动使用 AI 导入、今日助手天气或版本更新时才会访问相应的网络服务。
 
 ## 功能一览
@@ -59,7 +62,7 @@ SleepDown 课程表当前版本为 **1.1.1**。应用使用 Jetpack Compose 构�
 - AI 导入、AI 助手和天气功能会把实现该功能所需的数据发送到你选择的服务端；请确认服务商的隐私政策、计费规则和数据处理条款。
 - 教务系统登录在 WebView/Custom Tabs 流程中完成；请只在可信的学校站点输入账号与密码。
 
-## 获取项目
+## 获取项目（仅供学习）
 
 两个代码托管平台保持同一份 `main` 分支代码：
 
@@ -71,58 +74,11 @@ git clone https://github.com/xiaomanjun233/SleepDown-Schedule.git
 git clone https://gitee.com/xiaomanjun233/SleepDown-Schedule.git
 ```
 
+分发修改版时必须遵守许可证中的显著署名、修改说明和非官方标识要求；商业使用须另行取得书面授权。
+
 - `main`：已验证的最新稳定代码。
 - `v<版本号>`：正式发布版本标签，例如 `v1.1.1`。
 - `feature/*`、`fix/*`、`release/*`、`codex/*`：短期开发分支，不作为长期下载入口。
-
-## 构建源码
-
-### 环境
-
-| 项目 | 当前配置 |
-| --- | --- |
-| JDK | 17 |
-| Gradle Wrapper | 9.6.1 |
-| Android Gradle Plugin | 9.2.1 |
-| Kotlin | 2.3.10 |
-| compileSdk | 37 |
-| minSdk / targetSdk | 26 / 36 |
-
-项目默认使用经过补丁处理的 Miuix 0.9.3 源码组合构建。首次构建前，在项目同级目录准备该源码并应用仓库中的补丁：
-
-```bash
-git clone --branch v0.9.3 https://github.com/compose-miuix-ui/miuix.git ../miuix-reference
-git -C ../miuix-reference apply ../CourseSchedule/patches/miuix-0.9.3-sleepdown.patch
-```
-
-然后执行：
-
-```bash
-# Windows
-gradlew.bat assembleDebug
-
-# macOS / Linux
-./gradlew assembleDebug
-```
-
-`settings.gradle.kts` 默认查找 `../miuix-reference`。如果源码位于其他位置，可在用户级 `~/.gradle/gradle.properties` 设置（不要提交个人绝对路径）：
-
-```properties
-sleepdown.miuixSourcePath=/absolute/path/to/miuix
-# 可选：设为 false，改为直接解析远程 Miuix 依赖
-sleepdown.useLocalMiuix=false
-# 可选：本地 Maven 镜像
-sleepdown.localMavenPath=/absolute/path/to/local-maven
-```
-
-未配置发布签名时，`release` 构建会回退到调试签名，便于本地安装验证。正式发布请在用户级 Gradle 属性或 CI Secret 中提供：
-
-```properties
-sleepdown.releaseStoreFile=/path/to/keystore
-sleepdown.releaseStorePassword=...
-sleepdown.releaseKeyAlias=...
-sleepdown.releaseKeyPassword=...
-```
 
 ## 项目结构
 
@@ -173,4 +129,11 @@ CourseSchedule/
 
 ## 许可证
 
-本项目仅供学习与参考。仓库中的第三方代码和资源继续遵循其原始许可证。
+本项目采用 [SleepDown 署名非商业许可 1.0](LICENSE.md)，**不是 OSI 定义的开源软件**。
+
+- 允许：个人、非商业地查看、克隆、编译、修改，以及在满足许可条件时分发修改版。
+- 修改版分发：必须在发布页面和 App 内显著注明“基于 SleepDown 修改”、原作者 `xiaomanjun233`、原项目链接和主要修改内容，并明确其不是官方版本。
+- 禁止：移除或弱化署名、冒充原创或官方版本、使用易混淆的名称/包名/图标，以及未经授权的商业使用。
+- 其他用途：必须事先取得项目作者的明确书面授权。
+
+仓库中的第三方代码和资源继续遵循其原始许可证，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
