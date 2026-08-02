@@ -13,7 +13,7 @@ SleepDown 围绕课表的导入、维护、提醒与日常查看进行设计，�
 
 ## 界面预览
 
-> 演示截图中的个性化壁纸来自 &#64;Rabbit candy_i 与 &#64;kieed，仅用于展示应用界面效果，版权归原作者所有。如有侵权，请通过仓库 Issue 联系，将及时删除相关图片。
+> 演示截图中的个性化壁纸来自 &#64;Rabbit_candy_i 与 &#64;kieed，仅用于展示应用界面效果，版权归原作者所有。如有侵权，请通过仓库 Issue 联系，将及时删除相关图片。
 
 <p align="center">
   <img src="docs/images/readme/tablet-overview.jpg" width="100%" alt="SleepDown 平板日视图与今日助手" />
