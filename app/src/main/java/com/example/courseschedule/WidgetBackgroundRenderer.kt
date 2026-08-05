@@ -69,6 +69,9 @@ internal fun widgetRenderSizes(manager: AppWidgetManager, id: Int, type: WidgetA
 
 object WidgetBackgroundRenderer {
     private const val MaxCacheEntries = 8
+    // RemoteViews transports bitmaps through Binder. Keep a single background comfortably
+    // below the transaction ceiling even on high-density launchers.
+    private const val MaxBackgroundPixels = 160_000f
     private val cache = object : LinkedHashMap<String, WidgetBackgroundResult>(MaxCacheEntries, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, WidgetBackgroundResult>?): Boolean =
             size > MaxCacheEntries
@@ -114,8 +117,8 @@ object WidgetBackgroundRenderer {
         var width = (size.widthDp * density).roundToInt().coerceAtLeast(1)
         var height = (size.heightDp * density).roundToInt().coerceAtLeast(1)
         val pixels = width.toFloat() * height
-        if (pixels > 340_000f) {
-            val factor = sqrt(340_000f / pixels)
+        if (pixels > MaxBackgroundPixels) {
+            val factor = sqrt(MaxBackgroundPixels / pixels)
             width = (width * factor).roundToInt().coerceAtLeast(1)
             height = (height * factor).roundToInt().coerceAtLeast(1)
         }

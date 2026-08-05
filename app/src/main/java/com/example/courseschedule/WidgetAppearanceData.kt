@@ -1,6 +1,7 @@
 package com.example.courseschedule
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.room.ColumnInfo
 import androidx.room.Dao
@@ -175,6 +176,15 @@ class WidgetAppearanceRepository(
             directoryName = "widget_wallpaper",
             filePrefix = "widget",
             maxDimension = 2200
+        )
+    }
+
+    suspend fun persistSelectedBitmap(bitmap: Bitmap): Uri? {
+        return persistManagedWallpaperBitmap(
+            context = context,
+            bitmap = bitmap,
+            directoryName = "widget_wallpaper",
+            filePrefix = "widget"
         )
     }
 

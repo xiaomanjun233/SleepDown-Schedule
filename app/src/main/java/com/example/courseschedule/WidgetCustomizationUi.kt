@@ -4,6 +4,7 @@ import android.appwidget.AppWidgetManager
 import android.graphics.drawable.GradientDrawable
 import android.widget.FrameLayout
 import android.widget.RemoteViews
+import android.widget.Toast
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.content.ComponentName
@@ -369,7 +370,7 @@ fun WidgetCustomizationScreen(
                 onCancel = {
                     editRequest = null
                 },
-                onSave = { draft, pickedUri, cleared ->
+                onSave = { draft, pickedUri, pickedBitmap, cleared ->
                     scope.launch {
                         if (cleared) {
                             repository.save(
@@ -391,10 +392,16 @@ fun WidgetCustomizationScreen(
                         }
                         val savedUri = withContext(Dispatchers.IO) {
                             if (pickedUri != null && pickedUri.toString() != request.appearance.wallpaperUri) {
-                                repository.persistSelectedImage(pickedUri)
+                                pickedBitmap?.let { repository.persistSelectedBitmap(it) }
+                                    ?: repository.persistSelectedImage(pickedUri)
                             } else pickedUri
                         }
-                        val source = savedUri ?: return@launch
+                        val source = savedUri ?: run {
+                            Toast.makeText(context, "图片处理失败，请重新选择", Toast.LENGTH_SHORT).show()
+                            editorSourceHandedOff = false
+                            editRequest = null
+                            return@launch
+                        }
                         repository.save(draft.copy(wallpaperUri = source.toString(), enabled = true))
                         reload()
                         refresh(draft.type)
@@ -647,13 +654,14 @@ private fun WidgetWallpaperEditor(
     onSourceHandoff: () -> Unit,
     onSourceRestore: () -> Unit,
     onCancel: () -> Unit,
-    onSave: (WidgetAppearanceEntity, Uri?, Boolean) -> Unit
+    onSave: (WidgetAppearanceEntity, Uri?, Bitmap?, Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var uri by remember(request) { mutableStateOf(request.sourceUri) }
     var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
     var sourceSize by remember(uri) { mutableStateOf<WallpaperSourceSize?>(null) }
+    var sourceLoading by remember(uri) { mutableStateOf(uri != null) }
     var cleared by remember(request) { mutableStateOf(request.sourceUri == null) }
     var crop by remember(request) {
         mutableStateOf(WallpaperCropState(request.appearance.centerX, request.appearance.centerY, request.appearance.scale))
@@ -702,12 +710,17 @@ private fun WidgetWallpaperEditor(
     }
     LaunchedEffect(uri) {
         val source = uri
-        bitmap = if (source == null) null else withContext(Dispatchers.IO) {
-            loadSampledBitmap(context.applicationContext, source, 1800)
+        sourceLoading = source != null
+        val loaded = if (source == null) null else withContext(Dispatchers.IO) {
+            loadWallpaperSource(context.applicationContext, source, 1800)
         }
-        sourceSize = if (source == null) null else withContext(Dispatchers.IO) {
-            readWallpaperSourceSize(context.applicationContext, source)
-        }
+        bitmap = loaded?.bitmap
+        sourceSize = loaded?.sourceSize
+        sourceLoading = false
+    }
+    val loadedBitmap = bitmap
+    DisposableEffect(loadedBitmap) {
+        onDispose { loadedBitmap?.recycle() }
     }
     androidx.activity.compose.BackHandler(enabled = !closing) { closeThen(action = onCancel) }
     val p = progress.value.coerceIn(0f, 1f)
@@ -863,8 +876,14 @@ private fun WidgetWallpaperEditor(
             Spacer(Modifier.weight(1f))
             Text("调整组件背景", color = Color.White, style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.weight(1f))
-            WallpaperHeaderButton("完成", backdrop, Color(0xFF0A84FF).copy(alpha = 0.84f), !closing) {
+            WallpaperHeaderButton(
+                "完成",
+                backdrop,
+                Color(0xFF0A84FF).copy(alpha = 0.84f),
+                !closing && !sourceLoading && (uri == null || bitmap != null)
+            ) {
                 val source = uri
+                val sourceBitmap = bitmap
                 closeThen(commitEditedAppearance = true) {
                     onSave(
                         request.appearance.copy(
@@ -875,6 +894,7 @@ private fun WidgetWallpaperEditor(
                             sourceHeight = sourceSize?.height ?: bitmap?.height
                         ),
                         source,
+                        sourceBitmap,
                         cleared
                     )
                 }

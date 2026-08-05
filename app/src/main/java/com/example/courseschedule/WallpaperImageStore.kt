@@ -92,6 +92,17 @@ internal fun persistManagedWallpaperImage(
 ): Uri? {
     if (uri.scheme == "file") return uri
     val bitmap = loadSampledBitmap(context, uri, maxDimension) ?: return null
+    return persistManagedWallpaperBitmap(context, bitmap, directoryName, filePrefix).also {
+        bitmap.recycle()
+    }
+}
+
+internal fun persistManagedWallpaperBitmap(
+    context: Context,
+    bitmap: Bitmap,
+    directoryName: String,
+    filePrefix: String
+): Uri? {
     val directory = File(context.filesDir, directoryName).apply { mkdirs() }
     val output = File(directory, "${filePrefix}_${UUID.randomUUID()}.webp")
     val temporary = File(directory, "${output.name}.tmp")
@@ -108,8 +119,6 @@ internal fun persistManagedWallpaperImage(
         temporary.delete()
         output.delete()
         null
-    }.also {
-        bitmap.recycle()
     }
 }
 

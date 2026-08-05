@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Build
+import android.util.Log
 import android.util.SizeF
 import android.util.TypedValue
 import android.view.View
@@ -18,6 +19,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -30,6 +33,8 @@ import kotlin.math.floor
 import kotlin.math.roundToInt
 
 internal enum class TodayWidgetVariant { LARGE, SQUARE }
+
+private val widgetWorkMutex = Mutex()
 
 internal data class CoursesWidgetLayoutMetrics(
     val horizontalPaddingDp: Int,
@@ -320,7 +325,9 @@ internal fun launchWidgetWork(
     block: suspend CoroutineScope.() -> Unit
 ): Job {
     val app = context.applicationContext as CourseScheduleApp
-    return app.applicationScope.launch(Dispatchers.IO, block = block)
+    return app.applicationScope.launch(Dispatchers.IO) {
+        widgetWorkMutex.withLock { block() }
+    }
 }
 
 internal fun AppWidgetProvider.keepBroadcastAliveUntil(job: Job) {
@@ -474,7 +481,8 @@ internal object MiuixTodayWidgetRenderer {
                     SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to remote
                 })
             } else views.first().second
-            manager.updateAppWidget(id, result)
+            runCatching { manager.updateAppWidget(id, result) }
+                .onFailure { Log.e("ScheduleWidget", "Failed to update courses widget $id", it) }
         }
         scheduleNextBoundaryRefresh(context, state)
     }
@@ -885,7 +893,8 @@ internal object TodayAssistantWidgetRenderer {
                     SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to remote
                 })
             } else views.first().second
-            manager.updateAppWidget(id, result)
+            runCatching { manager.updateAppWidget(id, result) }
+                .onFailure { Log.e("ScheduleWidget", "Failed to update assistant widget $id", it) }
         }
     }
 
