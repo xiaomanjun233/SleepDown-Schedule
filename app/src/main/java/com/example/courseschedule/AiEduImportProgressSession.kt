@@ -9,7 +9,11 @@ data class AiEduImportProgress(
     val routeLabel: String = "",
     val requestPreview: String = "",
     val pageText: String = "",
+    val hasReadablePageText: Boolean? = null,
     val screenshotPreviews: List<RenderedPageImage> = emptyList(),
+    val userPrompt: String = "帮我按规则导入这份课表",
+    val attachmentTitle: String = "",
+    val requestSent: Boolean = false,
     val reasoningOutput: String = "",
     val aiOutput: String = "",
     val awaitingConfirmation: Boolean = false,
@@ -18,7 +22,14 @@ data class AiEduImportProgress(
     val screenModeActionLabel: String = "",
     val cancelActionLabel: String = "返回重抓",
     val finished: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val conversationTurns: List<AiEduImportConversationTurn> = emptyList()
+)
+
+data class AiEduImportConversationTurn(
+    val userPrompt: String,
+    val reasoningOutput: String = "",
+    val aiOutput: String = ""
 )
 
 enum class AiEduImportStepStatus {
@@ -32,6 +43,20 @@ data class AiEduImportStepRow(
     val text: String,
     val status: AiEduImportStepStatus
 )
+
+/** Maps the import pipeline onto the same user-visible execution vocabulary as Today Agent. */
+fun aiEduAgentRunStatuses(progress: AiEduImportProgress): List<AgentRunStatus> =
+    progress.steps.map { step ->
+        val icon = when {
+            step.contains("页面") || step.contains("DOM") || step.contains("截图") || step.contains("识屏") ->
+                AgentRunStatusIcon.SEARCH
+            step.contains("配置") -> AgentRunStatusIcon.SETTINGS
+            step.contains("校验") || step.contains("预览") || step.contains("课表") ->
+                AgentRunStatusIcon.SCHEDULE
+            else -> AgentRunStatusIcon.THINKING
+        }
+        AgentRunStatus(icon = icon, text = step)
+    }
 
 private val AiEduImportPendingSteps = listOf(
     "读取当前页面",
@@ -77,6 +102,12 @@ object AiEduImportProgressSession {
     private val _progress = MutableStateFlow<AiEduImportProgress?>(null)
 
     val progress: StateFlow<AiEduImportProgress?> = _progress.asStateFlow()
+    private val _historySelection = MutableStateFlow<ImportDraft?>(null)
+    val historySelection: StateFlow<ImportDraft?> = _historySelection.asStateFlow()
+    private val _previewDraft = MutableStateFlow<ImportDraft?>(null)
+    val previewDraft: StateFlow<ImportDraft?> = _previewDraft.asStateFlow()
+    private val _finalImportRequest = MutableStateFlow<AiEduFinalImportRequest?>(null)
+    val finalImportRequest: StateFlow<AiEduFinalImportRequest?> = _finalImportRequest.asStateFlow()
 
     private var onConfirm: (() -> Unit)? = null
     private var onSecondaryConfirm: (() -> Unit)? = null
@@ -86,6 +117,9 @@ object AiEduImportProgressSession {
     fun update(progress: AiEduImportProgress?) {
         synchronized(lock) {
             _progress.value = progress
+            if (progress?.awaitingConfirmation == true && !progress.requestSent) {
+                _previewDraft.value = null
+            }
             if (progress == null || (progress.finished && !progress.awaitingConfirmation)) {
                 clearActionsLocked()
             }
@@ -120,6 +154,27 @@ object AiEduImportProgressSession {
 
     fun cancel() = consumeAction { onCancel }
 
+    fun selectHistoryDraft(draft: ImportDraft) {
+        _historySelection.value = draft
+    }
+
+    fun consumeHistoryDraft() {
+        _historySelection.value = null
+    }
+
+    fun setPreviewDraft(draft: ImportDraft?) {
+        _previewDraft.value = draft
+    }
+
+    fun requestFinalImport(draft: ImportDraft, createNewSchedule: Boolean) {
+        _finalImportRequest.value = AiEduFinalImportRequest(draft, createNewSchedule)
+    }
+
+    fun consumeFinalImportRequest() {
+        _finalImportRequest.value = null
+        _previewDraft.value = null
+    }
+
     private fun consumeAction(selector: () -> (() -> Unit)?) {
         val action = synchronized(lock) {
             selector().also { clearActionsLocked() }
@@ -134,3 +189,8 @@ object AiEduImportProgressSession {
         onCancel = null
     }
 }
+
+data class AiEduFinalImportRequest(
+    val draft: ImportDraft,
+    val createNewSchedule: Boolean
+)

@@ -5,6 +5,30 @@ import org.junit.Test
 
 class CourseEditorWeekSelectionTest {
     @Test
+    fun `infers every odd even and custom week selections`() {
+        assertEquals(CourseWeekSelectionMode.EVERY, inferCourseWeekSelectionMode((3..8).toList()))
+        assertEquals(CourseWeekSelectionMode.ODD, inferCourseWeekSelectionMode(listOf(1, 3, 5, 7)))
+        assertEquals(CourseWeekSelectionMode.EVEN, inferCourseWeekSelectionMode(listOf(2, 4, 6, 8)))
+        assertEquals(CourseWeekSelectionMode.CUSTOM, inferCourseWeekSelectionMode(listOf(1, 3, 7)))
+    }
+
+    @Test
+    fun `switching parity rebuilds within the current selected bounds`() {
+        assertEquals(
+            setOf(3, 5, 7),
+            weeksForCourseWeekSelectionMode(CourseWeekSelectionMode.ODD, setOf(3, 4, 8), 20)
+        )
+        assertEquals(
+            setOf(4, 6, 8),
+            weeksForCourseWeekSelectionMode(CourseWeekSelectionMode.EVEN, setOf(3, 4, 8), 20)
+        )
+        assertEquals(
+            (3..8).toSet(),
+            weeksForCourseWeekSelectionMode(CourseWeekSelectionMode.EVERY, setOf(3, 4, 8), 20)
+        )
+    }
+
+    @Test
     fun `preserves a week split out as an independent occurrence`() {
         val course = CourseEntity(
             id = 1,

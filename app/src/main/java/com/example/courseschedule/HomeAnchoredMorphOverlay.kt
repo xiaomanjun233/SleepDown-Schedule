@@ -83,7 +83,7 @@ private val HomeAnchoredFallEasing = CubicBezierEasing(0.22f, 0.0f, 0.42f, 1.0f)
 private val HomeAnchoredOpenPositionEasing = CubicBezierEasing(0.16f, 0.78f, 0.18f, 1.0f)
 private val HomeAnchoredOpenSizeEasing = CubicBezierEasing(0.20f, 0.48f, 0.24f, 1.0f)
 private val HomeAnchoredCloseEasing = CubicBezierEasing(0.28f, 0.06f, 0.20f, 1.0f)
-private val HomeAnchoredBackgroundEasing = CubicBezierEasing(0.30f, 0.0f, 0.20f, 1.0f)
+internal val HomeAnchoredBackgroundEasing = CubicBezierEasing(0.30f, 0.0f, 0.20f, 1.0f)
 
 internal enum class HomeAnchoredOverlayKind {
     Add,
@@ -149,6 +149,7 @@ internal fun homeAnchoredMorphGeometry(
     closing: Boolean,
     directClosing: Boolean = false,
     directSourceCornerRadiusPx: Float? = null,
+    sourceCornerRadiusPx: Float? = null,
     pinchDiameterPx: Float,
     minimumDropPx: Float,
     maximumDropPx: Float,
@@ -181,6 +182,10 @@ internal fun homeAnchoredMorphGeometry(
     val cornerRadius: Float
     val sourceScale: Float
 
+    val sourceRadius = sourceCornerRadiusPx
+        ?: directSourceCornerRadiusPx
+        ?: (min(source.width, source.height) / 2f)
+
     if (directClosing) {
         val position = HomeAnchoredOpenPositionEasing.transform(pathProgress)
         val size = HomeAnchoredOpenSizeEasing.transform(pathProgress)
@@ -189,7 +194,7 @@ internal fun homeAnchoredMorphGeometry(
         width = lerpHomeMorph(source.width, target.width, size)
         height = lerpHomeMorph(source.height, target.height, size)
         cornerRadius = lerpHomeMorph(
-            directSourceCornerRadiusPx ?: (min(source.width, source.height) / 2f),
+            sourceRadius,
             targetCornerRadiusPx,
             size
         )
@@ -204,7 +209,10 @@ internal fun homeAnchoredMorphGeometry(
         height = lerpHomeMorph(source.height, pinchDiameterPx, diameterProgress)
         centerX = sourceCenter.x
         centerY = lerpHomeMorph(sourceCenter.y, pinchCenterY, fall)
-        cornerRadius = min(width, height) / 2f
+        cornerRadius = min(
+            lerpHomeMorph(sourceRadius, pinchDiameterPx / 2f, diameterProgress),
+            min(width, height) / 2f
+        )
         sourceScale = (min(width, height) / min(source.width, source.height).coerceAtLeast(1f))
             .coerceIn(0f, 1f)
         expansionProgress = 0f
@@ -1013,7 +1021,7 @@ private fun lerpHomeMorph(start: Float, stop: Float, fraction: Float): Float {
     return start + (stop - start) * safe
 }
 
-private fun homeMorphSmoothStep(edge0: Float, edge1: Float, value: Float): Float {
+internal fun homeMorphSmoothStep(edge0: Float, edge1: Float, value: Float): Float {
     val t = ((value - edge0) / (edge1 - edge0).coerceAtLeast(0.0001f)).coerceIn(0f, 1f)
     return t * t * (3f - 2f * t)
 }

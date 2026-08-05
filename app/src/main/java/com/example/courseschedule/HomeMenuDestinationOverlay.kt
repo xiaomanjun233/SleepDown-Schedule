@@ -1,5 +1,6 @@
 package com.example.courseschedule
 
+import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
@@ -25,12 +26,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
@@ -120,15 +124,17 @@ internal fun HomeMenuDestinationOverlayHost(
     onDismissRequest: () -> Unit,
     sourceActions: List<AddMenuAction>,
     onSourceHandoff: () -> Unit,
-    onCollapseHandoff: () -> Unit,
+    onCollapseHandoff: (HomeMenuDestinationKind) -> Unit,
     onClosed: () -> Unit,
-    onAddCourse: (CourseEntity) -> Unit,
+    onAddCourses: (List<CourseEntity>) -> Unit,
     onManualImportParsed: (ImportDraft) -> Unit,
+    captureHistoryBackground: suspend () -> Bitmap?,
     onEduAdapterSelected: (EduAdapter) -> Unit
 ) {
     var renderedRequest by remember { mutableStateOf<HomeMenuDestinationRequest?>(null) }
     var destinationContentPrepared by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
+    val destinationContentLayer = rememberGraphicsLayer()
     val latestDismiss by rememberUpdatedState(onDismissRequest)
     val latestSourceHandoff by rememberUpdatedState(onSourceHandoff)
     val latestCollapseHandoff by rememberUpdatedState(onCollapseHandoff)
@@ -150,6 +156,9 @@ internal fun HomeMenuDestinationOverlayHost(
             // editor/import screens are comparatively heavy; creating them during the moving
             // part of the morph is visible as a dropped frame on mid-range devices.
             destinationContentPrepared = true
+            withFrameNanos { }
+            // Give the newly composed destination one additional draw frame so its text, list and
+            // backdrop layers are resident before the source menu starts changing geometry.
             withFrameNanos { }
             motionState.phase = HomeAnchoredOverlayPhase.Opening
             coroutineScope {
@@ -252,7 +261,7 @@ internal fun HomeMenuDestinationOverlayHost(
         val collapseHandoffReached = destinationClosing &&
             geometry.pathProgress <= HomeAnchoredMorphClosePinchFraction
         LaunchedEffect(collapseHandoffReached) {
-            if (collapseHandoffReached) latestCollapseHandoff()
+            if (collapseHandoffReached) latestCollapseHandoff(shown.kind)
         }
         val rect = geometry.rect
         val fullScreenOpenEndpoint = isFullScreen &&
@@ -407,6 +416,16 @@ internal fun HomeMenuDestinationOverlayHost(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .requiredSize(targetWidth, targetHeight)
+                        .drawWithContent {
+                            if (motionState.phase == HomeAnchoredOverlayPhase.Preparing ||
+                                motionState.phase == HomeAnchoredOverlayPhase.Open
+                            ) {
+                                destinationContentLayer.record {
+                                    this@drawWithContent.drawContent()
+                                }
+                            }
+                            drawLayer(destinationContentLayer)
+                        }
                         .graphicsLayer {
                             alpha = destinationContentAlpha
                             compositingStrategy = CompositingStrategy.Offscreen
@@ -429,7 +448,8 @@ internal fun HomeMenuDestinationOverlayHost(
                                 state = state,
                                 initialCourse = null,
                                 onCancel = { latestDismiss() },
-                                onSave = onAddCourse,
+                                onSave = {},
+                                onSaveCourses = onAddCourses,
                                 onDelete = {},
                                 backdrop = backdrop,
                                 pickerRenderInRootScaffold = false
@@ -439,6 +459,7 @@ internal fun HomeMenuDestinationOverlayHost(
                             state = state,
                             backdrop = backdrop,
                             onCancel = { latestDismiss() },
+                            captureHistoryBackground = captureHistoryBackground,
                             onParsed = onManualImportParsed
                         )
                         HomeMenuDestinationKind.EduImport -> DetailActivityScaffold(

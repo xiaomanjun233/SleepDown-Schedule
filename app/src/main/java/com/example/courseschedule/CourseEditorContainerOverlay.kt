@@ -194,8 +194,8 @@ internal fun CourseEditorContainerOverlayHost(
     adaptiveMetrics: HomeAdaptiveMetrics,
     modifier: Modifier = Modifier,
     onDismissRequest: () -> Unit,
-    onSave: (original: CourseEntity, edited: CourseEntity, targetWeek: Int?) -> Unit,
-    onDelete: (course: CourseEntity, targetWeek: Int?) -> Unit,
+    onSave: (originals: List<CourseEntity>, edited: List<CourseEntity>, targetWeek: Int?) -> Unit,
+    onDelete: (courses: List<CourseEntity>, targetWeek: Int?) -> Unit,
     motionState: CourseEditorMotionState,
     onRenderedCourseIdChange: (Long?) -> Unit = {},
     onPhaseChange: (CourseEditorOverlayPhase) -> Unit = {}
@@ -320,10 +320,12 @@ internal fun CourseEditorContainerOverlayHost(
         )
     }
     val saveEditedCourse = remember(shownRequest.targetWeek, onSave) {
-        { original: CourseEntity, edited: CourseEntity -> onSave(original, edited, shownRequest.targetWeek) }
+        { originals: List<CourseEntity>, edited: List<CourseEntity> ->
+            onSave(originals, edited, shownRequest.targetWeek)
+        }
     }
     val deleteEditedCourse = remember(shownRequest.targetWeek, onDelete) {
-        { deleteCourse: CourseEntity -> onDelete(deleteCourse, shownRequest.targetWeek) }
+        { courses: List<CourseEntity> -> onDelete(courses, shownRequest.targetWeek) }
     }
     BackHandler(enabled = isOverlayActive) {
         onDismissRequest()
@@ -557,8 +559,8 @@ private fun CourseEditorScaledContentLayer(
     backdrop: Backdrop?,
     onContentLaidOut: () -> Unit,
     onDismissRequest: () -> Unit,
-    onSave: (CourseEntity, CourseEntity) -> Unit,
-    onDelete: (CourseEntity) -> Unit
+    onSave: (List<CourseEntity>, List<CourseEntity>) -> Unit,
+    onDelete: (List<CourseEntity>) -> Unit
 ) {
     if (targetRect.width <= 1f || targetRect.height <= 1f || animatedRect.width <= 1f || animatedRect.height <= 1f) {
         return
@@ -633,8 +635,9 @@ private fun CourseEditorScaledContentLayer(
                     initialCourse = course,
                     onCancel = onDismissRequest,
                     onSave = {},
-                    onSaveWithOriginal = onSave,
-                    onDelete = onDelete,
+                    onSaveGroup = onSave,
+                    onDelete = {},
+                    onDeleteGroup = onDelete,
                     backdrop = backdrop
                 )
             }

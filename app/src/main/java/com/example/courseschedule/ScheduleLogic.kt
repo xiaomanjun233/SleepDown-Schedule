@@ -344,18 +344,22 @@ object ScheduleImportParser {
             require(course.periods.all { it in validPeriodIndexes }) { "$row 引用了不存在的节次" }
             require(course.weeks.isNotEmpty()) { "$row weeks 不能为空" }
             require(course.weeks.all { it in 1..payload.scheduleConfig.totalWeeks }) { "$row weeks 超出 totalWeeks" }
+            val normalizedWeeks = normalizeImportedWeekSelection(
+                weeks = course.weeks,
+                parity = when (course.weekParity) {
+                    WeekParityPayload.ALL -> WeekParity.ALL
+                    WeekParityPayload.ODD -> WeekParity.ODD
+                    WeekParityPayload.EVEN -> WeekParity.EVEN
+                }
+            )
             CourseEntity(
                 name = course.name.trim(),
                 teacher = course.teacher?.trim()?.ifBlank { null },
                 location = course.location?.trim()?.ifBlank { null },
                 weekday = course.weekday,
                 periods = course.periods.distinct().sorted(),
-                weeks = course.weeks.distinct().sorted(),
-                weekParity = when (course.weekParity) {
-                    WeekParityPayload.ALL -> WeekParity.ALL
-                    WeekParityPayload.ODD -> WeekParity.ODD
-                    WeekParityPayload.EVEN -> WeekParity.EVEN
-                },
+                weeks = normalizedWeeks.weeks,
+                weekParity = normalizedWeeks.parity,
                 note = course.note?.trim()?.ifBlank { null }
             )
         }
@@ -445,6 +449,45 @@ object ScheduleImportParser {
             }
             .distinct()
             .sorted()
+    }
+}
+
+internal data class NormalizedImportedWeekSelection(
+    val weeks: List<Int>,
+    val parity: WeekParity
+)
+
+internal fun normalizeImportedWeekSelection(
+    weeks: List<Int>,
+    parity: WeekParity
+): NormalizedImportedWeekSelection {
+    val sorted = weeks.filter { it > 0 }.distinct().sorted()
+    if (sorted.size < 2) return NormalizedImportedWeekSelection(sorted, parity)
+    val inferredParity = when {
+        parity != WeekParity.ALL -> parity
+        sorted.all { it % 2 == 0 } -> WeekParity.EVEN
+        sorted.all { it % 2 == 1 } -> WeekParity.ODD
+        else -> WeekParity.ALL
+    }
+    if (inferredParity == WeekParity.ALL) {
+        return NormalizedImportedWeekSelection(sorted, WeekParity.ALL)
+    }
+    val expected = (sorted.first()..sorted.last()).filter { week ->
+        when (inferredParity) {
+            WeekParity.ODD -> week % 2 == 1
+            WeekParity.EVEN -> week % 2 == 0
+            WeekParity.ALL -> true
+        }
+    }
+    return if (sorted == expected) {
+        NormalizedImportedWeekSelection(
+            weeks = (sorted.first()..sorted.last()).toList(),
+            parity = inferredParity
+        )
+    } else {
+        // Irregular selections such as 2, 6, 8 must stay explicit; inferring a parity range here
+        // would silently add lessons the user never imported.
+        NormalizedImportedWeekSelection(sorted, parity)
     }
 }
 

@@ -23,7 +23,8 @@ import kotlinx.coroutines.launch
 
 class InteractiveHighlight(
     val animationScope: CoroutineScope,
-    val position: (size: Size, offset: Offset) -> Offset = { _, offset -> offset }
+    val position: (size: Size, offset: Offset) -> Offset = { _, offset -> offset },
+    val acceptsGesture: (size: Size, offset: Offset) -> Boolean = { _, _ -> true }
 ) {
 
     private val pressProgressAnimationSpec =
@@ -94,30 +95,50 @@ half4 main(float2 coord) {
             drawContent()
         }
 
+    private fun settle() {
+        animationScope.launch {
+            launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
+            launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
+        }
+    }
+
     val gestureModifier: Modifier =
         Modifier.pointerInput(animationScope) {
-            inspectDragGestures(
-                onDragStart = { down ->
-                    startPosition = down.position
-                    animationScope.launch {
-                        launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
-                        launch { positionAnimation.snapTo(startPosition) }
+            var gestureAccepted = false
+            try {
+                inspectDragGestures(
+                    onDragStart = { down ->
+                        gestureAccepted = acceptsGesture(
+                            Size(size.width.toFloat(), size.height.toFloat()),
+                            down.position
+                        )
+                        if (!gestureAccepted) {
+                            settle()
+                            return@inspectDragGestures
+                        }
+                        startPosition = down.position
+                        animationScope.launch {
+                            launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
+                            launch { positionAnimation.snapTo(startPosition) }
+                        }
+                    },
+                    onDragEnd = {
+                        if (gestureAccepted) settle()
+                        gestureAccepted = false
+                    },
+                    onDragCancel = {
+                        if (gestureAccepted) settle()
+                        gestureAccepted = false
                     }
-                },
-                onDragEnd = {
-                    animationScope.launch {
-                        launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
-                        launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
-                    }
-                },
-                onDragCancel = {
-                    animationScope.launch {
-                        launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
-                        launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
+                ) { change, _ ->
+                    if (gestureAccepted) {
+                        animationScope.launch { positionAnimation.snapTo(change.position) }
                     }
                 }
-            ) { change, _ ->
-                animationScope.launch { positionAnimation.snapTo(change.position) }
+            } finally {
+                // Window focus changes can cancel pointer input without delivering an up/cancel.
+                // Always settle so a resumed LiquidButton cannot keep a stale translation/scale.
+                settle()
             }
         }
 }

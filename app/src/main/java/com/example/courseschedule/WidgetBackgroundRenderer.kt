@@ -12,9 +12,11 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Shader
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
@@ -24,6 +26,12 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 data class WidgetRenderSize(val widthDp: Int, val heightDp: Int)
+
+internal fun normalizedWidgetRenderSize(widthDp: Int, heightDp: Int): WidgetRenderSize =
+    WidgetRenderSize(
+        widthDp = widthDp.coerceAtLeast(80),
+        heightDp = heightDp.coerceAtLeast(80)
+    )
 
 data class WidgetBackgroundResult(
     val bitmap: Bitmap,
@@ -37,9 +45,9 @@ data class WidgetBackgroundResult(
 internal fun widgetRenderSize(manager: AppWidgetManager, id: Int, type: WidgetAppearanceVariant): WidgetRenderSize {
     val options = manager.getAppWidgetOptions(id) ?: Bundle.EMPTY
     val fallback = if (type == WidgetAppearanceVariant.COURSES_SQUARE) WidgetRenderSize(160, 160) else WidgetRenderSize(320, 160)
-    return WidgetRenderSize(
-        options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, fallback.widthDp).coerceAtLeast(110),
-        options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, fallback.heightDp).coerceAtLeast(110)
+    return normalizedWidgetRenderSize(
+        options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, fallback.widthDp),
+        options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, fallback.heightDp)
     )
 }
 
@@ -127,29 +135,35 @@ object WidgetBackgroundRenderer {
         val sx = output.width / size.widthDp.toFloat()
         val sy = output.height / size.heightDp.toFloat()
         fun rect(l: Float, t: Float, r: Float, b: Float) = RectF(l * sx, t * sy, r * sx, b * sy)
-        val padding = if (type == WidgetAppearanceVariant.COURSES_SQUARE) 11f else 14f
-        // The square XML starts its first weighted row after 11dp top padding,
-        // an ~18dp title line and a 5dp row margin. Keep the baked glass region
-        // aligned with that real row instead of reusing the taller 4x2 header.
-        val headerBottom = if (type == WidgetAppearanceVariant.COURSES_SQUARE) 28f else 42f
-        val top = headerBottom + 6f
-        val bottom = size.heightDp - padding
-        val left = padding
-        val right = size.widthDp - padding
+        val variant = if (type == WidgetAppearanceVariant.COURSES_SQUARE) {
+            TodayWidgetVariant.SQUARE
+        } else {
+            TodayWidgetVariant.LARGE
+        }
+        val metrics = coursesWidgetLayoutMetrics(size, variant, count)
+        val left = metrics.horizontalPaddingDp.toFloat()
+        val right = size.widthDp - metrics.horizontalPaddingDp.toFloat()
+        val top = (
+            metrics.verticalPaddingDp + metrics.headerHeightDp + metrics.courseTopMarginDp
+        ).toFloat()
         val regions = when {
             count <= 0 -> emptyList()
-            count == 1 -> twoRows(
-                ::rect,
-                left,
-                right,
-                top,
-                bottom,
-                if (type == WidgetAppearanceVariant.COURSES_SQUARE) 5f else 6f
-            ).take(1)
-            type == WidgetAppearanceVariant.COURSES_SQUARE -> twoRows(::rect, left, right, top, bottom, 5f)
-            count >= 3 -> fourCells(::rect, left, right, top, bottom)
-            else -> twoRows(::rect, left, right, top, bottom, 6f)
-        }.take(count.coerceAtMost(4))
+            metrics.useGrid -> {
+                val columnGap = 4f
+                val cellWidth = (right - left - columnGap) / 2f
+                List(count.coerceAtMost(metrics.maxCourses)) { index ->
+                    val row = index / 2
+                    val column = index % 2
+                    val cellLeft = if (column == 0) left else left + cellWidth + columnGap
+                    val cellTop = top + row * (metrics.groupHeightDp + metrics.groupGapDp)
+                    rect(cellLeft, cellTop, cellLeft + cellWidth, cellTop + metrics.groupHeightDp)
+                }
+            }
+            else -> List(count.coerceAtMost(metrics.maxCourses)) { index ->
+                val rowTop = top + index * (metrics.groupHeightDp + metrics.groupGapDp)
+                rect(left, rowTop, right, rowTop + metrics.groupHeightDp)
+            }
+        }
         val primary = mutableListOf<Int>()
         val secondary = mutableListOf<Int>()
         val canvas = Canvas(output)
@@ -158,19 +172,28 @@ object WidgetBackgroundRenderer {
             RectF(0f, 0f, base.width.toFloat(), base.height.toFloat())
         ) < 0.48
         regions.forEach { region ->
-            val path = Path().apply { addRoundRect(region, 14f * sx, 14f * sy, Path.Direction.CW) }
+            val regionIsDark = luminance(base, region) < 0.48
+            val path = Path().apply {
+                addRoundRect(
+                    region,
+                    metrics.groupCornerRadiusDp * sx,
+                    metrics.groupCornerRadiusDp * sy,
+                    Path.Direction.CW
+                )
+            }
             canvas.withClip(path) {
                 drawBitmap(extraBlur, 0f, 0f, null)
                 drawColor(
-                    if (darkBackground) {
+                    if (regionIsDark) {
                         Color.argb(66, 0, 0, 0)
                     } else {
                         Color.argb(78, 255, 255, 255)
                     }
                 )
             }
-            primary += if (darkBackground) Color.WHITE else Color.rgb(17, 17, 17)
-            secondary += if (darkBackground) {
+            drawPresetGlassHighlight(canvas, path, region, sx, sy, regionIsDark)
+            primary += if (regionIsDark) Color.WHITE else Color.rgb(17, 17, 17)
+            secondary += if (regionIsDark) {
                 Color.argb(190, 255, 255, 255)
             } else {
                 Color.argb(170, 0, 0, 0)
@@ -185,6 +208,68 @@ object WidgetBackgroundRenderer {
         )
     }
 
+    private fun drawPresetGlassHighlight(
+        canvas: Canvas,
+        path: Path,
+        region: RectF,
+        sx: Float,
+        sy: Float,
+        darkBackground: Boolean
+    ) {
+        val strokeWidth = (1.1f * minOf(sx, sy)).coerceAtLeast(1f)
+        val outlineAlpha = if (darkBackground) 62 else 46
+        val outlinePaint = filteredPaint().apply {
+            style = Paint.Style.STROKE
+            this.strokeWidth = strokeWidth
+            shader = LinearGradient(
+                region.centerX(),
+                region.top,
+                region.centerX(),
+                region.bottom,
+                intArrayOf(
+                    Color.argb(outlineAlpha, 255, 255, 255),
+                    Color.argb(outlineAlpha / 3, 255, 255, 255),
+                    Color.argb(outlineAlpha / 2, 255, 255, 255)
+                ),
+                floatArrayOf(0f, 0.52f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawPath(path, outlinePaint)
+
+        fun drawCenteredEdgeHighlight(top: Boolean, alpha: Int) {
+            val bandHeight = region.height() * 0.40f
+            val saveCount = canvas.save()
+            if (top) {
+                canvas.clipRect(region.left, region.top - strokeWidth, region.right, region.top + bandHeight)
+            } else {
+                canvas.clipRect(region.left, region.bottom - bandHeight, region.right, region.bottom + strokeWidth)
+            }
+            val edgePaint = filteredPaint().apply {
+                style = Paint.Style.STROKE
+                this.strokeWidth = strokeWidth * 1.35f
+                shader = LinearGradient(
+                    region.left,
+                    region.centerY(),
+                    region.right,
+                    region.centerY(),
+                    intArrayOf(
+                        Color.TRANSPARENT,
+                        Color.argb(alpha, 255, 255, 255),
+                        Color.TRANSPARENT
+                    ),
+                    floatArrayOf(0f, 0.5f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+            }
+            canvas.drawPath(path, edgePaint)
+            canvas.restoreToCount(saveCount)
+        }
+
+        drawCenteredEdgeHighlight(top = true, alpha = if (darkBackground) 150 else 126)
+        drawCenteredEdgeHighlight(top = false, alpha = if (darkBackground) 92 else 72)
+    }
+
     private fun renderAssistant(base: Bitmap): WidgetBackgroundResult {
         val output = base.copy(Bitmap.Config.ARGB_8888, true)
         val darkBackground = luminance(
@@ -195,21 +280,6 @@ object WidgetBackgroundRenderer {
         val secondary = if (darkBackground) Color.argb(195, 255, 255, 255) else Color.argb(170, 0, 0, 0)
         return WidgetBackgroundResult(output, primary, secondary, listOf(primary), listOf(secondary),
             if (darkBackground) Color.rgb(98, 181, 255) else Color.rgb(0, 110, 220))
-    }
-
-    private fun twoRows(factory: (Float, Float, Float, Float) -> RectF, l: Float, r: Float, t: Float, b: Float, gap: Float): List<RectF> {
-        val height = (b - t - gap) / 2f
-        return listOf(factory(l, t, r, t + height), factory(l, t + height + gap, r, b))
-    }
-
-    private fun fourCells(factory: (Float, Float, Float, Float) -> RectF, l: Float, r: Float, t: Float, b: Float): List<RectF> {
-        val gap = 6f
-        val width = (r - l - gap) / 2f
-        val height = (b - t - gap) / 2f
-        return listOf(
-            factory(l, t, l + width, t + height), factory(l + width + gap, t, r, t + height),
-            factory(l, t + height + gap, l + width, b), factory(l + width + gap, t + height + gap, r, b)
-        )
     }
 
     private fun luminance(bitmap: Bitmap, region: RectF): Double {

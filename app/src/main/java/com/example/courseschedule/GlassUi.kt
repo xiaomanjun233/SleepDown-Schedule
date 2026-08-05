@@ -251,6 +251,21 @@ fun courseCardBaseColor(config: ScheduleConfigEntity, course: CourseEntity? = nu
     return Color(palette[(stableKey.hashCode() and Int.MAX_VALUE) % palette.size].toInt())
 }
 
+internal fun courseGlassTintAlpha(cardAlpha: Float, quality: Float, hasWallpaper: Boolean): Float {
+    val maximum = if (hasWallpaper) 0.68f else 0.16f
+    return (cardAlpha.coerceIn(0f, 1f) * maximum * quality)
+        .coerceIn(0f, maximum)
+}
+
+internal fun courseSimpleBlurTintAlpha(cardAlpha: Float, quality: Float, hasWallpaper: Boolean): Float {
+    if (hasWallpaper) {
+        return (cardAlpha.coerceIn(0f, 1f) * 0.72f * quality)
+            .coerceIn(0.28f, 0.78f)
+    }
+    return (cardAlpha.coerceIn(0f, 1f) * 0.18f * quality)
+        .coerceIn(0f, 0.18f)
+}
+
 data class GlassTokens(
     val blur: Dp,
     val lensHeight: Dp,
@@ -335,6 +350,7 @@ fun GlassSurface(
     val pressed by interactionSource.collectIsPressedAsState()
     val pressProgress by animateFloatAsState(if (pressed) 1f else 0f, label = "glass-press")
     val lightGlass = glassUsesLightStyle(config)
+    val hasWallpaper = config.hasAnyWallpaper()
     val base = baseSurfaceColorOverride ?: if (lightGlass) Color.White else Color(0xFF050505)
     val selectedColor = if (useGlass) {
         if (lightGlass) Color.Black.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.08f)
@@ -358,7 +374,12 @@ fun GlassSurface(
                 )
             },
             highlight = {
-                val alpha = if (selected) tokens.highlightAlpha + 0.10f * pressProgress else tokens.highlightAlpha * 0.65f * pressProgress
+                val restAlpha = if (hasWallpaper) 0f else tokens.highlightAlpha * 0.72f
+                val alpha = if (selected) {
+                    tokens.highlightAlpha + 0.10f * pressProgress
+                } else {
+                    restAlpha + tokens.highlightAlpha * 0.65f * pressProgress
+                }
                 if (alpha <= 0.001f) Highlight.Plain else Highlight.Default.copy(alpha = alpha)
             },
             shadow = {
@@ -519,7 +540,10 @@ fun CourseGlassCard(
     val clickInteractionSource = remember { MutableInteractionSource() }
     var pressed by remember { mutableStateOf(false) }
     val baseColor = courseCardBaseColor(config, course)
-    val glassTint = baseColor.copy(alpha = ((config.cardAlpha.coerceIn(0f, 1f) * 0.68f) * quality).coerceIn(0f, 0.68f))
+    val hasWallpaper = config.hasAnyWallpaper()
+    val glassTint = baseColor.copy(
+        alpha = courseGlassTintAlpha(config.cardAlpha, quality, hasWallpaper)
+    )
     val solidColor = baseColor.copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
@@ -558,13 +582,17 @@ fun CourseGlassCard(
                             if (tokens.useVibrancy) vibrancy()
                             blur((tokens.blur * quality).toPx())
                             lens(
-                                (tokens.lensHeight * quality).toPx(),
-                                (tokens.lensAmount * quality).toPx(),
+                                (tokens.lensHeight * quality * if (hasWallpaper) 1f else 0.78f).toPx(),
+                                (tokens.lensAmount * quality * if (hasWallpaper) 1f else 1.35f).toPx(),
                                 depthEffect = tokens.depthEffect,
                                 chromaticAberration = tokens.chromaticAberration
                             )
                         },
-                        highlight = { Highlight.Default.copy(alpha = tokens.highlightAlpha) },
+                        highlight = {
+                            Highlight.Default.copy(
+                                alpha = if (hasWallpaper) tokens.highlightAlpha else maxOf(tokens.highlightAlpha, 0.10f)
+                            )
+                        },
                         shadow = { Shadow(alpha = tokens.shadowAlpha) },
                         innerShadow = { InnerShadow(radius = 5.dp, alpha = tokens.innerShadowAlpha) },
                         onDrawSurface = {
@@ -594,8 +622,11 @@ fun CourseGlassCard(
                     onDrawSurface = {
                         drawRect(
                             baseColor.copy(
-                                alpha = (config.cardAlpha.coerceIn(0f, 1f) * 0.72f)
-                                    .coerceIn(0.28f, 0.78f)
+                                alpha = courseSimpleBlurTintAlpha(
+                                    config.cardAlpha,
+                                    quality,
+                                    hasWallpaper
+                                )
                             )
                         )
                     }

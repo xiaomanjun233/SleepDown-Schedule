@@ -27,11 +27,11 @@ internal data class AgentResponsesTurn(
 )
 
 /**
- * Official OpenAI Agent transport.
+ * Responses API Agent transport for official and compatible providers.
  *
  * The app deliberately uses `store=false` and replays complete Responses output items, including
  * opaque reasoning items, so schedule context stays stateless without breaking reasoning/tool
- * continuity. Compatible providers remain on the Chat Completions runner.
+ * continuity.
  */
 internal class OpenAiResponsesAgentRunner {
     fun chat(
@@ -71,6 +71,18 @@ internal class OpenAiResponsesAgentRunner {
             if (decision.unparsedToolCallCount > 0) {
                 throw IllegalStateException(
                     "模型返回了 ${decision.unparsedToolCallCount} 个无法识别的工具调用，请重试"
+                )
+            }
+            if (decision.calls.isNotEmpty()) {
+                val note = decision.content.trim().take(120).ifBlank {
+                    "我先调用所需工具确认当前信息，再继续处理。"
+                }
+                onStatus(
+                    AgentRunStatus(
+                        icon = AgentRunStatusIcon.THINKING,
+                        text = "准备下一步",
+                        detail = note
+                    )
                 )
             }
             if (decision.calls.isEmpty()) {
@@ -169,7 +181,15 @@ internal class OpenAiResponsesAgentRunner {
         put("stream", stream)
         put("instructions", instructions)
         put("input", JsonArray(input))
-        put("reasoning", buildJsonObject { put("summary", "auto") })
+        put("reasoning", buildJsonObject {
+            put("effort", settings.profile.reasoningEffort.apiValue)
+            if (
+                settings.profile.id == AiProviderPresets.openAI.id &&
+                isOfficialOpenAIBaseUrl(settings.profile.baseUrl)
+            ) {
+                put("summary", "auto")
+            }
+        })
         if (includeTools) {
             put("tools", agentResponsesToolDefinitions(includeMemoryTool))
             put("tool_choice", "auto")
@@ -183,7 +203,7 @@ internal class OpenAiResponsesAgentRunner {
         val response = source?.bufferedReader()?.use { it.readText() }.orEmpty()
         connection.disconnect()
         if (code !in 200..299) {
-            throw IllegalStateException("AI 请求失败 ($code)：${response.take(300)}")
+            throw IllegalStateException(formatAiRequestError(code, response, settings.profile.id))
         }
         return response
     }
@@ -198,7 +218,7 @@ internal class OpenAiResponsesAgentRunner {
         if (code !in 200..299) {
             val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
             connection.disconnect()
-            throw IllegalStateException("AI 请求失败 ($code)：${error.take(300)}")
+            throw IllegalStateException(formatAiRequestError(code, error, settings.profile.id))
         }
         if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
             val response = connection.inputStream.bufferedReader().use { it.readText() }
@@ -251,7 +271,7 @@ internal class OpenAiResponsesAgentRunner {
                 readTimeout = 120_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                setRequestProperty("Authorization", "Bearer ${settings.apiKey}")
+                setAiAuthHeader(settings.apiKey, settings.profile.authType)
                 outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             }
     }

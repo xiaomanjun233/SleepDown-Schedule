@@ -685,7 +685,7 @@ fun ScheduleCarouselCard(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(if (dark) Color(0xFF09090B) else Color(0xFFF2F2F7))
+                    .background(if (dark) Color(0xFF09090B) else Color(0xFFEDEEF3))
             )
         }
         if (overlayAlpha > 0.01f) {

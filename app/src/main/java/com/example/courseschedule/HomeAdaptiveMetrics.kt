@@ -108,6 +108,12 @@ internal fun calculateHomeAdaptiveMetrics(
     val fontScaleAdjustment = (0f - (fontScale - 1f).coerceAtLeast(0f) * 12f).dp
     val compactWeekTop = (baseWeekTop + screenAdjustment + statusAdjustment + fontScaleAdjustment)
         .coerceIn(84.dp, 108.dp)
+    val dayHeightAdjustment = ((heightDp - 800) * 0.025f).dp
+    val compactDayTop = if (isLandscape) {
+        (safeTop + 64.dp + dayHeightAdjustment + fontScaleAdjustment).coerceIn(76.dp, 96.dp)
+    } else {
+        (110.dp + dayHeightAdjustment + statusAdjustment + fontScaleAdjustment).coerceIn(104.dp, 118.dp)
+    }
 
     if (!isLargeScreen) {
         return HomeAdaptiveMetrics(
@@ -119,7 +125,7 @@ internal fun calculateHomeAdaptiveMetrics(
             isThreeTwoLike = false,
             topOverlayHeight = HomeTopOverlayHeight,
             topGradientHeight = HomeTopOverlayHeight,
-            dayContentTopPadding = HomeInitialTopInset,
+            dayContentTopPadding = compactDayTop,
             weekTopSpacerHeight = compactWeekTop,
             daySidePaneWidth = 0.dp,
             dayPaneGap = 0.dp,
@@ -139,7 +145,7 @@ internal fun calculateHomeAdaptiveMetrics(
             isThreeTwoLike = false,
             topOverlayHeight = HomeTopOverlayHeight,
             topGradientHeight = HomeTopOverlayHeight,
-            dayContentTopPadding = HomeInitialTopInset,
+            dayContentTopPadding = compactDayTop.coerceIn(100.dp, 116.dp),
             weekTopSpacerHeight = compactWeekTop,
             daySidePaneWidth = 0.dp,
             dayPaneGap = 0.dp,

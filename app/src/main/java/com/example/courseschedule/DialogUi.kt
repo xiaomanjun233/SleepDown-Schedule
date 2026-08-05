@@ -157,7 +157,7 @@ fun LiquidDialogHeader(
         modifier = modifier
             .fillMaxWidth()
             .height(70.dp)
-            .padding(horizontal = 14.dp)
+            .padding(horizontal = 16.dp)
     ) {
         DialogLiquidButton(
             backdrop,
@@ -184,7 +184,7 @@ fun LiquidDialogHeader(
         if (onConfirm != null) {
             DialogLiquidButton(
                 backdrop,
-                "保存",
+                "完成",
                 onConfirm,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)

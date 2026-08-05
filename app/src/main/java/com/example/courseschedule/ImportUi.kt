@@ -2,6 +2,7 @@ package com.example.courseschedule
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.ActivityManager
 import android.app.DatePickerDialog
 import android.app.Application
@@ -193,6 +194,7 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
@@ -290,6 +292,7 @@ fun NormalizedAiManualImportScreen(
     state: AppState,
     backdrop: Backdrop?,
     onCancel: () -> Unit,
+    captureHistoryBackground: suspend () -> Bitmap? = { null },
     onParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
@@ -302,8 +305,21 @@ fun NormalizedAiManualImportScreen(
     var showAiTokenRepairPrompt by remember { mutableStateOf(false) }
     var selectedMode by remember { mutableIntStateOf(0) }
     var aiSettings by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
+    var historySourceHidden by remember { mutableStateOf(false) }
+    var historyEntries by remember { mutableStateOf(AiImportHistoryStore.load(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
     val textColor = glassForegroundColor(state.config)
     val aiFileUploadVisible = aiSettings.profile.id != AiProviderPresets.deepSeek.id
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                historySourceHidden = false
+                historyEntries = AiImportHistoryStore.load(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val icsFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) launcher@{ uri ->
         if (uri == null) return@launcher
         selectedFileName = null
@@ -342,37 +358,57 @@ fun NormalizedAiManualImportScreen(
                     selectedFileName = file.displayName
                     if (file.isIcs) {
                         error = "请在“导入 ICS”栏选择日历文件"
+                        aiParsing = false
                         return@fileLoaded
                     }
                     if (settings.profile.id == AiProviderPresets.deepSeek.id) {
                         error = "当前 DeepSeek 仅支持文本和 ICS 导入。PDF 或图片请切换 OpenAI / MiMo / 自定义视觉模型。"
+                        aiParsing = false
                         return@fileLoaded
                     }
-                    AiEduImportProgressSession.clearActions()
-                    AiEduImportProgressSession.update(
-                        AiEduImportProgress(
-                            routeLabel = "AI 手动导入",
-                            steps = listOf("准备读取文件"),
-                            requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n输入：用户选择的 PDF 或图片文件\n密钥：已从本机安全存储读取，未显示"
-                        )
-                    )
-                    context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
                     val fileSummary = buildString {
                         appendLine("文件名：${file.displayName}")
                         appendLine("类型：${file.mimeType}")
                         appendLine("大小：${formatAiImportFileSize(file.bytes.size)}")
-                        appendLine("处理：OpenAI 官方配置会优先使用原生 PDF 输入；MiMo / 视觉模型会将 PDF 渲染为图片；DeepSeek 不显示文件上传入口。")
+                        if (file.isText) {
+                            appendLine()
+                            appendLine("文件内容：")
+                            append(file.bytes.toString(Charsets.UTF_8).take(60_000))
+                        }
                     }
-                    routeMessage = "正在使用 ${settings.profile.displayName} 解析 ${file.displayName}..."
+                    val previewImages = withContext(Dispatchers.Default) {
+                        runCatching { renderAiImportPreviewImages(context, file) }.getOrDefault(emptyList())
+                    }
+                    routeMessage = "文件已暂存，确认后才会发送给 AI。"
+                    AiEduImportProgressSession.clearActions()
                     AiEduImportProgressSession.update(
                         AiEduImportProgress(
                             routeLabel = "AI 手动导入",
-                            steps = listOf("准备读取文件", "已读取文件", "正在发送给 AI 解析"),
-                            requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}\n类型：${file.mimeType}\n大小：${formatAiImportFileSize(file.bytes.size)}\n提示词：已附加完整 SleepDown JSON 解析协议",
-                            pageText = fileSummary
+                            steps = listOf("已读取文件，等待确认"),
+                            userPrompt = "帮我按规则导入这份课表",
+                            attachmentTitle = file.displayName,
+                            pageText = fileSummary,
+                            screenshotPreviews = previewImages,
+                            awaitingConfirmation = true,
+                            confirmActionLabel = "确认发送并解析",
+                            cancelActionLabel = "取消"
                         )
                     )
-                    AiScheduleImportService(context).parseScheduleFile(file, settings)
+                    AiEduImportProgressSession.setActions(
+                        onConfirm = {
+                            scope.launch {
+                                aiParsing = true
+                                routeMessage = "正在使用 ${settings.profile.displayName} 解析 ${file.displayName}..."
+                                AiEduImportProgressSession.update(
+                                    AiEduImportProgressSession.progress.value?.copy(
+                                        steps = listOf("已读取文件", "已确认发送", "正在调用模型解析"),
+                                        requestSent = true,
+                                        awaitingConfirmation = false,
+                                        confirmActionLabel = "",
+                                        cancelActionLabel = ""
+                                    )
+                                )
+                                AiScheduleImportService(context).parseScheduleFile(file, settings)
                         .onSuccess { aiResult ->
                             routeMessage = aiResult.routeMessage
                             val output = aiResult.output.ifBlank { aiResult.rawOutput }
@@ -382,8 +418,11 @@ fun NormalizedAiManualImportScreen(
                                     steps = listOf("准备读取文件", "已读取文件", "已发送给 AI", "AI 已返回可见文本，开始本地校验"),
                                     requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}\n处理路线：${aiResult.routeMessage}",
                                     pageText = fileSummary,
-                                    reasoningOutput = aiResult.reasoningOutput.take(20_000),
-                                    aiOutput = aiResult.rawOutput.take(80_000)
+                                    attachmentTitle = file.displayName,
+                                    screenshotPreviews = previewImages,
+                                    requestSent = true,
+                                    reasoningOutput = aiResult.reasoningOutput,
+                                    aiOutput = aiResult.rawOutput
                                 )
                             )
                             ScheduleImportParser.parse(output, state.config)
@@ -395,12 +434,21 @@ fun NormalizedAiManualImportScreen(
                                             steps = listOf("准备读取文件", "已读取文件", "已发送给 AI", "AI 已返回可见文本", "本地校验通过，进入导入预览"),
                                             requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}\n处理路线：${aiResult.routeMessage}",
                                             pageText = fileSummary,
-                                            reasoningOutput = aiResult.reasoningOutput.take(20_000),
-                                            aiOutput = aiResult.rawOutput.take(80_000),
+                                            attachmentTitle = file.displayName,
+                                            screenshotPreviews = previewImages,
+                                            requestSent = true,
+                                            reasoningOutput = aiResult.reasoningOutput,
+                                            aiOutput = aiResult.rawOutput,
                                             finished = true
                                         )
                                     )
-                                    onParsed(draft)
+                                    val preview = draft.copy(source = ImportDraftSource.AI_EDU)
+                                    AiImportHistoryStore.record(
+                                        context,
+                                        preview,
+                                        AiEduImportProgressSession.progress.value
+                                    )
+                                    AiEduImportProgressSession.setPreviewDraft(preview)
                                 }
                                 .onFailure {
                                     error = "AI 已返回内容，但本地解析失败：${it.message ?: "未知错误"}"
@@ -410,8 +458,11 @@ fun NormalizedAiManualImportScreen(
                                             steps = listOf("准备读取文件", "已读取文件", "已发送给 AI", "AI 已返回可见文本", "本地校验失败"),
                                             requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}\n处理路线：${aiResult.routeMessage}",
                                             pageText = fileSummary,
-                                            reasoningOutput = aiResult.reasoningOutput.take(20_000),
-                                            aiOutput = aiResult.rawOutput.take(80_000),
+                                            attachmentTitle = file.displayName,
+                                            screenshotPreviews = previewImages,
+                                            requestSent = true,
+                                            reasoningOutput = aiResult.reasoningOutput,
+                                            aiOutput = aiResult.rawOutput,
                                             error = it.message ?: "AI 返回内容无法解析",
                                             finished = true
                                         )
@@ -427,16 +478,29 @@ fun NormalizedAiManualImportScreen(
                                     steps = listOf("准备读取文件", "已读取文件", "AI 请求失败"),
                                     requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}",
                                     pageText = fileSummary,
-                                    reasoningOutput = extractAiReasoningForDisplay(rawBody).take(20_000),
-                                    aiOutput = sanitizeAiOutputForDisplay(rawBody).take(80_000),
+                                    attachmentTitle = file.displayName,
+                                    screenshotPreviews = previewImages,
+                                    requestSent = true,
+                                    reasoningOutput = extractAiReasoningForDisplay(rawBody),
+                                    aiOutput = sanitizeAiOutputForDisplay(rawBody),
                                     error = it.message ?: "AI 文件解析失败",
                                     finished = true
                                 )
                             )
                         }
+                                aiParsing = false
+                            }
+                        },
+                        onCancel = {
+                            aiParsing = false
+                            routeMessage = "已取消，文件没有发送给 AI。"
+                        }
+                    )
+                    context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
                 }
                 .onFailure {
                     error = it.message ?: "文件读取失败"
+                    aiParsing = false
                     AiEduImportProgressSession.update(
                         AiEduImportProgress(
                             routeLabel = "AI 手动导入",
@@ -447,7 +511,6 @@ fun NormalizedAiManualImportScreen(
                         )
                     )
                 }
-            aiParsing = false
         }
     }
     fun parseDraft() {
@@ -472,17 +535,33 @@ fun NormalizedAiManualImportScreen(
         aiSettings = settings
         showAiTokenRepairPrompt = false
         aiParsing = true
-        routeMessage = "正在使用 ${settings.profile.displayName} 整理课表口令..."
+        routeMessage = "课表口令已暂存，确认后才会发送给 AI。"
         AiEduImportProgressSession.clearActions()
         AiEduImportProgressSession.update(
             AiEduImportProgress(
                 routeLabel = "AI 手动导入",
-                steps = listOf("本地口令校验未通过", "正在交给 AI 整理"),
-                requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n输入：用户粘贴的非标准课表口令\n密钥：已从本机安全存储读取，未显示"
+                steps = listOf("本地口令校验未通过", "已暂存，等待确认"),
+                userPrompt = "帮我按规则整理并导入这份课表",
+                attachmentTitle = "课表口令文本",
+                pageText = jsonText.take(40_000),
+                awaitingConfirmation = true,
+                confirmActionLabel = "确认发送并解析",
+                cancelActionLabel = "取消"
             )
         )
-        context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
-        scope.launch {
+        AiEduImportProgressSession.setActions(
+            onConfirm = {
+                scope.launch {
+                    routeMessage = "正在使用 ${settings.profile.displayName} 整理课表口令..."
+                    AiEduImportProgressSession.update(
+                        AiEduImportProgressSession.progress.value?.copy(
+                            steps = listOf("本地口令校验未通过", "已确认发送", "正在调用模型整理"),
+                            requestSent = true,
+                            awaitingConfirmation = false,
+                            confirmActionLabel = "",
+                            cancelActionLabel = ""
+                        )
+                    )
             val repairInput = buildString {
                 appendLine("下面是一个格式不完整或不规范的 SleepDown 课程表口令。")
                 appendLine("请理解其中的课程信息，严格按照 SleepDown 课表导入协议整理并只返回可导入结果。")
@@ -502,12 +581,22 @@ fun NormalizedAiManualImportScreen(
                                     routeLabel = "AI 手动导入",
                                     steps = listOf("本地口令校验未通过", "AI 已完成整理", "本地校验通过，进入导入预览"),
                                     requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n输入：用户粘贴的非标准课表口令",
-                                    reasoningOutput = aiResult.reasoningOutput.take(20_000),
-                                    aiOutput = aiResult.rawOutput.take(80_000),
+                                    userPrompt = "帮我按规则整理并导入这份课表",
+                                    attachmentTitle = "课表口令文本",
+                                    pageText = jsonText.take(40_000),
+                                    requestSent = true,
+                                    reasoningOutput = aiResult.reasoningOutput,
+                                    aiOutput = aiResult.rawOutput,
                                     finished = true
                                 )
                             )
-                            onParsed(draft)
+                            val preview = draft.copy(source = ImportDraftSource.AI_EDU)
+                            AiImportHistoryStore.record(
+                                context,
+                                preview,
+                                AiEduImportProgressSession.progress.value
+                            )
+                            AiEduImportProgressSession.setPreviewDraft(preview)
                         }
                         .onFailure {
                             error = "AI 已整理口令，但仍无法导入：${it.message ?: "未知错误"}"
@@ -516,8 +605,12 @@ fun NormalizedAiManualImportScreen(
                                     routeLabel = "AI 手动导入",
                                     steps = listOf("本地口令校验未通过", "AI 已完成整理", "本地校验仍未通过"),
                                     requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}",
-                                    reasoningOutput = aiResult.reasoningOutput.take(20_000),
-                                    aiOutput = aiResult.rawOutput.take(80_000),
+                                    userPrompt = "帮我按规则整理并导入这份课表",
+                                    attachmentTitle = "课表口令文本",
+                                    pageText = jsonText.take(40_000),
+                                    requestSent = true,
+                                    reasoningOutput = aiResult.reasoningOutput,
+                                    aiOutput = aiResult.rawOutput,
                                     error = it.message ?: "AI 返回内容无法解析",
                                     finished = true
                                 )
@@ -531,13 +624,24 @@ fun NormalizedAiManualImportScreen(
                             routeLabel = "AI 手动导入",
                             steps = listOf("本地口令校验未通过", "AI 整理请求失败"),
                             requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}",
+                            userPrompt = "帮我按规则整理并导入这份课表",
+                            attachmentTitle = "课表口令文本",
+                            pageText = jsonText.take(40_000),
+                            requestSent = true,
                             error = it.message ?: "AI 口令整理失败",
                             finished = true
                         )
                     )
                 }
             aiParsing = false
-        }
+                }
+            },
+            onCancel = {
+                aiParsing = false
+                routeMessage = "已取消，课表口令没有发送给 AI。"
+            }
+        )
+        context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
     }
     AiManualImportDialogContent(
         state = state,
@@ -562,6 +666,48 @@ fun NormalizedAiManualImportScreen(
         routeMessage = routeMessage,
         error = error,
         aiParsing = aiParsing,
+        historyEntries = historyEntries,
+        historySourceHidden = historySourceHidden,
+        onOpenHistory = { sourceBounds ->
+            scope.launch {
+                val sourceSnapshot = captureHistoryBackground()
+                    ?.cropToAiHistorySource(sourceBounds)
+                val windowOverlay = (context as? Activity)?.window?.decorView?.overlay
+                val sourcePlaceholder = sourceSnapshot?.let { bitmap ->
+                    android.graphics.drawable.BitmapDrawable(context.resources, bitmap).apply {
+                        bounds = android.graphics.Rect(
+                            sourceBounds.left.roundToInt(),
+                            sourceBounds.top.roundToInt(),
+                            sourceBounds.right.roundToInt(),
+                            sourceBounds.bottom.roundToInt()
+                        )
+                    }
+                }
+                sourcePlaceholder?.let { windowOverlay?.add(it) }
+                try {
+                    historySourceHidden = true
+                    withFrameNanos { }
+                    withFrameNanos { }
+                    val backgroundSnapshot = captureHistoryBackground()
+                    val intent = Intent(context, AiImportHistoryActivity::class.java)
+                        .putAnchoredSourceBounds(sourceBounds)
+                        .putExtra(AiImportHistoryParabolicMotionExtra, true)
+                    if (backgroundSnapshot != null) {
+                        intent.putAnchoredMorphSnapshots(
+                            AnchoredMorphSnapshots(
+                                background = backgroundSnapshot,
+                                source = sourceSnapshot
+                            )
+                        )
+                    }
+                    (context as? ComponentActivity)?.startActivityWithAnchoredMorph(intent)
+                        ?: context.startActivity(intent)
+                    delay(180)
+                } finally {
+                    sourcePlaceholder?.let { windowOverlay?.remove(it) }
+                }
+            }
+        },
         onPrimaryAction = {
             when (selectedMode) {
                 0 -> parseDraft()
@@ -619,6 +765,9 @@ private fun AiManualImportDialogContent(
     routeMessage: String?,
     error: String?,
     aiParsing: Boolean,
+    historyEntries: List<AiImportHistoryEntry>,
+    historySourceHidden: Boolean,
+    onOpenHistory: (Rect) -> Unit,
     onPrimaryAction: () -> Unit
 ) {
     val textColor = glassForegroundColor(state.config)
@@ -639,7 +788,13 @@ private fun AiManualImportDialogContent(
             .fillMaxWidth()
             .height(panelHeight)
     ) {
-        LiquidDialogHeader("手动导入课表", onCancel, backdrop, state.config)
+        LiquidDialogHeader(
+            title = "手动导入课表",
+            onDismiss = onCancel,
+            backdrop = backdrop,
+            config = state.config,
+            onConfirm = onPrimaryAction
+        )
         if (mode == 1) {
             Row(
                 modifier = Modifier
@@ -683,7 +838,8 @@ private fun AiManualImportDialogContent(
                     backdrop,
                     "刷新",
                     onRefreshSettings,
-                    monochromeNeutral = true
+                    monochromeNeutral = true,
+                    highContrast = true
                 )
             }
         }
@@ -696,6 +852,7 @@ private fun AiManualImportDialogContent(
                 backdrop = backdrop,
                 config = state.config,
                 width = maxWidth,
+                highContrast = true,
                 onSelected = onModeSelected
             )
         }
@@ -708,14 +865,16 @@ private fun AiManualImportDialogContent(
                             "复制提示词",
                             onCopyPrompt,
                             modifier = Modifier.weight(1f),
-                            monochromeNeutral = true
+                            monochromeNeutral = true,
+                            highContrast = true
                         )
                         DialogLiquidButton(
                             backdrop,
                             "清理格式",
                             onCleanText,
                             modifier = Modifier.weight(1f),
-                            monochromeNeutral = true
+                            monochromeNeutral = true,
+                            highContrast = true
                         )
                     }
                     DialogCapsuleField(
@@ -730,49 +889,63 @@ private fun AiManualImportDialogContent(
                 }
             }
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            ) {
-                if (mode == 1) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        "选择标准 .ics 日历文件后，应用会在本机识别课程时间、重复规则和时区，并直接进入导入预览。",
-                        color = textColor.copy(alpha = 0.76f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        lineHeight = 21.sp
-                    )
-                    selectedFileName?.let { Text("已选择：$it", color = textColor) }
-                    routeMessage?.let {
-                        Text(it, color = textColor.copy(alpha = 0.72f), style = MaterialTheme.typography.bodySmall)
+            LiquidDialogBody {
+                Column(Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            if (mode == 1) {
+                                "选择标准 .ics 日历文件后，应用会在本机识别课程时间、重复规则和时区，并直接进入导入预览。"
+                            } else if (fileUploadVisible) {
+                                "选择 PDF 或课表图片，文件将使用当前模型解析。ICS 请使用独立的本地导入栏。"
+                            } else {
+                                "当前 DeepSeek 不支持 PDF 或图片输入，请切换 OpenAI、MiMo 或自定义视觉模型。"
+                            },
+                            color = textColor.copy(alpha = 0.86f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            lineHeight = 21.sp
+                        )
+                        selectedFileName?.let { Text("已选择：$it", color = textColor) }
+                        routeMessage?.let {
+                            Text(it, color = textColor.copy(alpha = 0.78f), style = MaterialTheme.typography.bodySmall)
+                        }
                     }
-                }
-                } else {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        if (fileUploadVisible) {
-                            "选择 PDF 或课表图片，文件将使用当前模型解析。ICS 请使用独立的本地导入栏。"
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(top = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            "最近导入",
+                            color = textColor.copy(alpha = 0.72f),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (historyEntries.isEmpty()) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    "暂无导入记录",
+                                    color = textColor.copy(alpha = 0.50f),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         } else {
-                            "当前 DeepSeek 不支持 PDF 或图片输入，请切换 OpenAI、MiMo 或自定义视觉模型。"
-                        },
-                        color = textColor.copy(alpha = 0.76f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        lineHeight = 21.sp
-                    )
-                    selectedFileName?.let { Text("已选择：$it", color = textColor) }
-                    routeMessage?.let {
-                        Text(it, color = textColor.copy(alpha = 0.72f), style = MaterialTheme.typography.bodySmall)
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                items(historyEntries.take(3), key = { it.id }) { entry ->
+                                    AiImportHistoryRowContent(entry, Modifier.fillMaxWidth())
+                                }
+                            }
+                        }
                     }
                 }
             }
-        }
         }
         error?.let {
             Text(
@@ -783,19 +956,43 @@ private fun AiManualImportDialogContent(
             )
         }
         LiquidDialogFooter {
-            DialogLiquidButton(
-                backdrop = backdrop,
-                label = when {
-                    aiParsing -> "解析中..."
-                    mode == 0 -> "解析并预览"
-                    mode == 1 -> "选择 ICS 文件"
-                    else -> "选择 PDF/图片并解析"
-                },
-                role = DialogButtonRole.Confirm,
-                iconRes = R.drawable.ic_download,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onPrimaryAction
-            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
+                if (historySourceHidden) {
+                    Spacer(Modifier.weight(1f).height(40.dp))
+                } else {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .onGloballyPositioned { historyButtonBounds = it.boundsInWindow() }
+                    ) {
+                        DialogLiquidButton(
+                            backdrop = backdrop,
+                            label = "导入历史",
+                            role = DialogButtonRole.Cancel,
+                            iconRes = R.drawable.ic_history,
+                            modifier = Modifier.fillMaxWidth(),
+                            destructiveFilled = true,
+                            onClick = {
+                                if (historyButtonBounds.width > 1f) onOpenHistory(historyButtonBounds)
+                            }
+                        )
+                    }
+                }
+                DialogLiquidButton(
+                    backdrop = backdrop,
+                    label = when {
+                        aiParsing -> "解析中..."
+                        mode == 0 -> "解析并预览"
+                        mode == 1 -> "选择 ICS 文件"
+                        else -> "上传文件"
+                    },
+                    role = DialogButtonRole.Confirm,
+                    iconRes = R.drawable.ic_download,
+                    modifier = Modifier.weight(1f),
+                    onClick = onPrimaryAction
+                )
+            }
         }
     }
 }
@@ -872,6 +1069,7 @@ fun EduSchoolIndexedSelectScreen(
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
     val topPadding = detailContentTopPadding()
     val aiEduAdapters = remember(adapters) {
         adapters.filter { it.isAiEduImportTool() }
@@ -942,13 +1140,21 @@ fun EduSchoolIndexedSelectScreen(
                     .padding(end = 4.dp)
                     .clip(RoundedCornerShape(50))
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
-                    .pointerInput(letters, sectionPositions) {
+                    .pointerInput(letters, sectionPositions, haptic) {
                         awaitPointerEventScope {
+                            var lastIndex = -1
                             while (true) {
                                 val event = awaitPointerEvent()
-                                val pressed = event.changes.firstOrNull { it.pressed } ?: continue
+                                val pressed = event.changes.firstOrNull { it.pressed }
+                                if (pressed == null) {
+                                    lastIndex = -1
+                                    continue
+                                }
                                 val itemHeight = size.height / letters.size.toFloat()
                                 val index = (pressed.position.y / itemHeight).toInt().coerceIn(0, letters.lastIndex)
+                                if (index == lastIndex) continue
+                                lastIndex = index
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 sectionPositions[letters[index]]?.let { position ->
                                     scope.launch { listState.scrollToItem(position) }
                                 }
@@ -965,6 +1171,7 @@ fun EduSchoolIndexedSelectScreen(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
                             .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 sectionPositions[letter]?.let { position ->
                                     scope.launch { listState.animateScrollToItem(position) }
                                 }
@@ -1065,8 +1272,7 @@ fun EduImportActivityScreen(
         onUrlChange = { currentUrl = it },
         bridge = bridge,
         useDetailTopPadding = useDetailTopPadding,
-        onMessage = { message = it },
-        onAiParsed = onParsed
+        onMessage = { message = it }
     )
 }
 
@@ -1355,7 +1561,8 @@ private fun inspectEduPageCapture(pageText: String): EduPageCaptureIssue? {
 
 private fun aiEduRequestPreview(settings: AiImportSettings, pageTextLength: Int): String {
     val baseUrl = normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl)
-    val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
+    val useResponses = AiProviderPresets.shouldUseResponses(settings.profile)
+    val endpoint = baseUrl.trimEnd('/') + if (useResponses) "/responses" else "/chat/completions"
     val outputMode = if (settings.profile.id == AiProviderPresets.deepSeek.id) {
         StructuredOutputMode.PROMPT_ONLY
     } else {
@@ -1365,8 +1572,10 @@ private fun aiEduRequestPreview(settings: AiImportSettings, pageTextLength: Int)
         appendLine("服务商：${settings.profile.displayName}")
         appendLine("接口：$endpoint")
         appendLine("模型：${settings.profile.defaultModel}")
+        appendLine("请求协议：${if (useResponses) "Responses" else "Chat Completions"}")
+        if (useResponses) appendLine("思考强度：${settings.profile.reasoningEffort.label}")
         appendLine("结构化输出：${outputMode.name}")
-        if (settings.profile.id == AiProviderPresets.deepSeek.id) {
+        if (settings.profile.id == AiProviderPresets.deepSeek.id && !useResponses) {
             appendLine("DeepSeek thinking：enabled / high（保留推理能力，正文与思考分开展示）")
             appendLine("DeepSeek max_tokens：393216；MiMo max_completion_tokens：131072（避免思考过程或长 JSON 耗尽输出额度）")
         }
@@ -1389,8 +1598,7 @@ fun EduImportBrowserScreen(
     onUrlChange: (String) -> Unit,
     bridge: EduImportBridge,
     useDetailTopPadding: Boolean = true,
-    onMessage: (String) -> Unit,
-    onAiParsed: (ImportDraft) -> Unit
+    onMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1443,11 +1651,7 @@ fun EduImportBrowserScreen(
             return
         }
         if (aiParsing) return
-        val routeLabel = when {
-            forceFallback -> "AI 兜底扒页"
-            adapter.isAiEduImportTool() -> "AI 专用教务导入"
-            else -> "AI 解析当前页"
-        }
+        val routeLabel = "AI教务导入"
         fun cancelAiImport(message: String = "已取消 AI 教务导入") {
             AiEduImportProgressSession.clearActions()
             setAiProgress(aiProgress?.copy(
@@ -1474,6 +1678,7 @@ fun EduImportBrowserScreen(
             AiEduImportProgressSession.clearActions()
             setAiProgress(aiProgress?.copy(
                 awaitingConfirmation = false,
+                requestSent = true,
                 confirmActionLabel = "",
                 secondaryConfirmActionLabel = "",
                 screenModeActionLabel = "",
@@ -1508,8 +1713,8 @@ fun EduImportBrowserScreen(
                     .onSuccess { result ->
                         setAiProgress(aiProgress?.copy(
                             steps = aiProgress?.steps.orEmpty() + "AI 已返回可见文本，开始本地校验",
-                            reasoningOutput = result.reasoningOutput.take(20_000),
-                            aiOutput = result.rawOutput.take(80_000)
+                            reasoningOutput = result.reasoningOutput,
+                            aiOutput = result.rawOutput
                         ))
                         ScheduleImportParser.parse(result.output, state.config)
                             .onSuccess {
@@ -1518,7 +1723,8 @@ fun EduImportBrowserScreen(
                                     finished = true
                                 ))
                                 onMessage(result.routeMessage)
-                                onAiParsed(it)
+                                val preview = it.copy(source = ImportDraftSource.AI_EDU)
+                                AiEduImportProgressSession.setPreviewDraft(preview)
                             }
                             .onFailure {
                                 setAiProgress(aiProgress?.copy(
@@ -1533,8 +1739,8 @@ fun EduImportBrowserScreen(
                         val rawBody = it.aiRawResponseBody().orEmpty()
                         setAiProgress(aiProgress?.copy(
                             steps = aiProgress?.steps.orEmpty() + "AI 请求失败",
-                            reasoningOutput = extractAiReasoningForDisplay(rawBody).take(20_000),
-                            aiOutput = sanitizeAiOutputForDisplay(rawBody).take(80_000),
+                            reasoningOutput = extractAiReasoningForDisplay(rawBody),
+                            aiOutput = sanitizeAiOutputForDisplay(rawBody),
                             error = it.message ?: "AI 解析失败",
                             finished = true
                         ))
@@ -1548,7 +1754,7 @@ fun EduImportBrowserScreen(
             val supportsVision = settings.profile.supportsVision || settings.profile.capabilities.supportsImageInput
             val pageIssue = inspectEduPageCapture(capture.text)
             val isLoginPage = pageIssue?.step?.contains("登录") == true
-            val pageText = (capture.diagnosticsText + "\n\n" + capture.text).take(12_000)
+            val pageText = (capture.diagnosticsText + "\n\n" + capture.text).take(60_000)
             if (isLoginPage) {
                 AiEduImportProgressSession.clearActions()
                 setAiProgress(aiProgress?.copy(
@@ -1585,11 +1791,19 @@ fun EduImportBrowserScreen(
                 else -> "确认发送文本"
             }
             val secondaryConfirmLabel = if (capture.screenshots.isNotEmpty()) "只发送截图" else ""
-            val screenLabel = if (!screenMode && supportsVision) "进入识屏模式" else ""
+            val screenLabel = if (!screenMode && supportsVision) "进入高清识屏" else ""
             setAiProgress(aiProgress?.copy(
                 steps = aiProgress?.steps.orEmpty() + warningStep,
                 pageText = pageText,
+                hasReadablePageText = capture.text.isNotBlank(),
                 screenshotPreviews = capture.screenshots.take(6),
+                userPrompt = "帮我按规则导入当前页面的课表",
+                attachmentTitle = when {
+                    capture.screenshots.isNotEmpty() && capture.text.isNotBlank() -> "课表页面内容"
+                    capture.screenshots.isNotEmpty() -> "课表页面截图"
+                    else -> "课表页面文字"
+                },
+                requestSent = false,
                 requestPreview = aiEduRequestPreview(settings, capture.text.length),
                 awaitingConfirmation = true,
                 confirmActionLabel = confirmLabel,
@@ -1623,7 +1837,7 @@ fun EduImportBrowserScreen(
                                 try {
                                     captureEduPage(
                                         webView = target,
-                                        maxScreenshots = 4,
+                                        maxScreenshots = 6,
                                         forceScreenshots = true,
                                         onScreenshotProgress = { index, total ->
                                             screenCaptureStatus = "正在截取第 $index/$total 段"
@@ -1682,7 +1896,7 @@ fun EduImportBrowserScreen(
             }
             setAiProgress(aiProgress?.copy(
                 steps = aiProgress?.steps.orEmpty() + captureStep,
-                pageText = (capture.diagnosticsText + "\n\n" + capture.text).take(12_000)
+                pageText = (capture.diagnosticsText + "\n\n" + capture.text).take(60_000)
             ))
             if (capture.warnings.isNotEmpty()) {
                 appendAiStep("页面诊断：${capture.warnings.joinToString("；").take(120)}")
@@ -2094,8 +2308,10 @@ fun ConfirmScheduleScreen(
     warning: String? = null,
     backdrop: Backdrop? = null,
     onCancel: () -> Unit,
+    onDraftChanged: ((ImportDraft) -> Unit)? = null,
     onConfirm: (Boolean) -> Unit
 ) {
+    val historyContext = LocalContext.current
     val previewDraft = remember(draft) {
         draft.copy(
             periods = draft.periods.distinctBy { it.periodIndex }.sortedBy { it.periodIndex },
@@ -2106,6 +2322,20 @@ fun ConfirmScheduleScreen(
                 )
             }
         )
+    }
+    if (previewDraft.source == ImportDraftSource.AI_EDU) {
+        LaunchedEffect(previewDraft) {
+            AiImportHistoryStore.record(historyContext, previewDraft, AiEduImportProgressSession.progress.value)
+        }
+        AiImportChatPreview(
+            draft = previewDraft,
+            warning = warning,
+            backdrop = backdrop,
+            onCancel = onCancel,
+            onDraftChanged = onDraftChanged,
+            onConfirm = onConfirm
+        )
+        return
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -2143,5 +2373,312 @@ fun ConfirmScheduleScreen(
                 )
             }
         }
+    }
+}
+
+private fun Bitmap.cropToAiHistorySource(bounds: Rect): Bitmap? = runCatching {
+    val left = bounds.left.roundToInt().coerceIn(0, width - 1)
+    val top = bounds.top.roundToInt().coerceIn(0, height - 1)
+    val cropWidth = bounds.width.roundToInt().coerceIn(1, width - left)
+    val cropHeight = bounds.height.roundToInt().coerceIn(1, height - top)
+    Bitmap.createBitmap(this, left, top, cropWidth, cropHeight)
+}.getOrNull()
+
+@Composable
+private fun AiImportChatPreview(
+    draft: ImportDraft,
+    warning: String?,
+    backdrop: Backdrop?,
+    onCancel: () -> Unit,
+    onDraftChanged: ((ImportDraft) -> Unit)?,
+    onConfirm: (Boolean) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val progress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
+    val textColor = glassForegroundColor(settingsVisualConfig(draft.config))
+    var traceExpanded by remember { mutableStateOf(false) }
+    var revisionText by remember(draft) { mutableStateOf("") }
+    var revising by remember { mutableStateOf(false) }
+    var revisionError by remember { mutableStateOf<String?>(null) }
+    Column(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(ComposeColor(0xFF0A84FF)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "AI",
+                            color = ComposeColor.White,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            "我已整理出 ${draft.courses.size} 门课程，并完成节次、周次和时间校验。请检查下面的预览，确认后才会写入课表。",
+                            color = textColor,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        warning?.let {
+                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+            progress?.let { importProgress ->
+                val statuses = aiEduAgentRunStatuses(importProgress)
+                if (statuses.isNotEmpty()) {
+                    item {
+                        AgentRunTrace(
+                            statuses = statuses,
+                            expanded = traceExpanded,
+                            foreground = textColor,
+                            active = false,
+                            onToggle = { traceExpanded = !traceExpanded }
+                        )
+                    }
+                }
+            }
+            item {
+                Text(
+                    "导入预览 · ${draft.config.totalWeeks} 周 · ${draft.periods.size} 个节次",
+                    color = textColor.copy(alpha = 0.62f),
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+            if (draft.courses.isEmpty()) {
+                item { Text("没有解析到课程", color = MaterialTheme.colorScheme.error) }
+            } else {
+                itemsIndexed(
+                    draft.courses,
+                    key = { index, course ->
+                        "ai_preview_${index}_${course.name}_${course.weekday}_${course.periods.joinToString("_")}"
+                    }
+                ) { _, course ->
+                    ImportPreviewCourseCard(course, draft.periods, draft.config)
+                }
+            }
+            revisionError?.let { message ->
+                item {
+                    Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        Column(
+            modifier = Modifier
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (onDraftChanged != null) {
+                AiEduRevisionComposer(
+                    value = revisionText,
+                    enabled = !revising,
+                    textColor = textColor,
+                    config = draft.config,
+                    backdrop = backdrop,
+                    onValueChange = { revisionText = it.take(500) },
+                    onSend = {
+                        val instruction = revisionText.trim()
+                        if (instruction.isNotEmpty() && !revising) {
+                            revising = true
+                            revisionError = null
+                            scope.launch {
+                                val settings = AiImportSettingsStore.load(context)
+                                val baseProgress = progress ?: AiEduImportProgress(routeLabel = "AI 手动导入")
+                                AiEduImportProgressSession.update(
+                                    baseProgress.copy(
+                                        steps = (progress?.steps.orEmpty() + "按你的要求修改课表").distinct(),
+                                        userPrompt = instruction,
+                                        requestSent = true,
+                                        finished = false,
+                                        error = null
+                                    )
+                                )
+                                AiScheduleImportService(context)
+                                    .reviseSchedule(draft, instruction, baseProgress, settings)
+                                    .mapCatching { result ->
+                                        ScheduleImportParser.parse(
+                                            result.output.ifBlank { result.rawOutput },
+                                            draft.config
+                                        ).getOrThrow() to result
+                                    }
+                                    .onSuccess { (revised, result) ->
+                                        val next = revised.copy(source = ImportDraftSource.AI_EDU)
+                                        val previousTurns = baseProgress.conversationTurns.ifEmpty {
+                                            listOf(
+                                                AiEduImportConversationTurn(
+                                                    userPrompt = baseProgress.userPrompt,
+                                                    reasoningOutput = baseProgress.reasoningOutput,
+                                                    aiOutput = baseProgress.aiOutput
+                                                )
+                                            )
+                                        }
+                                        val nextProgress = baseProgress.copy(
+                                            steps = (baseProgress.steps + listOf("已理解修改要求", "已调用课表导入工具", "修改结果通过本地校验")).distinct(),
+                                            userPrompt = instruction,
+                                            requestSent = true,
+                                            reasoningOutput = result.reasoningOutput,
+                                            aiOutput = result.rawOutput,
+                                            finished = true,
+                                            error = null,
+                                            conversationTurns = previousTurns + AiEduImportConversationTurn(
+                                                userPrompt = instruction,
+                                                reasoningOutput = result.reasoningOutput,
+                                                aiOutput = result.rawOutput
+                                            )
+                                        )
+                                        revisionText = ""
+                                        AiEduImportProgressSession.update(nextProgress)
+                                        AiImportHistoryStore.updateMatching(context, draft, next, nextProgress)
+                                        onDraftChanged(next)
+                                    }
+                                    .onFailure {
+                                        revisionError = it.message ?: "AI 没有完成这次修改，请换一种说法重试"
+                                    }
+                                revising = false
+                            }
+                        }
+                    }
+                )
+            }
+            LiquidAlertActions(
+                actions = listOf(
+                    LiquidAlertAction("创建新课表", LiquidAlertActionStyle.Primary) { onConfirm(true) },
+                    LiquidAlertAction("覆盖当前课表", LiquidAlertActionStyle.Destructive) { onConfirm(false) },
+                    LiquidAlertAction("返回检查", LiquidAlertActionStyle.Secondary, onClick = onCancel)
+                ),
+                backdrop = backdrop,
+                config = draft.config
+            )
+        }
+    }
+}
+
+@Composable
+private fun AiEduRevisionComposer(
+    value: String,
+    enabled: Boolean,
+    textColor: ComposeColor,
+    config: ScheduleConfigEntity,
+    backdrop: Backdrop?,
+    onValueChange: (String) -> Unit,
+    onSend: () -> Unit
+) {
+    val shape = RoundedCornerShape(28.dp)
+    val content: @Composable BoxScope.() -> Unit = {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { onSend() }),
+                singleLine = false,
+                maxLines = 4,
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (value.isBlank()) {
+                            Text(
+                                if (enabled) "告诉 AI 哪里需要修改…" else "AI 正在修改…",
+                                color = textColor.copy(alpha = 0.46f)
+                            )
+                        }
+                        inner()
+                    }
+                }
+            )
+            DialogLiquidButton(
+                backdrop = backdrop,
+                label = if (enabled) "发送" else "处理中",
+                role = DialogButtonRole.Confirm,
+                roundIcon = false,
+                modifier = Modifier.height(44.dp),
+                onClick = onSend
+            )
+        }
+    }
+    if (backdrop != null) {
+        LiquidPanel(
+            backdrop = backdrop,
+            modifier = Modifier.fillMaxWidth(),
+            shape = shape,
+            surfaceColor = if (glassUsesLightStyle(config)) ComposeColor.White.copy(alpha = 0.22f) else ComposeColor(0xFF161618).copy(alpha = 0.40f),
+            blurRadius = 12.dp,
+            content = content
+        )
+    } else {
+        Box(
+            modifier = Modifier.fillMaxWidth().clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            content = content
+        )
+    }
+}
+
+internal fun buildAiRevisionInput(
+    draft: ImportDraft,
+    instruction: String,
+    history: AiEduImportProgress? = null
+): String {
+    val root = draftToPayload(draft)
+    val priorRequests = history?.conversationTurns.orEmpty()
+        .map { it.userPrompt }
+        .ifEmpty { listOfNotNull(history?.userPrompt?.takeIf(String::isNotBlank)) }
+        .joinToString("\n") { "- $it" }
+    return """
+        这是当前已经通过本地校验的课表：
+        $root
+
+        ${if (priorRequests.isNotBlank()) "此前用户要求：\n$priorRequests\n" else ""}
+        用户要求：$instruction
+        只修改用户明确指出的内容，保留其他课程、周次和节次。
+        如果当前课表足以完成修改，直接调用 IMPORT_SCHEDULE；只有用户要求复核、重新识别或核对原网页/附件，而当前课表不足以判断时，才调用 READ_ORIGINAL_IMPORT_SOURCE。不要为了普通字段修改读取原始材料。
+    """.trimIndent()
+}
+
+internal fun buildAiOriginalSourceContext(history: AiEduImportProgress): String = buildString {
+    appendLine("以下是本次导入留存的原始上下文：")
+    if (history.attachmentTitle.isNotBlank()) appendLine("附件：${history.attachmentTitle}")
+    if (history.requestPreview.isNotBlank()) appendLine("请求信息：\n${history.requestPreview}")
+    if (history.pageText.isNotBlank()) appendLine("原始文本：\n${history.pageText}")
+    val turns = history.conversationTurns.ifEmpty {
+        listOf(
+            AiEduImportConversationTurn(
+                userPrompt = history.userPrompt,
+                reasoningOutput = history.reasoningOutput,
+                aiOutput = history.aiOutput
+            )
+        )
+    }
+    turns.forEachIndexed { index, turn ->
+        appendLine("第 ${index + 1} 轮用户要求：${turn.userPrompt}")
+        if (turn.reasoningOutput.isNotBlank()) appendLine("第 ${index + 1} 轮推理摘要：\n${turn.reasoningOutput}")
+        if (turn.aiOutput.isNotBlank()) appendLine("第 ${index + 1} 轮原始输出：\n${turn.aiOutput}")
+    }
+    if (history.screenshotPreviews.isNotEmpty()) {
+        append("另附 ${history.screenshotPreviews.size} 张按原顺序保存的视觉材料。")
     }
 }

@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColor
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -119,6 +120,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
@@ -197,6 +199,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
+import top.yukonga.miuix.kmp.squircle.squircleSurface
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
@@ -328,6 +331,7 @@ fun NormalizedCourseEditorScreen(
     initialCourse: CourseEntity?,
     onCancel: () -> Unit,
     onSave: (CourseEntity) -> Unit,
+    onSaveCourses: ((List<CourseEntity>) -> Unit)? = null,
     onDelete: (CourseEntity) -> Unit,
     backdrop: Backdrop?,
     pickerRenderInRootScaffold: Boolean = true
@@ -344,6 +348,7 @@ fun NormalizedCourseEditorScreen(
         initialCourse = initialCourse,
         onCancel = onCancel,
         onSave = onSave,
+        onSaveCourses = onSaveCourses,
         onDelete = onDelete,
         backdrop = backdrop,
         pickerRenderInRootScaffold = pickerRenderInRootScaffold
@@ -361,23 +366,140 @@ private data class CourseEditorDraft(
     val name: String,
     val teacher: String,
     val location: String,
-    val weekday: Int,
+    val weekdays: Set<Int>,
     val periodStart: Int,
     val periodEnd: Int,
-    val weekStart: Int,
-    val weekEnd: Int,
-    val excludedWeeks: Set<Int>,
+    val weeks: Set<Int>,
     val parity: WeekParity,
     val note: String
 )
 
-private data class CourseEditorPickerRequest(
-    val title: String,
-    val labels: List<String>,
-    val startIndex: Int,
-    val endIndex: Int? = null,
-    val onConfirm: (Int, Int?) -> Unit
+internal enum class CourseWeekSelectionMode {
+    EVERY,
+    ODD,
+    EVEN,
+    CUSTOM
+}
+
+internal fun inferCourseWeekSelectionMode(weeks: Collection<Int>): CourseWeekSelectionMode {
+    val sorted = weeks.filter { it > 0 }.distinct().sorted()
+    if (sorted.isEmpty()) return CourseWeekSelectionMode.CUSTOM
+    if (sorted.zipWithNext().all { (first, second) -> second == first + 1 }) {
+        return CourseWeekSelectionMode.EVERY
+    }
+    val range = sorted.first()..sorted.last()
+    if (sorted == range.filter { it % 2 == 1 }) return CourseWeekSelectionMode.ODD
+    if (sorted == range.filter { it % 2 == 0 }) return CourseWeekSelectionMode.EVEN
+    return CourseWeekSelectionMode.CUSTOM
+}
+
+internal fun weeksForCourseWeekSelectionMode(
+    mode: CourseWeekSelectionMode,
+    currentWeeks: Collection<Int>,
+    totalWeeks: Int
+): Set<Int> {
+    val bounded = currentWeeks.filter { it in 1..totalWeeks }.distinct().sorted()
+    val start = bounded.firstOrNull() ?: 1
+    val end = bounded.lastOrNull() ?: totalWeeks.coerceAtLeast(1)
+    val range = start..end
+    return when (mode) {
+        CourseWeekSelectionMode.EVERY -> range.toSet()
+        CourseWeekSelectionMode.ODD -> range.filterTo(linkedSetOf()) { it % 2 == 1 }
+        CourseWeekSelectionMode.EVEN -> range.filterTo(linkedSetOf()) { it % 2 == 0 }
+        CourseWeekSelectionMode.CUSTOM -> bounded.toSet()
+    }
+}
+
+private fun CourseWeekSelectionMode.toWeekParity(): WeekParity = when (this) {
+    CourseWeekSelectionMode.ODD -> WeekParity.ODD
+    CourseWeekSelectionMode.EVEN -> WeekParity.EVEN
+    CourseWeekSelectionMode.EVERY,
+    CourseWeekSelectionMode.CUSTOM -> WeekParity.ALL
+}
+
+private fun courseWeekSelectionModeLabel(mode: CourseWeekSelectionMode): String = when (mode) {
+    CourseWeekSelectionMode.EVERY -> "每周"
+    CourseWeekSelectionMode.ODD -> "单周"
+    CourseWeekSelectionMode.EVEN -> "双周"
+    CourseWeekSelectionMode.CUSTOM -> "自定义"
+}
+
+private sealed interface CourseEditorPickerRequest {
+    val title: String
+
+    data class Wheel(
+        override val title: String,
+        val labels: List<String>,
+        val startIndex: Int,
+        val endIndex: Int? = null,
+        val onConfirm: (Int, Int?) -> Unit
+    ) : CourseEditorPickerRequest
+
+    data class Grid(
+        override val title: String,
+        val labels: List<String>,
+        val selectedIndices: Set<Int>,
+        val preferredColumns: Int,
+        val onConfirm: (Set<Int>) -> Unit
+    ) : CourseEditorPickerRequest
+}
+
+@Immutable
+internal data class CourseEditorGroup(val courses: List<CourseEntity>) {
+    val representative: CourseEntity? get() = courses.minByOrNull { it.id }
+}
+
+private data class CourseEditorGroupingKey(
+    val scheduleId: Int,
+    val name: String,
+    val teacher: String,
+    val location: String,
+    val weekday: Int,
+    val periods: List<Int>,
+    val parity: WeekParity,
+    val note: String
 )
+
+private fun CourseEntity.editorGroupingKey() = CourseEditorGroupingKey(
+    scheduleId = scheduleId,
+    name = name.trim(),
+    teacher = teacher.orEmpty().trim(),
+    location = location.orEmpty().trim(),
+    weekday = weekday,
+    periods = periods.distinct().sorted(),
+    parity = weekParity,
+    note = note.orEmpty().trim()
+)
+
+internal fun buildCourseEditorGroups(
+    initialCourse: CourseEntity?,
+    courses: List<CourseEntity>
+): List<CourseEditorGroup> {
+    if (initialCourse == null) return listOf(CourseEditorGroup(emptyList()))
+    val related = (courses + initialCourse)
+        .filter {
+            it.scheduleId == initialCourse.scheduleId &&
+                it.name.trim() == initialCourse.name.trim()
+        }
+        .distinctBy { it.id }
+    return related
+        .groupBy(CourseEntity::editorGroupingKey)
+        .values
+        .map { group ->
+            CourseEditorGroup(
+                group.sortedWith(
+                    compareBy<CourseEntity> { it.weekday }
+                        .thenBy { it.weeks.minOrNull() ?: Int.MAX_VALUE }
+                        .thenBy { it.id }
+                )
+            )
+        }
+        .sortedWith(
+            compareBy<CourseEditorGroup> { it.courses.minOfOrNull(CourseEntity::weekday) ?: 1 }
+                .thenBy { it.representative?.periods?.minOrNull() ?: 0 }
+                .thenBy { it.representative?.location.orEmpty() }
+        )
+}
 
 internal fun excludedWeeksInsideCourseRange(course: CourseEntity?): Set<Int> {
     val weeks = course?.weeks?.distinct()?.sorted().orEmpty()
@@ -412,39 +534,70 @@ internal fun compactWeekSelectionLabel(weeks: List<Int>): String {
     return "第${ranges.joinToString("、")}周"
 }
 
+internal fun compactWeekdaySelectionLabel(weekdays: Collection<Int>): String {
+    val labels = weekdays.filter { it in 1..7 }.distinct().sorted().map(::weekdayLabel)
+    return if (labels.isEmpty()) "未选择" else "周${labels.joinToString("、")}"
+}
+
 private fun courseEditorDraft(
-    course: CourseEntity?,
+    courses: List<CourseEntity>,
     periodValues: List<Int>,
     totalWeeks: Int
-) = CourseEditorDraft(
+) : CourseEditorDraft {
+    val course = courses.firstOrNull()
+    val storedWeeks = courses.flatMap(CourseEntity::weeks).filter { it in 1..totalWeeks }.toSet()
+        .ifEmpty { (1..totalWeeks.coerceAtLeast(1)).toSet() }
+    val activeWeeks = when (course?.weekParity ?: WeekParity.ALL) {
+        WeekParity.ALL -> storedWeeks
+        WeekParity.ODD -> storedWeeks.filterTo(linkedSetOf()) { it % 2 == 1 }
+        WeekParity.EVEN -> storedWeeks.filterTo(linkedSetOf()) { it % 2 == 0 }
+    }
+    val selectionMode = inferCourseWeekSelectionMode(activeWeeks)
+    return CourseEditorDraft(
         name = course?.name.orEmpty(),
         teacher = course?.teacher.orEmpty(),
         location = course?.location.orEmpty(),
-        weekday = course?.weekday ?: 1,
+        weekdays = courses.map(CourseEntity::weekday).filter { it in 1..7 }.toSet().ifEmpty { setOf(1) },
         periodStart = course?.periods?.minOrNull() ?: (periodValues.firstOrNull() ?: 1),
         periodEnd = course?.periods?.maxOrNull() ?: (periodValues.firstOrNull() ?: 1),
-        weekStart = course?.weeks?.minOrNull() ?: 1,
-        weekEnd = course?.weeks?.maxOrNull() ?: totalWeeks.coerceAtLeast(1),
-        excludedWeeks = excludedWeeksInsideCourseRange(course),
-        parity = course?.weekParity ?: WeekParity.ALL,
+        weeks = activeWeeks,
+        parity = selectionMode.toWeekParity(),
         note = course?.note.orEmpty()
     )
+}
 
-private fun CourseEditorDraft.toCourse(
-    original: CourseEntity?,
+private fun CourseEditorDraft.toCourses(
+    originals: List<CourseEntity>,
     periodValues: List<Int>
-) = CourseEntity(
-    id = original?.id ?: 0,
-    name = name.trim(),
-    teacher = teacher.ifBlank { null },
-    location = location.ifBlank { null },
-    weekday = weekday,
-    periods = periodValues.filter { it in periodStart..periodEnd },
-    weeks = weeksInEditorRange(weekStart, weekEnd, excludedWeeks),
-    weekParity = parity,
-    note = note.ifBlank { null },
-    scheduleId = original?.scheduleId ?: 0
-)
+): List<CourseEntity> {
+    val originalWeekdays = originals.map(CourseEntity::weekday).toSet()
+    val originalWeeks = originals.flatMap(CourseEntity::weeks).toSet()
+    val keepOriginalDistribution = weekdays == originalWeekdays && weeks == originalWeeks
+    val originalsByWeekday = originals.groupBy(CourseEntity::weekday)
+    val periods = periodValues.filter { it in periodStart..periodEnd }
+    return weekdays.sorted().mapNotNull { weekday ->
+        val weekdayOriginals = originalsByWeekday[weekday].orEmpty()
+        val original = weekdayOriginals.minByOrNull(CourseEntity::id)
+        val targetWeeks = if (keepOriginalDistribution && originals.isNotEmpty()) {
+            weekdayOriginals.flatMap(CourseEntity::weeks).distinct().sorted()
+        } else {
+            weeks.distinct().sorted()
+        }
+        if (targetWeeks.isEmpty()) return@mapNotNull null
+        CourseEntity(
+            id = original?.id ?: 0,
+            name = name.trim(),
+            teacher = teacher.trim().ifBlank { null },
+            location = location.trim().ifBlank { null },
+            weekday = weekday,
+            periods = periods,
+            weeks = targetWeeks,
+            weekParity = parity,
+            note = note.trim().ifBlank { null },
+            scheduleId = original?.scheduleId ?: originals.firstOrNull()?.scheduleId ?: 0
+        )
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -453,38 +606,35 @@ fun NormalizedCourseEditorScreen(
     initialCourse: CourseEntity?,
     onCancel: () -> Unit,
     onSave: (CourseEntity) -> Unit,
+    onSaveCourses: ((List<CourseEntity>) -> Unit)? = null,
     onDelete: (CourseEntity) -> Unit,
     backdrop: Backdrop?,
     onSaveWithOriginal: ((CourseEntity, CourseEntity) -> Unit)? = null,
+    onSaveGroup: ((List<CourseEntity>, List<CourseEntity>) -> Unit)? = null,
+    onDeleteGroup: ((List<CourseEntity>) -> Unit)? = null,
     pickerRenderInRootScaffold: Boolean = true
 ) {
     val config = formData.config
-    val relatedCourses = remember(initialCourse, formData.courses) {
-        if (initialCourse == null) emptyList() else {
-            (formData.courses + initialCourse)
-                .filter { it.scheduleId == initialCourse.scheduleId && it.name.trim() == initialCourse.name.trim() }
-                .distinctBy { it.id }
-                .sortedWith(compareBy<CourseEntity> { it.weekday }.thenBy { it.periods.minOrNull() ?: 0 }.thenBy { it.location.orEmpty() })
-        }
+    val editorGroups = remember(initialCourse, formData.courses) {
+        buildCourseEditorGroups(initialCourse, formData.courses)
     }
-    val editorCourses: List<CourseEntity?> = remember(initialCourse, relatedCourses) {
-        if (relatedCourses.isEmpty()) listOf(initialCourse) else relatedCourses
+    val periodValues = remember(formData.periods, editorGroups) {
+        (formData.periods.map { it.periodIndex } + editorGroups.flatMap { group -> group.courses.flatMap(CourseEntity::periods) })
+            .distinct()
+            .sorted()
     }
-    val periodValues = remember(formData.periods, editorCourses) {
-        (formData.periods.map { it.periodIndex } + editorCourses.filterNotNull().flatMap { it.periods }).distinct().sorted()
+    val initialPage = remember(initialCourse, editorGroups) {
+        editorGroups.indexOfFirst { group -> group.courses.any { it.id == initialCourse?.id } }.coerceAtLeast(0)
     }
-    val initialPage = remember(initialCourse, editorCourses) {
-        editorCourses.indexOfFirst { it?.id == initialCourse?.id }.coerceAtLeast(0)
-    }
-    val pagerState = rememberPagerState(initialPage = initialPage) { editorCourses.size }
-    var drafts by remember(editorCourses, periodValues, config.totalWeeks) {
-        mutableStateOf(editorCourses.associate { course ->
-            (course?.id ?: Long.MIN_VALUE) to courseEditorDraft(course, periodValues, config.totalWeeks)
-        })
+    val pagerState = rememberPagerState(initialPage = initialPage) { editorGroups.size }
+    var drafts by remember(editorGroups, periodValues, config.totalWeeks) {
+        mutableStateOf(editorGroups.mapIndexed { index, group ->
+            index to courseEditorDraft(group.courses, periodValues, config.totalWeeks.coerceAtLeast(1))
+        }.toMap())
     }
     var error by remember { mutableStateOf<String?>(null) }
     var pickerRequest by remember { mutableStateOf<CourseEditorPickerRequest?>(null) }
-    val currentPage = pagerState.currentPage.coerceIn(editorCourses.indices)
+    val currentPage = pagerState.currentPage.coerceIn(editorGroups.indices)
 
     LaunchedEffect(currentPage) { error = null }
 
@@ -495,15 +645,16 @@ fun NormalizedCourseEditorScreen(
             beyondViewportPageCount = 1,
             pageSpacing = 10.dp,
             userScrollEnabled = pickerRequest == null,
-            key = { page -> editorCourses[page]?.id ?: Long.MIN_VALUE }
+            key = { page -> editorGroups[page].representative?.id ?: Long.MIN_VALUE }
         ) { page ->
-            val course = editorCourses[page]
-            val key = course?.id ?: Long.MIN_VALUE
-            val draft = drafts.getValue(key)
+            val group = editorGroups[page]
+            val course = group.representative
+            val draft = drafts.getValue(page)
             CourseEditorFormPage(
                 course = course,
+                groupedCourses = group.courses,
                 draft = draft,
-                onDraftChange = { drafts = drafts + (key to it); error = null },
+                onDraftChange = { drafts = drafts + (page to it); error = null },
                 periodValues = periodValues,
                 totalWeeks = config.totalWeeks.coerceAtLeast(1),
                 config = config,
@@ -511,24 +662,33 @@ fun NormalizedCourseEditorScreen(
                 error = error.takeIf { page == currentPage },
                 onCancel = onCancel,
                 onSave = {
-                    val edited = drafts.getValue(key).toCourse(course, periodValues)
+                    val currentDraft = drafts.getValue(page)
+                    val edited = currentDraft.toCourses(group.courses, periodValues)
                     when {
-                        edited.name.isBlank() -> error = "课程名称不能为空"
-                        edited.periods.isEmpty() -> error = "请选择节次"
-                        edited.weeks.isEmpty() -> error = "请选择周次"
-                        course != null && onSaveWithOriginal != null -> onSaveWithOriginal(course, edited)
-                        else -> onSave(edited)
+                        currentDraft.name.isBlank() -> error = "课程名称不能为空"
+                        currentDraft.weekdays.isEmpty() -> error = "请选择星期"
+                        edited.firstOrNull()?.periods.isNullOrEmpty() -> error = "请选择节次"
+                        currentDraft.weeks.isEmpty() -> error = "请选择周次"
+                        group.courses.isNotEmpty() && onSaveGroup != null -> onSaveGroup(group.courses, edited)
+                        course != null && edited.size == 1 && onSaveWithOriginal != null -> onSaveWithOriginal(course, edited.single())
+                        onSaveCourses != null -> onSaveCourses(edited)
+                        edited.size == 1 -> onSave(edited.single())
+                        else -> edited.forEach(onSave)
                     }
                 },
-                onDelete = course?.let { { onDelete(it) } },
+                onDelete = course?.let {
+                    {
+                        if (onDeleteGroup != null) onDeleteGroup(group.courses) else onDelete(it)
+                    }
+                },
                 onOpenPicker = { pickerRequest = it },
-                pageCount = editorCourses.size
+                pageCount = editorGroups.size
             )
         }
-        if (editorCourses.size > 1 && pickerRequest == null) {
+        if (editorGroups.size > 1 && pickerRequest == null) {
             ProjectPagerIndicator(
                 pagerState = pagerState,
-                pageCount = editorCourses.size,
+                pageCount = editorGroups.size,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .zIndex(20f)
@@ -550,6 +710,7 @@ fun NormalizedCourseEditorScreen(
 @Composable
 private fun CourseEditorFormPage(
     course: CourseEntity?,
+    groupedCourses: List<CourseEntity>,
     draft: CourseEditorDraft,
     onDraftChange: (CourseEditorDraft) -> Unit,
     periodValues: List<Int>,
@@ -571,21 +732,26 @@ private fun CourseEditorFormPage(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item(key = "header", contentType = "header") {
-            Box(Modifier.padding(start = 16.dp, top = 6.dp, end = 16.dp)) {
+            Box(Modifier.padding(top = 6.dp)) {
                 DialogHeader(
                     title = if (course == null) "添加单节课" else "编辑单节课",
                     onCancel = onCancel,
                     backdrop = backdrop,
                     config = config,
                     onSave = onSave,
-                    modifier = if (course != null) Modifier.height(54.dp) else Modifier
+                    modifier = if (course != null) Modifier.height(50.dp) else Modifier
                 )
             }
         }
         if (course != null) {
             item(key = "summary", contentType = "summary") {
                 Text(
-                    listOfNotNull(course.teacher, course.location, "周${weekdayLabel(course.weekday)}", course.periods.takeIf { it.isNotEmpty() }?.let { "第${it.min()}-${it.max()}节" }).joinToString(" · "),
+                    listOfNotNull(
+                        course.teacher,
+                        course.location,
+                        compactWeekdaySelectionLabel(groupedCourses.map(CourseEntity::weekday)),
+                        course.periods.takeIf { it.isNotEmpty() }?.let { "第${it.min()}-${it.max()}节" }
+                    ).joinToString(" · "),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = LocalContentColor.current.copy(alpha = 0.68f),
@@ -602,12 +768,12 @@ private fun CourseEditorFormPage(
             DialogSingleWheelSelector(
                 title = "星期",
                 values = (1..7).toList(),
-                selected = draft.weekday,
-                onSelected = { onDraftChange(draft.copy(weekday = it)) },
+                selected = draft.weekdays.firstOrNull() ?: 1,
+                onSelected = { onDraftChange(draft.copy(weekdays = setOf(it))) },
                 onOpenPicker = onOpenPicker,
                 backdrop = backdrop,
                 config = config
-            ) { "周" + weekdayLabel(it) }
+            ) { "周${weekdayLabel(it)}" }
         }
         item(key = "period-range", contentType = "range-picker") {
             DialogRangeWheelSelector(
@@ -622,33 +788,35 @@ private fun CourseEditorFormPage(
             ) { "第${it}节" }
         }
         item(key = "week-range", contentType = "range-picker") {
-            val selectedWeeks = weeksInEditorRange(
-                draft.weekStart,
-                draft.weekEnd,
-                draft.excludedWeeks
-            )
-            DialogRangeWheelSelector(
+            DialogMultiGridSelector(
                 title = "周次",
                 values = (1..totalWeeks).toList(),
-                start = draft.weekStart,
-                end = draft.weekEnd,
-                displayValue = compactWeekSelectionLabel(selectedWeeks),
-                onRangeSelected = { start, end -> onDraftChange(draft.copy(weekStart = start, weekEnd = end)) },
+                selected = draft.weeks,
+                displayValue = compactWeekSelectionLabel(draft.weeks.toList()),
+                preferredColumns = 5,
+                onSelected = {
+                    val mode = inferCourseWeekSelectionMode(it)
+                    onDraftChange(draft.copy(weeks = it, parity = mode.toWeekParity()))
+                },
                 onOpenPicker = onOpenPicker,
                 backdrop = backdrop,
                 config = config
-            ) { "第${it}周" }
+            ) { it.toString() }
         }
         item(key = "parity", contentType = "picker") {
+            val selectedMode = inferCourseWeekSelectionMode(draft.weeks)
             DialogSingleWheelSelector(
                 title = "单双周",
-                values = WeekParity.entries,
-                selected = draft.parity,
-                onSelected = { onDraftChange(draft.copy(parity = it)) },
+                values = CourseWeekSelectionMode.entries,
+                selected = selectedMode,
+                onSelected = { mode ->
+                    val weeks = weeksForCourseWeekSelectionMode(mode, draft.weeks, totalWeeks)
+                    onDraftChange(draft.copy(weeks = weeks, parity = mode.toWeekParity()))
+                },
                 onOpenPicker = onOpenPicker,
                 backdrop = backdrop,
                 config = config
-            ) { parityLabel(it) }
+            ) { courseWeekSelectionModeLabel(it) }
         }
         item(key = "note", contentType = "field") { DialogCapsuleField(draft.note, { onDraftChange(draft.copy(note = it)) }, "备注", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
         if (onDelete != null) {
@@ -674,6 +842,42 @@ private fun CourseEditorFormPage(
 }
 
 @Composable
+private fun <T> DialogMultiGridSelector(
+    title: String,
+    values: List<T>,
+    selected: Set<T>,
+    displayValue: String,
+    preferredColumns: Int,
+    onSelected: (Set<T>) -> Unit,
+    onOpenPicker: (CourseEditorPickerRequest) -> Unit,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    label: (T) -> String
+) {
+    if (values.isEmpty()) return
+    val selectedIndices = values.indices.filterTo(linkedSetOf()) { values[it] in selected }
+    CourseEditorPickerValue(
+        title = title,
+        value = displayValue,
+        backdrop = backdrop,
+        config = config,
+        onClick = {
+            onOpenPicker(
+                CourseEditorPickerRequest.Grid(
+                    title = "选择$title",
+                    labels = values.map(label),
+                    selectedIndices = selectedIndices,
+                    preferredColumns = preferredColumns,
+                    onConfirm = { indices ->
+                        onSelected(indices.sorted().mapTo(linkedSetOf()) { values[it] })
+                    }
+                )
+            )
+        }
+    )
+}
+
+@Composable
 private fun DialogRangeWheelSelector(
     title: String,
     values: List<Int>,
@@ -696,7 +900,7 @@ private fun DialogRangeWheelSelector(
         config = config,
         onClick = {
             onOpenPicker(
-                CourseEditorPickerRequest(
+                CourseEditorPickerRequest.Wheel(
                     title = "选择$title",
                     labels = safeValues.map(label),
                     startIndex = startIndex,
@@ -730,7 +934,7 @@ private fun <T> DialogSingleWheelSelector(
         config = config,
         onClick = {
             onOpenPicker(
-                CourseEditorPickerRequest(
+                CourseEditorPickerRequest.Wheel(
                     title = "选择$title",
                     labels = safeValues.map(label),
                     startIndex = selectedIndex,
@@ -799,12 +1003,24 @@ private fun CourseEditorPickerOverlay(
 ) {
     val dark = appUsesDarkTheme(config)
     val pickerContentColor = if (dark) ComposeColor.White else ComposeColor(0xFF111111)
-    var startIndex by remember(request) { mutableIntStateOf(request.startIndex.coerceIn(request.labels.indices)) }
+    val wheelRequest = request as? CourseEditorPickerRequest.Wheel
+    val gridRequest = request as? CourseEditorPickerRequest.Grid
+    var startIndex by remember(request) {
+        mutableIntStateOf(wheelRequest?.startIndex?.coerceIn(wheelRequest.labels.indices) ?: 0)
+    }
     var endIndex by remember(request) {
-        mutableIntStateOf((request.endIndex ?: request.startIndex).coerceIn(request.labels.indices).coerceAtLeast(startIndex))
+        mutableIntStateOf(
+            wheelRequest?.let {
+                (it.endIndex ?: it.startIndex).coerceIn(it.labels.indices).coerceAtLeast(startIndex)
+            } ?: 0
+        )
+    }
+    var selectedIndices by remember(request) {
+        mutableStateOf(gridRequest?.selectedIndices.orEmpty())
     }
     top.yukonga.miuix.kmp.overlay.OverlayDialog(
         show = true,
+        modifier = Modifier.wrapContentHeight(),
         title = request.title,
         titleColor = pickerContentColor,
         onDismissRequest = onDismiss,
@@ -820,53 +1036,227 @@ private fun CourseEditorPickerOverlay(
         )
     ) {
         CompositionLocalProvider(LocalContentColor provides pickerContentColor) {
-        Column(modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val compact = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.15f
-                val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
-                    color = pickerContentColor,
-                    fontSize = if (compact) 23.sp else 28.sp
-                )
-                val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
-                    selectedTextColor = pickerContentColor,
-                    unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
-                    disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
-                    disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
-                )
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)) {
-                    top.yukonga.miuix.kmp.basic.NumberPicker(
-                        value = startIndex,
-                        onValueChange = { startIndex = it; if (request.endIndex != null && endIndex < it) endIndex = it },
-                        range = request.labels.indices,
-                        visibleItemCount = 3,
-                        label = { request.labels[it] },
-                        colors = pickerColors,
-                        textStyle = pickerTextStyle,
-                        modifier = Modifier.weight(1f)
+        Column(
+            modifier = Modifier.wrapContentHeight().padding(horizontal = 2.dp, vertical = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (wheelRequest != null) {
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val compact = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.15f
+                    val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                        color = pickerContentColor,
+                        fontSize = if (compact) 23.sp else 28.sp
                     )
-                    if (request.endIndex != null) {
+                    val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
+                        selectedTextColor = pickerContentColor,
+                        unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
+                        disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
+                        disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
+                    )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)) {
                         top.yukonga.miuix.kmp.basic.NumberPicker(
-                            value = endIndex,
-                            onValueChange = { endIndex = it; if (startIndex > it) startIndex = it },
-                            range = request.labels.indices,
+                            value = startIndex,
+                            onValueChange = {
+                                startIndex = it
+                                if (wheelRequest.endIndex != null && endIndex < it) endIndex = it
+                            },
+                            range = wheelRequest.labels.indices,
                             visibleItemCount = 3,
-                            label = { request.labels[it] },
+                            label = { wheelRequest.labels[it] },
                             colors = pickerColors,
                             textStyle = pickerTextStyle,
                             modifier = Modifier.weight(1f)
                         )
+                        if (wheelRequest.endIndex != null) {
+                            top.yukonga.miuix.kmp.basic.NumberPicker(
+                                value = endIndex,
+                                onValueChange = { endIndex = it; if (startIndex > it) startIndex = it },
+                                range = wheelRequest.labels.indices,
+                                visibleItemCount = 3,
+                                label = { wheelRequest.labels[it] },
+                                colors = pickerColors,
+                                textStyle = pickerTextStyle,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
+            } else if (gridRequest != null) {
+                CourseEditorSelectionGrid(
+                    labels = gridRequest.labels,
+                    selectedIndices = selectedIndices,
+                    preferredColumns = gridRequest.preferredColumns,
+                    contentColor = pickerContentColor,
+                    dark = dark,
+                    onSelectionChange = { selectedIndices = it }
+                )
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 QuickSheetLiquidAction("取消", true, backdrop, config, modifier = Modifier.weight(1f), height = 50.dp) { onDismiss() }
                 QuickSheetLiquidAction("确定", true, backdrop, config, primary = true, modifier = Modifier.weight(1f), height = 50.dp) {
-                    request.onConfirm(startIndex, endIndex.takeIf { request.endIndex != null })
+                    when (request) {
+                        is CourseEditorPickerRequest.Wheel -> request.onConfirm(
+                            startIndex,
+                            endIndex.takeIf { request.endIndex != null }
+                        )
+                        is CourseEditorPickerRequest.Grid -> request.onConfirm(selectedIndices)
+                    }
                     onDismiss()
                 }
             }
         }
         }
+    }
+}
+
+@Composable
+private fun CourseEditorSelectionGrid(
+    labels: List<String>,
+    selectedIndices: Set<Int>,
+    preferredColumns: Int,
+    contentColor: ComposeColor,
+    dark: Boolean,
+    onSelectionChange: (Set<Int>) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val latestSelection by rememberUpdatedState(selectedIndices)
+    val latestOnSelectionChange by rememberUpdatedState(onSelectionChange)
+    val density = LocalDensity.current
+    val gap = 8.dp
+    val cellHeight = 48.dp
+    BoxWithConstraints(Modifier.fillMaxWidth().wrapContentHeight()) {
+        val minimumCellWidth = if (preferredColumns >= 7) 38.dp else 50.dp
+        val columns = minOf(
+            preferredColumns.coerceAtLeast(1),
+            maxOf(3, ((maxWidth + gap) / (minimumCellWidth + gap)).toInt())
+        )
+        val rowCount = (labels.size + columns - 1) / columns
+        val gridHeight = cellHeight * rowCount + gap * (rowCount - 1).coerceAtLeast(0)
+        val gapPx = with(density) { gap.toPx() }
+        val cellHeightPx = with(density) { cellHeight.toPx() }
+
+        fun toggle(index: Int) {
+            val next = latestSelection.toMutableSet()
+            if (!next.add(index)) next.remove(index)
+            latestOnSelectionChange(next)
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(gridHeight)
+                .pointerInput(labels, columns, gapPx, cellHeightPx) {
+                    var gestureSelection = mutableSetOf<Int>()
+                    var selectMode = true
+                    var lastIndex = -1
+
+                    fun indexAt(position: Offset): Int? {
+                        if (position.x < 0f || position.y < 0f) return null
+                        val cellWidth = (size.width - gapPx * (columns - 1)) / columns
+                        val columnStride = cellWidth + gapPx
+                        val rowStride = cellHeightPx + gapPx
+                        val column = (position.x / columnStride).toInt()
+                        val row = (position.y / rowStride).toInt()
+                        if (column !in 0 until columns || row !in 0 until rowCount) return null
+                        if (position.x - column * columnStride > cellWidth) return null
+                        if (position.y - row * rowStride > cellHeightPx) return null
+                        return (row * columns + column).takeIf(labels.indices::contains)
+                    }
+
+                    fun applyDragIndex(index: Int) {
+                        if (index == lastIndex) return
+                        lastIndex = index
+                        if (selectMode) gestureSelection.add(index) else gestureSelection.remove(index)
+                        latestOnSelectionChange(gestureSelection.toSet())
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+
+                    detectDragGestures(
+                        onDragStart = { position ->
+                            gestureSelection = latestSelection.toMutableSet()
+                            lastIndex = -1
+                            indexAt(position)?.let { index ->
+                                selectMode = index !in gestureSelection
+                                applyDragIndex(index)
+                            }
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            indexAt(change.position)?.let(::applyDragIndex)
+                        }
+                    )
+                }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                labels.chunked(columns).forEachIndexed { rowIndex, rowLabels ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(gap)
+                    ) {
+                        rowLabels.forEachIndexed { columnIndex, label ->
+                            val index = rowIndex * columns + columnIndex
+                            val selected = index in selectedIndices
+                            CourseEditorSelectionCell(
+                                label = label,
+                                selected = selected,
+                                contentColor = contentColor,
+                                dark = dark,
+                                modifier = Modifier.weight(1f).height(cellHeight),
+                                onClick = { toggle(index) }
+                            )
+                        }
+                        repeat(columns - rowLabels.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CourseEditorSelectionCell(
+    label: String,
+    selected: Boolean,
+    contentColor: ComposeColor,
+    dark: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val baseColor = when {
+        selected -> MaterialTheme.colorScheme.primary
+        dark -> ComposeColor.White.copy(alpha = 0.12f)
+        else -> ComposeColor.Black.copy(alpha = 0.07f)
+    }
+    val pressedColor = baseColor.copy(
+        red = baseColor.red * 0.78f,
+        green = baseColor.green * 0.78f,
+        blue = baseColor.blue * 0.78f
+    )
+    val surfaceColor by animateColorAsState(
+        targetValue = if (pressed) pressedColor else baseColor,
+        animationSpec = tween(durationMillis = if (pressed) 70 else 150),
+        label = "course-editor-cell-press"
+    )
+    Box(
+        modifier = modifier
+            .squircleSurface(color = surfaceColor, cornerRadius = 12.dp)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else contentColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1
+        )
     }
 }
 

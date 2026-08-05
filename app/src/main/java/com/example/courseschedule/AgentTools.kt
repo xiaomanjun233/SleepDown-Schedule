@@ -1,6 +1,9 @@
 package com.example.courseschedule
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -40,12 +43,14 @@ data class AgentToolResult(
     val content: String
 )
 
+@Serializable
 data class AgentRunStatus(
     val icon: AgentRunStatusIcon,
     val text: String,
     val detail: String? = null
 )
 
+@Serializable
 enum class AgentRunStatusIcon {
     OVERVIEW,
     SEARCH,
@@ -135,6 +140,46 @@ internal fun agentToolDefinitions(
             put("limit", 1)
         })
     }
+}
+
+private val AgentRunTraceJson = Json { ignoreUnknownKeys = true }
+private val AgentRunTraceMarker = Regex(
+    "<agent_run_trace>([\\s\\S]*?)</agent_run_trace>",
+    RegexOption.IGNORE_CASE
+)
+
+internal data class AgentStoredMessage(
+    val content: String,
+    val statuses: List<AgentRunStatus>
+)
+
+/**
+ * Execution summaries are persisted with the visible answer so a completed turn remains
+ * inspectable after the in-memory runner is released. They are application metadata, not model
+ * reasoning, and are removed again before conversation history is sent to a provider.
+ */
+internal fun agentMessageWithRunTrace(
+    content: String,
+    statuses: List<AgentRunStatus>
+): String {
+    val usefulStatuses = statuses.fold(mutableListOf<AgentRunStatus>()) { result, status ->
+        if (result.lastOrNull() != status) result += status
+        result
+    }
+    if (usefulStatuses.isEmpty()) return content
+    return "<agent_run_trace>${AgentRunTraceJson.encodeToString(usefulStatuses)}</agent_run_trace>\n$content"
+}
+
+internal fun parseAgentStoredMessage(content: String): AgentStoredMessage {
+    val marker = AgentRunTraceMarker.find(content)
+    val statuses = marker?.groupValues?.getOrNull(1)?.let { json ->
+        runCatching { AgentRunTraceJson.decodeFromString<List<AgentRunStatus>>(json) }
+            .getOrDefault(emptyList())
+    }.orEmpty()
+    return AgentStoredMessage(
+        content = content.replace(AgentRunTraceMarker, "").trimStart(),
+        statuses = statuses
+    )
 }
 
 /**

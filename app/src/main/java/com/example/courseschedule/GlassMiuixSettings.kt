@@ -199,6 +199,7 @@ internal fun GlassMiuixDetailActivityScaffold(
     compactTopBar: Boolean,
     centerCompactTitle: Boolean,
     topBarVisible: Boolean,
+    topBarActions: @Composable (Backdrop?) -> Unit,
     content: @Composable (Backdrop?) -> Unit
 ) {
     val pageConfig = settingsVisualConfig(config)
@@ -245,7 +246,8 @@ internal fun GlassMiuixDetailActivityScaffold(
                                         config = pageConfig,
                                         backdrop = contentBackdrop,
                                         onBack = onBack,
-                                        centerTitle = centerCompactTitle
+                                        centerTitle = centerCompactTitle,
+                                        actions = { topBarActions(contentBackdrop) }
                                     )
                                 } else {
                                     TopAppBar(

@@ -130,6 +130,16 @@
             android:exported="false"
             android:theme="@style/AppTheme"
             android:parentActivityName=".EduImportActivity" />
+        <activity
+            android:name=".AiImportHistoryActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".AiEduImportProgressActivity" />
+        <activity
+            android:name=".AiImportHistoryDetailActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".AiImportHistoryActivity" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

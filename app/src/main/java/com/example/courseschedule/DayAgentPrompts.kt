@@ -33,7 +33,7 @@ internal object DayAgentPrompts {
 GET_SETTINGS 返回可修改设置的完整键、类型、范围和当前值。这里列出的 ADD/UPDATE/DELETE/SET_SETTING/SET_PERIOD_SETTINGS 是通用 JSON 写入原语，不是“每个功能一把工具”的能力白名单；模型负责产生目标状态 JSON，应用负责预演、确认、事务执行、回读验证与撤销。用户说“打开/开启实时活动”时使用 SET_SETTING，而用户问“在哪里/怎么设置”时使用 OPEN_SETTINGS 指向 NOTIFICATIONS。若只是回答问题，不输出机器标记。只要回复中提出了一个可供用户确认的实际操作，就必须同时输出机器标记，不能只在自然语言里声称“已准备”“请确认”。机器标记必须严格位于正文末尾，只包含使用英文双引号的合法 JSON 数组，不加 Markdown 代码围栏、注释或尾随逗号；type、scope、weekParity 和字段名必须与上述协议完全一致。"""
 
     const val ToolDecisionStage = """[工具决策阶段]
-当前请求提供的原生函数只能来自请求体 tools 数组。需要本地事实时直接发出标准 tool_calls/function_call；信息已足够时只输出 FINAL_ANSWER_READY。
+本阶段覆盖前文“工具调用时可见正文保持为空”的旧要求。当前请求提供的原生函数只能来自请求体 tools 数组。需要本地事实时，先用一句不超过 35 个汉字的自然语言说明接下来要确认什么，并在同一响应中发出标准 tool_calls/function_call；不得展示内部推理。信息已足够时只输出 FINAL_ANSWER_READY。
 ADD_COURSE、UPDATE_COURSE、DELETE_COURSE、OPEN_SETTINGS、SET_SETTING 和 SET_PERIOD_SETTINGS 是最终答复中的 JSON 操作类型，不是函数工具，禁止把它们放入 tool_calls、function_call、DSML 或其他自造工具协议。不要在本阶段撰写最终正文。"""
 
     const val FinalAnswerStage = """[最终回答阶段]

@@ -46,7 +46,12 @@ class ScheduleViewModel(
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), defaultConfig())
     val snackbar = MutableStateFlow<String?>(null)
-    private val personalizationSaveChannel = Channel<ConfigChange>(Channel.UNLIMITED)
+    // Each schedule keeps one complete pending personalization snapshot. The signal is conflated,
+    // while the map preserves the latest snapshot for every schedule, so rapid edits never replay
+    // obsolete states or drop another field changed between two database writes.
+    private val personalizationSaveSignal = Channel<Unit>(Channel.CONFLATED)
+    private val personalizationSaveLock = Any()
+    private val pendingPersonalizationSnapshots = linkedMapOf<Int, ScheduleConfigEntity>()
     private val refreshCoordinator = ScheduleRefreshCoordinator(
         scope = viewModelScope,
         refresh = ::refreshScheduleSurfaces,
@@ -62,15 +67,30 @@ class ScheduleViewModel(
             refreshCoordinator.refreshNow()
         }
         viewModelScope.launch {
-            for (change in personalizationSaveChannel) {
-                try {
-                    repository.saveConfigChanges(change.original, change.updated)
-                    cleanupScheduleWallpaperFiles()
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Throwable) {
-                    Log.w("ScheduleViewModel", "Personalization save failed", error)
-                    snackbar.value = error.message ?: "个性化设置保存失败，请重试"
+            for (ignored in personalizationSaveSignal) {
+                while (true) {
+                    val batch = synchronized(personalizationSaveLock) {
+                        if (pendingPersonalizationSnapshots.isEmpty()) {
+                            emptyList()
+                        } else {
+                            pendingPersonalizationSnapshots.values.toList().also {
+                                pendingPersonalizationSnapshots.clear()
+                            }
+                        }
+                    }
+                    if (batch.isEmpty()) break
+                    batch.forEach { snapshot ->
+                        try {
+                            if (repository.savePersonalizationSnapshot(snapshot)) {
+                                cleanupScheduleWallpaperFiles()
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Throwable) {
+                            Log.w("ScheduleViewModel", "Personalization save failed", error)
+                            snackbar.value = error.message ?: "个性化设置保存失败，请重试"
+                        }
+                    }
                 }
             }
         }
@@ -80,9 +100,18 @@ class ScheduleViewModel(
         repository.addCourse(course)
     }
 
+    fun addCourses(courses: List<CourseEntity>) = launchCourseMutation {
+        repository.addCourses(courses)
+    }
+
     fun updateCourse(course: CourseEntity) = launchCourseMutation("课程已更新") {
         repository.updateCourse(course)
     }
+
+    fun replaceCourseGroup(originals: List<CourseEntity>, replacements: List<CourseEntity>) =
+        launchCourseMutation("课程已更新") {
+            repository.replaceCourseGroup(originals, replacements)
+        }
 
     fun updateCourseSingleWeek(original: CourseEntity, edited: CourseEntity, targetWeek: Int) =
         launchCourseMutation {
@@ -97,6 +126,15 @@ class ScheduleViewModel(
     fun deleteCourse(course: CourseEntity) = launchCourseMutation("课程已删除") {
         repository.deleteCourse(course)
     }
+
+    fun deleteCourses(courses: List<CourseEntity>) = launchCourseMutation("课程已删除") {
+        repository.deleteCourses(courses)
+    }
+
+    fun deleteCoursesSingleWeek(courses: List<CourseEntity>, targetWeek: Int) =
+        launchCourseMutation("课程已删除") {
+            repository.deleteCoursesSingleWeek(courses, targetWeek)
+        }
 
     fun deleteCourseSingleWeek(course: CourseEntity, targetWeek: Int) =
         launchCourseMutation("课程已删除") {
@@ -482,11 +520,10 @@ class ScheduleViewModel(
     }
 
     fun savePersonalization(config: ScheduleConfigEntity) {
-        val original = sequenceOf(state.value.config, allSchedulesState.value.config)
-            .plus(allSchedulesState.value.allConfigs.asSequence())
-            .firstOrNull { it.id == config.id }
-            ?: return
-        personalizationSaveChannel.trySend(ConfigChange(original, config))
+        synchronized(personalizationSaveLock) {
+            pendingPersonalizationSnapshots[config.id] = config
+        }
+        personalizationSaveSignal.trySend(Unit)
     }
 
     fun saveNotificationSettings(config: ScheduleConfigEntity) = viewModelScope.launch {
@@ -574,11 +611,6 @@ class ScheduleViewModel(
         cleanupUnreferencedScheduleWallpapers(app, repository.referencedWallpaperUris())
     }
 }
-
-private data class ConfigChange(
-    val original: ScheduleConfigEntity,
-    val updated: ScheduleConfigEntity
-)
 
 class ScheduleViewModelFactory(
     private val app: Application,

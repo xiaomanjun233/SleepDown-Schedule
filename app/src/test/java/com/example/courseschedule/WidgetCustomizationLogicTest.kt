@@ -7,6 +7,119 @@ import org.junit.Test
 
 class WidgetCustomizationLogicTest {
     @Test
+    fun assistantLayoutAdaptsContinuouslyToRealHostBoundsAndFontScale() {
+        val compact = assistantWidgetLayoutMetrics(WidgetRenderSize(220, 105), fontScale = 1f)
+        val comfortable = assistantWidgetLayoutMetrics(WidgetRenderSize(340, 160), fontScale = 1f)
+        val largeFont = assistantWidgetLayoutMetrics(WidgetRenderSize(340, 160), fontScale = 1.5f)
+
+        assertTrue(compact.verticalPaddingDp < comfortable.verticalPaddingDp)
+        assertTrue(compact.horizontalPaddingDp < comfortable.horizontalPaddingDp)
+        assertTrue(compact.textScale < comfortable.textScale)
+        assertTrue(largeFont.textScale < comfortable.textScale)
+    }
+
+    @Test
+    fun launcherReportedCompactHeightIsNotInflatedPastItsRealBounds() {
+        assertEquals(WidgetRenderSize(320, 96), normalizedWidgetRenderSize(320, 96))
+        assertEquals(WidgetRenderSize(80, 80), normalizedWidgetRenderSize(0, 0))
+    }
+
+    @Test
+    fun courseIndicatorOnlyGrowsModestlyWithAnExpandedCourseGroup() {
+        val compact = courseIndicatorHeightDp(WidgetRenderSize(320, 96), TodayWidgetVariant.LARGE)
+        val regular = courseIndicatorHeightDp(WidgetRenderSize(336, 168), TodayWidgetVariant.LARGE)
+        val tall = courseIndicatorHeightDp(WidgetRenderSize(336, 260), TodayWidgetVariant.LARGE)
+
+        assertTrue(compact <= regular)
+        assertTrue(tall > regular)
+        assertTrue(compact >= 8)
+        assertTrue(tall <= 44)
+    }
+
+    @Test
+    fun eachCourseIndicatorFitsItsOwnCenteredContentRegion() {
+        val size = WidgetRenderSize(336, 168)
+        val list = coursesWidgetLayoutMetrics(size, TodayWidgetVariant.LARGE, courseCount = 2)
+        val grid = coursesWidgetLayoutMetrics(size, TodayWidgetVariant.LARGE, courseCount = 4)
+
+        assertTrue(list.indicatorHeightDp <= list.groupHeightDp - list.groupVerticalPaddingDp * 2)
+        assertTrue(grid.indicatorHeightDp <= grid.groupHeightDp - grid.groupVerticalPaddingDp * 2)
+        assertEquals(list.groupHeightDp, grid.groupHeightDp)
+    }
+
+    @Test
+    fun compactHeightUsesOneGridRowInsteadOfCrushingTwoListRows() {
+        val compact = coursesWidgetLayoutMetrics(
+            WidgetRenderSize(320, 110),
+            TodayWidgetVariant.LARGE,
+            courseCount = 2
+        )
+
+        assertTrue(compact.useGrid)
+        assertEquals(1, compact.rowCapacity)
+        assertEquals(2, compact.maxCourses)
+        assertTrue(compact.groupHeightDp >= 44)
+    }
+
+    @Test
+    fun foldingUsesActualHostHeightInsteadOfCourseCountAlone() {
+        val short = coursesWidgetLayoutMetrics(
+            WidgetRenderSize(336, 168),
+            TodayWidgetVariant.LARGE,
+            courseCount = 3
+        )
+        val tall = coursesWidgetLayoutMetrics(
+            WidgetRenderSize(336, 280),
+            TodayWidgetVariant.LARGE,
+            courseCount = 3
+        )
+
+        assertTrue(short.useGrid)
+        assertFalse(tall.useGrid)
+        assertEquals(3, tall.maxCourses)
+        assertEquals(3, tall.rowCapacity)
+    }
+
+    @Test
+    fun tallerWidgetKeepsCourseGroupsCompactAndAddsCapacity() {
+        val regular = coursesWidgetLayoutMetrics(
+            WidgetRenderSize(336, 168),
+            TodayWidgetVariant.LARGE,
+            courseCount = 8
+        )
+        val tall = coursesWidgetLayoutMetrics(
+            WidgetRenderSize(336, 340),
+            TodayWidgetVariant.LARGE,
+            courseCount = 8
+        )
+
+        assertTrue(tall.groupHeightDp > regular.groupHeightDp)
+        assertTrue(tall.groupHeightDp - regular.groupHeightDp <= 12)
+        assertEquals(4, regular.maxCourses)
+        assertEquals(8, tall.maxCourses)
+        assertTrue(tall.groupCornerRadiusDp > regular.groupCornerRadiusDp)
+    }
+
+    @Test
+    fun largeFontScaleShrinksTextWithoutChangingCourseGeometry() {
+        val normal = coursesWidgetLayoutMetrics(
+            WidgetRenderSize(336, 168),
+            TodayWidgetVariant.LARGE,
+            courseCount = 4,
+            fontScale = 1f
+        )
+        val largeFont = coursesWidgetLayoutMetrics(
+            WidgetRenderSize(336, 168),
+            TodayWidgetVariant.LARGE,
+            courseCount = 4,
+            fontScale = 1.5f
+        )
+
+        assertEquals(normal.groupHeightDp, largeFont.groupHeightDp)
+        assertTrue(largeFont.textScale < normal.textScale)
+    }
+
+    @Test
     fun tabletPreviewUsesRemoteViewsLogicalSizeWithoutUpscaling() {
         assertEquals(
             WidgetRenderSize(336, 168),

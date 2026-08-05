@@ -9,7 +9,7 @@ import org.junit.Test
 
 class HomeAdaptiveMetricsTest {
     @Test
-    fun phoneKeepsExistingHomeGeometry() {
+    fun phoneUsesStableResolutionAwareDayGeometry() {
         val metrics = calculateHomeAdaptiveMetrics(
             widthDp = 412,
             heightDp = 915,
@@ -21,8 +21,18 @@ class HomeAdaptiveMetricsTest {
         assertEquals(HomeAdaptiveProfile.Phone, metrics.profile)
         assertFalse(metrics.isLargeScreen)
         assertEquals(HomeTopOverlayHeight, metrics.topOverlayHeight)
-        assertEquals(HomeInitialTopInset, metrics.dayContentTopPadding)
+        assertTrue(metrics.dayContentTopPadding in 104.dp..118.dp)
+        assertTrue(metrics.dayContentTopPadding < HomeInitialTopInset)
         assertEquals(0.dp, metrics.tabletContentMargin)
+    }
+
+    @Test
+    fun tallerPhoneAddsOnlyASmallBoundedDayOffset() {
+        val short = calculateHomeAdaptiveMetrics(412, 700, 24.dp, 24.dp, 1f)
+        val tall = calculateHomeAdaptiveMetrics(412, 960, 24.dp, 24.dp, 1f)
+
+        assertTrue(tall.dayContentTopPadding > short.dayContentTopPadding)
+        assertTrue(tall.dayContentTopPadding - short.dayContentTopPadding <= 8.dp)
     }
 
     @Test

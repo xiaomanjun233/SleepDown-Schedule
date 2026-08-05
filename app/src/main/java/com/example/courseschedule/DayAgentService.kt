@@ -345,10 +345,7 @@ class DayAgentService(private val context: Context) {
             }
             add(agentUserMessage(question, imageAttachment))
         }
-        if (
-            settings.usesOfficialOpenAiEndpoint() &&
-            settings.profile.endpointStyle == AiEndpointStyle.RESPONSES
-        ) {
+        if (AiProviderPresets.shouldUseResponses(settings.profile)) {
             return@withContext OpenAiResponsesAgentRunner().chat(
                 settings = settings,
                 chatMessages = messages,
@@ -372,6 +369,19 @@ class DayAgentService(private val context: Context) {
                 includeMemoryTool = memoryToolAvailable
             )
             val decision = parseAgentToolDecision(chatTransport.post(settings, decisionBody))
+            if (decision.calls.isNotEmpty()) {
+                val action = decision.calls.first().name.runStatus().text.removePrefix("读取")
+                val note = decision.content.trim().take(120).ifBlank {
+                    "我先确认$action，再继续处理。"
+                }
+                onStatus(
+                    AgentRunStatus(
+                        icon = AgentRunStatusIcon.THINKING,
+                        text = "准备下一步",
+                        detail = note
+                    )
+                )
+            }
             if (decision.webSearchUsed) {
                 onStatus(AgentRunStatus(AgentRunStatusIcon.SEARCH, "联网搜索"))
             }
@@ -616,13 +626,25 @@ class DayAgentRepository(private val context: Context) {
                 activePeriodSchemeId = schemes.activeSchemeId
             )
         }.getOrElse { facts }
+        val executionStatuses = mutableListOf<AgentRunStatus>()
+        fun recordStatus(status: AgentRunStatus) {
+            if (
+                status.icon == AgentRunStatusIcon.THINKING &&
+                executionStatuses.lastOrNull()?.icon == AgentRunStatusIcon.THINKING
+            ) {
+                executionStatuses[executionStatuses.lastIndex] = status
+            } else {
+                executionStatuses += status
+            }
+            onStatus(status)
+        }
         try {
             val answer = service.chat(
                 facts = currentFacts,
                 history = history,
                 question = question,
                 imageAttachment = imageAttachment,
-                onStatus = onStatus,
+                onStatus = ::recordStatus,
                 onDelta = onDelta,
                 onStreamReset = onStreamReset
             )
@@ -634,7 +656,7 @@ class DayAgentRepository(private val context: Context) {
                     scheduleId = scheduleId,
                     sessionDate = facts.date.toString(),
                     role = "assistant",
-                    content = cleanAnswer,
+                    content = agentMessageWithRunTrace(cleanAnswer, executionStatuses),
                     createdAt = System.currentTimeMillis(),
                     status = "READY"
                 )
@@ -677,7 +699,8 @@ internal fun compactAgentHistory(history: List<AgentMessageEntity>): List<AgentM
     val assistant = ready[assistantIndex]
     return listOf(user, assistant)
         .mapNotNull { message ->
-            val clean = sanitizeAgentToolOutput(parseAgentMessageContent(message.content).text)
+            val stored = parseAgentStoredMessage(parseAgentMessageContent(message.content).text)
+            val clean = sanitizeAgentToolOutput(stored.content)
                 .replace(
                     Regex(
                         "<think\\s*>[\\s\\S]*?(?:</think\\s*>|$)",

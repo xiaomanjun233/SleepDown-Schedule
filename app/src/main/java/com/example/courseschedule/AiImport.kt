@@ -14,6 +14,8 @@ import android.util.Log
 import androidx.core.content.edit
 import androidx.core.graphics.createBitmap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -76,6 +78,17 @@ enum class AiProviderType {
     OpenAIChatCompatible
 }
 
+@Serializable
+enum class AiReasoningEffort(val apiValue: String, val label: String) {
+    NONE("none", "关闭"),
+    MINIMAL("minimal", "极低"),
+    LOW("low", "低"),
+    MEDIUM("medium", "中"),
+    HIGH("high", "高"),
+    XHIGH("xhigh", "极高"),
+    MAX("max", "最高")
+}
+
 enum class AiAuthType {
     ApiKeyBearer,
     OpenAIProjectKey,
@@ -90,7 +103,8 @@ data class AiProviderCapabilities(
     val supportsJsonSchema: Boolean = false,
     val supportsJsonMode: Boolean = true,
     val supportsFileUpload: Boolean = false,
-    val supportsStreaming: Boolean = false
+    val supportsStreaming: Boolean = false,
+    val supportsResponses: Boolean = false
 )
 
 @Serializable
@@ -117,7 +131,9 @@ data class AiProviderProfile(
     val inputMode: AiInputMode = AiInputMode.AUTO,
     val supportsVision: Boolean = capabilities.supportsImageInput,
     val supportsFileUpload: Boolean = capabilities.supportsFileUpload,
-    val supportsPdfDirect: Boolean = capabilities.supportsPdfFileInput
+    val supportsPdfDirect: Boolean = capabilities.supportsPdfFileInput,
+    val availableModels: List<String> = emptyList(),
+    val reasoningEffort: AiReasoningEffort = AiReasoningEffort.MEDIUM
 )
 
 data class AiImportSettings(
@@ -136,7 +152,9 @@ data class AiProviderConfig(
     val supportsVision: Boolean,
     val supportsFileUpload: Boolean,
     val supportsPdfDirect: Boolean,
+    val supportsResponses: Boolean,
     val inputMode: AiInputMode,
+    val reasoningEffort: AiReasoningEffort,
     val authType: AiAuthType = AiAuthType.ApiKeyBearer
 )
 
@@ -240,7 +258,8 @@ fun extractAiReasoningForDisplay(output: String): String {
 data class AiModelOption(
     val label: String,
     val model: String,
-    val supportsImageInput: Boolean = false
+    val supportsImageInput: Boolean = false,
+    val supportsResponses: Boolean = false
 )
 
 data class AiImportFile(
@@ -279,6 +298,21 @@ data class AiImportFile(
 }
 
 object AiProviderPresets {
+    val codexCompatibleModelIds = listOf(
+        "gpt-5.6",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.3-codex",
+        "gpt-5.1-codex-mini",
+        "gpt-4.1-mini",
+        "gpt-4.1-nano"
+    )
+
     val none = AiProviderProfile(
         id = "none",
         displayName = "无",
@@ -304,13 +338,33 @@ object AiProviderPresets {
             supportsTextInput = true,
             supportsJsonSchema = true,
             supportsJsonMode = true,
-            supportsFileUpload = true
+            supportsFileUpload = true,
+            supportsResponses = true
         ),
         endpointStyle = AiEndpointStyle.RESPONSES,
         structuredOutputMode = StructuredOutputMode.JSON_SCHEMA,
         supportsVision = true,
         supportsFileUpload = true,
         supportsPdfDirect = true
+    )
+
+    val dailyFree = AiProviderProfile(
+        id = "sleepdown_daily_free",
+        displayName = "每日免费 AI",
+        providerType = AiProviderType.OpenAIResponses,
+        baseUrl = "https://api.chunxiao.pro/v1",
+        defaultModel = "gpt-5.6-luna",
+        capabilities = AiProviderCapabilities(
+            supportsImageInput = true,
+            supportsTextInput = true,
+            supportsJsonSchema = true,
+            supportsJsonMode = true,
+            supportsResponses = true
+        ),
+        endpointStyle = AiEndpointStyle.RESPONSES,
+        structuredOutputMode = StructuredOutputMode.JSON_SCHEMA,
+        supportsVision = true,
+        availableModels = listOf("gpt-5.6-luna")
     )
 
     val deepSeek = AiProviderProfile(
@@ -321,7 +375,8 @@ object AiProviderPresets {
         defaultModel = "deepseek-v4-flash",
         capabilities = AiProviderCapabilities(
             supportsTextInput = true,
-            supportsJsonMode = true
+            supportsJsonMode = true,
+            supportsResponses = true
         ),
         endpointStyle = AiEndpointStyle.CHAT_COMPLETIONS,
         structuredOutputMode = StructuredOutputMode.PROMPT_ONLY
@@ -467,7 +522,8 @@ object AiProviderPresets {
         capabilities = AiProviderCapabilities(
             supportsImageInput = true,
             supportsTextInput = true,
-            supportsJsonMode = false
+            supportsJsonMode = false,
+            supportsResponses = true
         ),
         endpointStyle = AiEndpointStyle.CHAT_COMPLETIONS,
         structuredOutputMode = StructuredOutputMode.PROMPT_ONLY,
@@ -485,15 +541,18 @@ object AiProviderPresets {
         displayName = "自定义兼容接口",
         providerType = AiProviderType.OpenAIChatCompatible,
         baseUrl = "",
-        defaultModel = "",
-        capabilities = AiProviderCapabilities(),
+        defaultModel = codexCompatibleModelIds.first(),
+        capabilities = AiProviderCapabilities(supportsResponses = true),
         endpointStyle = AiEndpointStyle.CHAT_COMPLETIONS,
-        structuredOutputMode = StructuredOutputMode.PROMPT_ONLY
+        structuredOutputMode = StructuredOutputMode.PROMPT_ONLY,
+        availableModels = codexCompatibleModelIds
     )
 
-    val selectable = listOf(none, openAI, deepSeek, mimo, custom)
+    val selectable = listOf(none, dailyFree, openAI, deepSeek, mimo, custom)
 
-    val all = listOf(none, openAI, deepSeek, dashScope, kimi, zhipu, qianfan, doubao, hunyuan, siliconFlow, miniMax, mimo, mimoTokenPlan, custom)
+    val all = listOf(none, dailyFree, openAI, deepSeek, dashScope, kimi, zhipu, qianfan, doubao, hunyuan, siliconFlow, miniMax, mimo, mimoTokenPlan, custom)
+
+    fun isManagedFreeId(id: String): Boolean = id == dailyFree.id
 
     fun isCustomId(id: String): Boolean = id == custom.id || id.startsWith("${custom.id}:")
 
@@ -506,17 +565,25 @@ object AiProviderPresets {
     }
 
     fun modelOptions(providerId: String): List<AiModelOption> = when (providerId) {
+        dailyFree.id -> listOf(
+            AiModelOption("5.6 Luna", "gpt-5.6-luna", supportsImageInput = true, supportsResponses = true)
+        )
         openAI.id -> listOf(
-            AiModelOption("GPT-5.6", "gpt-5.6", supportsImageInput = true),
-            AiModelOption("5.6 Terra", "gpt-5.6-terra", supportsImageInput = true),
-            AiModelOption("5.6 Luna", "gpt-5.6-luna", supportsImageInput = true),
-            AiModelOption("GPT-5.5", "gpt-5.5", supportsImageInput = true),
-            AiModelOption("GPT-5.4", "gpt-5.4", supportsImageInput = true),
-            AiModelOption("5.4 mini", "gpt-5.4-mini", supportsImageInput = true),
-            AiModelOption("5.4 nano", "gpt-5.4-nano", supportsImageInput = true)
+            AiModelOption("GPT-5.6", "gpt-5.6", supportsImageInput = true, supportsResponses = true),
+            AiModelOption("5.6 Sol", "gpt-5.6-sol", supportsImageInput = true, supportsResponses = true),
+            AiModelOption("5.6 Terra", "gpt-5.6-terra", supportsImageInput = true, supportsResponses = true),
+            AiModelOption("5.6 Luna", "gpt-5.6-luna", supportsImageInput = true, supportsResponses = true),
+            AiModelOption("GPT-5.5", "gpt-5.5", supportsImageInput = true, supportsResponses = true),
+            AiModelOption("GPT-5.4", "gpt-5.4", supportsImageInput = true, supportsResponses = true),
+            AiModelOption("5.4 mini", "gpt-5.4-mini", supportsImageInput = true, supportsResponses = true),
+            AiModelOption("5.4 nano", "gpt-5.4-nano", supportsImageInput = true, supportsResponses = true),
+            AiModelOption("5.3 Codex", "gpt-5.3-codex", supportsResponses = true),
+            AiModelOption("5.1 Codex mini", "gpt-5.1-codex-mini", supportsResponses = true),
+            AiModelOption("4.1 mini", "gpt-4.1-mini", supportsResponses = true),
+            AiModelOption("4.1 nano", "gpt-4.1-nano", supportsResponses = true)
         )
         deepSeek.id -> listOf(
-            AiModelOption("V4 Flash", "deepseek-v4-flash"),
+            AiModelOption("V4 Flash", "deepseek-v4-flash", supportsResponses = true),
             AiModelOption("V4 Pro", "deepseek-v4-pro")
         )
         dashScope.id -> listOf(
@@ -556,8 +623,8 @@ object AiProviderPresets {
             AiModelOption("MiniMax Text", "abab6.5s-chat")
         )
         mimo.id, mimoTokenPlan.id -> listOf(
-            AiModelOption("MiMo V2.5 Pro", "mimo-v2.5-pro", supportsImageInput = true),
-            AiModelOption("MiMo V2.5", "mimo-v2.5", supportsImageInput = true)
+            AiModelOption("MiMo V2.5 Pro", "mimo-v2.5-pro", supportsImageInput = true, supportsResponses = true),
+            AiModelOption("MiMo V2.5", "mimo-v2.5", supportsImageInput = true, supportsResponses = true)
         )
         else -> emptyList()
     }
@@ -568,11 +635,61 @@ object AiProviderPresets {
      * keeps the user's saved capability switch.
      */
     fun supportsImageInput(profile: AiProviderProfile): Boolean {
-        val selected = modelOptions(profile.id).firstOrNull {
+        if (isCustomId(profile.id)) {
+            return profile.supportsVision || profile.capabilities.supportsImageInput
+        }
+        val selected = modelOptions(profile).firstOrNull {
             it.model.equals(profile.defaultModel.trim(), ignoreCase = true)
         }
         return selected?.supportsImageInput
             ?: (profile.supportsVision || profile.capabilities.supportsImageInput)
+    }
+
+    fun modelOptions(profile: AiProviderProfile): List<AiModelOption> {
+        val known = modelOptions(profile.id)
+        val configured = profile.availableModels.mapNotNull { modelId ->
+            val normalized = modelId.trim()
+            if (normalized.isBlank()) null else known.firstOrNull {
+                it.model.equals(normalized, ignoreCase = true)
+            } ?: AiModelOption(
+                label = normalized,
+                model = normalized,
+                supportsImageInput = profile.supportsVision || profile.capabilities.supportsImageInput,
+                supportsResponses = profile.capabilities.supportsResponses
+            )
+        }
+        return (known + configured).distinctBy { it.model.lowercase() }
+    }
+
+    fun supportsResponses(profile: AiProviderProfile): Boolean {
+        val selected = modelOptions(profile).firstOrNull {
+            it.model.equals(profile.defaultModel.trim(), ignoreCase = true)
+        }
+        return selected?.supportsResponses ?: profile.capabilities.supportsResponses
+    }
+
+    fun shouldUseResponses(profile: AiProviderProfile): Boolean =
+        profile.endpointStyle == AiEndpointStyle.RESPONSES && supportsResponses(profile)
+
+    fun reasoningEfforts(profile: AiProviderProfile): List<AiReasoningEffort> {
+        if (!supportsResponses(profile)) return emptyList()
+        val model = profile.defaultModel.trim().lowercase()
+        return when {
+            model.startsWith("gpt-5.6") -> AiReasoningEffort.entries
+            profile.id == openAI.id -> listOf(
+                AiReasoningEffort.NONE,
+                AiReasoningEffort.MINIMAL,
+                AiReasoningEffort.LOW,
+                AiReasoningEffort.MEDIUM,
+                AiReasoningEffort.HIGH
+            )
+            else -> listOf(
+                AiReasoningEffort.NONE,
+                AiReasoningEffort.LOW,
+                AiReasoningEffort.MEDIUM,
+                AiReasoningEffort.HIGH
+            )
+        }
     }
 }
 
@@ -593,16 +710,68 @@ object AiImportSettingsStore {
     private const val KeyJsonSchema = "supports_json_schema"
     private const val KeyJsonMode = "supports_json_mode"
     private const val KeyFileUpload = "supports_file_upload"
+    private const val KeyResponses = "supports_responses"
     private const val KeyEndpointStyle = "endpoint_style"
     private const val KeyStructuredOutputMode = "structured_output_mode"
     private const val KeyInputMode = "input_mode"
     private const val KeyVision = "supports_vision"
     private const val KeyPdfDirect = "supports_pdf_direct"
+    private const val KeyAvailableModels = "available_models_v1"
+    private const val KeyReasoningEffort = "reasoning_effort"
     private const val KeyEncryptedApiKey = "encrypted_api_key"
     private const val KeyCustomProviders = "custom_provider_profiles_v1"
+    private const val KeyManagedFreeOfferDecision = "managed_free_offer_decision_v1"
+    private const val ManagedFreeOfferEnabled = "enabled"
+    private const val ManagedFreeOfferDeclined = "declined"
     private val settingsJson = Json { ignoreUnknownKeys = true }
+    private val changeVersion = MutableStateFlow(0L)
+    val changes = changeVersion.asStateFlow()
     private fun apiKeyKey(providerId: String): String = "${KeyEncryptedApiKey}_${providerId}"
     private fun providerKey(key: String, providerId: String): String = "${key}_${providerId}"
+    private fun notifyChanged() {
+        changeVersion.value = changeVersion.value + 1L
+    }
+
+    private fun managedFreeSettings(prefs: android.content.SharedPreferences): AiImportSettings {
+        val effort = runCatching {
+            AiReasoningEffort.valueOf(
+                prefs.getString(
+                    providerKey(KeyReasoningEffort, AiProviderPresets.dailyFree.id),
+                    AiProviderPresets.dailyFree.reasoningEffort.name
+                ).orEmpty()
+            )
+        }.getOrDefault(AiProviderPresets.dailyFree.reasoningEffort)
+        return AiImportSettings(
+            profile = AiProviderPresets.dailyFree.copy(reasoningEffort = effort),
+            apiKey = ManagedFreeAiCredentials.apiKey()
+        )
+    }
+
+    fun hasUserConfiguredApiKey(context: Context): Boolean {
+        val profiles = (AiProviderPresets.all + selectableProfiles(context))
+            .distinctBy(AiProviderProfile::id)
+            .filterNot { it.id == AiProviderPresets.none.id || AiProviderPresets.isManagedFreeId(it.id) }
+        return profiles.any { profile -> loadProvider(context, profile.id).apiKey.isNotBlank() }
+    }
+
+    fun shouldOfferManagedFreeAi(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+        if (prefs.contains(KeyManagedFreeOfferDecision)) return false
+        if (load(context).profile.id == AiProviderPresets.dailyFree.id) return false
+        return !hasUserConfiguredApiKey(context)
+    }
+
+    fun enableManagedFreeAi(context: Context) {
+        val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+        prefs.edit { putString(KeyManagedFreeOfferDecision, ManagedFreeOfferEnabled) }
+        save(context, managedFreeSettings(prefs))
+    }
+
+    fun declineManagedFreeAi(context: Context) {
+        context.getSharedPreferences(PrefName, Context.MODE_PRIVATE).edit {
+            putString(KeyManagedFreeOfferDecision, ManagedFreeOfferDeclined)
+        }
+    }
 
     fun selectableProfiles(context: Context): List<AiProviderProfile> {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
@@ -645,11 +814,14 @@ object AiImportSettingsStore {
                 KeyJsonSchema,
                 KeyJsonMode,
                 KeyFileUpload,
+                KeyResponses,
                 KeyEndpointStyle,
                 KeyStructuredOutputMode,
                 KeyInputMode,
                 KeyVision,
-                KeyPdfDirect
+                KeyPdfDirect,
+                KeyAvailableModels,
+                KeyReasoningEffort
             ).forEach { key -> remove(providerKey(key, providerId)) }
         }
         if (wasActive) {
@@ -685,11 +857,22 @@ object AiImportSettingsStore {
         editor.putString(KeyCustomProviders, settingsJson.encodeToString(entries))
     }
 
+    private fun readModelIds(encoded: String?, fallback: List<String>, defaultModel: String): List<String> {
+        val decoded = encoded?.let { value ->
+            runCatching { settingsJson.decodeFromString<List<String>>(value) }.getOrNull()
+        }.orEmpty()
+        return (decoded.ifEmpty { fallback } + defaultModel)
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinctBy(String::lowercase)
+    }
+
     fun load(context: Context): AiImportSettings {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         val savedProviderId = prefs.getString(KeyProviderId, AiProviderPresets.none.id).orEmpty()
         val preset = selectableProfiles(context).firstOrNull { it.id == savedProviderId }
             ?: AiProviderPresets.none
+        if (AiProviderPresets.isManagedFreeId(preset.id)) return managedFreeSettings(prefs)
         val providerType = runCatching {
             AiProviderType.valueOf(prefs.getString(KeyProviderType, preset.providerType.name).orEmpty())
         }.getOrDefault(preset.providerType)
@@ -707,19 +890,31 @@ object AiImportSettingsStore {
             supportsPdfFileInput = prefs.getBoolean(KeyPdf, preset.capabilities.supportsPdfFileInput),
             supportsJsonSchema = prefs.getBoolean(KeyJsonSchema, preset.capabilities.supportsJsonSchema),
             supportsJsonMode = prefs.getBoolean(KeyJsonMode, preset.capabilities.supportsJsonMode),
-            supportsFileUpload = prefs.getBoolean(KeyFileUpload, preset.capabilities.supportsFileUpload)
+            supportsFileUpload = prefs.getBoolean(KeyFileUpload, preset.capabilities.supportsFileUpload),
+            supportsResponses = prefs.getBoolean(KeyResponses, preset.capabilities.supportsResponses)
         )
+        val defaultModel = prefs.getString(KeyModel, preset.defaultModel).orEmpty()
         val profile = preset.copy(
             providerType = providerType,
             baseUrl = normalizeAiBaseUrlForProvider(preset.id, prefs.getString(KeyBaseUrl, preset.baseUrl).orEmpty()),
-            defaultModel = prefs.getString(KeyModel, preset.defaultModel).orEmpty(),
+            defaultModel = defaultModel,
             capabilities = capabilities,
             endpointStyle = endpointStyle,
             structuredOutputMode = structuredOutputMode,
             inputMode = inputMode,
             supportsVision = prefs.getBoolean(KeyVision, preset.supportsVision || capabilities.supportsImageInput),
             supportsFileUpload = prefs.getBoolean(KeyFileUpload, preset.supportsFileUpload || capabilities.supportsFileUpload),
-            supportsPdfDirect = prefs.getBoolean(KeyPdfDirect, preset.supportsPdfDirect || capabilities.supportsPdfFileInput)
+            supportsPdfDirect = prefs.getBoolean(KeyPdfDirect, preset.supportsPdfDirect || capabilities.supportsPdfFileInput),
+            availableModels = readModelIds(
+                prefs.getString(KeyAvailableModels, null),
+                preset.availableModels,
+                defaultModel
+            ),
+            reasoningEffort = runCatching {
+                AiReasoningEffort.valueOf(
+                    prefs.getString(KeyReasoningEffort, preset.reasoningEffort.name).orEmpty()
+                )
+            }.getOrDefault(preset.reasoningEffort)
         )
         val scopedEncryptedApiKey = prefs.getString(apiKeyKey(profile.id), null)
         val legacyEncryptedApiKey = prefs.getString(KeyEncryptedApiKey, null)
@@ -738,6 +933,7 @@ object AiImportSettingsStore {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         val current = load(context)
         val preset = presetFor(context, providerId)
+        if (AiProviderPresets.isManagedFreeId(preset.id)) return managedFreeSettings(prefs)
         val profile = when {
             current.profile.id == preset.id -> current.profile
             !prefs.contains(providerKey(KeyBaseUrl, preset.id)) -> preset
@@ -794,18 +990,23 @@ object AiImportSettingsStore {
                     supportsFileUpload = prefs.getBoolean(
                         providerKey(KeyFileUpload, preset.id),
                         preset.capabilities.supportsFileUpload
+                    ),
+                    supportsResponses = prefs.getBoolean(
+                        providerKey(KeyResponses, preset.id),
+                        preset.capabilities.supportsResponses
                     )
                 )
+                val defaultModel = prefs.getString(
+                    providerKey(KeyModel, preset.id),
+                    preset.defaultModel
+                ).orEmpty()
                 preset.copy(
                     providerType = providerType,
                     baseUrl = normalizeAiBaseUrlForProvider(
                         preset.id,
                         prefs.getString(providerKey(KeyBaseUrl, preset.id), preset.baseUrl).orEmpty()
                     ),
-                    defaultModel = prefs.getString(
-                        providerKey(KeyModel, preset.id),
-                        preset.defaultModel
-                    ).orEmpty(),
+                    defaultModel = defaultModel,
                     capabilities = capabilities,
                     endpointStyle = endpointStyle,
                     structuredOutputMode = structuredOutputMode,
@@ -821,7 +1022,20 @@ object AiImportSettingsStore {
                     supportsPdfDirect = prefs.getBoolean(
                         providerKey(KeyPdfDirect, preset.id),
                         preset.supportsPdfDirect || capabilities.supportsPdfFileInput
-                    )
+                    ),
+                    availableModels = readModelIds(
+                        prefs.getString(providerKey(KeyAvailableModels, preset.id), null),
+                        preset.availableModels,
+                        defaultModel
+                    ),
+                    reasoningEffort = runCatching {
+                        AiReasoningEffort.valueOf(
+                            prefs.getString(
+                                providerKey(KeyReasoningEffort, preset.id),
+                                preset.reasoningEffort.name
+                            ).orEmpty()
+                        )
+                    }.getOrDefault(preset.reasoningEffort)
                 )
             }
         }
@@ -831,6 +1045,19 @@ object AiImportSettingsStore {
 
     fun save(context: Context, settings: AiImportSettings) {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+        if (AiProviderPresets.isManagedFreeId(settings.profile.id)) {
+            prefs.edit {
+                putString(KeyProviderId, AiProviderPresets.dailyFree.id)
+                putString(
+                    providerKey(KeyReasoningEffort, AiProviderPresets.dailyFree.id),
+                    settings.profile.reasoningEffort.name
+                )
+                putString(KeyManagedFreeOfferDecision, ManagedFreeOfferEnabled)
+                remove(apiKeyKey(AiProviderPresets.dailyFree.id))
+            }
+            notifyChanged()
+            return
+        }
         prefs.edit {
             putString(KeyProviderId, settings.profile.id)
             putString(KeyBaseUrl, normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl))
@@ -844,8 +1071,11 @@ object AiImportSettingsStore {
             putBoolean(KeyJsonSchema, settings.profile.capabilities.supportsJsonSchema)
             putBoolean(KeyJsonMode, settings.profile.capabilities.supportsJsonMode)
             putBoolean(KeyFileUpload, settings.profile.capabilities.supportsFileUpload)
+            putBoolean(KeyResponses, settings.profile.capabilities.supportsResponses)
             putBoolean(KeyVision, settings.profile.supportsVision)
             putBoolean(KeyPdfDirect, settings.profile.supportsPdfDirect)
+            putString(KeyAvailableModels, settingsJson.encodeToString(settings.profile.availableModels))
+            putString(KeyReasoningEffort, settings.profile.reasoningEffort.name)
             writeCustomProviderEntry(prefs, this, settings.profile)
             writeProviderSettings(this, settings)
             if (settings.apiKey.isBlank()) {
@@ -854,10 +1084,21 @@ object AiImportSettingsStore {
                 putString(apiKeyKey(settings.profile.id), encrypt(context, settings.apiKey))
             }
         }
+        notifyChanged()
     }
 
     fun saveProvider(context: Context, settings: AiImportSettings) {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+        if (AiProviderPresets.isManagedFreeId(settings.profile.id)) {
+            prefs.edit {
+                putString(
+                    providerKey(KeyReasoningEffort, AiProviderPresets.dailyFree.id),
+                    settings.profile.reasoningEffort.name
+                )
+                remove(apiKeyKey(AiProviderPresets.dailyFree.id))
+            }
+            return
+        }
         prefs.edit {
             writeCustomProviderEntry(prefs, this, settings.profile)
             writeProviderSettings(this, settings)
@@ -885,16 +1126,21 @@ object AiImportSettingsStore {
             .putBoolean(providerKey(KeyJsonSchema, id), profile.capabilities.supportsJsonSchema)
             .putBoolean(providerKey(KeyJsonMode, id), profile.capabilities.supportsJsonMode)
             .putBoolean(providerKey(KeyFileUpload, id), profile.capabilities.supportsFileUpload)
+            .putBoolean(providerKey(KeyResponses, id), profile.capabilities.supportsResponses)
             .putBoolean(providerKey(KeyVision, id), profile.supportsVision)
             .putBoolean(providerKey(KeyPdfDirect, id), profile.supportsPdfDirect)
+            .putString(providerKey(KeyAvailableModels, id), settingsJson.encodeToString(profile.availableModels))
+            .putString(providerKey(KeyReasoningEffort, id), profile.reasoningEffort.name)
     }
 
     fun clearApiKey(context: Context, providerId: String? = null) {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         val currentProviderId = providerId ?: prefs.getString(KeyProviderId, AiProviderPresets.none.id).orEmpty()
+        if (AiProviderPresets.isManagedFreeId(currentProviderId)) return
         context.getSharedPreferences(PrefName, Context.MODE_PRIVATE).edit {
             remove(apiKeyKey(currentProviderId))
         }
+        notifyChanged()
     }
 
     private fun encrypt(context: Context, value: String): String {
@@ -989,8 +1235,7 @@ class AiScheduleImportService(private val context: Context) {
                 val preprocess = DefaultScheduleFilePreprocessor(context).preprocess(file, config)
                 val input = preprocess.toScheduleInput(file)
                 val result = when {
-                    config.endpointStyle == AiEndpointStyle.RESPONSES &&
-                        config.providerId == AiProviderPresets.openAI.id -> OpenAiResponsesProvider().parseSchedule(config, input)
+                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input)
                     else -> OpenAiCompatibleChatProvider().parseSchedule(config, input)
                 }
                 AiScheduleImportResult(
@@ -1014,8 +1259,7 @@ class AiScheduleImportService(private val context: Context) {
                 val config = settings.toProviderConfig().normalizedForRequest()
                 val input = AiScheduleInput.ExtractedText(cleaned, sourceName)
                 val result = when {
-                    config.endpointStyle == AiEndpointStyle.RESPONSES &&
-                        config.providerId == AiProviderPresets.openAI.id -> OpenAiResponsesProvider().parseSchedule(config, input)
+                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input)
                     else -> OpenAiCompatibleChatProvider().parseSchedule(config, input)
                 }
                 AiScheduleImportResult(
@@ -1055,8 +1299,7 @@ class AiScheduleImportService(private val context: Context) {
                     AiScheduleInput.CapturedPage(cleaned, screenshots, sourceName, warnings)
                 }
                 val result = when {
-                    config.endpointStyle == AiEndpointStyle.RESPONSES &&
-                        config.providerId == AiProviderPresets.openAI.id -> OpenAiResponsesProvider().parseSchedule(config, input)
+                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input)
                     else -> OpenAiCompatibleChatProvider().parseSchedule(config, input)
                 }
                 val routeMessage = if (screenshots.isEmpty()) {
@@ -1073,6 +1316,32 @@ class AiScheduleImportService(private val context: Context) {
             }
         }
     }
+
+    suspend fun reviseSchedule(
+        draft: ImportDraft,
+        instruction: String,
+        history: AiEduImportProgress,
+        settings: AiImportSettings
+    ): Result<AiScheduleImportResult> = withContext(Dispatchers.IO) {
+        runCatching {
+            require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
+            require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
+            require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
+            val config = settings.toProviderConfig().normalizedForRequest()
+            val request = buildAiRevisionInput(draft, instruction, history)
+            val result = when {
+                config.endpointStyle == AiEndpointStyle.RESPONSES ->
+                    OpenAiResponsesProvider().reviseSchedule(config, request, history)
+                else -> OpenAiCompatibleChatProvider().reviseSchedule(config, request, history)
+            }
+            AiScheduleImportResult(
+                output = result.content,
+                routeMessage = "已按要求修改课表。",
+                rawOutput = result.content,
+                reasoningOutput = result.reasoning
+            )
+        }
+    }
 }
 
 suspend fun testAiProviderConnection(settings: AiImportSettings): Result<String> {
@@ -1081,23 +1350,33 @@ suspend fun testAiProviderConnection(settings: AiImportSettings): Result<String>
             require(settings.apiKey.isNotBlank()) { "请先配置 AI API Key" }
             require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
             require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
-            val config = settings.toProviderConfig().normalizedForRequest().copy(endpointStyle = AiEndpointStyle.CHAT_COMPLETIONS)
-            val body = buildJsonObject {
-                put("model", JsonPrimitive(config.model))
-                put("messages", buildJsonArray {
-                    add(buildJsonObject {
-                        put("role", JsonPrimitive("user"))
-                        put("content", JsonPrimitive("请只回复 OK"))
-                    })
-                })
-                put("temperature", JsonPrimitive(0.1))
-                if (config.providerId == AiProviderPresets.mimo.id || config.providerId == AiProviderPresets.mimoTokenPlan.id) {
-                    put("max_completion_tokens", JsonPrimitive(32))
-                } else {
-                    put("max_tokens", JsonPrimitive(32))
+            val config = settings.toProviderConfig().normalizedForRequest()
+            val response = if (config.endpointStyle == AiEndpointStyle.RESPONSES) {
+                val body = buildJsonObject {
+                    put("model", JsonPrimitive(config.model))
+                    put("store", JsonPrimitive(false))
+                    put("input", JsonPrimitive("请只回复 OK"))
+                    putResponsesReasoning(config)
                 }
+                postJson(config.baseUrl.trimEnd('/') + "/responses", config.apiKey, body.toString(), config.authType, config.providerId)
+            } else {
+                val body = buildJsonObject {
+                    put("model", JsonPrimitive(config.model))
+                    put("messages", buildJsonArray {
+                        add(buildJsonObject {
+                            put("role", JsonPrimitive("user"))
+                            put("content", JsonPrimitive("请只回复 OK"))
+                        })
+                    })
+                    put("temperature", JsonPrimitive(0.1))
+                    if (config.providerId == AiProviderPresets.mimo.id || config.providerId == AiProviderPresets.mimoTokenPlan.id) {
+                        put("max_completion_tokens", JsonPrimitive(32))
+                    } else {
+                        put("max_tokens", JsonPrimitive(32))
+                    }
+                }
+                postJson(config.baseUrl.trimEnd('/') + "/chat/completions", config.apiKey, body.toString(), config.authType, config.providerId)
             }
-            val response = postJson(config.baseUrl.trimEnd('/') + "/chat/completions", config.apiKey, body.toString(), config.authType)
             "连接测试成功\n" + response.compactForSettingsResult()
         }
     }
@@ -1108,8 +1387,12 @@ suspend fun diagnoseAiProviderNetwork(settings: AiImportSettings): Result<String
         runCatching {
             require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
             require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
-            val config = settings.toProviderConfig().normalizedForRequest().copy(endpointStyle = AiEndpointStyle.CHAT_COMPLETIONS)
-            val endpoint = config.baseUrl.trimEnd('/') + "/chat/completions"
+            val config = settings.toProviderConfig().normalizedForRequest()
+            val endpoint = config.baseUrl.trimEnd('/') + if (config.endpointStyle == AiEndpointStyle.RESPONSES) {
+                "/responses"
+            } else {
+                "/chat/completions"
+            }
             val endpointUrl = URL(endpoint)
             val port = if (endpointUrl.port > 0) endpointUrl.port else endpointUrl.defaultPort.takeIf { it > 0 } ?: 443
             val result = StringBuilder()
@@ -1154,11 +1437,11 @@ suspend fun diagnoseAiProviderNetwork(settings: AiImportSettings): Result<String
             }
 
             if (settings.apiKey.isBlank()) {
-                result.appendLine("Chat 测试：跳过，未配置 API Key")
+                result.appendLine("请求测试：跳过，未配置 API Key")
             } else {
                 testAiProviderConnection(settings)
-                    .onSuccess { result.appendLine("Chat 测试：成功") }
-                    .onFailure { result.appendLine("Chat 测试：失败，${it.message.orEmpty()}") }
+                    .onSuccess { result.appendLine("请求测试：成功") }
+                    .onFailure { result.appendLine("请求测试：失败，${it.message.orEmpty()}") }
             }
             result.toString().trim()
         }
@@ -1182,18 +1465,16 @@ private fun AiImportSettings.toProviderConfig(): AiProviderConfig {
         supportsVision = AiProviderPresets.supportsImageInput(profile),
         supportsFileUpload = profile.supportsFileUpload || profile.capabilities.supportsFileUpload,
         supportsPdfDirect = profile.supportsPdfDirect || profile.capabilities.supportsPdfFileInput,
+        supportsResponses = AiProviderPresets.supportsResponses(profile),
         inputMode = profile.inputMode,
+        reasoningEffort = profile.reasoningEffort,
         authType = profile.authType
     )
 }
 
-private fun AiProviderConfig.normalizedForRequest(): AiProviderConfig {
+internal fun AiProviderConfig.normalizedForRequest(): AiProviderConfig {
     val normalizedBaseUrl = normalizeAiBaseUrlForProvider(providerId, baseUrl)
-    val officialOpenAI = providerId == AiProviderPresets.openAI.id && isOfficialOpenAIBaseUrl(normalizedBaseUrl)
-    val useResponses = officialOpenAI &&
-        endpointStyle == AiEndpointStyle.RESPONSES &&
-        inputMode != AiInputMode.TEXT_ONLY &&
-        inputMode != AiInputMode.IMAGE_URL_BASE64
+    val useResponses = endpointStyle == AiEndpointStyle.RESPONSES && supportsResponses
     val isMimo = providerId == AiProviderPresets.mimo.id || providerId == AiProviderPresets.mimoTokenPlan.id
     val outputMode = if (providerId == AiProviderPresets.deepSeek.id || isMimo) {
         StructuredOutputMode.PROMPT_ONLY
@@ -1210,12 +1491,15 @@ private fun AiProviderConfig.normalizedForRequest(): AiProviderConfig {
         endpointStyle = if (useResponses) AiEndpointStyle.RESPONSES else AiEndpointStyle.CHAT_COMPLETIONS,
         structuredOutputMode = outputMode,
         supportsPdfDirect = useResponses && supportsPdfDirect,
-        supportsFileUpload = useResponses && supportsFileUpload,
+        // Compatible chat endpoints cannot consume a raw PDF, but the import
+        // pipeline still uses this capability flag to render the PDF into page
+        // images before creating the multi-modal request.
+        supportsFileUpload = supportsFileUpload,
         authType = if (isMimo) AiAuthType.CustomHeader else authType
     )
 }
 
-private fun isOfficialOpenAIBaseUrl(value: String): Boolean {
+internal fun isOfficialOpenAIBaseUrl(value: String): Boolean {
     val url = value.trim().trimEnd('/')
     return url.equals("https://api.openai.com/v1", ignoreCase = true)
 }
@@ -1248,6 +1532,9 @@ private class DefaultScheduleFilePreprocessor(private val context: Context) : Sc
 
     private fun preprocessPdf(file: AiImportFile, config: AiProviderConfig): PreprocessResult {
         if (
+            config.providerId == AiProviderPresets.openAI.id &&
+            isOfficialOpenAIBaseUrl(config.baseUrl) &&
+            config.endpointStyle == AiEndpointStyle.RESPONSES &&
             config.supportsPdfDirect &&
             config.supportsFileUpload &&
             config.inputMode != AiInputMode.TEXT_ONLY &&
@@ -1255,11 +1542,22 @@ private class DefaultScheduleFilePreprocessor(private val context: Context) : Sc
         ) {
             return PreprocessResult.Raw(file, file.bytes, "使用原生 PDF 文件输入解析。")
         }
+        if (
+            config.supportsFileUpload &&
+            config.inputMode != AiInputMode.TEXT_ONLY
+        ) {
+            require(config.supportsVision) {
+                "当前兼容接口已开启文件上传，但模型未启用视觉能力，无法把 PDF 分页发送。"
+            }
+            return PreprocessResult.Images(
+                images = renderPdfPageImages(context, file, maxPages = 10),
+                routeMessage = "PDF 已逐页转换为图片，并按视觉多图输入发送。"
+            )
+        }
         val extracted = extractPdfTextBestEffort(file.bytes)
         if (
             config.inputMode != AiInputMode.IMAGE_URL_BASE64 &&
-            extracted.length >= 80 &&
-            extracted.count { !it.isWhitespace() } >= 40
+            isUsefulExtractedScheduleText(extracted)
         ) {
             return PreprocessResult.Text(extracted, "已从 PDF 提取文本，使用文本模型解析。")
         }
@@ -1276,11 +1574,28 @@ private class DefaultScheduleFilePreprocessor(private val context: Context) : Sc
     }
 }
 
+private fun isUsefulExtractedScheduleText(text: String): Boolean {
+    val compact = text.filterNot(Char::isWhitespace)
+    if (compact.length < 80) return false
+    val readable = compact.count { it.isLetterOrDigit() || it in "，。,:：;；-_/()（）[]【】" }
+    if (readable.toFloat() / compact.length.coerceAtLeast(1) < 0.72f) return false
+    val normalized = text.lowercase()
+    val scheduleSignals = listOf(
+        "星期", "周一", "周二", "周三", "周四", "周五", "节次", "课程", "教师", "教室",
+        "monday", "tuesday", "wednesday", "thursday", "friday", "course", "teacher", "classroom"
+    ).count(normalized::contains)
+    return scheduleSignals >= 2
+}
+
 private fun PreprocessResult.toScheduleInput(file: AiImportFile): AiScheduleInput {
     return when (this) {
         is PreprocessResult.Text -> AiScheduleInput.ExtractedText(text, file.displayName)
         is PreprocessResult.Images -> AiScheduleInput.Images(images, file.displayName)
-        is PreprocessResult.Raw -> AiScheduleInput.RawFile(file.mimeType, file.displayName, bytes)
+        is PreprocessResult.Raw -> AiScheduleInput.RawFile(
+            mimeType = if (file.isPdf) "application/pdf" else file.mimeType,
+            fileName = file.displayName,
+            bytes = bytes
+        )
     }
 }
 
@@ -1299,7 +1614,7 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
                 addImagePart("data:${input.mimeType};base64,${input.base64}")
             }
             is AiScheduleInput.Images -> buildJsonArray {
-                addTextPart(aiSchedulePrompt() + "\n\n下面图片来自同一份课表文件。若图片是长图或拼接图，请把接缝和重复区域当作上下文校对，不要重复生成课程。请综合整张图尽力还原完整课程信息。")
+                addTextPart(aiSchedulePrompt() + "\n\n下面图片来自同一份课表文件，按页码或视口位置有序发送。相邻图片可能保留少量重叠区域用于校对，请不要重复生成课程。请综合所有图片还原完整课程信息。")
                 input.images.forEach { image -> addImagePart(image.dataUrl) }
             }
             is AiScheduleInput.CapturedPage -> buildJsonArray {
@@ -1307,7 +1622,7 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
                     aiSchedulePrompt() +
                         "\n\n这是从教务 WebView 分层抓取的页面内容。DOM 文本可能包含导航、版权、重复表格或缺失字段；截图为当前页面可见渲染结果。" +
                         "\n输入文本开头会提供当前教务页面地址。请根据该网址识别学校；如果模型具备联网或内置检索能力，可以参考该学校公开的校历、作息时间、节次时间或排课安排来校对时间。" +
-                        "\n截图来自同一张课表页面，可能是由连续重叠截图拼成的长图；接缝和重复区域只用于校对上下文，不要把同一课程重复输出。请尽力读取并还原完整课程信息。" +
+                        "\n截图来自同一张课表页面，按滚动位置以原始视口比例分段发送；相邻图片可能有少量重叠，只用于校对上下文，不要把同一课程重复输出。请尽力读取并还原完整课程信息。" +
                         "\n请先分析截图/表格结构：识别星期列、节次行、时间轴、课程块跨度、周次标注、地点和教师，再生成 JSON。请优先以截图中的真实课表为准，DOM 文本作为辅助。若课程待定或未安排，输出占位节次/周次并在备注说明需要用户手动修改。" +
                         "\n\n来源：${input.sourceName}" +
                         "\n诊断：\n${input.warnings.joinToString("\n").ifBlank { "无" }}" +
@@ -1327,16 +1642,11 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
                 })
             }
             put("messages", messages)
-            when (config.structuredOutputMode) {
-                StructuredOutputMode.JSON_SCHEMA -> put("response_format", buildJsonObject {
-                    put("type", JsonPrimitive("json_schema"))
-                    put("json_schema", scheduleJsonSchema())
-                })
-                StructuredOutputMode.JSON_OBJECT -> put("response_format", buildJsonObject {
-                    put("type", JsonPrimitive("json_object"))
-                })
-                StructuredOutputMode.PROMPT_ONLY -> Unit
-            }
+            put("tools", JsonArray(listOf(scheduleImportChatTool())))
+            put("tool_choice", buildJsonObject {
+                put("type", JsonPrimitive("function"))
+                put("function", buildJsonObject { put("name", JsonPrimitive(ScheduleImportToolName)) })
+            })
             put("temperature", JsonPrimitive(0.1))
             if (config.providerId == AiProviderPresets.deepSeek.id) {
                 put("thinking", buildJsonObject {
@@ -1346,9 +1656,9 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
             }
             putChatOutputBudget(config)
         }
-        val response = postJson(config.baseUrl.trimEnd('/') + "/chat/completions", config.apiKey, body.toString(), config.authType)
+        val response = postJson(config.baseUrl.trimEnd('/') + "/chat/completions", config.apiKey, body.toString(), config.authType, config.providerId)
         val result = runCatching {
-            parseChatCompletionTextResult(response)
+            parseScheduleToolResult(response) ?: parseChatCompletionTextResult(response)
         }.getOrElse {
             if (it is AiServiceResponseException) throw it
             throw AiServiceResponseException("AI 响应结构无法解析：${it.message.orEmpty()}", response, it)
@@ -1359,6 +1669,91 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
             result
         }
     }
+
+    fun reviseSchedule(
+        config: AiProviderConfig,
+        request: String,
+        history: AiEduImportProgress
+    ): AiProviderTextResult {
+        val initialMessages = buildJsonArray {
+            scheduleParserSystemMessage()
+            add(buildJsonObject {
+                put("role", JsonPrimitive("user"))
+                put("content", JsonPrimitive(request))
+            })
+        }
+        val firstBody = buildJsonObject {
+            put("model", JsonPrimitive(config.model))
+            put("messages", initialMessages)
+            put("tools", JsonArray(listOf(readOriginalSourceChatTool(), scheduleImportChatTool())))
+            put("tool_choice", JsonPrimitive("auto"))
+            put("temperature", JsonPrimitive(0.1))
+            putChatOutputBudget(config)
+        }
+        val firstResponse = postJson(
+            config.baseUrl.trimEnd('/') + "/chat/completions",
+            config.apiKey,
+            firstBody.toString(),
+            config.authType,
+            config.providerId
+        )
+        parseScheduleToolResult(firstResponse)?.let { return it }
+        val root = Json.parseToJsonElement(firstResponse).jsonObject
+        val assistantMessage = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
+            ?.get("message")?.jsonObject
+            ?: throw AiServiceResponseException("模型未返回可识别的工具调用", firstResponse)
+        val readCall = assistantMessage["tool_calls"]?.jsonArray
+            ?.mapNotNull { it as? JsonObject }
+            ?.firstOrNull {
+                it["function"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull == ReadOriginalSourceToolName
+            }
+            ?: throw AiServiceResponseException("模型未提交课表，也未请求读取原始材料", firstResponse)
+        val callId = readCall["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val sourceContent = revisionSourceChatContent(history)
+        val secondMessages = buildJsonArray {
+            initialMessages.forEach(::add)
+            add(assistantMessage)
+            add(buildJsonObject {
+                put("role", JsonPrimitive("tool"))
+                put("tool_call_id", JsonPrimitive(callId))
+                put("content", JsonPrimitive("原始导入材料已加载，请结合随后提供的内容复核。"))
+            })
+            add(buildJsonObject {
+                put("role", JsonPrimitive("user"))
+                put("content", sourceContent)
+            })
+        }
+        val secondBody = buildJsonObject {
+            put("model", JsonPrimitive(config.model))
+            put("messages", secondMessages)
+            put("tools", JsonArray(listOf(scheduleImportChatTool())))
+            put("tool_choice", buildJsonObject {
+                put("type", JsonPrimitive("function"))
+                put("function", buildJsonObject { put("name", JsonPrimitive(ScheduleImportToolName)) })
+            })
+            put("temperature", JsonPrimitive(0.1))
+            putChatOutputBudget(config)
+        }
+        val secondResponse = postJson(
+            config.baseUrl.trimEnd('/') + "/chat/completions",
+            config.apiKey,
+            secondBody.toString(),
+            config.authType,
+            config.providerId
+        )
+        return parseScheduleToolResult(secondResponse)
+            ?: throw AiServiceResponseException("模型读取原始材料后未提交课表", secondResponse)
+    }
+
+    private fun revisionSourceChatContent(history: AiEduImportProgress): JsonElement =
+        if (history.screenshotPreviews.isEmpty()) {
+            JsonPrimitive(buildAiOriginalSourceContext(history))
+        } else {
+            buildJsonArray {
+                addTextPart(buildAiOriginalSourceContext(history))
+                history.screenshotPreviews.forEach { addImagePart(it.dataUrl) }
+            }
+        }
 
     private fun JsonArrayBuilder.addTextPart(text: String) {
         add(buildJsonObject {
@@ -1434,7 +1829,7 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
                 }
                 putChatOutputBudget(config)
             }
-            val response = postJson(config.baseUrl.trimEnd('/') + "/chat/completions", config.apiKey, body.toString(), config.authType)
+            val response = postJson(config.baseUrl.trimEnd('/') + "/chat/completions", config.apiKey, body.toString(), config.authType, config.providerId)
             val next = runCatching {
                 parseChatCompletionTextResult(response)
             }.getOrElse {
@@ -1488,7 +1883,7 @@ private class OpenAiResponsesProvider : AiScheduleImportProvider {
                                 "这是从教务 WebView 分层抓取的页面内容。请优先以截图中的真实课表为准，DOM 文本作为辅助。\n" +
                                     "输入文本开头会提供当前教务页面地址。请根据该网址识别学校；如果模型具备联网或内置检索能力，可以参考该学校公开的校历、作息时间、节次时间或排课安排来校对时间。\n" +
                                     "请先分析截图/表格结构：识别星期列、节次行、时间轴、课程块跨度、周次标注、地点和教师，再生成 JSON。\n" +
-                                    "截图来自同一张课表页面，可能是连续重叠截图拼成的长图；接缝和重复区域只用于校对上下文，不要重复生成课程。\n" +
+                                    "截图来自同一张课表页面，按滚动位置以原始视口比例分段发送；相邻图片可能有少量重叠，只用于校对上下文，不要重复生成课程。\n" +
                                     "来源：${input.sourceName}\n" +
                                     "诊断：\n${input.warnings.joinToString("\n").ifBlank { "无" }}\n\n" +
                                     "页面文本：\n${input.text}"
@@ -1520,22 +1915,117 @@ private class OpenAiResponsesProvider : AiScheduleImportProvider {
                     put("content", content)
                 })
             })
-            put("reasoning", buildJsonObject {
-                put("summary", JsonPrimitive("auto"))
+            putResponsesReasoning(config)
+            put("tools", JsonArray(listOf(scheduleImportResponsesTool())))
+            put("tool_choice", buildJsonObject {
+                put("type", JsonPrimitive("function"))
+                put("name", JsonPrimitive(ScheduleImportToolName))
             })
-            if (config.structuredOutputMode == StructuredOutputMode.JSON_SCHEMA) {
-                put("text", buildJsonObject { put("format", scheduleJsonSchemaFormat()) })
-            }
         }
-        return parseResponsesTextResult(
-            postJson(
-                config.baseUrl.trimEnd('/') + "/responses",
-                config.apiKey,
-                body.toString(),
-                config.authType
-            )
+        val response = postJson(
+            config.baseUrl.trimEnd('/') + "/responses",
+            config.apiKey,
+            body.toString(),
+            config.authType,
+            config.providerId
         )
+        return parseScheduleToolResult(response) ?: parseResponsesTextResult(response)
     }
+
+    fun reviseSchedule(
+        config: AiProviderConfig,
+        request: String,
+        history: AiEduImportProgress
+    ): AiProviderTextResult {
+        val initialInput = buildJsonObject {
+            put("role", JsonPrimitive("user"))
+            put("content", buildJsonArray {
+                add(buildJsonObject {
+                    put("type", JsonPrimitive("input_text"))
+                    put("text", JsonPrimitive(request))
+                })
+            })
+        }
+        val firstBody = buildJsonObject {
+            put("model", JsonPrimitive(config.model))
+            put("store", JsonPrimitive(false))
+            put("input", JsonArray(listOf(initialInput)))
+            putResponsesReasoning(config)
+            put("tools", JsonArray(listOf(readOriginalSourceResponsesTool(), scheduleImportResponsesTool())))
+            put("tool_choice", JsonPrimitive("auto"))
+        }
+        val firstResponse = postJson(
+            config.baseUrl.trimEnd('/') + "/responses",
+            config.apiKey,
+            firstBody.toString(),
+            config.authType,
+            config.providerId
+        )
+        parseScheduleToolResult(firstResponse)?.let { return it }
+        val root = Json.parseToJsonElement(firstResponse).jsonObject
+        val outputItems = root["output"]?.jsonArray?.mapNotNull { it as? JsonObject }.orEmpty()
+        val readCall = outputItems.firstOrNull {
+            it["type"]?.jsonPrimitive?.contentOrNull == "function_call" &&
+                it["name"]?.jsonPrimitive?.contentOrNull == ReadOriginalSourceToolName
+        } ?: throw AiServiceResponseException("模型未提交课表，也未请求读取原始材料", firstResponse)
+        val callId = readCall["call_id"]?.jsonPrimitive?.contentOrNull
+            ?: readCall["id"]?.jsonPrimitive?.contentOrNull
+            ?: throw AiServiceResponseException("读取原始材料的工具调用缺少 call_id", firstResponse)
+        val sourceInput = buildJsonObject {
+            put("role", JsonPrimitive("user"))
+            put("content", buildJsonArray {
+                add(buildJsonObject {
+                    put("type", JsonPrimitive("input_text"))
+                    put("text", JsonPrimitive(buildAiOriginalSourceContext(history)))
+                })
+                history.screenshotPreviews.forEach { image ->
+                    add(buildJsonObject {
+                        put("type", JsonPrimitive("input_image"))
+                        put("image_url", JsonPrimitive(image.dataUrl))
+                    })
+                }
+            })
+        }
+        val secondInput = buildJsonArray {
+            add(initialInput)
+            outputItems.forEach(::add)
+            add(buildJsonObject {
+                put("type", JsonPrimitive("function_call_output"))
+                put("call_id", JsonPrimitive(callId))
+                put("output", JsonPrimitive("原始导入材料已加载，请结合随后提供的内容复核。"))
+            })
+            add(sourceInput)
+        }
+        val secondBody = buildJsonObject {
+            put("model", JsonPrimitive(config.model))
+            put("store", JsonPrimitive(false))
+            put("input", secondInput)
+            putResponsesReasoning(config)
+            put("tools", JsonArray(listOf(scheduleImportResponsesTool())))
+            put("tool_choice", buildJsonObject {
+                put("type", JsonPrimitive("function"))
+                put("name", JsonPrimitive(ScheduleImportToolName))
+            })
+        }
+        val secondResponse = postJson(
+            config.baseUrl.trimEnd('/') + "/responses",
+            config.apiKey,
+            secondBody.toString(),
+            config.authType,
+            config.providerId
+        )
+        return parseScheduleToolResult(secondResponse)
+            ?: throw AiServiceResponseException("模型读取原始材料后未提交课表", secondResponse)
+    }
+}
+
+private fun JsonObjectBuilder.putResponsesReasoning(config: AiProviderConfig) {
+    put("reasoning", buildJsonObject {
+        put("effort", JsonPrimitive(config.reasoningEffort.apiValue))
+        if (config.providerId == AiProviderPresets.openAI.id && isOfficialOpenAIBaseUrl(config.baseUrl)) {
+            put("summary", JsonPrimitive("auto"))
+        }
+    })
 }
 
 suspend fun loadAiImportFile(context: Context, uri: Uri): Result<AiImportFile> =
@@ -1631,6 +2121,16 @@ private fun AiImportFile.toRenderedImage(pageIndex: Int): RenderedPageImage {
         mimeType = "image/jpeg",
         base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
     )
+}
+
+internal fun renderAiImportPreviewImages(
+    context: Context,
+    file: AiImportFile,
+    maxPages: Int = 6
+): List<RenderedPageImage> = when {
+    file.isImage -> listOf(file.toRenderedImage(0))
+    file.isPdf -> renderPdfPageImages(context, file, maxPages)
+    else -> emptyList()
 }
 
 private fun renderPdfPageImages(context: Context, file: AiImportFile, maxPages: Int = 6): List<RenderedPageImage> {
@@ -1763,7 +2263,8 @@ private fun safeRequest(
     method: String,
     body: ByteArray,
     contentType: String,
-    authType: AiAuthType = AiAuthType.ApiKeyBearer
+    authType: AiAuthType = AiAuthType.ApiKeyBearer,
+    providerId: String? = null
 ): String {
     val connection = (URL(url).openConnection() as HttpURLConnection).apply {
         requestMethod = method
@@ -1781,7 +2282,7 @@ private fun safeRequest(
         val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
         if (status !in 200..299) {
             Log.d(AiImportLogTag, "AI HTTP $status url=${redactAiUrl(url)} response=${sanitizeAiOutputForDisplay(text).replace(Regex("\\s+"), " ").take(500)}")
-            throw AiServiceResponseException(formatAiRequestError(status, text), text)
+            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text)
         }
         text
     } catch (throwable: Throwable) {
@@ -1795,7 +2296,7 @@ private fun safeRequest(
     }
 }
 
-private fun HttpURLConnection.setAiAuthHeader(apiKey: String, authType: AiAuthType) {
+internal fun HttpURLConnection.setAiAuthHeader(apiKey: String, authType: AiAuthType) {
     when (authType) {
         AiAuthType.ApiKeyBearer,
         AiAuthType.OpenAIProjectKey -> setRequestProperty("Authorization", "Bearer $apiKey")
@@ -1838,7 +2339,10 @@ private fun formatAiNetworkError(url: String, throwable: Throwable): String {
     return "$hint 原始错误：$message"
 }
 
-private fun formatAiRequestError(status: Int, text: String): String {
+internal fun formatAiRequestError(status: Int, text: String, providerId: String? = null): String {
+    if (providerId == AiProviderPresets.dailyFree.id && isManagedFreeLimitError(status, text)) {
+        return "今日免费 AI 共享额度已用完，请明天再试，或在 AI 设置中配置自己的 AI 服务。"
+    }
     val compact = sanitizeAiOutputForDisplay(text).replace(Regex("\\s+"), " ").take(240)
     val hint = if (
         text.contains("404 page not found", ignoreCase = true) ||
@@ -1855,8 +2359,37 @@ private fun formatAiRequestError(status: Int, text: String): String {
     }
 }
 
-private fun postJson(url: String, apiKey: String, body: String, authType: AiAuthType = AiAuthType.ApiKeyBearer): String {
-    return safeRequest(url, apiKey, "POST", body.toByteArray(Charsets.UTF_8), "application/json", authType)
+private fun isManagedFreeLimitError(status: Int, text: String): Boolean {
+    if (status == 429) return true
+    val normalized = text.lowercase()
+    return listOf(
+        "模型超限",
+        "额度已用完",
+        "额度不足",
+        "quota",
+        "rate_limit",
+        "rate limit",
+        "limit exceeded",
+        "too many requests"
+    ).any(normalized::contains)
+}
+
+private fun postJson(
+    url: String,
+    apiKey: String,
+    body: String,
+    authType: AiAuthType = AiAuthType.ApiKeyBearer,
+    providerId: String? = null
+): String {
+    return safeRequest(
+        url,
+        apiKey,
+        "POST",
+        body.toByteArray(Charsets.UTF_8),
+        "application/json",
+        authType,
+        providerId
+    )
 }
 
 private fun parseChatCompletionTextResult(response: String, requireContent: Boolean = true): AiProviderTextResult {
@@ -1995,19 +2528,13 @@ private fun AiImportFile.toDataUrl(): String {
 }
 
 fun aiSchedulePrompt(): String = """
-${SchedulePromptBuilder.build()}
-
-补充要求：
-1. 如果页面中没有明确给出节次时间，请根据可见节次生成合理的 periods，并保持 index 连续。
-2. 如果同一课程有多个不连续周次，请把 weeks 展开成整数数组，不要写范围字符串。
-3. 只能返回最外层 JSON 对象，不要返回数组、代码块、解释文字或 Markdown。
-3.1 JSON 可以使用正常的缩进和换行，但不要在课程名、教师、地点、备注、时间等字符串字段中为了排版插入额外换行；同一字段必须保持为一个完整字符串。
-4. 在生成 periods 前，请先分析课表表格结构，识别星期列、节次行、时间轴、课程块跨行/跨节范围和午晚间分区。优先使用图片或表格中真实可见的时间；如果页面包含学校网址、学校名或教务系统域名，并且模型具备联网或内置检索能力，可以参考该学校公开作息时间来校对节次时间。
-5. 所有节次时间都应理解为同一天内的时间轴。不要因为晚课、页面换行、长图接缝或表格分段，就把课程时间推到“下一天”。如果时间无法确认，请保持节次 index 连续，并在 note 中说明“时间需手动核对”，不要编造跨日时间。
-6. 如果课程信息写着“未安排讲课”“待定”“其它课程”，或者没有明确教室时间、星期、节次、周次，不要丢弃该课程；请输出占位课程：weekday 使用 7，periods 使用 [1]，weeks 使用 [1]，weekParity 使用 "ALL"，并在 note 中写入“AI 占位课程：原始数据没有明确上课星期/节次/周次，请手动修改。”。绝对不要输出空的 periods 或空的 weeks。
-7. 如果来源名称包含“AI 兜底扒页”，说明输入来自 WebView 整页强制抓取，可能包含导航、版权、重复表格、表单状态、iframe 诊断或无关页面控件。只提取真实课表和课程信息；不确定的字段写入 note，不要编造精确值。
-8. scheduleConfig.periods 必须完整列出实际使用到的每一个节次边界。即使相邻两节课程连续，也不能合并成一个大时间段；每个 index 只能对应一节课的开始和结束时间。
+识别输入中的真实课表，并调用 IMPORT_SCHEDULE 工具提交结果。
+以可见的表头、星期、节次、课程块和周次为准；不要重复长图接缝处的课程。
+不确定的信息保留在 note 中，不要猜测。每门课的 periods 和 weeks 均不能为空。
 """.trimIndent()
+
+private const val ScheduleImportToolName = "IMPORT_SCHEDULE"
+private const val ReadOriginalSourceToolName = "READ_ORIGINAL_IMPORT_SOURCE"
 
 private fun scheduleJsonSchemaFormat(): JsonObject = buildJsonObject {
     put("type", JsonPrimitive("json_schema"))
@@ -2105,4 +2632,69 @@ private fun nullableStringSchema(): JsonObject = buildJsonObject {
 private fun integerArraySchema(): JsonObject = buildJsonObject {
     put("type", JsonPrimitive("array"))
     put("items", buildJsonObject { put("type", JsonPrimitive("integer")) })
+}
+
+private fun scheduleImportChatTool(): JsonObject = buildJsonObject {
+    put("type", JsonPrimitive("function"))
+    put("function", buildJsonObject {
+        put("name", JsonPrimitive(ScheduleImportToolName))
+        put("description", JsonPrimitive("提交识别完成并可由 SleepDown 本地校验的课程表"))
+        put("strict", JsonPrimitive(true))
+        put("parameters", scheduleJsonSchemaBody())
+    })
+}
+
+private fun readOriginalSourceChatTool(): JsonObject = buildJsonObject {
+    put("type", JsonPrimitive("function"))
+    put("function", buildJsonObject {
+        put("name", JsonPrimitive(ReadOriginalSourceToolName))
+        put("description", JsonPrimitive("仅在需要复核、重新识别或核对原网页/附件时读取原始导入材料；普通字段修改不要调用"))
+        put("strict", JsonPrimitive(true))
+        put("parameters", emptyObjectSchema())
+    })
+}
+
+private fun scheduleImportResponsesTool(): JsonObject = buildJsonObject {
+    put("type", JsonPrimitive("function"))
+    put("name", JsonPrimitive(ScheduleImportToolName))
+    put("description", JsonPrimitive("提交识别完成并可由 SleepDown 本地校验的课程表"))
+    put("strict", JsonPrimitive(true))
+    put("parameters", scheduleJsonSchemaBody())
+}
+
+private fun readOriginalSourceResponsesTool(): JsonObject = buildJsonObject {
+    put("type", JsonPrimitive("function"))
+    put("name", JsonPrimitive(ReadOriginalSourceToolName))
+    put("description", JsonPrimitive("仅在需要复核、重新识别或核对原网页/附件时读取原始导入材料；普通字段修改不要调用"))
+    put("strict", JsonPrimitive(true))
+    put("parameters", emptyObjectSchema())
+}
+
+private fun emptyObjectSchema(): JsonObject = buildJsonObject {
+    put("type", JsonPrimitive("object"))
+    put("additionalProperties", JsonPrimitive(false))
+    put("properties", buildJsonObject {})
+    put("required", JsonArray(emptyList()))
+}
+
+private fun parseScheduleToolResult(response: String): AiProviderTextResult? {
+    val root = runCatching { Json.parseToJsonElement(response).jsonObject }.getOrNull() ?: return null
+    val chatCall = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
+        ?.get("message")?.jsonObject
+        ?.get("tool_calls")?.jsonArray?.firstOrNull()?.jsonObject
+        ?.get("function")?.jsonObject
+    val responseCall = root["output"]?.jsonArray
+        ?.mapNotNull { it as? JsonObject }
+        ?.firstOrNull { it["type"]?.jsonPrimitive?.contentOrNull == "function_call" }
+    val call = chatCall ?: responseCall ?: return null
+    if (call["name"]?.jsonPrimitive?.contentOrNull != ScheduleImportToolName) return null
+    val arguments = call["arguments"]?.let { value ->
+        if (value is JsonPrimitive) value.contentOrNull else value.toString()
+    }?.trim().orEmpty()
+    if (arguments.isBlank()) return null
+    val reasoning = runCatching {
+        if (root.containsKey("choices")) parseChatCompletionTextResult(response, requireContent = false).reasoning
+        else parseResponsesTextResult(response).reasoning
+    }.getOrDefault("")
+    return AiProviderTextResult(arguments, reasoning, "tool_call")
 }

@@ -193,6 +193,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
@@ -436,6 +437,8 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
     var memoryText by remember { mutableStateOf(DayAgentPreferences.memory(context)) }
     var memoryDraft by remember { mutableStateOf(memoryText) }
     var showMemoryEditor by remember { mutableStateOf(false) }
+    var historyRetentionDays by remember { mutableIntStateOf(AiImportHistoryStore.retentionDays(context)) }
+    var historyMessage by remember { mutableStateOf<String?>(null) }
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     val topPadding = detailContentTopPadding()
 
@@ -502,6 +505,53 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
                             showMemoryEditor = true
                         }
                     )
+                }
+            }
+        }
+        item {
+            GlassPreferenceSection("导入历史") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    MiuixOverlayDropdownPreference(
+                        items = listOf("7 天后", "30 天后", "90 天后", "手动删除"),
+                        selectedIndex = AiImportHistoryStore.retentionOptions.indexOf(historyRetentionDays).coerceAtLeast(1),
+                        title = "自动清理导入历史",
+                        modifier = Modifier.fillMaxWidth(),
+                        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                        maxHeight = 260.dp,
+                        onExpandedChange = {},
+                        onSelectedIndexChange = { index ->
+                            historyRetentionDays = AiImportHistoryStore.retentionOptions[
+                                index.coerceIn(AiImportHistoryStore.retentionOptions.indices)
+                            ]
+                            AiImportHistoryStore.setRetentionDays(context, historyRetentionDays)
+                            historyMessage = if (historyRetentionDays == 0) {
+                                "导入历史将由你手动删除"
+                            } else {
+                                "导入历史将在 $historyRetentionDays 天后自动删除"
+                            }
+                        }
+                    )
+                    SettingsDivider()
+                    SettingsActionRow(
+                        title = "清空导入历史",
+                        subtitle = "删除本机保存的最近导入上下文，不影响已经导入的课表。",
+                        buttonText = "清空",
+                        iconRes = R.drawable.ic_delete_history,
+                        backdrop = backdrop,
+                        onClick = {
+                            AiImportHistoryStore.clear(context)
+                            historyMessage = "导入历史已清空"
+                        }
+                    )
+                    historyMessage?.let {
+                        SettingsDivider()
+                        Text(
+                            it,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
         }
@@ -604,6 +654,17 @@ fun AiImportSettingsSection(
     var customProviderName by remember(saved.profile.id) { mutableStateOf(saved.profile.displayName) }
     var baseUrl by remember(saved.profile.baseUrl) { mutableStateOf(saved.profile.baseUrl) }
     var model by remember(saved.profile.defaultModel) { mutableStateOf(saved.profile.defaultModel) }
+    var availableModelsText by remember(saved.profile.id) {
+        mutableStateOf(
+            saved.profile.availableModels
+                .ifEmpty { AiProviderPresets.modelOptions(saved.profile.id).map(AiModelOption::model) }
+                .joinToString("\n")
+        )
+    }
+    var responsesEnabled by remember(saved.profile.id) {
+        mutableStateOf(saved.profile.endpointStyle == AiEndpointStyle.RESPONSES)
+    }
+    var reasoningEffort by remember(saved.profile.id) { mutableStateOf(saved.profile.reasoningEffort) }
     var apiKeyInput by remember(saved.apiKey) { mutableStateOf("") }
     var structuredOutputMode by remember(saved.profile.structuredOutputMode) { mutableStateOf(saved.profile.structuredOutputMode) }
     var inputMode by remember(saved.profile.inputMode) { mutableStateOf(saved.profile.inputMode) }
@@ -626,10 +687,11 @@ fun AiImportSettingsSection(
         )
     }
     val presets = remember(providerListRevision) { AiImportSettingsStore.selectableProfiles(context) }
-    val selectedPreset = presets.firstOrNull { it.id == selectedProviderId }
-        ?: saved.profile.takeIf { it.id == selectedProviderId }
+    val selectedPreset = saved.profile.takeIf { it.id == selectedProviderId }
+        ?: presets.firstOrNull { it.id == selectedProviderId }
         ?: AiProviderPresets.byId(selectedProviderId)
     val isCustomProvider = AiProviderPresets.isCustomId(selectedProviderId)
+    val isManagedFreeProvider = AiProviderPresets.isManagedFreeId(selectedProviderId)
     val effectiveCustomProviderName = customProviderName.trim().ifBlank { selectedPreset.displayName }
     val customProviderDisplayName = effectiveCustomProviderName.ifBlank { "未命名自定义接口" }
     val pickerPresets = if (isCustomProvider) {
@@ -645,8 +707,15 @@ fun AiImportSettingsSection(
         presets
     }
     val aiDisabled = selectedProviderId == AiProviderPresets.none.id
-    val modelOptions = AiProviderPresets.modelOptions(selectedProviderId)
-    val modelEditable = modelOptions.isEmpty() || modelUsesCustomInput
+    val configuredModelIds = parseAiModelIdList(availableModelsText, model)
+    val modelProfile = (if (isManagedFreeProvider) AiProviderPresets.dailyFree else selectedPreset).copy(
+        defaultModel = model.trim(),
+        capabilities = selectedPreset.capabilities.copy(supportsImageInput = supportsVision),
+        supportsVision = supportsVision,
+        availableModels = configuredModelIds
+    )
+    val modelOptions = AiProviderPresets.modelOptions(modelProfile)
+    val modelEditable = !isManagedFreeProvider && (modelOptions.isEmpty() || modelUsesCustomInput)
     val selectedModelOptionIndex = if (modelUsesCustomInput) {
         modelOptions.size
     } else {
@@ -667,36 +736,52 @@ fun AiImportSettingsSection(
     val normalizedBaseUrl = normalizeAiBaseUrlForProvider(selectedProviderId, baseUrl)
     val usesOpenAICompatibleSite = selectedProviderId == AiProviderPresets.openAI.id &&
         !normalizedBaseUrl.equals("https://api.openai.com/v1", ignoreCase = true)
-    val endpointStyle = if (
-        selectedProviderId == AiProviderPresets.openAI.id &&
-        !usesOpenAICompatibleSite &&
-        inputMode == AiInputMode.RESPONSES_FILE
-    ) {
+    val modelSupportsResponses = AiProviderPresets.supportsResponses(modelProfile)
+    val reasoningOptions = AiProviderPresets.reasoningEfforts(modelProfile)
+    val effectiveReasoningEffort = reasoningEffort.takeIf { it in reasoningOptions }
+        ?: reasoningOptions.firstOrNull()
+        ?: AiReasoningEffort.MEDIUM
+    val endpointStyle = if (responsesEnabled && modelSupportsResponses) {
         AiEndpointStyle.RESPONSES
-    } else {
-        AiEndpointStyle.CHAT_COMPLETIONS
-    }
+    } else AiEndpointStyle.CHAT_COMPLETIONS
     val selectedModelSupportsVision = modelOptions.firstOrNull {
         it.model.equals(model.trim(), ignoreCase = true)
     }?.supportsImageInput ?: supportsVision
-    val profile = selectedPreset.copy(
+    val editableProfile = selectedPreset.copy(
         displayName = if (isCustomProvider) effectiveCustomProviderName else selectedPreset.displayName,
         baseUrl = normalizedBaseUrl,
         defaultModel = model.trim(),
-        providerType = if (usesOpenAICompatibleSite) AiProviderType.OpenAIChatCompatible else selectedPreset.providerType,
+        providerType = selectedPreset.providerType,
         capabilities = selectedPreset.capabilities.copy(
             supportsImageInput = selectedModelSupportsVision,
             supportsPdfFileInput = supportsPdfDirect && !usesOpenAICompatibleSite,
-            supportsFileUpload = supportsFileUpload && !usesOpenAICompatibleSite,
+            supportsFileUpload = supportsFileUpload,
             supportsJsonSchema = structuredOutputMode == StructuredOutputMode.JSON_SCHEMA,
-            supportsJsonMode = structuredOutputMode != StructuredOutputMode.PROMPT_ONLY
+            supportsJsonMode = structuredOutputMode != StructuredOutputMode.PROMPT_ONLY,
+            supportsResponses = selectedPreset.capabilities.supportsResponses
         ),
         endpointStyle = endpointStyle,
         structuredOutputMode = structuredOutputMode,
         inputMode = inputMode,
         supportsVision = selectedModelSupportsVision,
-        supportsFileUpload = supportsFileUpload && !usesOpenAICompatibleSite,
-        supportsPdfDirect = supportsPdfDirect && !usesOpenAICompatibleSite
+        supportsFileUpload = supportsFileUpload,
+        supportsPdfDirect = supportsPdfDirect && !usesOpenAICompatibleSite,
+        availableModels = configuredModelIds,
+        reasoningEffort = effectiveReasoningEffort
+    )
+    val profile = if (isManagedFreeProvider) {
+        AiProviderPresets.dailyFree.copy(reasoningEffort = effectiveReasoningEffort)
+    } else {
+        editableProfile
+    }
+    fun hasCustomProviderDraft(apiKey: String): Boolean = customProviderDraftHasContent(
+        name = customProviderName,
+        baseUrl = baseUrl,
+        model = model.takeUnless {
+            customProviderName.isBlank() && baseUrl.isBlank() && apiKey.isBlank() &&
+                configuredModelIds == AiProviderPresets.codexCompatibleModelIds
+        }.orEmpty(),
+        apiKey = apiKey
     )
     fun reload() {
         saved = AiImportSettingsStore.load(context)
@@ -704,6 +789,11 @@ fun AiImportSettingsSection(
         customProviderName = saved.profile.displayName
         baseUrl = saved.profile.baseUrl
         model = saved.profile.defaultModel
+        availableModelsText = saved.profile.availableModels
+            .ifEmpty { AiProviderPresets.modelOptions(saved.profile.id).map(AiModelOption::model) }
+            .joinToString("\n")
+        responsesEnabled = saved.profile.endpointStyle == AiEndpointStyle.RESPONSES
+        reasoningEffort = saved.profile.reasoningEffort
         apiKeyInput = ""
         structuredOutputMode = saved.profile.structuredOutputMode
         inputMode = saved.profile.inputMode
@@ -723,7 +813,7 @@ fun AiImportSettingsSection(
         val outgoingKey = apiKeyInput.ifBlank { saved.apiKey }
         if (
             !isCustomProvider ||
-            customProviderDraftHasContent(customProviderName, baseUrl, model, outgoingKey)
+            hasCustomProviderDraft(outgoingKey)
         ) {
             AiImportSettingsStore.saveProvider(context, AiImportSettings(profile, outgoingKey))
         }
@@ -736,6 +826,11 @@ fun AiImportSettingsSection(
         customProviderName = providerSettings.profile.displayName
         baseUrl = providerSettings.profile.baseUrl
         model = providerSettings.profile.defaultModel
+        availableModelsText = providerSettings.profile.availableModels
+            .ifEmpty { AiProviderPresets.modelOptions(providerSettings.profile.id).map(AiModelOption::model) }
+            .joinToString("\n")
+        responsesEnabled = providerSettings.profile.endpointStyle == AiEndpointStyle.RESPONSES
+        reasoningEffort = providerSettings.profile.reasoningEffort
         apiKeyInput = ""
         structuredOutputMode = providerSettings.profile.structuredOutputMode
         inputMode = providerSettings.profile.inputMode
@@ -751,7 +846,7 @@ fun AiImportSettingsSection(
         val outgoingKey = apiKeyInput.ifBlank { saved.apiKey }
         if (
             !isCustomProvider ||
-            customProviderDraftHasContent(customProviderName, baseUrl, model, outgoingKey)
+            hasCustomProviderDraft(outgoingKey)
         ) {
             AiImportSettingsStore.saveProvider(context, AiImportSettings(profile, outgoingKey))
         }
@@ -760,7 +855,10 @@ fun AiImportSettingsSection(
         selectedProviderId = newProfile.id
         customProviderName = ""
         baseUrl = ""
-        model = ""
+        model = newProfile.defaultModel
+        availableModelsText = newProfile.availableModels.joinToString("\n")
+        responsesEnabled = false
+        reasoningEffort = newProfile.reasoningEffort
         apiKeyInput = ""
         structuredOutputMode = newProfile.structuredOutputMode
         inputMode = newProfile.inputMode
@@ -769,7 +867,7 @@ fun AiImportSettingsSection(
         supportsPdfDirect = newProfile.supportsPdfDirect
         testResult = null
         modelUsesCustomInput = true
-        customModelInput = ""
+        customModelInput = newProfile.defaultModel
         providerMenuExpanded = false
         providerListRevision++
         message = "填写接口名称或连接信息后才会加入列表"
@@ -791,7 +889,7 @@ fun AiImportSettingsSection(
         val nextKey = apiKeyInput.ifBlank { saved.apiKey }
         if (
             isCustomProvider &&
-            !customProviderDraftHasContent(customProviderName, baseUrl, model, nextKey)
+            !hasCustomProviderDraft(nextKey)
         ) {
             return
         }
@@ -843,6 +941,27 @@ fun AiImportSettingsSection(
                 "今日助手将使用本地时间与课程模板，AI 对话和 AI 教务解析入口不会发起模型请求。已保存的其他服务商 Key 会保留，重新选择后可继续使用。"
             )
         } else {
+        if (isManagedFreeProvider) {
+            SettingsDivider()
+            SettingsInfoRow(
+                "每日免费 AI",
+                "每天由 SleepDown 提供免费的 AI 额度，用于 AI 功能的使用。该额度池由所有用户共享，用完即止。"
+            )
+            SettingsDivider()
+            MiuixOverlayDropdownPreference(
+                items = reasoningOptions.map(AiReasoningEffort::label),
+                selectedIndex = reasoningOptions.indexOf(effectiveReasoningEffort).coerceAtLeast(0),
+                title = "思考强度",
+                modifier = Modifier.fillMaxWidth(),
+                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                maxHeight = 300.dp,
+                onExpandedChange = {},
+                onSelectedIndexChange = { index ->
+                    reasoningEffort = reasoningOptions[index.coerceIn(reasoningOptions.indices)]
+                }
+            )
+            SettingsDivider()
+        } else {
         SettingsDivider()
         if (isCustomProvider) {
             SettingsTextFieldRow(
@@ -850,6 +969,18 @@ fun AiImportSettingsSection(
                 value = customProviderName,
                 onValueChange = { customProviderName = it },
                 placeholder = "自定义接口"
+            )
+            SettingsDivider()
+            AiCompatibleModelsEditor(
+                value = availableModelsText,
+                onValueChange = { next ->
+                    availableModelsText = next
+                    val ids = parseAiModelIdList(next, "")
+                    if (ids.isNotEmpty() && ids.none { it.equals(model, ignoreCase = true) }) {
+                        model = ids.first()
+                        modelUsesCustomInput = false
+                    }
+                }
             )
             SettingsDivider()
         }
@@ -906,6 +1037,34 @@ fun AiImportSettingsSection(
             keyboardType = KeyboardType.Password
         )
         SettingsDivider()
+        SettingsToggleRow(
+            title = "Responses API",
+            subtitle = if (modelSupportsResponses) {
+                "开启后 AI 导入与今日助手的所有请求统一使用 /responses。"
+            } else {
+                "当前模型没有已知的 Responses 能力，将继续使用 Chat Completions。"
+            },
+            checked = responsesEnabled && modelSupportsResponses,
+            backdrop = backdrop,
+            enabled = modelSupportsResponses,
+            onCheckedChange = { responsesEnabled = it }
+        )
+        SettingsDivider()
+        if (responsesEnabled && modelSupportsResponses) {
+            MiuixOverlayDropdownPreference(
+                items = reasoningOptions.map(AiReasoningEffort::label),
+                selectedIndex = reasoningOptions.indexOf(effectiveReasoningEffort).coerceAtLeast(0),
+                title = "思考强度",
+                modifier = Modifier.fillMaxWidth(),
+                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                maxHeight = 300.dp,
+                onExpandedChange = {},
+                onSelectedIndexChange = { index ->
+                    reasoningEffort = reasoningOptions[index.coerceIn(reasoningOptions.indices)]
+                }
+            )
+            SettingsDivider()
+        }
         if (isCustomProvider) {
             SettingsToggleRow(
                 title = "文件上传",
@@ -935,6 +1094,7 @@ fun AiImportSettingsSection(
             )
         }
         SettingsDivider()
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -984,31 +1144,33 @@ fun AiImportSettingsSection(
                 )
             }
         }
-        SettingsDivider()
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            SettingsActionButton(
-                "清除 Key",
-                backdrop,
-                onClick = {
-                    AiImportSettingsStore.clearApiKey(context, selectedProviderId)
-                    saved = AiImportSettings(profile, "")
-                    apiKeyInput = ""
-                    message = "API Key 已清除"
-                },
-                modifier = Modifier.weight(1f),
-                destructive = true
-            )
-            if (isCustomProvider) {
+        if (!isManagedFreeProvider) {
+            SettingsDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 SettingsActionButton(
-                    "删除接口",
+                    "清除 Key",
                     backdrop,
-                    onClick = { showDeleteProviderConfirm = true },
+                    onClick = {
+                        AiImportSettingsStore.clearApiKey(context, selectedProviderId)
+                        saved = AiImportSettings(profile, "")
+                        apiKeyInput = ""
+                        message = "API Key 已清除"
+                    },
                     modifier = Modifier.weight(1f),
                     destructive = true
                 )
+                if (isCustomProvider) {
+                    SettingsActionButton(
+                        "删除接口",
+                        backdrop,
+                        onClick = { showDeleteProviderConfirm = true },
+                        modifier = Modifier.weight(1f),
+                        destructive = true
+                    )
+                }
             }
         }
         }
@@ -1041,6 +1203,45 @@ fun AiImportSettingsSection(
             backdrop = backdrop,
             config = state.config,
             onDismissRequest = { showDeleteProviderConfirm = false }
+        )
+    }
+}
+
+private fun parseAiModelIdList(value: String, defaultModel: String): List<String> =
+    (value.split(Regex("[\\r\\n,，;；]+")) + defaultModel)
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .distinctBy(String::lowercase)
+
+@Composable
+private fun AiCompatibleModelsEditor(
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("兼容站模型列表", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+        Text(
+            "每行一个模型 ID。右下角菜单会从这里读取，第一项作为新建接口的默认模型。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                color = MaterialTheme.colorScheme.onSurface
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 112.dp, max = 220.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            maxLines = 10
         )
     }
 }
@@ -1460,6 +1661,7 @@ fun LiquidOptionTabs(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     width: Dp,
+    highContrast: Boolean = false,
     onSelected: (Int) -> Unit
 ) {
     if (backdrop != null) {
@@ -1473,14 +1675,14 @@ fun LiquidOptionTabs(
                 containerHeight = 42.dp,
                 indicatorHeight = 34.dp,
                 horizontalPadding = 4.dp,
-                blurRadius = 4.dp,
-                containerAlpha = 0.4f,
+                blurRadius = if (highContrast) 7.dp else 4.dp,
+                containerAlpha = if (highContrast) 0.62f else 0.4f,
                 lensHeight = 24.dp,
                 lensAmount = 24.dp,
                 indicatorWidthOverflow = 0.dp,
                 indicatorHeightOverflow = 0.dp,
                 pressedContentScale = 1.04f,
-                chromaticAberrationEnabled = true,
+                chromaticAberrationEnabled = !highContrast,
                 isLightThemeOverride = !appUsesDarkTheme(config),
                 useOfficialGlassParameters = true
             ) {
@@ -2366,6 +2568,7 @@ fun SettingsInfoRow(title: String, body: String) {
 internal val LocalCollapsibleSettingsInfoRows = compositionLocalOf { false }
 
 private val changelogReleaseDates = mapOf(
+    "1.1.2" to "2026-08-05",
     "1.1.1" to "2026-08-01",
     "1.1.0" to "2026-07-30",
     "1.0.9" to "2026-07-26",

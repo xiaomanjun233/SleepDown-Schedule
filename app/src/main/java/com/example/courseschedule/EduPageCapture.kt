@@ -6,7 +6,6 @@ import android.content.ContextWrapper
 import android.graphics.Bitmap
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.scale
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Rect
 import android.os.Handler
@@ -71,6 +70,40 @@ private val EduPageDeepExtractScript = """
     }).filter(Boolean).join("\n");
     return body ? ("Table " + (index + 1) + "\n" + body) : "";
   }
+  function semanticHtmlOf(node) {
+    if (!node) return "";
+    try {
+      var clone = node.cloneNode(true);
+      Array.prototype.slice.call(clone.querySelectorAll("script,style,link,meta,noscript,template")).forEach(function (item) {
+        item.remove();
+      });
+      Array.prototype.slice.call(clone.querySelectorAll("input[type='password'],input[type='hidden']")).forEach(function (item) {
+        item.remove();
+      });
+      Array.prototype.slice.call(clone.querySelectorAll("*")).slice(0, 5000).forEach(function (item) {
+        Array.prototype.slice.call(item.attributes || []).forEach(function (attr) {
+          var name = (attr.name || "").toLowerCase();
+          var keep = /^(id|class|role|title|aria-[a-z0-9_-]+|colspan|rowspan|scope|headers|alt)$/.test(name) ||
+            /^data-(day|week|course|lesson|period|row|col|index|start|end)[a-z0-9_-]*$/.test(name);
+          if (!keep) item.removeAttribute(attr.name);
+        });
+        if (item.tagName === "INPUT" || item.tagName === "TEXTAREA") {
+          item.removeAttribute("value");
+          item.textContent = "";
+        }
+      });
+      return (clone.outerHTML || "").replace(/\s{2,}/g, " ").slice(0, 50000);
+    } catch (e) {
+      return "";
+    }
+  }
+  function semanticScore(node) {
+    var text = textOf(node).slice(0, 12000);
+    var signals = ["课表", "课程", "节次", "星期", "周一", "周二", "周三", "周四", "周五", "教师", "教室", "周次", "时间"];
+    var signalScore = signals.reduce(function (sum, key) { return sum + (text.indexOf(key) >= 0 ? 1 : 0); }, 0);
+    var structureScore = node.querySelectorAll ? node.querySelectorAll("tr,td,th,[role='row'],[role='gridcell']").length : 0;
+    return signalScore * 20 + Math.min(structureScore, 200);
+  }
   function collectShadowText(root, depth) {
     if (!root || depth > 3) return "";
     var parts = [];
@@ -99,6 +132,16 @@ private val EduPageDeepExtractScript = """
     ".el-table", ".ant-table", ".layui-table", ".ivu-table", "[role='grid']"
   ];
   var containers = [];
+  var semanticCandidates = Array.prototype.slice.call(document.querySelectorAll("table,[role='grid'],[class*='kb'],[id*='kb'],[class*='course'],[id*='course'],[class*='schedule'],[id*='schedule'],[class*='timetable'],[id*='timetable'],[class*='calendar'],[id*='calendar']"));
+  semanticCandidates = semanticCandidates
+    .filter(function (node, index, list) { return list.indexOf(node) === index; })
+    .sort(function (a, b) { return semanticScore(b) - semanticScore(a); })
+    .slice(0, 12);
+  if (!semanticCandidates.length && document.body) semanticCandidates = [document.body];
+  var semanticHtml = semanticCandidates.map(function (node, index) {
+    var html = semanticHtmlOf(node);
+    return html ? ("<!-- schedule-region-" + (index + 1) + " -->\n" + html) : "";
+  }).filter(Boolean).join("\n\n").slice(0, 60000);
   containerSelectors.forEach(function (selector) {
     try {
       Array.prototype.slice.call(document.querySelectorAll(selector)).slice(0, 24).forEach(function (node) {
@@ -108,12 +151,19 @@ private val EduPageDeepExtractScript = """
   });
   var formState = [];
   Array.prototype.slice.call(document.querySelectorAll("select,input,textarea,button,[role='button']")).slice(0, 160).forEach(function (node, index) {
+    var type = (node.type || "").toLowerCase();
+    var identity = ((node.name || "") + " " + (node.id || "") + " " + (node.autocomplete || "")).toLowerCase();
+    if (type === "password" || type === "hidden" || /token|csrf|session|secret|password/.test(identity)) return;
     var label = node.getAttribute("aria-label") || node.getAttribute("placeholder") || node.name || node.id || node.className || node.tagName;
     var value = "";
     if (node.tagName === "SELECT") {
       value = Array.prototype.slice.call(node.selectedOptions || []).map(function (option) { return option.text || option.value || ""; }).join(",");
+    } else if (type === "checkbox" || type === "radio") {
+      value = node.checked ? "checked" : "unchecked";
+    } else if (node.tagName === "BUTTON" || node.getAttribute("role") === "button") {
+      value = textOf(node);
     } else {
-      value = node.value || textOf(node);
+      value = node.getAttribute("placeholder") || "";
     }
     pushUnique(formState, (index + 1) + ". " + label + " = " + value);
   });
@@ -143,6 +193,7 @@ private val EduPageDeepExtractScript = """
     visualCount: visualCount,
     tables: tables,
     containers: containers.join("\n\n"),
+    semanticHtml: semanticHtml,
     formState: formState.join("\n"),
     iframeText: iframeText.join("\n\n"),
     shadowText: collectShadowText(document, 0),
@@ -350,26 +401,13 @@ suspend fun captureEduPage(
                 positions.size.coerceIn(1, maxScreenshots.coerceIn(1, 6))
             }
             val fractions = if (forceScreenshots) {
-                val rollingFractions = rollingScreenshotFractions(metrics, viewportHeight)
+                val rollingFractions = rollingScreenshotFractions(metrics, viewportHeight, maxScreenshots)
                 warnings += "识屏将按小步重叠滚动截取 ${rollingFractions.size} 张：${metrics?.summary().orEmpty()}"
                 rollingFractions
             } else if (screenshotCount <= 1) {
                 listOf(0f)
             } else {
                 (0 until screenshotCount).map { index -> index.toFloat() / (screenshotCount - 1).toFloat() }
-            }
-            var zoomOutCount = 0
-            if (forceScreenshots) {
-                repeat(10) {
-                    val changed = runCatching { webView.zoomOut() }.getOrDefault(false)
-                    if (changed) {
-                        zoomOutCount += 1
-                    }
-                }
-            }
-            if (zoomOutCount > 0) {
-                warnings += "识屏前已临时缩小网页到最小比例（zoomOut $zoomOutCount 次）"
-                delay(520)
             }
             try {
                 fractions.forEachIndexed { index, fraction ->
@@ -384,15 +422,9 @@ suspend fun captureEduPage(
                     delay(140)
                 }
             } finally {
-                if (zoomOutCount > 0) {
-                    repeat(zoomOutCount) {
-                        runCatching { webView.zoomIn() }
-                    }
-                    delay(260)
-                }
+                webView.scrollTo(webView.scrollX, initialY)
             }
-            webView.scrollTo(webView.scrollX, initialY)
-            stitchRenderedImages(captured)?.let { listOf(it) } ?: captured
+            captured
         } else {
             emptyList()
         }
@@ -458,6 +490,7 @@ private fun decodeEduPageSnapshot(encoded: String?): EduPageSnapshot? {
             visualCount = snapshot.optInt("visualCount"),
             tables = snapshot.optString("tables"),
             containers = snapshot.optString("containers"),
+            semanticHtml = snapshot.optString("semanticHtml"),
             formState = snapshot.optString("formState"),
             iframeText = snapshot.optString("iframeText"),
             shadowText = snapshot.optString("shadowText"),
@@ -481,7 +514,11 @@ private fun decodeEduPageScrollMetrics(encoded: String?): EduPageScrollMetrics? 
     }.getOrNull()
 }
 
-private fun rollingScreenshotFractions(metrics: EduPageScrollMetrics?, fallbackViewportHeight: Int): List<Float> {
+private fun rollingScreenshotFractions(
+    metrics: EduPageScrollMetrics?,
+    fallbackViewportHeight: Int,
+    maxCount: Int
+): List<Float> {
     val viewport = (metrics?.clientHeight ?: fallbackViewportHeight).coerceAtLeast(1)
     val maxScroll = (metrics?.maxScroll ?: 0).coerceAtLeast(0)
     if (maxScroll <= viewport / 3) return listOf(0f)
@@ -495,7 +532,7 @@ private fun rollingScreenshotFractions(metrics: EduPageScrollMetrics?, fallbackV
         add(maxScroll)
     }.distinct()
     return positions
-        .take(10)
+        .take(maxCount.coerceIn(1, 6))
         .let { limited ->
             if (limited.lastOrNull() == maxScroll) limited else limited.dropLast(1) + maxScroll
         }
@@ -517,6 +554,7 @@ data class EduPageSnapshot(
     val visualCount: Int,
     val tables: String,
     val containers: String,
+    val semanticHtml: String,
     val formState: String,
     val iframeText: String,
     val shadowText: String,
@@ -535,6 +573,10 @@ data class EduPageSnapshot(
         if (containers.isNotBlank()) {
             appendLine("Page schedule-like containers:")
             appendLine(containers)
+        }
+        if (semanticHtml.isNotBlank()) {
+            appendLine("页面课表语义 HTML（已移除脚本、样式、密码与表单值）：")
+            appendLine(semanticHtml)
         }
         if (formState.isNotBlank()) {
             appendLine("Page form state:")
@@ -578,7 +620,7 @@ private suspend fun captureVisibleWebViewBitmap(webView: WebView, pageIndex: Int
     val width = webView.width
     val height = webView.height
     if (width <= 0 || height <= 0) return null
-    val maxSide = 1600f
+    val maxSide = 2400f
     val scale = minOf(1f, maxSide / maxOf(width, height).toFloat())
     val bitmap = captureWebViewPixels(webView)
         ?: captureWebViewByDraw(webView)
@@ -590,7 +632,7 @@ private suspend fun captureVisibleWebViewBitmap(webView: WebView, pageIndex: Int
             bitmap
         }
         ByteArrayOutputStream().use { output ->
-            outputBitmap.compress(Bitmap.CompressFormat.JPEG, 80, output)
+            outputBitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
             if (outputBitmap !== bitmap) outputBitmap.recycle()
             bitmap.recycle()
             RenderedPageImage(
@@ -654,46 +696,4 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
-}
-
-private suspend fun stitchRenderedImages(images: List<RenderedPageImage>): RenderedPageImage? {
-    if (images.size <= 1) return null
-    return withContext(Dispatchers.Default) {
-        val bitmaps = images.mapNotNull { image ->
-            runCatching {
-                val bytes = Base64.decode(image.base64, Base64.DEFAULT)
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            }.getOrNull()
-        }
-        if (bitmaps.isEmpty()) return@withContext null
-        try {
-            val sourceWidth = bitmaps.maxOf { it.width }.coerceAtMost(1200)
-            val rawHeights = bitmaps.map { bitmap ->
-                (bitmap.height * (sourceWidth / bitmap.width.toFloat())).toInt().coerceAtLeast(1)
-            }
-            val totalHeight = rawHeights.sum().coerceAtLeast(1)
-            val longScale = minOf(1f, 7200f / totalHeight.toFloat())
-            val targetWidth = (sourceWidth * longScale).toInt().coerceAtLeast(1)
-            val targetHeights = rawHeights.map { (it * longScale).toInt().coerceAtLeast(1) }
-            val stitched = createBitmap(targetWidth, targetHeights.sum())
-            val canvas = Canvas(stitched)
-            var top = 0
-            bitmaps.forEachIndexed { index, bitmap ->
-                val height = targetHeights[index]
-                canvas.drawBitmap(bitmap, null, Rect(0, top, targetWidth, top + height), null)
-                top += height
-            }
-            ByteArrayOutputStream().use { output ->
-                stitched.compress(Bitmap.CompressFormat.JPEG, 82, output)
-                stitched.recycle()
-                RenderedPageImage(
-                    pageIndex = 0,
-                    mimeType = "image/jpeg",
-                    base64 = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
-                )
-            }
-        } finally {
-            bitmaps.forEach { it.recycle() }
-        }
-    }
 }

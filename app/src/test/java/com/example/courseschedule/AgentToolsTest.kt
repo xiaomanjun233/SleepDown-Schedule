@@ -19,6 +19,21 @@ import org.junit.Test
 
 class AgentToolsTest {
     @Test
+    fun persistedExecutionTraceCanBeReopenedWithoutEnteringModelHistory() {
+        val statuses = listOf(
+            AgentRunStatus(AgentRunStatusIcon.THINKING, "分析请求"),
+            AgentRunStatus(AgentRunStatusIcon.SCHEDULE, "读取本周课表"),
+            AgentRunStatus(AgentRunStatusIcon.THINKING, "整理结果")
+        )
+        val stored = agentMessageWithRunTrace("这是最终答复。", statuses)
+        val parsed = parseAgentStoredMessage(stored)
+
+        assertEquals("这是最终答复。", parsed.content)
+        assertEquals(statuses, parsed.statuses)
+        assertFalse(parsed.content.contains("agent_run_trace"))
+    }
+
+    @Test
     fun deepSeekFinalRequestExplicitlyDisablesNativeTools() {
         val body = DayAgentChatTransport().agentBody(
             settings = AiImportSettings(

@@ -2,7 +2,7 @@
     <style name="AppThemeBase" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
-        <item name="android:windowBackground">#FFF2F2F7</item>
+        <item name="android:windowBackground">#FFEDEEF3</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
@@ -11,18 +11,24 @@
 
     <style name="AppTheme" parent="@style/AppThemeBase" />
 
+    <style name="AppTheme.TranslucentMorph" parent="@style/AppTheme">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
     <style name="WidgetCourseRow">
         <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">0dp</item>
-        <item name="android:layout_weight">1</item>
-        <item name="android:layout_marginTop">7dp</item>
+        <item name="android:layout_height">54dp</item>
         <item name="android:background">@drawable/widget_course_background</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:orientation">horizontal</item>
         <item name="android:paddingLeft">10dp</item>
-        <item name="android:paddingTop">7dp</item>
+        <item name="android:paddingTop">4dp</item>
         <item name="android:paddingRight">10dp</item>
-        <item name="android:paddingBottom">7dp</item>
+        <item name="android:paddingBottom">4dp</item>
     </style>
 
     <style name="WidgetCourseTimeColumn">
@@ -49,7 +55,7 @@
 
     <style name="WidgetCourseIndicator">
         <item name="android:layout_width">5dp</item>
-        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_height">24dp</item>
         <item name="android:layout_marginLeft">5dp</item>
         <item name="android:layout_marginRight">10dp</item>
         <item name="android:src">@drawable/widget_course_indicator</item>
@@ -90,21 +96,19 @@
 
     <style name="WidgetCompactCourseRow">
         <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">0dp</item>
-        <item name="android:layout_weight">1</item>
-        <item name="android:layout_marginTop">5dp</item>
+        <item name="android:layout_height">50dp</item>
         <item name="android:background">@drawable/widget_course_background_compact</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:orientation">horizontal</item>
         <item name="android:paddingLeft">7dp</item>
-        <item name="android:paddingTop">5dp</item>
+        <item name="android:paddingTop">4dp</item>
         <item name="android:paddingRight">7dp</item>
-        <item name="android:paddingBottom">5dp</item>
+        <item name="android:paddingBottom">4dp</item>
     </style>
 
     <style name="WidgetCompactIndicator">
         <item name="android:layout_width">4dp</item>
-        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_height">24dp</item>
         <item name="android:layout_marginRight">7dp</item>
         <item name="android:src">@drawable/widget_course_indicator</item>
     </style>
@@ -117,9 +121,9 @@
         <item name="android:gravity">center_vertical</item>
         <item name="android:orientation">horizontal</item>
         <item name="android:paddingLeft">7dp</item>
-        <item name="android:paddingTop">5dp</item>
+        <item name="android:paddingTop">4dp</item>
         <item name="android:paddingRight">7dp</item>
-        <item name="android:paddingBottom">5dp</item>
+        <item name="android:paddingBottom">4dp</item>
     </style>
 
     <style name="WidgetCompactCourseName" parent="WidgetCourseName">

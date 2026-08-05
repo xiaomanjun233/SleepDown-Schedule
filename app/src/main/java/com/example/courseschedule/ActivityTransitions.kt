@@ -3,9 +3,14 @@ package com.example.courseschedule
 import android.app.Activity
 import android.content.Intent
 import android.os.Build
+import androidx.compose.ui.geometry.Rect
 
 const val ScheduleCustomizeIdExtra = "schedule_customize_id"
 const val ScheduleEntrySnapshotExtra = "schedule_entry_snapshot"
+private const val AnchoredSourceLeftExtra = "anchored_source_left"
+private const val AnchoredSourceTopExtra = "anchored_source_top"
+private const val AnchoredSourceRightExtra = "anchored_source_right"
+private const val AnchoredSourceBottomExtra = "anchored_source_bottom"
 
 fun Activity.startActivityWithScheduleDepthTransition(intent: Intent) {
     if (Build.VERSION.SDK_INT >= 34) {
@@ -41,3 +46,29 @@ fun Activity.applyLegacyScheduleDepthCloseTransition() {
 
 fun android.content.Intent.putScheduleCustomizeId(scheduleId: Int): android.content.Intent =
     putExtra(ScheduleCustomizeIdExtra, scheduleId)
+
+fun Intent.putAnchoredSourceBounds(bounds: Rect): Intent = apply {
+    putExtra(AnchoredSourceLeftExtra, bounds.left)
+    putExtra(AnchoredSourceTopExtra, bounds.top)
+    putExtra(AnchoredSourceRightExtra, bounds.right)
+    putExtra(AnchoredSourceBottomExtra, bounds.bottom)
+}
+
+fun Activity.returnToScheduleHome() {
+    startActivity(
+        Intent(this, MainActivity::class.java).addFlags(
+            Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        )
+    )
+    finish()
+}
+
+fun Intent.anchoredSourceBoundsOrNull(): Rect? {
+    if (!hasExtra(AnchoredSourceLeftExtra)) return null
+    return Rect(
+        getFloatExtra(AnchoredSourceLeftExtra, 0f),
+        getFloatExtra(AnchoredSourceTopExtra, 0f),
+        getFloatExtra(AnchoredSourceRightExtra, 0f),
+        getFloatExtra(AnchoredSourceBottomExtra, 0f)
+    ).takeIf { it.width > 1f && it.height > 1f }
+}

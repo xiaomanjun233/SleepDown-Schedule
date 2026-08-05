@@ -13,12 +13,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -53,13 +56,20 @@ fun LiquidButton(
     lensAmount: Dp = 24f.dp,
     chromaticAberration: Boolean = false,
     shadowEnabled: Boolean = true,
+    clickTargetEnabled: Boolean = true,
+    pressExpansion: Dp = 4f.dp,
+    interactionEnabledAt: (size: Size, offset: Offset) -> Boolean = { _, _ -> true },
     content: @Composable RowScope.() -> Unit
 ) {
     val animationScope = rememberCoroutineScope()
+    val latestInteractionEnabledAt = rememberUpdatedState(interactionEnabledAt)
 
     val interactiveHighlight = remember(animationScope) {
         InteractiveHighlight(
-            animationScope = animationScope
+            animationScope = animationScope,
+            acceptsGesture = { size, offset ->
+                latestInteractionEnabledAt.value(size, offset)
+            }
         )
     }
 
@@ -80,7 +90,8 @@ fun LiquidButton(
                         val height = size.height
 
                         val progress = interactiveHighlight.pressProgress
-                        val scale = lerp(1f, 1f + 4f.dp.toPx() / size.height, progress)
+                        val expansionPx = pressExpansion.toPx()
+                        val scale = lerp(1f, 1f + expansionPx / size.height, progress)
 
                         val maxOffset = size.minDimension
                         val initialDerivative = 0.05f
@@ -88,7 +99,7 @@ fun LiquidButton(
                         translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
                         translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
 
-                        val maxDragScale = 4f.dp.toPx() / size.height
+                        val maxDragScale = expansionPx / size.height
                         val offsetAngle = atan2(offset.y, offset.x)
                         scaleX =
                             scale +
@@ -112,11 +123,17 @@ fun LiquidButton(
                     }
                 }
             )
-            .clickable(
-                interactionSource = null,
-                indication = if (isInteractive) null else LocalIndication.current,
-                role = Role.Button,
-                onClick = onClick
+            .then(
+                if (clickTargetEnabled) {
+                    Modifier.clickable(
+                        interactionSource = null,
+                        indication = if (isInteractive) null else LocalIndication.current,
+                        role = Role.Button,
+                        onClick = onClick
+                    )
+                } else {
+                    Modifier
+                }
             )
             .then(
                 if (isInteractive) {

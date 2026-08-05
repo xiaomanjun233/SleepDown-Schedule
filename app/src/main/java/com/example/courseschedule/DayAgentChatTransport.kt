@@ -37,7 +37,7 @@ internal class DayAgentChatTransport {
     fun post(settings: AiImportSettings, body: String): String {
         val connection = openConnection(settings, body)
         return try {
-            connection.readResponse()
+            connection.readResponse(settings.profile.id)
         } finally {
             connection.disconnect()
         }
@@ -53,7 +53,7 @@ internal class DayAgentChatTransport {
                     ?.use { it.readText() }
                     .orEmpty()
                     .take(300)
-                throw IllegalStateException("AI 请求失败 ($code)：$error")
+                throw IllegalStateException(formatAiRequestError(code, error, settings.profile.id))
             }
             if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
                 val content = parseFullChatContent(
@@ -190,12 +190,12 @@ internal fun parseFullChatContent(response: String): String {
 
 internal class MissingAgentBodyException : IllegalStateException("AI 没有返回最终正文")
 
-private fun HttpURLConnection.readResponse(): String {
+private fun HttpURLConnection.readResponse(providerId: String): String {
     val code = responseCode
     val stream = if (code in 200..299) inputStream else errorStream
     val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
     if (code !in 200..299) {
-        throw IllegalStateException("AI 请求失败 ($code)：${text.take(300)}")
+        throw IllegalStateException(formatAiRequestError(code, text, providerId))
     }
     return text
 }

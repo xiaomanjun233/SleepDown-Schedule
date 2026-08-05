@@ -202,6 +202,7 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -879,29 +880,85 @@ internal fun WallpaperToneOverlay(config: ScheduleConfigEntity) {
 
 @Composable
 fun HomeBackdropFallback() {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.035f))
+    val colors = MaterialTheme.colorScheme
+    val dark = colors.background.luminance() < 0.5f
+
+    Canvas(Modifier.fillMaxSize()) {
+        drawRect(colors.background)
+        drawRect(
+            brush = Brush.verticalGradient(
+                colorStops = arrayOf(
+                    0f to colors.primaryContainer.copy(alpha = if (dark) 0.34f else 0.42f),
+                    0.24f to colors.surfaceVariant.copy(alpha = if (dark) 0.18f else 0.24f),
+                    0.52f to colors.background,
+                    0.76f to colors.tertiaryContainer.copy(alpha = if (dark) 0.22f else 0.30f),
+                    1f to colors.secondaryContainer.copy(alpha = if (dark) 0.18f else 0.26f)
+                ),
+                startY = 0f,
+                endY = size.height
+            )
         )
-        Box(
-            Modifier
-                .align(Alignment.TopEnd)
-                .size(220.dp)
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.32f))
+        drawRect(
+            brush = Brush.linearGradient(
+                colorStops = arrayOf(
+                    0f to ComposeColor.Transparent,
+                    0.18f to colors.primary.copy(alpha = if (dark) 0.18f else 0.15f),
+                    0.42f to colors.secondary.copy(alpha = if (dark) 0.10f else 0.09f),
+                    0.66f to ComposeColor.Transparent,
+                    1f to ComposeColor.Transparent
+                ),
+                start = Offset(-size.width * 0.20f, size.height * 0.02f),
+                end = Offset(size.width * 1.12f, size.height * 0.62f)
+            )
         )
-        Box(
-            Modifier
-                .align(Alignment.BottomStart)
-                .size(260.dp)
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.24f))
+        drawRect(
+            brush = Brush.linearGradient(
+                colorStops = arrayOf(
+                    0f to ComposeColor.Transparent,
+                    0.30f to ComposeColor.Transparent,
+                    0.54f to colors.tertiary.copy(alpha = if (dark) 0.14f else 0.12f),
+                    0.76f to colors.primary.copy(alpha = if (dark) 0.10f else 0.08f),
+                    1f to ComposeColor.Transparent
+                ),
+                start = Offset(size.width * 1.18f, size.height * 0.18f),
+                end = Offset(-size.width * 0.12f, size.height * 0.96f)
+            )
+        )
+        // A wallpaper normally provides the local edges that make refraction readable. These
+        // narrow, low-contrast bands provide the same sampling structure without turning the
+        // wallpaper-free state into a busy illustration.
+        drawRect(
+            brush = Brush.verticalGradient(
+                colorStops = arrayOf(
+                    0f to ComposeColor.Transparent,
+                    0.16f to ComposeColor.Transparent,
+                    0.23f to colors.onBackground.copy(alpha = if (dark) 0.045f else 0.026f),
+                    0.29f to ComposeColor.Transparent,
+                    0.47f to ComposeColor.Transparent,
+                    0.54f to colors.primary.copy(alpha = if (dark) 0.075f else 0.050f),
+                    0.61f to ComposeColor.Transparent,
+                    0.79f to ComposeColor.Transparent,
+                    0.86f to colors.onBackground.copy(alpha = if (dark) 0.038f else 0.022f),
+                    0.92f to ComposeColor.Transparent,
+                    1f to ComposeColor.Transparent
+                ),
+                startY = 0f,
+                endY = size.height
+            )
+        )
+        drawRect(
+            brush = Brush.linearGradient(
+                colorStops = arrayOf(
+                    0f to ComposeColor.Transparent,
+                    0.38f to ComposeColor.Transparent,
+                    0.47f to colors.secondary.copy(alpha = if (dark) 0.065f else 0.042f),
+                    0.54f to colors.onBackground.copy(alpha = if (dark) 0.032f else 0.018f),
+                    0.62f to ComposeColor.Transparent,
+                    1f to ComposeColor.Transparent
+                ),
+                start = Offset(-size.width * 0.08f, size.height * 0.70f),
+                end = Offset(size.width * 1.08f, size.height * 0.28f)
+            )
         )
     }
 }
@@ -1330,7 +1387,6 @@ internal fun DayScheduleScreen(
             val targetDate = dateForPage(page)
             val targetWeekOrNull = scheduleWeekForDateOrNull(state.config, targetDate)
             val targetWeek = targetWeekOrNull ?: effectiveCurrentWeek(state.config, targetDate)
-            val termStatus = scheduleTermStatusLabel(state.config, targetDate)
             val targetWeekday = targetDate.dayOfWeek.toChineseWeekday()
             val dayCourses = remember(state.courses, targetWeekOrNull, targetWeekday) {
                 if (targetWeekOrNull == null) emptyList() else weekCourseBuckets(state.courses, targetWeekOrNull)
@@ -1354,25 +1410,40 @@ internal fun DayScheduleScreen(
                 currentTimelinePeriod(state.periods, now)
             } else null
             val headerContent: @Composable () -> Unit = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    HomeReadableText(
-                        "${targetDate.monthValue}月${targetDate.dayOfMonth}日 周${weekdayLabel(targetWeekday)} · ${termStatus ?: "第${targetWeek}周"}",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = textColor
-                    )
-                    if (currentPeriod != null) {
-                        Spacer(Modifier.width(8.dp))
-                        Box(
+                currentPeriod?.let { period ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        GlassSurface(
+                            backdrop = backdrop,
+                            config = state.config,
+                            shape = RoundedRectangle(50.dp),
+                            tokens = GlassTokens.pill().copy(
+                                blur = 4.dp,
+                                surfaceAlpha = 0.72f,
+                                highlightAlpha = 0.10f,
+                                innerShadowAlpha = 0.10f
+                            ),
+                            baseSurfaceColorOverride = ComposeColor(0xFF0A84FF),
                             modifier = Modifier
-                                .background(ComposeColor(0xFF0A84FF), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
-                            Text(
-                                "第${currentPeriod.periodIndex}节",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = ComposeColor.White,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .widthIn(min = 80.dp)
+                                    .heightIn(min = 34.dp)
+                                    .padding(horizontal = 14.dp, vertical = 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "第${period.periodIndex}节",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = ComposeColor.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
                 }
@@ -1561,6 +1632,7 @@ private fun DayPartHeader(
 fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, entranceIndex: Int = 0, simultaneousCount: Int = 1) {
     val resolvedCardColor = courseCardBaseColor(config, course)
     val timePillColor = deepenColor(resolvedCardColor, 0.16f)
+    val glassContentColor = LocalAdaptiveGlass.current.contentColor
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         GlassSurface(
             backdrop = backdrop,
@@ -1578,7 +1650,11 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                     },
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     style = MaterialTheme.typography.labelLarge,
-                    color = readableOn(timePillColor)
+                    color = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && backdrop != null) {
+                        glassContentColor
+                    } else {
+                        readableOn(timePillColor)
+                    }
                 )
             }
         }

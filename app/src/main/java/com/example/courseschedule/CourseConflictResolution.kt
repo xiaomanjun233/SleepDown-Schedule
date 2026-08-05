@@ -102,6 +102,29 @@ fun conflictWeeksForEditedCourse(
         }
 }
 
+fun conflictWeeksForEditedCourseGroup(
+    originals: List<CourseEntity>,
+    edited: List<CourseEntity>,
+    courses: List<CourseEntity>
+): List<Int> {
+    val originalIds = originals.map(CourseEntity::id).toSet()
+    val otherCourses = courses.filterNot { it.id in originalIds }
+    return edited
+        .flatMap(CourseEntity::weeks)
+        .distinct()
+        .sorted()
+        .filter { week ->
+            edited.any { replacement ->
+                replacement.weekday in 1..7 &&
+                    week in replacement.weeks &&
+                    otherCourses.any { other ->
+                        replacement.conflictsWith(other, week) &&
+                            originals.none { original -> original.conflictsWith(other, week) }
+                    }
+            }
+        }
+}
+
 fun conflictWeeksForSingleWeekEdit(
     original: CourseEntity,
     edited: CourseEntity,

@@ -1258,10 +1258,17 @@ data class AppState(
 )
 
 @Immutable
+enum class ImportDraftSource {
+    STANDARD,
+    AI_EDU
+}
+
+@Immutable
 data class ImportDraft(
     val config: ScheduleConfigEntity,
     val periods: List<PeriodEntity>,
-    val courses: List<CourseEntity>
+    val courses: List<CourseEntity>,
+    val source: ImportDraftSource = ImportDraftSource.STANDARD
 )
 
 private data class MultiScheduleSnapshot(
@@ -1503,11 +1510,46 @@ class ScheduleRepository(private val database: AppDatabase) {
         courseDao.insertCourse(normalizeCoursesForSchedule(listOf(course.copy(id = 0)), scheduleId).single())
     }
 
+    suspend fun addCourses(courses: List<CourseEntity>) {
+        if (courses.isEmpty()) return
+        database.withTransaction {
+            val scheduleId = activeScheduleId()
+            courseDao.insertCourses(
+                normalizeCoursesForSchedule(courses.map { it.copy(id = 0) }, scheduleId)
+            )
+            mergeCompatibleCourseFragments(scheduleId)
+        }
+    }
+
     suspend fun updateCourse(course: CourseEntity) {
         database.withTransaction {
             val scheduleId = activeScheduleId()
             requireCurrentCourse(scheduleId, course.id)
             courseDao.updateCourse(normalizeCoursesForSchedule(listOf(course), scheduleId).single())
+        }
+    }
+
+    suspend fun replaceCourseGroup(originals: List<CourseEntity>, replacements: List<CourseEntity>) {
+        require(originals.isNotEmpty()) { "没有可更新的课程" }
+        require(replacements.isNotEmpty()) { "请至少选择一个上课星期和周次" }
+        database.withTransaction {
+            val scheduleId = activeScheduleId()
+            val originalIds = originals.map(CourseEntity::id).filter { it > 0 }.distinct().toSet()
+            require(originalIds.isNotEmpty()) { "课程记录已失效，请重新打开" }
+            val currentIds = courseDao.getCourses(scheduleId).map(CourseEntity::id).toSet()
+            require(originalIds.all(currentIds::contains)) { "课程已在其他操作中变更，请重新打开" }
+            originalIds.forEach { courseDao.deleteCourse(it) }
+            val normalized = normalizeCoursesForSchedule(
+                replacements.map { replacement ->
+                    replacement.copy(
+                        id = replacement.id.takeIf(originalIds::contains) ?: 0,
+                        scheduleId = scheduleId
+                    )
+                },
+                scheduleId
+            )
+            courseDao.insertCourses(normalized)
+            mergeCompatibleCourseFragments(scheduleId)
         }
     }
 
@@ -1570,6 +1612,33 @@ class ScheduleRepository(private val database: AppDatabase) {
             val scheduleId = activeScheduleId()
             requireCurrentCourse(scheduleId, course.id)
             courseDao.deleteCourse(course.id)
+        }
+    }
+
+    suspend fun deleteCourses(courses: List<CourseEntity>) {
+        if (courses.isEmpty()) return
+        database.withTransaction {
+            val scheduleId = activeScheduleId()
+            val currentIds = courseDao.getCourses(scheduleId).map(CourseEntity::id).toSet()
+            val ids = courses.map(CourseEntity::id).filter(currentIds::contains).distinct()
+            require(ids.isNotEmpty()) { "课程记录已失效，请重新打开" }
+            ids.forEach { courseDao.deleteCourse(it) }
+        }
+    }
+
+    suspend fun deleteCoursesSingleWeek(courses: List<CourseEntity>, targetWeek: Int) {
+        if (courses.isEmpty()) return
+        database.withTransaction {
+            val scheduleId = activeScheduleId()
+            val currentById = courseDao.getCourses(scheduleId).associateBy(CourseEntity::id)
+            val current = courses.mapNotNull { currentById[it.id] }.distinctBy(CourseEntity::id)
+            require(current.isNotEmpty()) { "课程记录已失效，请重新打开" }
+            current.forEach { course ->
+                val remainingWeeks = course.weeks.filterNot { it == targetWeek }
+                if (remainingWeeks.isEmpty()) courseDao.deleteCourse(course.id)
+                else courseDao.updateCourse(course.copy(weeks = remainingWeeks))
+            }
+            mergeCompatibleCourseFragments(scheduleId)
         }
     }
 
@@ -1743,6 +1812,16 @@ class ScheduleRepository(private val database: AppDatabase) {
             val current = configDao.getConfig(scheduleId) ?: return@withTransaction
             val merged = current.withChangesFrom(original, updated)
             configDao.upsertConfig(normalizeConfigForSchedule(merged, scheduleId))
+        }
+    }
+
+    suspend fun savePersonalizationSnapshot(updated: ScheduleConfigEntity): Boolean {
+        val scheduleId = updated.id
+        return database.withTransaction {
+            val current = configDao.getConfig(scheduleId) ?: return@withTransaction false
+            val merged = current.withPersonalizationFrom(updated)
+            configDao.upsertConfig(normalizeConfigForSchedule(merged, scheduleId))
+            current.wallpaperUri != merged.wallpaperUri
         }
     }
 
@@ -2336,6 +2415,34 @@ internal fun ScheduleConfigEntity.withChangesFrom(
         autoCheckUpdates = changed(original.autoCheckUpdates, updated.autoCheckUpdates, autoCheckUpdates)
     )
 }
+
+/**
+ * Replaces the complete set of fields owned by the personalization UI. Each queued save carries
+ * a self-contained snapshot, so conflating rapid edits cannot lose a toggle or mistake a value
+ * returning to its original state for "unchanged". Non-personalization settings stay database-led.
+ */
+internal fun ScheduleConfigEntity.withPersonalizationFrom(
+    updated: ScheduleConfigEntity
+): ScheduleConfigEntity = copy(
+    wallpaperUri = updated.wallpaperUri,
+    wallpaperBlur = updated.wallpaperBlur,
+    wallpaperBrightness = updated.wallpaperBrightness,
+    wallpaperPortraitCenterX = updated.wallpaperPortraitCenterX,
+    wallpaperPortraitCenterY = updated.wallpaperPortraitCenterY,
+    wallpaperPortraitScale = updated.wallpaperPortraitScale,
+    wallpaperLandscapeCenterX = updated.wallpaperLandscapeCenterX,
+    wallpaperLandscapeCenterY = updated.wallpaperLandscapeCenterY,
+    wallpaperLandscapeScale = updated.wallpaperLandscapeScale,
+    wallpaperSourceWidth = updated.wallpaperSourceWidth,
+    wallpaperSourceHeight = updated.wallpaperSourceHeight,
+    cardColorArgb = updated.cardColorArgb,
+    cardAlpha = updated.cardAlpha,
+    courseCardBlur = updated.courseCardBlur,
+    courseCardGlassEnabled = updated.courseCardGlassEnabled,
+    courseCardFontScale = updated.courseCardFontScale,
+    weekCardHeightDp = updated.weekCardHeightDp,
+    homeTextLight = updated.homeTextLight
+)
 
 fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, wallpaperPortraitCenterX = 0.5f, wallpaperPortraitCenterY = 0.5f, wallpaperPortraitScale = 1f, wallpaperLandscapeCenterX = 0.5f, wallpaperLandscapeCenterY = 0.5f, wallpaperLandscapeScale = 1f, wallpaperSourceWidth = null, wallpaperSourceHeight = null, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, weekCardHeightDp = null, homeTextLight = false, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.NONE, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false, autoCheckUpdates = true)
 

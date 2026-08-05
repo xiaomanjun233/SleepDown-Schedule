@@ -21,6 +21,24 @@ class HomeAnchoredMorphGeometryTest {
     }
 
     @Test
+    fun openingKeepsTheRealSourceCornerOnItsFirstFrame() {
+        val geometry = homeAnchoredMorphGeometry(
+            source = source,
+            target = target,
+            rawProgress = 0f,
+            closing = false,
+            sourceCornerRadiusPx = 12f,
+            pinchDiameterPx = 10f,
+            minimumDropPx = 36f,
+            maximumDropPx = 72f,
+            maximumArcPx = 48f,
+            targetCornerRadiusPx = 26f
+        )
+
+        assertEquals(12f, geometry.cornerRadiusPx, Tolerance)
+    }
+
+    @Test
     fun openingPinchesToTenPixelDropletAfterFalling() {
         val geometry = geometry(progress = HomeAnchoredMorphPinchFraction)
 
