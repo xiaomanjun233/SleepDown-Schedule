@@ -75,6 +75,7 @@ internal fun AiRuntimePicker(
 ) {
     val context = LocalContext.current
     val foreground = glassForegroundColor(config)
+    val lightGlass = glassUsesLightStyle(config)
     val profiles = remember(state.revision) {
         AiImportSettingsStore.selectableProfiles(context)
             .filter { it.id != AiProviderPresets.none.id }
@@ -189,7 +190,7 @@ internal fun AiRuntimePicker(
                     text = state.settings.profile.defaultModel.ifBlank {
                         state.settings.profile.displayName
                     },
-                    color = foreground.copy(alpha = 0.78f),
+                    color = foreground.copy(alpha = 0.92f),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
@@ -225,10 +226,14 @@ internal fun AiRuntimePicker(
                 shape = shape,
                 tokens = GlassTokens.pill(intensity = 0.72f).copy(
                     blur = 8.dp,
-                    surfaceAlpha = if (appUsesDarkTheme(config)) 0.08f else 0.14f,
+                    surfaceAlpha = if (lightGlass) 0.14f else 0.10f,
                     shadowAlpha = 0.06f
                 ),
-                baseSurfaceColorOverride = Color.White,
+                baseSurfaceColorOverride = if (lightGlass) {
+                    Color.White
+                } else {
+                    Color(0xFF111318)
+                },
                 onClick = state::open
             ) {
                 labelContent()

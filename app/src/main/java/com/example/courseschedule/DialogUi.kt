@@ -118,7 +118,7 @@ fun LiquidDialogSurface(
             Box(
                 modifier = (if (size == LiquidDialogSize.Standard) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
                     .clip(shape)
-                    .background(Color.Black.copy(alpha = if (lightGlass) 0.12f else 0.20f)),
+                    .background(Color.Black.copy(alpha = if (lightGlass) 0.035f else 0.20f)),
                 content = content
             )
         }

@@ -198,6 +198,7 @@ internal fun GlassMiuixDetailActivityScaffold(
     isolateContentFromBackdrop: Boolean,
     compactTopBar: Boolean,
     centerCompactTitle: Boolean,
+    compactTitleMatchesSettings: Boolean,
     topBarVisible: Boolean,
     topBarActions: @Composable (Backdrop?) -> Unit,
     content: @Composable (Backdrop?) -> Unit
@@ -247,6 +248,7 @@ internal fun GlassMiuixDetailActivityScaffold(
                                         backdrop = contentBackdrop,
                                         onBack = onBack,
                                         centerTitle = centerCompactTitle,
+                                        useSettingsTitleSize = compactTitleMatchesSettings,
                                         actions = { topBarActions(contentBackdrop) }
                                     )
                                 } else {

@@ -1665,7 +1665,7 @@ fun LiquidOptionTabs(
     onSelected: (Int) -> Unit
 ) {
     if (backdrop != null) {
-        CompositionLocalProvider(LocalContentColor provides appPanelForegroundColor(config)) {
+        CompositionLocalProvider(LocalContentColor provides glassForegroundColor(config)) {
             LiquidBottomTabs(
                 selectedTabIndex = { selectedIndex.coerceIn(labels.indices) },
                 onTabSelected = { index -> onSelected(index.coerceIn(labels.indices)) },
@@ -1683,7 +1683,7 @@ fun LiquidOptionTabs(
                 indicatorHeightOverflow = 0.dp,
                 pressedContentScale = 1.04f,
                 chromaticAberrationEnabled = !highContrast,
-                isLightThemeOverride = !appUsesDarkTheme(config),
+                isLightThemeOverride = glassUsesLightStyle(config),
                 useOfficialGlassParameters = true
             ) {
                 labels.forEachIndexed { index, label ->
@@ -2568,6 +2568,7 @@ fun SettingsInfoRow(title: String, body: String) {
 internal val LocalCollapsibleSettingsInfoRows = compositionLocalOf { false }
 
 private val changelogReleaseDates = mapOf(
+    "1.1.3" to "2026-08-08",
     "1.1.2" to "2026-08-05",
     "1.1.1" to "2026-08-01",
     "1.1.0" to "2026-07-30",

@@ -293,6 +293,8 @@ fun NormalizedAiManualImportScreen(
     backdrop: Backdrop?,
     onCancel: () -> Unit,
     captureHistoryBackground: suspend () -> Bitmap? = { null },
+    hiddenHistoryEntryId: String? = null,
+    onOpenHistoryEntry: (AiImportHistoryEntry, Rect, Bitmap?) -> Unit = { _, _, _ -> },
     onParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
@@ -668,6 +670,7 @@ fun NormalizedAiManualImportScreen(
         aiParsing = aiParsing,
         historyEntries = historyEntries,
         historySourceHidden = historySourceHidden,
+        hiddenHistoryEntryId = hiddenHistoryEntryId,
         onOpenHistory = { sourceBounds ->
             scope.launch {
                 val sourceSnapshot = captureHistoryBackground()
@@ -706,6 +709,12 @@ fun NormalizedAiManualImportScreen(
                 } finally {
                     sourcePlaceholder?.let { windowOverlay?.remove(it) }
                 }
+            }
+        },
+        onOpenHistoryEntry = { entry, sourceBounds ->
+            scope.launch {
+                val sourceSnapshot = captureHistoryBackground()?.cropToAiHistorySource(sourceBounds)
+                onOpenHistoryEntry(entry, sourceBounds, sourceSnapshot)
             }
         },
         onPrimaryAction = {
@@ -767,7 +776,9 @@ private fun AiManualImportDialogContent(
     aiParsing: Boolean,
     historyEntries: List<AiImportHistoryEntry>,
     historySourceHidden: Boolean,
+    hiddenHistoryEntryId: String?,
     onOpenHistory: (Rect) -> Unit,
+    onOpenHistoryEntry: (AiImportHistoryEntry, Rect) -> Unit,
     onPrimaryAction: () -> Unit
 ) {
     val textColor = glassForegroundColor(state.config)
@@ -801,7 +812,7 @@ private fun AiManualImportDialogContent(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(22.dp))
-                    .background(ComposeColor.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.18f else 0.08f))
+                    .background(ComposeColor.Black.copy(alpha = if (glassUsesLightStyle(state.config)) 0.035f else 0.18f))
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -820,7 +831,7 @@ private fun AiManualImportDialogContent(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(22.dp))
-                    .background(ComposeColor.Black.copy(alpha = if (appUsesDarkTheme(state.config)) 0.18f else 0.08f))
+                    .background(ComposeColor.Black.copy(alpha = if (glassUsesLightStyle(state.config)) 0.035f else 0.18f))
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -939,7 +950,30 @@ private fun AiManualImportDialogContent(
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 items(historyEntries.take(3), key = { it.id }) { entry ->
-                                    AiImportHistoryRowContent(entry, Modifier.fillMaxWidth())
+                                    var entryBounds by remember(entry.id) { mutableStateOf(Rect.Zero) }
+                                    Box(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(18.dp))
+                                            .background(textColor.copy(alpha = 0.055f))
+                                            .onGloballyPositioned { entryBounds = it.boundsInWindow() }
+                                            .drawWithContent {
+                                                if (hiddenHistoryEntryId != entry.id) drawContent()
+                                            }
+                                            .clickable(
+                                                enabled = hiddenHistoryEntryId != entry.id,
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                if (entryBounds.width > 1f) onOpenHistoryEntry(entry, entryBounds)
+                                            }
+                                    ) {
+                                        AiImportHistoryRowContent(
+                                            entry = entry,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            textColor = textColor
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -2643,19 +2677,30 @@ internal fun buildAiRevisionInput(
     instruction: String,
     history: AiEduImportProgress? = null
 ): String {
-    val root = draftToPayload(draft)
+    val compactSchedule = buildString {
+        appendLine("总周数：${draft.config.totalWeeks}")
+        appendLine("节次：${draft.periods.sortedBy { it.periodIndex }.joinToString("；") { "${it.periodIndex}:${it.startTime}-${it.endTime}" }}")
+        draft.courses.forEachIndexed { index, course ->
+            appendLine(
+                "#${index + 1} ${course.name} | 教师:${course.teacher.orEmpty()} | 地点:${course.location.orEmpty()} | " +
+                    "周${course.weekday} | 节:${course.periods.joinToString(",")} | 周次:${course.weeks.joinToString(",")} | ${course.weekParity} | 备注:${course.note.orEmpty()}"
+            )
+        }
+    }.trim()
     val priorRequests = history?.conversationTurns.orEmpty()
         .map { it.userPrompt }
         .ifEmpty { listOfNotNull(history?.userPrompt?.takeIf(String::isNotBlank)) }
         .joinToString("\n") { "- $it" }
     return """
-        这是当前已经通过本地校验的课表：
-        $root
+        这是当前已经通过本地校验的课表索引。每条课程前的 #编号 是稳定定位符：
+        $compactSchedule
 
         ${if (priorRequests.isNotBlank()) "此前用户要求：\n$priorRequests\n" else ""}
         用户要求：$instruction
         只修改用户明确指出的内容，保留其他课程、周次和节次。
-        如果当前课表足以完成修改，直接调用 IMPORT_SCHEDULE；只有用户要求复核、重新识别或核对原网页/附件，而当前课表不足以判断时，才调用 READ_ORIGINAL_IMPORT_SOURCE。不要为了普通字段修改读取原始材料。
+        直接调用 PATCH_SCHEDULE：replace_course 以 #编号完整替换一门课，add_course 新增，remove_course 删除，replace_periods 修改作息时间，set_total_weeks 修改总周数。只提交必要操作，不要回传完整课表。
+        changeSummary 必须逐项说明本轮实际改变了哪些课程及字段；没有改动时明确说明原因，禁止写泛泛的“已完成修改”。
+        只有用户要求复核、重新识别或核对原网页/附件，而当前课表不足以判断时，才调用 READ_ORIGINAL_IMPORT_SOURCE。不要为了普通字段修改读取原始材料。
     """.trimIndent()
 }
 

@@ -728,11 +728,18 @@ private fun CourseEditorFormPage(
     CompositionLocalProvider(LocalContentColor provides editorContentColor) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = if (pageCount > 1) 52.dp else 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(
+            top = if (course == null) 0.dp else 6.dp,
+            bottom = when {
+                pageCount > 1 -> 52.dp
+                course == null -> 32.dp
+                else -> 16.dp
+            }
+        ),
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)
     ) {
         item(key = "header", contentType = "header") {
-            Box(Modifier.padding(top = 6.dp)) {
+            Box {
                 DialogHeader(
                     title = if (course == null) "添加单节课" else "编辑单节课",
                     onCancel = onCancel,
@@ -953,8 +960,8 @@ private fun CourseEditorPickerValue(
     config: ScheduleConfigEntity,
     onClick: () -> Unit
 ) {
-    val dark = appUsesDarkTheme(config)
-    val buttonSurface = if (dark) ComposeColor.Black.copy(alpha = 0.46f) else ComposeColor.White.copy(alpha = 0.62f)
+    val dark = !glassUsesLightStyle(config)
+    val buttonSurface = ComposeColor(0xFF15191F).copy(alpha = if (dark) 0.28f else 0.22f)
     val buttonTextColor = if (dark) ComposeColor.White else ComposeColor(0xFF111111)
     Row(
         modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 16.dp),
@@ -966,28 +973,28 @@ private fun CourseEditorPickerValue(
             LiquidButton(
                 onClick = onClick,
                 backdrop = backdrop,
-                modifier = Modifier.wrapContentWidth(),
+                modifier = Modifier.width(150.dp),
                 height = 42.dp,
                 surfaceColor = buttonSurface,
                 contentPadding = PaddingValues(horizontal = 15.dp),
-                blurRadius = 8.dp,
-                lensHeight = 16.dp,
-                lensAmount = 24.dp,
+                blurRadius = 16.dp,
+                lensHeight = 10.dp,
+                lensAmount = 12.dp,
                 chromaticAberration = false
             ) {
-                Text(value, color = buttonTextColor, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                Text(value, color = buttonTextColor, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             }
         } else {
             Box(
                 modifier = Modifier
-                    .wrapContentWidth()
+                    .width(150.dp)
                     .clip(RoundedCornerShape(50.dp))
                     .background(buttonSurface)
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
                     .padding(horizontal = 15.dp, vertical = 11.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(value, color = buttonTextColor, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                Text(value, color = buttonTextColor, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             }
         }
     }
@@ -1001,7 +1008,7 @@ private fun CourseEditorPickerOverlay(
     renderInRootScaffold: Boolean,
     onDismiss: () -> Unit
 ) {
-    val dark = appUsesDarkTheme(config)
+    val dark = !glassUsesLightStyle(config)
     val pickerContentColor = if (dark) ComposeColor.White else ComposeColor(0xFF111111)
     val wheelRequest = request as? CourseEditorPickerRequest.Wheel
     val gridRequest = request as? CourseEditorPickerRequest.Grid

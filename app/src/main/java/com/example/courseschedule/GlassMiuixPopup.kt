@@ -78,7 +78,7 @@ private fun Modifier.miuixCascadingPopupSurface(
     config: ScheduleConfigEntity,
     blurRadius: Dp
 ): Modifier {
-    val dark = appUsesDarkTheme(config)
+    val dark = !glassUsesLightStyle(config)
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
         return background(settingsPageBackground(settingsVisualConfig(config)))
     }
@@ -129,7 +129,7 @@ internal fun GlassMiuixCascadingPopup(
     collapseOnSelection: Boolean = true
 ) {
     val transparent = Color.Transparent
-    val popupColors = if (appUsesDarkTheme(config)) {
+    val popupColors = if (!glassUsesLightStyle(config)) {
         darkColorScheme(
             primary = MaterialTheme.colorScheme.primary,
             background = transparent,

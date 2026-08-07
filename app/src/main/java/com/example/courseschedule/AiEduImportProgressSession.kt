@@ -16,6 +16,8 @@ data class AiEduImportProgress(
     val requestSent: Boolean = false,
     val reasoningOutput: String = "",
     val aiOutput: String = "",
+    /** Human-readable state while the model is still processing the active request. */
+    val liveSummary: String = "",
     val awaitingConfirmation: Boolean = false,
     val confirmActionLabel: String = "",
     val secondaryConfirmActionLabel: String = "",

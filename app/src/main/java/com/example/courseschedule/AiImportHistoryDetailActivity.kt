@@ -9,8 +9,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -79,7 +82,8 @@ class AiImportHistoryDetailActivity : ComponentActivity() {
                             entry?.let {
                                 AiImportHistoryRowContent(
                                     entry = it,
-                                    modifier = Modifier.fillMaxSize()
+                                    modifier = Modifier.fillMaxSize(),
+                                    textColor = glassForegroundColor(settingsVisualConfig(state.config))
                                 )
                             }
                         }
@@ -128,22 +132,64 @@ class AiImportHistoryDetailActivity : ComponentActivity() {
 @Composable
 internal fun AiImportHistoryRowContent(
     entry: AiImportHistoryEntry,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    textColor: Color = Color.White
 ) {
-    MiuixBasicComponent(
-        title = entry.title,
-        summary = listOf(
-            DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                .format(Date(entry.createdAt)),
-            entry.sourceSummary,
-            entry.prompt
-        ).filter { it.isNotBlank() }.joinToString(" · "),
-        modifier = modifier,
-        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
-    )
+    val summary = listOf(
+        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+            .format(Date(entry.createdAt)),
+        entry.sourceSummary,
+        entry.prompt
+    ).filter { it.isNotBlank() }.joinToString(" · ")
+    Column(modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Text(entry.title, color = textColor, style = MaterialTheme.typography.titleMedium)
+        Text(
+            summary,
+            color = textColor.copy(alpha = 0.68f),
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 2
+        )
+    }
 }
 
-private fun historyConversationProgress(
+internal data class AiImportHistoryDetailMorphRequest(
+    val entry: AiImportHistoryEntry,
+    val draft: ImportDraft,
+    val sourceBounds: androidx.compose.ui.geometry.Rect,
+    val sourceSnapshot: android.graphics.Bitmap? = null
+)
+
+@Composable
+internal fun AiImportHistoryDetailMorphOverlay(
+    request: AiImportHistoryDetailMorphRequest,
+    config: ScheduleConfigEntity,
+    onSourceHandoff: () -> Unit,
+    onClosed: () -> Unit,
+    onImportRequested: (ImportDraft, Boolean) -> Unit,
+    sourceContent: @Composable BoxScope.() -> Unit
+) {
+    AnchoredDetailActivityMorph(
+        sourceBounds = request.sourceBounds,
+        sourceCornerRadius = 18.dp,
+        sourceSnapshot = request.sourceSnapshot,
+        motionStyle = AnchoredDetailMotionStyle.DetailSettings,
+        onSourceHandoff = onSourceHandoff,
+        onFinished = onClosed,
+        sourceContent = sourceContent
+    ) { requestClose ->
+        AiEduImportProgressPage(
+            config = config,
+            onClose = requestClose,
+            historicalProgress = historyConversationProgress(request.entry, request.draft),
+            historicalDraft = request.draft,
+            historicalEntryId = request.entry.id,
+            showHistoryAction = false,
+            onImportRequested = onImportRequested
+        )
+    }
+}
+
+internal fun historyConversationProgress(
     entry: AiImportHistoryEntry,
     draft: ImportDraft
 ): AiEduImportProgress = entry.context?.copy(

@@ -139,6 +139,7 @@ internal fun AnchoredDetailActivityMorph(
     sourceBounds: Rect?,
     sourceCornerRadius: Dp,
     onFinished: () -> Unit,
+    onSourceHandoff: () -> Unit = {},
     sourceContent: @Composable BoxScope.() -> Unit,
     backgroundSnapshot: Bitmap? = null,
     sourceSnapshot: Bitmap? = null,
@@ -190,6 +191,7 @@ internal fun AnchoredDetailActivityMorph(
             // transition and avoids a backdrop-heavy page entering composition mid-animation.
             withFrameNanos { }
             withFrameNanos { }
+            onSourceHandoff()
             coroutineScope {
                 launch {
                     backgroundScale.animateTo(

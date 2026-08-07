@@ -24,6 +24,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -221,7 +222,9 @@ internal fun AiEduImportProgressPage(
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) historySourceHidden = false
+            if (event == Lifecycle.Event.ON_RESUME) {
+                historySourceHidden = false
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -234,13 +237,6 @@ internal fun AiEduImportProgressPage(
         onClose()
     }
 
-    LaunchedEffect(current.steps.size, current.reasoningOutput.length, current.error, current.finished) {
-        withFrameNanos { }
-        if (current.requestSent) {
-            val last = listState.layoutInfo.totalItemsCount - 1
-            if (last >= 0) listState.animateScrollToItem(last)
-        }
-    }
     Box(
         Modifier
             .fillMaxSize()
@@ -338,6 +334,19 @@ internal fun AiEduImportProgressPage(
                         onPreview = { previewAttachment = it }
                     )
                 }
+                current.conversationTurns.forEachIndexed { index, turn ->
+                    item(key = "conversation-turn-${index}-${turn.userPrompt.hashCode()}") {
+                        AiEduConversationTurnSummary(
+                            turn = turn,
+                            index = index + 1,
+                            textColor = textColor
+                        )
+                    }
+                }
+                val summary = current.liveSummary.ifBlank { current.reasoningOutput }
+                if (summary.isNotBlank()) item {
+                    AiEduModelSummary(summary = summary, textColor = textColor)
+                }
                 if (current.steps.isNotEmpty()) item {
                     AgentRunTrace(
                         statuses = aiEduAgentRunStatuses(current),
@@ -412,14 +421,33 @@ internal fun AiEduImportProgressPage(
                             conversationSending = true
                             conversationScope.launch {
                                 val settings = AiImportSettingsStore.load(context)
-                                updateProgress(
-                                    current.copy(
-                                        steps = current.steps + "正在按你的新要求修改",
-                                        userPrompt = prompt,
-                                        finished = false,
-                                        error = null
-                                    )
+                                var workingProgress = current.copy(
+                                    steps = current.steps + listOf(
+                                        "正在理解你的新要求",
+                                        "模型正在分析课程、周次和节次"
+                                    ),
+                                    userPrompt = prompt,
+                                    liveSummary = "我正在理解你的修改要求，并核对现有课程、周次和节次信息。",
+                                    finished = false,
+                                    error = null
                                 )
+                                updateProgress(workingProgress)
+                                val progressTicker = launch {
+                                    listOf(
+                                        "模型正在核对现有课表结构",
+                                        "模型正在生成修改方案",
+                                        "仍在等待模型完成，请保留此页面"
+                                    ).forEach { summary ->
+                                        delay(2_400)
+                                        if (!workingProgress.finished) {
+                                            workingProgress = workingProgress.copy(
+                                                steps = workingProgress.steps + summary,
+                                                liveSummary = summary
+                                            )
+                                            updateProgress(workingProgress)
+                                        }
+                                    }
+                                }
                                 AiScheduleImportService(context)
                                     .reviseSchedule(baseDraft, prompt, current, settings)
                                     .mapCatching { result ->
@@ -430,6 +458,7 @@ internal fun AiEduImportProgressPage(
                                         revised to result
                                     }
                                     .onSuccess { (revised, result) ->
+                                        progressTicker.cancel()
                                         val previousTurns = current.conversationTurns.ifEmpty {
                                             listOf(
                                                 AiEduImportConversationTurn(
@@ -439,12 +468,15 @@ internal fun AiEduImportProgressPage(
                                                 )
                                             )
                                         }
-                                        val nextProgress = current.copy(
-                                            steps = current.steps + listOf("已理解修改要求", "已调用课表工具", "修改结果通过校验"),
+                                        val nextProgress = workingProgress.copy(
+                                            steps = workingProgress.steps + listOf("模型已给出修改摘要", "修改结果通过本地校验"),
                                             userPrompt = prompt,
                                             requestSent = true,
                                             reasoningOutput = result.reasoningOutput,
                                             aiOutput = result.rawOutput,
+                                            liveSummary = result.reasoningOutput.ifBlank {
+                                                "本轮已按你的要求更新课表，并通过本地校验。"
+                                            },
                                             finished = true,
                                             error = null,
                                             conversationTurns = previousTurns + AiEduImportConversationTurn(
@@ -462,10 +494,10 @@ internal fun AiEduImportProgressPage(
                                         }
                                     }
                                     .onFailure { error ->
+                                        progressTicker.cancel()
                                         updateProgress(
-                                            current.copy(
-                                                steps = current.steps + "本次修改未完成",
-                                                userPrompt = prompt,
+                                            workingProgress.copy(
+                                                steps = workingProgress.steps + "本次修改未完成",
                                                 finished = true,
                                                 error = error.message ?: "AI 没有完成这次修改"
                                             )
@@ -495,6 +527,40 @@ internal fun AiEduImportProgressPage(
                 }
             )
         }
+    }
+}
+
+@Composable
+private fun AiEduConversationTurnSummary(
+    turn: AiEduImportConversationTurn,
+    index: Int,
+    textColor: Color
+) {
+    val summary = turn.reasoningOutput.ifBlank { "模型已完成这一轮修改。" }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(textColor.copy(alpha = 0.055f))
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text("第 $index 轮修改", color = textColor.copy(alpha = 0.64f), style = MaterialTheme.typography.labelMedium)
+        Text(turn.userPrompt, color = textColor, style = MaterialTheme.typography.bodyMedium, maxLines = 3)
+        Text(summary, color = textColor.copy(alpha = 0.70f), style = MaterialTheme.typography.bodySmall, maxLines = 5)
+    }
+}
+
+@Composable
+private fun AiEduModelSummary(summary: String, textColor: Color) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text("模型摘要", color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
+        Text(summary, color = textColor.copy(alpha = 0.86f), style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -628,6 +694,7 @@ private fun AiEduHistoryButton(
 @Composable
 internal fun AiEduHistorySwipeRow(
     entry: AiImportHistoryEntry,
+    textColor: Color = Color.White,
     showSource: Boolean = true,
     onDelete: () -> Unit,
     onOpen: (Rect) -> Unit
@@ -780,7 +847,11 @@ internal fun AiEduHistorySwipeRow(
                 ) {
                     AiImportHistoryRowContent(
                          entry = entry,
-                         modifier = Modifier.fillMaxSize().clickable {
+                         textColor = textColor,
+                         modifier = Modifier.fillMaxSize().clickable(
+                             interactionSource = remember { MutableInteractionSource() },
+                             indication = null
+                         ) {
                              if (abs(offset.value) > with(density) { 2.dp.toPx() }) {
                                  scope.launch { offset.animateTo(0f, settleSpring) }
                              } else if (cardBounds.width > 0f) {

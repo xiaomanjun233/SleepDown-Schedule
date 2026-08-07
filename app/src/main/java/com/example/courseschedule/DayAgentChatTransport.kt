@@ -164,7 +164,9 @@ internal class DayAgentChatTransport {
         ).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
         connection.connectTimeout = 30_000
-        connection.readTimeout = 120_000
+        // Streaming providers may legitimately pause while reasoning. This is an inactivity
+        // timeout, not a total request deadline; keep it long enough for those pauses.
+        connection.readTimeout = 600_000
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         if (settings.profile.authType == AiAuthType.CustomHeader) {

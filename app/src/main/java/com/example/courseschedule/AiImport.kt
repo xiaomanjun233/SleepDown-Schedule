@@ -33,6 +33,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -1334,8 +1335,9 @@ class AiScheduleImportService(private val context: Context) {
                     OpenAiResponsesProvider().reviseSchedule(config, request, history)
                 else -> OpenAiCompatibleChatProvider().reviseSchedule(config, request, history)
             }
+            val revisedDraft = applyAiSchedulePatch(draft, result.content)
             AiScheduleImportResult(
-                output = result.content,
+                output = draftToPayload(revisedDraft).toString(),
                 routeMessage = "已按要求修改课表。",
                 rawOutput = result.content,
                 reasoningOutput = result.reasoning
@@ -1685,7 +1687,7 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
         val firstBody = buildJsonObject {
             put("model", JsonPrimitive(config.model))
             put("messages", initialMessages)
-            put("tools", JsonArray(listOf(readOriginalSourceChatTool(), scheduleImportChatTool())))
+            put("tools", JsonArray(listOf(readOriginalSourceChatTool(), schedulePatchChatTool())))
             put("tool_choice", JsonPrimitive("auto"))
             put("temperature", JsonPrimitive(0.1))
             putChatOutputBudget(config)
@@ -1697,7 +1699,7 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
             config.authType,
             config.providerId
         )
-        parseScheduleToolResult(firstResponse)?.let { return it }
+        parseSchedulePatchToolResult(firstResponse)?.let { return it }
         val root = Json.parseToJsonElement(firstResponse).jsonObject
         val assistantMessage = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
             ?.get("message")?.jsonObject
@@ -1726,10 +1728,10 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
         val secondBody = buildJsonObject {
             put("model", JsonPrimitive(config.model))
             put("messages", secondMessages)
-            put("tools", JsonArray(listOf(scheduleImportChatTool())))
+            put("tools", JsonArray(listOf(schedulePatchChatTool())))
             put("tool_choice", buildJsonObject {
                 put("type", JsonPrimitive("function"))
-                put("function", buildJsonObject { put("name", JsonPrimitive(ScheduleImportToolName)) })
+                put("function", buildJsonObject { put("name", JsonPrimitive(SchedulePatchToolName)) })
             })
             put("temperature", JsonPrimitive(0.1))
             putChatOutputBudget(config)
@@ -1741,7 +1743,7 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
             config.authType,
             config.providerId
         )
-        return parseScheduleToolResult(secondResponse)
+        return parseSchedulePatchToolResult(secondResponse)
             ?: throw AiServiceResponseException("模型读取原始材料后未提交课表", secondResponse)
     }
 
@@ -1951,7 +1953,7 @@ private class OpenAiResponsesProvider : AiScheduleImportProvider {
             put("store", JsonPrimitive(false))
             put("input", JsonArray(listOf(initialInput)))
             putResponsesReasoning(config)
-            put("tools", JsonArray(listOf(readOriginalSourceResponsesTool(), scheduleImportResponsesTool())))
+            put("tools", JsonArray(listOf(readOriginalSourceResponsesTool(), schedulePatchResponsesTool())))
             put("tool_choice", JsonPrimitive("auto"))
         }
         val firstResponse = postJson(
@@ -1961,7 +1963,7 @@ private class OpenAiResponsesProvider : AiScheduleImportProvider {
             config.authType,
             config.providerId
         )
-        parseScheduleToolResult(firstResponse)?.let { return it }
+        parseSchedulePatchToolResult(firstResponse)?.let { return it }
         val root = Json.parseToJsonElement(firstResponse).jsonObject
         val outputItems = root["output"]?.jsonArray?.mapNotNull { it as? JsonObject }.orEmpty()
         val readCall = outputItems.firstOrNull {
@@ -2001,10 +2003,10 @@ private class OpenAiResponsesProvider : AiScheduleImportProvider {
             put("store", JsonPrimitive(false))
             put("input", secondInput)
             putResponsesReasoning(config)
-            put("tools", JsonArray(listOf(scheduleImportResponsesTool())))
+            put("tools", JsonArray(listOf(schedulePatchResponsesTool())))
             put("tool_choice", buildJsonObject {
                 put("type", JsonPrimitive("function"))
-                put("name", JsonPrimitive(ScheduleImportToolName))
+                put("name", JsonPrimitive(SchedulePatchToolName))
             })
         }
         val secondResponse = postJson(
@@ -2014,7 +2016,7 @@ private class OpenAiResponsesProvider : AiScheduleImportProvider {
             config.authType,
             config.providerId
         )
-        return parseScheduleToolResult(secondResponse)
+        return parseSchedulePatchToolResult(secondResponse)
             ?: throw AiServiceResponseException("模型读取原始材料后未提交课表", secondResponse)
     }
 }
@@ -2531,9 +2533,11 @@ fun aiSchedulePrompt(): String = """
 识别输入中的真实课表，并调用 IMPORT_SCHEDULE 工具提交结果。
 以可见的表头、星期、节次、课程块和周次为准；不要重复长图接缝处的课程。
 不确定的信息保留在 note 中，不要猜测。每门课的 periods 和 weeks 均不能为空。
+changeSummary 必须用简洁中文说明本次识别或修改了哪些课程字段，不能只写“已完成”。
 """.trimIndent()
 
 private const val ScheduleImportToolName = "IMPORT_SCHEDULE"
+private const val SchedulePatchToolName = "PATCH_SCHEDULE"
 private const val ReadOriginalSourceToolName = "READ_ORIGINAL_IMPORT_SOURCE"
 
 private fun scheduleJsonSchemaFormat(): JsonObject = buildJsonObject {
@@ -2552,7 +2556,7 @@ private fun scheduleJsonSchema(): JsonObject = buildJsonObject {
 private fun scheduleJsonSchemaBody(): JsonObject = buildJsonObject {
     put("type", JsonPrimitive("object"))
     put("additionalProperties", JsonPrimitive(false))
-    put("required", JsonArray(listOf(JsonPrimitive("schemaVersion"), JsonPrimitive("scheduleConfig"), JsonPrimitive("courses"))))
+    put("required", JsonArray(listOf(JsonPrimitive("schemaVersion"), JsonPrimitive("scheduleConfig"), JsonPrimitive("courses"), JsonPrimitive("changeSummary"))))
     put("properties", buildJsonObject {
         put("schemaVersion", buildJsonObject {
             put("type", JsonPrimitive("integer"))
@@ -2622,6 +2626,10 @@ private fun scheduleJsonSchemaBody(): JsonObject = buildJsonObject {
                 })
             })
         })
+        put("changeSummary", buildJsonObject {
+            put("type", JsonPrimitive("string"))
+            put("description", JsonPrimitive("本轮实际变更摘要。列出课程名称及新增、删除或改动的字段；禁止只写已完成。"))
+        })
     })
 }
 
@@ -2662,6 +2670,77 @@ private fun scheduleImportResponsesTool(): JsonObject = buildJsonObject {
     put("parameters", scheduleJsonSchemaBody())
 }
 
+/** A compact, provider-neutral edit protocol for existing imported schedules. */
+private fun schedulePatchSchemaBody(): JsonObject = buildJsonObject {
+    put("type", JsonPrimitive("object"))
+    put("additionalProperties", JsonPrimitive(false))
+    put("required", JsonArray(listOf(JsonPrimitive("changeSummary"), JsonPrimitive("operations"))))
+    put("properties", buildJsonObject {
+        put("changeSummary", buildJsonObject {
+            put("type", JsonPrimitive("string"))
+            put("description", JsonPrimitive("逐项说明实际更改的课程和字段，禁止只写已完成。"))
+        })
+        put("operations", buildJsonObject {
+            put("type", JsonPrimitive("array"))
+            put("maxItems", JsonPrimitive(16))
+            put("items", buildJsonObject {
+                put("type", JsonPrimitive("object"))
+                put("additionalProperties", JsonPrimitive(false))
+                put("required", JsonArray(listOf(
+                    JsonPrimitive("type"), JsonPrimitive("index"), JsonPrimitive("course"),
+                    JsonPrimitive("periods"), JsonPrimitive("totalWeeks")
+                )))
+                put("properties", buildJsonObject {
+                    put("type", buildJsonObject {
+                        put("type", JsonPrimitive("string"))
+                        put("enum", JsonArray(listOf("replace_course", "add_course", "remove_course", "replace_periods", "set_total_weeks").map(::JsonPrimitive)))
+                    })
+                    put("index", buildJsonObject { put("type", JsonPrimitive("integer")); put("minimum", JsonPrimitive(0)) })
+                    put("course", nullableRevisionCourseSchema())
+                    put("periods", buildJsonObject {
+                        put("type", JsonPrimitive("array"))
+                        put("items", buildJsonObject {
+                            put("type", JsonPrimitive("object")); put("additionalProperties", JsonPrimitive(false))
+                            put("required", JsonArray(listOf(JsonPrimitive("index"), JsonPrimitive("startTime"), JsonPrimitive("endTime"))))
+                            put("properties", buildJsonObject {
+                                put("index", buildJsonObject { put("type", JsonPrimitive("integer")) })
+                                put("startTime", buildJsonObject { put("type", JsonPrimitive("string")) })
+                                put("endTime", buildJsonObject { put("type", JsonPrimitive("string")) })
+                            })
+                        })
+                    })
+                    put("totalWeeks", buildJsonObject { put("type", JsonPrimitive("integer")); put("minimum", JsonPrimitive(0)); put("maximum", JsonPrimitive(60)) })
+                })
+            })
+        })
+    })
+}
+
+private fun nullableRevisionCourseSchema(): JsonObject = buildJsonObject {
+    put("type", JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))
+    put("additionalProperties", JsonPrimitive(false))
+    put("required", JsonArray(listOf("name", "teacher", "location", "weekday", "periods", "weeks", "weekParity", "note").map(::JsonPrimitive)))
+    put("properties", scheduleJsonSchemaBody().jsonObject["properties"]!!.jsonObject["courses"]!!.jsonObject["items"]!!.jsonObject["properties"]!!)
+}
+
+private fun schedulePatchChatTool(): JsonObject = buildJsonObject {
+    put("type", JsonPrimitive("function"))
+    put("function", buildJsonObject {
+        put("name", JsonPrimitive(SchedulePatchToolName))
+        put("description", JsonPrimitive("对已有课表应用局部操作；只提交需要改变的课程或配置，不要回传整份课表。"))
+        put("strict", JsonPrimitive(true))
+        put("parameters", schedulePatchSchemaBody())
+    })
+}
+
+private fun schedulePatchResponsesTool(): JsonObject = buildJsonObject {
+    put("type", JsonPrimitive("function"))
+    put("name", JsonPrimitive(SchedulePatchToolName))
+    put("description", JsonPrimitive("对已有课表应用局部操作；只提交需要改变的课程或配置，不要回传整份课表。"))
+    put("strict", JsonPrimitive(true))
+    put("parameters", schedulePatchSchemaBody())
+}
+
 private fun readOriginalSourceResponsesTool(): JsonObject = buildJsonObject {
     put("type", JsonPrimitive("function"))
     put("name", JsonPrimitive(ReadOriginalSourceToolName))
@@ -2692,9 +2771,106 @@ private fun parseScheduleToolResult(response: String): AiProviderTextResult? {
         if (value is JsonPrimitive) value.contentOrNull else value.toString()
     }?.trim().orEmpty()
     if (arguments.isBlank()) return null
-    val reasoning = runCatching {
+    val modelReasoning = runCatching {
         if (root.containsKey("choices")) parseChatCompletionTextResult(response, requireContent = false).reasoning
         else parseResponsesTextResult(response).reasoning
     }.getOrDefault("")
+    val changeSummary = runCatching {
+        Json.parseToJsonElement(arguments).jsonObject["changeSummary"]
+            ?.jsonPrimitive?.contentOrNull.orEmpty()
+    }.getOrDefault("")
+    val reasoning = listOf(changeSummary, modelReasoning)
+        .filter { it.isNotBlank() }
+        .joinToString("\n\n")
     return AiProviderTextResult(arguments, reasoning, "tool_call")
 }
+
+private fun parseSchedulePatchToolResult(response: String): AiProviderTextResult? {
+    val root = runCatching { Json.parseToJsonElement(response).jsonObject }.getOrNull() ?: return null
+    val chatCall = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
+        ?.get("message")?.jsonObject?.get("tool_calls")?.jsonArray?.firstOrNull()?.jsonObject
+        ?.get("function")?.jsonObject
+    val responseCall = root["output"]?.jsonArray?.mapNotNull { it as? JsonObject }
+        ?.firstOrNull { it["type"]?.jsonPrimitive?.contentOrNull == "function_call" }
+    val call = chatCall ?: responseCall ?: return null
+    if (call["name"]?.jsonPrimitive?.contentOrNull != SchedulePatchToolName) return null
+    val arguments = call["arguments"]?.let { value ->
+        if (value is JsonPrimitive) value.contentOrNull else value.toString()
+    }?.trim().orEmpty()
+    if (arguments.isBlank()) return null
+    val changeSummary = runCatching {
+        Json.parseToJsonElement(arguments).jsonObject["changeSummary"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    }.getOrDefault("")
+    require(changeSummary.isNotBlank()) { "模型没有提供本轮修改摘要" }
+    return AiProviderTextResult(arguments, changeSummary, "tool_call")
+}
+
+private fun applyAiSchedulePatch(base: ImportDraft, patchText: String): ImportDraft {
+    val root = Json.parseToJsonElement(patchText).jsonObject
+    val operations = root["operations"]?.jsonArray ?: error("PATCH_SCHEDULE 缺少 operations")
+    var courses = base.courses.toMutableList()
+    var periods = base.periods.toMutableList()
+    var totalWeeks = base.config.totalWeeks
+    fun courseAt(index: Int): CourseEntity = courses.getOrNull(index - 1)
+        ?: error("PATCH_SCHEDULE 引用了不存在的课程索引 #$index")
+    operations.forEach { raw ->
+        val operation = raw.jsonObject
+        val type = operation["type"]?.jsonPrimitive?.contentOrNull ?: error("PATCH_SCHEDULE 缺少操作类型")
+        val index = operation["index"]?.jsonPrimitive?.intOrNull ?: 0
+        when (type) {
+            "replace_course" -> {
+                val previous = courseAt(index)
+                courses[index - 1] = revisionCourseFromJson(
+                    operation["course"]?.jsonObject ?: error("replace_course 缺少 course"),
+                    previous
+                )
+            }
+            "add_course" -> courses += revisionCourseFromJson(
+                operation["course"]?.jsonObject ?: error("add_course 缺少 course"),
+                CourseEntity(scheduleId = base.config.id, name = "", teacher = null, location = null, weekday = 1, periods = listOf(1), weeks = listOf(1), weekParity = WeekParity.ALL, note = null)
+            ).copy(id = 0)
+            "remove_course" -> {
+                courseAt(index)
+                courses.removeAt(index - 1)
+            }
+            "replace_periods" -> {
+                val values = operation["periods"]?.jsonArray ?: error("replace_periods 缺少 periods")
+                periods = values.map { value ->
+                    val item = value.jsonObject
+                    PeriodEntity(
+                        periodIndex = item["index"]?.jsonPrimitive?.intOrNull ?: error("节次缺少 index"),
+                        startTime = item["startTime"]?.jsonPrimitive?.contentOrNull ?: error("节次缺少 startTime"),
+                        endTime = item["endTime"]?.jsonPrimitive?.contentOrNull ?: error("节次缺少 endTime"),
+                        scheduleId = base.config.id
+                    )
+                }.sortedBy { it.periodIndex }.toMutableList()
+            }
+            "set_total_weeks" -> totalWeeks = (operation["totalWeeks"]?.jsonPrimitive?.intOrNull ?: 0).also {
+                require(it in 1..60) { "总周数必须在 1 到 60 之间" }
+            }
+            else -> error("不支持的 PATCH_SCHEDULE 操作：$type")
+        }
+    }
+    val candidate = base.copy(
+        config = base.config.copy(totalWeeks = totalWeeks),
+        periods = periods,
+        courses = courses
+    )
+    return ScheduleImportParser.parse(draftToPayload(candidate).toString(), base.config)
+        .getOrThrow()
+        .copy(source = ImportDraftSource.AI_EDU)
+}
+
+private fun revisionCourseFromJson(value: JsonObject, previous: CourseEntity): CourseEntity = previous.copy(
+    name = value["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { error("课程名称不能为空") },
+    teacher = value["teacher"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
+    location = value["location"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
+    weekday = value["weekday"]?.jsonPrimitive?.intOrNull?.also { require(it in 1..7) } ?: error("课程缺少 weekday"),
+    periods = value["periods"]?.jsonArray?.mapNotNull { it.jsonPrimitive.intOrNull }?.distinct()?.sorted()
+        ?.takeIf { it.isNotEmpty() } ?: error("课程 periods 不能为空"),
+    weeks = value["weeks"]?.jsonArray?.mapNotNull { it.jsonPrimitive.intOrNull }?.distinct()?.sorted()
+        ?.takeIf { it.isNotEmpty() } ?: error("课程 weeks 不能为空"),
+    weekParity = value["weekParity"]?.jsonPrimitive?.contentOrNull?.let { WeekParity.valueOf(it) }
+        ?: error("课程缺少 weekParity"),
+    note = value["note"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null }
+)

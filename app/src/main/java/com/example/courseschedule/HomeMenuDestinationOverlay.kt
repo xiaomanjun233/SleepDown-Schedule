@@ -40,6 +40,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.shapes.RoundedRectangle
@@ -134,6 +135,9 @@ internal fun HomeMenuDestinationOverlayHost(
     var renderedRequest by remember { mutableStateOf<HomeMenuDestinationRequest?>(null) }
     var destinationContentPrepared by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
+    var historyDetailRequest by remember { mutableStateOf<AiImportHistoryDetailMorphRequest?>(null) }
+    var hiddenHistoryEntryId by remember { mutableStateOf<String?>(null) }
+    var historyImportRequested by remember { mutableStateOf(false) }
     val destinationContentLayer = rememberGraphicsLayer()
     val latestDismiss by rememberUpdatedState(onDismissRequest)
     val latestSourceHandoff by rememberUpdatedState(onSourceHandoff)
@@ -460,6 +464,18 @@ internal fun HomeMenuDestinationOverlayHost(
                             backdrop = backdrop,
                             onCancel = { latestDismiss() },
                             captureHistoryBackground = captureHistoryBackground,
+                            hiddenHistoryEntryId = hiddenHistoryEntryId,
+                            onOpenHistoryEntry = { entry, sourceBounds, sourceSnapshot ->
+                                val draft = AiImportHistoryStore.restore(entry, state.config).getOrNull()
+                                if (draft != null) {
+                                    historyDetailRequest = AiImportHistoryDetailMorphRequest(
+                                        entry = entry,
+                                        draft = draft,
+                                        sourceBounds = sourceBounds,
+                                        sourceSnapshot = sourceSnapshot
+                                    )
+                                }
+                            },
                             onParsed = onManualImportParsed
                         )
                         HomeMenuDestinationKind.EduImport -> DetailActivityScaffold(
@@ -484,6 +500,42 @@ internal fun HomeMenuDestinationOverlayHost(
                                 while (true) awaitPointerEvent().changes.forEach { it.consume() }
                             }
                         }
+                )
+            }
+        }
+        historyDetailRequest?.let { detailRequest ->
+            Box(Modifier.fillMaxSize().zIndex(500f)) {
+                AiImportHistoryDetailMorphOverlay(
+                    request = detailRequest,
+                    config = state.config,
+                    onSourceHandoff = { hiddenHistoryEntryId = detailRequest.entry.id },
+                    onClosed = {
+                        hiddenHistoryEntryId = null
+                        historyDetailRequest = null
+                        if (historyImportRequested) {
+                            historyImportRequested = false
+                            latestDismiss()
+                        }
+                    },
+                    onImportRequested = { draft, createNewSchedule ->
+                        AiEduImportProgressSession.requestFinalImport(draft, createNewSchedule)
+                        historyImportRequested = true
+                    },
+                    sourceContent = {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    glassForegroundColor(state.config).copy(alpha = 0.055f)
+                                )
+                        ) {
+                            AiImportHistoryRowContent(
+                                entry = detailRequest.entry,
+                                modifier = Modifier.fillMaxSize(),
+                                textColor = glassForegroundColor(state.config)
+                            )
+                        }
+                    }
                 )
             }
         }

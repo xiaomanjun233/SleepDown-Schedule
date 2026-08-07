@@ -18,7 +18,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,15 +30,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.rememberGraphicsLayer
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -59,48 +55,96 @@ class AiImportHistoryActivity : ComponentActivity() {
         setContent {
             val state by app.repository.state.collectAsStateWithLifecycle(AppState())
             CourseScheduleTheme(config = state.config) {
-                AnchoredDetailActivityMorph(
-                    sourceBounds = sourceBounds,
-                    sourceCornerRadius = 21.dp,
-                    backgroundSnapshot = transitionSnapshots?.background,
-                    sourceSnapshot = transitionSnapshots?.source,
-                    motionStyle = if (useParabolicMotion) {
-                        AnchoredDetailMotionStyle.Parabolic
-                    } else {
-                        AnchoredDetailMotionStyle.Liquid
-                    },
-                    onFinished = { finish() },
-                    sourceContent = {
-                        Box(
-                            Modifier.fillMaxSize().background(
-                                if (appUsesDarkTheme(state.config)) {
-                                    Color.White.copy(alpha = 0.10f)
-                                } else {
-                                    Color.White.copy(alpha = 0.28f)
+                var detailRequest by remember { mutableStateOf<AiImportHistoryDetailMorphRequest?>(null) }
+                var detailSourceHidden by remember { mutableStateOf(false) }
+                var returnToMain by remember { mutableStateOf(false) }
+                Box(Modifier.fillMaxSize()) {
+                    AnchoredDetailActivityMorph(
+                        sourceBounds = sourceBounds,
+                        sourceCornerRadius = 21.dp,
+                        backgroundSnapshot = transitionSnapshots?.background,
+                        sourceSnapshot = transitionSnapshots?.source,
+                        motionStyle = if (useParabolicMotion) {
+                            AnchoredDetailMotionStyle.Parabolic
+                        } else {
+                            AnchoredDetailMotionStyle.Liquid
+                        },
+                        onFinished = { finish() },
+                        sourceContent = {
+                            Box(
+                                Modifier.fillMaxSize().background(
+                                    if (appUsesDarkTheme(state.config)) {
+                                        Color.White.copy(alpha = 0.10f)
+                                    } else {
+                                        Color.White.copy(alpha = 0.28f)
+                                    }
+                                ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.ic_history),
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.padding(10.dp)
+                                )
+                            }
+                        }
+                    ) { requestClose ->
+                        AiImportHistoryPage(
+                            config = state.config,
+                            onBack = requestClose,
+                            hiddenEntryId = detailRequest?.entry?.id.takeIf { detailSourceHidden },
+                            onOpen = { entry, rowBounds, sourceSnapshot ->
+                                val draft = AiImportHistoryStore.restore(entry, state.config).getOrNull()
+                                if (draft != null) {
+                                    detailRequest = AiImportHistoryDetailMorphRequest(
+                                        entry = entry,
+                                        draft = draft,
+                                        sourceBounds = rowBounds,
+                                        sourceSnapshot = sourceSnapshot
+                                    )
                                 }
-                            ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painterResource(R.drawable.ic_history),
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.padding(10.dp)
+                            }
+                        )
+                    }
+                    detailRequest?.let { request ->
+                        Box(Modifier.fillMaxSize().zIndex(500f)) {
+                            AiImportHistoryDetailMorphOverlay(
+                                request = request,
+                                config = state.config,
+                                onSourceHandoff = { detailSourceHidden = true },
+                                onClosed = {
+                                    detailSourceHidden = false
+                                    detailRequest = null
+                                    if (returnToMain) {
+                                        startActivity(
+                                            Intent(this@AiImportHistoryActivity, MainActivity::class.java).addFlags(
+                                                Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                            )
+                                        )
+                                        returnToMain = false
+                                    }
+                                },
+                                onImportRequested = { draft, createNewSchedule ->
+                                    AiEduImportProgressSession.requestFinalImport(draft, createNewSchedule)
+                                    returnToMain = true
+                                },
+                                sourceContent = {
+                                    Box(
+                                        Modifier
+                                            .fillMaxSize()
+                                            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.42f))
+                                    ) {
+                                        AiImportHistoryRowContent(
+                                            entry = request.entry,
+                                            modifier = Modifier.fillMaxSize(),
+                                            textColor = glassForegroundColor(settingsVisualConfig(state.config))
+                                        )
+                                    }
+                                }
                             )
                         }
                     }
-                ) { requestClose ->
-                    AiImportHistoryPage(
-                        config = state.config,
-                        onBack = requestClose,
-                        onOpen = { entry, rowBounds, snapshots ->
-                            val detailIntent = Intent(this, AiImportHistoryDetailActivity::class.java)
-                                .putExtra(AiImportHistoryDetailActivity.EntryIdExtra, entry.id)
-                                .putAnchoredSourceBounds(rowBounds)
-                            snapshots?.let(detailIntent::putAnchoredMorphSnapshots)
-                            startActivityWithAnchoredMorph(detailIntent)
-                        }
-                    )
                 }
             }
         }
@@ -116,24 +160,15 @@ class AiImportHistoryActivity : ComponentActivity() {
 private fun AiImportHistoryPage(
     config: ScheduleConfigEntity,
     onBack: () -> Unit,
-    onOpen: (AiImportHistoryEntry, androidx.compose.ui.geometry.Rect, AnchoredMorphSnapshots?) -> Unit
+    hiddenEntryId: String?,
+    onOpen: (AiImportHistoryEntry, androidx.compose.ui.geometry.Rect, Bitmap?) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val textColor = glassForegroundColor(settingsVisualConfig(config))
-    val pageBackgroundArgb = settingsPageBackground(settingsVisualConfig(config)).toArgb()
     var entries by remember { mutableStateOf(AiImportHistoryStore.load(context)) }
-    var hiddenEntryId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val snapshotLayer = rememberGraphicsLayer()
     var rootPosition by remember { mutableStateOf(Offset.Zero) }
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) hiddenEntryId = null
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
     Box(
         Modifier
             .fillMaxSize()
@@ -166,6 +201,7 @@ private fun AiImportHistoryPage(
                     items(entries, key = { it.id }) { entry ->
                         AiEduHistorySwipeRow(
                             entry = entry,
+                            textColor = textColor,
                             showSource = hiddenEntryId != entry.id,
                             onDelete = {
                                 AiImportHistoryStore.delete(context, entry.id)
@@ -176,23 +212,7 @@ private fun AiImportHistoryPage(
                                     val frame = runCatching {
                                         snapshotLayer.toImageBitmap().asAndroidBitmap()
                                     }.getOrNull()
-                                    val sourceSnapshot = frame?.cropToWindowBounds(bounds, rootPosition)
-                                    val backgroundSnapshot = frame?.clearWindowBounds(
-                                        bounds = bounds,
-                                        rootPosition = rootPosition,
-                                        color = pageBackgroundArgb
-                                    )
-                                    hiddenEntryId = entry.id
-                                    onOpen(
-                                        entry,
-                                        bounds,
-                                        backgroundSnapshot?.let {
-                                            AnchoredMorphSnapshots(
-                                                background = it,
-                                                source = sourceSnapshot
-                                            )
-                                        }
-                                    )
+                                    onOpen(entry, bounds, frame?.cropToWindowBounds(bounds, rootPosition))
                                 }
                             }
                         )
@@ -212,24 +232,4 @@ private fun Bitmap.cropToWindowBounds(
     val cropWidth = bounds.width.roundToInt().coerceIn(1, width - left)
     val cropHeight = bounds.height.roundToInt().coerceIn(1, height - top)
     Bitmap.createBitmap(this, left, top, cropWidth, cropHeight)
-}.getOrNull()
-
-private fun Bitmap.clearWindowBounds(
-    bounds: androidx.compose.ui.geometry.Rect,
-    rootPosition: Offset,
-    color: Int
-): Bitmap? = runCatching {
-    val mutable = copy(Bitmap.Config.ARGB_8888, true)
-    val left = (bounds.left - rootPosition.x).coerceIn(0f, mutable.width.toFloat())
-    val top = (bounds.top - rootPosition.y).coerceIn(0f, mutable.height.toFloat())
-    val right = (bounds.right - rootPosition.x).coerceIn(left, mutable.width.toFloat())
-    val bottom = (bounds.bottom - rootPosition.y).coerceIn(top, mutable.height.toFloat())
-    android.graphics.Canvas(mutable).drawRect(
-        left,
-        top,
-        right,
-        bottom,
-        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
-    )
-    mutable
 }.getOrNull()

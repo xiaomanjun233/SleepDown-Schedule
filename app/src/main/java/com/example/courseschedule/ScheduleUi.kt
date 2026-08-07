@@ -2852,6 +2852,7 @@ fun DetailActivityScaffold(
     isolateContentFromBackdrop: Boolean = false,
     compactTopBar: Boolean = false,
     centerCompactTitle: Boolean = false,
+    compactTitleMatchesSettings: Boolean = false,
     topBarVisible: Boolean = true,
     topBarActions: @Composable (Backdrop?) -> Unit = {},
     content: @Composable (Backdrop?) -> Unit
@@ -2864,6 +2865,7 @@ fun DetailActivityScaffold(
         isolateContentFromBackdrop = isolateContentFromBackdrop,
         compactTopBar = compactTopBar,
         centerCompactTitle = centerCompactTitle,
+        compactTitleMatchesSettings = compactTitleMatchesSettings,
         topBarVisible = topBarVisible,
         topBarActions = topBarActions,
         content = content
@@ -2878,6 +2880,7 @@ fun DetailTopBar(
     backdrop: Backdrop?,
     onBack: () -> Unit,
     centerTitle: Boolean = false,
+    useSettingsTitleSize: Boolean = false,
     showBackButton: Boolean = true,
     actions: @Composable () -> Unit = {}
 ) {
@@ -2905,10 +2908,18 @@ fun DetailTopBar(
                 }
                 Text(
                     title,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = if (useSettingsTitleSize) {
+                        MaterialTheme.typography.headlineSmall
+                    } else {
+                        MaterialTheme.typography.titleLarge
+                    },
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onBackground,
-                    lineHeight = MaterialTheme.typography.titleLarge.fontSize,
+                    lineHeight = if (useSettingsTitleSize) {
+                        MaterialTheme.typography.headlineSmall.fontSize
+                    } else {
+                        MaterialTheme.typography.titleLarge.fontSize
+                    },
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     modifier = Modifier.align(Alignment.Center).padding(horizontal = 64.dp)
@@ -4356,6 +4367,7 @@ class SettingsDetailActivity : ComponentActivity() {
                     config = state.config,
                     compactTopBar = section == SettingsPage.Widgets,
                     centerCompactTitle = section == SettingsPage.Widgets,
+                    compactTitleMatchesSettings = section == SettingsPage.Widgets,
                     topBarVisible = !widgetEditorVisible,
                     onBack = {
                         if (section == SettingsPage.Schedule || section == SettingsPage.Notifications) {
@@ -5466,6 +5478,8 @@ fun ChangelogSettingsScreen(
         item {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
+                SettingsInfoRow("1.1.3", "AI 导入现已使用结构化局部编辑，只提交需要修改的课程、周次或节次，减少重复传输完整课表产生的 Token 消耗，并统一支持全部模型供应商；AI 修改过程中会持续展示处理进度、本轮具体改动摘要和完整历史修改记录，长时间推理不再被过早中断；重新实现导入历史预览与详情页的无缝动画，进入和返回均在同一页面完成，减少闪烁、重复卡片和布局跳动；优化模型快捷选单、手动导入控件及课程编辑选择器在不同玻璃亮度下的文字与控件配色；调整添加单节课页面的垂直排版、选择器宽度和离散周次显示；修复小组件背景编辑时预览区域跳动、交接闪烁以及顶栏字号不一致的问题，并提升多处交互与动画稳定性。")
+                SettingsDivider()
                 SettingsInfoRow("1.1.2", "新增由 SleepDown 提供的每日免费 AI 额度，未配置模型服务也可使用今日助手、AI 对话与 AI 教务导入，并在共享额度用尽时提供明确提示；支持 OpenAI Responses 与兼容接口，为 Agent 和 AI 导入加入快捷模型选择、推理强度设置、视觉附件及更多兼容模型；全新设计 AI 教务导入页面，集中呈现导入对话、文件附件、网页识别与视觉截取入口，并新增可保留文件导入上下文、继续历史对话的导入历史页面，以及更连贯的打开、返回和滑动删除交互；优化课程编辑与合并逻辑，相同信息的跨星期、跨周课程可统一编辑，并完善周次、自定义单双周和星期选择；全面改进手机、平板横屏和桌面小组件的动态排版，优化日视图、周视图、浮层、字体缩放、课程组居中及不同组件尺寸下的排版，并为设置壁纸的小组件课程卡片加入质感轮廓光效果；优化无壁纸状态的渐变背景、玻璃采样、折射与明暗可读性，统一弹窗按钮、菜单材质和多处无缝动画；修复兼容接口附件能力识别、个性化设置互相回撤、多课表页面顶栏闪现、输入框长按闪烁、历史记录闪帧、小组件更换背景时可能应用失败并影响系统相册响应及多项稳定性问题。")
                 SettingsDivider()
                 SettingsInfoRow("1.1.1", "本次更新进一步缩小安装包，减少安装后的空间占用，并优化壁纸、桌面组件和助手历史等数据的存储，长期使用更省空间；修复部分用户从旧版本升级后闪退的问题；新增武汉科技大学教务导入适配；优化平板等大屏设备的界面布局与操作体验，并提升整体性能和稳定性。支持直接覆盖安装，已有课表和设置不会丢失。")

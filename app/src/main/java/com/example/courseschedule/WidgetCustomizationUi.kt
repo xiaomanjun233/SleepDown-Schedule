@@ -61,6 +61,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -239,30 +240,34 @@ fun WidgetCustomizationScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                if (!editorSourceHandedOff || page != pagerState.currentPage) {
+                                val placeholderSize = canonicalWidgetPreviewSize(type)
+                                val previewSlot = if (adaptiveMetrics.isLargeScreen) {
+                                    Modifier.requiredSize(
+                                        placeholderSize.widthDp.dp,
+                                        placeholderSize.heightDp.dp
+                                    )
+                                } else {
+                                    Modifier
+                                        .fillMaxWidth(
+                                            if (type == WidgetAppearanceVariant.COURSES_SQUARE) 0.50f else 1f
+                                        )
+                                        .aspectRatio(type.canonicalAspect)
+                                }
+                                Box(previewSlot) {
                                     WidgetRemoteViewsPreview(
                                         type,
                                         appearance,
                                         state,
-                                        preserveCanonicalSize = adaptiveMetrics.isLargeScreen,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .drawWithContent {
+                                                if (!editorSourceHandedOff || page != pagerState.currentPage) {
+                                                    drawContent()
+                                                }
+                                            },
+                                        useParentSize = true,
                                         onBoundsChanged = {
                                             if (page == pagerState.currentPage) currentPreviewBounds = it
-                                        }
-                                    )
-                                } else {
-                                    val placeholderSize = canonicalWidgetPreviewSize(type)
-                                    Box(
-                                        if (adaptiveMetrics.isLargeScreen) {
-                                            Modifier.requiredSize(
-                                                placeholderSize.widthDp.dp,
-                                                placeholderSize.heightDp.dp
-                                            )
-                                        } else {
-                                            Modifier
-                                                .fillMaxWidth(
-                                                    if (type == WidgetAppearanceVariant.COURSES_SQUARE) 0.50f else 1f
-                                                )
-                                                .aspectRatio(type.canonicalAspect)
                                         }
                                     )
                                 }
@@ -366,8 +371,8 @@ fun WidgetCustomizationScreen(
                 config = state.config,
                 backdrop = backdrop,
                 onSourceHandoff = { editorSourceHandedOff = true },
-                onSourceRestore = { editorSourceHandedOff = false },
                 onCancel = {
+                    editorSourceHandedOff = false
                     editRequest = null
                 },
                 onSave = { draft, pickedUri, pickedBitmap, cleared ->
@@ -485,6 +490,7 @@ private fun WidgetRemoteViewsPreview(
     modifier: Modifier = Modifier,
     fillFraction: Float = if (type == WidgetAppearanceVariant.COURSES_SQUARE) 0.50f else 1f,
     preserveCanonicalSize: Boolean = false,
+    useParentSize: Boolean = false,
     transparentBackground: Boolean = false,
     onBoundsChanged: (Rect) -> Unit = {},
     onReady: () -> Unit = {}
@@ -572,7 +578,9 @@ private fun WidgetRemoteViewsPreview(
     }
     val density = LocalDensity.current
     val logicalCornerRadius = if (type == WidgetAppearanceVariant.COURSES_SQUARE) 16.dp else 18.dp
-    val previewFrame = if (preserveCanonicalSize) {
+    val previewFrame = if (useParentSize) {
+        Modifier.fillMaxSize()
+    } else if (preserveCanonicalSize) {
         Modifier.requiredSize(renderSize.widthDp.dp, renderSize.heightDp.dp)
     } else {
         Modifier
@@ -652,7 +660,6 @@ private fun WidgetWallpaperEditor(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     onSourceHandoff: () -> Unit,
-    onSourceRestore: () -> Unit,
     onCancel: () -> Unit,
     onSave: (WidgetAppearanceEntity, Uri?, Bitmap?, Boolean) -> Unit
 ) {
@@ -680,11 +687,13 @@ private fun WidgetWallpaperEditor(
         }
     }
     val morphEasing = remember { androidx.compose.animation.core.CubicBezierEasing(0.22f, 0.72f, 0.18f, 1f) }
-    LaunchedEffect(Unit) { progress.animateTo(1f, tween(460, easing = morphEasing)) }
     LaunchedEffect(sourceReplicaReady) {
         if (sourceReplicaReady) {
             androidx.compose.runtime.withFrameNanos { }
+            androidx.compose.runtime.withFrameNanos { }
             onSourceHandoff()
+            androidx.compose.runtime.withFrameNanos { }
+            progress.animateTo(1f, tween(460, easing = morphEasing))
         }
     }
     fun closeThen(commitEditedAppearance: Boolean = false, action: () -> Unit) {
@@ -692,19 +701,7 @@ private fun WidgetWallpaperEditor(
         closing = true
         returnToEditedAppearance = commitEditedAppearance
         scope.launch {
-            var sourceRestored = false
-            progress.animateTo(0f, tween(400, easing = morphEasing)) {
-                // Keep the real preview unmounted until the replica has nearly
-                // returned home. This prevents it from appearing underneath the
-                // shrinking editor too early while still leaving a few frames for
-                // RemoteViews to settle before the overlay is removed.
-                if (!sourceRestored && value <= 0.16f) {
-                    sourceRestored = true
-                    onSourceRestore()
-                }
-            }
-            if (!sourceRestored) onSourceRestore()
-            androidx.compose.runtime.withFrameNanos { }
+            progress.animateTo(0f, tween(400, easing = morphEasing))
             action()
         }
     }

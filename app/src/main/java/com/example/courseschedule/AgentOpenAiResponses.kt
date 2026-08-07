@@ -268,7 +268,7 @@ internal class OpenAiResponsesAgentRunner {
             .apply {
                 requestMethod = "POST"
                 connectTimeout = 30_000
-                readTimeout = 120_000
+                readTimeout = 600_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 setAiAuthHeader(settings.apiKey, settings.profile.authType)
