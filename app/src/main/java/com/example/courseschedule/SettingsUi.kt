@@ -293,7 +293,14 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 @Composable
-fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: (ScheduleConfigEntity) -> Unit) {
+fun GeneralSettingsScreen(
+    state: AppState,
+    backdrop: Backdrop?,
+    onUpdateConfig: (ScheduleConfigEntity) -> Unit,
+    exitCommitRequest: Int = 0,
+    onExitCommitFinished: (Boolean) -> Unit = {},
+    onCommitAndExit: ((ScheduleConfigEntity, () -> Unit) -> Unit)? = null
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val topPadding = detailContentTopPadding()
@@ -313,6 +320,18 @@ fun GeneralSettingsScreen(state: AppState, backdrop: Backdrop?, onUpdateConfig: 
         draft = next
         lastSaved = next
         onUpdateConfig(next)
+    }
+    LaunchedEffect(exitCommitRequest) {
+        if (exitCommitRequest > 0) {
+            // The detail activity may be destroyed immediately after back. Submit the
+            // latest draft before acknowledging the exit so the ViewModel can finish it.
+            if (draft != lastSaved && onCommitAndExit == null) onUpdateConfig(draft)
+            if (onCommitAndExit != null) {
+                onCommitAndExit(draft) { onExitCommitFinished(true) }
+            } else {
+                onExitCommitFinished(true)
+            }
+        }
     }
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
@@ -3224,6 +3243,19 @@ fun ScheduleSettingsContentFixed(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = DockScrollPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        if (dirty) {
+            item(key = "schedule-save-actions") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SettingsActionButton("重置", backdrop, onClick = onReset, destructive = true)
+                    Spacer(Modifier.width(8.dp))
+                    SettingsActionButton("保存", backdrop, onClick = onSave)
+                }
+            }
+        }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 SettingsTextFieldRow("总周数", totalWeeks, { onTotalWeeksChange(it.filter(Char::isDigit)) }, KeyboardType.Number)
@@ -4771,10 +4803,23 @@ fun ScheduleConfigScreen(
                     saving = false
                 }
             } else {
-                onSave(nextConfig, nextPeriods)
-                lastSavedConfig = nextConfig
-                lastSavedPeriods = nextPeriods
-                onFinished?.invoke(true)
+                saving = true
+                saveScope.launch {
+                    runCatching {
+                        // Persist locally before notifying the Activity. The callback may
+                        // finish the detail page and cancel its ViewModel scope immediately.
+                        repository.saveConfigForSchedule(nextConfig.id, nextConfig, nextPeriods)
+                    }.onSuccess {
+                        onSave(nextConfig, nextPeriods)
+                        lastSavedConfig = nextConfig
+                        lastSavedPeriods = nextPeriods
+                        onFinished?.invoke(true)
+                    }.onFailure {
+                        error = it.message ?: "设置保存失败"
+                        onFinished?.invoke(false)
+                    }
+                    saving = false
+                }
             }
         } catch (t: Throwable) {
             error = t.message ?: "设置保存失败"
@@ -4871,10 +4916,10 @@ fun ScheduleConfigScreen(
         onPeriodsChange = { periods = it },
         detectedWeek = detectedWeek,
         detectedWeekDescription = detectedWeekDescription,
-        dirty = false,
+        dirty = dirty,
         error = error,
-        onReset = {},
-        onSave = {},
+        onReset = ::resetConfigDraft,
+        onSave = { showExitSaveConfirm = true },
         onPreviewLiveUpdate = onPreviewLiveUpdate
     )
 

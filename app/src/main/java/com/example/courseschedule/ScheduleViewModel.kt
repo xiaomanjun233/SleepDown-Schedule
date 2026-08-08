@@ -526,10 +526,39 @@ class ScheduleViewModel(
         personalizationSaveSignal.trySend(Unit)
     }
 
+    fun savePersonalizationAndFinish(config: ScheduleConfigEntity, finish: () -> Unit) =
+        viewModelScope.launch {
+            try {
+                if (repository.savePersonalizationSnapshot(config)) {
+                    cleanupScheduleWallpaperFiles()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                Log.w("ScheduleViewModel", "Personalization exit save failed", error)
+                snackbar.value = error.message ?: "个性化设置保存失败，请重试"
+            }
+            finish()
+        }
+
     fun saveNotificationSettings(config: ScheduleConfigEntity) = viewModelScope.launch {
         repository.saveGlobalSettings(config)
         refreshCoordinator.request()
     }
+
+    fun saveGlobalSettingsAndFinish(config: ScheduleConfigEntity, finish: () -> Unit) =
+        viewModelScope.launch {
+            try {
+                repository.saveGlobalSettings(config)
+                refreshCoordinator.request()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                Log.w("ScheduleViewModel", "Global settings exit save failed", error)
+                snackbar.value = error.message ?: "设置保存失败，请重试"
+            }
+            finish()
+        }
 
     fun createSchedule(
         name: String = "\u65B0\u8BFE\u8868",

@@ -9,7 +9,7 @@ SleepDown 围绕课表的导入、维护、提醒与日常查看进行设计，�
 
 应用使用 Jetpack Compose 构建，界面以 Miuix 与液态玻璃效果为基础，并针对壁纸背景下的可读性、动画连续性以及手机和平板布局进行了专门适配。视觉效果之外，项目同样重视数据迁移安全、长期存储占用和复杂课表场景下的稳定性。
 
-当前版本为 **1.1.3**，最低支持 Android 8.0（API 26）。安装包可以在 [GitHub Releases](https://github.com/xiaomanjun233/SleepDown-Schedule/releases) 或 [Gitee 发行版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases) 下载。
+当前版本为 **1.1.4**，最低支持 Android 8.0（API 26）。安装包可以在 [GitHub Releases](https://github.com/xiaomanjun233/SleepDown-Schedule/releases) 或 [Gitee 发行版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases) 下载。
 
 ## 界面预览
 

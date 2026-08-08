@@ -129,11 +129,17 @@ fun CourseScheduleTheme(
     val darkTheme = appUsesDarkTheme(config)
     val view = LocalView.current
     LaunchedEffect(config.followSystemDarkMode, darkTheme, view.context) {
-        AppIconManager.syncAppearance(
-            context = view.context,
-            followsSystemDarkMode = config.followSystemDarkMode,
-            darkTheme = darkTheme
-        )
+        // Changing launcher aliases from a secondary settings Activity can make
+        // ColorOS/Oplus remove the visible task. Apply icon changes only from the
+        // main Activity; settings still update their theme immediately and the
+        // launcher alias catches up when the user returns home.
+        if (view.context is MainActivity) {
+            AppIconManager.syncAppearance(
+                context = view.context,
+                followsSystemDarkMode = config.followSystemDarkMode,
+                darkTheme = darkTheme
+            )
+        }
     }
     LaunchedEffect(darkTheme, view) {
         val window = (view.context as? ComponentActivity)?.window ?: return@LaunchedEffect
