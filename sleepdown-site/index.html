@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="SleepDown 课程表：融合液态玻璃视觉、智能导入与今日助手的 Android 课程表。">
+  <meta name="theme-color" content="#f5f7fa">
+  <meta property="og:title" content="SleepDown 课程表">
+  <meta property="og:description" content="一眼，今天就有数。">
+  <meta property="og:image" content="assets/brand/sleepdown-icon-transparent.webp">
+  <title>SleepDown 课程表 · 把课程，安排得刚刚好</title>
+  <link rel="icon" href="assets/brand/sleepdown-icon-transparent.webp">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!--
+    DESIGN SYSTEM
+    Primary #007AFF from the Android app theme; neutral canvas #F5F7FA / #FFFFFF.
+    Noto Sans SC / HarmonyOS Sans SC typography; 24px–40px feature radii.
+    Rhythm: centered hero → feature overview → alternating full-width chapters → compact details → download.
+    Motion: flat horizontal image stacks and scroll reveals only; no 3D phone rotations.
+  -->
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <header class="global-nav" data-nav>
+    <a class="nav-brand" href="#top" aria-label="SleepDown 课程表首页">
+      <picture><img src="assets/brand/sleepdown-icon-transparent.webp" alt=""></picture>
+      <span>SleepDown 课程表</span>
+    </a>
+    <nav aria-label="主导航">
+      <span class="nav-indicator" aria-hidden="true"></span>
+      <a href="#features">功能亮点</a>
+      <a href="#privacy">隐私</a>
+      <a href="#about">作者</a>
+    </nav>
+    <a class="nav-cta" href="https://app.sharess.cn/page/app/detail?id=mpQZZyU9qXNiTSW1PsWTfIHFmgUYlu7sgSX3E8KERhylUw%3D%3D" target="_blank" rel="noreferrer">下载</a>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="hero-copy reveal">
+        <picture class="hero-app-icon">
+          <img src="assets/brand/sleepdown-icon-transparent.webp" alt="SleepDown 课程表图标">
+        </picture>
+        <h1>把课程，安排得刚刚好</h1>
+        <div class="hero-actions">
+          <a class="button primary" href="https://app.sharess.cn/page/app/detail?id=mpQZZyU9qXNiTSW1PsWTfIHFmgUYlu7sgSX3E8KERhylUw%3D%3D" target="_blank" rel="noreferrer"><img class="button-icon" src="assets/brand/appshare.svg" alt="">AppShare 下载 <span>↗</span></a>
+          <a class="button text-button" href="https://github.com/xiaomanjun233/SleepDown-Schedule/releases/latest" target="_blank" rel="noreferrer"><img class="button-icon github-icon" src="assets/brand/github.svg" alt="">GitHub Release <span>›</span></a>
+          <a class="button text-button gitee-button" href="https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases" target="_blank" rel="noreferrer"><img class="button-icon gitee-icon" src="assets/brand/gitee.ico" alt="">Gitee Release <span>›</span></a>
+        </div>
+        <p class="compatibility">支持 Android 8.0 及以上 · 持续更新</p>
+      </div>
+
+      <div class="screenshot-stage hero-stage reveal" data-gallery data-autoplay="true">
+        <div class="shot-stack" aria-live="polite">
+          <figure class="flat-shot active" data-shot data-pos="active">
+            <div class="shot-fallback light"><span>周视图</span></div>
+            <img src="assets/screens/phone-hero-week.png" alt="SleepDown 课程表手机周视图，使用应用默认壁纸" onerror="this.hidden=true">
+            <figcaption>一周安排，完整展开</figcaption>
+          </figure>
+          <figure class="flat-shot" data-shot data-pos="right">
+            <div class="shot-fallback light"><span>日视图</span></div>
+            <img src="assets/screens/phone-day-courses.jpg" alt="SleepDown 课程表手机日视图，展示真实课程卡片" onerror="this.hidden=true">
+            <figcaption>今天的课，清楚就好</figcaption>
+          </figure>
+          <figure class="flat-shot" data-shot data-pos="left">
+            <div class="shot-fallback dark"><span>今日助手</span></div>
+            <img src="assets/screens/phone-assistant-chat.jpg" alt="SleepDown 课程表今日助手回答整学期课程问题" onerror="this.hidden=true">
+            <figcaption>问一句，就知道接下来</figcaption>
+          </figure>
+        </div>
+        <div class="gallery-control">
+          <button type="button" data-prev aria-label="上一张截图">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <span data-count>1 / 3</span>
+          <button type="button" data-next aria-label="下一张截图">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+        </div>
+      </div>
+      <a class="scroll-hint" href="#overview">向下了解 SleepDown 课程表 <i></i></a>
+    </section>
+
+    <section class="overview section" id="overview">
+      <div class="section-heading reveal">
+        <p class="eyebrow">SLEEPDOWN SCHEDULE 概览</p>
+        <h2>每天都要看，所以每一眼都值得认真设计。</h2>
+        <p>液态玻璃视效是 SleepDown 课程表的视觉核心；从课程卡片到助手面板，让信息悬浮于壁纸之上，却始终保持清楚。</p>
+      </div>
+
+      <div class="overview-grid">
+        <article class="overview-card overview-glass reveal">
+          <div class="overview-media"><img class="overview-shot" src="assets/screens/phone-day-courses.jpg" alt="SleepDown 课程表真实日视图液态玻璃课程卡片局部"></div>
+          <div class="card-copy">
+            <p class="card-kicker">液态玻璃视效</p>
+            <h3>看得见壁纸，<br>更看得清课程。</h3>
+            <p>壁纸取色、背景模糊、亮度与卡片着色共同塑造玻璃层次；在浅色与深色界面中，文字和课程信息依旧保持清晰。</p>
+          </div>
+        </article>
+
+        <article class="overview-card overview-import reveal">
+          <div class="overview-media"><img class="overview-shot" src="assets/screens/phone-import.png" alt="SleepDown 课程表真实导入入口局部"></div>
+          <div class="card-copy">
+            <p class="card-kicker">多方式导入</p>
+            <h3>课表带进来，<br>少绕几步。</h3>
+            <p>手动录入、教务系统、文件和图片都能成为入口。导入结果先预览，确认无误后再写进课表。</p>
+          </div>
+        </article>
+
+        <article class="overview-card overview-agent reveal">
+          <div class="overview-media"><img class="overview-shot" src="assets/screens/phone-assistant-chat.jpg" alt="SleepDown 课程表真实今日助手回答界面局部"></div>
+          <div class="card-copy">
+            <p class="card-kicker">今日助手</p>
+            <h3>不用翻课表，<br>直接问。</h3>
+            <p>问下节课、空闲时间或本周安排，它会结合真实课表给出答案；需要修改数据时仍由你最后确认。</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="chapter chapter-schedule section" id="features">
+      <div class="chapter-heading reveal">
+        <p class="eyebrow">课表</p>
+        <h2>一天，或一周。你想怎么看都清楚。</h2>
+        <p>日视图聚焦今天，周视图把完整安排铺开。当前教学周可按开学日期自动推算，复杂课程也有稳定的处理方式。</p>
+      </div>
+      <div class="wide-showcase reveal">
+        <div class="showcase-copy">
+          <p class="showcase-kicker">两种视图</p>
+          <h3>一周总览，今天聚焦。</h3>
+          <p>周视图铺开完整安排，日视图聚焦今天；课程时间、地点与教师始终清楚可见。</p>
+        </div>
+        <div class="showcase-screen schedule-crop">
+          <figure class="schedule-view">
+            <figcaption>周视图</figcaption>
+            <img src="assets/screens/phone-hero-week.png" alt="SleepDown 课程表完整周视图" onerror="this.hidden=true">
+          </figure>
+          <figure class="schedule-view">
+            <figcaption>日视图</figcaption>
+            <img src="assets/screens/phone-day-courses.jpg" alt="SleepDown 课程表完整日视图" onerror="this.hidden=true">
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="chapter chapter-import section">
+      <div class="chapter-heading reveal">
+        <p class="eyebrow">导入</p>
+        <h2>课表从哪里来，都先让你确认。</h2>
+        <p>AI 导入负责整理文件与图片，AI 教务导入理解当前教务页面，普通教务导入则连接已适配的学校与通用系统。三条路径都会先预览，再由你确认。</p>
+      </div>
+      <div class="import-card-grid">
+        <article class="import-card reveal">
+          <div class="import-card-media import-manual-media"><img src="assets/screens/import-manual.jpg" alt="SleepDown 课程表 AI 文件与图片导入"></div>
+          <div class="import-card-copy"><p class="card-kicker">AI 导入</p><h3>文件、图片与文本，交给模型整理。</h3><p>选择 PDF、课表图片或粘贴内容，使用当前模型解析；预览确认后才会写入课表。</p></div>
+        </article>
+        <article class="import-card reveal">
+          <div class="import-card-media import-ai-media"><img src="assets/screens/import-ai-edu.jpg" alt="SleepDown 课程表 AI 教务页面识别与确认"></div>
+          <div class="import-card-copy"><p class="card-kicker">AI 教务导入</p><h3>看懂当前页面，再按规则导入。</h3><p>抓取教务页面文字或高清视图，发送前展示资料，模型整理出的课表仍由你确认。</p></div>
+        </article>
+        <article class="import-card reveal">
+          <div class="import-card-media import-school-media"><img src="assets/screens/import-school.jpg" alt="SleepDown 课程表学校与通用教务选择页面"></div>
+          <div class="import-card-copy"><p class="card-kicker">教务导入</p><h3>从学校入口，直接带回课表。</h3><p>选择已适配学校或通用教务服务，在对应页面中完成登录与课程获取。</p></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="chapter chapter-agent section" id="ai">
+      <div class="chapter-heading reveal">
+        <p class="eyebrow">AI 今日助手</p>
+        <h2>先读懂你的课表，再回答，也能帮你处理。</h2>
+        <p>提示卡片主动呈现重点，询问 Agent 回答课程问题，操作 Agent 协助调整数据。可连接 OpenAI、DeepSeek、小米 MiMo 或自定义兼容接口，所有能力均按需启用。</p>
+      </div>
+      <div class="assistant-card-grid">
+        <article class="assistant-card reveal">
+          <div class="assistant-card-media assistant-prompt-media"><img src="assets/screens/phone-day-courses.jpg" alt="SleepDown 课程表日视图中的今日助手提示卡片"></div>
+          <div class="assistant-card-copy"><p class="card-kicker">提示卡片</p><h3>该知道的事，主动出现在日视图。</h3><p>结合当前课程、时间与课表状态，在合适的位置给出简洁提示，不必先打开对话。</p></div>
+        </article>
+        <article class="assistant-card reveal">
+          <div class="assistant-card-media assistant-query-media"><img src="assets/screens/assistant-query.jpg" alt="SleepDown 课程表询问 Agent 整理整学期课程"></div>
+          <div class="assistant-card-copy"><p class="card-kicker">询问 Agent</p><h3>问一句，整理整学期的答案。</h3><p>理解自然语言与课表上下文，查询当天、下周或整学期的课程、地点和空闲安排。</p></div>
+        </article>
+        <article class="assistant-card reveal">
+          <div class="assistant-card-media assistant-action-media"><img src="assets/screens/assistant-action.jpg" alt="SleepDown 课程表操作 Agent 预演并确认课程修改"></div>
+          <div class="assistant-card-copy"><p class="card-kicker">操作 Agent</p><h3>先预演，再执行每一项改动。</h3><p>把恢复、调整或批量修改拆成清晰步骤，展示影响范围；只有确认后才写入课程数据。</p></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="chapter chapter-appearance section">
+      <div class="chapter-heading reveal">
+        <p class="eyebrow">外观</p>
+        <h2>玻璃的样子，由你自己定。</h2>
+        <p>壁纸支持独立取景，课程卡片的配色、透明度、模糊和玻璃效果都能调整。应用图标也可跟随深色模式。</p>
+      </div>
+      <div class="appearance-grid">
+        <article class="appearance-item reveal">
+          <div class="appearance-visual appearance-personalization">
+            <img src="assets/screens/appearance-personalization.jpg" alt="SleepDown 课程表壁纸、周视图行高与课程卡片颜色设置" onerror="this.hidden=true">
+          </div>
+          <div class="appearance-caption"><p>外观调节</p><h3>从壁纸到卡片，每一层都能细调。</h3></div>
+        </article>
+        <article class="appearance-item reveal">
+          <div class="appearance-visual appearance-dark"><img src="assets/screens/appearance-dark-week.jpg" alt="SleepDown 课程表深色模式周视图" onerror="this.hidden=true"></div>
+          <div class="appearance-caption"><p>深色适配</p><h3>跟随系统，在夜色里依然清楚。</h3></div>
+        </article>
+        <article class="appearance-item reveal">
+          <div class="appearance-visual appearance-multi-schedule"><img src="assets/screens/appearance-multi-schedule.jpg" alt="SleepDown 课程表多课表管理与新课表预览" onerror="this.hidden=true"></div>
+          <div class="appearance-caption"><p>多课表管理</p><h3>学习、考试与计划，各自成表。</h3></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="chapter chapter-more section">
+      <div class="chapter-heading reveal">
+        <p class="eyebrow">更多能力</p>
+        <h2>日常需要的，也都仔细打磨。</h2>
+      </div>
+      <div class="more-grid">
+        <article class="more-feature-card reveal"><div class="more-feature-media more-edit-media"><img src="assets/screens/more-course-edit.jpg" alt="SleepDown 课程表单节课程编辑界面"></div><div class="more-feature-copy"><p class="card-kicker">课程编辑</p><h3>每一节课，都能单独改清楚。</h3><p>课程名、教师、地点、节次、周次和单双周都能独立调整，需要时也可直接删除。</p></div></article>
+        <article class="more-feature-card reveal"><div class="more-feature-media more-reminder-media"><img src="assets/screens/more-reminder.jpg" alt="SleepDown 课程表课程提醒与勿扰操作"></div><div class="more-feature-copy"><p class="card-kicker">课程提醒</p><h3>快上课时，提醒刚刚好。</h3><p>在系统支持的设备上展示课程与倒计时，并可直接取消本次提醒或开启勿扰。</p></div></article>
+        <article class="more-feature-card reveal"><div class="more-feature-media more-widget-media"><img src="assets/screens/more-widget-v2.jpg" alt="SleepDown 课程表桌面小组件个性化设置"></div><div class="more-feature-copy"><p class="card-kicker">桌面小组件</p><h3>把今日课程，放到桌面上。</h3><p>选择组件尺寸并独立调整背景、壁纸取景、模糊与亮度，让它自然融入桌面。</p></div></article>
+      </div>
+      <div class="tablet-proof reveal">
+        <div><p class="eyebrow">SLEEPDOWN SCHEDULE HD</p><h3>为大屏，重新设计。</h3><p>平板与横屏设备启用 HD 布局：周视图承载更多课程信息，日视图与设置页使用双栏结构，导航、间距和操作区域也针对大屏重新排布。</p></div>
+        <figure class="hd-stage">
+          <img src="assets/screens/tablet-hd-day.jpg" alt="SleepDown 课程表 HD 横屏日视图" onerror="this.hidden=true">
+          <figcaption>平板与横屏专属布局</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="privacy section" id="privacy">
+      <div class="privacy-inner reveal">
+        <p class="eyebrow">数据与隐私</p>
+        <h2>你的课表，默认只在你的设备里。</h2>
+        <p>当前版本的课表、设置、壁纸取景和助手记忆使用本地 Room 数据库或应用私有存储。</p>
+        <div class="privacy-points">
+          <article class="privacy-item">
+            <div class="privacy-visual local-data" aria-hidden="true"><i class="lucide-glyph glyph-database"></i><i class="lucide-glyph glyph-lock"></i></div>
+            <b>本地保存，从第一节课开始。</b>
+            <span>基础课表、设置与个性化数据默认保存在应用私有空间，不会因为查看课程而上传。</span>
+          </article>
+          <article class="privacy-item">
+            <div class="privacy-visual no-account" aria-hidden="true"><i class="lucide-glyph glyph-folder"></i><i class="lucide-glyph glyph-lock"></i></div>
+            <b>应用私有空间，与其他应用隔离。</b>
+            <span>课程、个性化设置与助手记忆保存在应用自己的存储区域，由系统权限机制提供隔离。</span>
+          </article>
+          <article class="privacy-item">
+            <div class="privacy-visual user-control" aria-hidden="true"><i class="lucide-glyph glyph-shield"></i></div>
+            <b>联网能力，始终由你决定。</b>
+            <span>天气、版本检查等联网功能按需启用；课程数据始终由你决定是否修改。</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="about section" id="about">
+      <div class="about-card reveal">
+        <picture class="about-icon"><img src="assets/brand/sleepdown-icon-transparent.webp" alt="SleepDown 课程表应用图标"></picture>
+        <div class="about-copy">
+          <p class="eyebrow">关于 SleepDown 课程表</p>
+          <h2>小漫君独立设计与开发。</h2>
+          <p>SleepDown 课程表是一款持续打磨的独立课程表应用。从导入、查看到提醒与个性化，每个功能都围绕真实的校园日常设计；项目由小漫君独立设计、开发并维护。</p>
+          <div class="about-links">
+            <a href="https://github.com/xiaomanjun233" target="_blank" rel="noreferrer">作者 GitHub <span>↗</span></a>
+            <a href="https://github.com/xiaomanjun233/SleepDown-Schedule" target="_blank" rel="noreferrer">查看项目源码 <span>↗</span></a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="download section">
+      <div class="download-card reveal">
+        <picture class="download-icon"><img src="assets/brand/sleepdown-icon-transparent.webp" alt=""></picture>
+        <p class="eyebrow">SLEEPDOWN SCHEDULE</p>
+        <h2>下一节课，现在就清楚。</h2>
+        <p>支持 Android 8.0 及以上 · 持续更新</p>
+        <div class="hero-actions">
+          <a class="button primary" href="https://app.sharess.cn/page/app/detail?id=mpQZZyU9qXNiTSW1PsWTfIHFmgUYlu7sgSX3E8KERhylUw%3D%3D" target="_blank" rel="noreferrer"><img class="button-icon" src="assets/brand/appshare.svg" alt="">AppShare 下载 <span>↗</span></a>
+          <a class="button text-button" href="https://github.com/xiaomanjun233/SleepDown-Schedule/releases/latest" target="_blank" rel="noreferrer"><img class="button-icon github-icon" src="assets/brand/github.svg" alt="">GitHub Release <span>›</span></a>
+          <a class="button text-button gitee-button" href="https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases" target="_blank" rel="noreferrer"><img class="button-icon gitee-icon" src="assets/brand/gitee.ico" alt="">Gitee Release <span>›</span></a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-top"><a class="nav-brand" href="#top"><picture><img src="assets/brand/sleepdown-icon-transparent.webp" alt=""></picture><span>SleepDown 课程表</span></a><span>把课程，安排得刚刚好。</span></div>
+    <div class="footer-grid">
+      <div><b>下载</b><a href="https://app.sharess.cn/page/app/detail?id=mpQZZyU9qXNiTSW1PsWTfIHFmgUYlu7sgSX3E8KERhylUw%3D%3D" target="_blank" rel="noreferrer">AppShare</a><a href="https://github.com/xiaomanjun233/SleepDown-Schedule/releases" target="_blank" rel="noreferrer">GitHub Releases</a><a href="https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases" target="_blank" rel="noreferrer">Gitee 发行版</a></div>
+      <div><b>项目</b><a href="https://github.com/xiaomanjun233/SleepDown-Schedule" target="_blank" rel="noreferrer">源代码</a><a href="https://github.com/xiaomanjun233/SleepDown-Schedule/issues" target="_blank" rel="noreferrer">问题反馈</a><a href="https://github.com/xiaomanjun233/SleepDown-Schedule/blob/main/LICENSE.md" target="_blank" rel="noreferrer">许可证</a></div>
+      <div><b>作者</b><a href="https://github.com/xiaomanjun233" target="_blank" rel="noreferrer">小漫君 / xiaomanjun233</a></div>
+    </div>
+    <p class="legal">本项目为源码可见项目，并非 OSI 定义的开源软件。修改、分发与商业使用请遵循 SleepDown 课程表署名非商业许可 1.0。隐私区图标来自 <a href="https://lucide.dev" target="_blank" rel="noreferrer">Lucide</a>，按 ISC/MIT 许可使用。</p>
+    <p class="copyright">© 2026 xiaomanjun233. SleepDown Schedule.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
