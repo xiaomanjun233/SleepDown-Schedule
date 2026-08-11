@@ -862,7 +862,8 @@ private fun WeekCourseOverlayCardContent(course: CourseEntity, config: ScheduleC
             else -> 2.5.dp
         }
         val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
-        val courseFontScale = config.courseCardFontScale.coerceIn(0.80f, 1.35f)
+        val tabletFontBoost = if (widthDp >= 120f) 1.10f else 1f
+        val courseFontScale = (config.courseCardFontScale * tabletFontBoost).coerceIn(0.80f, 1.35f)
         fun scaledOverlayText(value: TextUnit): TextUnit =
             scaledWeekText((value.value * courseFontScale).sp, density.fontScale)
         val nameFont = scaledOverlayText(if (tiny) 8.8.sp else if (compact) 9.7.sp else 10.7.sp)
@@ -1062,7 +1063,7 @@ fun WeekSwitchButton(direction: Int, config: ScheduleConfigEntity, backdrop: Bac
             surfaceColor = surfaceColor.copy(alpha = homeChromeGlassSurfaceAlpha(lightGlass)),
             height = 34.dp,
             contentPadding = PaddingValues(0.dp),
-            blurRadius = HomeHeaderGlassBlur,
+            blurRadius = homeChromeBlur(HomeHeaderGlassBlur, config),
             lensHeight = HomeHeaderGlassLensHeight,
             lensAmount = HomeHeaderGlassLensAmount,
             chromaticAberration = false
@@ -1225,7 +1226,10 @@ fun WeekHeaderPill(backdrop: Backdrop?, config: ScheduleConfigEntity, selected: 
         config = config,
         modifier = Modifier.fillMaxSize(),
         shape = RoundedCornerShape(50),
-        tokens = homeHeaderGlassTokens(glassUsesLightStyle(config)),
+        tokens = homeHeaderGlassTokens(
+            lightGlass = glassUsesLightStyle(config),
+            blurScale = config.homeChromeBlurScale
+        ),
         selected = selected,
         baseSurfaceColorOverride = if (glassUsesLightStyle(config)) HomeLightGlassSurfaceColor else null,
         content = content
@@ -1836,7 +1840,8 @@ fun WeekCourseBlock(
     val resolvedCardColor = if (config.cardColorArgb == MulticolorCourseCardArgb) courseCardBaseColor(config, course) else cardColor
     val courseTextColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else readableOn(resolvedCardColor)
+        else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor)
+        else glassForegroundColor(config)
     val density = LocalDensity.current
     val tailDirection = if (weekMotionOutgoing) -weekMotionDirection else weekMotionDirection
     val tailBase = with(density) { (32.dp + ((periodIndex - 1).coerceAtLeast(0).coerceAtMost(9) * 9f).dp + (stackIndex * 16f).dp).toPx() }
@@ -2234,7 +2239,8 @@ fun WeekCourseBlock(
             }
             val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
             val fontScaleCompensation = density.fontScale.coerceAtLeast(1f)
-            val courseFontScale = config.courseCardFontScale.coerceIn(0.80f, 1.35f)
+            val tabletFontBoost = if (gridColumnWidth >= 120.dp) 1.10f else 1f
+            val courseFontScale = (config.courseCardFontScale * tabletFontBoost).coerceIn(0.80f, 1.35f)
             fun scaledCourseWeekText(value: TextUnit): TextUnit = scaledWeekText((value.value * courseFontScale).sp, fontScaleCompensation)
             val nameFont = scaledCourseWeekText(if (tiny) 8.8.sp else if (compact) 9.7.sp else 10.7.sp)
             val nameLineHeight = scaledCourseWeekText(if (tiny) 8.2.sp else if (compact) 9.1.sp else 10.0.sp)

@@ -1,9 +1,14 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">SleepDown课程表</string>
+    <string name="backup_open_with_label">SleepDown 恢复</string>
     <string name="widget_today_courses_description">今日课程安排</string>
     <string name="widget_today_courses_name">今日课程</string>
     <string name="widget_today_courses_square_description">今日课程（2×2）</string>
     <string name="widget_today_courses_square_name">今日课程</string>
+    <string name="widget_today_tomorrow_name">今明课程</string>
+    <string name="widget_today_tomorrow_description">同时显示今天与明天的课程安排</string>
+    <string name="widget_week_schedule_name">周视图课程表</string>
+    <string name="widget_week_schedule_description">可拉伸的本周课程表</string>
     <string name="widget_today_assistant_name">今日助手</string>
     <string name="widget_today_assistant_description">今日助手实时课程、天气与预警</string>
     <string name="widget_refresh_symbol">&#x21BB;</string>
@@ -24,4 +29,20 @@
     <string name="widget_preview_tomorrow">明日课程</string>
     <string name="widget_preview_animation_detail">动漫鉴赏\n10:00 · A-105</string>
     <string name="widget_preview_japanese_detail">日语入门\n14:00 · B-208</string>
+    <string name="widget_preview_schedule_name">大二上</string>
+    <string name="widget_preview_today_label">今天 · 周四</string>
+    <string name="widget_preview_tomorrow_label">明天 · 周五</string>
+    <string name="widget_preview_data_visualization">数据可视化\n13:30 · 中心教学楼</string>
+    <string name="widget_preview_software_lab">软件工程实验\n20:30 · 实验室 11</string>
+    <string name="widget_preview_drone_lab">无人机技术实验\n13:30 · 实验室 12</string>
+    <string name="widget_preview_week_title">第4周 · 周视图</string>
+    <string name="widget_preview_week_range">3.23–3.29</string>
+    <string name="widget_preview_weekdays">一　　二　　三　　四　　五</string>
+    <string name="widget_preview_advanced_math">高等数学</string>
+    <string name="widget_preview_software_engineering">软件工程</string>
+    <string name="widget_preview_data_visualization_name">数据可视化</string>
+    <string name="widget_preview_college_english">大学英语</string>
+    <string name="widget_preview_laboratory_course">实验课程</string>
+    <string name="widget_today_empty">今天没有课</string>
+    <string name="widget_tomorrow_empty">明天没有课</string>
 </resources>

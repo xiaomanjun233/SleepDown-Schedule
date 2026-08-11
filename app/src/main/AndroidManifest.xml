@@ -17,6 +17,12 @@
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
+
     <application
         android:name=".CourseScheduleApp"
         android:allowBackup="true"
@@ -107,9 +113,29 @@
         </activity-alias>
         <activity
             android:name=".SettingsDetailActivity"
-            android:exported="false"
+            android:exported="true"
+            android:label="@string/backup_open_with_label"
             android:theme="@style/AppTheme"
-            android:parentActivityName=".MainActivity" />
+            android:parentActivityName=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/vnd.sleepdown" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+            </intent-filter>
+            <intent-filter tools:ignore="AppLinkUrlError">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:pathPattern=".*\.sleepdown" />
+                <data android:pathPattern=".*\.SLEEPDOWN" />
+            </intent-filter>
+        </activity>
         <activity
             android:name=".ScheduleManagerActivity"
             android:exported="false"
@@ -194,6 +220,17 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/today_courses_square_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".TodayTomorrowWidgetProvider"
+            android:label="@string/widget_today_tomorrow_name"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/today_tomorrow_widget_info" />
         </receiver>
         <receiver
             android:name=".TodayAssistantWidgetProvider"

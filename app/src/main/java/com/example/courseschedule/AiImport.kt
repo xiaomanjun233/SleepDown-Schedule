@@ -791,6 +791,59 @@ object AiImportSettingsStore {
         return builtIns + additionalCustomProfiles
     }
 
+    /**
+     * Reads provider configuration for backup without touching encrypted API-key values. The
+     * selected provider uses the legacy global keys; other providers use their scoped keys.
+     */
+    fun exportForBackup(context: Context): BackupAiImportPreferences {
+        val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+        val selectedProviderId = prefs.getString(KeyProviderId, AiProviderPresets.none.id).orEmpty()
+        val presets = (selectableProfiles(context) + AiProviderPresets.byId(selectedProviderId))
+            .distinctBy(AiProviderProfile::id)
+        val profiles = presets.map { preset ->
+            readProfileWithoutSecret(prefs, preset, preset.id == selectedProviderId)
+        }
+        return BackupAiImportPreferences(
+            selectedProviderId = selectedProviderId.ifBlank { AiProviderPresets.none.id },
+            managedFreeOfferDecision = prefs.getString(KeyManagedFreeOfferDecision, null),
+            providers = profiles.map { it.toBackupProvider() }
+        )
+    }
+
+    /** Applies only the non-secret provider fields; existing encrypted API keys are untouched. */
+    fun applyBackupPreferences(context: Context, backup: BackupAiImportPreferences) {
+        val providerProfiles = backup.providers
+            .map { provider -> provider.fromBackupProvider(context) }
+            .distinctBy(AiProviderProfile::id)
+        val profiles = if (providerProfiles.isEmpty() && backup.selectedProviderId == AiProviderPresets.none.id) {
+            listOf(AiProviderPresets.none)
+        } else {
+            providerProfiles
+        }
+        val selected = profiles.firstOrNull { it.id == backup.selectedProviderId }
+            ?: throw IllegalArgumentException("AI selectedProviderId 不在备份 provider 列表中")
+        val customEntries = profiles
+            .filter { AiProviderPresets.isCustomId(it.id) }
+            .map { AiCustomProviderEntry(it.id, it.displayName.trim().ifBlank { AiProviderPresets.custom.displayName }) }
+        val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+        val committed = prefs.edit().apply {
+            profiles.forEach { profile ->
+                writeProviderSettings(this, AiImportSettings(profile, ""))
+            }
+            if (customEntries.isEmpty()) remove(KeyCustomProviders)
+            else putString(KeyCustomProviders, settingsJson.encodeToString(customEntries))
+            putString(KeyProviderId, selected.id)
+            writeGlobalSettings(this, selected)
+            if (backup.managedFreeOfferDecision == null) {
+                remove(KeyManagedFreeOfferDecision)
+            } else {
+                putString(KeyManagedFreeOfferDecision, backup.managedFreeOfferDecision)
+            }
+        }.commit()
+        check(committed) { "无法提交 AI import preferences" }
+        notifyChanged()
+    }
+
     fun createCustomProvider(): AiProviderProfile {
         val id = "${AiProviderPresets.custom.id}:${UUID.randomUUID()}"
         // This remains an in-memory draft until the user enters actual content.
@@ -834,6 +887,149 @@ object AiImportSettingsStore {
     private fun presetFor(context: Context, providerId: String): AiProviderProfile =
         selectableProfiles(context).firstOrNull { it.id == providerId }
             ?: AiProviderPresets.byId(providerId)
+
+    private fun readProfileWithoutSecret(
+        prefs: android.content.SharedPreferences,
+        preset: AiProviderProfile,
+        useGlobalKeys: Boolean
+    ): AiProviderProfile {
+        if (AiProviderPresets.isManagedFreeId(preset.id)) {
+            return preset.copy(
+                reasoningEffort = runCatching {
+                    AiReasoningEffort.valueOf(
+                        prefs.getString(
+                            providerKey(KeyReasoningEffort, preset.id),
+                            preset.reasoningEffort.name
+                        ).orEmpty()
+                    )
+                }.getOrDefault(preset.reasoningEffort)
+            )
+        }
+        if (!useGlobalKeys && !prefs.contains(providerKey(KeyBaseUrl, preset.id))) return preset
+        fun key(name: String): String = if (useGlobalKeys) name else providerKey(name, preset.id)
+        val providerType = runCatching {
+            AiProviderType.valueOf(prefs.getString(key(KeyProviderType), preset.providerType.name).orEmpty())
+        }.getOrDefault(preset.providerType)
+        val endpointStyle = runCatching {
+            AiEndpointStyle.valueOf(prefs.getString(key(KeyEndpointStyle), preset.endpointStyle.name).orEmpty())
+        }.getOrDefault(preset.endpointStyle)
+        val structuredOutputMode = runCatching {
+            StructuredOutputMode.valueOf(
+                prefs.getString(key(KeyStructuredOutputMode), preset.structuredOutputMode.name).orEmpty()
+            )
+        }.getOrDefault(preset.structuredOutputMode)
+        val inputMode = runCatching {
+            AiInputMode.valueOf(prefs.getString(key(KeyInputMode), preset.inputMode.name).orEmpty())
+        }.getOrDefault(preset.inputMode)
+        val capabilities = preset.capabilities.copy(
+            supportsImageInput = prefs.getBoolean(key(KeyImage), preset.capabilities.supportsImageInput),
+            supportsPdfFileInput = prefs.getBoolean(key(KeyPdf), preset.capabilities.supportsPdfFileInput),
+            supportsJsonSchema = prefs.getBoolean(key(KeyJsonSchema), preset.capabilities.supportsJsonSchema),
+            supportsJsonMode = prefs.getBoolean(key(KeyJsonMode), preset.capabilities.supportsJsonMode),
+            supportsFileUpload = prefs.getBoolean(key(KeyFileUpload), preset.capabilities.supportsFileUpload),
+            supportsResponses = prefs.getBoolean(key(KeyResponses), preset.capabilities.supportsResponses)
+        )
+        val defaultModel = prefs.getString(key(KeyModel), preset.defaultModel).orEmpty()
+        return preset.copy(
+            providerType = providerType,
+            baseUrl = normalizeAiBaseUrlForProvider(
+                preset.id,
+                prefs.getString(key(KeyBaseUrl), preset.baseUrl).orEmpty()
+            ),
+            defaultModel = defaultModel,
+            capabilities = capabilities,
+            endpointStyle = endpointStyle,
+            structuredOutputMode = structuredOutputMode,
+            inputMode = inputMode,
+            supportsVision = prefs.getBoolean(
+                key(KeyVision),
+                preset.supportsVision || capabilities.supportsImageInput
+            ),
+            supportsFileUpload = prefs.getBoolean(
+                key(KeyFileUpload),
+                preset.supportsFileUpload || capabilities.supportsFileUpload
+            ),
+            supportsPdfDirect = prefs.getBoolean(
+                key(KeyPdfDirect),
+                preset.supportsPdfDirect || capabilities.supportsPdfFileInput
+            ),
+            availableModels = readModelIds(
+                prefs.getString(key(KeyAvailableModels), null),
+                preset.availableModels,
+                defaultModel
+            ),
+            reasoningEffort = runCatching {
+                AiReasoningEffort.valueOf(
+                    prefs.getString(key(KeyReasoningEffort), preset.reasoningEffort.name).orEmpty()
+                )
+            }.getOrDefault(preset.reasoningEffort)
+        )
+    }
+
+    private fun AiProviderProfile.toBackupProvider(): BackupAiProvider = BackupAiProvider(
+        id = id,
+        displayName = displayName,
+        providerType = providerType.name,
+        baseUrl = baseUrl,
+        model = defaultModel,
+        authType = authType.name,
+        supportsImageInput = capabilities.supportsImageInput,
+        supportsPdfFileInput = capabilities.supportsPdfFileInput,
+        supportsJsonSchema = capabilities.supportsJsonSchema,
+        supportsJsonMode = capabilities.supportsJsonMode,
+        supportsFileUpload = capabilities.supportsFileUpload,
+        supportsResponses = capabilities.supportsResponses,
+        supportsVision = supportsVision,
+        supportsPdfDirect = supportsPdfDirect,
+        endpointStyle = endpointStyle.name,
+        structuredOutputMode = structuredOutputMode.name,
+        inputMode = inputMode.name,
+        availableModels = availableModels,
+        reasoningEffort = reasoningEffort.name
+    )
+
+    private fun BackupAiProvider.fromBackupProvider(context: Context): AiProviderProfile {
+        require(id.matches(Regex("[A-Za-z0-9:_-]{1,128}"))) { "AI provider ID 非法" }
+        val preset = selectableProfiles(context).firstOrNull { it.id == id }
+            ?: AiProviderPresets.customProfile(id, displayName)
+        val providerType = runCatching { AiProviderType.valueOf(this.providerType) }
+            .getOrElse { throw IllegalArgumentException("未知 AI providerType: ${this.providerType}") }
+        val authType = runCatching { AiAuthType.valueOf(this.authType) }
+            .getOrElse { throw IllegalArgumentException("未知 AI authType: ${this.authType}") }
+        val endpointStyle = runCatching { AiEndpointStyle.valueOf(this.endpointStyle) }
+            .getOrElse { throw IllegalArgumentException("未知 AI endpointStyle: ${this.endpointStyle}") }
+        val structuredOutputMode = runCatching { StructuredOutputMode.valueOf(this.structuredOutputMode) }
+            .getOrElse { throw IllegalArgumentException("未知 AI structuredOutputMode: ${this.structuredOutputMode}") }
+        val inputMode = runCatching { AiInputMode.valueOf(this.inputMode) }
+            .getOrElse { throw IllegalArgumentException("未知 AI inputMode: ${this.inputMode}") }
+        val reasoningEffort = runCatching { AiReasoningEffort.valueOf(this.reasoningEffort) }
+            .getOrElse { throw IllegalArgumentException("未知 AI reasoningEffort: ${this.reasoningEffort}") }
+        val capabilities = preset.capabilities.copy(
+            supportsImageInput = supportsImageInput,
+            supportsPdfFileInput = supportsPdfFileInput,
+            supportsJsonSchema = supportsJsonSchema,
+            supportsJsonMode = supportsJsonMode,
+            supportsFileUpload = supportsFileUpload,
+            supportsResponses = supportsResponses
+        )
+        return preset.copy(
+            id = id,
+            displayName = displayName,
+            providerType = providerType,
+            baseUrl = normalizeAiBaseUrlForProvider(id, baseUrl),
+            defaultModel = model,
+            authType = authType,
+            capabilities = capabilities,
+            endpointStyle = endpointStyle,
+            structuredOutputMode = structuredOutputMode,
+            inputMode = inputMode,
+            supportsVision = supportsVision,
+            supportsFileUpload = supportsFileUpload,
+            supportsPdfDirect = supportsPdfDirect,
+            availableModels = (availableModels + model).filter(String::isNotBlank).distinct(),
+            reasoningEffort = reasoningEffort
+        )
+    }
 
     private fun readCustomProviders(prefs: android.content.SharedPreferences): List<AiCustomProviderEntry> {
         val encoded = prefs.getString(KeyCustomProviders, null) ?: return emptyList()
@@ -1131,7 +1327,30 @@ object AiImportSettingsStore {
             .putBoolean(providerKey(KeyVision, id), profile.supportsVision)
             .putBoolean(providerKey(KeyPdfDirect, id), profile.supportsPdfDirect)
             .putString(providerKey(KeyAvailableModels, id), settingsJson.encodeToString(profile.availableModels))
-            .putString(providerKey(KeyReasoningEffort, id), profile.reasoningEffort.name)
+             .putString(providerKey(KeyReasoningEffort, id), profile.reasoningEffort.name)
+    }
+
+    private fun writeGlobalSettings(
+        editor: android.content.SharedPreferences.Editor,
+        profile: AiProviderProfile
+    ) {
+        editor
+            .putString(KeyBaseUrl, normalizeAiBaseUrlForProvider(profile.id, profile.baseUrl))
+            .putString(KeyModel, profile.defaultModel)
+            .putString(KeyProviderType, profile.providerType.name)
+            .putString(KeyEndpointStyle, profile.endpointStyle.name)
+            .putString(KeyStructuredOutputMode, profile.structuredOutputMode.name)
+            .putString(KeyInputMode, profile.inputMode.name)
+            .putBoolean(KeyImage, profile.capabilities.supportsImageInput)
+            .putBoolean(KeyPdf, profile.capabilities.supportsPdfFileInput)
+            .putBoolean(KeyJsonSchema, profile.capabilities.supportsJsonSchema)
+            .putBoolean(KeyJsonMode, profile.capabilities.supportsJsonMode)
+            .putBoolean(KeyFileUpload, profile.capabilities.supportsFileUpload)
+            .putBoolean(KeyResponses, profile.capabilities.supportsResponses)
+            .putBoolean(KeyVision, profile.supportsVision)
+            .putBoolean(KeyPdfDirect, profile.supportsPdfDirect)
+            .putString(KeyAvailableModels, settingsJson.encodeToString(profile.availableModels))
+            .putString(KeyReasoningEffort, profile.reasoningEffort.name)
     }
 
     fun clearApiKey(context: Context, providerId: String? = null) {

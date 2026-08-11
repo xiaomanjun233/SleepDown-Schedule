@@ -9,7 +9,7 @@
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_countdown" android:textColor="#FF62B5FF" android:textSize="15sp" android:textStyle="bold" />
     </LinearLayout>
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="@string/widget_preview_location" android:textColor="#AAFFFFFF" android:textSize="11sp" />
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginTop="9dp" android:layout_marginBottom="8dp" android:background="#1CFFFFFF" />
+    <ImageView android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginTop="9dp" android:layout_marginBottom="8dp" android:background="#1CFFFFFF" android:contentDescription="@null" />
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/widget_preview_today_count" android:textColor="#FFFFFFFF" android:textSize="14sp" android:textStyle="bold" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_marginTop="4dp" android:layout_weight="1" android:gravity="bottom" android:orientation="horizontal">
         <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/widget_preview_weather" android:textColor="#AAFFFFFF" android:textSize="12sp" />

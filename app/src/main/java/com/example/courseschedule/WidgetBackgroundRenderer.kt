@@ -22,6 +22,7 @@ import android.os.Bundle
 import android.os.Build
 import android.util.SizeF
 import java.util.LinkedHashMap
+import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -39,12 +40,82 @@ data class WidgetBackgroundResult(
     val headerSecondary: Int,
     val content: List<Int>,
     val contentSecondary: List<Int>,
-    val accent: Int
+    val accent: Int,
+    val darkBackground: Boolean
 )
+
+internal data class TodayTomorrowWidgetLayoutMetrics(
+    val horizontalPaddingDp: Int,
+    val verticalPaddingDp: Int,
+    val headerHeightDp: Int,
+    val dayHeaderHeightDp: Int,
+    val headerGapDp: Int,
+    val columnGapDp: Int,
+    val rowGapDp: Int,
+    val rowHeightDp: Int,
+    val maxCoursesPerDay: Int,
+    val rowCornerRadiusDp: Int,
+    val timeColumnWidthDp: Int,
+    val textScale: Float
+)
+
+internal fun todayTomorrowWidgetLayoutMetrics(
+    size: WidgetRenderSize,
+    fontScale: Float = 1f
+): TodayTomorrowWidgetLayoutMetrics {
+    fun progress(value: Int, compact: Int, comfortable: Int): Float =
+        ((value - compact).toFloat() / (comfortable - compact).toFloat()).coerceIn(0f, 1f)
+
+    val widthProgress = progress(size.widthDp, 220, 336)
+    val heightProgress = progress(size.heightDp, 110, 300)
+    val horizontalPadding = (9f + 3f * widthProgress).roundToInt()
+    val verticalPadding = (8f + 4f * heightProgress).roundToInt()
+    val headerHeight = (22f + 4f * heightProgress).roundToInt()
+    val dayHeaderHeight = (20f + 3f * heightProgress).roundToInt()
+    val headerGap = 4
+    val rowGap = 4
+    val availableHeight = (
+        size.heightDp - verticalPadding * 2 - headerHeight - dayHeaderHeight - headerGap * 2
+    ).coerceAtLeast(30)
+    val preferredRowHeight = (43f + 11f * heightProgress).roundToInt()
+    val calculatedCapacity = floor(
+        (availableHeight + rowGap).toFloat() / (preferredRowHeight + rowGap).toFloat()
+    ).toInt()
+    val minimumCapacity = if (size.heightDp >= 145) 2 else 1
+    val capacity = maxOf(calculatedCapacity, minimumCapacity).coerceIn(1, 6)
+    val rowHeight = floor(
+        (availableHeight - rowGap * (capacity - 1)).toFloat() / capacity.toFloat()
+    ).toInt().coerceIn(30, 64)
+    val fontCompensation = (1f / fontScale.coerceAtLeast(1f)).coerceIn(0.72f, 1f)
+    val textScale = minOf(
+        0.80f + 0.20f * progress(rowHeight, 30, 54),
+        0.88f + 0.12f * widthProgress,
+        fontCompensation
+    )
+    return TodayTomorrowWidgetLayoutMetrics(
+        horizontalPaddingDp = horizontalPadding,
+        verticalPaddingDp = verticalPadding,
+        headerHeightDp = headerHeight,
+        dayHeaderHeightDp = dayHeaderHeight,
+        headerGapDp = headerGap,
+        // Keeps the two MIUIX day panels visually separated at every host width.
+        columnGapDp = 9,
+        rowGapDp = rowGap,
+        rowHeightDp = rowHeight,
+        maxCoursesPerDay = capacity,
+        rowCornerRadiusDp = (11f + 3f * progress(rowHeight, 30, 54)).roundToInt(),
+        timeColumnWidthDp = (30f + 8f * widthProgress).roundToInt(),
+        textScale = textScale
+    )
+}
 
 internal fun widgetRenderSize(manager: AppWidgetManager, id: Int, type: WidgetAppearanceVariant): WidgetRenderSize {
     val options = manager.getAppWidgetOptions(id) ?: Bundle.EMPTY
-    val fallback = if (type == WidgetAppearanceVariant.COURSES_SQUARE) WidgetRenderSize(160, 160) else WidgetRenderSize(320, 160)
+    val fallback = when (type) {
+        WidgetAppearanceVariant.COURSES_SQUARE -> WidgetRenderSize(160, 160)
+        WidgetAppearanceVariant.WEEK_SCHEDULE -> WidgetRenderSize(320, 240)
+        else -> WidgetRenderSize(320, 160)
+    }
     return normalizedWidgetRenderSize(
         options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, fallback.widthDp),
         options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, fallback.heightDp)
@@ -68,7 +139,7 @@ internal fun widgetRenderSizes(manager: AppWidgetManager, id: Int, type: WidgetA
 }
 
 object WidgetBackgroundRenderer {
-    private const val MaxCacheEntries = 8
+    private const val MaxCacheEntries = 12
     // RemoteViews transports bitmaps through Binder. Keep a single background comfortably
     // below the transaction ceiling even on high-density launchers.
     private const val MaxBackgroundPixels = 160_000f
@@ -82,16 +153,20 @@ object WidgetBackgroundRenderer {
         appearance: WidgetAppearanceEntity,
         size: WidgetRenderSize,
         courseCount: Int = 0,
-        darkMode: Boolean = false
+        darkMode: Boolean = false,
+        dayCourseCounts: List<Int> = emptyList(),
+        drawContentSurfaces: Boolean = true,
+        pixelLimit: Float = MaxBackgroundPixels
     ): WidgetBackgroundResult? {
         val uri = appearance.wallpaperUri?.takeIf { appearance.enabled } ?: return null
         val cacheKey = listOf(
             uri, appearance.updatedAt, appearance.centerX, appearance.centerY, appearance.scale,
-            appearance.blurDp, appearance.brightness, appearance.variant, size.widthDp, size.heightDp, courseCount, darkMode
+            appearance.blurDp, appearance.brightness, appearance.variant, size.widthDp, size.heightDp,
+            courseCount, darkMode, dayCourseCounts.joinToString(","), drawContentSurfaces, pixelLimit
         ).joinToString("|")
         synchronized(cache) { cache[cacheKey]?.let { return it } }
         val source = loadSampledBitmap(context, uri.toUri(), 1800) ?: return null
-        val (width, height) = cappedPixels(context, size)
+        val (width, height) = pixelSize(context, size, pixelLimit)
         val crop = createBitmap(width, height)
         val destination = calculateFocusCropRect(
             source.width, source.height, width.toFloat(), height.toFloat(),
@@ -102,23 +177,37 @@ object WidgetBackgroundRenderer {
             createBlurredWallpaperBitmap(crop, appearance.blurDp.roundToInt().coerceAtLeast(1)) ?: crop
         } else crop
         val base = applyBrightness(blurred, appearance.brightness)
-        val result = when (appearance.type) {
-            WidgetAppearanceVariant.COURSES_LARGE,
-            WidgetAppearanceVariant.COURSES_SQUARE -> renderCourses(base, appearance.type, size, courseCount)
-            WidgetAppearanceVariant.TODAY_ASSISTANT -> renderAssistant(base)
+        val result = if (!drawContentSurfaces) {
+            renderPlain(base)
+        } else {
+            when (appearance.type) {
+                WidgetAppearanceVariant.COURSES_LARGE,
+                WidgetAppearanceVariant.COURSES_SQUARE -> renderCourses(base, appearance.type, size, courseCount)
+                WidgetAppearanceVariant.TODAY_TOMORROW -> renderTodayTomorrow(base, size, dayCourseCounts)
+                WidgetAppearanceVariant.WEEK_SCHEDULE,
+                WidgetAppearanceVariant.TODAY_ASSISTANT -> renderPlain(base)
+            }
         }
         result.bitmap.setHasAlpha(false)
+        base.recycle()
+        if (blurred !== crop) blurred.recycle()
+        crop.recycle()
+        source.recycle()
         synchronized(cache) { cache[cacheKey] = result }
         return result
     }
 
-    private fun cappedPixels(context: Context, size: WidgetRenderSize): Pair<Int, Int> {
+    internal fun pixelSize(
+        context: Context,
+        size: WidgetRenderSize,
+        pixelLimit: Float = MaxBackgroundPixels
+    ): Pair<Int, Int> {
         val density = context.resources.displayMetrics.density.coerceAtLeast(1f)
         var width = (size.widthDp * density).roundToInt().coerceAtLeast(1)
         var height = (size.heightDp * density).roundToInt().coerceAtLeast(1)
         val pixels = width.toFloat() * height
-        if (pixels > MaxBackgroundPixels) {
-            val factor = sqrt(MaxBackgroundPixels / pixels)
+        if (pixels > pixelLimit) {
+            val factor = sqrt(pixelLimit / pixels)
             width = (width * factor).roundToInt().coerceAtLeast(1)
             height = (height * factor).roundToInt().coerceAtLeast(1)
         }
@@ -175,7 +264,6 @@ object WidgetBackgroundRenderer {
             RectF(0f, 0f, base.width.toFloat(), base.height.toFloat())
         ) < 0.48
         regions.forEach { region ->
-            val regionIsDark = luminance(base, region) < 0.48
             val path = Path().apply {
                 addRoundRect(
                     region,
@@ -187,31 +275,118 @@ object WidgetBackgroundRenderer {
             canvas.withClip(path) {
                 drawBitmap(extraBlur, 0f, 0f, null)
                 drawColor(
-                    if (regionIsDark) {
+                    if (darkBackground) {
                         Color.argb(66, 0, 0, 0)
                     } else {
                         Color.argb(78, 255, 255, 255)
                     }
                 )
             }
-            drawPresetGlassHighlight(canvas, path, region, sx, sy, regionIsDark)
-            primary += if (regionIsDark) Color.WHITE else Color.rgb(17, 17, 17)
-            secondary += if (regionIsDark) {
+            drawPresetGlassHighlight(canvas, path, region, sx, sy, darkBackground)
+            primary += if (darkBackground) Color.WHITE else Color.rgb(17, 17, 17)
+            secondary += if (darkBackground) {
                 Color.argb(190, 255, 255, 255)
             } else {
                 Color.argb(170, 0, 0, 0)
             }
         }
+        if (extraBlur !== base) extraBlur.recycle()
         return WidgetBackgroundResult(
             output,
             if (darkBackground) Color.WHITE else Color.rgb(17, 17, 17),
             if (darkBackground) Color.argb(200, 255, 255, 255) else Color.argb(170, 0, 0, 0),
             primary, secondary,
-            if (darkBackground) Color.rgb(98, 181, 255) else Color.rgb(0, 110, 220)
+            if (darkBackground) Color.rgb(98, 181, 255) else Color.rgb(0, 110, 220),
+            darkBackground
         )
     }
 
-    private fun drawPresetGlassHighlight(
+    private fun renderTodayTomorrow(
+        base: Bitmap,
+        size: WidgetRenderSize,
+        dayCourseCounts: List<Int>
+    ): WidgetBackgroundResult {
+        val output = base.copy(Bitmap.Config.ARGB_8888, true)
+        val extraBlur = createBlurredWallpaperBitmap(base, 10) ?: base
+        val sx = output.width / size.widthDp.toFloat()
+        val sy = output.height / size.heightDp.toFloat()
+        val metrics = todayTomorrowWidgetLayoutMetrics(size)
+        val contentTopDp = (
+            metrics.verticalPaddingDp + metrics.headerHeightDp + metrics.headerGapDp +
+                metrics.dayHeaderHeightDp + metrics.headerGapDp
+        ).toFloat()
+        val contentWidthDp = size.widthDp - metrics.horizontalPaddingDp * 2f - metrics.columnGapDp
+        val columnWidthDp = contentWidthDp / 2f
+        val counts = List(2) { dayCourseCounts.getOrNull(it).orZero() }
+        val regions = buildList {
+            repeat(2) { dayIndex ->
+                val columnLeftDp = metrics.horizontalPaddingDp +
+                    dayIndex * (columnWidthDp + metrics.columnGapDp)
+                repeat(counts[dayIndex].coerceAtMost(metrics.maxCoursesPerDay)) { rowIndex ->
+                    val rowTopDp = contentTopDp +
+                        rowIndex * (metrics.rowHeightDp + metrics.rowGapDp)
+                    add(
+                        RectF(
+                            columnLeftDp * sx,
+                            rowTopDp * sy,
+                            (columnLeftDp + columnWidthDp) * sx,
+                            (rowTopDp + metrics.rowHeightDp) * sy
+                        )
+                    )
+                }
+            }
+        }
+        val darkBackground = luminance(
+            base,
+            RectF(0f, 0f, base.width.toFloat(), base.height.toFloat())
+        ) < 0.48
+        val primaryColor = if (darkBackground) Color.WHITE else Color.rgb(17, 17, 17)
+        val secondaryColor = if (darkBackground) {
+            Color.argb(190, 255, 255, 255)
+        } else {
+            Color.argb(170, 0, 0, 0)
+        }
+        val canvas = Canvas(output)
+        regions.forEach { region ->
+            val path = Path().apply {
+                addRoundRect(
+                    region,
+                    metrics.rowCornerRadiusDp * sx,
+                    metrics.rowCornerRadiusDp * sy,
+                    Path.Direction.CW
+                )
+            }
+            canvas.withClip(path) {
+                drawBitmap(extraBlur, 0f, 0f, null)
+                drawColor(
+                    if (darkBackground) {
+                        Color.argb(66, 0, 0, 0)
+                    } else {
+                        Color.argb(78, 255, 255, 255)
+                    }
+                )
+            }
+            drawPresetGlassHighlight(canvas, path, region, sx, sy, darkBackground)
+        }
+        if (extraBlur !== base) extraBlur.recycle()
+        return WidgetBackgroundResult(
+            bitmap = output,
+            header = primaryColor,
+            headerSecondary = if (darkBackground) {
+                Color.argb(200, 255, 255, 255)
+            } else {
+                Color.argb(170, 0, 0, 0)
+            },
+            content = List(regions.size) { primaryColor },
+            contentSecondary = List(regions.size) { secondaryColor },
+            accent = if (darkBackground) Color.rgb(98, 181, 255) else Color.rgb(0, 110, 220),
+            darkBackground = darkBackground
+        )
+    }
+
+    private fun Int?.orZero(): Int = this ?: 0
+
+    internal fun drawPresetGlassHighlight(
         canvas: Canvas,
         path: Path,
         region: RectF,
@@ -273,7 +448,7 @@ object WidgetBackgroundRenderer {
         drawCenteredEdgeHighlight(top = false, alpha = if (darkBackground) 92 else 72)
     }
 
-    private fun renderAssistant(base: Bitmap): WidgetBackgroundResult {
+    private fun renderPlain(base: Bitmap): WidgetBackgroundResult {
         val output = base.copy(Bitmap.Config.ARGB_8888, true)
         val darkBackground = luminance(
             base,
@@ -281,8 +456,15 @@ object WidgetBackgroundRenderer {
         ) < 0.48
         val primary = if (darkBackground) Color.WHITE else Color.rgb(17, 17, 17)
         val secondary = if (darkBackground) Color.argb(195, 255, 255, 255) else Color.argb(170, 0, 0, 0)
-        return WidgetBackgroundResult(output, primary, secondary, listOf(primary), listOf(secondary),
-            if (darkBackground) Color.rgb(98, 181, 255) else Color.rgb(0, 110, 220))
+        return WidgetBackgroundResult(
+            output,
+            primary,
+            secondary,
+            listOf(primary),
+            listOf(secondary),
+            if (darkBackground) Color.rgb(98, 181, 255) else Color.rgb(0, 110, 220),
+            darkBackground
+        )
     }
 
     private fun luminance(bitmap: Bitmap, region: RectF): Double {

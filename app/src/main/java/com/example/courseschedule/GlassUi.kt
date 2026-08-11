@@ -303,7 +303,7 @@ data class GlassTokens(
         )
 
         fun courseCard(blur: Float, reduceTransparency: Boolean = false) = GlassTokens(
-            blur = if (reduceTransparency) 0.dp else blur.coerceIn(0f, 10f).dp,
+            blur = if (reduceTransparency) 0.dp else blur.coerceIn(0f, LiquidCourseCardBlurMax).dp,
             lensHeight = if (reduceTransparency) 0.dp else 10.dp,
             lensAmount = if (reduceTransparency) 0.dp else 20.dp,
             surfaceAlpha = if (reduceTransparency) 0.92f else 0.52f,
@@ -614,7 +614,10 @@ fun CourseGlassCard(
                     backdrop = simpleBlurBackdrop,
                     shape = { shape },
                     effects = {
-                        blur(((blurOverride ?: config.courseCardBlur).coerceIn(0f, 24f) * quality).dp.toPx())
+                        blur(
+                            ((blurOverride ?: config.courseCardBlur)
+                                .coerceIn(0f, SimpleCourseCardBlurMax) * quality).dp.toPx()
+                        )
                     },
                     highlight = { Highlight.Default.copy(alpha = 0.10f) },
                     shadow = { Shadow(alpha = 0.12f) },

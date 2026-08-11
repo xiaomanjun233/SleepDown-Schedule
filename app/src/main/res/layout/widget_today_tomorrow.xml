@@ -1,0 +1,871 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/widget_tt_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_today_background">
+
+    <ImageView
+        android:id="@+id/widget_tt_background_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/widget_today_background"
+        android:clipToOutline="true"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        android:visibility="gone"
+        tools:targetApi="s" />
+
+    <LinearLayout
+        android:id="@+id/widget_tt_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="10dp">
+
+        <LinearLayout
+            android:id="@+id/widget_tt_header"
+            android:layout_width="match_parent"
+            android:layout_height="24dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_marginEnd="8dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_launcher_preview" />
+
+            <TextView
+                android:id="@+id/widget_tt_schedule"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:includeFontPadding="true"
+                android:maxLines="1"
+                android:textColor="#FF111111"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_tt_meta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:includeFontPadding="true"
+                android:maxLines="1"
+                android:textColor="#99000000"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="4dp"
+            android:layout_weight="1"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/widget_tt_today_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="20dp"
+                    android:gravity="center_vertical"
+                    android:includeFontPadding="true"
+                    android:maxLines="1"
+                    android:text="今天"
+                    android:textColor="#FF111111"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_marginTop="4dp"
+                    android:layout_weight="1">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+                    <LinearLayout
+                        android:id="@+id/widget_tt_today_row_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="43dp"
+                        android:background="@drawable/widget_course_background_compact"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="7dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="7dp"
+                        android:paddingBottom="3dp">
+
+                        <LinearLayout
+                            android:id="@+id/widget_tt_today_time_column_1"
+                            style="@style/WidgetCourseTimeColumn"
+                            android:layout_width="36dp"
+                            android:paddingEnd="3dp">
+                            <TextView android:id="@+id/widget_tt_today_start_1" style="@style/WidgetCourseTimePrimary" />
+                            <TextView android:id="@+id/widget_tt_today_end_1" style="@style/WidgetCourseTimeSecondary" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/widget_tt_today_indicator_1"
+                            android:layout_width="4dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="7dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/widget_course_indicator" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/widget_tt_today_name_1"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#FF111111"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/widget_tt_today_detail_1"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#77111111"
+                                android:textSize="8.8sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    <LinearLayout
+                        android:id="@+id/widget_tt_today_row_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="43dp"
+                        android:layout_marginTop="4dp"
+                        android:background="@drawable/widget_course_background_compact"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="7dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="7dp"
+                        android:paddingBottom="3dp">
+
+                        <LinearLayout
+                            android:id="@+id/widget_tt_today_time_column_2"
+                            style="@style/WidgetCourseTimeColumn"
+                            android:layout_width="36dp"
+                            android:paddingEnd="3dp">
+                            <TextView android:id="@+id/widget_tt_today_start_2" style="@style/WidgetCourseTimePrimary" />
+                            <TextView android:id="@+id/widget_tt_today_end_2" style="@style/WidgetCourseTimeSecondary" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/widget_tt_today_indicator_2"
+                            android:layout_width="4dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="7dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/widget_course_indicator" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/widget_tt_today_name_2"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#FF111111"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/widget_tt_today_detail_2"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#77111111"
+                                android:textSize="8.8sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    <LinearLayout
+                        android:id="@+id/widget_tt_today_row_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="43dp"
+                        android:layout_marginTop="4dp"
+                        android:background="@drawable/widget_course_background_compact"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="7dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="7dp"
+                        android:paddingBottom="3dp">
+
+                        <LinearLayout
+                            android:id="@+id/widget_tt_today_time_column_3"
+                            style="@style/WidgetCourseTimeColumn"
+                            android:layout_width="36dp"
+                            android:paddingEnd="3dp">
+                            <TextView android:id="@+id/widget_tt_today_start_3" style="@style/WidgetCourseTimePrimary" />
+                            <TextView android:id="@+id/widget_tt_today_end_3" style="@style/WidgetCourseTimeSecondary" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/widget_tt_today_indicator_3"
+                            android:layout_width="4dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="7dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/widget_course_indicator" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/widget_tt_today_name_3"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#FF111111"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/widget_tt_today_detail_3"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#77111111"
+                                android:textSize="8.8sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    <LinearLayout
+                        android:id="@+id/widget_tt_today_row_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="43dp"
+                        android:layout_marginTop="4dp"
+                        android:background="@drawable/widget_course_background_compact"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="7dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="7dp"
+                        android:paddingBottom="3dp">
+
+                        <LinearLayout
+                            android:id="@+id/widget_tt_today_time_column_4"
+                            style="@style/WidgetCourseTimeColumn"
+                            android:layout_width="36dp"
+                            android:paddingEnd="3dp">
+                            <TextView android:id="@+id/widget_tt_today_start_4" style="@style/WidgetCourseTimePrimary" />
+                            <TextView android:id="@+id/widget_tt_today_end_4" style="@style/WidgetCourseTimeSecondary" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/widget_tt_today_indicator_4"
+                            android:layout_width="4dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="7dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/widget_course_indicator" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/widget_tt_today_name_4"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#FF111111"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/widget_tt_today_detail_4"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#77111111"
+                                android:textSize="8.8sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    <LinearLayout
+                        android:id="@+id/widget_tt_today_row_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="43dp"
+                        android:layout_marginTop="4dp"
+                        android:background="@drawable/widget_course_background_compact"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="7dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="7dp"
+                        android:paddingBottom="3dp">
+
+                        <LinearLayout
+                            android:id="@+id/widget_tt_today_time_column_5"
+                            style="@style/WidgetCourseTimeColumn"
+                            android:layout_width="36dp"
+                            android:paddingEnd="3dp">
+                            <TextView android:id="@+id/widget_tt_today_start_5" style="@style/WidgetCourseTimePrimary" />
+                            <TextView android:id="@+id/widget_tt_today_end_5" style="@style/WidgetCourseTimeSecondary" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/widget_tt_today_indicator_5"
+                            android:layout_width="4dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="7dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/widget_course_indicator" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/widget_tt_today_name_5"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#FF111111"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/widget_tt_today_detail_5"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#77111111"
+                                android:textSize="8.8sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    <LinearLayout
+                        android:id="@+id/widget_tt_today_row_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="43dp"
+                        android:layout_marginTop="4dp"
+                        android:background="@drawable/widget_course_background_compact"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="7dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="7dp"
+                        android:paddingBottom="3dp">
+
+                        <LinearLayout
+                            android:id="@+id/widget_tt_today_time_column_6"
+                            style="@style/WidgetCourseTimeColumn"
+                            android:layout_width="36dp"
+                            android:paddingEnd="3dp">
+                            <TextView android:id="@+id/widget_tt_today_start_6" style="@style/WidgetCourseTimePrimary" />
+                            <TextView android:id="@+id/widget_tt_today_end_6" style="@style/WidgetCourseTimeSecondary" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/widget_tt_today_indicator_6"
+                            android:layout_width="4dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="7dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/widget_course_indicator" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/widget_tt_today_name_6"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#FF111111"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/widget_tt_today_detail_6"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#77111111"
+                                android:textSize="8.8sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/widget_tt_today_empty"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:text="今天没有课程"
+                        android:textColor="#99000000"
+                        android:textSize="10.5sp"
+                        android:visibility="gone" />
+                </FrameLayout>
+            </LinearLayout>
+
+            <ImageView
+                android:id="@+id/widget_tt_divider"
+                android:layout_width="1dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:background="#18000000"
+                android:contentDescription="@null" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/widget_tt_tomorrow_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="20dp"
+                    android:gravity="center_vertical"
+                    android:includeFontPadding="true"
+                    android:maxLines="1"
+                    android:text="明天"
+                    android:textColor="#FF111111"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_marginTop="4dp"
+                    android:layout_weight="1">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+                    <LinearLayout
+                        android:id="@+id/widget_tt_tomorrow_row_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="43dp"
+                        android:background="@drawable/widget_course_background_compact"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="7dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="7dp"
+                        android:paddingBottom="3dp">
+
+                        <LinearLayout
+                            android:id="@+id/widget_tt_tomorrow_time_column_1"
+                            style="@style/WidgetCourseTimeColumn"
+                            android:layout_width="36dp"
+                            android:paddingEnd="3dp">
+                            <TextView android:id="@+id/widget_tt_tomorrow_start_1" style="@style/WidgetCourseTimePrimary" />
+                            <TextView android:id="@+id/widget_tt_tomorrow_end_1" style="@style/WidgetCourseTimeSecondary" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/widget_tt_tomorrow_indicator_1"
+                            android:layout_width="4dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="7dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/widget_course_indicator" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/widget_tt_tomorrow_name_1"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#FF111111"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/widget_tt_tomorrow_detail_1"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#77111111"
+                                android:textSize="8.8sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    <LinearLayout
+                        android:id="@+id/widget_tt_tomorrow_row_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="43dp"
+                        android:layout_marginTop="4dp"
+                        android:background="@drawable/widget_course_background_compact"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="7dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="7dp"
+                        android:paddingBottom="3dp">
+
+                        <LinearLayout
+                            android:id="@+id/widget_tt_tomorrow_time_column_2"
+                            style="@style/WidgetCourseTimeColumn"
+                            android:layout_width="36dp"
+                            android:paddingEnd="3dp">
+                            <TextView android:id="@+id/widget_tt_tomorrow_start_2" style="@style/WidgetCourseTimePrimary" />
+                            <TextView android:id="@+id/widget_tt_tomorrow_end_2" style="@style/WidgetCourseTimeSecondary" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/widget_tt_tomorrow_indicator_2"
+                            android:layout_width="4dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="7dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/widget_course_indicator" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/widget_tt_tomorrow_name_2"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#FF111111"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/widget_tt_tomorrow_detail_2"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#77111111"
+                                android:textSize="8.8sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    <LinearLayout
+                        android:id="@+id/widget_tt_tomorrow_row_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="43dp"
+                        android:layout_marginTop="4dp"
+                        android:background="@drawable/widget_course_background_compact"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="7dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="7dp"
+                        android:paddingBottom="3dp">
+
+                        <LinearLayout
+                            android:id="@+id/widget_tt_tomorrow_time_column_3"
+                            style="@style/WidgetCourseTimeColumn"
+                            android:layout_width="36dp"
+                            android:paddingEnd="3dp">
+                            <TextView android:id="@+id/widget_tt_tomorrow_start_3" style="@style/WidgetCourseTimePrimary" />
+                            <TextView android:id="@+id/widget_tt_tomorrow_end_3" style="@style/WidgetCourseTimeSecondary" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/widget_tt_tomorrow_indicator_3"
+                            android:layout_width="4dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="7dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/widget_course_indicator" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/widget_tt_tomorrow_name_3"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#FF111111"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/widget_tt_tomorrow_detail_3"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#77111111"
+                                android:textSize="8.8sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    <LinearLayout
+                        android:id="@+id/widget_tt_tomorrow_row_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="43dp"
+                        android:layout_marginTop="4dp"
+                        android:background="@drawable/widget_course_background_compact"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="7dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="7dp"
+                        android:paddingBottom="3dp">
+
+                        <LinearLayout
+                            android:id="@+id/widget_tt_tomorrow_time_column_4"
+                            style="@style/WidgetCourseTimeColumn"
+                            android:layout_width="36dp"
+                            android:paddingEnd="3dp">
+                            <TextView android:id="@+id/widget_tt_tomorrow_start_4" style="@style/WidgetCourseTimePrimary" />
+                            <TextView android:id="@+id/widget_tt_tomorrow_end_4" style="@style/WidgetCourseTimeSecondary" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/widget_tt_tomorrow_indicator_4"
+                            android:layout_width="4dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="7dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/widget_course_indicator" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/widget_tt_tomorrow_name_4"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#FF111111"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/widget_tt_tomorrow_detail_4"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#77111111"
+                                android:textSize="8.8sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    <LinearLayout
+                        android:id="@+id/widget_tt_tomorrow_row_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="43dp"
+                        android:layout_marginTop="4dp"
+                        android:background="@drawable/widget_course_background_compact"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="7dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="7dp"
+                        android:paddingBottom="3dp">
+
+                        <LinearLayout
+                            android:id="@+id/widget_tt_tomorrow_time_column_5"
+                            style="@style/WidgetCourseTimeColumn"
+                            android:layout_width="36dp"
+                            android:paddingEnd="3dp">
+                            <TextView android:id="@+id/widget_tt_tomorrow_start_5" style="@style/WidgetCourseTimePrimary" />
+                            <TextView android:id="@+id/widget_tt_tomorrow_end_5" style="@style/WidgetCourseTimeSecondary" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/widget_tt_tomorrow_indicator_5"
+                            android:layout_width="4dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="7dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/widget_course_indicator" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/widget_tt_tomorrow_name_5"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#FF111111"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/widget_tt_tomorrow_detail_5"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#77111111"
+                                android:textSize="8.8sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    <LinearLayout
+                        android:id="@+id/widget_tt_tomorrow_row_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="43dp"
+                        android:layout_marginTop="4dp"
+                        android:background="@drawable/widget_course_background_compact"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="7dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="7dp"
+                        android:paddingBottom="3dp">
+
+                        <LinearLayout
+                            android:id="@+id/widget_tt_tomorrow_time_column_6"
+                            style="@style/WidgetCourseTimeColumn"
+                            android:layout_width="36dp"
+                            android:paddingEnd="3dp">
+                            <TextView android:id="@+id/widget_tt_tomorrow_start_6" style="@style/WidgetCourseTimePrimary" />
+                            <TextView android:id="@+id/widget_tt_tomorrow_end_6" style="@style/WidgetCourseTimeSecondary" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/widget_tt_tomorrow_indicator_6"
+                            android:layout_width="4dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="7dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/widget_course_indicator" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/widget_tt_tomorrow_name_6"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#FF111111"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/widget_tt_tomorrow_detail_6"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:includeFontPadding="true"
+                                android:maxLines="1"
+                                android:textColor="#77111111"
+                                android:textSize="8.8sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/widget_tt_tomorrow_empty"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:text="明天没有课程"
+                        android:textColor="#99000000"
+                        android:textSize="10.5sp"
+                        android:visibility="gone" />
+                </FrameLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

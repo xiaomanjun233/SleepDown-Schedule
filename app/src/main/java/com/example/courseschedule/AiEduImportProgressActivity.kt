@@ -405,6 +405,7 @@ internal fun AiEduImportProgressPage(
                         (current.pageText.isNotBlank() || current.screenshotPreviews.isNotEmpty()),
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
+                        .imePadding()
                         .onSizeChanged { composerHeightPx = it.height },
                     onValueChange = { conversationInput = it.take(600) },
                     onSend = send@{
@@ -1295,7 +1296,6 @@ private fun AiEduConversationComposer(
         config = config,
         modifier = modifier
             .fillMaxWidth()
-            .imePadding()
             .navigationBarsPadding()
             .padding(horizontal = 14.dp, vertical = 10.dp),
         shape = if (attachmentVisible) RoundedCornerShape(26.dp) else RoundedCornerShape(50),

@@ -143,6 +143,7 @@ fun CourseScheduleTheme(
     }
     LaunchedEffect(darkTheme, view) {
         val window = (view.context as? ComponentActivity)?.window ?: return@LaunchedEffect
+        window.applyAppThemeSurface(darkTheme)
         window.makeSystemBarsTransparent()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
@@ -206,4 +207,14 @@ fun CourseScheduleTheme(
 private fun android.view.Window.makeSystemBarsTransparent() {
     statusBarColor = android.graphics.Color.TRANSPARENT
     navigationBarColor = android.graphics.Color.TRANSPARENT
+}
+
+internal fun android.view.Window.applyAppThemeSurface(darkTheme: Boolean) {
+    val backgroundColor = if (darkTheme) {
+        android.graphics.Color.BLACK
+    } else {
+        android.graphics.Color.rgb(0xED, 0xEE, 0xF3)
+    }
+    setBackgroundDrawable(android.graphics.drawable.ColorDrawable(backgroundColor))
+    decorView.setBackgroundColor(backgroundColor)
 }

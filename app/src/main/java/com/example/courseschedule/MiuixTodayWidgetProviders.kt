@@ -231,27 +231,46 @@ private fun assistantWidgetTypography(context: Context, size: WidgetRenderSize):
     )
 }
 
-private fun RemoteViews.setWidgetTextSize(viewId: Int, sp: Float) {
+internal fun RemoteViews.setWidgetTextSize(viewId: Int, sp: Float) {
     setTextViewTextSize(viewId, TypedValue.COMPLEX_UNIT_SP, sp)
 }
 
-private fun RemoteViews.setWidgetIndicatorHeight(viewId: Int, heightDp: Int) {
+internal fun RemoteViews.setWidgetIndicatorHeight(viewId: Int, heightDp: Int) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         setViewLayoutHeight(viewId, heightDp.toFloat(), TypedValue.COMPLEX_UNIT_DIP)
     }
 }
 
-private fun RemoteViews.setWidgetHeight(viewId: Int, heightDp: Int) {
+internal fun RemoteViews.setWidgetHeight(viewId: Int, heightDp: Int) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         setViewLayoutHeight(viewId, heightDp.toFloat(), TypedValue.COMPLEX_UNIT_DIP)
     }
 }
 
-private fun RemoteViews.setWidgetCornerRadius(viewId: Int, radiusDp: Int) {
+internal fun RemoteViews.setWidgetWidth(viewId: Int, widthDp: Int) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        setViewLayoutWidth(viewId, widthDp.toFloat(), TypedValue.COMPLEX_UNIT_DIP)
+    }
+}
+
+internal fun RemoteViews.setWidgetCornerRadius(viewId: Int, radiusDp: Int) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         setViewOutlinePreferredRadius(viewId, radiusDp.toFloat(), TypedValue.COMPLEX_UNIT_DIP)
         setBoolean(viewId, "setClipToOutline", true)
     }
+}
+
+internal fun widgetCourseDetail(course: CourseEntity): String {
+    val range = when {
+        course.periods.isEmpty() -> null
+        course.periods.size == 1 -> "第${course.periods.first()}节"
+        else -> "第${course.periods.minOrNull()}-${course.periods.maxOrNull()}节"
+    }
+    return listOfNotNull(
+        range,
+        course.location?.takeIf(String::isNotBlank),
+        course.teacher?.takeIf(String::isNotBlank)
+    ).joinToString(" | ")
 }
 
 private fun RemoteViews.applyCoursesWidgetLayout(
@@ -422,6 +441,16 @@ internal object MiuixTodayWidgetRenderer {
         val manager = AppWidgetManager.getInstance(context)
         refreshComponentNow(context, manager, TodayCoursesWidgetProvider::class.java, TodayWidgetVariant.LARGE)
         refreshComponentNow(context, manager, TodayCoursesSquareWidgetProvider::class.java, TodayWidgetVariant.SQUARE)
+        val todayTomorrowIds = manager.getAppWidgetIds(
+            ComponentName(context, TodayTomorrowWidgetProvider::class.java)
+        )
+        if (todayTomorrowIds.isNotEmpty()) {
+            TodayTomorrowWidgetRenderer.refreshNow(context, manager, todayTomorrowIds)
+        }
+        val weekIds = manager.getAppWidgetIds(ComponentName(context, WeekScheduleWidgetProvider::class.java))
+        if (weekIds.isNotEmpty()) {
+            WeekScheduleWidgetRenderer.refreshNow(context, manager, weekIds)
+        }
         val assistantIds = manager.getAppWidgetIds(ComponentName(context, TodayAssistantWidgetProvider::class.java))
         if (assistantIds.isNotEmpty()) {
             TodayAssistantWidgetRenderer.refreshNow(context, manager, assistantIds)
@@ -515,6 +544,7 @@ internal object MiuixTodayWidgetRenderer {
         }
         val dark = usesDarkTheme(context, state.config)
         val custom = WidgetBackgroundRenderer.render(context, appearance, size, courses.size, dark)
+        val courseColorAssignments = WidgetCourseColors.assignments(context, state, dark)
         val typography = coursesWidgetTypography(variant, metrics)
         return RemoteViews(context.packageName, layout).apply {
             applyTheme(dark, variant)
@@ -550,9 +580,25 @@ internal object MiuixTodayWidgetRenderer {
                     )
                     setViewVisibility(R.id.widget_grid_courses, if (metrics.useGrid) View.VISIBLE else View.GONE)
                     if (metrics.useGrid) {
-                        fillGridCourses(state, courses, dark, custom, typography, metrics)
+                        fillGridCourses(
+                            state,
+                            courses,
+                            dark,
+                            custom,
+                            typography,
+                            metrics,
+                            courseColorAssignments
+                        )
                     } else {
-                        fillLargeCourses(state, courses, dark, custom, typography, metrics)
+                        fillLargeCourses(
+                            state,
+                            courses,
+                            dark,
+                            custom,
+                            typography,
+                            metrics,
+                            courseColorAssignments
+                        )
                     }
                 }
                 TodayWidgetVariant.SQUARE -> fillCompactCourses(
@@ -562,7 +608,8 @@ internal object MiuixTodayWidgetRenderer {
                     2,
                     custom,
                     typography,
-                    metrics
+                    metrics,
+                    courseColorAssignments
                 )
             }
         }
@@ -587,7 +634,8 @@ internal object MiuixTodayWidgetRenderer {
         dark: Boolean,
         custom: WidgetBackgroundResult?,
         typography: CoursesWidgetTypography,
-        metrics: CoursesWidgetLayoutMetrics
+        metrics: CoursesWidgetLayoutMetrics,
+        courseColorAssignments: Map<String, Int>
     ) {
         val rows = intArrayOf(
             R.id.widget_course_row_1, R.id.widget_course_row_2,
@@ -633,13 +681,17 @@ internal object MiuixTodayWidgetRenderer {
                 setTextViewText(starts[index], courseStartTime(course, state.periods)?.format(timeFormatter).orEmpty())
                 setTextViewText(ends[index], courseEndTime(course, state.periods)?.format(timeFormatter).orEmpty())
                 setTextViewText(names[index], course.name)
-                setTextViewText(details[index], courseDetail(course))
+                setTextViewText(details[index], widgetCourseDetail(course))
                 setWidgetTextSize(starts[index], typography.timeSp)
                 setWidgetTextSize(ends[index], typography.timeSp)
                 setWidgetTextSize(names[index], typography.courseNameSp)
                 setWidgetTextSize(details[index], typography.courseDetailSp)
                 setWidgetIndicatorHeight(indicators[index], metrics.indicatorHeightDp)
-                setInt(indicators[index], "setColorFilter", stableCourseColor(state.config, course))
+                setInt(
+                    indicators[index],
+                    "setColorFilter",
+                    WidgetCourseColors.color(state.config, course, courseColorAssignments)
+                )
                 val primary = custom?.content?.getOrNull(index)
                 val secondary = custom?.contentSecondary?.getOrNull(index)
                 setTextColor(starts[index], primary ?: if (dark) Color.argb(210, 255, 255, 255) else Color.argb(180, 17, 17, 17))
@@ -656,7 +708,8 @@ internal object MiuixTodayWidgetRenderer {
         dark: Boolean,
         custom: WidgetBackgroundResult?,
         typography: CoursesWidgetTypography,
-        metrics: CoursesWidgetLayoutMetrics
+        metrics: CoursesWidgetLayoutMetrics,
+        courseColorAssignments: Map<String, Int>
     ) {
         val rows = intArrayOf(
             R.id.widget_grid_row_1,
@@ -709,7 +762,11 @@ internal object MiuixTodayWidgetRenderer {
                 setWidgetTextSize(names[index], typography.compactNameSp)
                 setWidgetTextSize(details[index], typography.compactDetailSp)
                 setWidgetIndicatorHeight(indicators[index], metrics.indicatorHeightDp)
-                setInt(indicators[index], "setColorFilter", stableCourseColor(state.config, course))
+                setInt(
+                    indicators[index],
+                    "setColorFilter",
+                    WidgetCourseColors.color(state.config, course, courseColorAssignments)
+                )
                 setTextColor(names[index], custom?.content?.getOrNull(index) ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17))
                 setTextColor(details[index], custom?.contentSecondary?.getOrNull(index) ?: if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
             }
@@ -723,7 +780,8 @@ internal object MiuixTodayWidgetRenderer {
         count: Int,
         custom: WidgetBackgroundResult?,
         typography: CoursesWidgetTypography,
-        metrics: CoursesWidgetLayoutMetrics
+        metrics: CoursesWidgetLayoutMetrics,
+        courseColorAssignments: Map<String, Int>
     ) {
         val rows = intArrayOf(R.id.widget_compact_row_1, R.id.widget_compact_row_2, R.id.widget_compact_row_3)
         val indicators = intArrayOf(R.id.widget_compact_indicator_1, R.id.widget_compact_indicator_2, R.id.widget_compact_indicator_3)
@@ -755,7 +813,11 @@ internal object MiuixTodayWidgetRenderer {
                 setWidgetTextSize(names[index], typography.compactNameSp)
                 setWidgetTextSize(details[index], typography.compactDetailSp)
                 setWidgetIndicatorHeight(indicators[index], metrics.indicatorHeightDp)
-                setInt(indicators[index], "setColorFilter", stableCourseColor(state.config, course))
+                setInt(
+                    indicators[index],
+                    "setColorFilter",
+                    WidgetCourseColors.color(state.config, course, courseColorAssignments)
+                )
                 setTextColor(names[index], custom?.content?.getOrNull(index) ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17))
                 setTextColor(details[index], custom?.contentSecondary?.getOrNull(index) ?: if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
             }
@@ -774,25 +836,6 @@ internal object MiuixTodayWidgetRenderer {
         setTextColor(R.id.widget_title, if (dark) Color.WHITE else Color.rgb(17, 17, 17))
         setTextColor(R.id.widget_subtitle, if (dark) Color.argb(170, 255, 255, 255) else Color.argb(150, 0, 0, 0))
         setTextColor(R.id.widget_empty, if (dark) Color.argb(170, 255, 255, 255) else Color.argb(150, 0, 0, 0))
-    }
-
-    private fun stableCourseColor(config: ScheduleConfigEntity, course: CourseEntity): Int {
-        if (config.cardColorArgb != MulticolorCourseCardArgb) return config.cardColorArgb.toInt()
-        val key = courseCardColorKey(course)
-        return DefaultCourseCardPalette[(key.hashCode() and Int.MAX_VALUE) % DefaultCourseCardPalette.size].toInt()
-    }
-
-    private fun courseDetail(course: CourseEntity): String {
-        val range = when {
-            course.periods.isEmpty() -> null
-            course.periods.size == 1 -> "第${course.periods.first()}节"
-            else -> "第${course.periods.minOrNull()}-${course.periods.maxOrNull()}节"
-        }
-        return listOfNotNull(
-            range,
-            course.location?.takeIf(String::isNotBlank),
-            course.teacher?.takeIf(String::isNotBlank)
-        ).joinToString(" | ")
     }
 
     private fun chineseWeekday(date: LocalDate): String = when (date.dayOfWeek.value) {

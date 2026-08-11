@@ -297,38 +297,44 @@ fun GeneralSettingsScreen(
     state: AppState,
     backdrop: Backdrop?,
     onUpdateConfig: (ScheduleConfigEntity) -> Unit,
+    onOpenLiquidGlass: () -> Unit = {},
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
-    onCommitAndExit: ((ScheduleConfigEntity, () -> Unit) -> Unit)? = null
+    onCommitAndExit: ((ScheduleConfigEntity, (Boolean) -> Unit) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val topPadding = detailContentTopPadding()
-    var draft by remember { mutableStateOf(state.config) }
-    var lastSaved by remember { mutableStateOf(state.config) }
+    var draft by remember(state.config.id) { mutableStateOf(state.config) }
+    var hasLocalEdits by remember(state.config.id) { mutableStateOf(false) }
     var appIconMode by remember(context) {
         mutableStateOf(AppIconManager.currentMode(context))
     }
     LaunchedEffect(state.config) {
-        if (draft == lastSaved) {
+        if (hasLocalEdits) {
+            val rebased = state.config.withGeneralSettingsFrom(draft)
+            draft = rebased
+            if (rebased == state.config) hasLocalEdits = false
+        } else {
             draft = state.config
         }
-        lastSaved = state.config
     }
     val visualConfig = settingsVisualConfig(draft)
     fun applyChange(next: ScheduleConfigEntity) {
         draft = next
-        lastSaved = next
-        onUpdateConfig(next)
+        hasLocalEdits = true
+        onUpdateConfig(state.config.withGeneralSettingsFrom(next))
     }
     LaunchedEffect(exitCommitRequest) {
         if (exitCommitRequest > 0) {
-            // The detail activity may be destroyed immediately after back. Submit the
-            // latest draft before acknowledging the exit so the ViewModel can finish it.
-            if (draft != lastSaved && onCommitAndExit == null) onUpdateConfig(draft)
+            // Rebase the latest local taps onto the newest database row. This keeps a stale
+            // eager-save emission from rolling the UI back and preserves settings owned by
+            // other pages (for example notification options).
+            val latestDraft = state.config.withGeneralSettingsFrom(draft)
             if (onCommitAndExit != null) {
-                onCommitAndExit(draft) { onExitCommitFinished(true) }
+                onCommitAndExit(latestDraft, onExitCommitFinished)
             } else {
+                if (hasLocalEdits) onUpdateConfig(latestDraft)
                 onExitCommitFinished(true)
             }
         }
@@ -355,6 +361,12 @@ fun GeneralSettingsScreen(
                         backdrop = backdrop,
                         enabled = !draft.followSystemDarkMode,
                         onCheckedChange = { applyChange(draft.copy(darkMode = it, followSystemDarkMode = false)) }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "液态玻璃",
+                        subtitle = "调整首页顶栏、表头和底栏的玻璃效果。",
+                        onClick = onOpenLiquidGlass
                     )
                     SettingsDivider()
                     SettingsAppIconModeRow(
@@ -557,6 +569,7 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
                         buttonText = "清空",
                         iconRes = R.drawable.ic_delete_history,
                         backdrop = backdrop,
+                        destructive = true,
                         onClick = {
                             AiImportHistoryStore.clear(context)
                             historyMessage = "导入历史已清空"
@@ -1043,6 +1056,7 @@ fun AiImportSettingsSection(
                         backdrop = backdrop,
                         config = state.config,
                         width = 320.dp,
+                        followAppTheme = true,
                         onSelected = onModelOptionSelected
                     )
                 }
@@ -1109,6 +1123,7 @@ fun AiImportSettingsSection(
                 backdrop = backdrop,
                 config = state.config,
                 width = 320.dp,
+                followAppTheme = true,
                 onSelected = { index -> structuredOutputMode = outputModes[index.coerceIn(outputModes.indices)] }
             )
         }
@@ -1681,10 +1696,16 @@ fun LiquidOptionTabs(
     config: ScheduleConfigEntity,
     width: Dp,
     highContrast: Boolean = false,
+    followAppTheme: Boolean = false,
     onSelected: (Int) -> Unit
 ) {
     if (backdrop != null) {
-        CompositionLocalProvider(LocalContentColor provides glassForegroundColor(config)) {
+        val tabContentColor = if (followAppTheme) {
+            appPanelForegroundColor(config)
+        } else {
+            glassForegroundColor(config)
+        }
+        CompositionLocalProvider(LocalContentColor provides tabContentColor) {
             LiquidBottomTabs(
                 selectedTabIndex = { selectedIndex.coerceIn(labels.indices) },
                 onTabSelected = { index -> onSelected(index.coerceIn(labels.indices)) },
@@ -1702,7 +1723,11 @@ fun LiquidOptionTabs(
                 indicatorHeightOverflow = 0.dp,
                 pressedContentScale = 1.04f,
                 chromaticAberrationEnabled = !highContrast,
-                isLightThemeOverride = glassUsesLightStyle(config),
+                isLightThemeOverride = if (followAppTheme) {
+                    !appUsesDarkTheme(config)
+                } else {
+                    glassUsesLightStyle(config)
+                },
                 useOfficialGlassParameters = true
             ) {
                 labels.forEachIndexed { index, label ->
@@ -1973,6 +1998,7 @@ fun SettingsActionRow(
     buttonText: String,
     iconRes: Int,
     backdrop: Backdrop?,
+    destructive: Boolean = false,
     onClick: () -> Unit
 ) {
     if (LocalGlassMiuixEnabled.current) {
@@ -1986,8 +2012,9 @@ fun SettingsActionRow(
                     backdrop = backdrop,
                     label = buttonText,
                     onClick = onClick,
-                    role = DialogButtonRole.Confirm,
-                    iconRes = iconRes
+                    role = if (destructive) DialogButtonRole.Cancel else DialogButtonRole.Confirm,
+                    iconRes = iconRes,
+                    destructiveFilled = destructive
                 )
             }
         )
@@ -2014,8 +2041,9 @@ fun SettingsActionRow(
             backdrop = backdrop,
             label = buttonText,
             onClick = onClick,
-            role = DialogButtonRole.Confirm,
-            iconRes = iconRes
+            role = if (destructive) DialogButtonRole.Cancel else DialogButtonRole.Confirm,
+            iconRes = iconRes,
+            destructiveFilled = destructive
         )
     }
 }
@@ -3010,10 +3038,7 @@ fun ScheduleSettingsContent(
     onPeriodsChange: (List<PeriodEntity>) -> Unit,
     detectedWeek: Int,
     detectedWeekDescription: String,
-    dirty: Boolean,
     error: String?,
-    onReset: () -> Unit,
-    onSave: () -> Unit,
     onPreviewLiveUpdate: () -> Unit
 ) {
     val appContext = LocalContext.current
@@ -3048,10 +3073,7 @@ fun ScheduleSettingsContent(
             onPeriodsChange = onPeriodsChange,
             detectedWeek = detectedWeek,
             detectedWeekDescription = detectedWeekDescription,
-            dirty = dirty,
             error = error,
-            onReset = onReset,
-            onSave = onSave,
             topPadding = topPadding
         )
         return
@@ -3060,19 +3082,6 @@ fun ScheduleSettingsContent(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        if (dirty) {
-            item(key = "notification-save-actions") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SettingsActionButton("重置", backdrop, onClick = onReset, destructive = true)
-                    Spacer(Modifier.width(8.dp))
-                    SettingsActionButton("保存", backdrop, onClick = onSave)
-                }
-            }
-        }
         if (section == SettingsSection.Schedule) {
             item {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
@@ -3211,10 +3220,7 @@ fun ScheduleSettingsContentFixed(
     onPeriodsChange: (List<PeriodEntity>) -> Unit,
     detectedWeek: Int,
     detectedWeekDescription: String,
-    dirty: Boolean,
     error: String?,
-    onReset: () -> Unit,
-    onSave: () -> Unit,
     topPadding: Dp = detailContentTopPadding()
 ) {
     var longBreaks by remember { mutableStateOf(emptyList<Pair<Int, Int>>()) }
@@ -3243,19 +3249,6 @@ fun ScheduleSettingsContentFixed(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = DockScrollPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        if (dirty) {
-            item(key = "schedule-save-actions") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SettingsActionButton("重置", backdrop, onClick = onReset, destructive = true)
-                    Spacer(Modifier.width(8.dp))
-                    SettingsActionButton("保存", backdrop, onClick = onSave)
-                }
-            }
-        }
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 SettingsTextFieldRow("总周数", totalWeeks, { onTotalWeeksChange(it.filter(Char::isDigit)) }, KeyboardType.Number)
@@ -4555,7 +4548,8 @@ fun ScheduleConfigScreen(
     onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
     onPreviewLiveUpdate: () -> Unit,
     exitCommitRequest: Int = 0,
-    onExitCommitFinished: (Boolean) -> Unit = {}
+    onExitCommitFinished: (Boolean) -> Unit = {},
+    onExitInterceptionChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val repository = remember(context) { (context.applicationContext as CourseScheduleApp).repository }
@@ -4680,9 +4674,11 @@ fun ScheduleConfigScreen(
     val displayedCurrentWeek = if (autoCurrentWeek) detectedWeek.toString() else currentWeek
     val dirty = computeDirty()
 
-    fun resetConfigDraft() {
-        resetConfigDraftFromState()
-        schemeDraft = lastSavedSchemeDraft
+    LaunchedEffect(section, dirty, saving) {
+        onExitInterceptionChange(shouldInterceptSettingsBack(section, dirty, saving))
+    }
+    DisposableEffect(onExitInterceptionChange) {
+        onDispose { onExitInterceptionChange(false) }
     }
 
     fun saveConfigDraft(
@@ -4761,6 +4757,15 @@ fun ScheduleConfigScreen(
             )
             currentWeek = storedCurrentWeek.toString()
             periods = nextPeriods
+            if (section == SettingsSection.Notifications) {
+                // Non-structural settings use the process-scoped, conflated writer supplied by
+                // the ViewModel. Returning from this Activity must never be part of the save path.
+                onSave(nextConfig, nextPeriods)
+                lastSavedConfig = nextConfig
+                lastSavedPeriods = nextPeriods
+                onFinished?.invoke(true)
+                return
+            }
             val currentSchemes = schemeDraft
             if (currentSchemes != null) {
                 val active = currentSchemes.schemes.firstOrNull { it.scheme.id == currentSchemes.activeSchemeId }
@@ -4834,8 +4839,8 @@ fun ScheduleConfigScreen(
                 if (computeDirty()) showExitSaveConfirm = true else onExitCommitFinished(true)
             }
             SettingsSection.Notifications -> {
-                // The page used to finish while its 250 ms debounce coroutine was still pending,
-                // cancelling the save and making the controls appear to ignore changes.
+                // Controls enqueue their write independently of navigation; this only makes the
+                // toolbar back button deterministic if it is tapped in the same frame.
                 if (computeDirty() || saving) saveConfigDraft(onExitCommitFinished)
                 else onExitCommitFinished(true)
             }
@@ -4850,7 +4855,6 @@ fun ScheduleConfigScreen(
         liveUpdateChipTextMode
     ) {
         if (section == SettingsSection.Notifications && computeDirty()) {
-            delay(250)
             saveConfigDraft()
         }
     }
@@ -4916,10 +4920,7 @@ fun ScheduleConfigScreen(
         onPeriodsChange = { periods = it },
         detectedWeek = detectedWeek,
         detectedWeekDescription = detectedWeekDescription,
-        dirty = dirty,
         error = error,
-        onReset = ::resetConfigDraft,
-        onSave = { showExitSaveConfirm = true },
         onPreviewLiveUpdate = onPreviewLiveUpdate
     )
 
@@ -4930,6 +4931,7 @@ fun ScheduleConfigScreen(
             actions = listOf(
                 LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Secondary) {
                     showExitSaveConfirm = false
+                    onExitCommitFinished(false)
                 },
                 LiquidAlertAction("不保存", LiquidAlertActionStyle.Destructive) {
                     showExitSaveConfirm = false
@@ -4942,7 +4944,10 @@ fun ScheduleConfigScreen(
             ),
             backdrop = popupBackdrop,
             config = visualState.config,
-            onDismissRequest = { showExitSaveConfirm = false }
+            onDismissRequest = {
+                showExitSaveConfirm = false
+                onExitCommitFinished(false)
+            }
         )
     }
 
@@ -4972,6 +4977,12 @@ fun ScheduleConfigScreen(
         )
     }
 }
+
+internal fun shouldInterceptSettingsBack(
+    section: SettingsSection,
+    hasUnsavedChanges: Boolean,
+    saveInProgress: Boolean
+): Boolean = section == SettingsSection.Schedule && (hasUnsavedChanges || saveInProgress)
 
 private fun autoMatchPeriodTimes(
     periods: List<PeriodEntity>,

@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import java.io.File
 import java.time.LocalDate
@@ -29,6 +30,11 @@ class CourseScheduleApp : Application() {
     internal val applicationScope = CoroutineScope(
         SupervisorJob() + Dispatchers.Default + processExceptionHandler
     )
+    private val globalSettingsSaveSignal = Channel<Unit>(Channel.CONFLATED)
+    private val globalSettingsSaveLock = Any()
+    private var pendingGeneralSettings: ScheduleConfigEntity? = null
+    private var pendingNotificationSettings: ScheduleConfigEntity? = null
+    private var pendingHomeChromeBlurScale: Float? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -44,6 +50,41 @@ class CourseScheduleApp : Application() {
         })
         applicationScope.launch(Dispatchers.IO) {
             cleanupPersistedAppData()
+        }
+        applicationScope.launch(Dispatchers.IO) {
+            for (ignored in globalSettingsSaveSignal) {
+                while (true) {
+                    val next = synchronized(globalSettingsSaveLock) {
+                        val batch = Triple(
+                            pendingGeneralSettings,
+                            pendingNotificationSettings,
+                            pendingHomeChromeBlurScale
+                        )
+                        pendingGeneralSettings = null
+                        pendingNotificationSettings = null
+                        pendingHomeChromeBlurScale = null
+                        batch
+                    }
+                    if (next.first == null && next.second == null && next.third == null) break
+                    runCatching {
+                        repository.saveGlobalSettingsPatches(
+                            generalSettings = next.first,
+                            notificationSettings = next.second,
+                            homeChromeBlurScale = next.third
+                        )
+                        val snapshot = repository.activeSnapshot()
+                        NotificationScheduler.refreshToday(
+                            this@CourseScheduleApp,
+                            snapshot.courses,
+                            snapshot.config,
+                            snapshot.periods
+                        )
+                        TodayCoursesWidgetProvider.refreshAll(this@CourseScheduleApp)
+                    }.onFailure { error ->
+                        Log.w("CourseScheduleApp", "Global settings save failed", error)
+                    }
+                }
+            }
         }
     }
 
@@ -67,6 +108,15 @@ class CourseScheduleApp : Application() {
     }
 
     private suspend fun cleanupPersistedAppData() {
+        runCatching {
+            BackupRestoreService(this, database).resumePending()
+        }.onSuccess { results ->
+            results.flatMap { it.warnings }.forEach { warning ->
+                Log.w("CourseScheduleApp", "Backup restore resume: $warning")
+            }
+        }.onFailure { error ->
+            Log.w("CourseScheduleApp", "Backup restore resume failed", error)
+        }
         cleanupTransientCacheData()
         runCatching {
             repository.ensureDefaults()
@@ -110,6 +160,32 @@ class CourseScheduleApp : Application() {
     val repository: ScheduleRepository by lazy { ScheduleRepository(database) }
     val widgetAppearanceRepository: WidgetAppearanceRepository by lazy {
         WidgetAppearanceRepository(this, database)
+    }
+
+    /**
+     * Persists the newest non-structural settings snapshot in process scope. This survives a
+     * predictive-back Activity teardown and coalesces rapid slider/toggle changes without letting
+     * an older database write overtake a newer one.
+     */
+    internal fun enqueueGeneralSettingsSave(config: ScheduleConfigEntity) {
+        synchronized(globalSettingsSaveLock) {
+            pendingGeneralSettings = config
+        }
+        globalSettingsSaveSignal.trySend(Unit)
+    }
+
+    internal fun enqueueNotificationSettingsSave(config: ScheduleConfigEntity) {
+        synchronized(globalSettingsSaveLock) {
+            pendingNotificationSettings = config
+        }
+        globalSettingsSaveSignal.trySend(Unit)
+    }
+
+    internal fun enqueueHomeChromeBlurScaleSave(value: Float) {
+        synchronized(globalSettingsSaveLock) {
+            pendingHomeChromeBlurScale = normalizedHomeChromeBlurScale(value)
+        }
+        globalSettingsSaveSignal.trySend(Unit)
     }
 
     private companion object {

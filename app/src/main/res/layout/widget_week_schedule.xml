@@ -1,0 +1,3344 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/widget_week_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_today_background">
+
+    <ImageView
+        android:id="@+id/widget_week_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/widget_today_background"
+        android:clipToOutline="true"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        tools:targetApi="s" />
+
+    <LinearLayout
+        android:id="@+id/widget_week_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="9dp">
+
+        <LinearLayout
+            android:id="@+id/widget_week_header"
+            android:layout_width="match_parent"
+            android:layout_height="30dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_marginEnd="7dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_launcher_preview" />
+
+            <TextView
+                android:id="@+id/widget_week_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:includeFontPadding="true"
+                android:maxLines="1"
+                android:textColor="#FF111111"
+                android:textSize="15.5sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_week_meta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="5dp"
+                android:ellipsize="end"
+                android:includeFontPadding="true"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="8.8sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_week_body"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="2dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="vertical"
+            android:paddingStart="6dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="6dp">
+
+            <LinearLayout
+                android:id="@+id/widget_week_day_header"
+                android:layout_width="match_parent"
+                android:layout_height="30dp"
+                android:orientation="horizontal">
+
+                <FrameLayout
+                    android:id="@+id/widget_week_period_header_spacer"
+                    android:layout_width="22dp"
+                    android:layout_height="match_parent" />
+
+            <LinearLayout
+                android:id="@+id/widget_week_day_container_1"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp">
+
+                <TextView
+                    android:id="@+id/widget_week_day_name_1"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#FF111111"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/widget_week_day_date_1"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#99111111"
+                    android:textSize="7.5sp" />
+            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/widget_week_day_container_2"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp">
+
+                <TextView
+                    android:id="@+id/widget_week_day_name_2"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#FF111111"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/widget_week_day_date_2"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#99111111"
+                    android:textSize="7.5sp" />
+            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/widget_week_day_container_3"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp">
+
+                <TextView
+                    android:id="@+id/widget_week_day_name_3"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#FF111111"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/widget_week_day_date_3"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#99111111"
+                    android:textSize="7.5sp" />
+            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/widget_week_day_container_4"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp">
+
+                <TextView
+                    android:id="@+id/widget_week_day_name_4"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#FF111111"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/widget_week_day_date_4"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#99111111"
+                    android:textSize="7.5sp" />
+            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/widget_week_day_container_5"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp">
+
+                <TextView
+                    android:id="@+id/widget_week_day_name_5"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#FF111111"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/widget_week_day_date_5"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#99111111"
+                    android:textSize="7.5sp" />
+            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/widget_week_day_container_6"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp">
+
+                <TextView
+                    android:id="@+id/widget_week_day_name_6"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#FF111111"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/widget_week_day_date_6"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#99111111"
+                    android:textSize="7.5sp" />
+            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/widget_week_day_container_7"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp">
+
+                <TextView
+                    android:id="@+id/widget_week_day_name_7"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#FF111111"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/widget_week_day_date_7"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#99111111"
+                    android:textSize="7.5sp" />
+            </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/widget_week_rows"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:clipChildren="false"
+                android:clipToPadding="false"
+                android:orientation="vertical">
+
+        <LinearLayout
+            android:id="@+id/widget_week_row_1"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_week_period_1"
+                android:layout_width="22dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="7.8sp"
+                android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_1_1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_1_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_1_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_1_2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_1_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_1_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_1_3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_1_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_1_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_1_4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_1_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_1_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_1_5"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_1_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_1_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_1_6"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_1_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_1_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_1_7"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_1_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_1_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/widget_week_row_2"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_week_period_2"
+                android:layout_width="22dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="7.8sp"
+                android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_2_1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_2_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_2_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_2_2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_2_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_2_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_2_3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_2_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_2_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_2_4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_2_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_2_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_2_5"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_2_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_2_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_2_6"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_2_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_2_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_2_7"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_2_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_2_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/widget_week_row_3"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_week_period_3"
+                android:layout_width="22dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="7.8sp"
+                android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_3_1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_3_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_3_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_3_2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_3_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_3_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_3_3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_3_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_3_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_3_4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_3_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_3_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_3_5"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_3_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_3_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_3_6"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_3_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_3_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_3_7"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_3_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_3_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/widget_week_row_4"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_week_period_4"
+                android:layout_width="22dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="7.8sp"
+                android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_4_1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_4_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_4_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_4_2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_4_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_4_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_4_3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_4_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_4_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_4_4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_4_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_4_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_4_5"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_4_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_4_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_4_6"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_4_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_4_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_4_7"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_4_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_4_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/widget_week_row_5"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_week_period_5"
+                android:layout_width="22dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="7.8sp"
+                android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_5_1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_5_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_5_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_5_2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_5_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_5_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_5_3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_5_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_5_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_5_4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_5_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_5_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_5_5"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_5_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_5_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_5_6"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_5_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_5_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_5_7"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_5_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_5_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/widget_week_row_6"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_week_period_6"
+                android:layout_width="22dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="7.8sp"
+                android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_6_1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_6_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_6_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_6_2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_6_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_6_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_6_3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_6_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_6_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_6_4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_6_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_6_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_6_5"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_6_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_6_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_6_6"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_6_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_6_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_6_7"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_6_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_6_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/widget_week_row_7"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_week_period_7"
+                android:layout_width="22dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="7.8sp"
+                android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_7_1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_7_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_7_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_7_2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_7_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_7_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_7_3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_7_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_7_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_7_4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_7_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_7_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_7_5"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_7_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_7_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_7_6"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_7_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_7_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_7_7"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_7_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_7_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/widget_week_row_8"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_week_period_8"
+                android:layout_width="22dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="7.8sp"
+                android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_8_1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_8_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_8_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_8_2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_8_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_8_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_8_3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_8_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_8_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_8_4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_8_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_8_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_8_5"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_8_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_8_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_8_6"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_8_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_8_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_8_7"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_8_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_8_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/widget_week_row_9"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_week_period_9"
+                android:layout_width="22dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="7.8sp"
+                android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_9_1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_9_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_9_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_9_2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_9_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_9_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_9_3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_9_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_9_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_9_4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_9_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_9_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_9_5"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_9_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_9_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_9_6"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_9_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_9_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_9_7"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_9_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_9_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/widget_week_row_10"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_week_period_10"
+                android:layout_width="22dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="7.8sp"
+                android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_10_1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_10_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_10_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_10_2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_10_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_10_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_10_3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_10_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_10_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_10_4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_10_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_10_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_10_5"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_10_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_10_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_10_6"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_10_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_10_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_10_7"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_10_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_10_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/widget_week_row_11"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_week_period_11"
+                android:layout_width="22dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="7.8sp"
+                android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_11_1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_11_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_11_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_11_2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_11_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_11_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_11_3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_11_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_11_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_11_4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_11_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_11_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_11_5"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_11_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_11_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_11_6"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_11_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_11_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_11_7"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_11_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_11_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/widget_week_row_12"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_week_period_12"
+                android:layout_width="22dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#99111111"
+                android:textSize="7.8sp"
+                android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_12_1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_12_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_12_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_12_2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_12_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_12_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_12_3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_12_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_12_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_12_4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_12_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_12_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_12_5"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_12_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_12_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_12_6"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_12_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_12_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/widget_week_cell_12_7"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="top"
+                    android:orientation="vertical"
+                    android:paddingStart="3dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="3dp"
+                    android:paddingBottom="1dp">
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_name_12_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#FF111111"
+                        android:textSize="8.7sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/widget_week_cell_detail_12_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="#99111111"
+                        android:textSize="6.6sp" />
+                </LinearLayout>
+        </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

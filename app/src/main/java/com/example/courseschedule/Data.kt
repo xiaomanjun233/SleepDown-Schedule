@@ -41,6 +41,22 @@ enum class LiveUpdateChipTextMode { LOCATION, COUNTDOWN, SHORT, NORMAL }
 enum class PeriodSchemeMode { MANUAL, AUTO_MATCH }
 enum class ScheduleTermState { MANUAL, UPCOMING, ACTIVE, ENDED, INVALID }
 
+internal const val DefaultHomeChromeBlurScale = 1f
+internal const val MinHomeChromeBlurScale = 0f
+internal const val MaxHomeChromeBlurScale = 8f
+// Kept only for database/backup compatibility with schema 35. Sampling is always full quality.
+internal const val DefaultHomeChromeSamplingScale = 1f
+internal const val LiquidCourseCardBlurMax = 10f
+internal const val SimpleCourseCardBlurMax = 24f
+
+internal fun courseCardBlurMaximum(glassEnabled: Boolean): Float =
+    if (glassEnabled) LiquidCourseCardBlurMax else SimpleCourseCardBlurMax
+
+internal fun normalizedHomeChromeBlurScale(value: Float): Float =
+    value.takeIf { it.isFinite() }
+        ?.coerceIn(MinHomeChromeBlurScale, MaxHomeChromeBlurScale)
+        ?: DefaultHomeChromeBlurScale
+
 @Entity(tableName = "courses")
 @Immutable
 data class CourseEntity(
@@ -93,8 +109,14 @@ data class ScheduleConfigEntity(
     val courseCardBlur: Float = 18f,
     val courseCardGlassEnabled: Boolean = true,
     val courseCardFontScale: Float = 1f,
+    @ColumnInfo(defaultValue = "4293516543") val alternateCardColorArgb: Long = 0xFFD6E9FF,
+    @ColumnInfo(defaultValue = "1") val alternateCardAlpha: Float = 1f,
+    @ColumnInfo(defaultValue = "18") val alternateCourseCardBlur: Float = 18f,
+    @ColumnInfo(defaultValue = "1") val alternateCourseCardFontScale: Float = 1f,
     val weekCardHeightDp: Float? = null,
     val homeTextLight: Boolean = false,
+    @ColumnInfo(defaultValue = "1") val homeChromeBlurScale: Float = DefaultHomeChromeBlurScale,
+    @ColumnInfo(defaultValue = "1") val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale,
     val followSystemDarkMode: Boolean = true,
     val darkMode: Boolean = false,
     val defaultWallpaperStyle: DefaultWallpaperStyle = DefaultWallpaperStyle.NONE,
@@ -257,6 +279,9 @@ interface CourseDao {
     @Query("SELECT * FROM courses")
     suspend fun getAllCourses(): List<CourseEntity>
 
+    @Query("DELETE FROM courses")
+    suspend fun deleteAllRows()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCourse(course: CourseEntity): Long
 
@@ -299,6 +324,9 @@ interface ConfigDao {
     @Query("SELECT * FROM periods ORDER BY scheduleId, periodIndex")
     fun observeAllPeriods(): Flow<List<PeriodEntity>>
 
+    @Query("SELECT * FROM periods ORDER BY scheduleId, periodIndex")
+    suspend fun getAllPeriods(): List<PeriodEntity>
+
     @Query("SELECT * FROM schedule_config WHERE id = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
     suspend fun getConfig(): ScheduleConfigEntity?
 
@@ -315,6 +343,9 @@ interface ConfigDao {
     suspend fun upsertConfig(config: ScheduleConfigEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertConfigs(configs: List<ScheduleConfigEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPeriods(periods: List<PeriodEntity>)
 
     @Query("DELETE FROM periods WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
@@ -325,6 +356,12 @@ interface ConfigDao {
 
     @Query("DELETE FROM schedule_config WHERE id = :scheduleId")
     suspend fun deleteConfig(scheduleId: Int)
+
+    @Query("DELETE FROM schedule_config")
+    suspend fun deleteAllConfigs()
+
+    @Query("DELETE FROM periods")
+    suspend fun deleteAllPeriods()
 }
 
 @Dao
@@ -335,11 +372,17 @@ interface PeriodSchemeDao {
     @Query("SELECT * FROM period_schemes WHERE scheduleId = :scheduleId ORDER BY id")
     suspend fun getSchemes(scheduleId: Int): List<PeriodSchemeEntity>
 
+    @Query("SELECT * FROM period_schemes ORDER BY scheduleId, id")
+    suspend fun getAllSchemes(): List<PeriodSchemeEntity>
+
     @Query("SELECT * FROM period_schemes WHERE scheduleId = :scheduleId AND isActive = 1 LIMIT 1")
     suspend fun getActiveScheme(scheduleId: Int): PeriodSchemeEntity?
 
     @Query("SELECT * FROM period_scheme_times WHERE schemeId = :schemeId ORDER BY periodIndex")
     suspend fun getTimes(schemeId: Long): List<PeriodSchemeTimeEntity>
+
+    @Query("SELECT * FROM period_scheme_times ORDER BY schemeId, periodIndex")
+    suspend fun getAllTimes(): List<PeriodSchemeTimeEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertScheme(scheme: PeriodSchemeEntity): Long
@@ -361,6 +404,12 @@ interface PeriodSchemeDao {
 
     @Query("DELETE FROM period_schemes WHERE scheduleId = :scheduleId")
     suspend fun deleteSchemesForSchedule(scheduleId: Int)
+
+    @Query("DELETE FROM period_scheme_times")
+    suspend fun deleteAllTimes()
+
+    @Query("DELETE FROM period_schemes")
+    suspend fun deleteAllSchemes()
 }
 
 @Dao
@@ -380,6 +429,9 @@ interface ScheduleProfileDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertProfile(profile: ScheduleProfileEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertProfiles(profiles: List<ScheduleProfileEntity>)
+
     @Query("UPDATE schedule_profiles SET name = :name WHERE id = :profileId")
     suspend fun renameProfile(profileId: Int, name: String)
 
@@ -388,12 +440,33 @@ interface ScheduleProfileDao {
 
     @Query("DELETE FROM schedule_profiles WHERE id = :profileId")
     suspend fun deleteProfile(profileId: Int)
+
+    @Query("DELETE FROM schedule_profiles")
+    suspend fun deleteAllProfiles()
 }
 
 @Dao
 interface AgentDao {
+    @Query("SELECT * FROM agent_daily_sessions ORDER BY scheduleId, date")
+    suspend fun getAllDailySessions(): List<AgentDailySessionEntity>
+
+    @Query("SELECT * FROM agent_daily_sessions WHERE scheduleId = :scheduleId ORDER BY date")
+    suspend fun getDailySessions(scheduleId: Int): List<AgentDailySessionEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDailySession(session: AgentDailySessionEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDailySessions(sessions: List<AgentDailySessionEntity>)
+
     @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId AND sessionDate = :date ORDER BY createdAt, id")
     fun observeMessages(scheduleId: Int, date: String): Flow<List<AgentMessageEntity>>
+
+    @Query("SELECT * FROM agent_messages ORDER BY scheduleId, sessionDate, createdAt, id")
+    suspend fun getAllMessages(): List<AgentMessageEntity>
+
+    @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId ORDER BY sessionDate, createdAt, id")
+    suspend fun getMessages(scheduleId: Int): List<AgentMessageEntity>
 
     @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId AND sessionDate = :date AND status = 'READY' ORDER BY createdAt DESC, id DESC LIMIT :limit")
     suspend fun getRecentMessages(scheduleId: Int, date: String, limit: Int): List<AgentMessageEntity>
@@ -410,6 +483,15 @@ interface AgentDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: AgentMessageEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertMessages(messages: List<AgentMessageEntity>)
+
+    @Query("DELETE FROM agent_daily_sessions")
+    suspend fun deleteAllDailySessions()
+
+    @Query("DELETE FROM agent_messages")
+    suspend fun deleteAllMessages()
+
     @Query("DELETE FROM agent_daily_sessions WHERE date < :oldestDate")
     suspend fun deleteSessionsBefore(oldestDate: String)
 
@@ -417,7 +499,7 @@ interface AgentDao {
     suspend fun deleteMessagesBefore(oldestDate: String)
 }
 
-internal const val APP_DATABASE_VERSION = 34
+internal const val APP_DATABASE_VERSION = 36
 
 @Database(
     entities = [
@@ -937,6 +1019,43 @@ private val MIGRATION_33_34 = object : Migration(33, 34) {
     }
 }
 
+private val MIGRATION_34_35 = object : Migration(34, 35) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE schedule_config ADD COLUMN homeChromeBlurScale REAL NOT NULL DEFAULT 1")
+        db.execSQL("ALTER TABLE schedule_config ADD COLUMN homeChromeSamplingScale REAL NOT NULL DEFAULT 1")
+    }
+}
+
+private val MIGRATION_35_36 = object : Migration(35, 36) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("schedule_config", "alternateCardColorArgb")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN alternateCardColorArgb INTEGER NOT NULL DEFAULT 4293516543")
+        }
+        if (!db.hasColumn("schedule_config", "alternateCardAlpha")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN alternateCardAlpha REAL NOT NULL DEFAULT 1")
+        }
+        if (!db.hasColumn("schedule_config", "alternateCourseCardBlur")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN alternateCourseCardBlur REAL NOT NULL DEFAULT 18")
+        }
+        if (!db.hasColumn("schedule_config", "alternateCourseCardFontScale")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN alternateCourseCardFontScale REAL NOT NULL DEFAULT 1")
+        }
+        db.execSQL(
+            """
+            UPDATE schedule_config
+            SET alternateCardColorArgb = cardColorArgb,
+                alternateCardAlpha = cardAlpha,
+                alternateCourseCardBlur = CASE
+                    WHEN courseCardGlassEnabled = 1 THEN 18
+                    WHEN courseCardBlur < 10 THEN courseCardBlur
+                    ELSE 10
+                END,
+                alternateCourseCardFontScale = courseCardFontScale
+            """.trimIndent()
+        )
+    }
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -970,7 +1089,9 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_30_31,
     MIGRATION_31_32,
     MIGRATION_32_34,
-    MIGRATION_33_34
+    MIGRATION_33_34,
+    MIGRATION_34_35,
+    MIGRATION_35_36
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -1129,8 +1250,14 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "courseCardBlur", "REAL NOT NULL DEFAULT 18")
     ensureSqliteColumn(db, "schedule_config", "courseCardGlassEnabled", "INTEGER NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "courseCardFontScale", "REAL NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "alternateCardColorArgb", "INTEGER NOT NULL DEFAULT 4293516543")
+    ensureSqliteColumn(db, "schedule_config", "alternateCardAlpha", "REAL NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "alternateCourseCardBlur", "REAL NOT NULL DEFAULT 18")
+    ensureSqliteColumn(db, "schedule_config", "alternateCourseCardFontScale", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "weekCardHeightDp", "REAL")
     ensureSqliteColumn(db, "schedule_config", "homeTextLight", "INTEGER NOT NULL DEFAULT 0")
+    ensureSqliteColumn(db, "schedule_config", "homeChromeBlurScale", "REAL NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "homeChromeSamplingScale", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "followSystemDarkMode", "INTEGER NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "darkMode", "INTEGER NOT NULL DEFAULT 0")
     ensureSqliteColumn(db, "schedule_config", "defaultWallpaperStyle", "TEXT NOT NULL DEFAULT 'KANBAN'")
@@ -1156,8 +1283,11 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             wallpaperPortraitCenterX, wallpaperPortraitCenterY, wallpaperPortraitScale,
             wallpaperLandscapeCenterX, wallpaperLandscapeCenterY, wallpaperLandscapeScale,
             wallpaperSourceWidth, wallpaperSourceHeight,
-            cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale, weekCardHeightDp,
-            homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
+            cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale,
+            alternateCardColorArgb, alternateCardAlpha, alternateCourseCardBlur, alternateCourseCardFontScale,
+            weekCardHeightDp,
+            homeTextLight, homeChromeBlurScale, homeChromeSamplingScale,
+            followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
             classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates,
             morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount
@@ -1168,8 +1298,11 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             wallpaperPortraitCenterX, wallpaperPortraitCenterY, wallpaperPortraitScale,
             wallpaperLandscapeCenterX, wallpaperLandscapeCenterY, wallpaperLandscapeScale,
             wallpaperSourceWidth, wallpaperSourceHeight,
-            cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale, weekCardHeightDp,
-            homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
+            cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale,
+            alternateCardColorArgb, alternateCardAlpha, alternateCourseCardBlur, alternateCourseCardFontScale,
+            weekCardHeightDp,
+            homeTextLight, homeChromeBlurScale, homeChromeSamplingScale,
+            followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
             classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates,
             morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount
@@ -1208,8 +1341,14 @@ private fun scheduleConfigCreateSql(table: String): String =
         courseCardBlur REAL NOT NULL,
         courseCardGlassEnabled INTEGER NOT NULL,
         courseCardFontScale REAL NOT NULL,
+        alternateCardColorArgb INTEGER NOT NULL DEFAULT 4293516543,
+        alternateCardAlpha REAL NOT NULL DEFAULT 1,
+        alternateCourseCardBlur REAL NOT NULL DEFAULT 18,
+        alternateCourseCardFontScale REAL NOT NULL DEFAULT 1,
         weekCardHeightDp REAL,
         homeTextLight INTEGER NOT NULL,
+        homeChromeBlurScale REAL NOT NULL DEFAULT 1,
+        homeChromeSamplingScale REAL NOT NULL DEFAULT 1,
         followSystemDarkMode INTEGER NOT NULL,
         darkMode INTEGER NOT NULL,
         defaultWallpaperStyle TEXT NOT NULL,
@@ -1834,29 +1973,40 @@ class ScheduleRepository(private val database: AppDatabase) {
     }
 
     suspend fun saveGlobalSettings(config: ScheduleConfigEntity) {
+        saveGlobalSettingsWith { base -> base.withGlobalSettingsFrom(config) }
+    }
+
+    suspend fun saveGlobalSettingsPatches(
+        generalSettings: ScheduleConfigEntity?,
+        notificationSettings: ScheduleConfigEntity?,
+        homeChromeBlurScale: Float? = null
+    ) {
+        require(
+            generalSettings != null ||
+                notificationSettings != null ||
+                homeChromeBlurScale != null
+        ) {
+            "至少需要一组 global settings patch"
+        }
+        saveGlobalSettingsWith { base ->
+            var merged = base
+            generalSettings?.let { merged = merged.withGeneralSettingsFrom(it) }
+            notificationSettings?.let { merged = merged.withNotificationSettingsFrom(it) }
+            homeChromeBlurScale?.let { merged = merged.withHomeChromeBlurScale(it) }
+            merged
+        }
+    }
+
+    private suspend fun saveGlobalSettingsWith(
+        merge: (ScheduleConfigEntity) -> ScheduleConfigEntity
+    ) {
         val activeId = activeScheduleId()
         database.withTransaction {
             val existing = configDao.getAllConfigs()
             val targetIds = (profileDao.getProfiles().map { it.id } + existing.map { it.id } + activeId).distinct()
             targetIds.forEach { id ->
                 val base = existing.firstOrNull { it.id == id } ?: defaultConfig(id)
-                configDao.upsertConfig(
-                    base.copy(
-                        id = id,
-                        followSystemDarkMode = config.followSystemDarkMode,
-                        darkMode = config.darkMode,
-                        dockAlignment = config.dockAlignment,
-                        defaultWallpaperStyle = config.defaultWallpaperStyle,
-                        defaultHomeMode = config.defaultHomeMode,
-                        liveUpdateActionsEnabled = config.liveUpdateActionsEnabled,
-                        hideFromRecents = config.hideFromRecents,
-                        autoCheckUpdates = config.autoCheckUpdates,
-                        notificationLeadMinutes = config.notificationLeadMinutes,
-                        notificationsEnabled = config.notificationsEnabled,
-                        notificationMode = config.notificationMode,
-                        liveUpdateChipTextMode = config.liveUpdateChipTextMode
-                    )
-                )
+                configDao.upsertConfig(merge(base).copy(id = id))
             }
         }
     }
@@ -2257,12 +2407,46 @@ private fun ScheduleConfigEntity.withGlobalSettingsFrom(global: ScheduleConfigEn
         defaultWallpaperStyle = global.defaultWallpaperStyle,
         defaultHomeMode = global.defaultHomeMode,
         liveUpdateActionsEnabled = global.liveUpdateActionsEnabled,
+        homeChromeBlurScale = global.homeChromeBlurScale,
+        homeChromeSamplingScale = global.homeChromeSamplingScale,
         hideFromRecents = global.hideFromRecents,
         autoCheckUpdates = global.autoCheckUpdates,
         notificationLeadMinutes = global.notificationLeadMinutes,
         notificationsEnabled = global.notificationsEnabled,
         notificationMode = global.notificationMode,
         liveUpdateChipTextMode = global.liveUpdateChipTextMode
+    )
+}
+
+/**
+ * Reapplies only the values edited by the General settings page onto the latest database row.
+ * The page saves eagerly, so an older database emission must not roll a newer local tap back,
+ * while notification values changed elsewhere must not be overwritten by the General page.
+ */
+internal fun ScheduleConfigEntity.withGeneralSettingsFrom(draft: ScheduleConfigEntity): ScheduleConfigEntity {
+    return copy(
+        followSystemDarkMode = draft.followSystemDarkMode,
+        darkMode = draft.darkMode,
+        dockAlignment = draft.dockAlignment,
+        defaultWallpaperStyle = draft.defaultWallpaperStyle,
+        defaultHomeMode = draft.defaultHomeMode,
+        liveUpdateActionsEnabled = draft.liveUpdateActionsEnabled,
+        hideFromRecents = draft.hideFromRecents,
+        autoCheckUpdates = draft.autoCheckUpdates
+    )
+}
+
+/** Applies only the value owned by the Liquid Glass detail page. */
+internal fun ScheduleConfigEntity.withHomeChromeBlurScale(value: Float): ScheduleConfigEntity {
+    return copy(homeChromeBlurScale = normalizedHomeChromeBlurScale(value))
+}
+
+internal fun ScheduleConfigEntity.withNotificationSettingsFrom(draft: ScheduleConfigEntity): ScheduleConfigEntity {
+    return copy(
+        notificationLeadMinutes = draft.notificationLeadMinutes,
+        notificationsEnabled = draft.notificationsEnabled,
+        notificationMode = draft.notificationMode,
+        liveUpdateChipTextMode = draft.liveUpdateChipTextMode
     )
 }
 
@@ -2355,8 +2539,38 @@ internal fun ScheduleConfigEntity.withChangesFrom(
             updated.courseCardFontScale,
             courseCardFontScale
         ),
+        alternateCardColorArgb = changed(
+            original.alternateCardColorArgb,
+            updated.alternateCardColorArgb,
+            alternateCardColorArgb
+        ),
+        alternateCardAlpha = changed(
+            original.alternateCardAlpha,
+            updated.alternateCardAlpha,
+            alternateCardAlpha
+        ),
+        alternateCourseCardBlur = changed(
+            original.alternateCourseCardBlur,
+            updated.alternateCourseCardBlur,
+            alternateCourseCardBlur
+        ),
+        alternateCourseCardFontScale = changed(
+            original.alternateCourseCardFontScale,
+            updated.alternateCourseCardFontScale,
+            alternateCourseCardFontScale
+        ),
         weekCardHeightDp = changed(original.weekCardHeightDp, updated.weekCardHeightDp, weekCardHeightDp),
         homeTextLight = changed(original.homeTextLight, updated.homeTextLight, homeTextLight),
+        homeChromeBlurScale = changed(
+            original.homeChromeBlurScale,
+            updated.homeChromeBlurScale,
+            homeChromeBlurScale
+        ),
+        homeChromeSamplingScale = changed(
+            original.homeChromeSamplingScale,
+            updated.homeChromeSamplingScale,
+            homeChromeSamplingScale
+        ),
         followSystemDarkMode = changed(
             original.followSystemDarkMode,
             updated.followSystemDarkMode,
@@ -2440,11 +2654,30 @@ internal fun ScheduleConfigEntity.withPersonalizationFrom(
     courseCardBlur = updated.courseCardBlur,
     courseCardGlassEnabled = updated.courseCardGlassEnabled,
     courseCardFontScale = updated.courseCardFontScale,
+    alternateCardColorArgb = updated.alternateCardColorArgb,
+    alternateCardAlpha = updated.alternateCardAlpha,
+    alternateCourseCardBlur = updated.alternateCourseCardBlur,
+    alternateCourseCardFontScale = updated.alternateCourseCardFontScale,
     weekCardHeightDp = updated.weekCardHeightDp,
     homeTextLight = updated.homeTextLight
 )
 
-fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, wallpaperPortraitCenterX = 0.5f, wallpaperPortraitCenterY = 0.5f, wallpaperPortraitScale = 1f, wallpaperLandscapeCenterX = 0.5f, wallpaperLandscapeCenterY = 0.5f, wallpaperLandscapeScale = 1f, wallpaperSourceWidth = null, wallpaperSourceHeight = null, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, weekCardHeightDp = null, homeTextLight = false, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.NONE, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false, autoCheckUpdates = true)
+internal fun ScheduleConfigEntity.switchCourseCardGlassMode(enabled: Boolean): ScheduleConfigEntity {
+    if (enabled == courseCardGlassEnabled) return this
+    return copy(
+        cardColorArgb = alternateCardColorArgb,
+        cardAlpha = alternateCardAlpha,
+        courseCardBlur = alternateCourseCardBlur.coerceIn(0f, courseCardBlurMaximum(enabled)),
+        courseCardGlassEnabled = enabled,
+        courseCardFontScale = alternateCourseCardFontScale,
+        alternateCardColorArgb = cardColorArgb,
+        alternateCardAlpha = cardAlpha,
+        alternateCourseCardBlur = courseCardBlur,
+        alternateCourseCardFontScale = courseCardFontScale
+    )
+}
+
+fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, wallpaperPortraitCenterX = 0.5f, wallpaperPortraitCenterY = 0.5f, wallpaperPortraitScale = 1f, wallpaperLandscapeCenterX = 0.5f, wallpaperLandscapeCenterY = 0.5f, wallpaperLandscapeScale = 1f, wallpaperSourceWidth = null, wallpaperSourceHeight = null, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, weekCardHeightDp = null, homeTextLight = false, homeChromeBlurScale = DefaultHomeChromeBlurScale, homeChromeSamplingScale = DefaultHomeChromeSamplingScale, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.NONE, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false, autoCheckUpdates = true)
 
 fun defaultPeriods(scheduleId: Int = 1) = listOf(
     PeriodEntity(1, "08:00", "08:45", scheduleId), PeriodEntity(2, "08:55", "09:40", scheduleId),

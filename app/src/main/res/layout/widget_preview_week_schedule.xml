@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_today_background_dark"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="28dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/widget_preview_week_title"
+            android:textColor="#FFFFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/widget_preview_week_range"
+            android:textColor="#AAFFFFFF"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="24dp"
+        android:gravity="center"
+        android:text="@string/widget_preview_weekdays"
+        android:textColor="#CCFFFFFF"
+        android:textSize="10sp"
+        android:textStyle="bold" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <FrameLayout android:layout_width="18dp" android:layout_height="match_parent" />
+
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_marginEnd="2dp" android:layout_weight="1" android:gravity="top" android:orientation="vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="58dp" android:layout_marginTop="18dp" android:background="#CC64B5F6" android:gravity="center" android:maxLines="2" android:text="@string/widget_preview_advanced_math" android:textColor="#FF111111" android:textSize="8sp" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_marginEnd="2dp" android:layout_weight="1" android:gravity="top" android:orientation="vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="54dp" android:layout_marginTop="70dp" android:background="#CCF48FB1" android:gravity="center" android:maxLines="2" android:text="@string/widget_preview_software_engineering" android:textColor="#FF111111" android:textSize="8sp" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_marginEnd="2dp" android:layout_weight="1" android:gravity="top" android:orientation="vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="70dp" android:layout_marginTop="36dp" android:background="#CC81C784" android:gravity="center" android:maxLines="2" android:text="@string/widget_preview_data_visualization_name" android:textColor="#FF111111" android:textSize="8sp" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_marginEnd="2dp" android:layout_weight="1" android:gravity="top" android:orientation="vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="12dp" android:background="#CCFFD166" android:gravity="center" android:maxLines="2" android:text="@string/widget_preview_college_english" android:textColor="#FF111111" android:textSize="8sp" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="top" android:orientation="vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="62dp" android:layout_marginTop="86dp" android:background="#CCB39DDB" android:gravity="center" android:maxLines="2" android:text="@string/widget_preview_laboratory_course" android:textColor="#FF111111" android:textSize="8sp" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

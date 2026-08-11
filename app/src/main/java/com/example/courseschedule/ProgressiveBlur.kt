@@ -30,7 +30,7 @@ fun ProgressiveBackdropBlur(
     modifier: Modifier = Modifier,
     tintColor: Color,
     height: Dp,
-    blurRadius: Dp = 16.dp,
+    blurRadius: Dp = 12.dp,
     tintIntensity: Float = 0.18f,
     direction: ProgressiveBlurDirection = ProgressiveBlurDirection.TopToBottom,
     topMaskFadeStart: Float = 0.45f,
@@ -61,7 +61,7 @@ fun ProgressiveBackdropBlur(
 fun Modifier.progressiveBackdropBlur(
     backdrop: Backdrop?,
     tintColor: Color,
-    blurRadius: Dp = 16.dp,
+    blurRadius: Dp = 12.dp,
     tintIntensity: Float = 0.18f,
     direction: ProgressiveBlurDirection = ProgressiveBlurDirection.TopToBottom,
     topMaskFadeStart: Float = 0.45f,

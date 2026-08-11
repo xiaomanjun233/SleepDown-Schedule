@@ -36,16 +36,15 @@ import android.view.WindowInsetsController
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
+import androidx.browser.customtabs.CustomTabsClient
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.app.ActivityCompat
 import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
 import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
-import android.webkit.WebChromeClient
-import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
@@ -76,6 +75,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
@@ -180,6 +180,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 
 import androidx.compose.runtime.rememberCoroutineScope
@@ -220,6 +221,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -260,6 +262,8 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
 import com.kyant.shapes.RoundedRectangle
+import top.yukonga.miuix.kmp.squircle.squircleClip
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
@@ -298,7 +302,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.pow
+import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.ceil
 import kotlin.math.max
@@ -316,7 +324,34 @@ sealed interface Screen {
 
 enum class HomeMode { Day, Week }
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, Widgets, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, About, Changelog, Download, Donate }
+enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate }
+
+/** Matches the navigation motion used by the bundled Miuix system-style navigator. */
+private class MiuixSettingsNavigationEasing(
+    response: Float = 0.8f,
+    damping: Float = 0.95f
+) : Easing {
+    private val decay: Float
+    private val frequency: Float
+    private val phase: Float
+
+    init {
+        val omega = 2.0 * PI / response
+        val stiffness = omega * omega
+        val friction = damping * 4.0 * PI / response
+        frequency = (sqrt(4.0 * stiffness - friction * friction) / 2.0).toFloat()
+        decay = (-friction / 2.0).toFloat()
+        phase = decay / frequency
+    }
+
+    override fun transform(fraction: Float): Float {
+        val time = fraction.toDouble()
+        val attenuation = exp(decay * time)
+        return (attenuation * (-cos(frequency * time) + phase * sin(frequency * time)) + 1.0).toFloat()
+    }
+}
+
+private val MiuixSettingsNavigationMotion = MiuixSettingsNavigationEasing()
 
 private fun agentSettingsPage(value: String?): SettingsPage? = when (value) {
     "GENERAL" -> SettingsPage.General
@@ -325,30 +360,74 @@ private fun agentSettingsPage(value: String?): SettingsPage? = when (value) {
     "SCHEDULE" -> SettingsPage.Schedule
     "NOTIFICATIONS" -> SettingsPage.Notifications
     "SCHEDULE_MANAGER" -> SettingsPage.ScheduleManager
-    "ABOUT" -> SettingsPage.About
+    "ABOUT" -> SettingsPage.Changelog
     "CHANGELOG" -> SettingsPage.Changelog
-    "DOWNLOAD" -> SettingsPage.Download
+    "DOWNLOAD" -> SettingsPage.Changelog
     "DONATE" -> SettingsPage.Donate
     else -> null
 }
 
 private const val SettingsDetailPageExtra = "settings_page"
+private const val BackupPreviewUriExtra = "backup_preview_uri"
 private const val EduAdapterExtra = "edu_adapter"
 
 private fun SettingsPage.title(): String = when (this) {
     SettingsPage.Root -> "设置"
     SettingsPage.General -> "通用设置"
+    SettingsPage.LiquidGlass -> "液态玻璃"
     SettingsPage.Widgets -> "小组件设置"
     SettingsPage.AiImport -> "AI 设置"
     SettingsPage.DayAgent -> "今日助手"
     SettingsPage.Schedule -> "课表详细设置"
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
-    SettingsPage.About -> "关于"
-    SettingsPage.Changelog -> "更新日志"
-    SettingsPage.Download -> "下载新版"
+    SettingsPage.BackupRestore -> "备份与恢复"
+    SettingsPage.BackupPreview -> "恢复预览"
+    SettingsPage.About -> "关于应用"
+    SettingsPage.Changelog -> "关于应用"
     SettingsPage.Donate -> "捐赠支持"
 }
+
+internal fun SettingsPage.usesPersistentCenteredSettingsTitle(): Boolean = when (this) {
+    SettingsPage.LiquidGlass,
+    SettingsPage.Widgets,
+    SettingsPage.About,
+    SettingsPage.Changelog -> true
+    else -> false
+}
+
+internal data class TabletSettingsNavigationState(
+    val rootPage: SettingsPage = SettingsPage.General,
+    val detailPages: List<SettingsPage> = emptyList()
+) {
+    val displayedPage: SettingsPage
+        get() = detailPages.lastOrNull() ?: rootPage
+
+    fun selectRoot(page: SettingsPage): TabletSettingsNavigationState = copy(
+        rootPage = page.takeUnless { it == SettingsPage.Root } ?: SettingsPage.General,
+        detailPages = emptyList()
+    )
+
+    fun pushDetail(page: SettingsPage): TabletSettingsNavigationState =
+        if (page == displayedPage) this else copy(detailPages = detailPages + page)
+
+    fun popDetail(): TabletSettingsNavigationState =
+        if (detailPages.isEmpty()) this else copy(detailPages = detailPages.dropLast(1))
+}
+
+private val TabletSettingsNavigationStateSaver = listSaver<TabletSettingsNavigationState, String>(
+    save = { state -> listOf(state.rootPage.name) + state.detailPages.map(SettingsPage::name) },
+    restore = { names ->
+        val root = names.firstOrNull()
+            ?.let { runCatching { SettingsPage.valueOf(it) }.getOrNull() }
+            ?.takeUnless { it == SettingsPage.Root }
+            ?: SettingsPage.General
+        val details = names.drop(1).mapNotNull { name ->
+            runCatching { SettingsPage.valueOf(name) }.getOrNull()
+        }
+        TabletSettingsNavigationState(rootPage = root, detailPages = details)
+    }
+)
 
 internal val DayDockScrollPadding = 104.dp
 internal val WeekDockScrollPadding = 132.dp
@@ -372,8 +451,14 @@ internal const val HomeHeaderGlassHighlightAlpha = 0.09f
 internal const val HomeHeaderGlassShadowAlpha = 0.05f
 internal const val HomeHeaderGlassOuterShadowAlpha = 0.018f
 internal const val HomeHeaderGlassInnerShadowAlpha = 0.08f
-internal fun homeHeaderGlassTokens(lightGlass: Boolean): GlassTokens =
-    GlassTokens.pill(intensity = 0.95f).copy(surfaceAlpha = homeChromeGlassSurfaceAlpha(lightGlass))
+internal fun homeChromeBlur(base: Dp, config: ScheduleConfigEntity): Dp =
+    base * normalizedHomeChromeBlurScale(config.homeChromeBlurScale)
+internal fun homeHeaderGlassTokens(lightGlass: Boolean, blurScale: Float = DefaultHomeChromeBlurScale): GlassTokens {
+    val base = GlassTokens.pill(intensity = 0.95f).copy(
+        surfaceAlpha = homeChromeGlassSurfaceAlpha(lightGlass)
+    )
+    return base.copy(blur = base.blur * normalizedHomeChromeBlurScale(blurScale))
+}
 
 sealed interface HomeDialog {
     data object ImportSchedule : HomeDialog
@@ -464,6 +549,9 @@ fun CourseScheduleAppUi(
     var cacheHydrationJob by remember { mutableStateOf<Job?>(null) }
     var entryPrewarmJob by remember { mutableStateOf<Job?>(null) }
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
+    var settingsExitInterceptionRequired by remember { mutableStateOf(false) }
+    var settingsExitRequest by remember { mutableIntStateOf(0) }
+    var pendingSettingsExitAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var homeMode by remember { mutableStateOf(if (state.config.defaultHomeMode == HomeStartMode.DAY) HomeMode.Day else HomeMode.Week) }
     LaunchedEffect(state.config.defaultHomeMode) {
         homeMode = if (state.config.defaultHomeMode == HomeStartMode.DAY) HomeMode.Day else HomeMode.Week
@@ -575,6 +663,10 @@ fun CourseScheduleAppUi(
             personalizationSliderPreviewKey = null
             personalizationDraftConfig = null
         }
+        if (screen !is Screen.Config) {
+            settingsExitInterceptionRequired = false
+            pendingSettingsExitAction = null
+        }
     }
     LaunchedEffect(homeAnchoredOverlayRequest) {
         if (homeAnchoredOverlayRequest?.kind != HomeAnchoredOverlayKind.Personalize) {
@@ -588,6 +680,17 @@ fun CourseScheduleAppUi(
         mutableFloatStateOf((visualState.config.weekCardHeightDp ?: adaptiveWeekCardHeight).coerceIn(38f, 80f))
     }
     val context = LocalContext.current
+    fun requestSettingsExit(action: () -> Unit) {
+        if (screen is Screen.Config && settingsExitInterceptionRequired) {
+            pendingSettingsExitAction = action
+            settingsExitRequest++
+        } else {
+            action()
+        }
+    }
+    BackHandler(enabled = screen is Screen.Config && settingsExitInterceptionRequired) {
+        requestSettingsExit { context.findActivity()?.finish() }
+    }
     var showManagedFreeAiOffer by remember(context) { mutableStateOf(false) }
     var pendingImportedSetupId by remember(context) {
         mutableStateOf(PendingImportSetupStore.consume(context))
@@ -1575,7 +1678,7 @@ fun CourseScheduleAppUi(
                                     // Dragged week cards must not sample contentBackdrop/chromeBackdrop:
                                     // they live inside contentBackdrop, so sampling it can recursively include themselves.
                                     floatingCourseBackdrop = backgroundBackdrop,
-                                    weekHeaderBackdrop = backgroundBackdrop,
+                                     weekHeaderBackdrop = backgroundBackdrop,
                                     onSwipeWeek = { delta -> homeDisplayWeek = (homeDisplayWeek + delta).coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1)) },
                                     onSwipeDay = { delta ->
                                         val requested = homeDisplayDate.plusDays(delta.toLong())
@@ -1734,7 +1837,18 @@ fun CourseScheduleAppUi(
                                         },
                                         onSave = viewModel::saveConfig,
                                         onUpdateConfig = viewModel::saveNotificationSettings,
-                                        onPreviewLiveUpdate = viewModel::previewLiveUpdate
+                                        onUpdateGeneralConfig = viewModel::saveGeneralSettings,
+                                        onUpdateHomeChromeBlurScale = viewModel::saveHomeChromeBlurScale,
+                                        onPreviewLiveUpdate = viewModel::previewLiveUpdate,
+                                        exitCommitRequest = settingsExitRequest,
+                                        onExitCommitFinished = { completed ->
+                                            val action = pendingSettingsExitAction
+                                            pendingSettingsExitAction = null
+                                            if (completed) action?.invoke()
+                                        },
+                                        onExitInterceptionChange = {
+                                            settingsExitInterceptionRequired = it
+                                        }
                                     )
                             }
                         }
@@ -1759,7 +1873,7 @@ fun CourseScheduleAppUi(
                         selected = screen,
                         backdrop = chromeBackdrop,
                         config = if (screen is Screen.Home) visualState.config else state.config,
-                        onHome = { screen = Screen.Home },
+                        onHome = { requestSettingsExit { screen = Screen.Home } },
                         onConfig = {
                             screen = Screen.Config
                         }
@@ -2880,8 +2994,9 @@ fun DetailTopBar(
     backdrop: Backdrop?,
     onBack: () -> Unit,
     centerTitle: Boolean = false,
-    useSettingsTitleSize: Boolean = false,
+    useMiuixCollapsedTitleStyle: Boolean = false,
     showBackButton: Boolean = true,
+    backButtonStartPadding: Dp = 16.dp,
     actions: @Composable () -> Unit = {}
 ) {
     val density = LocalDensity.current
@@ -2903,20 +3018,31 @@ fun DetailTopBar(
                         backdrop = backdrop,
                         config = config,
                         onClick = onBack,
-                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp).size(42.dp)
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = backButtonStartPadding)
+                            .size(38.dp)
                     )
                 }
                 Text(
                     title,
-                    style = if (useSettingsTitleSize) {
-                        MaterialTheme.typography.headlineSmall
+                    style = if (useMiuixCollapsedTitleStyle) {
+                        MiuixTheme.textStyles.title3
                     } else {
                         MaterialTheme.typography.titleLarge
                     },
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    lineHeight = if (useSettingsTitleSize) {
-                        MaterialTheme.typography.headlineSmall.fontSize
+                    fontWeight = if (useMiuixCollapsedTitleStyle) {
+                        FontWeight.Medium
+                    } else {
+                        FontWeight.SemiBold
+                    },
+                    color = if (useMiuixCollapsedTitleStyle) {
+                        MiuixTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onBackground
+                    },
+                    lineHeight = if (useMiuixCollapsedTitleStyle) {
+                        MiuixTheme.textStyles.title3.fontSize
                     } else {
                         MaterialTheme.typography.titleLarge.fontSize
                     },
@@ -2930,11 +3056,11 @@ fun DetailTopBar(
                 .fillMaxWidth()
                 .height(DetailTopBarHeight)
                 .align(Alignment.BottomCenter)
-                .padding(start = 8.dp, end = 16.dp),
+                .padding(start = backButtonStartPadding, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showBackButton) {
-                TopBackButton(backdrop = backdrop, config = config, onClick = onBack, modifier = Modifier.size(42.dp))
+                TopBackButton(backdrop = backdrop, config = config, onClick = onBack, modifier = Modifier.size(38.dp))
             }
             Box(
                 modifier = Modifier
@@ -2991,7 +3117,7 @@ fun HomeTopGradientBlur(
         modifier = modifier,
         tintColor = tintColor,
         height = height,
-        blurRadius = 18.dp,
+        blurRadius = 12.dp,
         tintIntensity = if (lightGlass) 0.15f else 0.18f,
         direction = ProgressiveBlurDirection.TopToBottom,
         fallbackTintStops = listOf(
@@ -3060,15 +3186,17 @@ internal fun AppTopBar(
                             Screen.Config -> when (settingsPage) {
                                 SettingsPage.Root -> "设置"
                                 SettingsPage.General -> "通用设置"
+                                SettingsPage.LiquidGlass -> "液态玻璃"
                                 SettingsPage.Widgets -> "小组件设置"
                                 SettingsPage.AiImport -> "AI 设置"
                                 SettingsPage.DayAgent -> "今日助手"
                                 SettingsPage.Schedule -> "课表详细设置"
                                 SettingsPage.Notifications -> "通知设置"
                                 SettingsPage.ScheduleManager -> "课表设置"
-                                SettingsPage.About -> "关于"
-                                SettingsPage.Changelog -> "更新日志"
-                                SettingsPage.Download -> "下载新版"
+                                SettingsPage.BackupRestore -> "备份与恢复"
+                                SettingsPage.BackupPreview -> "恢复预览"
+                                SettingsPage.About -> "关于应用"
+                                SettingsPage.Changelog -> "关于应用"
                                 SettingsPage.Donate -> "捐赠支持"
                             }
                         },
@@ -3085,7 +3213,7 @@ internal fun AppTopBar(
                     backdrop = backdrop,
                     config = state.config,
                     onClick = onBackHome,
-                    modifier = Modifier.padding(start = 8.dp).size(42.dp)
+                    modifier = Modifier.padding(start = 16.dp).size(38.dp)
                 )
             }
         },
@@ -3166,7 +3294,8 @@ fun TopBackButton(backdrop: Backdrop?, config: ScheduleConfigEntity, onClick: ()
         iconRes = R.drawable.ic_arrow_back,
         contentDescription = "返回",
         onClick = onClick,
-        modifier = modifier
+        modifier = modifier,
+        buttonHeight = 38.dp
     )
 }
 
@@ -3178,7 +3307,8 @@ fun TopGlassIconButton(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    surfaceColorOverride: ComposeColor? = null
+    surfaceColorOverride: ComposeColor? = null,
+    buttonHeight: Dp = 42.dp
 ) {
     val lightGlass = glassUsesLightStyle(config)
     if (backdrop != null) {
@@ -3186,7 +3316,7 @@ fun TopGlassIconButton(
             onClick = onClick,
             backdrop = backdrop,
             modifier = modifier,
-            height = 42.dp,
+            height = buttonHeight,
             surfaceColor = surfaceColorOverride ?: if (lightGlass) {
                 ComposeColor.White.copy(alpha = 0.26f)
             } else {
@@ -3286,7 +3416,7 @@ internal fun HomeIconButtonVisual(
             tint = if (accentColor.isSpecified) accentColor else ComposeColor.Unspecified,
             surfaceColor = buttonSurfaceColor,
             contentPadding = PaddingValues(0.dp),
-            blurRadius = HomeHeaderGlassBlur,
+            blurRadius = homeChromeBlur(HomeHeaderGlassBlur, config),
             lensHeight = HomeHeaderGlassLensHeight,
             lensAmount = HomeHeaderGlassLensAmount,
             chromaticAberration = false,
@@ -3372,7 +3502,15 @@ fun AddMenuLiquidItem(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier, onHome: () -> Unit, onConfig: () -> Unit) {
+fun FloatingDock(
+    selected: Screen,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    modifier: Modifier = Modifier,
+    previewMode: Boolean = false,
+    onHome: () -> Unit,
+    onConfig: () -> Unit
+) {
     val lightGlass = LocalAdaptiveGlass.current.lightGlass
     val density = LocalDensity.current
     // MIUI reports the IME-sized bottom edge through safeDrawing for the underlying Activity
@@ -3380,12 +3518,16 @@ fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEn
     // above the keyboard even though the Activity itself uses adjustNothing. Use the stable
     // navigation-bar inset as the physical screen edge; the separate IME compensation still
     // handles devices that genuinely resize the Activity window.
-    val systemBottomPx = WindowInsets.navigationBarsIgnoringVisibility
-        .only(WindowInsetsSides.Bottom)
-        .getBottom(density)
+    val systemBottomPx = if (previewMode) {
+        0
+    } else {
+        WindowInsets.navigationBarsIgnoringVisibility
+            .only(WindowInsetsSides.Bottom)
+            .getBottom(density)
+    }
     val bottomInset = with(density) { systemBottomPx.toDp() }
     val imeCompensationPx = dockImeCompensationPx(
-        imeBottomPx = WindowInsets.ime.getBottom(density),
+        imeBottomPx = if (previewMode) 0 else WindowInsets.ime.getBottom(density),
         systemBottomPx = systemBottomPx
     )
     val bottomOffset = (bottomInset + 8.dp).coerceAtLeast(8.dp)
@@ -3419,7 +3561,7 @@ fun FloatingDock(selected: Screen, backdrop: Backdrop?, config: ScheduleConfigEn
                     modifier = Modifier.width(140.dp),
                     containerHeight = 54.dp,
                     indicatorHeight = 46.dp,
-                    blurRadius = 1.3.dp,
+                    blurRadius = homeChromeBlur(1.3.dp, config),
                     containerAlpha = homeChromeGlassSurfaceAlpha(lightGlass),
                     lensHeight = 10.dp,
                     lensAmount = 40.dp,
@@ -3619,8 +3761,8 @@ internal fun mergePersonalizationCandidate(
     PersonalizeCardAlphaSlider -> current.copy(cardAlpha = candidate.cardAlpha)
     PersonalizeCardBlurSlider -> current.copy(courseCardBlur = candidate.courseCardBlur)
     PersonalizeCardFontSlider -> current.copy(courseCardFontScale = candidate.courseCardFontScale)
-    PersonalizeCardGlassChange -> current.copy(
-        courseCardGlassEnabled = candidate.courseCardGlassEnabled
+    PersonalizeCardGlassChange -> current.switchCourseCardGlassMode(
+        candidate.courseCardGlassEnabled
     )
     else -> current
 }
@@ -4015,22 +4157,24 @@ fun PersonalizePanel(
                         updateSliderTouchOwner(PersonalizeCardAlphaSlider, it)
                     }
                 )
+                val maxCourseCardBlur = courseCardBlurMaximum(state.config.courseCardGlassEnabled)
                 PersonalizeValueSlider(
                     sliderKey = PersonalizeCardBlurSlider,
-                    value = state.config.courseCardBlur.coerceIn(0f, 10f) / 10f * 100f,
+                    value = state.config.courseCardBlur.coerceIn(0f, maxCourseCardBlur) /
+                        maxCourseCardBlur * 100f,
                     valueRange = 0f..100f,
                     backdrop = backdrop,
                     label = { "课程卡片模糊 ${it.toInt()}%" },
                     onCommit = {
                         onUpdateConfig(
                             PersonalizeCardBlurSlider,
-                            state.config.copy(courseCardBlur = it / 100f * 10f)
+                            state.config.copy(courseCardBlur = it / 100f * maxCourseCardBlur)
                         )
                     },
                     onPreviewValueChange = {
                         onPreviewConfig(
                             PersonalizeCardBlurSlider,
-                            state.config.copy(courseCardBlur = it / 100f * 10f)
+                            state.config.copy(courseCardBlur = it / 100f * maxCourseCardBlur)
                         )
                     },
                     previewSliderKey = previewSliderKey,
@@ -4185,11 +4329,13 @@ fun DialogLiquidButton(
     blurRadius: Dp = 3.dp,
     destructiveFilled: Boolean = false,
     monochromeNeutral: Boolean = false,
+    neutralLightStyle: Boolean? = null,
     highContrast: Boolean = false,
     roundIcon: Boolean = false
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val useMonochromeNeutral = role == DialogButtonRole.Neutral && monochromeNeutral
+    val neutralDark = neutralLightStyle?.not() ?: darkTheme
     val useRoundIcon = roundIcon && role != DialogButtonRole.Neutral
     val resolvedIconRes = iconRes ?: when {
         useRoundIcon && role == DialogButtonRole.Cancel -> R.drawable.ic_close_light
@@ -4200,7 +4346,7 @@ fun DialogLiquidButton(
         DialogButtonRole.Confirm -> ComposeColor.White
         DialogButtonRole.Cancel -> ComposeColor.White
         DialogButtonRole.Neutral -> if (useMonochromeNeutral) {
-            if (darkTheme) ComposeColor.White else ComposeColor.Black
+            if (neutralDark) ComposeColor.White else ComposeColor.Black
         } else MaterialTheme.colorScheme.primary
     }
     val surfaceColor = if (highContrast) {
@@ -4213,8 +4359,8 @@ fun DialogLiquidButton(
             ComposeColor.Black.copy(alpha = if (darkTheme) 0.42f else 0.30f)
         }
         DialogButtonRole.Neutral -> if (useMonochromeNeutral) {
-            (if (darkTheme) ComposeColor.Black else ComposeColor.White)
-                .copy(alpha = if (darkTheme) 0.46f else 0.62f)
+            (if (neutralDark) ComposeColor.Black else ComposeColor.White)
+                .copy(alpha = if (neutralDark) 0.46f else 0.62f)
         } else ComposeColor.Transparent
     }
     if (backdrop != null) {
@@ -4325,6 +4471,9 @@ class SettingsDetailActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        val externalBackupPreviewSource = intent.data?.takeIf {
+            intent.action == Intent.ACTION_VIEW
+        }
         val customizeScheduleId = intent.getIntExtra(ScheduleCustomizeIdExtra, -1).takeIf { it > 0 }
         val useEntrySnapshot = intent.getBooleanExtra(ScheduleEntrySnapshotExtra, false)
         setContent {
@@ -4332,7 +4481,15 @@ class SettingsDetailActivity : ComponentActivity() {
             val viewModel: ScheduleViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
                 factory = ScheduleViewModelFactory(app, app.repository)
             )
-            val section = SettingsPage.valueOf(intent.getStringExtra(SettingsDetailPageExtra) ?: SettingsPage.General.name)
+            val section = if (externalBackupPreviewSource != null) {
+                SettingsPage.BackupPreview
+            } else {
+                SettingsPage.valueOf(
+                    intent.getStringExtra(SettingsDetailPageExtra) ?: SettingsPage.General.name
+                )
+            }
+            val backupPreviewSource = externalBackupPreviewSource
+                ?: intent.getStringExtra(BackupPreviewUriExtra)?.toUri()
             val stateFlow = if (customizeScheduleId != null || section == SettingsPage.ScheduleManager) {
                 viewModel.allSchedulesState
             } else {
@@ -4340,6 +4497,13 @@ class SettingsDetailActivity : ComponentActivity() {
             }
             val state by stateFlow.collectAsStateWithLifecycle()
             CourseScheduleTheme(config = state.config) {
+                val darkWindowBackground = appUsesDarkTheme(state.config)
+                LaunchedEffect(darkWindowBackground) {
+                    // Keep the Activity surface consistent with the Compose page while it is
+                    // leaving the screen. Some Android 13/ColorOS back animations otherwise
+                    // reveal the light theme's static window background for one frame.
+                    window.applyAppThemeSurface(darkWindowBackground)
+                }
                 val scheduleEditState = remember(state, customizeScheduleId) {
                     if (customizeScheduleId != null) scheduleConfigStateForEdit(state, customizeScheduleId) else state
                 }
@@ -4359,37 +4523,44 @@ class SettingsDetailActivity : ComponentActivity() {
                     }
                 }
                 var scheduleExitRequest by remember { mutableIntStateOf(0) }
-                var aiExitRequest by remember { mutableIntStateOf(0) }
-                var generalExitRequest by remember { mutableIntStateOf(0) }
                 var widgetEditorVisible by remember { mutableStateOf(false) }
+                var interceptSystemBack by remember(section) { mutableStateOf(false) }
+                val requestExit: () -> Unit = {
+                    when (section) {
+                        SettingsPage.Schedule -> scheduleExitRequest++
+                        else -> finish()
+                    }
+                }
+                // An Activity-level callback disables Android's cross-Activity predictive-back
+                // animation. Only install it while a page really has a pending draft that must be
+                // committed or confirmed; clean pages stay on the native predictive-back path.
+                BackHandler(enabled = interceptSystemBack, onBack = requestExit)
                 Box(Modifier.fillMaxSize()) {
                 DetailActivityScaffold(
                     title = section.title(),
                     config = state.config,
-                    compactTopBar = section == SettingsPage.Widgets,
-                    centerCompactTitle = section == SettingsPage.Widgets,
-                    compactTitleMatchesSettings = section == SettingsPage.Widgets,
+                    compactTopBar = section.usesPersistentCenteredSettingsTitle(),
+                    centerCompactTitle = section.usesPersistentCenteredSettingsTitle(),
+                    compactTitleMatchesSettings = section.usesPersistentCenteredSettingsTitle(),
                     topBarVisible = !widgetEditorVisible,
-                    onBack = {
-                        if (section == SettingsPage.General) {
-                            generalExitRequest++
-                        } else if (section == SettingsPage.Schedule || section == SettingsPage.Notifications) {
-                            scheduleExitRequest++
-                        } else if (section == SettingsPage.AiImport) {
-                            aiExitRequest++
-                        } else {
-                            finish()
-                        }
-                    }
+                    onBack = requestExit
                 ) { backdrop ->
                     when (section) {
                         SettingsPage.General -> GeneralSettingsScreen(
                             state = state,
                             backdrop = backdrop,
-                            onUpdateConfig = viewModel::saveNotificationSettings,
-                            exitCommitRequest = generalExitRequest,
-                            onExitCommitFinished = { saved -> if (saved) finish() },
-                            onCommitAndExit = viewModel::saveGlobalSettingsAndFinish
+                            onUpdateConfig = viewModel::saveGeneralSettings,
+                            onOpenLiquidGlass = {
+                                startActivity(
+                                    Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
+                                        .putExtra(SettingsDetailPageExtra, SettingsPage.LiquidGlass.name)
+                                )
+                            }
+                        )
+                        SettingsPage.LiquidGlass -> LiquidGlassSettingsScreen(
+                            state = state,
+                            backdrop = backdrop,
+                            onUpdateBlurScale = viewModel::saveHomeChromeBlurScale
                         )
                         SettingsPage.Widgets -> WidgetCustomizationScreen(
                             state = state,
@@ -4398,9 +4569,7 @@ class SettingsDetailActivity : ComponentActivity() {
                         )
                         SettingsPage.AiImport -> AiImportSettingsScreen(
                             state = state,
-                            backdrop = backdrop,
-                            exitCommitRequest = aiExitRequest,
-                            onExitCommitFinished = { saved -> if (saved) finish() }
+                            backdrop = backdrop
                         )
                         SettingsPage.DayAgent -> DayAgentSettingsScreen(state, backdrop)
                         SettingsPage.Schedule -> if (!scheduleEditReady) {
@@ -4422,7 +4591,8 @@ class SettingsDetailActivity : ComponentActivity() {
                                 },
                                 onPreviewLiveUpdate = viewModel::previewLiveUpdate,
                                 exitCommitRequest = scheduleExitRequest,
-                                onExitCommitFinished = { saved -> if (saved) finish() }
+                                onExitCommitFinished = { saved -> if (saved) finish() },
+                                onExitInterceptionChange = { interceptSystemBack = it }
                             )
                         }
                         SettingsPage.Notifications -> ScheduleConfigScreen(
@@ -4430,20 +4600,45 @@ class SettingsDetailActivity : ComponentActivity() {
                             backdrop = backdrop,
                             section = SettingsSection.Notifications,
                             onSave = { config, _ -> viewModel.saveNotificationSettings(config) },
-                            onPreviewLiveUpdate = viewModel::previewLiveUpdate,
-                            exitCommitRequest = scheduleExitRequest,
-                            onExitCommitFinished = { saved -> if (saved) finish() }
+                            onPreviewLiveUpdate = viewModel::previewLiveUpdate
                         )
-                        SettingsPage.About -> AboutSettingsScreen(state, backdrop)
+                        SettingsPage.About -> ChangelogSettingsScreen(
+                            state = state,
+                            backdrop = backdrop,
+                            onDonate = {
+                                startActivity(
+                                    Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
+                                        .putExtra(SettingsDetailPageExtra, SettingsPage.Donate.name)
+                                )
+                            }
+                        )
+                        SettingsPage.BackupRestore -> BackupRestoreSettingsScreen(
+                            state = state,
+                            backdrop = backdrop,
+                            onOpenPreview = { source ->
+                                startActivity(
+                                    Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
+                                        .setData(source)
+                                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        .putExtra(SettingsDetailPageExtra, SettingsPage.BackupPreview.name)
+                                        .putExtra(BackupPreviewUriExtra, source.toString())
+                                )
+                            }
+                        )
+                        SettingsPage.BackupPreview -> if (backupPreviewSource != null) {
+                            BackupRestorePreviewScreen(state, backdrop, backupPreviewSource)
+                        } else {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    "没有找到要预览的备份文件，请返回后重新选择。",
+                                    modifier = Modifier.padding(24.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                         SettingsPage.Changelog -> ChangelogSettingsScreen(
                             state = state,
                             backdrop = backdrop,
-                            onDownload = {
-                                startActivity(
-                                    Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
-                                        .putExtra(SettingsDetailPageExtra, SettingsPage.Download.name)
-                                )
-                            },
                             onDonate = {
                                 startActivity(
                                     Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
@@ -4452,7 +4647,6 @@ class SettingsDetailActivity : ComponentActivity() {
                             }
                         )
                         SettingsPage.Donate -> DonateSettingsScreen(state, backdrop)
-                        SettingsPage.Download -> DownloadUpdateScreen(state, backdrop)
                         SettingsPage.ScheduleManager -> ScheduleManagerScreen(
                             state = state, backdrop = backdrop,
                             onCreateSchedule = { viewModel.createSchedule(it) },
@@ -4793,31 +4987,107 @@ fun SettingsScreen(
     onPageChange: (SettingsPage) -> Unit,
     onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
     onUpdateConfig: (ScheduleConfigEntity) -> Unit,
+    onUpdateGeneralConfig: (ScheduleConfigEntity) -> Unit = onUpdateConfig,
+    onUpdateHomeChromeBlurScale: (Float) -> Unit,
     onPreviewLiveUpdate: () -> Unit,
     onCreateSchedule: (String) -> Unit = {},
     onActivateSchedule: (Int, (() -> Unit)?) -> Unit = { _, _ -> },
     onRenameSchedule: (Int, String) -> Unit = { _, _ -> },
-    onDeleteSchedule: (Int) -> Unit = {}
+    onDeleteSchedule: (Int) -> Unit = {},
+    exitCommitRequest: Int = 0,
+    onExitCommitFinished: (Boolean) -> Unit = {},
+    onExitInterceptionChange: (Boolean) -> Unit = {}
 ) {
     val pageConfig = settingsVisualConfig(state.config)
     val pageState = state.copy(config = pageConfig)
     val adaptiveMetrics = rememberHomeAdaptiveMetrics()
+    var backupPreviewUriString by rememberSaveable { mutableStateOf<String?>(null) }
     GlassMiuixSettingsTheme(pageConfig) {
         if (page == SettingsPage.Root && adaptiveMetrics.isLargeScreen) {
-            var selectedPageName by rememberSaveable { mutableStateOf(SettingsPage.General.name) }
+            var tabletNavigation by rememberSaveable(
+                stateSaver = TabletSettingsNavigationStateSaver
+            ) {
+                mutableStateOf(TabletSettingsNavigationState())
+            }
+            var detailNavigationDirection by remember { mutableIntStateOf(0) }
             var tabletWidgetEditorVisible by remember { mutableStateOf(false) }
-            val selectedPage = runCatching { SettingsPage.valueOf(selectedPageName) }
-                .getOrDefault(SettingsPage.General)
-                .takeUnless { it == SettingsPage.Root }
-                ?: SettingsPage.General
+            var pendingPageName by remember { mutableStateOf<String?>(null) }
+            var scheduleExitInFlight by remember { mutableStateOf(false) }
+            var scheduleExitRequest by remember { mutableIntStateOf(0) }
+            var externalExitInFlight by remember { mutableStateOf(false) }
+            var lastHandledExternalExitRequest by remember { mutableIntStateOf(exitCommitRequest) }
+            var exitInterceptionByPage by remember {
+                mutableStateOf<Map<SettingsPage, Boolean>>(emptyMap())
+            }
+            val selectedPage = tabletNavigation.rootPage
+            val displayedPage = tabletNavigation.displayedPage
             val portrait = adaptiveMetrics.screenHeight > adaptiveMetrics.screenWidth
             val navigationWidth = if (portrait) {
                 (adaptiveMetrics.screenWidth * 0.38f).coerceIn(280.dp, 328.dp)
             } else {
                 (adaptiveMetrics.screenWidth * 0.31f).coerceIn(336.dp, 408.dp)
             }
-            LaunchedEffect(selectedPage) {
-                if (selectedPage != SettingsPage.Widgets) tabletWidgetEditorVisible = false
+            LaunchedEffect(displayedPage) {
+                if (displayedPage != SettingsPage.Widgets) tabletWidgetEditorVisible = false
+            }
+            val interceptRootExit = tabletNavigation.detailPages.isEmpty() &&
+                exitInterceptionByPage[selectedPage] == true
+            LaunchedEffect(interceptRootExit) {
+                onExitInterceptionChange(interceptRootExit)
+            }
+            DisposableEffect(onExitInterceptionChange) {
+                onDispose { onExitInterceptionChange(false) }
+            }
+            fun applyTabletRootPage(nextPage: SettingsPage) {
+                detailNavigationDirection = 0
+                tabletNavigation = tabletNavigation.selectRoot(nextPage)
+                backupPreviewUriString = null
+                pendingPageName = null
+            }
+            fun requestTabletRootPage(nextPage: SettingsPage) {
+                if (
+                    tabletNavigation.detailPages.isEmpty() &&
+                    exitInterceptionByPage[selectedPage] == true
+                ) {
+                    pendingPageName = nextPage.name
+                    if (!scheduleExitInFlight) {
+                        scheduleExitInFlight = true
+                        scheduleExitRequest++
+                    }
+                } else {
+                    applyTabletRootPage(nextPage)
+                }
+            }
+            fun pushTabletDetailPage(nextPage: SettingsPage) {
+                val nextNavigation = tabletNavigation.pushDetail(nextPage)
+                if (nextNavigation == tabletNavigation) return
+                detailNavigationDirection = 1
+                tabletNavigation = nextNavigation
+            }
+            fun popTabletDetailPage() {
+                val nextNavigation = tabletNavigation.popDetail()
+                if (nextNavigation == tabletNavigation) return
+                detailNavigationDirection = -1
+                tabletNavigation = nextNavigation
+            }
+            LaunchedEffect(exitCommitRequest) {
+                if (exitCommitRequest == lastHandledExternalExitRequest) return@LaunchedEffect
+                lastHandledExternalExitRequest = exitCommitRequest
+                if (
+                    tabletNavigation.detailPages.isEmpty() &&
+                    exitInterceptionByPage[selectedPage] == true
+                ) {
+                    externalExitInFlight = true
+                    if (!scheduleExitInFlight) {
+                        scheduleExitInFlight = true
+                        scheduleExitRequest++
+                    }
+                } else {
+                    onExitCommitFinished(true)
+                }
+            }
+            BackHandler(enabled = tabletNavigation.detailPages.isNotEmpty()) {
+                popTabletDetailPage()
             }
             Row(
                 modifier = Modifier
@@ -4829,7 +5099,7 @@ fun SettingsScreen(
                         state = pageState,
                         backdrop = backdrop,
                         selectedPage = selectedPage,
-                        onPageChange = { selectedPageName = it.name }
+                        onPageChange = ::requestTabletRootPage
                     )
                 }
                 Box(
@@ -4838,27 +5108,95 @@ fun SettingsScreen(
                         .fillMaxHeight()
                         .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.46f))
                 )
-                GlassMiuixTabletDetailPaneScaffold(
-                    title = selectedPage.title(),
-                    config = pageConfig,
-                    topBarVisible = !(selectedPage == SettingsPage.Widgets && tabletWidgetEditorVisible),
-                    modifier = Modifier.weight(1f).fillMaxHeight()
-                ) { paneBackdrop ->
-                    SettingsPageContent(
-                        page = selectedPage,
-                        state = state,
-                        pageState = pageState,
-                        backdrop = paneBackdrop,
-                        onPageChange = { selectedPageName = it.name },
-                        onSave = onSave,
-                        onUpdateConfig = onUpdateConfig,
-                        onPreviewLiveUpdate = onPreviewLiveUpdate,
-                        onCreateSchedule = onCreateSchedule,
-                        onActivateSchedule = onActivateSchedule,
-                        onRenameSchedule = onRenameSchedule,
-                        onDeleteSchedule = onDeleteSchedule,
-                        onWidgetEditorVisibilityChange = { tabletWidgetEditorVisible = it }
-                    )
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clipToBounds()
+                ) {
+                    AnimatedContent(
+                        targetState = displayedPage,
+                        transitionSpec = {
+                            when {
+                                detailNavigationDirection > 0 -> {
+                                    slideInHorizontally(
+                                        tween(500, easing = MiuixSettingsNavigationMotion)
+                                    ) { width -> width } togetherWith
+                                        slideOutHorizontally(
+                                            tween(500, easing = MiuixSettingsNavigationMotion)
+                                        ) { width -> -width / 4 }
+                                }
+                                detailNavigationDirection < 0 -> {
+                                    slideInHorizontally(
+                                        tween(500, easing = MiuixSettingsNavigationMotion)
+                                    ) { width -> -width / 4 } togetherWith
+                                        slideOutHorizontally(
+                                            tween(500, easing = MiuixSettingsNavigationMotion)
+                                        ) { width -> width }
+                                }
+                                else -> EnterTransition.None togetherWith ExitTransition.None
+                            }
+                        },
+                        label = "TabletSettingsDetailNavigation"
+                    ) { targetPage ->
+                        GlassMiuixTabletDetailPaneScaffold(
+                            title = targetPage.title(),
+                            config = pageConfig,
+                            topBarVisible = !(targetPage == SettingsPage.Widgets && tabletWidgetEditorVisible),
+                            showBackButton = targetPage != selectedPage,
+                            useMiuixCollapsedTitleStyle =
+                                targetPage.usesPersistentCenteredSettingsTitle(),
+                            onBack = ::popTabletDetailPage,
+                            modifier = Modifier.fillMaxSize()
+                        ) { paneBackdrop ->
+                            SettingsPageContent(
+                                page = targetPage,
+                                state = state,
+                                pageState = pageState,
+                                backdrop = paneBackdrop,
+                                onPageChange = ::pushTabletDetailPage,
+                                onSave = onSave,
+                                onUpdateConfig = onUpdateConfig,
+                                onUpdateGeneralConfig = onUpdateGeneralConfig,
+                                onUpdateHomeChromeBlurScale = onUpdateHomeChromeBlurScale,
+                                onPreviewLiveUpdate = onPreviewLiveUpdate,
+                                onCreateSchedule = onCreateSchedule,
+                                onActivateSchedule = onActivateSchedule,
+                                onRenameSchedule = onRenameSchedule,
+                                onDeleteSchedule = onDeleteSchedule,
+                                onWidgetEditorVisibilityChange = { tabletWidgetEditorVisible = it },
+                                backupPreviewUri = backupPreviewUriString?.toUri(),
+                                onOpenBackupPreview = { source ->
+                                    backupPreviewUriString = source.toString()
+                                    pushTabletDetailPage(SettingsPage.BackupPreview)
+                                },
+                                exitCommitRequest = scheduleExitRequest,
+                                onExitCommitFinished = { completed ->
+                                    scheduleExitInFlight = false
+                                    scheduleExitRequest = 0
+                                    if (externalExitInFlight) {
+                                        externalExitInFlight = false
+                                        pendingPageName = null
+                                        onExitCommitFinished(completed)
+                                    } else {
+                                        val destination = pendingPageName
+                                        pendingPageName = null
+                                        if (completed && destination != null) {
+                                            applyTabletRootPage(
+                                                runCatching { SettingsPage.valueOf(destination) }
+                                                    .getOrDefault(SettingsPage.General)
+                                            )
+                                        }
+                                    }
+                                },
+                                onExitInterceptionChange = { needsInterception ->
+                                    exitInterceptionByPage = exitInterceptionByPage.toMutableMap().apply {
+                                        if (needsInterception) put(targetPage, true) else remove(targetPage)
+                                    }
+                                }
+                            )
+                        }
+                    }
                 }
             }
         } else {
@@ -4870,11 +5208,21 @@ fun SettingsScreen(
                 onPageChange = onPageChange,
                 onSave = onSave,
                 onUpdateConfig = onUpdateConfig,
+                onUpdateGeneralConfig = onUpdateGeneralConfig,
+                onUpdateHomeChromeBlurScale = onUpdateHomeChromeBlurScale,
                 onPreviewLiveUpdate = onPreviewLiveUpdate,
                 onCreateSchedule = onCreateSchedule,
                 onActivateSchedule = onActivateSchedule,
                 onRenameSchedule = onRenameSchedule,
-                onDeleteSchedule = onDeleteSchedule
+                onDeleteSchedule = onDeleteSchedule,
+                backupPreviewUri = backupPreviewUriString?.toUri(),
+                onOpenBackupPreview = { source ->
+                    backupPreviewUriString = source.toString()
+                    onPageChange(SettingsPage.BackupPreview)
+                },
+                exitCommitRequest = exitCommitRequest,
+                onExitCommitFinished = onExitCommitFinished,
+                onExitInterceptionChange = onExitInterceptionChange
             )
         }
     }
@@ -4889,25 +5237,66 @@ private fun SettingsPageContent(
     onPageChange: (SettingsPage) -> Unit,
     onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
     onUpdateConfig: (ScheduleConfigEntity) -> Unit,
+    onUpdateGeneralConfig: (ScheduleConfigEntity) -> Unit,
+    onUpdateHomeChromeBlurScale: (Float) -> Unit,
     onPreviewLiveUpdate: () -> Unit,
     onCreateSchedule: (String) -> Unit,
     onActivateSchedule: (Int, (() -> Unit)?) -> Unit,
     onRenameSchedule: (Int, String) -> Unit,
     onDeleteSchedule: (Int) -> Unit,
-    onWidgetEditorVisibilityChange: (Boolean) -> Unit = {}
+    onWidgetEditorVisibilityChange: (Boolean) -> Unit = {},
+    backupPreviewUri: Uri? = null,
+    onOpenBackupPreview: (Uri) -> Unit = {},
+    exitCommitRequest: Int = 0,
+    onExitCommitFinished: (Boolean) -> Unit = {},
+    onExitInterceptionChange: (Boolean) -> Unit = {}
 ) {
     when (page) {
         SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange = onPageChange)
-        SettingsPage.General -> GeneralSettingsScreen(state, backdrop, onUpdateConfig)
+        SettingsPage.General -> GeneralSettingsScreen(
+            state = state,
+            backdrop = backdrop,
+            onUpdateConfig = onUpdateGeneralConfig,
+            onOpenLiquidGlass = { onPageChange(SettingsPage.LiquidGlass) },
+            exitCommitRequest = exitCommitRequest,
+            onExitCommitFinished = onExitCommitFinished
+        )
+        SettingsPage.LiquidGlass -> LiquidGlassSettingsScreen(
+            state = state,
+            backdrop = backdrop,
+            onUpdateBlurScale = onUpdateHomeChromeBlurScale
+        )
         SettingsPage.Widgets -> WidgetCustomizationScreen(
             state,
             backdrop,
             onEditorVisibilityChange = onWidgetEditorVisibilityChange
         )
-        SettingsPage.AiImport -> AiImportSettingsScreen(state, backdrop)
+        SettingsPage.AiImport -> AiImportSettingsScreen(
+            state = state,
+            backdrop = backdrop,
+            exitCommitRequest = exitCommitRequest,
+            onExitCommitFinished = onExitCommitFinished
+        )
         SettingsPage.DayAgent -> DayAgentSettingsScreen(state, backdrop)
-        SettingsPage.Schedule -> ScheduleConfigScreen(state, backdrop, SettingsSection.Schedule, onSave, onPreviewLiveUpdate)
-        SettingsPage.Notifications -> ScheduleConfigScreen(state, backdrop, SettingsSection.Notifications, onSave, onPreviewLiveUpdate)
+        SettingsPage.Schedule -> ScheduleConfigScreen(
+            state = state,
+            backdrop = backdrop,
+            section = SettingsSection.Schedule,
+            onSave = onSave,
+            onPreviewLiveUpdate = onPreviewLiveUpdate,
+            exitCommitRequest = exitCommitRequest,
+            onExitCommitFinished = onExitCommitFinished,
+            onExitInterceptionChange = onExitInterceptionChange
+        )
+        SettingsPage.Notifications -> ScheduleConfigScreen(
+            state = state,
+            backdrop = backdrop,
+            section = SettingsSection.Notifications,
+            onSave = { config, _ -> onUpdateConfig(config) },
+            onPreviewLiveUpdate = onPreviewLiveUpdate,
+            exitCommitRequest = exitCommitRequest,
+            onExitCommitFinished = onExitCommitFinished
+        )
         SettingsPage.ScheduleManager -> ScheduleManagerScreen(
             state,
             backdrop,
@@ -4916,14 +5305,32 @@ private fun SettingsPageContent(
             onRenameSchedule,
             onDeleteSchedule
         )
-        SettingsPage.About -> AboutSettingsScreen(pageState, backdrop)
+        SettingsPage.BackupRestore -> BackupRestoreSettingsScreen(
+            state = pageState,
+            backdrop = backdrop,
+            onOpenPreview = onOpenBackupPreview
+        )
+        SettingsPage.BackupPreview -> if (backupPreviewUri != null) {
+            BackupRestorePreviewScreen(pageState, backdrop, backupPreviewUri)
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "没有找到要预览的备份文件，请返回后重新选择。",
+                    modifier = Modifier.padding(24.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        SettingsPage.About -> ChangelogSettingsScreen(
+            pageState,
+            backdrop,
+            onDonate = { onPageChange(SettingsPage.Donate) }
+        )
         SettingsPage.Changelog -> ChangelogSettingsScreen(
             pageState,
             backdrop,
-            onDownload = { onPageChange(SettingsPage.Download) },
             onDonate = { onPageChange(SettingsPage.Donate) }
         )
-        SettingsPage.Download -> DownloadUpdateScreen(pageState, backdrop)
         SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
     }
 }
@@ -4937,6 +5344,21 @@ fun SettingsRootScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val darkTheme = appUsesDarkTheme(state.config)
+    val customTabsPackage = remember(context) { context.resolveSleepDownCustomTabsPackage() }
+    val customTabWidthPx = with(density) {
+        (configuration.screenWidthDp.dp * 0.68f).roundToPx()
+    }
+    fun openExternalPage(url: String) {
+        context.openSleepDownCustomTab(
+            url = url,
+            providerPackage = customTabsPackage,
+            initialWidthPx = customTabWidthPx,
+            darkTheme = darkTheme
+        )
+    }
     val versionName = remember {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
@@ -5030,7 +5452,7 @@ fun SettingsRootScreen(
                             painter = painterResource(R.mipmap.ic_launcher),
                             contentDescription = null,
                             modifier = Modifier
-                                .padding(end = 16.dp)
+                                .padding(end = 10.dp)
                                 .size(56.dp)
                                 .clip(RoundedCornerShape(16.dp))
                         )
@@ -5046,8 +5468,8 @@ fun SettingsRootScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
-                            MaterialTheme.colorScheme.primary.copy(
-                                alpha = if (selectedPage == SettingsPage.Changelog) 0.12f else 0f
+                            MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = if (selectedPage == SettingsPage.Changelog) 0.10f else 0f
                             )
                         ),
                     insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
@@ -5121,10 +5543,10 @@ fun SettingsRootScreen(
             GlassPreferenceSection("其他") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow(
-                        "关于",
-                        "软件信息与开源引用",
-                        selected = selectedPage == SettingsPage.About,
-                        onClick = { onPageChange(SettingsPage.About) }
+                        "备份与恢复",
+                        "保存课表和设置，或从备份恢复",
+                        selected = selectedPage == SettingsPage.BackupRestore,
+                        onClick = { onPageChange(SettingsPage.BackupRestore) }
                     )
                 }
             }
@@ -5140,9 +5562,12 @@ fun SettingsRootScreen(
         onRetry = ::checkForUpdate,
         onDownload = ::downloadAndInstall,
         onOpenRelease = { release ->
-            context.startActivity(Intent(Intent.ACTION_VIEW, release.releaseUrl.toUri()))
+            openExternalPage(release.releaseUrl)
         },
-        onOpenBackup = { onPageChange(SettingsPage.Download); updateDialog = null },
+        onOpenBackup = {
+            openExternalPage(SleepDownReleasesUrl)
+            updateDialog = null
+        },
         onRequestInstallPermission = {
             installPermissionLauncher.launch(GiteeAppUpdater.unknownSourcesSettingsIntent(context))
         }
@@ -5433,32 +5858,414 @@ fun AboutSettingsScreen(state: AppState, backdrop: Backdrop?) {
     val versionName = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0 beta" }.getOrDefault("1.0 beta")
     }
+    fun openProjectPage(url: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+        }.onFailure {
+            Toast.makeText(context, "暂时无法打开这个页面", Toast.LENGTH_SHORT).show()
+        }
+    }
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
+        item(key = "about-hero") {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsValueRow("软件名称", "SleepDown课程表")
-                SettingsDivider()
-                SettingsValueRow("版本", versionName)
-                SettingsDivider()
-                SettingsValueRow("开发者", "小漫君")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Image(
+                        painter = painterResource(R.mipmap.ic_launcher),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "SleepDown 课程表",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "把课程，安排得刚刚好",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "版本 $versionName · 小漫君独立设计与开发",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
-        item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsInfoRow("软件介绍", "SleepDown课程表是一款面向学生的课程表工具，支持手动编辑、教务导入、课程提醒、实时活动和个性化玻璃外观。")
+        item(key = "about-capabilities") {
+            GlassPreferenceSection("你可以用它做什么") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsInfoRow(
+                        "今天有重点，一周有全貌",
+                        "日视图突出今天和下一节课，周视图完整展开一周安排；不同学期或用途的课表也可以分开管理。"
+                    )
+                    SettingsDivider()
+                    SettingsInfoRow(
+                        "课表从哪里来，都先让你确认",
+                        "可以手动添加，也可以从教务系统、ICS、文本、表格、图片或 PDF 整理课表，导入结果会先给你预览。"
+                    )
+                    SettingsDivider()
+                    SettingsInfoRow(
+                        "会回答，也会动手，但最后由你做主",
+                        "今日助手可以查询课程和空闲时间；涉及课程或设置修改时，会先说明要改什么，再等你确认。"
+                    )
+                    SettingsDivider()
+                    SettingsInfoRow(
+                        "你的课表，当然该有你的样子",
+                        "壁纸取景、课程卡片、玻璃效果、深色外观、提醒和桌面小组件都可以按需要调整。"
+                    )
+                }
             }
         }
-        item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsValueRow("AndroidLiquidGlass", "Kyant")
-                SettingsDivider()
-                SettingsValueRow("shiguang_warehouse", "XingHeYuZhuan")
-                SettingsDivider()
-                SettingsValueRow("MIUIX", "compose-miuix-ui")
+        item(key = "about-privacy") {
+            GlassPreferenceSection("数据与隐私") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsInfoRow(
+                        "基础数据留在本机",
+                        "课表、设置、壁纸取景和助手记忆默认保存在应用自己的空间里，日常查看和编辑不需要上传课程。"
+                    )
+                    SettingsDivider()
+                    SettingsInfoRow(
+                        "选择文件时，由 Android 系统把关",
+                        "应用只会读取你在系统文件选择器中主动选中的文件，不会自行浏览其他文件。"
+                    )
+                    SettingsDivider()
+                    SettingsInfoRow(
+                        "联网功能由你开启",
+                        "AI、天气和版本检查只在使用时联网。使用第三方服务前，请留意对方的隐私政策、计费和数据处理方式。"
+                    )
+                }
             }
+        }
+        item(key = "about-project") {
+            GlassPreferenceSection("项目信息") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsValueRow("开发与维护", "小漫君 / xiaomanjun233")
+                    SettingsDivider()
+                    SettingsValueRow("当前版本", versionName)
+                    SettingsDivider()
+                    SettingsValueRow("系统要求", "Android 8.0 及以上")
+                    SettingsDivider()
+                    SettingsInfoRow(
+                        "项目许可",
+                        "采用 SleepDown 署名非商业、源码可见许可 1.1；这是源码可见项目，不是 OSI 定义的开源软件。"
+                    )
+                }
+            }
+        }
+        item(key = "about-links") {
+            GlassPreferenceSection("了解与反馈") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsNavigationRow(
+                        "项目官网",
+                        "查看完整功能、截图、隐私说明和下载入口",
+                        onClick = { openProjectPage(SleepDownWebsiteUrl) }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        "查看项目源码",
+                        "前往 GitHub 查看代码、版本与开发记录",
+                        onClick = { openProjectPage(SleepDownSourceUrl) }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        "问题反馈",
+                        "遇到问题或有建议时，前往 GitHub Issues",
+                        onClick = { openProjectPage(SleepDownIssuesUrl) }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        "查看完整许可",
+                        "了解使用、修改、署名和分发要求",
+                        onClick = { openProjectPage(SleepDownLicenseUrl) }
+                    )
+                }
+            }
+        }
+        item(key = "about-credits") {
+            GlassPreferenceSection("项目致谢") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsValueRow("液态玻璃效果", "AndroidLiquidGlass · Kyant")
+                    SettingsDivider()
+                    SettingsValueRow("设置与界面组件", "MIUIX · compose-miuix-ui")
+                    SettingsDivider()
+                    SettingsValueRow("教务适配资源", "shiguang_warehouse · XingHeYuZhuan")
+                }
+            }
+        }
+    }
+}
+
+private const val SleepDownWebsiteUrl = "https://xiaomanjun233.github.io/SleepDown-Schedule/"
+private const val SleepDownSourceUrl = "https://github.com/xiaomanjun233/SleepDown-Schedule"
+private const val SleepDownReleasesUrl = "$SleepDownSourceUrl/releases"
+private const val SleepDownIssuesUrl = "$SleepDownSourceUrl/issues"
+private const val SleepDownLicenseUrl = "$SleepDownSourceUrl/blob/main/LICENSE.md"
+private const val AndroidLiquidGlassUrl = "https://github.com/Kyant0/AndroidLiquidGlass"
+private const val MiuixUrl = "https://github.com/compose-miuix-ui/miuix"
+private const val ShiguangWarehouseUrl = "https://github.com/xingheyuzhuan/shiguang_warehouse"
+private val AboutHeroHeight = 390.dp
+
+@Composable
+private fun AboutGlassPanel(
+    darkTheme: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val shape = RoundedCornerShape(28.dp)
+    val panelGradient = if (darkTheme) {
+        Brush.linearGradient(
+            listOf(
+                ComposeColor(0xFF244987).copy(alpha = 0.60f),
+                ComposeColor(0xFF383C80).copy(alpha = 0.54f),
+                ComposeColor(0xFF562D69).copy(alpha = 0.58f)
+            )
+        )
+    } else {
+        Brush.linearGradient(
+            listOf(
+                ComposeColor(0xFFFFF5FA),
+                ComposeColor(0xFFFAF3FC),
+                ComposeColor(0xFFF3F4FD)
+            )
+        )
+    }
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(panelGradient),
+        content = content
+    )
+}
+
+@Composable
+private fun AboutSectionHeading(
+    title: String,
+    summary: String? = null
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 6.dp, end = 6.dp, top = 10.dp, bottom = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        if (!summary.isNullOrBlank()) {
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.68f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun AboutFeatureCard(
+    imageRes: Int,
+    eyebrow: String,
+    title: String
+) {
+    val imageBackdrop = rememberLayerBackdrop()
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val wideCard = maxWidth >= 560.dp
+        val cardRatio = if (wideCard) 16f / 8.5f else 1.08f
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(cardRatio)
+                .squircleClip(28.dp)
+        ) {
+            Image(
+                painter = painterResource(imageRes),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .layerBackdrop(imageBackdrop),
+                contentScale = ContentScale.Crop
+            )
+            ProgressiveBackdropBlur(
+                backdrop = imageBackdrop,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                tintColor = ComposeColor.Black,
+                height = if (wideCard) 108.dp else 120.dp,
+                blurRadius = 7.dp,
+                tintIntensity = 0.07f,
+                direction = ProgressiveBlurDirection.BottomToTop,
+                topMaskFadeStart = 0.18f,
+                topMaskFadeEnd = 0.96f,
+                topTintFadeStart = 0.14f,
+                topTintFadeEnd = 0.98f,
+                fallbackTintStops = listOf(
+                    0f to ComposeColor.Black.copy(alpha = 0.52f),
+                    0.56f to ComposeColor.Black.copy(alpha = 0.20f),
+                    1f to ComposeColor.Transparent
+                )
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0f to ComposeColor.Black.copy(alpha = 0.03f),
+                                0.62f to ComposeColor.Black.copy(alpha = 0.05f),
+                                1f to ComposeColor.Black.copy(alpha = 0.50f)
+                            )
+                        )
+                    )
+            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = eyebrow,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    color = ComposeColor(0xFF8CCBFF)
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = ComposeColor.White
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AboutHero(
+    versionName: String,
+    titleBrush: Brush,
+    collapseProgress: State<Float>,
+    scrollOffsetPx: State<Float>,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .padding(horizontal = 18.dp, vertical = 44.dp)
+            .graphicsLayer {
+                val rawProgress = collapseProgress.value.coerceIn(0f, 1f)
+                val rawShrinkProgress = (rawProgress / 0.48f).coerceIn(0f, 1f)
+                val shrinkProgress = rawShrinkProgress * rawShrinkProgress * (3f - 2f * rawShrinkProgress)
+                val rawFadeProgress = ((rawProgress - 0.36f) / 0.16f).coerceIn(0f, 1f)
+                val fadeProgress = rawFadeProgress * rawFadeProgress * (3f - 2f * rawFadeProgress)
+                val scale = 1f - 0.28f * shrinkProgress
+                scaleX = scale
+                scaleY = scale
+                translationY = scrollOffsetPx.value * 0.52f + 30.dp.toPx() * shrinkProgress
+                alpha = 1f - fadeProgress
+            },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Image(
+            painter = painterResource(R.mipmap.ic_launcher),
+            contentDescription = null,
+            modifier = Modifier
+                .size(116.dp)
+                .clip(RoundedCornerShape(30.dp))
+        )
+        Spacer(Modifier.height(30.dp))
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "SleepDown 课程表",
+                style = MaterialTheme.typography.displaySmall.copy(brush = titleBrush),
+                fontSize = if (maxWidth < 320.dp) 30.sp else 36.sp,
+                lineHeight = if (maxWidth < 320.dp) 36.sp else 43.sp,
+                fontWeight = FontWeight.ExtraBold,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = "把课程，安排得刚刚好",
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.72f)
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "版本 $versionName  ·  小漫君独立设计与开发",
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.56f)
+        )
+    }
+}
+
+@Composable
+private fun AboutCreditLinkRow(
+    author: String,
+    repository: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = author,
+            modifier = Modifier.weight(0.43f),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Row(
+            modifier = Modifier.weight(0.57f),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_github),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.width(7.dp))
+            Text(
+                text = repository,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }
@@ -5467,27 +6274,269 @@ fun AboutSettingsScreen(state: AppState, backdrop: Backdrop?) {
 fun ChangelogSettingsScreen(
     state: AppState,
     backdrop: Backdrop?,
-    onDownload: () -> Unit = {},
     onDonate: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
     val topPadding = detailContentTopPadding()
-    LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    val darkTheme = appUsesDarkTheme(state.config)
+    val listState = rememberLazyListState()
+    val heroHeightPx = with(density) { AboutHeroHeight.toPx() }
+    val heroScrollOffsetPx = remember(listState, heroHeightPx) {
+        derivedStateOf {
+            if (listState.firstVisibleItemIndex > 0) {
+                heroHeightPx
+            } else {
+                listState.firstVisibleItemScrollOffset.toFloat().coerceIn(0f, heroHeightPx)
+            }
+        }
+    }
+    val heroCollapseProgress = remember(listState, heroHeightPx) {
+        derivedStateOf {
+            if (listState.firstVisibleItemIndex > 0) {
+                1f
+            } else {
+                (listState.firstVisibleItemScrollOffset / heroHeightPx).coerceIn(0f, 1f)
+            }
+        }
+    }
+    val customTabsPackage = remember(context) { context.resolveSleepDownCustomTabsPackage() }
+    val customTabWidthPx = with(density) {
+        (configuration.screenWidthDp.dp * 0.68f).roundToPx()
+    }
+    val versionName = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
+        }.getOrDefault("1.0")
+    }
+    val pageGradient = if (darkTheme) {
+        Brush.linearGradient(
+            listOf(
+                ComposeColor(0xFF071A43),
+                ComposeColor(0xFF142D70),
+                ComposeColor(0xFF2C174F),
+                ComposeColor(0xFF08102F)
+            )
+        )
+    } else {
+        Brush.linearGradient(
+            listOf(
+                ComposeColor(0xFFDFE3F8),
+                ComposeColor(0xFFE7E0FC),
+                ComposeColor(0xFFF2DDF7),
+                ComposeColor(0xFFF9DDEA),
+                ComposeColor(0xFFEDE5FA)
+            )
+        )
+    }
+    val heroTitleGradient = if (darkTheme) {
+        Brush.horizontalGradient(
+            listOf(
+                ComposeColor(0xFF8FC4FF),
+                ComposeColor(0xFFB9A6FF),
+                ComposeColor(0xFFF0B4E5)
+            )
+        )
+    } else {
+        Brush.horizontalGradient(
+            listOf(
+                ComposeColor(0xFF6758BE),
+                ComposeColor(0xFF9147A8),
+                ComposeColor(0xFFB43D79)
+            )
+        )
+    }
+    fun openProjectPage(url: String) {
+        context.openSleepDownCustomTab(
+            url = url,
+            providerPackage = customTabsPackage,
+            initialWidthPx = customTabWidthPx,
+            darkTheme = darkTheme
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(pageGradient)
     ) {
-        item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsNavigationRow("下载新版", "打开蓝奏云备用下载页", onClick = onDownload)
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = topPadding,
+                bottom = DockScrollPadding
+            ),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item(key = "about-hero") {
+                AboutHero(
+                    versionName = versionName,
+                    titleBrush = heroTitleGradient,
+                    collapseProgress = heroCollapseProgress,
+                    scrollOffsetPx = heroScrollOffsetPx,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(AboutHeroHeight)
+                )
             }
-        }
-        item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsNavigationRow("捐赠支持", "如果 SleepDown 课程表帮到了你，可以请小漫君喝杯奶茶。", onClick = onDonate)
+
+            item(key = "about-actions") {
+                AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
+                    SettingsNavigationRow(
+                        "下载新版",
+                        "前往 GitHub Releases 查看版本并下载安装包",
+                        onClick = { openProjectPage(SleepDownReleasesUrl) }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        "项目官网",
+                        "查看完整功能、截图与使用说明",
+                        onClick = { openProjectPage(SleepDownWebsiteUrl) }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        "项目仓库",
+                        "查看源码、版本与开发记录",
+                        onClick = { openProjectPage(SleepDownSourceUrl) }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        "问题反馈",
+                        "遇到问题或有建议时告诉我们",
+                        onClick = { openProjectPage(SleepDownIssuesUrl) }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        "捐赠支持",
+                        "如果它帮到了你，可以请作者喝杯奶茶",
+                        onClick = onDonate
+                    )
+                }
             }
-        }
-        item {
-                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+
+            item(key = "about-project-heading") {
+                AboutSectionHeading(title = "项目信息")
+            }
+            item(key = "about-project") {
+                AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
+                    SettingsValueRow("项目作者", "小漫君 / xiaomanjun233")
+                    SettingsDivider()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "致谢作者",
+                            modifier = Modifier.weight(0.43f),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "开源项目",
+                            modifier = Modifier.weight(0.57f),
+                            style = MaterialTheme.typography.labelMedium,
+                            textAlign = TextAlign.End,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    SettingsDivider()
+                    AboutCreditLinkRow(
+                        author = "Kyant0",
+                        repository = "AndroidLiquidGlass",
+                        onClick = { openProjectPage(AndroidLiquidGlassUrl) }
+                    )
+                    SettingsDivider()
+                    AboutCreditLinkRow(
+                        author = "compose-miuix-ui",
+                        repository = "miuix",
+                        onClick = { openProjectPage(MiuixUrl) }
+                    )
+                    SettingsDivider()
+                    AboutCreditLinkRow(
+                        author = "xingheyuzhuan",
+                        repository = "shiguang_warehouse",
+                        onClick = { openProjectPage(ShiguangWarehouseUrl) }
+                    )
+                }
+            }
+
+            item(key = "about-highlights-heading") {
+                AboutSectionHeading(
+                    title = "不只是一张课表",
+                    summary = "一张课表，也值得好好设计。"
+                )
+            }
+            item(key = "about-feature-schedule") {
+                AboutFeatureCard(
+                    imageRes = R.drawable.about_feature_schedule,
+                    eyebrow = "日视图与周视图",
+                    title = "今天有重点，一周有全貌"
+                )
+            }
+            item(key = "about-feature-import") {
+                AboutFeatureCard(
+                    imageRes = R.drawable.about_feature_import,
+                    eyebrow = "多种导入方式",
+                    title = "课表从哪里来，都先让你确认"
+                )
+            }
+            item(key = "about-feature-assistant") {
+                AboutFeatureCard(
+                    imageRes = R.drawable.about_feature_assistant,
+                    eyebrow = "今日助手",
+                    title = "会回答，也会动手，但最后由你做主"
+                )
+            }
+            item(key = "about-feature-appearance") {
+                AboutFeatureCard(
+                    imageRes = R.drawable.about_feature_appearance,
+                    eyebrow = "个性化与小组件",
+                    title = "你的课表，当然该有你的样子"
+                )
+            }
+
+            item(key = "about-privacy-heading") {
+                AboutSectionHeading(
+                    title = "数据与隐私",
+                    summary = "日常课表留在本机，需要联网的能力由你主动使用。"
+                )
+            }
+            item(key = "about-privacy") {
+                AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
+                    SettingsInfoRow(
+                        "基础数据保存在本机",
+                        "课表、设置、壁纸取景和助手记忆默认保存在应用自己的空间里，日常查看与编辑不需要上传课程。"
+                    )
+                    SettingsDivider()
+                    SettingsInfoRow(
+                        "文件由你亲自选择",
+                        "应用只读取你在 Android 系统文件选择器中主动选中的文件，不会自行浏览其他文件。"
+                    )
+                    SettingsDivider()
+                    SettingsInfoRow(
+                        "联网功能按需开启",
+                        "AI、天气和版本检查只在使用时联网；使用第三方服务前，请留意对方的隐私政策、计费和数据处理方式。"
+                    )
+                }
+            }
+
+            item(key = "about-changelog-heading") {
+                AboutSectionHeading(
+                    title = "更新日志",
+                    summary = "每一次打磨，都可以在这里找到。"
+                )
+            }
+            item(key = "about-changelog") {
+                AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
+                SettingsInfoRow("1.1.5", "新增完整的数据备份与恢复功能，可将课表、作息、应用设置、小组件外观及相关图片保存为一个备份文件，恢复前会先检查文件并展示内容预览，替换数据也会再次确认，帮助你更安心地迁移和保管数据；新增“今明课程”桌面小组件，可同时查看今天剩余课程和明天的课程安排，并支持独立设置背景图片、取景、缩放、模糊和亮度；通用设置新增液态玻璃自定义选项，可以自由调节玻璃组件的清晰与模糊程度；现在液态玻璃开启和关闭时的课程卡片颜色、透明度、模糊及字体大小会分别保存，不再和液态玻璃课程卡片共享保存参数；优化平板设置页面的双栏浏览、返回按钮和顶部标题，修复部分设置返回后没有保存的问题；优化 AI 导入页面，改善导入历史和手动导入的显示与动画；修复个性化滑块拖动时跳动以及 100% 吸附点位置不准确的问题；重新设计关于应用页面，加入应用官网、项目仓库、反馈入口，新增功能亮点介绍页，优化深色模式、更新日志和网页打开体验；调大平板横屏课程卡片文字，查看课程名称、地点和教师信息更加清晰。")
+                SettingsDivider()
                 SettingsInfoRow("1.1.4", "修复普通设置保存错误使用个性化字段合并，跟随系统、手动深色模式、首页模式及后台隐藏等设置现在可以稳定持久化；设置详情页返回前等待最新配置写入完成，避免异步保存被页面销毁取消；修复手动切换深色模式时二级设置页触发启动器别名切换、导致 ColorOS 任务被回收并表现为闪退的问题；修复从设置页进入课表详细设置后修改无法持久化的问题，并统一使用课表设置保存确认弹窗。")
                 SettingsInfoRow("1.1.3", "AI 导入现已使用结构化局部编辑，只提交需要修改的课程、周次或节次，减少重复传输完整课表产生的 Token 消耗，并统一支持全部模型供应商；AI 修改过程中会持续展示处理进度、本轮具体改动摘要和完整历史修改记录，长时间推理不再被过早中断；重新实现导入历史预览与详情页的无缝动画，进入和返回均在同一页面完成，减少闪烁、重复卡片和布局跳动；优化模型快捷选单、手动导入控件及课程编辑选择器在不同玻璃亮度下的文字与控件配色；调整添加单节课页面的垂直排版、选择器宽度和离散周次显示；修复小组件背景编辑时预览区域跳动、交接闪烁以及顶栏字号不一致的问题，并提升多处交互与动画稳定性。")
                 SettingsDivider()
@@ -5542,63 +6591,62 @@ fun ChangelogSettingsScreen(
         }
     }
 }
+}
 
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-fun DownloadUpdateScreen(state: AppState, backdrop: Backdrop?) {
-    val topPadding = detailContentTopPadding()
-    val context = LocalContext.current
-    Column(modifier = Modifier.fillMaxSize().padding(top = topPadding)) {
-        Text(
-            "密码：i224",
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary
-        )
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = {
-                WebView(it).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.useWideViewPort = true
-                    settings.loadWithOverviewMode = true
-                    webViewClient = sleepDownWebViewClient(context)
-                    webChromeClient = WebChromeClient()
-                    enableSleepDownDownloads()
-                    loadUrl("https://wwbhx.lanzout.com/b01d6z3uid")
-                }
-            },
-            update = {},
-            onRelease = { it.releaseSleepDownWebView() }
-        )
+private fun Context.resolveSleepDownCustomTabsPackage(): String? {
+    return CustomTabsClient.getPackageName(
+        this,
+        listOf("com.microsoft.emmx"),
+        true
+    ) ?: CustomTabsClient.getPackageName(this, emptyList())
+}
+
+private fun Context.openSleepDownCustomTab(
+    url: String,
+    providerPackage: String?,
+    initialWidthPx: Int,
+    darkTheme: Boolean
+) {
+    val chromeColor = if (darkTheme) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+    runCatching {
+        val customTab = CustomTabsIntent.Builder()
+            .setShowTitle(true)
+            .setShareState(CustomTabsIntent.SHARE_STATE_OFF)
+            .setColorScheme(
+                if (darkTheme) CustomTabsIntent.COLOR_SCHEME_DARK else CustomTabsIntent.COLOR_SCHEME_LIGHT
+            )
+            .setToolbarColor(chromeColor)
+            .setNavigationBarColor(chromeColor)
+            .setInitialActivityWidthPx(initialWidthPx)
+            .setActivitySideSheetBreakpointDp(600)
+            .setActivitySideSheetPosition(CustomTabsIntent.ACTIVITY_SIDE_SHEET_POSITION_END)
+            .setActivitySideSheetDecorationType(CustomTabsIntent.ACTIVITY_SIDE_SHEET_DECORATION_TYPE_DIVIDER)
+            .setActivitySideSheetRoundedCornersPosition(CustomTabsIntent.ACTIVITY_SIDE_SHEET_ROUNDED_CORNERS_POSITION_TOP)
+            .setActivitySideSheetMaximizationEnabled(false)
+            // AndroidX Browser accepts toolbar radii in the inclusive 0..16 dp range.
+            .setToolbarCornerRadiusDp(16)
+            .setCloseButtonPosition(CustomTabsIntent.CLOSE_BUTTON_POSITION_START)
+            .setBackgroundInteractionEnabled(false)
+            .build()
+            .also { intent -> providerPackage?.let(intent.intent::setPackage) }
+        customTab.launchUrl(this, url.toUri())
+    }.onFailure {
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+        }.onFailure {
+            Toast.makeText(this, "未找到可打开此链接的浏览器", Toast.LENGTH_SHORT).show()
+        }
     }
 }
 
-internal fun WebView.releaseSleepDownWebView() {
+internal fun WebView.releaseSleepDownWebView(clearResourceCache: Boolean = true) {
     runCatching { stopLoading() }
     runCatching { clearHistory() }
     // Resource cache can grow into tens of megabytes after repeated school-site imports.
     // Cookies and DOM storage are intentionally retained so login state is not lost.
-    runCatching { clearCache(true) }
+    if (clearResourceCache) runCatching { clearCache(true) }
     runCatching { detachEduImportBridge() }
     runCatching { destroy() }
-}
-
-private fun sleepDownWebViewClient(context: Context) = object : WebViewClient() {
-    override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
-        view?.let {
-            runCatching { (it.parent as? ViewGroup)?.removeView(it) }
-            runCatching { it.destroy() }
-        }
-        Toast.makeText(context, "网页渲染进程已重启，请重新打开页面", Toast.LENGTH_SHORT).show()
-        return true
-    }
 }
 
 internal fun WebView.enableSleepDownDownloads() {

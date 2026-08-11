@@ -128,7 +128,9 @@ object AgentSettingRegistry {
         "WALLPAPER_BLUR_PERCENT" to wallpaperBlurPercent(config.wallpaperBlur).toInt().toString(),
         "WALLPAPER_BRIGHTNESS_PERCENT" to (config.wallpaperBrightness * 100f).toInt().toString(),
         "COURSE_CARD_ALPHA_PERCENT" to (config.cardAlpha * 100f).toInt().toString(),
-        "COURSE_CARD_BLUR_PERCENT" to (config.courseCardBlur / 10f * 100f).toInt().toString(),
+        "COURSE_CARD_BLUR_PERCENT" to (
+            config.courseCardBlur / courseCardBlurMaximum(config.courseCardGlassEnabled) * 100f
+            ).toInt().coerceIn(0, 100).toString(),
         "COURSE_CARD_GLASS_ENABLED" to config.courseCardGlassEnabled.toString(),
         "COURSE_CARD_FONT_PERCENT" to (config.courseCardFontScale * 100f).toInt().toString(),
         "WEEK_CARD_HEIGHT_DP" to (config.weekCardHeightDp?.coerceIn(38f, 80f)?.toInt()?.toString() ?: "自动"),
@@ -244,7 +246,9 @@ object AgentSettingRegistry {
         "WALLPAPER_BLUR_PERCENT" -> value?.toFloatOrNull()?.let { config.copy(wallpaperBlur = wallpaperBlurDp(it)) }
         "WALLPAPER_BRIGHTNESS_PERCENT" -> value?.toFloatOrNull()?.let { config.copy(wallpaperBrightness = it / 100f) }
         "COURSE_CARD_ALPHA_PERCENT" -> value?.toFloatOrNull()?.let { config.copy(cardAlpha = it / 100f) }
-        "COURSE_CARD_BLUR_PERCENT" -> value?.toFloatOrNull()?.let { config.copy(courseCardBlur = it / 100f * 10f) }
+        "COURSE_CARD_BLUR_PERCENT" -> value?.toFloatOrNull()?.let {
+            config.copy(courseCardBlur = it / 100f * courseCardBlurMaximum(config.courseCardGlassEnabled))
+        }
         "COURSE_CARD_GLASS_ENABLED" -> value.agentBoolean()?.let { config.copy(courseCardGlassEnabled = it) }
         "COURSE_CARD_FONT_PERCENT" -> value?.toFloatOrNull()?.let { config.copy(courseCardFontScale = it / 100f) }
         "WEEK_CARD_HEIGHT_DP" -> value?.toFloatOrNull()?.let { config.copy(weekCardHeightDp = it.coerceIn(38f, 80f)) }

@@ -541,23 +541,34 @@ class ScheduleViewModel(
             finish()
         }
 
-    fun saveNotificationSettings(config: ScheduleConfigEntity) = viewModelScope.launch {
-        repository.saveGlobalSettings(config)
-        refreshCoordinator.request()
+    fun saveGeneralSettings(config: ScheduleConfigEntity) {
+        (app as CourseScheduleApp).enqueueGeneralSettingsSave(config)
     }
 
-    fun saveGlobalSettingsAndFinish(config: ScheduleConfigEntity, finish: () -> Unit) =
+    fun saveHomeChromeBlurScale(value: Float) {
+        (app as CourseScheduleApp).enqueueHomeChromeBlurScaleSave(value)
+    }
+
+    fun saveNotificationSettings(config: ScheduleConfigEntity) {
+        (app as CourseScheduleApp).enqueueNotificationSettingsSave(config)
+    }
+
+    fun saveGlobalSettingsAndFinish(
+        config: ScheduleConfigEntity,
+        onFinished: (Boolean) -> Unit
+    ) =
         viewModelScope.launch {
             try {
                 repository.saveGlobalSettings(config)
                 refreshCoordinator.request()
+                onFinished(true)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
                 Log.w("ScheduleViewModel", "Global settings exit save failed", error)
                 snackbar.value = error.message ?: "设置保存失败，请重试"
+                onFinished(false)
             }
-            finish()
         }
 
     fun createSchedule(

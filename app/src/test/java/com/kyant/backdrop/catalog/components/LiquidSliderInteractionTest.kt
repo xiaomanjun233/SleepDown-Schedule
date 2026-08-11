@@ -38,11 +38,41 @@ class LiquidSliderInteractionTest {
     }
 
     @Test
+    fun endpointPositionsUseTheSameThumbInsetsAsPointerMapping() {
+        assertEquals(10f, LiquidSliderMath.positionForValue(0f, 100f, 10f, 0f, 1f, true), 0.0001f)
+        assertEquals(90f, LiquidSliderMath.positionForValue(1f, 100f, 10f, 0f, 1f, true), 0.0001f)
+    }
+
+    @Test
+    fun dragInsideSnapRadiusReturnsTheExactAnchorIncludingOneHundredPercent() {
+        val snapped = LiquidSliderMath.valueFromPositionWithSnap(
+            positionX = 88f,
+            width = 100f,
+            thumbInset = 10f,
+            rangeStart = 0.35f,
+            rangeEnd = 1f,
+            isLtr = true,
+            snapValue = 1f,
+            snapRadius = 12f
+        )
+        assertEquals(1f, snapped, 0f)
+    }
+
+    @Test
     fun interruptedAnimationCannotCommitItsOldTarget() {
         val gate = LiquidSliderCommitGate()
         val oldAnimation = gate.next()
         val newGesture = gate.next()
         assertFalse(gate.isCurrent(oldAnimation))
         assertTrue(gate.isCurrent(newGesture))
+    }
+
+    @Test
+    fun velocityDeformationApproachesPointerSpeedWithoutJumping() {
+        val first = LiquidSliderMath.smoothVelocity(previous = 0f, target = 4f)
+        val second = LiquidSliderMath.smoothVelocity(previous = first, target = 4f)
+        assertTrue(first in 0f..1f)
+        assertTrue(second > first)
+        assertTrue(second < 4f)
     }
 }

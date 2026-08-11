@@ -508,7 +508,7 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
                     containerHeight = 44.dp,
                     indicatorHeight = 36.dp,
                     horizontalPadding = 4.dp,
-                    blurRadius = HomeHeaderGlassBlur,
+                    blurRadius = homeChromeBlur(HomeHeaderGlassBlur, config),
                     containerAlpha = homeChromeGlassSurfaceAlpha(lightGlass),
                     lensHeight = HomeHeaderGlassLensHeight,
                     lensAmount = HomeHeaderGlassLensAmount,
@@ -1496,7 +1496,8 @@ internal fun DayScheduleScreen(
                             state.config,
                             onCourseClick,
                             entranceIndex = dayCourses.indexOf(course).coerceAtLeast(0),
-                            simultaneousCount = simultaneousCount
+                            simultaneousCount = simultaneousCount,
+                            tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f
                         )
                     }
                 }
@@ -1629,7 +1630,7 @@ private fun DayPartHeader(
 }
 
 @Composable
-fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, entranceIndex: Int = 0, simultaneousCount: Int = 1) {
+fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, entranceIndex: Int = 0, simultaneousCount: Int = 1, tabletFontScale: Float = 1f) {
     val resolvedCardColor = courseCardBaseColor(config, course)
     val timePillColor = deepenColor(resolvedCardColor, 0.16f)
     val glassContentColor = LocalAdaptiveGlass.current.contentColor
@@ -1658,16 +1659,17 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                 )
             }
         }
-        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config, onClick = { sourceBounds -> onCourseClick(course, currentWeek, sourceBounds) }, entranceIndex = entranceIndex)
+        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config, onClick = { sourceBounds -> onCourseClick(course, currentWeek, sourceBounds) }, entranceIndex = entranceIndex, tabletFontScale = tabletFontScale)
     }
 }
 
 @Composable
-fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null, enableSharedTransition: Boolean = true) {
+fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f) {
     val resolvedCardColor = if (config.cardColorArgb == MulticolorCourseCardArgb) courseCardBaseColor(config, course) else cardColor
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else readableOn(resolvedCardColor)
+        else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor)
+        else glassForegroundColor(config)
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
     val editId = LocalEditingCourseId.current
     val startupPhase = LocalStartupPhase.current
@@ -1713,12 +1715,21 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         onClick = if (onClick != null) ({ onClick(ownBounds) }) else null
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(course.name, style = MaterialTheme.typography.titleMedium, color = textColor)
-            if (showTime) Text(courseTimeLabel(course, periods) + " · 第 " + course.periods.joinToString(",") + " 节", color = textColor.copy(alpha = 0.86f))
-            if (!course.location.isNullOrBlank()) Text("地点：" + course.location, color = textColor.copy(alpha = 0.86f))
-            if (!course.teacher.isNullOrBlank()) Text("教师：" + course.teacher, color = textColor.copy(alpha = 0.86f))
-            if (showWeeks) Text("周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity), color = textColor.copy(alpha = 0.86f))
-            if (!course.note.isNullOrBlank()) Text("备注：" + course.note, color = textColor.copy(alpha = 0.86f))
+            val safeTabletScale = tabletFontScale.coerceAtLeast(1f)
+            val titleStyle = MaterialTheme.typography.titleMedium.copy(
+                fontSize = MaterialTheme.typography.titleMedium.fontSize * safeTabletScale,
+                lineHeight = MaterialTheme.typography.titleMedium.lineHeight * safeTabletScale
+            )
+            val bodyStyle = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = MaterialTheme.typography.bodyMedium.fontSize * safeTabletScale,
+                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * safeTabletScale
+            )
+            Text(course.name, style = titleStyle, color = textColor)
+            if (showTime) Text(courseTimeLabel(course, periods) + " · 第 " + course.periods.joinToString(",") + " 节", style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            if (!course.location.isNullOrBlank()) Text("地点：" + course.location, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            if (!course.teacher.isNullOrBlank()) Text("教师：" + course.teacher, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            if (showWeeks) Text("周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity), style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            if (!course.note.isNullOrBlank()) Text("备注：" + course.note, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
         }
     }
     }

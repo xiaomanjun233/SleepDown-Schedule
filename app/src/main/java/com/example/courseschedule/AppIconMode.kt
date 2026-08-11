@@ -46,6 +46,27 @@ object AppIconManager {
             .getOrDefault(AppIconMode.FOLLOW_DARK_MODE)
     }
 
+    fun backupPreferences(context: Context): BackupAppIconPreferences {
+        val storage = preferences(context)
+        return BackupAppIconPreferences(
+            mode = currentMode(context).name,
+            followsSystemDarkMode = storage.getBoolean(FollowsSystemDarkModeKey, true),
+            darkTheme = storage.getBoolean(DarkThemeKey, false)
+        )
+    }
+
+    fun applyBackupPreferences(context: Context, backup: BackupAppIconPreferences) {
+        val mode = runCatching { AppIconMode.valueOf(backup.mode) }
+            .getOrElse { throw IllegalArgumentException("未知 app icon mode: ${backup.mode}") }
+        val committed = preferences(context).edit()
+            .putString(ModeKey, mode.name)
+            .putBoolean(FollowsSystemDarkModeKey, backup.followsSystemDarkMode)
+            .putBoolean(DarkThemeKey, backup.darkTheme)
+            .commit()
+        check(committed) { "无法提交 app icon preferences" }
+        applyStoredMode(context)
+    }
+
     fun setMode(context: Context, mode: AppIconMode) {
         preferences(context).edit {
             putString(ModeKey, mode.name)

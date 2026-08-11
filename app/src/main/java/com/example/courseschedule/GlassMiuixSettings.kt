@@ -130,6 +130,9 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     topBarVisible: Boolean = true,
+    showBackButton: Boolean = false,
+    useMiuixCollapsedTitleStyle: Boolean = false,
+    onBack: () -> Unit = {},
     horizontalContentInset: Dp = 16.dp,
     content: @Composable (Backdrop?) -> Unit
 ) {
@@ -163,9 +166,11 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
                                 title = title,
                                 config = pageConfig,
                                 backdrop = contentBackdrop,
-                                onBack = {},
+                                onBack = onBack,
                                 centerTitle = true,
-                                showBackButton = false
+                                useMiuixCollapsedTitleStyle = useMiuixCollapsedTitleStyle,
+                                showBackButton = showBackButton,
+                                backButtonStartPadding = horizontalContentInset + 16.dp
                             )
                         }
                     }
@@ -248,7 +253,7 @@ internal fun GlassMiuixDetailActivityScaffold(
                                         backdrop = contentBackdrop,
                                         onBack = onBack,
                                         centerTitle = centerCompactTitle,
-                                        useSettingsTitleSize = compactTitleMatchesSettings,
+                                        useMiuixCollapsedTitleStyle = compactTitleMatchesSettings,
                                         actions = { topBarActions(contentBackdrop) }
                                     )
                                 } else {
@@ -257,14 +262,13 @@ internal fun GlassMiuixDetailActivityScaffold(
                                         largeTitle = title,
                                         color = Color.Transparent,
                                         scrollBehavior = scrollBehavior,
+                                        navigationIconPadding = 16.dp,
                                         navigationIcon = {
                                             TopBackButton(
                                                 backdrop = contentBackdrop,
                                                 config = pageConfig,
                                                 onClick = onBack,
-                                                modifier = Modifier
-                                                    .padding(start = 8.dp)
-                                                    .size(42.dp)
+                                                modifier = Modifier.size(38.dp)
                                             )
                                         }
                                     )
@@ -312,7 +316,7 @@ private fun SettingsGradientTopBar(
         Modifier.progressiveBackdropBlur(
             backdrop = backdrop,
             tintColor = tintColor,
-            blurRadius = 18.dp,
+            blurRadius = 12.dp,
             tintIntensity = 0.18f,
             direction = ProgressiveBlurDirection.TopToBottom,
             topMaskFadeStart = 0.68f,

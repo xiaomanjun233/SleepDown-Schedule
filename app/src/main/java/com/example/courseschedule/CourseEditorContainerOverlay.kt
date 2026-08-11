@@ -703,7 +703,8 @@ private fun CourseEditorDaySourceContent(
     val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else readableOn(cardColor)
+        else if (config.courseCardGlassEnabled) readableOn(cardColor)
+        else glassForegroundColor(config)
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             course.name,
@@ -749,7 +750,8 @@ private fun CourseEditorWeekSourceContent(
     val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else readableOn(cardColor)
+        else if (config.courseCardGlassEnabled) readableOn(cardColor)
+        else glassForegroundColor(config)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val heightDp = maxHeight.value

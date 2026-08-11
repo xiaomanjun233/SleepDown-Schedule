@@ -16,6 +16,8 @@ import java.io.File
 enum class WidgetAppearanceVariant(val key: String, val displayName: String, val canonicalAspect: Float) {
     COURSES_LARGE("COURSES_LARGE", "今日课程 4×2", 2f),
     COURSES_SQUARE("COURSES_SQUARE", "今日课程 2×2", 1f),
+    TODAY_TOMORROW("TODAY_TOMORROW", "今明课程 4×2", 2f),
+    WEEK_SCHEDULE("WEEK_SCHEDULE", "周视图 4×3", 4f / 3f),
     TODAY_ASSISTANT("TODAY_ASSISTANT", "今日助手 4×2", 2f);
 
     companion object {
@@ -23,6 +25,10 @@ enum class WidgetAppearanceVariant(val key: String, val displayName: String, val
             entries.firstOrNull { it.key == value } ?: COURSES_LARGE
     }
 }
+
+/** Widget types that are currently exposed by Android and by the appearance settings pager. */
+internal val ActiveWidgetAppearanceVariants = WidgetAppearanceVariant.entries
+    .filterNot { it == WidgetAppearanceVariant.WEEK_SCHEDULE }
 
 const val WidgetDefaultAppearanceId = 0
 const val DefaultWidgetBlurDp = 0f
@@ -86,6 +92,9 @@ interface WidgetAppearanceDao {
 
     @Query("DELETE FROM widget_appearances WHERE variant=:variant AND appWidgetId != 0 AND appWidgetId NOT IN (:activeIds)")
     suspend fun deleteStale(variant: String, activeIds: List<Int>)
+
+    @Query("DELETE FROM widget_appearances")
+    suspend fun deleteAll()
 }
 
 class WidgetAppearanceRepository(

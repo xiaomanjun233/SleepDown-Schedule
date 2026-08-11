@@ -73,6 +73,12 @@ internal enum class LiquidSliderPhase {
 }
 
 internal object LiquidSliderMath {
+    fun smoothVelocity(previous: Float, target: Float, response: Float = 0.14f): Float {
+        val safeResponse = response.coerceIn(0f, 1f)
+        val stableTarget = if (abs(target) < 0.08f) 0f else target
+        return previous + (stableTarget - previous) * safeResponse
+    }
+
     fun valueFromPosition(
         positionX: Float,
         width: Float,
@@ -98,6 +104,36 @@ internal object LiquidSliderMath {
         val fraction = ((value - rangeStart) / (rangeEnd - rangeStart)).coerceIn(0f, 1f)
         val ltrFraction = if (isLtr) fraction else 1f - fraction
         return thumbInset + (width - thumbInset * 2f).coerceAtLeast(1f) * ltrFraction
+    }
+
+    fun valueFromPositionWithSnap(
+        positionX: Float,
+        width: Float,
+        thumbInset: Float,
+        rangeStart: Float,
+        rangeEnd: Float,
+        isLtr: Boolean,
+        snapValue: Float?,
+        snapRadius: Float
+    ): Float {
+        val rawValue = valueFromPosition(
+            positionX = positionX,
+            width = width,
+            thumbInset = thumbInset,
+            rangeStart = rangeStart,
+            rangeEnd = rangeEnd,
+            isLtr = isLtr
+        )
+        val snap = snapValue?.coerceIn(rangeStart, rangeEnd) ?: return rawValue
+        val snapPosition = positionForValue(
+            value = snap,
+            width = width,
+            thumbInset = thumbInset,
+            rangeStart = rangeStart,
+            rangeEnd = rangeEnd,
+            isLtr = isLtr
+        )
+        return if (abs(positionX - snapPosition) <= snapRadius) snap else rawValue
     }
 }
 
@@ -160,6 +196,7 @@ private class LiquidSliderMotionState(
     var phase by mutableStateOf(LiquidSliderPhase.Idle)
         private set
     private var motionJob: Job? = null
+    private var velocityJob: Job? = null
     private val gate = LiquidSliderCommitGate()
 
     val progress: Float
@@ -168,6 +205,8 @@ private class LiquidSliderMotionState(
 
     fun beginThumb(): Int {
         motionJob?.cancel()
+        velocityJob?.cancel()
+        velocity = 0f
         val token = gate.next()
         phase = LiquidSliderPhase.ThumbPressed
         press()
@@ -184,7 +223,9 @@ private class LiquidSliderMotionState(
 
     fun dragTo(value: Float, normalizedVelocity: Float) {
         visualValue = value.coerceIn(valueRange)
-        velocity = normalizedVelocity.coerceIn(-4f, 4f)
+        velocityJob?.cancel()
+        val targetVelocity = normalizedVelocity.coerceIn(-4f, 4f)
+        velocity = LiquidSliderMath.smoothVelocity(velocity, targetVelocity)
     }
 
     fun finishThumb(token: Int) {
@@ -249,6 +290,7 @@ private class LiquidSliderMotionState(
     fun dispose() {
         gate.next()
         motionJob?.cancel()
+        velocityJob?.cancel()
     }
 
     private fun press() {
@@ -261,7 +303,8 @@ private class LiquidSliderMotionState(
         scope.launch { pressProgress.animateTo(0f, pressSpec) }
         scope.launch { scaleX.animateTo(1f, scaleXSpec) }
         scope.launch { scaleY.animateTo(1f, scaleYSpec) }
-        scope.launch {
+        velocityJob?.cancel()
+        velocityJob = scope.launch {
             velocityAnimation.snapTo(velocity)
             velocityAnimation.animateTo(0f, velocitySpec) { this@LiquidSliderMotionState.velocity = value }
         }
@@ -337,28 +380,16 @@ fun LiquidSlider(
                         if (!isThumbPress) {
                             val up = waitForUpOrCancellation()
                             if (up != null) {
-                                val rawTarget = LiquidSliderMath.valueFromPosition(
+                                val target = LiquidSliderMath.valueFromPositionWithSnap(
                                     down.position.x,
                                     trackWidth,
                                     thumbInsetPx,
                                     valueRange.start,
                                     valueRange.endInclusive,
-                                    isLtr
+                                    isLtr,
+                                    snapValue,
+                                    snapHitRadiusPx
                                 )
-                                val snap = snapValue?.coerceIn(valueRange)
-                                val snapPosition = snap?.let {
-                                    LiquidSliderMath.positionForValue(
-                                        it,
-                                        trackWidth,
-                                        thumbInsetPx,
-                                        valueRange.start,
-                                        valueRange.endInclusive,
-                                        isLtr
-                                    )
-                                }
-                                val target = if (snap != null && snapPosition != null &&
-                                    abs(down.position.x - snapPosition) <= snapHitRadiusPx
-                                ) snap else rawTarget
                                 motion.animateTrack(
                                     target = target,
                                     onPreview = { previewDispatcher.offer(it, currentPreview) },
@@ -400,13 +431,15 @@ fun LiquidSlider(
                                     changed = true
                                 }
                                 if (changed) {
-                                    val nextValue = LiquidSliderMath.valueFromPosition(
+                                    val nextValue = LiquidSliderMath.valueFromPositionWithSnap(
                                         change.position.x,
                                         trackWidth,
                                         thumbInsetPx,
                                         valueRange.start,
                                         valueRange.endInclusive,
-                                        isLtr
+                                        isLtr,
+                                        snapValue,
+                                        snapHitRadiusPx
                                     )
                                     val pointerVelocity = velocityTracker.calculateVelocity().x
                                     if (abs(pointerVelocity) >= trackWidth.coerceAtLeast(1f) * 1.25f) {
@@ -465,10 +498,15 @@ fun LiquidSlider(
             Box(
                 Modifier
                     .graphicsLayer {
-                        translationX =
-                            (-size.width / 2f + trackWidth * motion.progress)
-                                .fastCoerceIn(-size.width / 4f, trackWidth - size.width * 3f / 4f) *
-                                if (isLtr) 1f else -1f
+                        val thumbCenter = LiquidSliderMath.positionForValue(
+                            value = motion.visualValue,
+                            width = trackWidth,
+                            thumbInset = thumbInsetPx,
+                            rangeStart = valueRange.start,
+                            rangeEnd = valueRange.endInclusive,
+                            isLtr = isLtr
+                        )
+                        translationX = thumbCenter - size.width / 2f
                     }
                     .drawBackdrop(
                         backdrop = rememberCombinedBackdrop(

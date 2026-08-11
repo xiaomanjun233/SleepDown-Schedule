@@ -782,6 +782,7 @@ private fun AiManualImportDialogContent(
     onPrimaryAction: () -> Unit
 ) {
     val textColor = glassForegroundColor(state.config)
+    val dialogLightStyle = glassUsesLightStyle(state.config)
     val windowSize = currentWindowSizeDp()
     val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
     val safeHeight = (
@@ -850,7 +851,7 @@ private fun AiManualImportDialogContent(
                     "刷新",
                     onRefreshSettings,
                     monochromeNeutral = true,
-                    highContrast = true
+                    neutralLightStyle = dialogLightStyle
                 )
             }
         }
@@ -877,7 +878,7 @@ private fun AiManualImportDialogContent(
                             onCopyPrompt,
                             modifier = Modifier.weight(1f),
                             monochromeNeutral = true,
-                            highContrast = true
+                            neutralLightStyle = dialogLightStyle
                         )
                         DialogLiquidButton(
                             backdrop,
@@ -885,7 +886,7 @@ private fun AiManualImportDialogContent(
                             onCleanText,
                             modifier = Modifier.weight(1f),
                             monochromeNeutral = true,
-                            highContrast = true
+                            neutralLightStyle = dialogLightStyle
                         )
                     }
                     DialogCapsuleField(

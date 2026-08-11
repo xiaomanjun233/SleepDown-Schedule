@@ -1,12 +1,10 @@
 package com.example.courseschedule
 
 import android.appwidget.AppWidgetManager
-import android.graphics.drawable.GradientDrawable
 import android.widget.FrameLayout
 import android.widget.RemoteViews
 import android.widget.Toast
 import android.view.ViewGroup
-import android.view.ViewOutlineProvider
 import android.content.ComponentName
 import android.graphics.Bitmap
 import android.net.Uri
@@ -51,16 +49,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
@@ -86,18 +84,37 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidSlider
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import kotlin.math.abs
+import top.yukonga.miuix.kmp.squircle.squircleClip
 
 private data class WidgetEditRequest(
     val appearance: WidgetAppearanceEntity,
     val sourceUri: Uri?,
     val sourceBounds: Rect
+)
+
+internal fun widgetAppearanceForType(
+    appearances: List<WidgetAppearanceEntity>,
+    type: WidgetAppearanceVariant,
+    appWidgetId: Int = WidgetDefaultAppearanceId
+): WidgetAppearanceEntity = appearances.firstOrNull {
+    it.variant == type.key && it.appWidgetId == appWidgetId
+} ?: WidgetAppearanceEntity.defaults(type, appWidgetId)
+
+internal fun updateWidgetDefaultAppearance(
+    current: WidgetAppearanceEntity,
+    type: WidgetAppearanceVariant,
+    transform: (WidgetAppearanceEntity) -> WidgetAppearanceEntity
+): WidgetAppearanceEntity = transform(current).copy(
+    variant = type.key,
+    appWidgetId = WidgetDefaultAppearanceId
 )
 
 @Composable
@@ -113,7 +130,6 @@ fun WidgetCustomizationScreen(
     val manager = remember(context) { AppWidgetManager.getInstance(context) }
     val latestEditorVisibilityChange = rememberUpdatedState(onEditorVisibilityChange)
     var appearances by remember { mutableStateOf<List<WidgetAppearanceEntity>>(emptyList()) }
-    var selectedType by remember { mutableStateOf(WidgetAppearanceVariant.COURSES_LARGE) }
     var editRequest by remember { mutableStateOf<WidgetEditRequest?>(null) }
     var editorSourceHandedOff by remember { mutableStateOf(false) }
     var currentPreviewBounds by remember { mutableStateOf(Rect.Zero) }
@@ -125,11 +141,18 @@ fun WidgetCustomizationScreen(
         val provider = when (type) {
             WidgetAppearanceVariant.COURSES_LARGE -> TodayCoursesWidgetProvider::class.java
             WidgetAppearanceVariant.COURSES_SQUARE -> TodayCoursesSquareWidgetProvider::class.java
+            WidgetAppearanceVariant.TODAY_TOMORROW -> TodayTomorrowWidgetProvider::class.java
+            WidgetAppearanceVariant.WEEK_SCHEDULE -> WeekScheduleWidgetProvider::class.java
             WidgetAppearanceVariant.TODAY_ASSISTANT -> TodayAssistantWidgetProvider::class.java
         }
         return manager.getAppWidgetIds(ComponentName(context, provider))
     }
-    val pagerState = rememberPagerState { WidgetAppearanceVariant.entries.size }
+    val widgetTypes = ActiveWidgetAppearanceVariants
+    val pagerState = rememberPagerState { widgetTypes.size }
+    val selectedPage by remember(pagerState) {
+        derivedStateOf { pagerState.settledPage.coerceIn(widgetTypes.indices) }
+    }
+    val selectedType = widgetTypes[selectedPage]
 
     suspend fun reload() {
         appearances = repository.all()
@@ -142,12 +165,29 @@ fun WidgetCustomizationScreen(
                 MiuixTodayWidgetRenderer.refresh(context, manager, ids, TodayWidgetVariant.LARGE)
             WidgetAppearanceVariant.COURSES_SQUARE ->
                 MiuixTodayWidgetRenderer.refresh(context, manager, ids, TodayWidgetVariant.SQUARE)
+            WidgetAppearanceVariant.TODAY_TOMORROW ->
+                TodayTomorrowWidgetRenderer.refresh(context, manager, ids)
+            WidgetAppearanceVariant.WEEK_SCHEDULE ->
+                WeekScheduleWidgetRenderer.refresh(context, manager, ids)
             WidgetAppearanceVariant.TODAY_ASSISTANT ->
                 TodayAssistantWidgetRenderer.refresh(context, manager, ids)
         }
     }
 
-    fun save(next: WidgetAppearanceEntity) {
+    fun latestAppearance(type: WidgetAppearanceVariant, appWidgetId: Int): WidgetAppearanceEntity =
+        appearances.firstOrNull {
+            it.variant == type.key && it.appWidgetId == appWidgetId
+        } ?: WidgetAppearanceEntity.defaults(type, appWidgetId)
+
+    fun saveDefault(
+        type: WidgetAppearanceVariant,
+        transform: (WidgetAppearanceEntity) -> WidgetAppearanceEntity
+    ) {
+        val next = updateWidgetDefaultAppearance(
+            current = latestAppearance(type, WidgetDefaultAppearanceId),
+            type = type,
+            transform = transform
+        )
         appearances = appearances.filterNot {
             it.variant == next.variant && it.appWidgetId == next.appWidgetId
         } + next
@@ -158,19 +198,22 @@ fun WidgetCustomizationScreen(
         }
     }
 
-    fun preview(next: WidgetAppearanceEntity) {
+    fun previewDefault(
+        type: WidgetAppearanceVariant,
+        transform: (WidgetAppearanceEntity) -> WidgetAppearanceEntity
+    ) {
+        val next = updateWidgetDefaultAppearance(
+            current = latestAppearance(type, WidgetDefaultAppearanceId),
+            type = type,
+            transform = transform
+        )
         appearances = appearances.filterNot {
             it.variant == next.variant && it.appWidgetId == next.appWidgetId
         } + next
     }
 
-    fun latestAppearance(type: WidgetAppearanceVariant, appWidgetId: Int): WidgetAppearanceEntity =
-        appearances.firstOrNull {
-            it.variant == type.key && it.appWidgetId == appWidgetId
-        } ?: WidgetAppearanceEntity.defaults(type, appWidgetId)
-
     LaunchedEffect(Unit) {
-        WidgetAppearanceVariant.entries.forEach { repository.reconcile(it, installedIds(it)) }
+        widgetTypes.forEach { repository.reconcile(it, installedIds(it)) }
         reload()
     }
     LaunchedEffect(editRequest != null) {
@@ -179,16 +222,8 @@ fun WidgetCustomizationScreen(
     DisposableEffect(Unit) {
         onDispose { latestEditorVisibilityChange.value(false) }
     }
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }.collectLatest {
-            selectedType = WidgetAppearanceVariant.entries[it]
-        }
-    }
-
     val currentId = WidgetDefaultAppearanceId
-    val current = appearances.firstOrNull {
-        it.variant == selectedType.key && it.appWidgetId == currentId
-    } ?: WidgetAppearanceEntity.defaults(selectedType, currentId)
+    val current = widgetAppearanceForType(appearances, selectedType, currentId)
     val darkPage = appUsesDarkTheme(state.config)
     val hasWallpaper = current.wallpaperUri != null
 
@@ -219,19 +254,17 @@ fun WidgetCustomizationScreen(
                             contentPadding = PaddingValues(horizontal = (maxWidth - cardWidth) / 2),
                             pageSpacing = 4.dp,
                             beyondViewportPageCount = 1,
-                            modifier = Modifier.fillMaxWidth().height(208.dp)
+                            modifier = Modifier.fillMaxWidth().height(252.dp)
                         ) { page ->
-                            val type = WidgetAppearanceVariant.entries[page]
-                            val appearance = appearances.firstOrNull {
-                                it.variant == type.key && it.appWidgetId == WidgetDefaultAppearanceId
-                            } ?: WidgetAppearanceEntity.defaults(type)
+                            val type = widgetTypes[page]
+                            val appearance = widgetAppearanceForType(appearances, type)
                             val relative = (page - pagerState.currentPage) - pagerState.currentPageOffsetFraction
                             val offset = abs(relative).coerceAtMost(1f)
                             val scale = 1f - offset * 0.07f
                             Column(
                                 Modifier
                                     .width(cardWidth)
-                                    .height(208.dp)
+                                    .height(252.dp)
                                     .graphicsLayer {
                                         scaleX = scale
                                         scaleY = scale
@@ -242,14 +275,22 @@ fun WidgetCustomizationScreen(
                             ) {
                                 val placeholderSize = canonicalWidgetPreviewSize(type)
                                 val previewSlot = if (adaptiveMetrics.isLargeScreen) {
-                                    Modifier.requiredSize(
-                                        placeholderSize.widthDp.dp,
-                                        placeholderSize.heightDp.dp
-                                    )
+                                    if (type == WidgetAppearanceVariant.WEEK_SCHEDULE) {
+                                        Modifier.requiredSize(280.dp, 210.dp)
+                                    } else {
+                                        Modifier.requiredSize(
+                                            placeholderSize.widthDp.dp,
+                                            placeholderSize.heightDp.dp
+                                        )
+                                    }
                                 } else {
                                     Modifier
                                         .fillMaxWidth(
-                                            if (type == WidgetAppearanceVariant.COURSES_SQUARE) 0.50f else 1f
+                                            when (type) {
+                                                WidgetAppearanceVariant.COURSES_SQUARE -> 0.50f
+                                                WidgetAppearanceVariant.WEEK_SCHEDULE -> 0.83f
+                                                else -> 1f
+                                            }
                                         )
                                         .aspectRatio(type.canonicalAspect)
                                 }
@@ -278,7 +319,7 @@ fun WidgetCustomizationScreen(
                     }
                     ProjectPagerIndicator(
                         pagerState = pagerState,
-                        pageCount = WidgetAppearanceVariant.entries.size
+                        pageCount = widgetTypes.size
                     )
                     LiquidMenuButton(
                         backdrop = backdrop,
@@ -304,6 +345,7 @@ fun WidgetCustomizationScreen(
             item {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 GlassPreferenceSection("当前组件") {
+                key(selectedType.key) {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsToggleRow(
                         title = "使用自定义背景",
@@ -311,7 +353,9 @@ fun WidgetCustomizationScreen(
                         checked = current.enabled,
                         backdrop = backdrop,
                         enabled = current.wallpaperUri != null,
-                        onCheckedChange = { save(current.copy(enabled = it)) }
+                        onCheckedChange = { enabled ->
+                            saveDefault(selectedType) { it.copy(enabled = enabled) }
+                        }
                     )
                     SettingsDivider()
                     WidgetSliderRow(
@@ -322,10 +366,13 @@ fun WidgetCustomizationScreen(
                         backdrop = backdrop,
                         enabled = hasWallpaper,
                         onLive = { value ->
-                            preview(latestAppearance(selectedType, currentId).copy(blurDp = value * 10f))
+                            previewDefault(selectedType) { it.copy(blurDp = value * 10f) }
                         },
                         onCommit = {
-                            save(latestAppearance(selectedType, currentId).copy(blurDp = it * 10f))
+                            val value = it
+                            saveDefault(selectedType) { appearance ->
+                                appearance.copy(blurDp = value * 10f)
+                            }
                         }
                     )
                     SettingsDivider()
@@ -337,10 +384,13 @@ fun WidgetCustomizationScreen(
                         backdrop = backdrop,
                         enabled = hasWallpaper,
                         onLive = { value ->
-                            preview(latestAppearance(selectedType, currentId).copy(brightness = value))
+                            previewDefault(selectedType) { it.copy(brightness = value) }
                         },
                         onCommit = {
-                            save(latestAppearance(selectedType, currentId).copy(brightness = it))
+                            val value = it
+                            saveDefault(selectedType) { appearance ->
+                                appearance.copy(brightness = value)
+                            }
                         }
                     )
                     SettingsDivider()
@@ -351,13 +401,15 @@ fun WidgetCustomizationScreen(
                         iconRes = R.drawable.ic_download,
                         backdrop = backdrop,
                         onClick = {
+                            val targetType = selectedType
                             scope.launch {
-                                repository.reset(selectedType, currentId)
+                                repository.reset(targetType, currentId)
                                 reload()
-                                refresh(selectedType)
+                                refresh(targetType)
                             }
                         }
                     )
+                }
                 }
                 }
                 }
@@ -497,84 +549,126 @@ private fun WidgetRemoteViewsPreview(
 ) {
     val context = LocalContext.current
     val renderSize = remember(type) { canonicalWidgetPreviewSize(type) }
-    var remoteViews by remember { mutableStateOf<RemoteViews?>(null) }
-    var previewBackground by remember { mutableStateOf<Bitmap?>(null) }
+    var remoteViews by remember(type) { mutableStateOf<RemoteViews?>(null) }
+    var previewBackground by remember(type) { mutableStateOf<Bitmap?>(null) }
+    val latestOnReady = rememberUpdatedState(onReady)
     LaunchedEffect(type, appearance, state, transparentBackground) {
-        val rendered = withContext(Dispatchers.IO) {
-            val zone = ZoneId.systemDefault()
-            val today = LocalDate.now(zone)
-            val now = LocalTime.now(zone)
-            val targetDate = if (now >= LocalTime.of(22, 0)) today.plusDays(1) else today
-            val courseLimit = if (type == WidgetAppearanceVariant.COURSES_SQUARE) 2 else 4
-            val courseCount = if (type == WidgetAppearanceVariant.TODAY_ASSISTANT) {
-                0
-            } else {
-                MiuixTodayWidgetRenderer.coursesForDate(state, targetDate)
-                    .count {
-                        targetDate != today ||
-                            courseEndTime(it, state.periods)?.isAfter(now) != false
-                    }
-                    .coerceAtMost(courseLimit)
-            }
-            val custom = WidgetBackgroundRenderer.render(
-                context = context.applicationContext,
-                appearance = appearance,
-                size = renderSize,
-                courseCount = courseCount,
-                darkMode = MiuixTodayWidgetRenderer.usesDarkTheme(
-                    context.applicationContext,
-                    state.config
+        // Slider/crop gestures can emit dozens of appearance snapshots per second. Keep the
+        // last valid preview on screen and collapse that burst into one expensive bitmap pass.
+        if (remoteViews != null) delay(90)
+        val rendered = runCatching {
+            withContext(Dispatchers.IO) {
+                val appContext = context.applicationContext
+                if (type == WidgetAppearanceVariant.WEEK_SCHEDULE) {
+                    return@withContext WeekScheduleWidgetRenderer.buildViews(
+                        context = appContext,
+                        state = state,
+                        appearance = appearance,
+                        size = renderSize,
+                        transparentBackground = transparentBackground
+                    ) to null
+                }
+                val zone = ZoneId.systemDefault()
+                val today = LocalDate.now(zone)
+                val now = LocalTime.now(zone)
+                val targetDate = if (now >= LocalTime.of(22, 0)) today.plusDays(1) else today
+                val dayCourseCounts = if (type == WidgetAppearanceVariant.TODAY_TOMORROW) {
+                    val limit = todayTomorrowWidgetLayoutMetrics(
+                        renderSize,
+                        context.resources.configuration.fontScale
+                    ).maxCoursesPerDay
+                    listOf(
+                        MiuixTodayWidgetRenderer.coursesForDate(state, today).size.coerceAtMost(limit),
+                        MiuixTodayWidgetRenderer.coursesForDate(state, today.plusDays(1)).size.coerceAtMost(limit)
+                    )
+                } else {
+                    emptyList()
+                }
+                val courseLimit = if (type == WidgetAppearanceVariant.COURSES_SQUARE) 2 else 4
+                val courseCount = when (type) {
+                    WidgetAppearanceVariant.TODAY_ASSISTANT -> 0
+                    WidgetAppearanceVariant.TODAY_TOMORROW -> dayCourseCounts.sum()
+                    else -> MiuixTodayWidgetRenderer.coursesForDate(state, targetDate)
+                        .count {
+                            targetDate != today ||
+                                courseEndTime(it, state.periods)?.isAfter(now) != false
+                        }
+                        .coerceAtMost(courseLimit)
+                }
+                val custom = WidgetBackgroundRenderer.render(
+                    context = appContext,
+                    appearance = appearance,
+                    size = renderSize,
+                    courseCount = courseCount,
+                    darkMode = MiuixTodayWidgetRenderer.usesDarkTheme(
+                        appContext,
+                        state.config
+                    ),
+                    dayCourseCounts = dayCourseCounts
                 )
-            )
-            val views = when (type) {
-                WidgetAppearanceVariant.COURSES_LARGE ->
-                    MiuixTodayWidgetRenderer.buildViews(
-                        context.applicationContext,
-                        state,
-                        TodayWidgetVariant.LARGE,
-                        appearance,
-                        renderSize
-                    )
-                WidgetAppearanceVariant.COURSES_SQUARE ->
-                    MiuixTodayWidgetRenderer.buildViews(
-                        context.applicationContext,
-                        state,
-                        TodayWidgetVariant.SQUARE,
-                        appearance,
-                        renderSize
-                    )
-                WidgetAppearanceVariant.TODAY_ASSISTANT -> {
-                    val weather = if (DayAgentPreferences.isWeatherEnabled(context)) {
-                        DayAgentWeatherRepository(context.applicationContext).getWeather()
-                    } else null
-                    TodayAssistantWidgetRenderer.buildViews(
-                        context.applicationContext,
-                        state,
-                        weather,
-                        appearance,
-                        renderSize
-                    )
+                val views = when (type) {
+                    WidgetAppearanceVariant.COURSES_LARGE ->
+                        MiuixTodayWidgetRenderer.buildViews(
+                            appContext,
+                            state,
+                            TodayWidgetVariant.LARGE,
+                            appearance,
+                            renderSize
+                        )
+                    WidgetAppearanceVariant.COURSES_SQUARE ->
+                        MiuixTodayWidgetRenderer.buildViews(
+                            appContext,
+                            state,
+                            TodayWidgetVariant.SQUARE,
+                            appearance,
+                            renderSize
+                        )
+                    WidgetAppearanceVariant.TODAY_TOMORROW ->
+                        TodayTomorrowWidgetRenderer.buildViews(
+                            appContext,
+                            state,
+                            appearance,
+                            renderSize
+                        )
+                    WidgetAppearanceVariant.WEEK_SCHEDULE -> error("周视图预览已提前处理")
+                    WidgetAppearanceVariant.TODAY_ASSISTANT -> {
+                        val weather = if (DayAgentPreferences.isWeatherEnabled(context)) {
+                            DayAgentWeatherRepository(context.applicationContext).getWeather()
+                        } else null
+                        TodayAssistantWidgetRenderer.buildViews(
+                            appContext,
+                            state,
+                            weather,
+                            appearance,
+                            renderSize
+                        )
+                    }
                 }
+                if (transparentBackground || custom != null) {
+                    val root = when (type) {
+                        WidgetAppearanceVariant.TODAY_ASSISTANT -> R.id.widget_agent_root
+                        WidgetAppearanceVariant.TODAY_TOMORROW -> R.id.widget_tt_root
+                        else -> R.id.widget_root
+                    }
+                    val background = when (type) {
+                        WidgetAppearanceVariant.TODAY_ASSISTANT -> R.id.widget_agent_background_image
+                        WidgetAppearanceVariant.TODAY_TOMORROW -> R.id.widget_tt_background_image
+                        else -> R.id.widget_background_image
+                    }
+                    views.setInt(root, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
+                    views.setViewVisibility(background, android.view.View.GONE)
+                }
+                views to custom?.bitmap
             }
-            if (transparentBackground || custom != null) {
-                val root = if (type == WidgetAppearanceVariant.TODAY_ASSISTANT) {
-                    R.id.widget_agent_root
-                } else {
-                    R.id.widget_root
-                }
-                val background = if (type == WidgetAppearanceVariant.TODAY_ASSISTANT) {
-                    R.id.widget_agent_background_image
-                } else {
-                    R.id.widget_background_image
-                }
-                views.setInt(root, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
-                views.setViewVisibility(background, android.view.View.GONE)
-            }
-            views to custom?.bitmap
         }
-        remoteViews = rendered.first
-        previewBackground = if (transparentBackground) null else rendered.second
-        onReady()
+        rendered.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+        rendered.onSuccess { (views, background) ->
+            remoteViews = views
+            previewBackground = if (transparentBackground) null else background
+            latestOnReady.value()
+        }.onFailure {
+            android.util.Log.e("WidgetPreview", "Failed to render ${type.key} preview", it)
+        }
     }
     val density = LocalDensity.current
     val logicalCornerRadius = if (type == WidgetAppearanceVariant.COURSES_SQUARE) 16.dp else 18.dp
@@ -591,7 +685,7 @@ private fun WidgetRemoteViewsPreview(
         modifier = modifier
             .then(previewFrame)
             .onGloballyPositioned { onBoundsChanged(it.boundsInWindow()) }
-            .clip(RoundedCornerShape(logicalCornerRadius)),
+            .squircleClip(logicalCornerRadius),
         contentAlignment = Alignment.Center
     ) {
         previewBackground?.let { background ->
@@ -608,14 +702,8 @@ private fun WidgetRemoteViewsPreview(
         AndroidView(
             factory = { viewContext ->
                 FrameLayout(viewContext).apply {
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.RECTANGLE
-                        setColor(android.graphics.Color.TRANSPARENT)
-                        cornerRadius =
-                            logicalCornerRadius.value * viewContext.resources.displayMetrics.density
-                    }
-                    outlineProvider = ViewOutlineProvider.BACKGROUND
-                    clipToOutline = true
+                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    clipToOutline = false
                     clipChildren = true
                 }
             },
@@ -623,16 +711,22 @@ private fun WidgetRemoteViewsPreview(
                 val remote = remoteViews ?: return@AndroidView
                 if (host.tag !== remote) {
                     runCatching {
-                        val view = remote.apply(host.context, host)
-                        host.removeAllViews()
-                        host.addView(
-                            view,
-                            FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
+                        if (host.childCount == 1 && host.tag != null) {
+                            remote.reapply(host.context, host.getChildAt(0))
+                        } else {
+                            val view = remote.apply(host.context, host)
+                            host.removeAllViews()
+                            host.addView(
+                                view,
+                                FrameLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
                             )
-                        )
+                        }
                         host.tag = remote
+                    }.onFailure {
+                        android.util.Log.e("WidgetPreview", "Failed to apply ${type.key} preview", it)
                     }
                 }
             },
@@ -646,12 +740,11 @@ private fun WidgetRemoteViewsPreview(
     }
 }
 
-internal fun canonicalWidgetPreviewSize(type: WidgetAppearanceVariant): WidgetRenderSize =
-    if (type == WidgetAppearanceVariant.COURSES_SQUARE) {
-        WidgetRenderSize(168, 168)
-    } else {
-        WidgetRenderSize(336, 168)
-    }
+internal fun canonicalWidgetPreviewSize(type: WidgetAppearanceVariant): WidgetRenderSize = when (type) {
+    WidgetAppearanceVariant.COURSES_SQUARE -> WidgetRenderSize(168, 168)
+    WidgetAppearanceVariant.WEEK_SCHEDULE -> WidgetRenderSize(336, 252)
+    else -> WidgetRenderSize(336, 168)
+}
 
 @Composable
 private fun WidgetWallpaperEditor(
@@ -743,6 +836,8 @@ private fun WidgetWallpaperEditor(
             // when space is tight, but must never be enlarged to fill a tablet pane.
             WidgetAppearanceVariant.COURSES_SQUARE -> 168.dp
             WidgetAppearanceVariant.COURSES_LARGE,
+            WidgetAppearanceVariant.TODAY_TOMORROW,
+            WidgetAppearanceVariant.WEEK_SCHEDULE,
             WidgetAppearanceVariant.TODAY_ASSISTANT -> 336.dp
         }
         val desiredWidth = minOf(

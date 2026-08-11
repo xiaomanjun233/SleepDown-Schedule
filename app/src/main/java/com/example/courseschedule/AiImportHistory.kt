@@ -22,8 +22,8 @@ object AiImportHistoryStore {
     private const val KeyEntries = "entries"
     private const val KeyRetentionDays = "retention_days"
     private const val ContextDirectory = "ai_import_history"
-    const val DefaultRetentionDays = 30
-    val retentionOptions = listOf(7, 30, 90, 0)
+    const val DefaultRetentionDays = BackupFormatV1.DEFAULT_AI_IMPORT_HISTORY_RETENTION_DAYS
+    val retentionOptions = BackupFormatV1.AI_IMPORT_HISTORY_RETENTION_OPTIONS
 
     fun retentionDays(context: Context): Int =
         context.getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
@@ -58,6 +58,68 @@ object AiImportHistoryStore {
     }
 
     fun load(context: Context): List<AiImportHistoryEntry> {
+        val loaded = loadInternal(context)
+        if (loaded.entries.size != loaded.rawEntryCount) save(context, loaded.entries)
+        return loaded.entries
+    }
+
+    /** Read-only history path for backup; unlike load(), it never prunes or rewrites preferences. */
+    fun loadForBackup(context: Context): List<AiImportHistoryEntry> = loadInternal(context).entries
+
+    /**
+     * Restores the non-secret history index after the Room commit. Context assets are already
+     * materialized by the restore service; a missing optional context simply remains absent.
+     */
+    fun applyBackup(
+        context: Context,
+        entries: List<BackupAiImportHistoryEntry>,
+        contextFilesByAssetId: Map<String, File>,
+        retentionDays: Int
+    ) {
+        require(retentionDays in retentionOptions) { "不支持的 AI 导入历史保留天数: $retentionDays" }
+        val retained = entries.take(10)
+        retained.forEach { entry ->
+            entry.contextAssetId?.let { assetId ->
+                val file = contextFilesByAssetId[assetId] ?: return@let
+                val expected = contextFile(context, entry.id, ensureDirectory = true)
+                    ?: error("AI history stable ID 非法: ${entry.id}")
+                require(file.canonicalFile == expected.canonicalFile) {
+                    "AI history context asset 路径不在目标目录: ${entry.id}"
+                }
+                require(file.isFile) { "AI history context asset 不存在: ${entry.id}" }
+            }
+        }
+        val array = JSONArray().apply {
+            retained.forEach { entry ->
+                put(
+                    JSONObject()
+                        .put("id", entry.id)
+                        .put("createdAt", entry.createdAt)
+                        .put("title", entry.title)
+                        .put("prompt", entry.prompt)
+                        .put("sourceSummary", entry.sourceSummary)
+                        .put("payload", entry.payload)
+                )
+            }
+        }
+        val prefs = context.getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
+        check(
+            prefs.edit()
+                .putInt(KeyRetentionDays, retentionDays)
+                .putString(KeyEntries, array.toString())
+                .commit()
+        ) {
+            "无法提交 AI import history preferences"
+        }
+    }
+
+    fun cleanupUnreferencedContextFiles(context: Context, retainedIds: Set<String>) {
+        contextDirectory(context).listFiles()?.forEach { file ->
+            if (file.extension == "json" && file.nameWithoutExtension !in retainedIds) file.delete()
+        }
+    }
+
+    private fun loadInternal(context: Context): LoadedHistory {
         val prefs = context.getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
         val raw = prefs.getString(KeyEntries, null).orEmpty()
         val cutoff = retentionDays(context).takeIf { it > 0 }
@@ -81,8 +143,10 @@ object AiImportHistoryStore {
                 }
             }
         }.getOrDefault(emptyList()).filter { cutoff == null || it.createdAt >= cutoff }.take(10)
-        if (entries.size != runCatching { JSONArray(raw.ifBlank { "[]" }).length() }.getOrDefault(0)) save(context, entries)
-        return entries
+        return LoadedHistory(
+            entries = entries,
+            rawEntryCount = runCatching { JSONArray(raw.ifBlank { "[]" }).length() }.getOrDefault(0)
+        )
     }
 
     fun delete(context: Context, id: String) = save(context, load(context).filterNot { it.id == id })
@@ -151,9 +215,12 @@ object AiImportHistoryStore {
     private fun contextDirectory(context: Context): File =
         File(context.filesDir, ContextDirectory).apply { mkdirs() }
 
-    private fun contextFile(context: Context, id: String): File? =
-        id.takeIf { it.matches(Regex("[A-Za-z0-9_-]+")) }
-            ?.let { File(contextDirectory(context), "$it.json") }
+    private fun contextFile(context: Context, id: String, ensureDirectory: Boolean = true): File? {
+        val safeId = id.takeIf { it.matches(Regex("[A-Za-z0-9_-]+")) } ?: return null
+        val directory = File(context.filesDir, ContextDirectory)
+        if (ensureDirectory) directory.mkdirs()
+        return File(directory, "$safeId.json")
+    }
 
     private fun writeContext(context: Context, id: String, progress: AiEduImportProgress) {
         val target = contextFile(context, id) ?: return
@@ -168,9 +235,14 @@ object AiImportHistoryStore {
     }
 
     private fun readContext(context: Context, id: String): AiEduImportProgress? =
-        contextFile(context, id)
+        contextFile(context, id, ensureDirectory = false)
             ?.takeIf(File::isFile)
             ?.let { file -> runCatching { progressFromJson(JSONObject(file.readText(Charsets.UTF_8))) }.getOrNull() }
+
+    private data class LoadedHistory(
+        val entries: List<AiImportHistoryEntry>,
+        val rawEntryCount: Int
+    )
 }
 
 private fun progressToJson(progress: AiEduImportProgress): JSONObject = JSONObject()

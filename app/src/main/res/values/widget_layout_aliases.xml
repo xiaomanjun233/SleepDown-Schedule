@@ -4,4 +4,16 @@
     <item name="widget_today_courses_miuix_adaptive_v2" type="layout">@layout/widget_today_courses_miuix</item>
     <item name="widget_today_courses_miuix_adaptive_v3" type="layout">@layout/widget_today_courses_miuix</item>
     <item name="widget_today_courses_square_adaptive_v2" type="layout">@layout/widget_today_courses_square</item>
+    <item name="widget_today_tomorrow_adaptive_v1" type="layout">@layout/widget_today_tomorrow</item>
+    <item name="widget_today_tomorrow_adaptive_v2" type="layout">@layout/widget_today_tomorrow</item>
+    <item name="widget_today_tomorrow_adaptive_v3" type="layout">@layout/widget_today_tomorrow</item>
+    <item name="widget_today_tomorrow_adaptive_v4" type="layout">@layout/widget_today_tomorrow</item>
+    <item name="widget_week_schedule_adaptive_v1" type="layout">@layout/widget_week_schedule</item>
+    <item name="widget_week_schedule_adaptive_v2" type="layout">@layout/widget_week_schedule</item>
+    <item name="widget_week_schedule_adaptive_v3" type="layout">@layout/widget_week_schedule</item>
+    <item name="widget_week_schedule_adaptive_v4" type="layout">@layout/widget_week_schedule</item>
+    <item name="widget_week_schedule_adaptive_v5" type="layout">@layout/widget_week_schedule</item>
+    <item name="widget_week_schedule_adaptive_v6" type="layout">@layout/widget_week_schedule</item>
+    <item name="widget_week_schedule_adaptive_v7" type="layout">@layout/widget_week_schedule_static</item>
+    <item name="widget_week_schedule_adaptive_v8" type="layout">@layout/widget_week_schedule_scrollable</item>
 </resources>

@@ -26,6 +26,66 @@ object DayAgentPreferences {
     fun isMemoryEnabled(context: Context): Boolean = prefs(context).getBoolean("memory_enabled", false)
     fun memory(context: Context): String = prefs(context).getString("memory", null).orEmpty()
 
+    fun backupPreferences(
+        context: Context,
+        scheduleStableIdsByRoomId: Map<Int, String>
+    ): BackupDayAgentPreferences {
+        val storage = prefs(context)
+        val appliedActions = linkedMapOf<String, List<String>>()
+        scheduleStableIdsByRoomId.forEach { (roomId, stableId) ->
+            val actions = storage.getStringSet("applied_actions_$roomId", emptySet()).orEmpty().toList().sorted()
+            if (actions.isNotEmpty()) appliedActions[stableId] = actions
+        }
+        return BackupDayAgentPreferences(
+            hasDecision = storage.getBoolean("has_decision", false),
+            enabled = storage.getBoolean("enabled", false),
+            dailyAiEnabled = storage.getBoolean("daily_ai_enabled", true),
+            weatherEnabled = storage.getBoolean("weather_enabled", true),
+            memoryEnabled = storage.getBoolean("memory_enabled", false),
+            memory = storage.getString("memory", null).orEmpty(),
+            memoryTurnDay = storage.getString("memory_turn_day", null),
+            memoryTurnCount = storage.getInt("memory_turn_count", 0),
+            memoryLastAgentUpdateDay = storage.getString("memory_last_agent_update_day", null),
+            appliedActionsBySchedule = appliedActions
+        )
+    }
+
+    fun applyBackupPreferences(
+        context: Context,
+        backup: BackupDayAgentPreferences,
+        scheduleRoomIdsByStableId: Map<String, Int>
+    ) {
+        backup.appliedActionsBySchedule.keys.forEach { stableId ->
+            BackupStableId.requireValid(stableId, BackupStableId.SCHEDULE_PREFIX)
+            require(stableId in scheduleRoomIdsByStableId) {
+                "Day Agent applied action 引用了不存在的 schedule: $stableId"
+            }
+        }
+        val storage = prefs(context)
+        val editor = storage.edit()
+        storage.all.keys
+            .filter { it.startsWith("applied_actions_") }
+            .forEach(editor::remove)
+        editor
+            .putBoolean("has_decision", backup.hasDecision)
+            .putBoolean("enabled", backup.enabled)
+            .putBoolean("daily_ai_enabled", backup.dailyAiEnabled)
+            .putBoolean("weather_enabled", backup.weatherEnabled)
+            .putBoolean("memory_enabled", backup.memoryEnabled)
+            .putString("memory", backup.memory.take(MemoryMaxLength))
+            .putInt("memory_turn_count", backup.memoryTurnCount.coerceAtLeast(0))
+        if (backup.memoryTurnDay == null) editor.remove("memory_turn_day")
+        else editor.putString("memory_turn_day", backup.memoryTurnDay)
+        if (backup.memoryLastAgentUpdateDay == null) editor.remove("memory_last_agent_update_day")
+        else editor.putString("memory_last_agent_update_day", backup.memoryLastAgentUpdateDay)
+        backup.appliedActionsBySchedule.forEach { (stableId, actions) ->
+            val targetRoomId = scheduleRoomIdsByStableId.getValue(stableId)
+            editor.putStringSet("applied_actions_$targetRoomId", actions.toSet())
+        }
+        check(editor.commit()) { "无法提交 Day Agent preferences" }
+        mutableChanges.value += 1
+    }
+
     fun noteConversationTurn(context: Context, date: LocalDate) {
         val today = date.toString()
         val storage = prefs(context)
