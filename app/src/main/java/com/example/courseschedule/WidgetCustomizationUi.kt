@@ -253,7 +253,8 @@ fun WidgetCustomizationScreen(
                             pageSize = PageSize.Fixed(cardWidth),
                             contentPadding = PaddingValues(horizontal = (maxWidth - cardWidth) / 2),
                             pageSpacing = 4.dp,
-                            beyondViewportPageCount = 1,
+                            beyondViewportPageCount = (widgetTypes.size - 1).coerceAtLeast(0),
+                            key = { page -> widgetTypes[page].key },
                             modifier = Modifier.fillMaxWidth().height(252.dp)
                         ) { page ->
                             val type = widgetTypes[page]
