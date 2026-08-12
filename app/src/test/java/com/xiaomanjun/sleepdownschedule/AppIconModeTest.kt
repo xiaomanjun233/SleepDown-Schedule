@@ -5,6 +5,14 @@ import org.junit.Test
 
 class AppIconModeTest {
     @Test
+    fun launcherAliasClassNameUsesNamespaceInsteadOfVariantApplicationId() {
+        assertEquals(
+            "com.xiaomanjun.sleepdownschedule.LauncherFollow",
+            launcherAliasClassName(LauncherAlias.FOLLOW)
+        )
+    }
+
+    @Test
     fun explicitModesIgnoreThemeState() {
         assertEquals(
             LauncherAlias.LIGHT,
