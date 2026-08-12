@@ -1,0 +1,764 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 35,
+    "identityHash": "cb8007f723c6868e8c6214a66b4cfed4",
+    "entities": [
+      {
+        "tableName": "courses",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `teacher` TEXT, `location` TEXT, `weekday` INTEGER NOT NULL, `periods` TEXT NOT NULL, `weeks` TEXT NOT NULL, `weekParity` TEXT NOT NULL, `note` TEXT, `scheduleId` INTEGER NOT NULL DEFAULT 1)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "teacher",
+            "columnName": "teacher",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "location",
+            "columnName": "location",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "weekday",
+            "columnName": "weekday",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "periods",
+            "columnName": "periods",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weeks",
+            "columnName": "weeks",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weekParity",
+            "columnName": "weekParity",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "scheduleId",
+            "columnName": "scheduleId",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "schedule_profiles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `isActive` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "schedule_config",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `totalWeeks` INTEGER NOT NULL, `currentWeek` INTEGER NOT NULL, `notificationLeadMinutes` INTEGER NOT NULL, `termStartDate` TEXT, `autoCurrentWeek` INTEGER NOT NULL, `termState` TEXT NOT NULL DEFAULT 'MANUAL', `notificationsEnabled` INTEGER NOT NULL, `notificationMode` TEXT NOT NULL, `wallpaperUri` TEXT, `wallpaperBlur` REAL NOT NULL, `wallpaperBrightness` REAL NOT NULL, `wallpaperPortraitCenterX` REAL, `wallpaperPortraitCenterY` REAL, `wallpaperPortraitScale` REAL, `wallpaperLandscapeCenterX` REAL, `wallpaperLandscapeCenterY` REAL, `wallpaperLandscapeScale` REAL, `wallpaperSourceWidth` INTEGER, `wallpaperSourceHeight` INTEGER, `cardColorArgb` INTEGER NOT NULL, `cardAlpha` REAL NOT NULL, `courseCardBlur` REAL NOT NULL, `courseCardGlassEnabled` INTEGER NOT NULL, `courseCardFontScale` REAL NOT NULL, `weekCardHeightDp` REAL, `homeTextLight` INTEGER NOT NULL, `homeChromeBlurScale` REAL NOT NULL DEFAULT 1, `homeChromeSamplingScale` REAL NOT NULL DEFAULT 1, `followSystemDarkMode` INTEGER NOT NULL, `darkMode` INTEGER NOT NULL, `defaultWallpaperStyle` TEXT NOT NULL, `hideEmptyWeekends` INTEGER NOT NULL, `dockAlignment` TEXT NOT NULL, `defaultHomeMode` TEXT NOT NULL, `liveUpdateActionsEnabled` INTEGER NOT NULL, `liveUpdateChipTextMode` TEXT NOT NULL, `classDurationMinutes` INTEGER NOT NULL, `breakDurationMinutes` INTEGER NOT NULL, `morningPeriodCount` INTEGER NOT NULL DEFAULT 0, `noonPeriodCount` INTEGER NOT NULL DEFAULT 0, `afternoonPeriodCount` INTEGER NOT NULL DEFAULT 0, `eveningPeriodCount` INTEGER NOT NULL DEFAULT 0, `hideFromRecents` INTEGER NOT NULL, `autoCheckUpdates` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalWeeks",
+            "columnName": "totalWeeks",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentWeek",
+            "columnName": "currentWeek",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notificationLeadMinutes",
+            "columnName": "notificationLeadMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "termStartDate",
+            "columnName": "termStartDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "autoCurrentWeek",
+            "columnName": "autoCurrentWeek",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "termState",
+            "columnName": "termState",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'MANUAL'"
+          },
+          {
+            "fieldPath": "notificationsEnabled",
+            "columnName": "notificationsEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notificationMode",
+            "columnName": "notificationMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wallpaperUri",
+            "columnName": "wallpaperUri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "wallpaperBlur",
+            "columnName": "wallpaperBlur",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wallpaperBrightness",
+            "columnName": "wallpaperBrightness",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wallpaperPortraitCenterX",
+            "columnName": "wallpaperPortraitCenterX",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "wallpaperPortraitCenterY",
+            "columnName": "wallpaperPortraitCenterY",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "wallpaperPortraitScale",
+            "columnName": "wallpaperPortraitScale",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "wallpaperLandscapeCenterX",
+            "columnName": "wallpaperLandscapeCenterX",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "wallpaperLandscapeCenterY",
+            "columnName": "wallpaperLandscapeCenterY",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "wallpaperLandscapeScale",
+            "columnName": "wallpaperLandscapeScale",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "wallpaperSourceWidth",
+            "columnName": "wallpaperSourceWidth",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "wallpaperSourceHeight",
+            "columnName": "wallpaperSourceHeight",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cardColorArgb",
+            "columnName": "cardColorArgb",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cardAlpha",
+            "columnName": "cardAlpha",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "courseCardBlur",
+            "columnName": "courseCardBlur",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "courseCardGlassEnabled",
+            "columnName": "courseCardGlassEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "courseCardFontScale",
+            "columnName": "courseCardFontScale",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weekCardHeightDp",
+            "columnName": "weekCardHeightDp",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "homeTextLight",
+            "columnName": "homeTextLight",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "homeChromeBlurScale",
+            "columnName": "homeChromeBlurScale",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "homeChromeSamplingScale",
+            "columnName": "homeChromeSamplingScale",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "followSystemDarkMode",
+            "columnName": "followSystemDarkMode",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "darkMode",
+            "columnName": "darkMode",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultWallpaperStyle",
+            "columnName": "defaultWallpaperStyle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hideEmptyWeekends",
+            "columnName": "hideEmptyWeekends",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dockAlignment",
+            "columnName": "dockAlignment",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultHomeMode",
+            "columnName": "defaultHomeMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "liveUpdateActionsEnabled",
+            "columnName": "liveUpdateActionsEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "liveUpdateChipTextMode",
+            "columnName": "liveUpdateChipTextMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "classDurationMinutes",
+            "columnName": "classDurationMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "breakDurationMinutes",
+            "columnName": "breakDurationMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "morningPeriodCount",
+            "columnName": "morningPeriodCount",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "noonPeriodCount",
+            "columnName": "noonPeriodCount",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "afternoonPeriodCount",
+            "columnName": "afternoonPeriodCount",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "eveningPeriodCount",
+            "columnName": "eveningPeriodCount",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "hideFromRecents",
+            "columnName": "hideFromRecents",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "autoCheckUpdates",
+            "columnName": "autoCheckUpdates",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "periods",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`periodIndex` INTEGER NOT NULL, `startTime` TEXT NOT NULL, `endTime` TEXT NOT NULL, `scheduleId` INTEGER NOT NULL, PRIMARY KEY(`scheduleId`, `periodIndex`))",
+        "fields": [
+          {
+            "fieldPath": "periodIndex",
+            "columnName": "periodIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startTime",
+            "columnName": "startTime",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endTime",
+            "columnName": "endTime",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduleId",
+            "columnName": "scheduleId",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "scheduleId",
+            "periodIndex"
+          ]
+        }
+      },
+      {
+        "tableName": "period_schemes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `scheduleId` INTEGER NOT NULL, `name` TEXT NOT NULL, `mode` TEXT NOT NULL, `isActive` INTEGER NOT NULL, `classDurationMinutes` INTEGER NOT NULL, `breakDurationMinutes` INTEGER NOT NULL, `morningStartTime` TEXT NOT NULL, `noonStartTime` TEXT NOT NULL, `afternoonStartTime` TEXT NOT NULL, `eveningStartTime` TEXT NOT NULL, `specialBreaksJson` TEXT NOT NULL, `overridesJson` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduleId",
+            "columnName": "scheduleId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mode",
+            "columnName": "mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "classDurationMinutes",
+            "columnName": "classDurationMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "breakDurationMinutes",
+            "columnName": "breakDurationMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "morningStartTime",
+            "columnName": "morningStartTime",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "noonStartTime",
+            "columnName": "noonStartTime",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "afternoonStartTime",
+            "columnName": "afternoonStartTime",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eveningStartTime",
+            "columnName": "eveningStartTime",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "specialBreaksJson",
+            "columnName": "specialBreaksJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "overridesJson",
+            "columnName": "overridesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "period_scheme_times",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`schemeId` INTEGER NOT NULL, `periodIndex` INTEGER NOT NULL, `startTime` TEXT NOT NULL, `endTime` TEXT NOT NULL, PRIMARY KEY(`schemeId`, `periodIndex`))",
+        "fields": [
+          {
+            "fieldPath": "schemeId",
+            "columnName": "schemeId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "periodIndex",
+            "columnName": "periodIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startTime",
+            "columnName": "startTime",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endTime",
+            "columnName": "endTime",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "schemeId",
+            "periodIndex"
+          ]
+        }
+      },
+      {
+        "tableName": "agent_daily_sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`scheduleId` INTEGER NOT NULL, `date` TEXT NOT NULL, `dailyPackJson` TEXT NOT NULL, `providerId` TEXT NOT NULL, `model` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `generationStatus` TEXT NOT NULL, `lastError` TEXT, PRIMARY KEY(`scheduleId`, `date`))",
+        "fields": [
+          {
+            "fieldPath": "scheduleId",
+            "columnName": "scheduleId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "date",
+            "columnName": "date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dailyPackJson",
+            "columnName": "dailyPackJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerId",
+            "columnName": "providerId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "model",
+            "columnName": "model",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "generationStatus",
+            "columnName": "generationStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "scheduleId",
+            "date"
+          ]
+        }
+      },
+      {
+        "tableName": "agent_messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `scheduleId` INTEGER NOT NULL, `sessionDate` TEXT NOT NULL, `role` TEXT NOT NULL, `content` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `status` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduleId",
+            "columnName": "scheduleId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionDate",
+            "columnName": "sessionDate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "widget_appearances",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`variant` TEXT NOT NULL, `appWidgetId` INTEGER NOT NULL, `enabled` INTEGER NOT NULL DEFAULT 0, `wallpaperUri` TEXT, `centerX` REAL NOT NULL DEFAULT 0.5, `centerY` REAL NOT NULL DEFAULT 0.5, `scale` REAL NOT NULL DEFAULT 1, `sourceWidth` INTEGER, `sourceHeight` INTEGER, `blurDp` REAL NOT NULL DEFAULT 0, `brightness` REAL NOT NULL DEFAULT 1, `updatedAt` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`variant`, `appWidgetId`))",
+        "fields": [
+          {
+            "fieldPath": "variant",
+            "columnName": "variant",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "appWidgetId",
+            "columnName": "appWidgetId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enabled",
+            "columnName": "enabled",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "wallpaperUri",
+            "columnName": "wallpaperUri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "centerX",
+            "columnName": "centerX",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "0.5"
+          },
+          {
+            "fieldPath": "centerY",
+            "columnName": "centerY",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "0.5"
+          },
+          {
+            "fieldPath": "scale",
+            "columnName": "scale",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "sourceWidth",
+            "columnName": "sourceWidth",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sourceHeight",
+            "columnName": "sourceHeight",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "blurDp",
+            "columnName": "blurDp",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "brightness",
+            "columnName": "brightness",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "variant",
+            "appWidgetId"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'cb8007f723c6868e8c6214a66b4cfed4')"
+    ]
+  }
+}
