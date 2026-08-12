@@ -31,6 +31,9 @@ internal fun resolveLauncherAlias(
     }
 }
 
+internal fun launcherAliasClassName(alias: LauncherAlias): String =
+    AppIconManager::class.java.packageName + alias.classSuffix
+
 object AppIconManager {
     private const val PreferencesName = "app_icon_preferences"
     private const val ModeKey = "mode"
@@ -114,7 +117,7 @@ object AppIconManager {
     ) {
         val component = ComponentName(
             context.packageName,
-            context.packageName + alias.classSuffix
+            launcherAliasClassName(alias)
         )
         val desiredState = if (enabled) {
             PackageManager.COMPONENT_ENABLED_STATE_ENABLED

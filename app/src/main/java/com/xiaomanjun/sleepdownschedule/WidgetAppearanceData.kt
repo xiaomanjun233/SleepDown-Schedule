@@ -199,10 +199,8 @@ class WidgetAppearanceRepository(
 
     internal suspend fun cleanupUnreferencedFiles() {
         val directory = File(context.filesDir, "widget_wallpaper")
-        val files = directory.listFiles().orEmpty()
-        val unused = unreferencedWidgetWallpaperUris(dao.getAll(), files.map { Uri.fromFile(it).toString() })
-        files.forEach { file ->
-            if (Uri.fromFile(file).toString() in unused) file.delete()
-        }
+        val files = directory.listFiles().orEmpty().filter(File::isFile)
+        val referenced = dao.getAll().mapNotNull { it.wallpaperUri }
+        unreferencedWallpaperFiles(referenced, files).forEach { it.delete() }
     }
 }

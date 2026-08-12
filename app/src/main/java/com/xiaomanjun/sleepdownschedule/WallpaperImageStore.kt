@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.palette.graphics.Palette
 import java.io.File
+import java.net.URI
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -140,15 +141,27 @@ internal fun unreferencedScheduleWallpaperUris(
     return candidateUris.filterTo(linkedSetOf()) { it !in referenced }
 }
 
+internal fun unreferencedWallpaperFiles(
+    referencedUris: Collection<String>,
+    candidateFiles: Collection<File>,
+    canonicalize: (File) -> String = { it.canonicalPath }
+): Set<File> {
+    val referencedPaths = referencedUris.mapNotNullTo(linkedSetOf()) { uriString ->
+        val uri = runCatching { URI(uriString) }.getOrNull()
+        if (uri?.scheme != "file") null else uri.path?.let { path ->
+            runCatching { canonicalize(File(path)) }.getOrNull()
+        }
+    }
+    return candidateFiles.filterTo(linkedSetOf()) { file ->
+        runCatching { canonicalize(file) }.getOrNull() !in referencedPaths
+    }
+}
+
 fun cleanupUnreferencedScheduleWallpapers(context: Context, referencedUris: Collection<String>) {
     val wallpaperDir = wallpaperDirectory(context)
-    val filesByUri = wallpaperDir.listFiles()
-        ?.asSequence()
-        ?.filter { it.isFile }
-        ?.associateBy { Uri.fromFile(it).toString() }
-        .orEmpty()
-    unreferencedScheduleWallpaperUris(referencedUris, filesByUri.keys).forEach { uri ->
-        runCatching { filesByUri[uri]?.delete() }
+    val files = wallpaperDir.listFiles().orEmpty().filter(File::isFile)
+    unreferencedWallpaperFiles(referencedUris, files).forEach { file ->
+        runCatching { file.delete() }
     }
 }
 
