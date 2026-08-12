@@ -9,7 +9,19 @@ SleepDown 围绕课表的导入、维护、提醒与日常查看进行设计，�
 
 应用使用 Jetpack Compose 构建，界面以 Miuix 与液态玻璃效果为基础，并针对壁纸背景下的可读性、动画连续性以及手机和平板布局进行了专门适配。视觉效果之外，项目同样重视数据迁移安全、长期存储占用和复杂课表场景下的稳定性。
 
-当前版本为 **1.1.5**，最低支持 Android 8.0（API 26）。安装包可以在 [GitHub Releases](https://github.com/xiaomanjun233/SleepDown-Schedule/releases) 或 [Gitee 发行版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases) 下载。
+当前版本为 **1.2.0**，最低支持 Android 8.0（API 26）。正式身份已迁移到 `com.xiaomanjun.sleepdownschedule`；GitHub 与应用商店发行版共用这一 applicationId。安装包可以在 [GitHub Releases](https://github.com/xiaomanjun233/SleepDown-Schedule/releases) 或 [Gitee 发行版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases) 下载。
+
+### 从 1.1.5 迁移
+
+旧包名 `com.example.courseschedule` 下的 v1.1.5 是旧应用身份的最终版本。由于 Android applicationId 机制，新包无法覆盖安装旧包，这是正常现象：
+
+1. 在 v1.1.5 中导出 `.sleepdown` 备份。
+2. 安装新包 `com.xiaomanjun.sleepdownschedule`。
+3. 在新版本中恢复 `.sleepdown` 备份，并检查课表、设置和提醒。
+4. 必要时重新配置 API Key 或教务登录凭据。
+5. 确认无误后再卸载旧版本。
+
+备份协议仍为 BackupFormatV1。新版本只接受自身包名或历史包名 `com.example.courseschedule` 创建的备份，未知来源会被拒绝；API Key、Cookie、Session/Access Token 等凭据不会加入普通备份。
 
 ## 界面预览
 
