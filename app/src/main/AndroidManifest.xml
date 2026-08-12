@@ -10,7 +10,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -186,10 +185,6 @@
                 android:value="Course reminder live update while a class reminder is active" />
         </service>
         <service
-            android:name=".UpdateDownloadForegroundService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-        <service
             android:name=".DayAgentForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
@@ -204,7 +199,7 @@
                 <action android:name="android.intent.action.DATE_CHANGED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
-                <action android:name="com.example.courseschedule.action.REFRESH_TODAY_WIDGET" />
+                <action android:name="${applicationId}.action.REFRESH_TODAY_WIDGET" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
