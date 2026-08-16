@@ -305,6 +305,7 @@ internal fun SinglePillWeekScheduleScreen(
     onSwipeWeek: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     weekEditMode: Boolean = false,
+    personalizeVisible: Boolean = false,
     onEnterWeekEditMode: () -> Unit = {},
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     conflictFocusCourseId: Long? = null,
@@ -313,7 +314,7 @@ internal fun SinglePillWeekScheduleScreen(
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit
 ) {
-    val rowHeaderWidth = 56.dp
+    val rowHeaderWidth = if (adaptiveMetrics.isLargeScreen) 56.dp else 52.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
     val now = LocalTime.now()
@@ -340,13 +341,23 @@ internal fun SinglePillWeekScheduleScreen(
     val density = LocalDensity.current
     val screenWidth = adaptiveMetrics.screenWidth
     val topSpacerHeight = adaptiveMetrics.weekTopSpacerHeight
-    val horizontalContentPadding = if (adaptiveMetrics.isLargeScreen) {
+    val horizontalContentStartPadding = if (adaptiveMetrics.isLargeScreen) {
         adaptiveMetrics.tabletContentMargin
     } else {
         0.dp
     }
+    val horizontalContentEndPadding = if (adaptiveMetrics.isLargeScreen) {
+        adaptiveMetrics.tabletContentMargin
+    } else {
+        0.dp
+    }
+    val weekGridEndPadding = if (adaptiveMetrics.isLargeScreen) 0.dp else 8.dp
+    val weekHeaderLabelsEndPadding = if (adaptiveMetrics.isLargeScreen) 0.dp else 4.dp
     val transitionTravelWidth = if (adaptiveMetrics.isLargeScreen) {
-        (adaptiveMetrics.screenWidth - horizontalContentPadding * 2f - rowHeaderWidth).coerceAtLeast(1.dp)
+        (
+            adaptiveMetrics.screenWidth - horizontalContentStartPadding -
+                horizontalContentEndPadding - rowHeaderWidth
+            ).coerceAtLeast(1.dp)
     } else {
         screenWidth
     }
@@ -449,6 +460,7 @@ internal fun SinglePillWeekScheduleScreen(
     var overlayHostBounds by remember { mutableStateOf<Rect?>(null) }
     val weekEditOverlay = rememberWeekEditOverlayController(scrollState)
     val stationaryCoursesBackdrop = rememberLayerBackdrop()
+    val needsStationaryCoursesBackdrop = weekEditMode || weekEditOverlay.request != null
     val floatingSamplingBase = floatingCourseBackdrop ?: backdrop
     val liftedCourseBackdrop = if (floatingSamplingBase != null) {
         rememberCombinedBackdrop(floatingSamplingBase, stationaryCoursesBackdrop)
@@ -478,7 +490,12 @@ internal fun SinglePillWeekScheduleScreen(
             .fillMaxSize()
             .verticalScroll(scrollState)
     ) {
-        Column(modifier = Modifier.padding(horizontal = horizontalContentPadding)) {
+        Column(
+            modifier = Modifier.padding(
+                start = horizontalContentStartPadding,
+                end = horizontalContentEndPadding
+            )
+        ) {
             Spacer(Modifier.height(topSpacerHeight))
             Row(
                 modifier = Modifier
@@ -528,7 +545,10 @@ internal fun SinglePillWeekScheduleScreen(
                                 config = state.config,
                                 today = today,
                                 textColor = textColor,
-                                modifier = Modifier.weight(1f).fillMaxHeight()
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .padding(end = weekHeaderLabelsEndPadding)
                             )
                         }
                     }
@@ -606,11 +626,20 @@ internal fun SinglePillWeekScheduleScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .layerBackdrop(stationaryCoursesBackdrop)
+                            .then(
+                                if (needsStationaryCoursesBackdrop) {
+                                    Modifier.layerBackdrop(stationaryCoursesBackdrop)
+                                } else {
+                                    Modifier
+                                }
+                            )
                     ) {
                         outgoingCourses.value?.let { oldCourses ->
                             WeekCourseColumnsLayer(
-                                modifier = Modifier.padding(start = rowHeaderWidth),
+                                modifier = Modifier.padding(
+                                    start = rowHeaderWidth,
+                                    end = weekGridEndPadding
+                                ),
                                 courses = oldCourses,
                                 weekdays = outgoingWeekdays.value,
                                 periods = state.periods,
@@ -638,7 +667,7 @@ internal fun SinglePillWeekScheduleScreen(
                                 .fillMaxWidth()
                                 .height(cardHeight * state.periods.size),
                             userScrollEnabled = !weekEditMode,
-                            beyondViewportPageCount = 1,
+                            beyondViewportPageCount = if (personalizeVisible) 0 else 1,
                             key = { it }
                         ) { page ->
                             val pageWeek = page + 1
@@ -651,7 +680,10 @@ internal fun SinglePillWeekScheduleScreen(
                             }
                             val isActivePage = pageWeek == displayWeek && pagerState.settledPage == page
                             WeekCourseColumnsLayer(
-                                modifier = Modifier.padding(start = rowHeaderWidth),
+                                modifier = Modifier.padding(
+                                    start = rowHeaderWidth,
+                                    end = weekGridEndPadding
+                                ),
                                 courses = pageCourses,
                                 weekdays = pageWeekdays,
                                 periods = state.periods,
@@ -863,7 +895,9 @@ private fun WeekCourseOverlayCardContent(course: CourseEntity, config: ScheduleC
         }
         val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
         val tabletFontBoost = if (widthDp >= 120f) 1.10f else 1f
-        val courseFontScale = (config.courseCardFontScale * tabletFontBoost).coerceIn(0.80f, 1.35f)
+        val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale
+        val courseFontScale = ((previewFontScale ?: config.courseCardFontScale) * tabletFontBoost)
+            .coerceIn(0.80f, 1.35f)
         fun scaledOverlayText(value: TextUnit): TextUnit =
             scaledWeekText((value.value * courseFontScale).sp, density.fontScale)
         val nameFont = scaledOverlayText(if (tiny) 8.8.sp else if (compact) 9.7.sp else 10.7.sp)
@@ -2240,7 +2274,9 @@ fun WeekCourseBlock(
             val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
             val fontScaleCompensation = density.fontScale.coerceAtLeast(1f)
             val tabletFontBoost = if (gridColumnWidth >= 120.dp) 1.10f else 1f
-            val courseFontScale = (config.courseCardFontScale * tabletFontBoost).coerceIn(0.80f, 1.35f)
+            val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale
+            val courseFontScale = ((previewFontScale ?: config.courseCardFontScale) * tabletFontBoost)
+                .coerceIn(0.80f, 1.35f)
             fun scaledCourseWeekText(value: TextUnit): TextUnit = scaledWeekText((value.value * courseFontScale).sp, fontScaleCompensation)
             val nameFont = scaledCourseWeekText(if (tiny) 8.8.sp else if (compact) 9.7.sp else 10.7.sp)
             val nameLineHeight = scaledCourseWeekText(if (tiny) 8.2.sp else if (compact) 9.1.sp else 10.0.sp)

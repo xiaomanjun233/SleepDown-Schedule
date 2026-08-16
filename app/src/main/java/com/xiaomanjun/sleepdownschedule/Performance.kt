@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.PowerManager
+import android.os.Trace
 import android.util.Log
 import android.view.View
 import androidx.activity.ComponentActivity
@@ -29,6 +30,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.LinkedHashMap
+import java.util.Locale
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -65,7 +68,9 @@ fun StartupPerformanceBoost(active: Boolean) {
 fun StartupJankStats(
     phase: StartupPhase,
     screen: String,
-    animation: String
+    animation: String,
+    personalizeMode: String = "Idle",
+    personalizeSlider: String = "Idle"
 ) {
     val view = LocalView.current
     val context = LocalContext.current
@@ -74,15 +79,22 @@ fun StartupJankStats(
     DisposableEffect(view, activity) {
         var jankStats: JankStats? = null
         fun startTracking() {
-            if (!BuildConfig.DEBUG || activity == null || jankStats != null) return
+            val performanceBuild =
+                BuildConfig.BUILD_TYPE.contains("benchmark", ignoreCase = true)
+            if (!performanceBuild || activity == null || jankStats != null) return
+            val personalizeOpenAggregator = AnimationFrameSummaryAggregator(
+                targetAnimation = "PersonalizeOpen",
+                onSummary = { summary -> Log.i(PerformanceLogTag, summary.toLogMessage()) }
+            )
             jankStats = runCatching {
                 JankStats.createAndTrack(activity.window) { frameData ->
-                    if (frameData.isJank) {
-                        Log.d(
-                            "ScheduleJank",
-                            "jank frame=${frameData.frameDurationUiNanos / 1_000_000f}ms states=${frameData.states}"
-                        )
-                    }
+                    personalizeOpenAggregator.onFrame(
+                        animation = frameData.states
+                            .lastOrNull { it.key == "animation" }
+                            ?.value,
+                        frameDurationUiNanos = frameData.frameDurationUiNanos,
+                        isJank = frameData.isJank
+                    )
                 }
             }.getOrNull()
         }
@@ -101,7 +113,7 @@ fun StartupJankStats(
         }
     }
 
-    LaunchedEffect(view, phase, screen, animation) {
+    LaunchedEffect(view, phase, screen, animation, personalizeMode, personalizeSlider) {
         runCatching {
             if (animation == "CourseEditorPrepare") {
                 courseEditorOpenCount += 1
@@ -116,6 +128,8 @@ fun StartupJankStats(
             state?.putState("startup_phase", phase.name)
             state?.putState("screen", screen)
             state?.putState("animation", animation)
+            state?.putState("personalize_mode", personalizeMode)
+            state?.putState("personalize_slider", personalizeSlider)
             state?.putState("thermal_status", thermalStatus.toString())
             if (animation.startsWith("CourseEditor")) {
                 state?.putState(
@@ -128,20 +142,116 @@ fun StartupJankStats(
 }
 
 private const val ThermalStatusNone = 0
+private const val PerformanceLogTag = "SleepDownPerf"
+
+internal data class AnimationFrameSummary(
+    val animation: String,
+    val frameCount: Int,
+    val jankFrameCount: Int,
+    val frameDurationUiP50Nanos: Long,
+    val frameDurationUiP90Nanos: Long,
+    val frameDurationUiP95Nanos: Long,
+    val frameDurationUiP99Nanos: Long,
+    val maxFrameDurationUiNanos: Long
+) {
+    fun toLogMessage(): String = String.format(
+        Locale.US,
+        "%s frames=%d jank=%d jankRate=%.2f%% uiP50=%.2fms uiP90=%.2fms " +
+            "uiP95=%.2fms uiP99=%.2fms uiMax=%.2fms",
+        animation,
+        frameCount,
+        jankFrameCount,
+        if (frameCount == 0) 0.0 else jankFrameCount * 100.0 / frameCount,
+        frameDurationUiP50Nanos / 1_000_000.0,
+        frameDurationUiP90Nanos / 1_000_000.0,
+        frameDurationUiP95Nanos / 1_000_000.0,
+        frameDurationUiP99Nanos / 1_000_000.0,
+        maxFrameDurationUiNanos / 1_000_000.0
+    )
+}
+
+internal class AnimationFrameSummaryAggregator(
+    private val targetAnimation: String,
+    private val onSummary: (AnimationFrameSummary) -> Unit
+) {
+    private val frameDurationUiNanos = mutableListOf<Long>()
+    private var jankFrameCount = 0
+    private var collecting = false
+
+    fun onFrame(animation: String?, frameDurationUiNanos: Long, isJank: Boolean) {
+        if (animation == targetAnimation) {
+            collecting = true
+            this.frameDurationUiNanos += frameDurationUiNanos
+            if (isJank) jankFrameCount += 1
+            return
+        }
+        if (!collecting) return
+
+        val sortedDurations = this.frameDurationUiNanos.sorted()
+        if (sortedDurations.isNotEmpty()) {
+            onSummary(
+                AnimationFrameSummary(
+                    animation = targetAnimation,
+                    frameCount = sortedDurations.size,
+                    jankFrameCount = jankFrameCount,
+                    frameDurationUiP50Nanos = sortedDurations.nearestRankPercentile(50),
+                    frameDurationUiP90Nanos = sortedDurations.nearestRankPercentile(90),
+                    frameDurationUiP95Nanos = sortedDurations.nearestRankPercentile(95),
+                    frameDurationUiP99Nanos = sortedDurations.nearestRankPercentile(99),
+                    maxFrameDurationUiNanos = sortedDurations.last()
+                )
+            )
+        }
+        this.frameDurationUiNanos.clear()
+        jankFrameCount = 0
+        collecting = false
+    }
+}
+
+private fun List<Long>.nearestRankPercentile(percentile: Int): Long {
+    val index = ceil(percentile / 100.0 * size).toInt().coerceIn(1, size) - 1
+    return this[index]
+}
 
 @Composable
 fun PerformanceAnimationState(animation: String, active: Boolean) {
     val view = LocalView.current
-    LaunchedEffect(view, animation, active) {
-        runCatching {
-            val state = PerformanceMetricsState.getHolderForHierarchy(view).state
-            if (active) {
-                state?.putState("animation", animation)
-            } else {
-                state?.putState("animation", "Idle")
+    val traceName = performanceTraceName(animation)
+    DisposableEffect(view, traceName, active) {
+        if (active && traceName != null) Trace.beginSection(traceName)
+        onDispose {
+            if (active && traceName != null) Trace.endSection()
+            if (!active) return@onDispose
+            runCatching {
+                PerformanceMetricsState.getHolderForHierarchy(view).state?.putState("animation", "Idle")
             }
         }
     }
+    LaunchedEffect(view, animation, active) {
+        runCatching {
+            val state = PerformanceMetricsState.getHolderForHierarchy(view).state
+            state?.putState("animation", if (active) animation else "Idle")
+        }
+    }
+}
+
+private fun performanceTraceName(animation: String): String? = when (animation) {
+    "PersonalizePrepare" -> "SleepDown.Personalize.Prepare"
+    "PersonalizeOpen" -> "SleepDown.Personalize.Open"
+    "PersonalizeClose" -> "SleepDown.Personalize.Close"
+    "PersonalizeSliderDrag" -> "SleepDown.Personalize.SliderDrag"
+    "ImportHistoryCaptureSource" -> "SleepDown.ImportHistory.CaptureSource"
+    "ImportHistoryCaptureBackground" -> "SleepDown.ImportHistory.CaptureBackground"
+    "ImportHistoryLaunch" -> "SleepDown.ImportHistory.Launch"
+    "ImportHistoryOpen", "ImportHistoryDetailOpen", "ImportHistoryDetailClose" -> "SleepDown.ImportHistory.Morph"
+    "DayAgentPrepare" -> "SleepDown.DayAgent.Prepare"
+    "DayAgentOpen" -> "SleepDown.DayAgent.Open"
+    "DayAgentClose" -> "SleepDown.DayAgent.Close"
+    "HomeMenuMorph" -> "SleepDown.AddDestination.AddCourse"
+    "ManualImportMorph" -> "SleepDown.AddDestination.ManualImport"
+    "EduImportMorph" -> "SleepDown.AddDestination.EduImport"
+    "WeekSwipe", "WeekProgrammaticChange" -> "SleepDown.WeekSwipe"
+    else -> null
 }
 
 @Composable

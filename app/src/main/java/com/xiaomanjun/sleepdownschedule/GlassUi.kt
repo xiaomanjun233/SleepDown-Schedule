@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
@@ -533,6 +534,7 @@ fun CourseGlassCard(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
+    val previewState = LocalPersonalizationPreview.current
     val glassBackdrop = if (config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
     val simpleBlurBackdrop = if (!config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
     val useGlass = glassBackdrop != null
@@ -541,10 +543,6 @@ fun CourseGlassCard(
     var pressed by remember { mutableStateOf(false) }
     val baseColor = courseCardBaseColor(config, course)
     val hasWallpaper = config.hasAnyWallpaper()
-    val glassTint = baseColor.copy(
-        alpha = courseGlassTintAlpha(config.cardAlpha, quality, hasWallpaper)
-    )
-    val solidColor = baseColor.copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
     val cardModifier = modifier
@@ -580,7 +578,8 @@ fun CourseGlassCard(
                         shape = { shape },
                         effects = {
                             if (tokens.useVibrancy) vibrancy()
-                            blur((tokens.blur * quality).toPx())
+                            val liveBlur = blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur
+                            blur((liveBlur.coerceIn(0f, LiquidCourseCardBlurMax).dp * quality).toPx())
                             lens(
                                 (tokens.lensHeight * quality * if (hasWallpaper) 1f else 0.78f).toPx(),
                                 (tokens.lensAmount * quality * if (hasWallpaper) 1f else 1.35f).toPx(),
@@ -596,7 +595,12 @@ fun CourseGlassCard(
                         shadow = { Shadow(alpha = tokens.shadowAlpha) },
                         innerShadow = { InnerShadow(radius = 5.dp, alpha = tokens.innerShadowAlpha) },
                         onDrawSurface = {
-                            drawRect(glassTint)
+                            val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
+                            drawRect(
+                                baseColor.copy(
+                                    alpha = courseGlassTintAlpha(liveAlpha, quality, hasWallpaper)
+                                )
+                            )
                             drawRect(
                                 Color.White.copy(alpha = if (lightGlass) 0.012f else 0.008f),
                                 blendMode = BlendMode.Screen
@@ -615,7 +619,7 @@ fun CourseGlassCard(
                     shape = { shape },
                     effects = {
                         blur(
-                            ((blurOverride ?: config.courseCardBlur)
+                            ((blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur)
                                 .coerceIn(0f, SimpleCourseCardBlurMax) * quality).dp.toPx()
                         )
                     },
@@ -626,7 +630,7 @@ fun CourseGlassCard(
                         drawRect(
                             baseColor.copy(
                                 alpha = courseSimpleBlurTintAlpha(
-                                    config.cardAlpha,
+                                    previewState?.cardAlpha ?: config.cardAlpha,
                                     quality,
                                     hasWallpaper
                                 )
@@ -638,7 +642,10 @@ fun CourseGlassCard(
             Modifier
                 .matchParentSize()
                 .clip(shape)
-                .background(solidColor.copy(alpha = solidColor.alpha.coerceAtLeast(0.86f)))
+                .drawBehind {
+                    val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
+                    drawRect(baseColor.copy(alpha = liveAlpha.coerceIn(0f, 1f).coerceAtLeast(0.86f)))
+                }
         }
         Box(surfaceModifier)
         content()

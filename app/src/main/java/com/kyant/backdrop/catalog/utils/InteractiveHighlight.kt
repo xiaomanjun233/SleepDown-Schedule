@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 class InteractiveHighlight(
     val animationScope: CoroutineScope,
     val position: (size: Size, offset: Offset) -> Offset = { _, offset -> offset },
+    val radius: (size: Size) -> Float = { size -> size.minDimension * 1.5f },
     val acceptsGesture: (size: Size, offset: Offset) -> Boolean = { _, _ -> true }
 ) {
 
@@ -38,6 +39,7 @@ class InteractiveHighlight(
         Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
 
     private var startPosition = Offset.Zero
+    private var inputGeneration = 0L
     val pressProgress: Float get() = pressProgressAnimation.value
     val offset: Offset get() = positionAnimation.value - startPosition
 
@@ -73,7 +75,7 @@ half4 main(float2 coord) {
                         val position = position(size, positionAnimation.value)
                         setFloatUniform("size", size.width, size.height)
                         setColorUniform("color", Color.White.copy(0.15f * progress).toArgb())
-                        setFloatUniform("radius", size.minDimension * 1.5f)
+                        setFloatUniform("radius", radius(size))
                         setFloatUniform(
                             "position",
                             position.x.fastCoerceIn(0f, size.width),
@@ -95,8 +97,11 @@ half4 main(float2 coord) {
             drawContent()
         }
 
-    private fun settle() {
+    private fun settle(generation: Long = inputGeneration) {
         animationScope.launch {
+            // Release work is intentionally asynchronous so the spring can finish after UP. A
+            // newer DOWN must invalidate this queued release before it can cancel the new press.
+            if (generation != inputGeneration) return@launch
             launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
             launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
         }
@@ -105,40 +110,49 @@ half4 main(float2 coord) {
     val gestureModifier: Modifier =
         Modifier.pointerInput(animationScope) {
             var gestureAccepted = false
+            var gestureGeneration = inputGeneration
             try {
                 inspectDragGestures(
                     onDragStart = { down ->
+                        gestureGeneration = ++inputGeneration
                         gestureAccepted = acceptsGesture(
                             Size(size.width.toFloat(), size.height.toFloat()),
                             down.position
                         )
                         if (!gestureAccepted) {
-                            settle()
+                            settle(gestureGeneration)
                             return@inspectDragGestures
                         }
                         startPosition = down.position
                         animationScope.launch {
+                            if (gestureGeneration != inputGeneration) return@launch
                             launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
                             launch { positionAnimation.snapTo(startPosition) }
                         }
                     },
                     onDragEnd = {
-                        if (gestureAccepted) settle()
+                        if (gestureAccepted) settle(gestureGeneration)
                         gestureAccepted = false
                     },
                     onDragCancel = {
-                        if (gestureAccepted) settle()
+                        if (gestureAccepted) settle(gestureGeneration)
                         gestureAccepted = false
                     }
                 ) { change, _ ->
                     if (gestureAccepted) {
-                        animationScope.launch { positionAnimation.snapTo(change.position) }
+                        val updateGeneration = gestureGeneration
+                        animationScope.launch {
+                            if (updateGeneration == inputGeneration) {
+                                positionAnimation.snapTo(change.position)
+                            }
+                        }
                     }
                 }
             } finally {
                 // Window focus changes can cancel pointer input without delivering an up/cancel.
                 // Always settle so a resumed LiquidButton cannot keep a stale translation/scale.
-                settle()
+                val cancellationGeneration = ++inputGeneration
+                settle(cancellationGeneration)
             }
         }
 }

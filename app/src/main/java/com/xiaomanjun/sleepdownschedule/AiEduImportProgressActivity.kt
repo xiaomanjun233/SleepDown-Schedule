@@ -36,8 +36,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -218,6 +219,20 @@ internal fun AiEduImportProgressPage(
     val runtimePickerState = rememberAiRuntimePickerState()
     var historySourceHidden by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val density = LocalDensity.current
+    val view = LocalView.current
+    val displayHeightPx = remember(view) { view.resources.displayMetrics.heightPixels }
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    val navigationBottomPx = WindowInsets.navigationBars.getBottom(density)
+    val insetTolerancePx = with(density) { 24.dp.roundToPx() }
+    val windowAlreadyResizedForIme = imeBottomPx > 0 &&
+        rootSize.height > 0 &&
+        rootSize.height + imeBottomPx <= displayHeightPx + insetTolerancePx
+    val composerBottomInsetPx = when {
+        imeBottomPx <= 0 -> navigationBottomPx
+        windowAlreadyResizedForIme -> 0
+        else -> imeBottomPx
+    }
     val conversationScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -405,7 +420,7 @@ internal fun AiEduImportProgressPage(
                         (current.pageText.isNotBlank() || current.screenshotPreviews.isNotEmpty()),
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .imePadding()
+                        .padding(bottom = with(density) { composerBottomInsetPx.toDp() })
                         .onSizeChanged { composerHeightPx = it.height },
                     onValueChange = { conversationInput = it.take(600) },
                     onSend = send@{
@@ -1051,7 +1066,8 @@ private fun AiEduAttachmentMorphOverlay(
         maximumArcPx = with(density) { 46.dp.toPx() },
         targetCornerRadiusPx = screenCornerRadiusPx
     )
-    val renderedCornerRadiusPx = geometry.cornerRadiusPx
+    val fullyOpen = !closing && progress.value >= 0.999f
+    val renderedCornerRadiusPx = if (fullyOpen) 0f else geometry.cornerRadiusPx
     val sourceBlurPx = with(density) { 5.dp.toPx() } * homeMorphSmoothStep(
         0f,
         0.34f,
@@ -1125,9 +1141,13 @@ private fun AiEduAttachmentMorphOverlay(
                 with(density) { geometry.rect.height.toDp() }
             )
              .graphicsLayer {
-                 clip = true
+                 clip = !fullyOpen
                  shape = RoundedCornerShape(with(density) { renderedCornerRadiusPx.toDp() })
-                 compositingStrategy = CompositingStrategy.Offscreen
+                 compositingStrategy = if (fullyOpen) {
+                     CompositingStrategy.Auto
+                 } else {
+                     CompositingStrategy.Offscreen
+                 }
              }
             .clickable(enabled = false) {}
     ) {
@@ -1296,7 +1316,6 @@ private fun AiEduConversationComposer(
         config = config,
         modifier = modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
             .padding(horizontal = 14.dp, vertical = 10.dp),
         shape = if (attachmentVisible) RoundedCornerShape(26.dp) else RoundedCornerShape(50),
         accent = Color(0xFF8E8E93)

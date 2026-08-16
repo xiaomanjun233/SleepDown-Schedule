@@ -44,6 +44,8 @@ import top.yukonga.miuix.kmp.squircle.squircleClip
 
 private const val HomeChromeBlurSliderAnchor = 0.5f
 private const val HomeChromeBlurSliderSnapThreshold = 0.025f
+private const val HomeChromeBlurSliderMaximum = 4f
+private const val HomeChromeBlurUpperMidpoint = 2f
 
 private fun anchoredHomeChromeBlurScale(value: Float): Float {
     val safe = normalizedHomeChromeBlurScale(value)
@@ -55,8 +57,9 @@ private fun anchoredHomeChromeBlurScale(value: Float): Float {
 }
 
 /**
- * Keeps every component's original blur at the visual midpoint while giving both sides a wider
- * perceptual range: the left half reaches 0x more quickly and the right half reaches 8x.
+ * Keeps the existing visual midpoint and track proportions untouched. Only the value mapping is
+ * segmented: 0%..50% = 0x..1x, 50%..75% = 1x..2x, 75%..100% = 2x..4x. The inverse below keeps
+ * persisted values and the thumb position mutually stable.
  */
 private fun homeChromeBlurScaleFromSlider(position: Float): Float {
     val safe = position.coerceIn(0f, 1f)
@@ -64,8 +67,14 @@ private fun homeChromeBlurScaleFromSlider(position: Float): Float {
         (safe / HomeChromeBlurSliderAnchor).pow(2.4f)
     } else {
         val progress = (safe - HomeChromeBlurSliderAnchor) / (1f - HomeChromeBlurSliderAnchor)
-        DefaultHomeChromeBlurScale +
-            (MaxHomeChromeBlurScale - DefaultHomeChromeBlurScale) * progress
+        if (progress <= 0.5f) {
+            DefaultHomeChromeBlurScale +
+                (HomeChromeBlurUpperMidpoint - DefaultHomeChromeBlurScale) * (progress / 0.5f)
+        } else {
+            HomeChromeBlurUpperMidpoint +
+                (HomeChromeBlurSliderMaximum - HomeChromeBlurUpperMidpoint) *
+                ((progress - 0.5f) / 0.5f)
+        }
     }
 }
 
@@ -74,8 +83,13 @@ private fun homeChromeBlurSliderFromScale(scale: Float): Float {
     return if (safe <= DefaultHomeChromeBlurScale) {
         HomeChromeBlurSliderAnchor * safe.pow(1f / 2.4f)
     } else {
-        val progress = ((safe - DefaultHomeChromeBlurScale) /
-            (MaxHomeChromeBlurScale - DefaultHomeChromeBlurScale)).coerceIn(0f, 1f)
+        val progress = if (safe <= HomeChromeBlurUpperMidpoint) {
+            0.5f * ((safe - DefaultHomeChromeBlurScale) /
+                (HomeChromeBlurUpperMidpoint - DefaultHomeChromeBlurScale)).coerceIn(0f, 1f)
+        } else {
+            0.5f + 0.5f * ((safe - HomeChromeBlurUpperMidpoint) /
+                (HomeChromeBlurSliderMaximum - HomeChromeBlurUpperMidpoint)).coerceIn(0f, 1f)
+        }
         HomeChromeBlurSliderAnchor +
             (1f - HomeChromeBlurSliderAnchor) * progress
     }

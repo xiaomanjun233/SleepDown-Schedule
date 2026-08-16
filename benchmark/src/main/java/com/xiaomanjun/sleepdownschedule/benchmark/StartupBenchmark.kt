@@ -28,4 +28,4 @@ class StartupBenchmark {
     }
 }
 
-internal const val PACKAGE_NAME = "com.xiaomanjun.sleepdownschedule"
+internal const val PACKAGE_NAME = "com.xiaomanjun.sleepdownschedule.benchmark"

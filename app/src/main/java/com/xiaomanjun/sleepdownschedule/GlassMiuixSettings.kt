@@ -268,7 +268,7 @@ internal fun GlassMiuixDetailActivityScaffold(
                                                 backdrop = contentBackdrop,
                                                 config = pageConfig,
                                                 onClick = onBack,
-                                                modifier = Modifier.size(38.dp)
+                                                modifier = Modifier.size(42.dp)
                                             )
                                         }
                                     )

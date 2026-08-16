@@ -151,9 +151,9 @@
   .overview-card .card-copy > p:last-child { margin-top: 16px; color: var(--muted); font-size: 15px; line-height: 1.65; }
   .overview-glass { min-height: 380px; background: radial-gradient(circle at 78% 16%, #bce9ff 0, transparent 34%), radial-gradient(circle at 8% 88%, #dff7ef 0, transparent 38%), linear-gradient(145deg, #f7fbff, #dfeeff); }
   .overview-glass::after, .overview-import::after, .overview-agent::after { content: ""; position: absolute; z-index: 0; inset: -14%; background-position: center; background-size: cover; filter: blur(42px) saturate(1.18); opacity: .24; transform: scale(1.05); }
-  .overview-glass::after { background-image: url("assets/screens/phone-day-courses.jpg"); }
+  .overview-glass::after { background-image: url("assets/screens/phone-day-courses.webp"); }
   .overview-import::after { background-image: url("assets/screens/phone-import.png"); }
-  .overview-agent::after { background-image: url("assets/screens/phone-assistant-chat.jpg"); }
+  .overview-agent::after { background-image: url("assets/screens/phone-assistant-chat.webp"); }
   .overview-glass::before { content: ""; position: absolute; z-index: 2; inset: 0; background: linear-gradient(90deg, #f7fbffe3 0%, #f7fbffad 38%, #f7fbff45 56%, transparent 72%); }
   .overview-glass .overview-shot { z-index: 1; inset: 0 0 auto auto; width: 60%; max-width: none; height: auto; min-height: 100%; aspect-ratio: auto; object-fit: cover; object-position: center top; border: 0; border-radius: 0; box-shadow: none; -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 27%); mask-image: linear-gradient(90deg, transparent 0%, #000 27%); }
   .overview-glass .card-copy { max-width: 48%; }
@@ -179,9 +179,9 @@
   .chapter-import, .chapter-appearance, .chapter-more { background: white; }
   .wide-showcase { position: relative; width: min(1120px, 100%); min-height: 0; margin: auto; display: block; overflow: visible; border-radius: 0; background: transparent; }
   .wide-showcase::after, .split-feature::after, .assistant-showcase::after, .appearance-main::after { content: ""; position: absolute; z-index: 0; inset: -14%; background-position: center; background-size: cover; filter: blur(46px) saturate(1.15); opacity: .22; transform: scale(1.06); }
-  .wide-showcase::after { display: none; background-image: url("assets/screens/phone-hero-week.png"); }
+  .wide-showcase::after { display: none; background-image: url("assets/screens/phone-hero-week.webp"); }
   .split-feature::after { background-image: url("assets/screens/phone-import.png"); }
-  .assistant-showcase::after { background-image: url("assets/screens/phone-assistant-chat.jpg"); }
+  .assistant-showcase::after { background-image: url("assets/screens/phone-assistant-chat.webp"); }
   .appearance-main::after { background-image: url("assets/screens/phone-personalization.png"); }
   .wide-showcase::before, .split-feature::before, .assistant-showcase::before, .appearance-main::before { content: ""; position: absolute; z-index: 3; inset: 0; background: linear-gradient(90deg, #edf7ffe3 0%, #edf7ffb8 43%, #edf7ff4d 63%, transparent 78%); pointer-events: none; }
   .wide-showcase::before { display: none; background: none; }
@@ -558,9 +558,9 @@
   .overview-glass .overview-media { background: linear-gradient(145deg, #dceeff, #eff8ff); }
   .overview-import .overview-media { background: linear-gradient(145deg, #eef8ff, #dcecff); }
   .overview-agent .overview-media { background: linear-gradient(145deg, #eaf6ff, #d8e9fa); }
-  .overview-glass .overview-media::before { background-image: url("assets/screens/phone-day-courses.jpg"); }
+  .overview-glass .overview-media::before { background-image: url("assets/screens/phone-day-courses.webp"); }
   .overview-import .overview-media::before { background-image: url("assets/screens/phone-import.png"); }
-  .overview-agent .overview-media::before { background-image: url("assets/screens/phone-assistant-chat.jpg"); }
+  .overview-agent .overview-media::before { background-image: url("assets/screens/phone-assistant-chat.webp"); }
   .overview-glass .overview-shot, .overview-import .overview-shot, .overview-agent .overview-shot {
     position: absolute;
     z-index: 1;
@@ -594,7 +594,7 @@
   .import-manual-media::before { background-image: url("assets/screens/import-manual.jpg"); }
   .import-ai-media::before { background-image: url("assets/screens/import-ai-edu.jpg"); }
   .import-school-media::before { background-image: url("assets/screens/import-school.jpg"); }
-  .assistant-prompt-media::before { background-image: url("assets/screens/phone-day-courses.jpg"); }
+  .assistant-prompt-media::before { background-image: url("assets/screens/phone-day-courses.webp"); }
   .assistant-query-media::before { background-image: url("assets/screens/assistant-query.jpg"); }
   .assistant-action-media::before { background-image: url("assets/screens/assistant-action.jpg"); }
   .import-card-media img, .assistant-card-media img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
@@ -694,7 +694,7 @@
   .import-shot { background: linear-gradient(145deg, #eaf6ff, #d9eafb); }
   .import-shot::before { background-image: url("assets/screens/phone-import.png"); }
   .assistant-shot { background: linear-gradient(145deg, #e8f5ff, #d6e8fa); }
-  .assistant-shot::before { background-image: url("assets/screens/phone-assistant-chat.jpg"); }
+  .assistant-shot::before { background-image: url("assets/screens/phone-assistant-chat.webp"); }
   .feature-shot .screen-fallback { display: none; }
   .feature-shot img {
     position: absolute;
