@@ -216,6 +216,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -335,12 +338,26 @@ private fun regionTextShadow(
     textColor: ComposeColor,
     current: HomeReadabilityShadow
 ): HomeReadabilityShadow {
-    if (bounds.width <= 0f || bounds.height <= 0f) return HomeReadabilityShadow.None
-    val bitmap = context.bitmap ?: return HomeReadabilityShadow.None
-    val config = context.config ?: return HomeReadabilityShadow.None
+    val visibleLuminance = sampleVisibleWallpaperLuminance(context, bounds)
+        ?: return HomeReadabilityShadow.None
+    // Symmetric adaptive contrast: light text receives a dark shadow on bright wallpaper, while
+    // dark text receives a very soft white shadow only over locally dark wallpaper. Hysteresis in
+    // both directions prevents labels from toggling during fractional pager/list motion.
+    return homeReadabilityShadowForLuminance(textColor.luminance(), visibleLuminance, current)
+}
+
+private fun sampleVisibleWallpaperLuminance(
+    context: HomeReadabilityContext,
+    bounds: Rect,
+    columns: Int = 5,
+    rows: Int = 3
+): Float? {
+    if (bounds.width <= 0f || bounds.height <= 0f) return null
+    val bitmap = context.bitmap ?: return null
+    val config = context.config ?: return null
     val root = context.rootSize
     if (root.width <= 0 || root.height <= 0 || bitmap.width <= 0 || bitmap.height <= 0) {
-        return HomeReadabilityShadow.None
+        return null
     }
     val useSavedCrop = !config.wallpaperUri.isNullOrBlank()
     val cropState = if (useSavedCrop) {
@@ -356,13 +373,13 @@ private fun regionTextShadow(
         containerHeight = root.height.toFloat(),
         cropState = cropState
     )
-    if (drawn.width <= 0f || drawn.height <= 0f) return HomeReadabilityShadow.None
+    if (drawn.width <= 0f || drawn.height <= 0f) return null
     var weightedLuminance = 0f
     var samples = 0
-    for (row in 0 until 3) {
-        for (column in 0 until 5) {
-            val rootX = bounds.left + bounds.width * ((column + 0.5f) / 5f)
-            val rootY = bounds.top + bounds.height * ((row + 0.5f) / 3f)
+    for (row in 0 until rows) {
+        for (column in 0 until columns) {
+            val rootX = bounds.left + bounds.width * ((column + 0.5f) / columns)
+            val rootY = bounds.top + bounds.height * ((row + 0.5f) / rows)
             val x = (((rootX - drawn.left) / drawn.width) * bitmap.width)
                 .roundToInt().coerceIn(0, bitmap.width - 1)
             val y = (((rootY - drawn.top) / drawn.height) * bitmap.height)
@@ -374,11 +391,26 @@ private fun regionTextShadow(
         }
     }
     val dim = (1f - config.wallpaperBrightness.coerceIn(0.35f, 1f)).coerceIn(0f, 0.65f)
-    val visibleLuminance = weightedLuminance / samples.coerceAtLeast(1) * (1f - dim)
-    // Symmetric adaptive contrast: light text receives a dark shadow on bright wallpaper, while
-    // dark text receives a very soft white shadow only over locally dark wallpaper. Hysteresis in
-    // both directions prevents labels from toggling during fractional pager/list motion.
-    return homeReadabilityShadowForLuminance(textColor.luminance(), visibleLuminance, current)
+    return weightedLuminance / samples.coerceAtLeast(1) * (1f - dim)
+}
+
+internal fun homeStatusBarWallpaperLuminance(context: HomeReadabilityContext): Float? {
+    val root = context.rootSize
+    if (root.width <= 0 || root.height <= 0) return null
+    // Status-bar appearance is global, so sample both icon clusters across the complete top strip.
+    // The crop mapping is shared with HomeReadableText and therefore follows the visible wallpaper,
+    // including a user-saved portrait/landscape crop rather than the uncropped source bitmap.
+    return sampleVisibleWallpaperLuminance(
+        context = context,
+        bounds = Rect(
+            left = 0f,
+            top = 0f,
+            right = root.width.toFloat(),
+            bottom = (root.height * 0.06f).coerceAtLeast(1f)
+        ),
+        columns = 9,
+        rows = 3
+    )
 }
 
 @Composable
@@ -456,13 +488,17 @@ fun HomeDateTitle(
     val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
-            .padding(top = 2.dp)
+            .height(42.dp)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onReturnCurrent),
-        verticalArrangement = Arrangement.spacedBy((-6).dp)
+        verticalArrangement = Arrangement.Center
     ) {
         HomeReadableText(
             "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}",
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = 21.sp,
+                lineHeight = 23.sp
+            ),
+            fontWeight = FontWeight.Bold,
             color = color,
             maxLines = 1,
             softWrap = false,
@@ -475,8 +511,12 @@ fun HomeDateTitle(
                 showReturnToCurrentWeekHint -> "点击此处回到本周"
                 else -> "第${displayWeek}周"
             },
-            style = MaterialTheme.typography.labelMedium,
-            color = color.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontSize = 14.sp,
+                lineHeight = 16.sp
+            ),
+            fontWeight = FontWeight.Medium,
+            color = color.copy(alpha = 0.68f),
             maxLines = 1,
             softWrap = false
         )
@@ -588,6 +628,8 @@ fun HomeModePill(backdrop: Backdrop?, config: ScheduleConfigEntity, iconRes: Int
 internal fun HomeScreen(
     state: AppState,
     agentState: AppState = state,
+    personalizationPreviewState: PersonalizationPreviewState,
+    personalizeVisible: Boolean,
     mode: HomeMode,
     adaptiveMetrics: HomeAdaptiveMetrics,
     weekCardHeight: Dp,
@@ -659,7 +701,10 @@ internal fun HomeScreen(
             label = "home-mode"
         ) { targetMode ->
             when (targetMode) {
-                HomeMode.Day -> CompositionLocalProvider(LocalOverscrollFactory provides homeOverscrollFactory) {
+                HomeMode.Day -> CompositionLocalProvider(
+                    LocalOverscrollFactory provides homeOverscrollFactory,
+                    LocalPersonalizationPreview provides personalizationPreviewState
+                ) {
                     DayScheduleScreen(
                         state = state,
                         agentState = agentState,
@@ -681,7 +726,10 @@ internal fun HomeScreen(
                         onAgentAction = onAgentAction
                     )
                 }
-                HomeMode.Week -> CompositionLocalProvider(LocalOverscrollFactory provides homeOverscrollFactory) {
+                HomeMode.Week -> CompositionLocalProvider(
+                    LocalOverscrollFactory provides homeOverscrollFactory,
+                    LocalPersonalizationPreview provides personalizationPreviewState
+                ) {
                     SinglePillWeekScheduleScreen(
                         state = state,
                         displayWeek = displayWeek,
@@ -695,6 +743,7 @@ internal fun HomeScreen(
                         onSwipeWeek = onSwipeWeek,
                         onContentUnderTopBarChange = onContentUnderTopBarChange,
                         weekEditMode = weekEditMode,
+                        personalizeVisible = personalizeVisible,
                         onEnterWeekEditMode = { weekEditMode = true },
                         onUpdateCourseSingleWeek = onUpdateCourseSingleWeek,
                         conflictFocusCourseId = conflictFocusCourseId,
@@ -730,11 +779,12 @@ internal fun HomeScreen(
 }
 
 @Composable
-fun HomeWallpaper(
+internal fun HomeWallpaper(
     config: ScheduleConfigEntity,
     images: HomeWallpaperImages,
     phase: StartupPhase,
-    reduceQuality: Boolean = false
+    reduceQuality: Boolean = false,
+    previewState: PersonalizationPreviewState? = null
 ) {
     val targetBitmap = images.source
     val targetBlurredBitmap = images.blurredSource
@@ -783,11 +833,13 @@ fun HomeWallpaper(
                             source = old,
                             reduced = previousReducedBitmap,
                             blurred = previousBlurredBitmap,
-                            reduceQuality = reduceQuality
+                            reduceQuality = reduceQuality,
+                            transientBlurActive = previewState?.wallpaperBlur != null
                         ),
                         config = config,
                         alpha = 1f - crossfadeAlpha,
-                        useSavedCrop = true
+                        useSavedCrop = true,
+                        previewBlurDp = previewState?.wallpaperBlur
                     )
                 }
                 HomeWallpaperLayer(
@@ -795,11 +847,13 @@ fun HomeWallpaper(
                         source = it,
                         reduced = visibleReducedBitmap,
                         blurred = visibleBlurredBitmap,
-                        reduceQuality = reduceQuality
+                        reduceQuality = reduceQuality,
+                        transientBlurActive = previewState?.wallpaperBlur != null
                     ),
                     config = config,
                     alpha = crossfadeAlpha,
-                    useSavedCrop = true
+                    useSavedCrop = true,
+                    previewBlurDp = previewState?.wallpaperBlur
                 )
             }
         }
@@ -814,11 +868,13 @@ fun HomeWallpaper(
                             source = old,
                             reduced = previousReducedBitmap,
                             blurred = previousBlurredBitmap,
-                            reduceQuality = reduceQuality
+                            reduceQuality = reduceQuality,
+                            transientBlurActive = previewState?.wallpaperBlur != null
                         ),
                         config = config,
                         alpha = 1f - crossfadeAlpha,
-                        useSavedCrop = false
+                        useSavedCrop = false,
+                        previewBlurDp = previewState?.wallpaperBlur
                     )
                 }
                 HomeWallpaperLayer(
@@ -826,11 +882,13 @@ fun HomeWallpaper(
                         source = it,
                         reduced = visibleReducedBitmap,
                         blurred = visibleBlurredBitmap,
-                        reduceQuality = reduceQuality
+                        reduceQuality = reduceQuality,
+                        transientBlurActive = previewState?.wallpaperBlur != null
                     ),
                     config = config,
                     alpha = crossfadeAlpha,
-                    useSavedCrop = false
+                    useSavedCrop = false,
+                    previewBlurDp = previewState?.wallpaperBlur
                 )
             }
         }
@@ -842,8 +900,10 @@ private fun wallpaperBitmapForRender(
     source: Bitmap,
     reduced: Bitmap?,
     blurred: Bitmap?,
-    reduceQuality: Boolean
+    reduceQuality: Boolean,
+    transientBlurActive: Boolean
 ): Bitmap {
+    if (transientBlurActive) return reduced ?: source
     return if (reduceQuality) {
         blurred ?: reduced ?: source
     } else {
@@ -856,14 +916,24 @@ private fun HomeWallpaperLayer(
     bitmap: Bitmap,
     config: ScheduleConfigEntity,
     alpha: Float,
-    useSavedCrop: Boolean
+    useSavedCrop: Boolean,
+    previewBlurDp: Float?
 ) {
+    val density = LocalDensity.current
+    val previewBlurPx = with(density) { (previewBlurDp ?: 0f).dp.toPx() }
     FocusCroppedWallpaper(
         bitmap = bitmap,
         config = config,
         modifier = Modifier
             .fillMaxSize()
-            .graphicsLayer(alpha = alpha),
+            .graphicsLayer {
+                this.alpha = alpha
+                renderEffect = if (previewBlurPx > 0.1f) {
+                    BlurEffect(previewBlurPx, previewBlurPx, TileMode.Decal)
+                } else {
+                    null
+                }
+            },
         useSavedCrop = useSavedCrop
     )
 }
@@ -873,9 +943,52 @@ internal fun ScheduleConfigEntity.hasAnyWallpaper(): Boolean {
 }
 
 @Composable
-internal fun WallpaperToneOverlay(config: ScheduleConfigEntity) {
-    val dim = (1f - config.wallpaperBrightness.coerceIn(0.35f, 1f)).coerceIn(0f, 0.65f)
-    if (dim > 0f) Box(Modifier.fillMaxSize().background(ComposeColor.Black.copy(alpha = dim)))
+internal fun WallpaperToneOverlay(
+    config: ScheduleConfigEntity,
+    previewState: PersonalizationPreviewState? = null
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .drawBehind {
+                val brightness = (previewState?.wallpaperBrightness ?: config.wallpaperBrightness)
+                    .coerceIn(0.35f, 1f)
+                val totalDim = (1f - brightness).coerceIn(0f, 0.65f)
+                val samplingDim = wallpaperGlassSamplingDim(brightness)
+                // The sampling tone is already inside backgroundBackdrop. Apply only the
+                // mathematically exact remainder here so the visible wallpaper still reaches the
+                // user's requested brightness instead of being darkened twice.
+                val dim = if (samplingDim >= 0.999f) {
+                    0f
+                } else {
+                    ((totalDim - samplingDim) / (1f - samplingDim)).coerceIn(0f, 0.65f)
+                }
+                if (dim > 0f) drawRect(ComposeColor.Black.copy(alpha = dim))
+            }
+    )
+}
+
+internal fun wallpaperGlassSamplingDim(brightness: Float): Float {
+    val wallpaperDim = (1f - brightness.coerceIn(0.35f, 1f)).coerceIn(0f, 0.65f)
+    // Quadratic onset keeps glass nearly unchanged for small wallpaper adjustments; the 0.72
+    // gain then keeps even the darkest setting materially brighter than the wallpaper itself.
+    return (wallpaperDim * wallpaperDim * 0.72f).coerceIn(0f, wallpaperDim)
+}
+
+@Composable
+internal fun WallpaperGlassSamplingToneOverlay(
+    config: ScheduleConfigEntity,
+    previewState: PersonalizationPreviewState? = null
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .drawBehind {
+                val brightness = previewState?.wallpaperBrightness ?: config.wallpaperBrightness
+                val dim = wallpaperGlassSamplingDim(brightness)
+                if (dim > 0f) drawRect(ComposeColor.Black.copy(alpha = dim))
+            }
+    )
 }
 
 @Composable

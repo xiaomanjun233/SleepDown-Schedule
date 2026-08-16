@@ -53,6 +53,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTag
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColor
@@ -224,6 +228,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -234,6 +239,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.Velocity
@@ -250,6 +256,7 @@ import org.json.JSONObject
 import com.kyant.backdrop.catalog.components.LiquidBottomTab
 import com.kyant.backdrop.catalog.components.LiquidBottomTabs
 import com.kyant.backdrop.catalog.components.LiquidButton
+import com.kyant.backdrop.catalog.components.LiquidButtonPressSnapshot
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.backdrop.catalog.components.LiquidSlider
 import com.kyant.backdrop.catalog.components.LiquidToggle
@@ -315,6 +322,22 @@ import kotlin.math.roundToInt
 
 private fun performButtonHaptic(view: android.view.View) {
     view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+}
+
+private fun android.view.Window.setStatusBarDarkIcons(darkIcons: Boolean) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        insetsController?.setSystemBarsAppearance(
+            if (darkIcons) WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS else 0,
+            WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        decorView.systemUiVisibility = if (darkIcons) {
+            decorView.systemUiVisibility or android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        } else {
+            decorView.systemUiVisibility and android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+        }
+    }
 }
 
 sealed interface Screen {
@@ -515,6 +538,7 @@ fun CourseScheduleAppUi(
     var personalizationDraftConfig by remember { mutableStateOf<ScheduleConfigEntity?>(null) }
     var personalizationPendingCommitConfig by remember { mutableStateOf<ScheduleConfigEntity?>(null) }
     var personalizationSliderPreviewKey by remember { mutableStateOf<String?>(null) }
+    val personalizationPreviewState = remember { PersonalizationPreviewState() }
     val personalizationPreviewProgress by animateFloatAsState(
         targetValue = if (personalizationSliderPreviewKey != null) 1f else 0f,
         animationSpec = tween(durationMillis = 180, easing = CubicBezierEasing(0.22f, 0f, 0.2f, 1f)),
@@ -610,12 +634,13 @@ fun CourseScheduleAppUi(
     var addButtonBounds by remember { mutableStateOf<Rect?>(null) }
     var personalizeButtonBounds by remember { mutableStateOf<Rect?>(null) }
     var pendingHomeAnchoredOverlay by remember { mutableStateOf<HomeAnchoredOverlayKind?>(null) }
+    var pendingHomeAnchoredSourceScale by remember { mutableFloatStateOf(1f) }
     var showScheduleEntryPill by remember { mutableStateOf(false) }
     val editingCourseId: Long? = courseEditorRequest?.course?.id ?: courseEditorRenderedCourseId
     val activeHomeAnchoredOverlay =
         homeAnchoredOverlayRequest?.kind ?: homeAnchoredMorphState.renderedKind
 
-    fun openHomeAnchoredOverlay(kind: HomeAnchoredOverlayKind) {
+    fun openHomeAnchoredOverlay(kind: HomeAnchoredOverlayKind, sourcePressedScale: Float = 1f) {
         if (homeAnchoredOverlayRequest != null ||
             homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle
         ) return
@@ -625,17 +650,18 @@ fun CourseScheduleAppUi(
         }
         if (bounds == null || bounds.width <= 2f || bounds.height <= 2f) {
             pendingHomeAnchoredOverlay = kind
+            pendingHomeAnchoredSourceScale = sourcePressedScale
             return
         }
         pendingHomeAnchoredOverlay = null
-        homeAnchoredOverlayRequest = HomeAnchoredOverlayRequest(kind, bounds)
+        homeAnchoredOverlayRequest = HomeAnchoredOverlayRequest(kind, bounds, sourcePressedScale)
     }
 
-    fun toggleHomeAnchoredOverlay(kind: HomeAnchoredOverlayKind) {
+    fun toggleHomeAnchoredOverlay(kind: HomeAnchoredOverlayKind, sourcePressedScale: Float = 1f) {
         if (homeAnchoredOverlayRequest?.kind == kind) {
             homeAnchoredOverlayRequest = null
         } else {
-            openHomeAnchoredOverlay(kind)
+            openHomeAnchoredOverlay(kind, sourcePressedScale)
         }
     }
 
@@ -654,7 +680,7 @@ fun CourseScheduleAppUi(
         if (screen !is Screen.Home || homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle) {
             return@LaunchedEffect
         }
-        openHomeAnchoredOverlay(pending)
+        openHomeAnchoredOverlay(pending, pendingHomeAnchoredSourceScale)
     }
     LaunchedEffect(screen) {
         if (screen !is Screen.Home) {
@@ -662,6 +688,7 @@ fun CourseScheduleAppUi(
             homeAnchoredOverlayRequest = null
             personalizationSliderPreviewKey = null
             personalizationDraftConfig = null
+            personalizationPreviewState.clearAll()
         }
         if (screen !is Screen.Config) {
             settingsExitInterceptionRequired = false
@@ -672,6 +699,7 @@ fun CourseScheduleAppUi(
         if (homeAnchoredOverlayRequest?.kind != HomeAnchoredOverlayKind.Personalize) {
             personalizationSliderPreviewKey = null
             personalizationDraftConfig = null
+            personalizationPreviewState.clearAll()
         }
     }
     var homeContentUnderTopBar by remember { mutableStateOf(false) }
@@ -806,12 +834,47 @@ fun CourseScheduleAppUi(
         }
     }
     val wallpaperImages by rememberHomeWallpaperImages(visualState.config)
+    val homeReadabilityContext = remember(
+        wallpaperImages.readabilityBitmap,
+        visualState.config,
+        homeReadabilityRootSize
+    ) {
+        HomeReadabilityContext(
+            bitmap = wallpaperImages.readabilityBitmap,
+            config = visualState.config,
+            rootSize = homeReadabilityRootSize
+        )
+    }
+    val appDarkTheme = appUsesDarkTheme(visualState.config)
+    val statusBarWallpaperLuminance = remember(homeReadabilityContext) {
+        homeStatusBarWallpaperLuminance(homeReadabilityContext)
+    }
+    var homeStatusBarDarkIcons by remember { mutableStateOf(!appDarkTheme) }
+    LaunchedEffect(statusBarWallpaperLuminance, appDarkTheme) {
+        homeStatusBarDarkIcons = statusBarWallpaperLuminance?.let { luminance ->
+            // A small dead band prevents icon polarity from flickering while brightness is dragged.
+            if (homeStatusBarDarkIcons) luminance >= 0.46f else luminance >= 0.56f
+        } ?: !appDarkTheme
+    }
+    LaunchedEffect(screen, homeStatusBarDarkIcons, appDarkTheme, context) {
+        val window = context.findActivity()?.window ?: return@LaunchedEffect
+        window.setStatusBarDarkIcons(
+            darkIcons = if (screen is Screen.Home) homeStatusBarDarkIcons else !appDarkTheme
+        )
+    }
     val expectedWallpaperRenderKey = homeWallpaperRenderKey(
         visualState.config,
         appUsesDarkTheme(visualState.config)
     )
     val wallpaperLoadFinished = !visualState.config.hasAnyWallpaper() ||
         wallpaperImages.renderKey == expectedWallpaperRenderKey
+    LaunchedEffect(wallpaperImages.renderKey, expectedWallpaperRenderKey) {
+        if (wallpaperImages.renderKey == expectedWallpaperRenderKey) {
+            // Keep the cheap GPU blur preview visible until the one final CPU-cached bitmap is
+            // ready, then hand over without exposing the previously committed blur for a frame.
+            personalizationPreviewState.clear(PersonalizeWallpaperBlurSlider)
+        }
+    }
     val latestOnStartupContentReady = rememberUpdatedState(onStartupContentReady)
     var startupContentReported by remember { mutableStateOf(false) }
     val latestVisualState = rememberUpdatedState(visualState)
@@ -881,7 +944,43 @@ fun CourseScheduleAppUi(
     }
     val glassQuality = animatedGlassQuality(startupPhase)
     val adaptiveGlassState = rememberFallbackAdaptiveGlassState(visualState.config)
+    val homeAnchoredMorphIsMoving = homeAnchoredMorphState.phase.isMovingTransition
+    val homeMenuDestinationIsMoving = homeMenuDestinationMotionState.phase.isMovingTransition
+    val homeAnchoredKindLabel = when (homeAnchoredMorphState.renderedKind) {
+        HomeAnchoredOverlayKind.Add -> "AddMenu"
+        HomeAnchoredOverlayKind.Personalize -> "Personalize"
+        null -> "Unknown"
+    }
+    val homeMenuDestinationKindLabel = when (homeMenuDestinationMotionState.kind) {
+        HomeMenuDestinationKind.AddCourse -> "AddCourse"
+        HomeMenuDestinationKind.ManualImport -> "ManualImport"
+        HomeMenuDestinationKind.EduImport -> "EduImport"
+        null -> "Unknown"
+    }
     val startupAnimation = when {
+        personalizationSliderPreviewKey != null -> "PersonalizeSliderDrag"
+        homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle -> when (homeMenuDestinationMotionState.phase) {
+            HomeAnchoredOverlayPhase.Preparing -> "HomeMenuDestinationPrepare:$homeMenuDestinationKindLabel"
+            HomeAnchoredOverlayPhase.Opening -> "HomeMenuDestinationOpen:$homeMenuDestinationKindLabel"
+            HomeAnchoredOverlayPhase.Closing,
+            HomeAnchoredOverlayPhase.Disposing -> "HomeMenuDestinationClose:$homeMenuDestinationKindLabel"
+            HomeAnchoredOverlayPhase.Open -> "Idle"
+            HomeAnchoredOverlayPhase.Idle -> "Idle"
+        }
+        homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle -> when (homeAnchoredMorphState.phase) {
+            HomeAnchoredOverlayPhase.Preparing -> if (homeAnchoredKindLabel == "Personalize") {
+                "PersonalizePrepare"
+            } else "HomeAnchoredPrepare:$homeAnchoredKindLabel"
+            HomeAnchoredOverlayPhase.Opening -> if (homeAnchoredKindLabel == "Personalize") {
+                "PersonalizeOpen"
+            } else "HomeAnchoredOpen:$homeAnchoredKindLabel"
+            HomeAnchoredOverlayPhase.Closing,
+            HomeAnchoredOverlayPhase.Disposing -> if (homeAnchoredKindLabel == "Personalize") {
+                "PersonalizeClose"
+            } else "HomeAnchoredClose:$homeAnchoredKindLabel"
+            HomeAnchoredOverlayPhase.Open -> "Idle"
+            HomeAnchoredOverlayPhase.Idle -> "Idle"
+        }
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing -> "CourseEditorPrepare"
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening -> "CourseEditorOpen"
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing ||
@@ -907,7 +1006,21 @@ fun CourseScheduleAppUi(
     StartupJankStats(
         phase = startupPhase,
         screen = if (screen is Screen.Home) "Home" else if (screen is Screen.Config) "Settings" else "Other",
-        animation = startupAnimation
+        animation = startupAnimation,
+        personalizeMode = if (activeHomeAnchoredOverlay == HomeAnchoredOverlayKind.Personalize) {
+            homeMode.name
+        } else {
+            "Idle"
+        },
+        personalizeSlider = when (personalizationSliderPreviewKey) {
+            PersonalizeWallpaperBlurSlider -> "WallpaperBlur"
+            PersonalizeWallpaperBrightnessSlider -> "WallpaperBrightness"
+            PersonalizeWeekHeightSlider -> "WeekHeight"
+            PersonalizeCardAlphaSlider -> "CardAlpha"
+            PersonalizeCardBlurSlider -> "CardBlur"
+            PersonalizeCardFontSlider -> "CardFont"
+            else -> "Idle"
+        }
     )
     val reduceWallpaperQualityForCourseEditor =
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing ||
@@ -965,7 +1078,7 @@ fun CourseScheduleAppUi(
     val eduMenuDestinationActive =
         homeMenuDestinationRequest?.kind == HomeMenuDestinationKind.EduImport ||
             (homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle &&
-                homeMenuDestinationMotionState.backgroundZoom.value > 1.0001f)
+                homeMenuDestinationMotionState.kind == HomeMenuDestinationKind.EduImport)
     val homeOverlayBackgroundZoom: () -> Float = {
         if (personalizationPreviewProgress > 0.001f) {
             val zoom = homeAnchoredMorphState.backgroundZoom.value
@@ -1467,17 +1580,14 @@ fun CourseScheduleAppUi(
         LocalGlassQuality provides glassQuality,
         LocalStartupEntranceSpec provides startupEntranceSpec,
         LocalAdaptiveGlass provides adaptiveGlassState,
-        LocalHomeReadability provides HomeReadabilityContext(
-            bitmap = wallpaperImages.readabilityBitmap,
-            config = visualState.config,
-            rootSize = homeReadabilityRootSize
-        ),
+        LocalHomeReadability provides homeReadabilityContext,
         LocalCourseCardPalette provides wallpaperImages.representativeColors,
         LocalCourseCardColorAssignments provides homeCourseColorAssignments
     ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .semantics { testTagsAsResourceId = true }
             .background(MaterialTheme.colorScheme.background)
             .onGloballyPositioned {
                 homeReadabilityRootSize = it.size
@@ -1492,11 +1602,16 @@ fun CourseScheduleAppUi(
                 // Never record the course editor into the detail-page capture layer. It contains
                 // several backdrop consumers and recording that entire overlay on every animation
                 // frame causes an explosive offscreen-render workload after the first use.
+                // HomeAnchored/HomeMenuDestination own similarly heavy live backdrop consumers;
+                // pause the root capture only while they move, then refresh it again in Open/Idle.
                 // Keep the detailed-settings source frame live while the quick sheet animates.
                 // Key-based throttling leaves the first launch with a stale, partially composed
                 // sheet snapshot; v1.1.1 deliberately recorded every stable draw here.
                 val shouldRecordStableDetailFrame =
-                    detailMorphState is DetailMorphState.Idle && !courseEditorOwnsFrame
+                    detailMorphState is DetailMorphState.Idle &&
+                        !courseEditorOwnsFrame &&
+                        !homeAnchoredMorphIsMoving &&
+                        !homeMenuDestinationIsMoving
                 if (shouldRecordStableDetailFrame || recordCleanFrame) {
                     detailCaptureMaskActive.set(recordCleanFrame)
                     try {
@@ -1602,9 +1717,11 @@ fun CourseScheduleAppUi(
                             activeHomeOverlay = activeHomeAnchoredOverlay,
                             onAddButtonPositioned = { addButtonBounds = it },
                             onPersonalizeButtonPositioned = { personalizeButtonBounds = it },
-                            onToggleAddMenu = { toggleHomeAnchoredOverlay(HomeAnchoredOverlayKind.Add) },
-                            onTogglePersonalize = {
-                                toggleHomeAnchoredOverlay(HomeAnchoredOverlayKind.Personalize)
+                            onToggleAddMenu = { sourceScale ->
+                                toggleHomeAnchoredOverlay(HomeAnchoredOverlayKind.Add, sourceScale)
+                            },
+                            onTogglePersonalize = { sourceScale ->
+                                toggleHomeAnchoredOverlay(HomeAnchoredOverlayKind.Personalize, sourceScale)
                             },
                             onBackHome = { screen = Screen.Home }
                         )
@@ -1630,7 +1747,12 @@ fun CourseScheduleAppUi(
                                     visualState.config,
                                     wallpaperImages,
                                     startupPhase,
-                                    reduceQuality = reduceWallpaperQualityForCourseEditor
+                                    reduceQuality = reduceWallpaperQualityForCourseEditor,
+                                    previewState = personalizationPreviewState
+                                )
+                                WallpaperGlassSamplingToneOverlay(
+                                    visualState.config,
+                                    personalizationPreviewState
                                 )
                             } else {
                                 HomeBackdropFallback()
@@ -1654,7 +1776,7 @@ fun CourseScheduleAppUi(
                     visualState.config.hasAnyWallpaper() &&
                     wallpaperImages.source != null
                 ) {
-                    WallpaperToneOverlay(visualState.config)
+                    WallpaperToneOverlay(visualState.config, personalizationPreviewState)
                 }
                 val contentModifier = Modifier
                     .fillMaxSize()
@@ -1669,6 +1791,9 @@ fun CourseScheduleAppUi(
                                  HomeScreen(
                                      state = visualState,
                                      agentState = state,
+                                    personalizationPreviewState = personalizationPreviewState,
+                                    personalizeVisible = activeHomeAnchoredOverlay ==
+                                        HomeAnchoredOverlayKind.Personalize,
                                     mode = homeMode,
                                     adaptiveMetrics = homeAdaptiveMetrics,
                                     weekCardHeight = weekCardHeight.dp,
@@ -2046,6 +2171,8 @@ fun CourseScheduleAppUi(
         backdrop = homeAnchoredOverlayBackdrop,
         config = state.config,
         addActions = homeAddActions,
+        homeMode = homeMode,
+        onHomeModeChange = { homeMode = it },
         adaptiveMetrics = homeAdaptiveMetrics,
         modifier = Modifier
             .zIndex(24f)
@@ -2054,33 +2181,26 @@ fun CourseScheduleAppUi(
         onAddMenuBoundsChanged = { homeAddMenuBoundsInRoot = it },
         personalizePreviewProgress = personalizationPreviewProgress,
         sourceContent = { kind, sourceModifier ->
-            when (kind) {
-                HomeAnchoredOverlayKind.Add -> HomeIconButtonVisual(
-                    backdrop = homeAnchoredOverlayBackdrop,
-                    config = state.config,
-                    iconRes = R.drawable.ic_add_course,
-                    contentDescription = "添加",
-                    accentColor = if (glassUsesLightStyle(state.config)) {
-                        HomeLightGlassAccentColor
-                    } else {
-                        ComposeColor(0xFF0A84FF)
-                    },
-                    modifier = sourceModifier,
-                    isInteractive = false
-                )
-                HomeAnchoredOverlayKind.Personalize -> HomeIconButtonVisual(
-                    backdrop = homeAnchoredOverlayBackdrop,
-                    config = state.config,
-                    iconRes = R.drawable.ic_tune,
-                    contentDescription = "个性化",
-                    modifier = sourceModifier,
-                    isInteractive = false
-                )
-            }
+            HomeIconButtonVisual(
+                backdrop = homeAnchoredOverlayBackdrop,
+                config = state.config,
+                iconRes = if (kind == HomeAnchoredOverlayKind.Personalize) {
+                    R.drawable.ic_edit
+                } else {
+                    R.drawable.ic_more_horizontal
+                },
+                contentDescription = if (kind == HomeAnchoredOverlayKind.Personalize) {
+                    "benchmark_personalize_button"
+                } else {
+                    "添加菜单"
+                },
+                modifier = sourceModifier,
+                isInteractive = false
+            )
         },
         personalizeContent = { panelModifier ->
             PersonalizePanel(
-                modifier = panelModifier,
+                modifier = panelModifier.semantics { testTag = "benchmark_personalize_panel" },
                 drawSurface = false,
                 state = visualState,
                 backdrop = homeAnchoredOverlayBackdrop,
@@ -2101,11 +2221,6 @@ fun CourseScheduleAppUi(
                 onWeekCardHeightPreview = {
                     val safeHeight = it.coerceIn(38f, 80f)
                     weekCardHeight = safeHeight
-                    personalizationDraftConfig = mergePersonalizationCandidate(
-                        current = personalizationDraftConfig ?: visualState.config,
-                        candidate = visualState.config.copy(weekCardHeightDp = safeHeight),
-                        changeKey = PersonalizeWeekHeightSlider
-                    )
                 },
                 onPickWallpaper = {
                     wallpaperLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -2119,14 +2234,13 @@ fun CourseScheduleAppUi(
                     )
                     personalizationDraftConfig = merged
                     personalizationPendingCommitConfig = merged
+                    if (changeKey != PersonalizeWallpaperBlurSlider) {
+                        personalizationPreviewState.clear(changeKey)
+                    }
                     viewModel.savePersonalization(merged)
                 },
                 onPreviewConfig = { sliderKey, candidate ->
-                    personalizationDraftConfig = mergePersonalizationCandidate(
-                        current = personalizationDraftConfig ?: visualState.config,
-                        candidate = candidate,
-                        changeKey = sliderKey
-                    )
+                    personalizationPreviewState.update(sliderKey, candidate)
                 },
                 previewSliderKey = personalizationSliderPreviewKey,
                 previewProgress = personalizationPreviewProgress,
@@ -2147,6 +2261,7 @@ fun CourseScheduleAppUi(
         state = state,
         backdrop = homeMenuDestinationBackdrop,
         adaptiveMetrics = homeAdaptiveMetrics,
+        homeMode = homeMode,
         modifier = Modifier.zIndex(90f),
         onDismissRequest = ::closeHomeMenuDestination,
         sourceActions = homeAddActions,
@@ -3022,7 +3137,7 @@ fun DetailTopBar(
                         modifier = Modifier
                             .align(Alignment.CenterStart)
                             .padding(start = backButtonStartPadding)
-                            .size(38.dp)
+                            .size(42.dp)
                     )
                 }
                 Text(
@@ -3061,7 +3176,7 @@ fun DetailTopBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showBackButton) {
-                TopBackButton(backdrop = backdrop, config = config, onClick = onBack, modifier = Modifier.size(38.dp))
+                TopBackButton(backdrop = backdrop, config = config, onClick = onBack, modifier = Modifier.size(42.dp))
             }
             Box(
                 modifier = Modifier
@@ -3147,13 +3262,12 @@ internal fun AppTopBar(
     activeHomeOverlay: HomeAnchoredOverlayKind?,
     onAddButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
     onPersonalizeButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
-    onToggleAddMenu: () -> Unit,
-    onTogglePersonalize: () -> Unit,
+    onToggleAddMenu: (Float) -> Unit,
+    onTogglePersonalize: (Float) -> Unit,
     onBackHome: () -> Unit
 ) {
     val adaptiveTopBarColor = LocalAdaptiveGlass.current.contentColor
     val homeTextColor = adaptiveTopBarColor
-    val view = LocalView.current
     TopAppBar(
         modifier = Modifier.statusBarsPadding().height(66.dp),
         colors = TopAppBarDefaults.topAppBarColors(
@@ -3214,7 +3328,7 @@ internal fun AppTopBar(
                     backdrop = backdrop,
                     config = state.config,
                     onClick = onBackHome,
-                    modifier = Modifier.padding(start = 16.dp).size(38.dp)
+                    modifier = Modifier.padding(start = 16.dp).size(42.dp)
                 )
             }
         },
@@ -3225,37 +3339,25 @@ internal fun AppTopBar(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     HomeIconButton(
-                        backdrop,
-                        state.config,
-                        R.drawable.ic_tune,
-                        "个性化",
-                        selected = activeHomeOverlay == HomeAnchoredOverlayKind.Personalize,
+                        backdrop = backdrop,
+                        config = state.config,
+                        iconRes = R.drawable.ic_edit,
+                        contentDescription = "benchmark_personalize_button",
+                        selected = false,
                         visible = activeHomeOverlay != HomeAnchoredOverlayKind.Personalize,
-                        onClick = {
-                            performButtonHaptic(view)
-                            onTogglePersonalize()
-                        },
+                        onClick = onTogglePersonalize,
                         onButtonPositioned = onPersonalizeButtonPositioned
                     )
                     HomeIconButton(
                         backdrop = backdrop,
                         config = state.config,
-                        iconRes = R.drawable.ic_add_course,
-                        contentDescription = "添加",
-                        selected = activeHomeOverlay == HomeAnchoredOverlayKind.Add,
-                        accentColor = if (glassUsesLightStyle(state.config)) {
-                            HomeLightGlassAccentColor
-                        } else {
-                            ComposeColor(0xFF0A84FF)
-                        },
+                        iconRes = R.drawable.ic_more_horizontal,
+                        contentDescription = "添加菜单",
+                        selected = false,
                         visible = activeHomeOverlay != HomeAnchoredOverlayKind.Add,
-                        onClick = {
-                            performButtonHaptic(view)
-                            onToggleAddMenu()
-                        },
+                        onClick = onToggleAddMenu,
                         onButtonPositioned = onAddButtonPositioned
                     )
-                    HomeModeSwitch(backdrop, state.config, homeMode, onHomeModeChange)
                 }
             }
         }
@@ -3296,7 +3398,7 @@ fun TopBackButton(backdrop: Backdrop?, config: ScheduleConfigEntity, onClick: ()
         contentDescription = "返回",
         onClick = onClick,
         modifier = modifier,
-        buttonHeight = 38.dp
+        buttonHeight = 42.dp
     )
 }
 
@@ -3349,6 +3451,129 @@ fun TopGlassIconButton(
 }
 
 @Composable
+private fun HomeActionCapsule(
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    homeMode: HomeMode,
+    visible: Boolean,
+    onPersonalize: (Float) -> Unit,
+    onMore: (Float) -> Unit,
+    onCapsulePositioned: (androidx.compose.ui.geometry.Rect) -> Unit
+) {
+    val view = LocalView.current
+    val pressSnapshot = remember { LiquidButtonPressSnapshot() }
+    fun capturedScale(): Float = 1f + (3f / 42f) * pressSnapshot.progress.coerceIn(0f, 1f)
+    Box(
+        modifier = Modifier
+            // Keep the visual right edge on the same inset as the Today Agent surface. Width
+            // changes therefore trim only the leading side instead of shifting the shared edge.
+            .padding(end = if (homeMode == HomeMode.Week) 4.dp else 7.dp)
+            .size(width = 100.dp, height = 42.dp)
+            .onGloballyPositioned { onCapsulePositioned(it.boundsInRoot()) }
+            .graphicsLayer { alpha = if (visible) 1f else 0f }
+    ) {
+        HomeActionCapsuleVisual(
+            backdrop = backdrop,
+            config = config,
+            modifier = Modifier.fillMaxSize(),
+            isInteractive = visible,
+            pressSnapshot = pressSnapshot,
+            onPersonalize = {
+                performButtonHaptic(view)
+                onPersonalize(capturedScale())
+            },
+            onMore = {
+                performButtonHaptic(view)
+                onMore(capturedScale())
+            }
+        )
+    }
+}
+
+@Composable
+internal fun HomeActionCapsuleVisual(
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    modifier: Modifier = Modifier,
+    isInteractive: Boolean = true,
+    pressSnapshot: LiquidButtonPressSnapshot? = null,
+    onPersonalize: () -> Unit = {},
+    onMore: () -> Unit = {}
+) {
+    val adaptiveGlass = LocalAdaptiveGlass.current
+    val lightGlass = adaptiveGlass.lightGlass
+    val personalizeInteraction = remember { MutableInteractionSource() }
+    val moreInteraction = remember { MutableInteractionSource() }
+    val interactionModifier: (String, MutableInteractionSource, () -> Unit) -> Modifier =
+        { description, interaction, action ->
+        Modifier
+            .fillMaxHeight()
+            .semantics { contentDescription = description }
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = isInteractive,
+                onClick = action
+            )
+    }
+    val content: @Composable () -> Unit = {
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = interactionModifier(
+                    "benchmark_personalize_button",
+                    personalizeInteraction,
+                    onPersonalize
+                ).let { Modifier.weight(1f).then(it) },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_edit),
+                    contentDescription = null,
+                    modifier = Modifier.size(19.dp),
+                    tint = adaptiveGlass.contentColor
+                )
+            }
+            Box(
+                modifier = interactionModifier("添加菜单", moreInteraction, onMore)
+                    .let { Modifier.weight(1f).then(it) },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_more_horizontal),
+                    contentDescription = null,
+                    modifier = Modifier.size(21.dp),
+                    tint = adaptiveGlass.contentColor
+                )
+            }
+        }
+    }
+    if (backdrop != null) {
+        LiquidButton(
+            onClick = {},
+            backdrop = backdrop,
+            modifier = modifier,
+            isInteractive = isInteractive,
+            clickTargetEnabled = false,
+            height = 42.dp,
+            contentPadding = PaddingValues(0.dp),
+            blurRadius = homeChromeBlur(HomeHeaderGlassBlur, config),
+            lensHeight = HomeHeaderGlassLensHeight,
+            lensAmount = HomeHeaderGlassLensAmount,
+            chromaticAberration = false,
+            shadowEnabled = false,
+            pressExpansion = 3.dp,
+            highlightRadiusMultiplier = 0.9f,
+            pressSnapshot = pressSnapshot,
+            surfaceColor = (
+                if (lightGlass) HomeLightGlassSurfaceColor else ComposeColor(0xFF121212)
+                ).copy(alpha = homeChromeGlassSurfaceAlpha(lightGlass))
+        ) { content() }
+    } else {
+        GlassPill(backdrop = null, config = config, modifier = modifier) { content() }
+    }
+}
+
+@Composable
 fun HomeIconButton(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
@@ -3358,9 +3583,12 @@ fun HomeIconButton(
     modifier: Modifier = Modifier,
     accentColor: ComposeColor = ComposeColor.Unspecified,
     visible: Boolean = true,
-    onClick: () -> Unit,
+    onClick: (Float) -> Unit,
     onButtonPositioned: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null
 ) {
+    val view = LocalView.current
+    val pressSnapshot = remember { LiquidButtonPressSnapshot() }
+    fun capturedScale(): Float = 1f + (3f / 42f) * pressSnapshot.progress.coerceIn(0f, 1f)
     Box(
         modifier = modifier
             .padding(end = 7.dp)
@@ -3383,7 +3611,11 @@ fun HomeIconButton(
             accentColor = accentColor,
             modifier = Modifier.fillMaxSize(),
             isInteractive = visible,
-            onClick = onClick
+            pressSnapshot = pressSnapshot,
+            onClick = {
+                performButtonHaptic(view)
+                onClick(capturedScale())
+            }
         )
     }
 }
@@ -3398,6 +3630,7 @@ internal fun HomeIconButtonVisual(
     selected: Boolean = false,
     accentColor: ComposeColor = ComposeColor.Unspecified,
     isInteractive: Boolean = true,
+    pressSnapshot: LiquidButtonPressSnapshot? = null,
     onClick: () -> Unit = {}
 ) {
     val adaptiveGlass = LocalAdaptiveGlass.current
@@ -3421,7 +3654,9 @@ internal fun HomeIconButtonVisual(
             lensHeight = HomeHeaderGlassLensHeight,
             lensAmount = HomeHeaderGlassLensAmount,
             chromaticAberration = false,
-            shadowEnabled = false
+            shadowEnabled = false,
+            pressExpansion = 3.dp,
+            pressSnapshot = pressSnapshot
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(
@@ -3457,12 +3692,13 @@ data class AddMenuAction(
 fun AddMenuLiquidItem(
     config: ScheduleConfigEntity,
     action: AddMenuAction,
-    highlighted: Boolean,
-    itemHeight: Dp
+    itemHeight: Dp,
+    highlighted: Boolean
 ) {
     val baseText = glassForegroundColor(config)
-    val accentColor = if (glassUsesLightStyle(config)) HomeLightGlassSelectedAccentColor else ComposeColor(0xFF0A84FF)
-    val textColor = if (highlighted) accentColor else baseText
+    val selectedColor = ComposeColor(0xFF8E8E93).copy(
+        alpha = if (glassUsesLightStyle(config)) 0.20f else 0.28f
+    )
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -3472,26 +3708,28 @@ fun AddMenuLiquidItem(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(itemHeight - 6.dp)
-                .clip(RoundedCornerShape(50))
-                .background(if (highlighted) accentColor.copy(alpha = 0.10f) else ComposeColor.Transparent)
-                .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.Center
+                .height(itemHeight - 4.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(if (highlighted) selectedColor else ComposeColor.Transparent)
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.CenterStart
         ) {
             Row(
-                modifier = Modifier.width(150.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Box(Modifier.width(22.dp), contentAlignment = Alignment.Center) {
-                    Icon(painterResource(action.iconRes), contentDescription = null, modifier = Modifier.size(18.dp), tint = textColor)
-                }
-                Spacer(Modifier.width(10.dp))
+                Icon(
+                    painterResource(action.iconRes),
+                    contentDescription = null,
+                    modifier = Modifier.size(21.dp),
+                    tint = baseText
+                )
                 Text(
                     action.label,
-                    modifier = Modifier.width(94.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = textColor,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = baseText,
                     maxLines = 1,
                     softWrap = false,
                     textAlign = TextAlign.Start
@@ -3716,14 +3954,14 @@ private fun DockTabContent(iconRes: Int, label: String, iconSize: Dp) {
     }
 }
 
-private const val PersonalizeWallpaperBlurSlider = "wallpaper-blur"
-private const val PersonalizeWallpaperBrightnessSlider = "wallpaper-brightness"
+internal const val PersonalizeWallpaperBlurSlider = "wallpaper-blur"
+internal const val PersonalizeWallpaperBrightnessSlider = "wallpaper-brightness"
 private const val PersonalizeWallpaperContentChange = "wallpaper-content"
 private const val PersonalizeWeekHeightSlider = "week-height"
 private const val PersonalizeCardColorChange = "card-color"
-private const val PersonalizeCardAlphaSlider = "card-alpha"
-private const val PersonalizeCardBlurSlider = "card-blur"
-private const val PersonalizeCardFontSlider = "card-font"
+internal const val PersonalizeCardAlphaSlider = "card-alpha"
+internal const val PersonalizeCardBlurSlider = "card-blur"
+internal const val PersonalizeCardFontSlider = "card-font"
 private const val PersonalizeCardGlassChange = "card-glass"
 
 internal fun resolveActivePersonalizationSlider(
@@ -3772,9 +4010,15 @@ private fun Modifier.personalizePreviewVisibility(
     activeKey: String?,
     previewProgress: Float,
     ownKey: String? = null
-): Modifier = graphicsLayer {
+): Modifier {
     val selectedSlider = activeKey != null && activeKey == ownKey
-    alpha = if (selectedSlider) 1f else 1f - previewProgress.coerceIn(0f, 1f)
+    val effectiveAlpha = if (selectedSlider) 1f else 1f - previewProgress.coerceIn(0f, 1f)
+    return graphicsLayer { alpha = effectiveAlpha }
+        .drawWithContent {
+            // Alpha alone does not guarantee nested Liquid controls skip backdrop work. Keep the
+            // measured slot intact, but stop their draw traversal once they are truly invisible.
+            if (effectiveAlpha > 0.005f) drawContent()
+        }
 }
 
 @Composable
@@ -3798,6 +4042,7 @@ private fun PersonalizeValueSlider(
     previewProgress: Float,
     onSliderPreviewActiveChange: (String, Boolean) -> Unit,
     snapValue: Float? = null,
+    benchmarkDescription: String? = null,
     onTouchActiveChange: (Boolean) -> Unit = {}
 ) {
     val displayValue = remember(valueRange) { mutableFloatStateOf(value.coerceIn(valueRange)) }
@@ -3821,6 +4066,9 @@ private fun PersonalizeValueSlider(
                 onPreviewValueChange(it)
             },
             snapValue = snapValue,
+            modifier = if (benchmarkDescription == null) Modifier else Modifier.semantics {
+                contentDescription = benchmarkDescription
+            },
             onSliderTouchActiveChange = { active ->
                 onTouchActiveChange(active)
                 onSliderPreviewActiveChange(sliderKey, active)
@@ -3852,6 +4100,7 @@ private fun WallpaperBlurControl(
         previewProgress = previewProgress,
         onSliderPreviewActiveChange = onSliderPreviewActiveChange,
         snapValue = 0f,
+        benchmarkDescription = "benchmark_personalization_blur_slider",
         onTouchActiveChange = onTouchActiveChange
     )
 }
@@ -4806,6 +5055,10 @@ fun LiquidControlSlider(
     enabled: Boolean = true
 ) {
     val haptic = LocalHapticFeedback.current
+    val previewDispatchScope = rememberCoroutineScope()
+    val latestLiveValueChange by rememberUpdatedState(onLiveValueChange)
+    var pendingLiveValue by remember { mutableStateOf<Float?>(null) }
+    var previewDispatchJob by remember { mutableStateOf<Job?>(null) }
     val safeSnapValue = snapValue?.coerceIn(valueRange)
     var localValue by remember(valueRange) { mutableFloatStateOf(value.coerceIn(valueRange)) }
     var previewModeActive by remember(valueRange) { mutableStateOf(false) }
@@ -4828,12 +5081,26 @@ fun LiquidControlSlider(
         snapZoneActive = safeSnapValue != null && nextSide == 0
         if (nextSide != 0) lastSnapSide = nextSide
         localValue = next
-        onLiveValueChange?.invoke(next)
+        pendingLiveValue = next
+        if (previewDispatchJob?.isActive != true) {
+            previewDispatchJob = previewDispatchScope.launch {
+                withFrameNanos { }
+                val latest = pendingLiveValue
+                pendingLiveValue = null
+                previewDispatchJob = null
+                if (latest != null) latestLiveValueChange?.invoke(latest)
+            }
+        }
     }
 
     fun commit(candidate: Float) {
         val finalValue = candidate.coerceIn(valueRange)
-        if (abs(localValue - finalValue) > visibilityThreshold) updatePreview(finalValue)
+        localValue = finalValue
+        previewDispatchJob?.cancel()
+        previewDispatchJob = null
+        pendingLiveValue = null
+        // The exact release value is never delayed behind frame conflation.
+        latestLiveValueChange?.invoke(finalValue)
         onValueChange(finalValue)
     }
 
@@ -4907,25 +5174,26 @@ private fun SliderWithSnapMarker(
     valueRange: ClosedFloatingPointRange<Float>,
     content: @Composable () -> Unit
 ) {
+    val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         content()
         val snap = snapValue ?: return@BoxWithConstraints
         val fraction = ((snap - valueRange.start) /
             (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
-        val trackWidth = maxWidth
-        Box(
+        Canvas(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .fillMaxWidth()
                 .height(36.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .offset(x = ((trackWidth - 20.dp) * fraction) + 7.5.dp)
-                    .size(5.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(ComposeColor.White.copy(alpha = 0.78f))
+            val radius = 2.5.dp.toPx()
+            val visualFraction = if (isLtr) fraction else 1f - fraction
+            val centerX = radius +
+                (size.width - radius * 2f).coerceAtLeast(0f) * visualFraction
+            drawCircle(
+                color = ComposeColor.White.copy(alpha = 0.78f),
+                radius = radius,
+                center = Offset(centerX, size.height / 2f)
             )
         }
     }

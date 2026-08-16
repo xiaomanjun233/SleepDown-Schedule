@@ -17,6 +17,8 @@ internal enum class LauncherAlias(val classSuffix: String) {
     DARK(".LauncherDark")
 }
 
+private const val LauncherAliasNamespace = "com.xiaomanjun.sleepdownschedule"
+
 internal fun resolveLauncherAlias(
     mode: AppIconMode,
     followsSystemDarkMode: Boolean,
@@ -32,7 +34,7 @@ internal fun resolveLauncherAlias(
 }
 
 internal fun launcherAliasClassName(alias: LauncherAlias): String =
-    AppIconManager::class.java.packageName + alias.classSuffix
+    LauncherAliasNamespace + alias.classSuffix
 
 object AppIconManager {
     private const val PreferencesName = "app_icon_preferences"

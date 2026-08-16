@@ -7,7 +7,7 @@ plugins {
 
 @Suppress("UnstableApiUsage")
 android {
-    namespace = "com.xiaomanjun.sleepdownschedule.benchmark"
+    namespace = "com.xiaomanjun.sleepdownschedule.benchmark.test"
     compileSdk {
         version = release(37) {
             minorApiLevel = 0

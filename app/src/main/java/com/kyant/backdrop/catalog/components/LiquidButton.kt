@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
@@ -41,6 +42,12 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.tanh
 
+class LiquidButtonPressSnapshot {
+    @Volatile
+    var progress: Float = 0f
+        internal set
+}
+
 @Composable
 fun LiquidButton(
     onClick: () -> Unit,
@@ -58,15 +65,19 @@ fun LiquidButton(
     shadowEnabled: Boolean = true,
     clickTargetEnabled: Boolean = true,
     pressExpansion: Dp = 4f.dp,
+    highlightRadiusMultiplier: Float = 1.5f,
+    shape: Shape = Capsule(),
+    pressSnapshot: LiquidButtonPressSnapshot? = null,
     interactionEnabledAt: (size: Size, offset: Offset) -> Boolean = { _, _ -> true },
     content: @Composable RowScope.() -> Unit
 ) {
     val animationScope = rememberCoroutineScope()
     val latestInteractionEnabledAt = rememberUpdatedState(interactionEnabledAt)
 
-    val interactiveHighlight = remember(animationScope) {
+    val interactiveHighlight = remember(animationScope, highlightRadiusMultiplier) {
         InteractiveHighlight(
             animationScope = animationScope,
+            radius = { size -> size.minDimension * highlightRadiusMultiplier },
             acceptsGesture = { size, offset ->
                 latestInteractionEnabledAt.value(size, offset)
             }
@@ -77,7 +88,7 @@ fun LiquidButton(
         modifier
             .drawBackdrop(
                 backdrop = backdrop,
-                shape = { Capsule() },
+                shape = { shape },
                 effects = {
                     vibrancy()
                     blur(blurRadius.toPx())
@@ -90,6 +101,7 @@ fun LiquidButton(
                         val height = size.height
 
                         val progress = interactiveHighlight.pressProgress
+                        pressSnapshot?.progress = progress
                         val expansionPx = pressExpansion.toPx()
                         val scale = lerp(1f, 1f + expansionPx / size.height, progress)
 

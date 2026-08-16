@@ -28,6 +28,8 @@ fun LiquidPanel(
     shape: Shape = RoundedRectangle(28.dp),
     surfaceColor: Color = Color.White.copy(alpha = 0.20f),
     blurRadius: Dp = 10.dp,
+    lensHeight: Dp = 24.dp,
+    lensAmount: Dp = 34.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
     Box(
@@ -37,7 +39,7 @@ fun LiquidPanel(
             effects = {
                 vibrancy()
                 blur(blurRadius.toPx())
-                lens(24f.dp.toPx(), 34f.dp.toPx(), chromaticAberration = false)
+                lens(lensHeight.toPx(), lensAmount.toPx(), chromaticAberration = false)
             },
             highlight = { Highlight.Default.copy(alpha = 0.16f) },
             shadow = { Shadow(alpha = 0.18f) },

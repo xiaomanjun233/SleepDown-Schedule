@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.regex.Pattern
 
 plugins {
     id("com.android.application")
@@ -94,7 +95,8 @@ android {
         create("benchmark") {
             initWith(getByName("release"))
             matchingFallbacks += listOf("release")
-            signingConfig = signingConfigs.getByName("debug")
+            applicationIdSuffix = ".benchmark"
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             isDebuggable = false
             isMinifyEnabled = false
             isShrinkResources = false
@@ -118,6 +120,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+}
+
+androidComponents {
+    onVariants(selector().withName(Pattern.compile("(github|store)BenchmarkRelease"))) { variant ->
+        variant.applicationId.set("${variant.applicationId.get()}.benchmark")
+    }
 }
 
 tasks.configureEach {

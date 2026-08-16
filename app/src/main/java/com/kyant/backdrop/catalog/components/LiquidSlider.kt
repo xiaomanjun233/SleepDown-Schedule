@@ -409,11 +409,10 @@ fun LiquidSlider(
                         }
                         val downPosition = down.position
                         var changed = false
-                        var suppressPreview = false
                         var completedNormally = false
                         val holdJob = scope.launch {
                             delay(80L)
-                            if (!suppressPreview && motion.activatePreview(token)) currentPreviewMode(true)
+                            if (motion.activatePreview(token)) currentPreviewMode(true)
                         }
                         try {
                             while (true) {
@@ -426,9 +425,12 @@ fun LiquidSlider(
                                 change.consume()
                                 velocityTracker.addPosition(change.uptimeMillis, change.position)
                                 if (!changed && (change.position - downPosition).getDistance() >= dragThresholdPx) {
-                                    // Movement starts direct tracking immediately, but preview mode is time-gated.
-                                    // A quick swipe can therefore update and commit without hiding the panel.
                                     changed = true
+                                    // A real drag is already an unambiguous preview gesture. Enter preview
+                                    // immediately instead of waiting for the stationary 80ms hold gate, so a
+                                    // quick swipe hides sibling controls just like a deliberate long press.
+                                    holdJob.cancel()
+                                    if (motion.activatePreview(token)) currentPreviewMode(true)
                                 }
                                 if (changed) {
                                     val nextValue = LiquidSliderMath.valueFromPositionWithSnap(
@@ -442,10 +444,6 @@ fun LiquidSlider(
                                         snapHitRadiusPx
                                     )
                                     val pointerVelocity = velocityTracker.calculateVelocity().x
-                                    if (abs(pointerVelocity) >= trackWidth.coerceAtLeast(1f) * 1.25f) {
-                                        suppressPreview = true
-                                        holdJob.cancel()
-                                    }
                                     val normalizedVelocity = pointerVelocity /
                                         trackWidth.coerceAtLeast(1f) * 10f
                                     motion.dragTo(nextValue, normalizedVelocity)
