@@ -8,11 +8,15 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.toArgb
@@ -24,7 +28,11 @@ import kotlinx.coroutines.launch
 class InteractiveHighlight(
     val animationScope: CoroutineScope,
     val position: (size: Size, offset: Offset) -> Offset = { _, offset -> offset },
-    val acceptsGesture: (size: Size, offset: Offset) -> Boolean = { _, _ -> true }
+    val radius: (size: Size) -> Float = { size -> size.minDimension * 1.5f },
+    val acceptsGesture: (size: Size, offset: Offset) -> Boolean = { _, _ -> true },
+    val ambientAlpha: Float = 0.08f,
+    val spotAlpha: Float = 0.15f,
+    val fallbackAlpha: Float = 0.25f
 ) {
 
     private val pressProgressAnimationSpec =
@@ -38,6 +46,9 @@ class InteractiveHighlight(
         Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
 
     private var startPosition = Offset.Zero
+    private var inputGeneration = 0L
+    private var externalPressActive = false
+    private var exactExternalPosition by mutableStateOf<Offset?>(null)
     val pressProgress: Float get() = pressProgressAnimation.value
     val offset: Offset get() = positionAnimation.value - startPosition
 
@@ -63,17 +74,20 @@ half4 main(float2 coord) {
     val modifier: Modifier =
         Modifier.drawWithContent {
             val progress = pressProgressAnimation.value
+            val highlightPosition = exactExternalPosition ?: positionAnimation.value
             if (progress > 0f) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shader != null) {
-                    drawRect(
-                        Color.White.copy(0.08f * progress),
-                        blendMode = BlendMode.Plus
-                    )
+                    if (ambientAlpha > 0f) {
+                        drawRect(
+                            Color.White.copy(ambientAlpha * progress),
+                            blendMode = BlendMode.Plus
+                        )
+                    }
                     shader.apply {
-                        val position = position(size, positionAnimation.value)
+                        val position = position(size, highlightPosition)
                         setFloatUniform("size", size.width, size.height)
-                        setColorUniform("color", Color.White.copy(0.15f * progress).toArgb())
-                        setFloatUniform("radius", size.minDimension * 1.5f)
+                        setColorUniform("color", Color.White.copy(spotAlpha * progress).toArgb())
+                        setFloatUniform("radius", radius(size))
                         setFloatUniform(
                             "position",
                             position.x.fastCoerceIn(0f, size.width),
@@ -85,8 +99,25 @@ half4 main(float2 coord) {
                         blendMode = BlendMode.Plus
                     )
                 } else {
-                    drawRect(
-                        Color.White.copy(0.25f * progress),
+                    if (ambientAlpha > 0f) {
+                        drawRect(
+                            Color.White.copy(ambientAlpha * progress),
+                            blendMode = BlendMode.Plus
+                        )
+                    }
+                    val resolvedPosition = position(size, highlightPosition)
+                    val resolvedRadius = radius(size)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color.White.copy(fallbackAlpha * progress),
+                                Color.Transparent
+                            ),
+                            center = resolvedPosition,
+                            radius = resolvedRadius
+                        ),
+                        radius = resolvedRadius,
+                        center = resolvedPosition,
                         blendMode = BlendMode.Plus
                     )
                 }
@@ -95,50 +126,97 @@ half4 main(float2 coord) {
             drawContent()
         }
 
-    private fun settle() {
+    private fun settle(generation: Long = inputGeneration) {
         animationScope.launch {
+            // Release work is intentionally asynchronous so the spring can finish after UP. A
+            // newer DOWN must invalidate this queued release before it can cancel the new press.
+            if (generation != inputGeneration) return@launch
             launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
             launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
+        }
+    }
+
+    /**
+     * Drives the same Kyant catalog highlight from a gesture owned by another component. This is
+     * useful for lifted/shared overlays: the pointer detector stays on the source card while the
+     * light is drawn by a full-screen overlay, so the existing gesture does not need a competing
+     * pointerInput modifier.
+     */
+    fun updateExternal(position: Offset, pressed: Boolean, followPointerExactly: Boolean = false) {
+        if (pressed) {
+            exactExternalPosition = position.takeIf { followPointerExactly }
+            val newPress = !externalPressActive
+            val generation = if (newPress) {
+                externalPressActive = true
+                ++inputGeneration
+            } else {
+                inputGeneration
+            }
+            if (newPress) startPosition = position
+            animationScope.launch {
+                if (generation != inputGeneration) return@launch
+                launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
+                launch {
+                    if (newPress) positionAnimation.snapTo(position)
+                    else positionAnimation.animateTo(position, positionAnimationSpec)
+                }
+            }
+        } else if (externalPressActive) {
+            externalPressActive = false
+            exactExternalPosition = null
+            val generation = ++inputGeneration
+            settle(generation)
+        } else {
+            exactExternalPosition = null
         }
     }
 
     val gestureModifier: Modifier =
         Modifier.pointerInput(animationScope) {
             var gestureAccepted = false
+            var gestureGeneration = inputGeneration
             try {
                 inspectDragGestures(
                     onDragStart = { down ->
+                        gestureGeneration = ++inputGeneration
                         gestureAccepted = acceptsGesture(
                             Size(size.width.toFloat(), size.height.toFloat()),
                             down.position
                         )
                         if (!gestureAccepted) {
-                            settle()
+                            settle(gestureGeneration)
                             return@inspectDragGestures
                         }
                         startPosition = down.position
                         animationScope.launch {
+                            if (gestureGeneration != inputGeneration) return@launch
                             launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
                             launch { positionAnimation.snapTo(startPosition) }
                         }
                     },
                     onDragEnd = {
-                        if (gestureAccepted) settle()
+                        if (gestureAccepted) settle(gestureGeneration)
                         gestureAccepted = false
                     },
                     onDragCancel = {
-                        if (gestureAccepted) settle()
+                        if (gestureAccepted) settle(gestureGeneration)
                         gestureAccepted = false
                     }
                 ) { change, _ ->
                     if (gestureAccepted) {
-                        animationScope.launch { positionAnimation.snapTo(change.position) }
+                        val updateGeneration = gestureGeneration
+                        animationScope.launch {
+                            if (updateGeneration == inputGeneration) {
+                                positionAnimation.snapTo(change.position)
+                            }
+                        }
                     }
                 }
             } finally {
                 // Window focus changes can cancel pointer input without delivering an up/cancel.
                 // Always settle so a resumed LiquidButton cannot keep a stale translation/scale.
-                settle()
+                val cancellationGeneration = ++inputGeneration
+                settle(cancellationGeneration)
             }
         }
 }

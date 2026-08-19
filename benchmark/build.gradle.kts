@@ -7,7 +7,7 @@ plugins {
 
 @Suppress("UnstableApiUsage")
 android {
-    namespace = "com.example.courseschedule.benchmark"
+    namespace = "com.xiaomanjun.sleepdownschedule.benchmark.test"
     compileSdk {
         version = release(37) {
             minorApiLevel = 0
@@ -18,6 +18,7 @@ android {
         minSdk = 28
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        missingDimensionStrategy("distribution", "github")
     }
 
     compileOptions {

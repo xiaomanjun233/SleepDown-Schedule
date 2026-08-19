@@ -17,3 +17,7 @@ sleepdown_log_*.txt
 /debug-artifacts/
 /SleepDown-*.apk
 /*.apk.idsig
+*.jks
+*.keystore
+/.sleepdown-secrets/
+/SleepDown-Server/

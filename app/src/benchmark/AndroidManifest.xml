@@ -5,5 +5,12 @@
         <profileable
             android:shell="true"
             tools:targetApi="q" />
+        <receiver
+            android:name=".BenchmarkWallpaperReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.xiaomanjun.sleepdownschedule.benchmark.CONFIGURE_WALLPAPER" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

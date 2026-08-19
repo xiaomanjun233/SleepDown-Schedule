@@ -5,14 +5,10 @@ package com.kyant.backdrop.catalog.utils
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
-import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.util.fastFirstOrNull
 
 suspend fun PointerInputScope.inspectDragGestures(
     onDragStart: (down: PointerInputChange) -> Unit = {},
@@ -21,67 +17,29 @@ suspend fun PointerInputScope.inspectDragGestures(
     onDrag: (change: PointerInputChange, dragAmount: Offset) -> Unit
 ) {
     awaitEachGesture {
-        val initialDown = awaitFirstDown(false, PointerEventPass.Initial)
-
-        val down = awaitFirstDown(false)
-        val drag = initialDown
-
+        // Observe one DOWN at Initial pass and keep that pointer id until it ends. The former
+        // implementation awaited a second DOWN at Main pass; if a child consumed the first event,
+        // that await leaked into the next gesture and made a quick tap after long-press disappear.
+        val down = awaitFirstDown(false, PointerEventPass.Initial)
         onDragStart(down)
-        onDrag(drag, Offset.Zero)
-        val upEvent =
-            drag(
-                pointerId = drag.id,
-                onDrag = { onDrag(it, it.positionChange()) }
-            )
-        if (upEvent == null) {
-            onDragCancel()
-        } else {
-            onDragEnd(upEvent)
-        }
-    }
-}
-
-private suspend inline fun AwaitPointerEventScope.drag(
-    pointerId: PointerId,
-    onDrag: (PointerInputChange) -> Unit
-): PointerInputChange? {
-    val isPointerUp = currentEvent.changes.fastFirstOrNull { it.id == pointerId }?.pressed != true
-    if (isPointerUp) {
-        return null
-    }
-    var pointer = pointerId
-    while (true) {
-        val change = awaitDragOrUp(pointer) ?: return null
-        if (change.isConsumed) {
-            return null
-        }
-        if (change.changedToUpIgnoreConsumed()) {
-            return change
-        }
-        onDrag(change)
-        pointer = change.id
-    }
-}
-
-private suspend inline fun AwaitPointerEventScope.awaitDragOrUp(
-    pointerId: PointerId
-): PointerInputChange? {
-    var pointer = pointerId
-    while (true) {
-        val event = awaitPointerEvent()
-        val dragEvent = event.changes.fastFirstOrNull { it.id == pointer } ?: return null
-        if (dragEvent.changedToUpIgnoreConsumed()) {
-            val otherDown = event.changes.fastFirstOrNull { it.pressed }
-            if (otherDown == null) {
-                return dragEvent
-            } else {
-                pointer = otherDown.id
+        onDrag(down, Offset.Zero)
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            val change = event.changes.firstOrNull { it.id == down.id }
+            if (change == null) {
+                onDragCancel()
+                break
             }
-        } else {
-            val hasDragged = dragEvent.previousPosition != dragEvent.position
-            if (hasDragged) {
-                return dragEvent
+            if (change.changedToUpIgnoreConsumed()) {
+                onDragEnd(change)
+                break
             }
+            if (!change.pressed) {
+                onDragCancel()
+                break
+            }
+            val delta = change.position - change.previousPosition
+            if (delta != Offset.Zero) onDrag(change, delta)
         }
     }
 }

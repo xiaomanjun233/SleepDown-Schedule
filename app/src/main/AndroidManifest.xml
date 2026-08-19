@@ -10,7 +10,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -30,6 +29,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme"
@@ -142,6 +142,16 @@
             android:theme="@style/AppTheme"
             android:parentActivityName=".MainActivity" />
         <activity
+            android:name=".CourseManagementActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".MainActivity" />
+        <activity
+            android:name=".CourseManagementDetailActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".CourseManagementActivity" />
+        <activity
             android:name=".EduSchoolSelectActivity"
             android:exported="false"
             android:theme="@style/AppTheme"
@@ -186,10 +196,6 @@
                 android:value="Course reminder live update while a class reminder is active" />
         </service>
         <service
-            android:name=".UpdateDownloadForegroundService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-        <service
             android:name=".DayAgentForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
@@ -204,7 +210,7 @@
                 <action android:name="android.intent.action.DATE_CHANGED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
-                <action android:name="com.example.courseschedule.action.REFRESH_TODAY_WIDGET" />
+                <action android:name="${applicationId}.action.REFRESH_TODAY_WIDGET" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"

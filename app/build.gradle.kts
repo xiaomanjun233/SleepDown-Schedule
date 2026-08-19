@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.regex.Pattern
 
 plugins {
     id("com.android.application")
@@ -8,10 +9,16 @@ plugins {
     id("androidx.baselineprofile")
 }
 
-val releaseStoreFilePath = providers.gradleProperty("sleepdown.releaseStoreFile").orNull
-val releaseStorePassword = providers.gradleProperty("sleepdown.releaseStorePassword").orNull
-val releaseKeyAlias = providers.gradleProperty("sleepdown.releaseKeyAlias").orNull
-val releaseKeyPassword = providers.gradleProperty("sleepdown.releaseKeyPassword").orNull
+fun releaseSecret(propertyName: String, environmentName: String): String? =
+    providers.gradleProperty(propertyName)
+        .orElse(providers.environmentVariable(environmentName))
+        .orNull
+
+val releaseStoreFilePath = releaseSecret("sleepdown.releaseStoreFile", "SLEEPDOWN_RELEASE_STORE_FILE")
+val releaseStorePassword = releaseSecret("sleepdown.releaseStorePassword", "SLEEPDOWN_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = releaseSecret("sleepdown.releaseKeyAlias", "SLEEPDOWN_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = releaseSecret("sleepdown.releaseKeyPassword", "SLEEPDOWN_RELEASE_KEY_PASSWORD")
+val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOWN_REMOTE_CONFIG_SECRET").orEmpty()
 val hasReleaseSigning = listOf(
     releaseStoreFilePath,
     releaseStorePassword,
@@ -21,7 +28,7 @@ val hasReleaseSigning = listOf(
 
 @Suppress("UnstableApiUsage")
 android {
-    namespace = "com.example.courseschedule"
+    namespace = "com.xiaomanjun.sleepdownschedule"
     compileSdk {
         version = release(37) {
             minorApiLevel = 0
@@ -52,12 +59,13 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.courseschedule"
+        applicationId = "com.xiaomanjun.sleepdownschedule"
         minSdk = 26
         targetSdk = 36
-        versionCode = 25
-        versionName = "1.1.5"
+        versionCode = 26
+        versionName = "1.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "SLEEPDOWN_API_BASE_URL", "\"https://api.sleepdownschedule.cn\"")
     }
 
     sourceSets {
@@ -77,21 +85,39 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            applicationIdSuffix = ".debug"
+            buildConfigField("String", "SLEEPDOWN_REMOTE_CONFIG_SECRET", "\"\"")
+            buildConfigField("boolean", "SLEEPDOWN_REMOTE_AI_ENABLED", "false")
+        }
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
-            // Keep local release builds installable without publishing a private key.
-            // Official builds provide the four sleepdown.release* Gradle properties.
-            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release")
+            buildConfigField("String", "SLEEPDOWN_REMOTE_CONFIG_SECRET", "\"$remoteConfigSecret\"")
+            buildConfigField("boolean", "SLEEPDOWN_REMOTE_AI_ENABLED", remoteConfigSecret.isNotBlank().toString())
         }
         create("benchmark") {
             initWith(getByName("release"))
             matchingFallbacks += listOf("release")
-            signingConfig = signingConfigs.getByName("debug")
+            applicationIdSuffix = ".benchmark"
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             isDebuggable = false
             isMinifyEnabled = false
             isShrinkResources = false
+        }
+    }
+
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("github") {
+            dimension = "distribution"
+            buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"github\"")
+        }
+        create("store") {
+            dimension = "distribution"
+            buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"store\"")
         }
     }
 
@@ -100,6 +126,25 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+}
+
+androidComponents {
+    onVariants(selector().withName(Pattern.compile("(github|store)BenchmarkRelease"))) { variant ->
+        variant.applicationId.set("${variant.applicationId.get()}.benchmark")
+    }
+}
+
+tasks.configureEach {
+    val createsReleaseArtifact = name.matches(Regex("(assemble|bundle|package).*(Release)$"))
+    if (createsReleaseArtifact) {
+        doFirst {
+            check(hasReleaseSigning) {
+                "SleepDown release signing is missing. Configure sleepdown.releaseStoreFile, " +
+                    "sleepdown.releaseStorePassword, sleepdown.releaseKeyAlias and " +
+                    "sleepdown.releaseKeyPassword (or the matching SLEEPDOWN_RELEASE_* environment variables)."
+            }
+        }
+    }
 }
 
 kotlin {
