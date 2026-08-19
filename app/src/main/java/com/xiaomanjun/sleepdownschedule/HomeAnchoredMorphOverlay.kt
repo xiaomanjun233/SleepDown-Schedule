@@ -1852,7 +1852,16 @@ private fun DeferredHomePersonalizeMorphPanel(
         }
     }
 
-    Box(modifier) {
+    // Keep the live form and its surface inside the animated shell even after the
+    // outer Kyant host releases its temporary clip at the stable Open endpoint.
+    // The form can continue scrolling in Open; without this shared clip its
+    // target-sized content layer exposes square corners beyond the glass shell.
+    Box(
+        modifier = modifier.graphicsLayer {
+            this.shape = shape
+            clip = true
+        }
+    ) {
         if (showSurface) {
             if (backdrop != null) {
                 if (progressiveBlur && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

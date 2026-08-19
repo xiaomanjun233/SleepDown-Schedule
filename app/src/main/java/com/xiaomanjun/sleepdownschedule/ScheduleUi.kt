@@ -580,7 +580,6 @@ fun CourseScheduleAppUi(
     // week-card RenderNode again on each animation frame.
     val cachedWeekHomeBackdrop = rememberLayerBackdrop(screenGraphicsLayer)
     val detailScreenGraphicsLayer = rememberGraphicsLayer()
-    val lastRecordedDetailFrameKey = remember { AtomicReference<String?>(null) }
     val recordedScheduleId = remember { AtomicInteger(-1) }
     val recordedHomeGeneration = remember { AtomicLong(0L) }
     val lastRecordedHomeFrameKey = remember { AtomicReference<String?>(null) }
@@ -1728,8 +1727,8 @@ fun CourseScheduleAppUi(
                 // pause this unrelated capture while they move. Their settled Open frame remains
                 // available to flows such as manual-import history detail background capture.
                 // Keep the detailed-settings source frame live while the quick sheet animates.
-                // Key-based throttling leaves the first launch with a stale, partially composed
-                // sheet snapshot; v1.1.1 deliberately recorded every stable draw here.
+                // The detailed-settings handoff needs consecutive fully composed source and
+                // clean-background frames, as in the 1.1.5 implementation.
                 val shouldRecordStableDetailFrame =
                     detailMorphState is DetailMorphState.Idle &&
                         !courseEditorOwnsFrame &&
@@ -1743,15 +1742,12 @@ fun CourseScheduleAppUi(
                                 (homeMenuDestinationRequest == null &&
                                     homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Idle)
                             )
-                val detailFrameNeedsRecord = shouldRecordStableDetailFrame &&
-                    lastRecordedDetailFrameKey.get() != homeCaptureFrameKey
-                if (detailFrameNeedsRecord || recordCleanFrame) {
+                if (shouldRecordStableDetailFrame || recordCleanFrame) {
                     detailCaptureMaskActive.set(recordCleanFrame)
                     try {
                         detailScreenGraphicsLayer.record {
                             this@drawWithContent.drawContent()
                         }
-                        lastRecordedDetailFrameKey.set(homeCaptureFrameKey)
                     } finally {
                         detailCaptureMaskActive.set(false)
                     }
@@ -7369,7 +7365,18 @@ fun ChangelogSettingsScreen(
             item(key = "about-changelog") {
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
-                SettingsInfoRow("1.2.0", "移除原来的加号菜单和日视图/周视图切换滑块，将相关功能重新整合进功能更完整的三点菜单。首页顶栏更轻、更整洁，课程与日期重新成为视觉中心，常用入口的位置和操作逻辑也更加统一；三点菜单采用全新的液态玻璃外观，从三点按钮打开和收回时更加连贯，拖动时也有更自然的弹性反馈与跟手高光。除了原有功能，现在还可以直接跳转到指定周数，快捷进入多课表管理和全新的课程管理页，让一个入口承担更多日常操作；同名课程会自动归并，并以双列错落卡片展示。长标题、教师、地点和每一条课程安排都可以清楚阅读；进入详情后，可以统一修改课程名称、颜色、教师、地点与备注，也可以单独添加、编辑或删除某一条安排。星期、节次、周次、单双周等信息集中在同一页管理，课程较多时也更容易梳理；课程现在支持自定义开始和结束时间，可以脱离固定节次设置更准确的上课区间。周视图会按照真实时间比例显示课程，并在卡片上下边缘标出起止时间；课程管理、冲突判断、备份导入和今日助手也能够识别这些自定义时间；在周视图中长按课程即可进入编辑，拖动卡片时，指尖和液态玻璃卡片会出现跟手的光场效果，移动过程更灵动。课程可以直接拖到其他星期或节次，右下角角标则用于连续调整课程时长，拖动与缩放互不干扰。松开手指后，课程会立即飞向目标格并播放震荡回弹，不再停在半空等待保存。落点产生的余波会继续带动附近课程轻微位移、缩放和回弹，再逐渐自然消散；遇到冲突或取消移动时，也会沿同样的动画返回原位。切换课表后，长按编辑仍然可以直接使用；针对个性化设置、三点菜单、手动导入、教务导入、课程管理和课程编辑等页面的打开、关闭与切换进行了性能优化，降低周视图和复杂表单同时显示时的负载，减少卡顿、掉帧、闪现和内容跳变，让原有动画在更多场景下保持稳定流畅；灵动岛缩略态的倒计时精简为“X分钟”，不再显示“还剩”；原来的短标签模式改为直接显示课程名称，有限空间里的信息更清楚，也更容易快速识别当前课程；今日助手和 Agent 服务进一步增强稳定性，个别模型服务商暂时不可用时，会自动尝试其他可用服务。Agent 现在也能读取和修改课程的自定义时间，并在执行课程或设置修改前展示计划、影响范围和冲突信息，确认后再完成操作；新增完整的隐私政策说明，清楚介绍课表数据保存在什么位置、哪些功能会联网以及各项权限的用途。用户自行配置的 API Key 等敏感信息只保存在本机，不会写入普通课表备份。")
+                SettingsInfoRow(
+                    "1.2.0",
+                    "移除原来的加号菜单和日视图/周视图切换滑块，将相关功能重新整合进功能更完整的三点菜单。首页顶栏更轻、更整洁，课程与日期重新成为视觉中心，常用入口的位置和操作逻辑也更加统一" +
+                        "；三点菜单采用全新的液态玻璃外观，从三点按钮打开和收回时更加连贯，拖动时也有更自然的弹性反馈与跟手高光。除了原有功能，现在还可以直接跳转到指定周数，快捷进入多课表管理和全新的课程管理页，让一个入口承担更多日常操作" +
+                        "；同名课程会自动归并，并以双列错落卡片展示。长标题、教师、地点和每一条课程安排都可以清楚阅读。进入详情后，可以统一修改课程名称、颜色、教师、地点与备注，也可以单独添加、编辑或删除某一条安排。星期、节次、周次、单双周等信息集中在同一页管理，课程较多时也更容易梳理" +
+                        "；课程现在支持自定义开始和结束时间，可以脱离固定节次设置更准确的上课区间。周视图会按照真实时间比例显示课程，并在卡片上下边缘标出起止时间。课程管理、冲突判断、备份导入和今日助手也能够识别这些自定义时间" +
+                        "；在周视图中长按课程即可进入编辑，拖动卡片时，指尖和液态玻璃卡片会出现跟手的光场效果，移动过程更灵动。课程可以直接拖到其他星期或节次，右下角角标则用于连续调整课程时长，拖动与缩放互不干扰。松开手指后，课程会立即飞向目标格并播放震荡回弹，不再停在半空等待保存。落点产生的余波会继续带动附近课程轻微位移、缩放和回弹，再逐渐自然消散。遇到冲突或取消移动时，也会沿同样的动画返回原位。切换课表后，长按编辑仍然可以直接使用" +
+                        "；针对个性化设置、三点菜单、手动导入、教务导入、课程管理和课程编辑等页面的打开、关闭与切换进行了性能优化，降低周视图和复杂表单同时显示时的负载，减少卡顿、掉帧、闪现和内容跳变，让原有动画在更多场景下保持稳定流畅" +
+                        "；灵动岛缩略态的倒计时精简为“X分钟”，不再显示“还剩”。原来的短标签模式改为直接显示课程名称，有限空间里的信息更清楚，也更容易快速识别当前课程" +
+                        "；今日助手和 Agent 服务进一步增强稳定性，个别模型服务商暂时不可用时，会自动尝试其他可用服务。Agent 现在也能读取和修改课程的自定义时间，并在执行课程或设置修改前展示计划、影响范围和冲突信息，确认后再完成操作" +
+                        "；新增完整的隐私政策说明，清楚介绍课表数据保存在什么位置、哪些功能会联网以及各项权限的用途。用户自行配置的 API Key 等敏感信息只保存在本机，不会写入普通课表备份"
+                )
                 SettingsDivider()
                 SettingsInfoRow("1.1.5", "新增完整的数据备份与恢复功能，可将课表、作息、应用设置、小组件外观及相关图片保存为一个备份文件，恢复前会先检查文件并展示内容预览，替换数据也会再次确认，帮助你更安心地迁移和保管数据；新增“今明课程”桌面小组件，可同时查看今天剩余课程和明天的课程安排，并支持独立设置背景图片、取景、缩放、模糊和亮度；通用设置新增液态玻璃自定义选项，可以自由调节玻璃组件的清晰与模糊程度；现在液态玻璃开启和关闭时的课程卡片颜色、透明度、模糊及字体大小会分别保存，不再和液态玻璃课程卡片共享保存参数；优化平板设置页面的双栏浏览、返回按钮和顶部标题，修复部分设置返回后没有保存的问题；优化 AI 导入页面，改善导入历史和手动导入的显示与动画；修复个性化滑块拖动时跳动以及 100% 吸附点位置不准确的问题；重新设计关于应用页面，加入应用官网、项目仓库、反馈入口，新增功能亮点介绍页，优化深色模式、更新日志和网页打开体验；调大平板横屏课程卡片文字，查看课程名称、地点和教师信息更加清晰。")
                 SettingsDivider()

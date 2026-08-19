@@ -1139,13 +1139,15 @@ fun CourseConflictRetentionDialog(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     onKeepTemporarily: () -> Unit,
-    onReturn: () -> Unit
+    onReturn: () -> Unit,
+    retentionMessage: String? = null
 ) {
     val weekSummary = conflictWeeks.take(4).joinToString("、") { "第${it}周" } +
         if (conflictWeeks.size > 4) "等${conflictWeeks.size}周" else ""
     LiquidAlertDialog(
         title = "检测到课程冲突",
-        message = "“${course.name}”在${weekSummary}与其他课程重合。可以暂时保留；保存后会跳到首个冲突周，点课程上的“冲突”即可移到最近空位。",
+        message = retentionMessage
+            ?: "“${course.name}”在${weekSummary}与其他课程重合。可以暂时保留；保存后会跳到首个冲突周，点课程上的“冲突”即可移到最近空位。",
         actions = listOf(
             LiquidAlertAction("暂时保留", LiquidAlertActionStyle.Primary, onClick = onKeepTemporarily),
             LiquidAlertAction("返回修改", LiquidAlertActionStyle.Secondary, onClick = onReturn)

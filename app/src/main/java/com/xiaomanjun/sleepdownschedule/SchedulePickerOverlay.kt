@@ -84,6 +84,7 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -134,7 +135,15 @@ internal fun Modifier.quickSheetBackdropModifier(
         centered -> RoundedCornerShape(28.dp)
         else -> RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     }
+    // The sheet owns its material tint, so its contrast follows the app theme rather than the
+    // wallpaper behind it. This keeps light-mode selectors from becoming black slabs.
     val dark = appUsesDarkTheme(config)
+    // Lower only the blur budget. The existing lens below remains the visual refraction layer.
+    val effectiveBlurRadius = if (inner) {
+        blurRadius.coerceAtMost(6.dp)
+    } else {
+        blurRadius.coerceAtMost(12.dp)
+    }
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
         return this
             .clip(shape)
@@ -149,7 +158,15 @@ internal fun Modifier.quickSheetBackdropModifier(
     return drawBackdrop(
         backdrop = backdrop,
         shape = { shape },
-        effects = { blur(blurRadius.toPx()) },
+        effects = {
+            blur(effectiveBlurRadius.toPx())
+            // Keep the established neutral refraction without the additional full-sheet shader.
+            lens(
+                if (inner) 2.dp.toPx() else 4.dp.toPx(),
+                if (inner) 4.dp.toPx() else 8.dp.toPx(),
+                chromaticAberration = false
+            )
+        },
         highlight = null,
         shadow = null,
         onDrawSurface = {
@@ -217,9 +234,9 @@ internal fun QuickSheetLiquidAction(
             backdrop = backdrop,
             modifier = actionModifier,
             height = height,
-            blurRadius = 18.dp,
-            lensHeight = 8.dp,
-            lensAmount = 12.dp,
+            blurRadius = 8.dp,
+            lensHeight = 4.dp,
+            lensAmount = 6.dp,
             tint = actionTint,
             surfaceColor = actionSurfaceColor,
             contentPadding = PaddingValues(horizontal = 14.dp)

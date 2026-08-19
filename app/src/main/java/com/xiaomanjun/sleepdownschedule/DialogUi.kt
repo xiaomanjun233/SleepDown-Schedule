@@ -96,12 +96,15 @@ fun LiquidDialogSurface(
     val dialogWidth = (windowSize.width * 0.92f).coerceAtMost(600.dp)
     val dialogMaxHeight = (safeHeight * 0.82f).coerceAtMost(600.dp)
     val shape = RoundedCornerShape(32.dp)
-    val lightGlass = glassUsesLightStyle(config)
-    val textColor = glassForegroundColor(config)
-    val surfaceColor = if (lightGlass) {
-        Color.White.copy(alpha = 0.18f)
-    } else {
+    // This full dialog owns an opaque-enough material layer, so it follows the application
+    // theme just like alerts and pickers. Wallpaper contrast is not a valid surface decision
+    // here: it made light-mode forms become black whenever a dark wallpaper was selected.
+    val dark = appUsesDarkTheme(config)
+    val textColor = if (dark) Color.White else Color(0xFF111111)
+    val surfaceColor = if (dark) {
         Color(0xFF121212).copy(alpha = 0.28f)
+    } else {
+        Color.White.copy(alpha = 0.18f)
     }
     val panelModifier = modifier
         .width(dialogWidth)
@@ -118,7 +121,7 @@ fun LiquidDialogSurface(
             Box(
                 modifier = (if (size == LiquidDialogSize.Standard) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
                     .clip(shape)
-                    .background(Color.Black.copy(alpha = if (lightGlass) 0.035f else 0.20f)),
+                    .background(Color.Black.copy(alpha = if (dark) 0.20f else 0.035f)),
                 content = content
             )
         }
@@ -178,7 +181,7 @@ fun LiquidDialogHeader(
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
-            color = glassForegroundColor(config),
+            color = appPanelForegroundColor(config),
             maxLines = 1
         )
         if (onConfirm != null) {
@@ -234,6 +237,8 @@ private fun LiquidAlertContent(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier
 ) {
+    // Alerts own their material tint, so their foreground must follow that stable surface rather
+    // than the wallpaper behind the dim layer.
     val foreground = appPanelForegroundColor(config)
     Column(
         modifier = modifier,
@@ -322,7 +327,7 @@ fun LiquidAlertDialog(
         surfaceModifier = Modifier.quickSheetBackdropModifier(
             backdrop = backdrop,
             config = config,
-            blurRadius = 28.dp,
+            blurRadius = 12.dp,
             centered = true
         )
             .clip(RoundedCornerShape(28.dp))
@@ -419,7 +424,7 @@ fun LiquidAlertOverlay(
                         Modifier.quickSheetBackdropModifier(
                             backdrop = backdrop,
                             config = config,
-                            blurRadius = 28.dp,
+                            blurRadius = 12.dp,
                             centered = true
                         )
                     )
@@ -471,9 +476,9 @@ private fun LiquidAlertActionButton(
             height = 50.dp,
             surfaceColor = surfaceColor,
             contentPadding = PaddingValues(horizontal = 16.dp),
-            blurRadius = 18.dp,
-            lensHeight = 7.dp,
-            lensAmount = 10.dp,
+            blurRadius = 8.dp,
+            lensHeight = 4.dp,
+            lensAmount = 6.dp,
             chromaticAberration = false
         ) {
             Text(

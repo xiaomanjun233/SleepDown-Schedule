@@ -196,6 +196,7 @@ internal fun AnchoredDetailActivityMorph(
     sourceSnapshot: Bitmap? = null,
     collapseSnapshot: Bitmap? = null,
     motionStyle: AnchoredDetailMotionStyle = AnchoredDetailMotionStyle.Liquid,
+    destinationFirstOpening: Boolean = false,
     content: @Composable (requestClose: () -> Unit) -> Unit
 ) {
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
@@ -208,6 +209,7 @@ internal fun AnchoredDetailActivityMorph(
         motionStyle == AnchoredDetailMotionStyle.Parabolic ||
         usesCourseEditorMotion
     val usesHomeMenuDestinationMotion = motionStyle == AnchoredDetailMotionStyle.HomeMenuDestination
+    val usesDestinationFirstOpening = usesHomeMenuDestinationMotion && destinationFirstOpening
     val snapshotBackdrop = rememberLayerBackdrop()
 
     fun close() {
@@ -324,6 +326,7 @@ internal fun AnchoredDetailActivityMorph(
                 backdrop = snapshotBackdrop.takeIf { backgroundSnapshot != null },
                 progress = progress.value,
                 closing = closing,
+                destinationFirstOpening = usesDestinationFirstOpening,
                 onClose = ::close,
                 sourceContent = sourceContent,
                 content = content
@@ -379,6 +382,7 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
     backdrop: Backdrop?,
     progress: Float,
     closing: Boolean,
+    destinationFirstOpening: Boolean,
     onClose: () -> Unit,
     sourceContent: @Composable BoxScope.() -> Unit,
     content: @Composable (requestClose: () -> Unit) -> Unit
@@ -418,27 +422,32 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
         collapseCornerRadiusPx = with(density) { collapseCornerRadius.toPx() },
         middleCornerRadiusPx = with(density) { 46.dp.toPx() }
     )
-    val sourceAlpha = if (closing) {
-        0f
-    } else {
-        1f - anchoredDestinationSmoothStep(0.035f, 0.20f, p)
+    val sourceAlpha = when {
+        closing || destinationFirstOpening -> 0f
+        else -> 1f - anchoredDestinationSmoothStep(0.035f, 0.20f, p)
     }
     val collapseAlpha = if (closing && collapseSnapshot != null) {
         1f - anchoredDestinationSmoothStep(0.06f, 0.18f, p)
     } else {
         0f
     }
-    val destinationAlpha = homeMenuDestinationContentAlpha(
-        rawProgress = p,
-        isFullScreen = true,
-        closing = closing
-    )
-    // The destination glass and the cropped source clone are complementary. At opening progress
-    // zero the source owns the shell; the destination surface must therefore be transparent.
-    // Keeping these two alphas out of phase was the black/opaque flash seen on Activity entry.
-    val destinationSurfaceAlpha = 1f - sourceAlpha
+    val destinationAlpha = if (destinationFirstOpening && !closing) {
+        1f
+    } else {
+        homeMenuDestinationContentAlpha(
+            rawProgress = p,
+            isFullScreen = true,
+            closing = closing
+        )
+    }
+    // Course management uses the same destination geometry as Edu import, but its entry begins
+    // with the already-composed destination clipped inside the source shell. The original menu is
+    // hidden before the Activity starts, so replaying it here causes the visible button/menu blink.
+    val destinationSurfaceAlpha = if (destinationFirstOpening && !closing) 1f else 1f - sourceAlpha
     val maxContentBlurPx = with(density) { 5.dp.toPx() }
-    val destinationBlurMix = if (closing) {
+    val destinationBlurMix = if (destinationFirstOpening && !closing) {
+        0f
+    } else if (closing) {
         val closeElapsed = 1f - p
         anchoredDestinationSmoothStep(0.48f, 0.84f, closeElapsed)
     } else {

@@ -2662,7 +2662,7 @@ private fun CollapsibleChangelogRow(version: String, body: String) {
     val isCurrentVersion = version == BuildConfig.VERSION_NAME
     val releaseDate = changelogReleaseDates[version]
     val entries = remember(body) {
-        body.split(Regex("[；。]"))
+        body.split('；')
             .map { it.trim() }
             .filter { it.isNotEmpty() }
     }

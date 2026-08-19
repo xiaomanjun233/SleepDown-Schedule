@@ -17,6 +17,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -24,11 +25,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -66,6 +70,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -199,6 +204,11 @@ class CourseManagementActivity : ComponentActivity() {
                                  // Edu import. Reuse the activity counterpart of the Home menu
                                  // destination trajectory so the two entry/exit paths stay exact.
                                  motionStyle = AnchoredDetailMotionStyle.HomeMenuDestination,
+                                 // Unlike the in-place school picker, this Activity already owns
+                                 // a clean background before its first rendered frame. Start with
+                                 // the destination page clipped by the source shell so the old
+                                 // three-dot menu is never replayed during the handoff.
+                                 destinationFirstOpening = true,
                                 onFinished = { finish() },
                                 sourceContent = {
                                     CourseManagementSourceMenuFallback(config = state.config)
@@ -718,6 +728,11 @@ private data class PendingArrangementDelete(
     val cancel: () -> Unit
 )
 
+private data class PendingCourseManagementConflictSave(
+    val replacements: List<CourseEntity>,
+    val conflictWeeks: List<Int>
+)
+
 @Composable
 private fun CourseManagementDetailPage(
     group: ManagedCourseGroup,
@@ -735,6 +750,9 @@ private fun CourseManagementDetailPage(
     var showSaveChangesDialog by remember(group.key) { mutableStateOf(false) }
     var validationMessage by remember(group.key) { mutableStateOf<String?>(null) }
     var pendingDelete by remember(group.key) { mutableStateOf<PendingArrangementDelete?>(null) }
+    var pendingConflictSave by remember(group.key) {
+        mutableStateOf<PendingCourseManagementConflictSave?>(null)
+    }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val colorModeEnabled = state.config.cardColorArgb == MulticolorCourseCardArgb
@@ -764,7 +782,26 @@ private fun CourseManagementDetailPage(
             validationMessage = "课程名称不能为空"
             return
         }
-        onSave(replacements)
+        val replacementsToSave = replacementsForSave()
+        if (replacementsToSave.isEmpty()) {
+            onSave(replacementsToSave)
+            return
+        }
+        val conflictWeeks = conflictWeeksForEditedCourseGroup(
+            originals = group.courses,
+            edited = replacementsToSave,
+            courses = state.courses,
+            periodDefinitions = state.periods
+        )
+        if (conflictWeeks.isEmpty()) {
+            onSave(replacementsToSave)
+        } else {
+            showSaveChangesDialog = false
+            pendingConflictSave = PendingCourseManagementConflictSave(
+                replacements = replacementsToSave,
+                conflictWeeks = conflictWeeks
+            )
+        }
     }
 
     fun requestBack() {
@@ -955,6 +992,25 @@ private fun CourseManagementDetailPage(
                 onDismissRequest = {
                     pending.cancel()
                     pendingDelete = null
+                }
+            )
+        }
+        pendingConflictSave?.let { pending ->
+            CourseConflictRetentionDialog(
+                course = pending.replacements.firstOrNull() ?: group.representative,
+                conflictWeeks = pending.conflictWeeks,
+                backdrop = pickerBackdrop,
+                config = state.config,
+                onKeepTemporarily = {
+                    pendingConflictSave = null
+                    onSave(pending.replacements)
+                },
+                onReturn = { pendingConflictSave = null },
+                retentionMessage = buildString {
+                    append("“${pending.replacements.firstOrNull()?.name ?: group.representative.name}”在")
+                    append(pending.conflictWeeks.take(4).joinToString("、") { "第${it}周" })
+                    if (pending.conflictWeeks.size > 4) append("等${pending.conflictWeeks.size}周")
+                    append("与其他课程重合。可以暂时保留这些安排，之后仍可在课表中继续调整。")
                 }
             )
         }
@@ -1220,6 +1276,17 @@ private fun CourseManagementWeekFold(
     val safeTotalWeeks = totalWeeks.coerceAtLeast(1)
     val selectedWeeks = course.weeks.toSet()
     val selectedMode = inferCourseWeekSelectionMode(selectedWeeks)
+    val haptic = LocalHapticFeedback.current
+    fun updateWeeks(nextWeeks: Set<Int>) {
+        if (nextWeeks.isEmpty() || nextWeeks == selectedWeeks) return
+        val sorted = nextWeeks.sorted()
+        onCourseChange(
+            course.copy(
+                weeks = sorted,
+                weekParity = inferCourseWeekSelectionMode(sorted).toWeekParity()
+            )
+        )
+    }
     // Miuix's BasicComponent only measures its preference row. The expanding body must be a
     // sibling in this Column, otherwise the grid looks present but is clipped and cannot receive
     // touch events on certain devices.
@@ -1264,81 +1331,174 @@ private fun CourseManagementWeekFold(
                         CourseWeekSelectionMode.EVEN to "双周"
                     ).forEach { (mode, label) ->
                         val selected = selectedMode == mode
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .height(34.dp)
-                                .background(
-                                    if (selected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.surfaceVariant,
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .clickable {
-                                    val weeks = weeksForCourseWeekSelectionMode(
-                                        mode = mode,
-                                        currentWeeks = selectedWeeks,
-                                        totalWeeks = safeTotalWeeks
-                                    )
-                                    onCourseChange(
-                                        course.copy(
-                                            weeks = weeks.sorted(),
-                                            weekParity = mode.toWeekParity()
-                                        )
-                                    )
-                                },
-                            contentAlignment = Alignment.Center
+                        CourseManagementWeekChoice(
+                            label = label,
+                            selected = selected,
+                            modifier = Modifier.weight(1f).height(34.dp)
                         ) {
-                            Text(
-                                label,
-                                color = if (selected) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MiuixTheme.textStyles.body2,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            val weeks = weeksForCourseWeekSelectionMode(
+                                mode = mode,
+                                currentWeeks = selectedWeeks,
+                                totalWeeks = safeTotalWeeks
+                            ).toSet()
+                            if (weeks != selectedWeeks) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                updateWeeks(weeks)
+                            }
                         }
                     }
                 }
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    maxItemsInEachRow = 6
-                ) {
-                    (1..safeTotalWeeks).forEach { week ->
-                        val selected = week in selectedWeeks
-                        Box(
-                            Modifier
-                                .size(width = 40.dp, height = 38.dp)
-                                .background(
-                                    if (selected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.surfaceVariant,
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .clickable {
-                                    if (selected && selectedWeeks.size == 1) return@clickable
-                                    val next = if (selected) selectedWeeks - week else selectedWeeks + week
-                                    val sorted = next.sorted()
-                                    onCourseChange(
-                                        course.copy(
-                                            weeks = sorted,
-                                            weekParity = inferCourseWeekSelectionMode(sorted).toWeekParity()
-                                        )
-                                    )
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                week.toString(),
-                                color = if (selected) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MiuixTheme.textStyles.body2,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                CourseManagementWeekSelectionGrid(
+                    totalWeeks = safeTotalWeeks,
+                    selectedWeeks = selectedWeeks,
+                    onSelectionChange = { nextWeeks ->
+                        updateWeeks(nextWeeks)
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** The week fold uses the editor's drag-select language, while keeping the detail-page layout. */
+@Composable
+private fun CourseManagementWeekSelectionGrid(
+    totalWeeks: Int,
+    selectedWeeks: Set<Int>,
+    onSelectionChange: (Set<Int>) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val latestSelectedWeeks by rememberUpdatedState(selectedWeeks)
+    val latestOnSelectionChange by rememberUpdatedState(onSelectionChange)
+    val density = LocalDensity.current
+    val columns = 6
+    val gap = 8.dp
+    val cellHeight = 38.dp
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val rowCount = (totalWeeks + columns - 1) / columns
+        val gridHeight = cellHeight * rowCount + gap * (rowCount - 1).coerceAtLeast(0)
+        val gapPx = with(density) { gap.toPx() }
+        val cellHeightPx = with(density) { cellHeight.toPx() }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(gridHeight)
+                .pointerInput(totalWeeks, columns, gapPx, cellHeightPx) {
+                    var gestureSelection = mutableSetOf<Int>()
+                    var selectMode = true
+                    var lastWeek = -1
+
+                    fun weekAt(position: Offset): Int? {
+                        if (position.x < 0f || position.y < 0f) return null
+                        val cellWidth = (size.width - gapPx * (columns - 1)) / columns
+                        val columnStride = cellWidth + gapPx
+                        val rowStride = cellHeightPx + gapPx
+                        val column = (position.x / columnStride).toInt()
+                        val row = (position.y / rowStride).toInt()
+                        if (column !in 0 until columns || row !in 0 until rowCount) return null
+                        if (position.x - column * columnStride > cellWidth) return null
+                        if (position.y - row * rowStride > cellHeightPx) return null
+                        return (row * columns + column + 1).takeIf { it in 1..totalWeeks }
+                    }
+
+                    fun applyWeek(week: Int) {
+                        if (week == lastWeek) return
+                        lastWeek = week
+                        val next = gestureSelection.toMutableSet()
+                        if (selectMode) next.add(week) else next.remove(week)
+                        if (next.isEmpty() || next == gestureSelection) return
+                        gestureSelection = next
+                        latestOnSelectionChange(next)
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+
+                    detectDragGestures(
+                        onDragStart = { position ->
+                            gestureSelection = latestSelectedWeeks.toMutableSet()
+                            lastWeek = -1
+                            weekAt(position)?.let { week ->
+                                selectMode = week !in gestureSelection
+                                applyWeek(week)
+                            }
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            weekAt(change.position)?.let(::applyWeek)
                         }
+                    )
+                }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                (1..totalWeeks).toList().chunked(columns).forEach { rowWeeks ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(gap)
+                    ) {
+                        rowWeeks.forEach { week ->
+                            val selected = week in selectedWeeks
+                            CourseManagementWeekChoice(
+                                label = week.toString(),
+                                selected = selected,
+                                modifier = Modifier.weight(1f).height(cellHeight)
+                            ) {
+                                val next = if (selected) selectedWeeks - week else selectedWeeks + week
+                                if (next.isNotEmpty()) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onSelectionChange(next)
+                                }
+                            }
+                        }
+                        repeat(columns - rowWeeks.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CourseManagementWeekChoice(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val shape = RoundedCornerShape(12.dp)
+    val baseColor = if (selected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val pressedColor = baseColor.copy(
+        red = baseColor.red * 0.82f,
+        green = baseColor.green * 0.82f,
+        blue = baseColor.blue * 0.82f
+    )
+    val surfaceColor by animateColorAsState(
+        targetValue = if (pressed) pressedColor else baseColor,
+        animationSpec = tween(durationMillis = if (pressed) 70 else 150),
+        label = "course-management-week-choice-press"
+    )
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(surfaceColor)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MiuixTheme.textStyles.body2,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 

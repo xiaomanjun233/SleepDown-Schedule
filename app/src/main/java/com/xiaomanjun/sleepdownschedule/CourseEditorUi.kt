@@ -825,10 +825,13 @@ private fun CourseEditorFormPage(
     }
     val editorFieldTextColor = readableOn(editorFieldSurface)
     CompositionLocalProvider(LocalContentColor provides editorContentColor) {
+    Box(modifier = Modifier.fillMaxSize()) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            top = if (course == null) 0.dp else 6.dp,
+            // The title/actions live above the scrolling form. Reserve their full glass band so
+            // the first field never slides under a moving header.
+            top = 76.dp,
             bottom = when {
                 pageCount > 1 -> 52.dp
                 course == null -> 32.dp
@@ -837,18 +840,6 @@ private fun CourseEditorFormPage(
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)
     ) {
-        item(key = "header", contentType = "header") {
-            Box {
-                DialogHeader(
-                    title = if (course == null) "添加单节课" else "编辑单节课",
-                    onCancel = onCancel,
-                    backdrop = backdrop,
-                    config = config,
-                    onSave = onSave,
-                    modifier = if (course != null) Modifier.height(50.dp) else Modifier
-                )
-            }
-        }
         if (course != null) {
             item(key = "summary", contentType = "summary") {
                 Text(
@@ -1010,6 +1001,69 @@ private fun CourseEditorFormPage(
             item(key = "error", contentType = "message") { Text(message, modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error) }
         }
     }
+    CourseEditorFixedHeader(
+        title = if (course == null) "添加单节课" else "编辑单节课",
+        backdrop = backdrop,
+        config = config,
+        onCancel = onCancel,
+        onSave = onSave,
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .zIndex(8f)
+    )
+    }
+    }
+}
+
+/** Fixed glass header for add/edit forms; only the fields beneath it are scrollable. */
+@Composable
+private fun CourseEditorFixedHeader(
+    title: String,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onCancel: () -> Unit,
+    onSave: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val dark = appUsesDarkTheme(config)
+    val tint = if (dark) {
+        ComposeColor(0xFF111318).copy(alpha = 0.48f)
+    } else {
+        ComposeColor.White.copy(alpha = 0.42f)
+    }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(70.dp)
+    ) {
+        // Fade the header's backdrop into the form rather than drawing a hard horizontal strip.
+        ProgressiveBackdropBlur(
+            backdrop = backdrop,
+            modifier = Modifier.fillMaxSize(),
+            tintColor = tint,
+            height = 70.dp,
+            blurRadius = 12.dp,
+            tintIntensity = 0.16f,
+            direction = ProgressiveBlurDirection.TopToBottom,
+            topMaskFadeStart = 0.56f,
+            topMaskFadeEnd = 1f,
+            topTintFadeStart = 0.50f,
+            topTintFadeEnd = 1f,
+            fallbackTintStops = listOf(
+                0f to tint,
+                0.60f to tint.copy(alpha = tint.alpha * 0.78f),
+                1f to ComposeColor.Transparent
+            )
+        )
+        LiquidDialogHeader(
+            title = title,
+            onDismiss = onCancel,
+            backdrop = backdrop,
+            config = config,
+            modifier = Modifier.fillMaxSize(),
+            buttonBlurRadius = 4.dp,
+            onConfirm = onSave
+        )
     }
 }
 
@@ -1234,12 +1288,10 @@ internal fun CourseEditorPickerOverlay(
     renderInRootScaffold: Boolean,
     onDismiss: () -> Unit
 ) {
-    val pickerContentColor = if (backdrop != null) {
-        LocalAdaptiveGlass.current.contentColor
-    } else {
-        glassForegroundColor(config)
-    }
-    val dark = pickerContentColor.luminance() > 0.5f
+    // This picker owns its theme-tinted sheet, so its foreground follows that surface instead of
+    // the wallpaper sampled by the page below it.
+    val dark = appUsesDarkTheme(config)
+    val pickerContentColor = if (dark) ComposeColor.White else ComposeColor(0xFF111111)
     val wheelRequest = request as? CourseEditorPickerRequest.Wheel
     val gridRequest = request as? CourseEditorPickerRequest.Grid
     val periodRequest = request as? CourseEditorPickerRequest.Period
@@ -1302,7 +1354,7 @@ internal fun CourseEditorPickerOverlay(
         surfaceModifier = Modifier.quickSheetBackdropModifier(
             backdrop = backdrop,
             config = config,
-            blurRadius = 28.dp,
+            blurRadius = 14.dp,
             centered = true
         )
     ) {
