@@ -683,6 +683,7 @@ fun AiImportSettingsSection(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val remoteConfigState by SleepDownRemoteConfig.state.collectAsStateWithLifecycle()
     var saved by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
     var selectedProviderId by remember(saved.profile.id) { mutableStateOf(saved.profile.id) }
     var customProviderName by remember(saved.profile.id) { mutableStateOf(saved.profile.displayName) }
@@ -804,7 +805,7 @@ fun AiImportSettingsSection(
         reasoningEffort = effectiveReasoningEffort
     )
     val profile = if (isManagedFreeProvider) {
-        AiProviderPresets.dailyFree.copy(reasoningEffort = effectiveReasoningEffort)
+        selectedPreset.copy(reasoningEffort = effectiveReasoningEffort)
     } else {
         editableProfile
     }
@@ -839,6 +840,15 @@ fun AiImportSettingsSection(
         val savedUsesPresetModel = savedModelOptions.any { it.model == saved.profile.defaultModel }
         modelUsesCustomInput = savedModelOptions.isEmpty() || !savedUsesPresetModel
         customModelInput = if (savedUsesPresetModel) "" else saved.profile.defaultModel
+    }
+	LaunchedEffect(Unit) {
+		SleepDownRemoteConfig.refresh(scope, force = true)
+	}
+    LaunchedEffect(
+        remoteConfigState.bootstrap?.ai?.configVersion,
+        remoteConfigState.bootstrap?.ai?.enabled
+    ) {
+        if (isManagedFreeProvider) reload()
     }
     fun selectProvider(providerId: String) {
         // Preserve the current provider draft before switching. In particular, the
@@ -979,9 +989,19 @@ fun AiImportSettingsSection(
             SettingsDivider()
             SettingsInfoRow(
                 "每日免费 AI",
-                "每天由 SleepDown 提供免费的 AI 额度，用于 AI 功能的使用。该额度池由所有用户共享，用完即止。"
+                "每天由 SleepDown 提供共享免费额度，不保存明文 Key。${SleepDownRemoteConfig.managedFreeStatusMessage(context)}"
             )
             SettingsDivider()
+			SettingsActionRow(
+				title = "远程配置",
+				subtitle = remoteConfigState.lastError?.let { "刷新失败：$it" }
+					?: if (remoteConfigState.isRefreshing) "正在获取后台最新配置…" else "进入本页时会自动刷新，也可在这里立即重试。",
+				buttonText = if (remoteConfigState.isRefreshing) "刷新中" else "刷新",
+				iconRes = R.drawable.ic_refresh,
+				backdrop = backdrop,
+				onClick = { SleepDownRemoteConfig.refresh(scope, force = true) }
+			)
+			SettingsDivider()
             MiuixOverlayDropdownPreference(
                 items = reasoningOptions.map(AiReasoningEffort::label),
                 selectedIndex = reasoningOptions.indexOf(effectiveReasoningEffort).coerceAtLeast(0),
@@ -2878,14 +2898,21 @@ fun SettingsLiveUpdateChipTextRow(
     val options = listOf(
         LiveUpdateChipTextMode.LOCATION,
         LiveUpdateChipTextMode.COUNTDOWN,
-        LiveUpdateChipTextMode.SHORT
+        LiveUpdateChipTextMode.NORMAL
     )
-    val labels = listOf("地点", "倒计时", "短标")
+    val labels = listOf("地点", "倒计时", "课程名称")
+    // SHORT was removed from the settings surface. Treat old saved rows as the new course-name
+    // mode so opening this page never appears to select an invisible option.
+    val visibleSelected = if (selected == LiveUpdateChipTextMode.SHORT) {
+        LiveUpdateChipTextMode.NORMAL
+    } else {
+        selected
+    }
     if (LocalGlassMiuixEnabled.current) {
         Column(Modifier.fillMaxWidth()) {
             MiuixBasicComponent(
                 title = "岛上缩略态",
-                summary = "可显示上课地点、剩余时间或短标签；原生安卓建议选择短标签或倒计时。",
+                summary = "可显示上课地点、剩余时间或课程名称。",
                 modifier = Modifier.fillMaxWidth(),
                 insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
             )
@@ -2897,7 +2924,7 @@ fun SettingsLiveUpdateChipTextRow(
             ) {
                 Box(Modifier.size(268.dp, 42.dp)) {
                     LiquidOptionTabs(
-                        selectedIndex = options.indexOf(selected).coerceAtLeast(0),
+                        selectedIndex = options.indexOf(visibleSelected).coerceAtLeast(0),
                         labels = labels,
                         backdrop = backdrop,
                         config = config,
@@ -2912,7 +2939,7 @@ fun SettingsLiveUpdateChipTextRow(
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("岛上缩略态", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
         LiquidOptionTabs(
-            selectedIndex = options.indexOf(selected).coerceAtLeast(0),
+            selectedIndex = options.indexOf(visibleSelected).coerceAtLeast(0),
             labels = labels,
             backdrop = backdrop,
             config = config,
@@ -2920,7 +2947,7 @@ fun SettingsLiveUpdateChipTextRow(
             onSelected = { index -> onSelected(options[index.coerceIn(options.indices)]) }
         )
         Text(
-            "可选择缩略态显示上课地点、剩余时间或短标签；原生安卓机型请选择短标签或者倒计时。",
+            "可选择缩略态显示上课地点、剩余时间或课程名称。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             lineHeight = 18.sp
@@ -3159,7 +3186,7 @@ fun ScheduleSettingsContent(
             }
             item(key = "notification-compatibility") {
                 Text(
-                    "实时活动目前仅支持原生安卓系统、ColorOS16、HyperOS 3.0.300以上版本、荣耀 MagicOS 10。原生安卓机型请选择短标签或者倒计时。",
+                    "实时活动目前仅支持原生安卓系统、ColorOS16、HyperOS 3.0.300以上版本、荣耀 MagicOS 10。原生安卓机型请选择课程名称或者倒计时。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 4.dp)

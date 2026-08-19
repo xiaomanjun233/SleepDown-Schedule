@@ -17,7 +17,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import androidx.core.net.toUri
 import android.provider.MediaStore
@@ -125,6 +125,7 @@ import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -213,13 +214,16 @@ import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
@@ -347,7 +351,7 @@ sealed interface Screen {
 
 enum class HomeMode { Day, Week }
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate }
+enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
 
 /** Matches the navigation motion used by the bundled Miuix system-style navigator. */
 private class MiuixSettingsNavigationEasing(
@@ -375,6 +379,12 @@ private class MiuixSettingsNavigationEasing(
 }
 
 private val MiuixSettingsNavigationMotion = MiuixSettingsNavigationEasing()
+
+/** Follow-through state for the three-dot button after a morph surface hands off on close. */
+private data class SourceButtonFollowThrough(
+    val startCenter: Offset,
+    val startScale: Float
+)
 
 private fun agentSettingsPage(value: String?): SettingsPage? = when (value) {
     "GENERAL" -> SettingsPage.General
@@ -409,13 +419,15 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.About -> "关于应用"
     SettingsPage.Changelog -> "关于应用"
     SettingsPage.Donate -> "捐赠支持"
+	SettingsPage.PrivacyPolicy -> "隐私政策"
 }
 
 internal fun SettingsPage.usesPersistentCenteredSettingsTitle(): Boolean = when (this) {
     SettingsPage.LiquidGlass,
     SettingsPage.Widgets,
     SettingsPage.About,
-    SettingsPage.Changelog -> true
+	SettingsPage.Changelog,
+	SettingsPage.PrivacyPolicy -> true
     else -> false
 }
 
@@ -563,10 +575,16 @@ fun CourseScheduleAppUi(
         ?.let { baseVisualState.copy(config = it) }
         ?: baseVisualState
     val screenGraphicsLayer = rememberGraphicsLayer()
+    // The week grid is already recorded into this layer for Morph motion. Reuse that GPU layer
+    // as the personalization backdrop producer so the glass does not traverse every live
+    // week-card RenderNode again on each animation frame.
+    val cachedWeekHomeBackdrop = rememberLayerBackdrop(screenGraphicsLayer)
     val detailScreenGraphicsLayer = rememberGraphicsLayer()
+    val lastRecordedDetailFrameKey = remember { AtomicReference<String?>(null) }
     val recordedScheduleId = remember { AtomicInteger(-1) }
     val recordedHomeGeneration = remember { AtomicLong(0L) }
     val lastRecordedHomeFrameKey = remember { AtomicReference<String?>(null) }
+    val weekHomeSurfaceUsesOffscreenCache = remember { AtomicBoolean(false) }
     var captureRenderToken by remember { mutableIntStateOf(0) }
     var snapshotGeneration by remember { mutableIntStateOf(0) }
     var snapshotJob by remember { mutableStateOf<Job?>(null) }
@@ -631,14 +649,38 @@ fun CourseScheduleAppUi(
     var homeMenuSourceHidden by remember { mutableStateOf(false) }
     var homeAddMenuBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
     var homeAnchoredOverlayRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
+    var jumpWeekDialogMounted by remember { mutableStateOf(false) }
+    var jumpWeekDialogVisible by remember { mutableStateOf(false) }
+    var pendingJumpWeekDialog by remember { mutableStateOf(false) }
+    var pendingOpenScheduleSettings by remember { mutableStateOf(false) }
+    var courseManagementActivityLaunched by remember { mutableStateOf(false) }
+    var destinationOwnsButtonReturn by remember { mutableStateOf(false) }
+    var destinationCollapseHandedOff by remember { mutableStateOf(false) }
     var addButtonBounds by remember { mutableStateOf<Rect?>(null) }
     var personalizeButtonBounds by remember { mutableStateOf<Rect?>(null) }
+    var sourceButtonFollowThrough by remember { mutableStateOf<SourceButtonFollowThrough?>(null) }
+    val sourceButtonFollowProgress = remember { Animatable(0f) }
+    val latestSourceFollowThrough = rememberUpdatedState<(Rect) -> Unit> { rect ->
+        if (sourceButtonFollowThrough == null) {
+            val rest = addButtonBounds ?: return@rememberUpdatedState
+            sourceButtonFollowThrough = SourceButtonFollowThrough(
+                startCenter = rect.center,
+                startScale = (rect.width / rest.width.coerceAtLeast(1f)).coerceIn(0.30f, 1.05f)
+            )
+        }
+    }
     var pendingHomeAnchoredOverlay by remember { mutableStateOf<HomeAnchoredOverlayKind?>(null) }
     var pendingHomeAnchoredSourceScale by remember { mutableFloatStateOf(1f) }
     var showScheduleEntryPill by remember { mutableStateOf(false) }
     val editingCourseId: Long? = courseEditorRequest?.course?.id ?: courseEditorRenderedCourseId
     val activeHomeAnchoredOverlay =
         homeAnchoredOverlayRequest?.kind ?: homeAnchoredMorphState.renderedKind
+    val destinationTransitionActive =
+        homeMenuDestinationRequest != null ||
+            homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle
+    val addButtonHidden = activeHomeAnchoredOverlay == HomeAnchoredOverlayKind.Add ||
+        sourceButtonFollowThrough != null ||
+        (destinationTransitionActive && !destinationCollapseHandedOff)
 
     fun openHomeAnchoredOverlay(kind: HomeAnchoredOverlayKind, sourcePressedScale: Float = 1f) {
         if (homeAnchoredOverlayRequest != null ||
@@ -708,6 +750,8 @@ fun CourseScheduleAppUi(
         mutableFloatStateOf((visualState.config.weekCardHeightDp ?: adaptiveWeekCardHeight).coerceIn(38f, 80f))
     }
     val context = LocalContext.current
+    val remoteExperience by SleepDownRemoteConfig.experience.collectAsStateWithLifecycle()
+    val remoteConfigState by SleepDownRemoteConfig.state.collectAsStateWithLifecycle()
     fun requestSettingsExit(action: () -> Unit) {
         if (screen is Screen.Config && settingsExitInterceptionRequired) {
             pendingSettingsExitAction = action
@@ -720,6 +764,11 @@ fun CourseScheduleAppUi(
         requestSettingsExit { context.findActivity()?.finish() }
     }
     var showManagedFreeAiOffer by remember(context) { mutableStateOf(false) }
+    LaunchedEffect(remoteExperience) {
+        if (remoteExperience.agreement != null || remoteExperience.notice != null) {
+            showManagedFreeAiOffer = false
+        }
+    }
     var pendingImportedSetupId by remember(context) {
         mutableStateOf(PendingImportSetupStore.consume(context))
     }
@@ -766,21 +815,30 @@ fun CourseScheduleAppUi(
     val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
     var homeReadabilityRootSize by remember { mutableStateOf(IntSize.Zero) }
     var homeRootPositionOnScreen by remember { mutableStateOf(Offset.Zero) }
-    fun openHomeMenuDestination(kind: HomeMenuDestinationKind) {
-        val sourceButton = addButtonBounds ?: return
-        if (homeReadabilityRootSize.width <= 0 || homeReadabilityRootSize.height <= 0) return
+    var homeRootPositionInWindow by remember { mutableStateOf(Offset.Zero) }
+    fun currentHomeMenuDestinationRequest(
+        kind: HomeMenuDestinationKind
+    ): HomeMenuDestinationRequest? {
+        val sourceButton = addButtonBounds ?: return null
+        if (homeReadabilityRootSize.width <= 0 || homeReadabilityRootSize.height <= 0) return null
         val menuBounds = homeAddMenuBoundsInRoot ?: homeAddMenuTargetRect(
             source = sourceButton,
             rootSize = homeReadabilityRootSize,
             density = density.density,
-            actionCount = 3,
+            actionCount = 6,
             adaptiveMetrics = homeAdaptiveMetrics
         )
-        homeMenuDestinationRequest = HomeMenuDestinationRequest(
+        return HomeMenuDestinationRequest(
             kind = kind,
             sourceBoundsInRoot = menuBounds,
             collapseBoundsInRoot = sourceButton
         )
+    }
+    fun openHomeMenuDestination(kind: HomeMenuDestinationKind) {
+        val request = currentHomeMenuDestinationRequest(kind) ?: return
+        destinationOwnsButtonReturn = false
+        destinationCollapseHandedOff = false
+        homeMenuDestinationRequest = request
     }
     val currentVersionName = remember(context) {
         runCatching {
@@ -927,7 +985,9 @@ fun CourseScheduleAppUi(
         screen,
         homeDialogVisible,
         automaticUpdateDialog,
-        courseEditorRequest
+        courseEditorRequest,
+        remoteConfigState.bootstrap?.ai?.configVersion,
+        remoteConfigState.bootstrap?.ai?.enabled
     ) {
         if (
             state.loaded &&
@@ -936,6 +996,8 @@ fun CourseScheduleAppUi(
             !homeDialogVisible &&
             automaticUpdateDialog == null &&
             courseEditorRequest == null &&
+            remoteExperience.agreement == null &&
+            remoteExperience.notice == null &&
             AiImportSettingsStore.shouldOfferManagedFreeAi(context)
         ) {
             delay(240)
@@ -944,8 +1006,6 @@ fun CourseScheduleAppUi(
     }
     val glassQuality = animatedGlassQuality(startupPhase)
     val adaptiveGlassState = rememberFallbackAdaptiveGlassState(visualState.config)
-    val homeAnchoredMorphIsMoving = homeAnchoredMorphState.phase.isMovingTransition
-    val homeMenuDestinationIsMoving = homeMenuDestinationMotionState.phase.isMovingTransition
     val homeAnchoredKindLabel = when (homeAnchoredMorphState.renderedKind) {
         HomeAnchoredOverlayKind.Add -> "AddMenu"
         HomeAnchoredOverlayKind.Personalize -> "Personalize"
@@ -1041,8 +1101,17 @@ fun CourseScheduleAppUi(
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
     )
+    val weekPersonalizationMotionActive = homeMode == HomeMode.Week &&
+        (
+            homeAnchoredOverlayRequest?.kind == HomeAnchoredOverlayKind.Personalize ||
+                homeAnchoredMorphState.renderedKind == HomeAnchoredOverlayKind.Personalize
+            ) && personalizationSliderPreviewKey == null
     val homeAnchoredOverlayBackdrop = rememberScreenScaledBackdrop(
-        backdrop = chromeBackdrop,
+        backdrop = if (weekPersonalizationMotionActive) {
+            cachedWeekHomeBackdrop
+        } else {
+            chromeBackdrop
+        },
         scale = {
             val zoom = homeAnchoredMorphState.backgroundZoom.value
             1f + (zoom - 1f) * (1f - personalizationPreviewProgress)
@@ -1075,7 +1144,7 @@ fun CourseScheduleAppUi(
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
     )
-    val eduMenuDestinationActive =
+    val fullScreenMenuDestinationActive =
         homeMenuDestinationRequest?.kind == HomeMenuDestinationKind.EduImport ||
             (homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle &&
                 homeMenuDestinationMotionState.kind == HomeMenuDestinationKind.EduImport)
@@ -1083,7 +1152,7 @@ fun CourseScheduleAppUi(
         if (personalizationPreviewProgress > 0.001f) {
             val zoom = homeAnchoredMorphState.backgroundZoom.value
             1f + (zoom - 1f) * (1f - personalizationPreviewProgress)
-        } else if (eduMenuDestinationActive) {
+        } else if (fullScreenMenuDestinationActive) {
             homeMenuDestinationMotionState.backgroundZoom.value
         } else {
             maxOf(
@@ -1184,7 +1253,11 @@ fun CourseScheduleAppUi(
         homeCourseColorSignature,
         homeMode,
         homeDisplayWeek,
-        homeDisplayDate
+        homeDisplayDate,
+        editingCourseId,
+        activeHomeAnchoredOverlay,
+        addButtonHidden,
+        homeMenuSourceHidden
     ) {
         buildString {
             append(captureRenderToken).append('|')
@@ -1195,7 +1268,49 @@ fun CourseScheduleAppUi(
             append(wallpaperImages.source != null).append('|')
             append(homeCourseColorSignature.hashCode()).append('|')
             append(homeMode).append('|').append(homeDisplayWeek).append('|').append(homeDisplayDate)
+                .append('|').append(editingCourseId)
+                .append('|').append(activeHomeAnchoredOverlay)
+                .append('|').append(addButtonHidden)
+                // Source handoff hides the first-level menu without changing the schedule data.
+                // Include it in the capture key so the clean background is actually re-recorded
+                // after the hidden frame, rather than reusing the menu-containing texture.
+                .append('|').append(homeMenuSourceHidden)
         }
+    }
+    val useFrozenHomeMorphBlur: () -> Boolean = {
+        val homeOverlayActive =
+            homeAnchoredOverlayRequest != null ||
+                homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ||
+                homeMenuDestinationRequest != null ||
+                homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle
+        val courseEditorActive =
+            courseEditorRequest != null || courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
+        shouldUseFrozenHomeMorphBlur(
+            screenIsHome = screen is Screen.Home,
+            previewActive = personalizationSliderPreviewKey != null ||
+                personalizationPreviewProgress > 0.001f,
+            overlayActive = homeOverlayActive || courseEditorActive
+        )
+    }
+    val useCachedWeekHomeSurface: () -> Boolean = {
+        val homeOverlayActive =
+            homeAnchoredOverlayRequest != null ||
+                homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ||
+                homeMenuDestinationRequest != null ||
+                homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle
+        val courseEditorActive =
+            courseEditorRequest != null || courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
+        shouldReuseWeekHomeSurface(
+            screenIsHome = screen is Screen.Home,
+            homeMode = homeMode,
+            previewActive = personalizationSliderPreviewKey != null ||
+                personalizationPreviewProgress > 0.001f,
+            overlayActive = homeOverlayActive || courseEditorActive,
+            cachedScheduleId = recordedScheduleId.get(),
+            currentScheduleId = visualState.config.id,
+            cachedFrameKey = lastRecordedHomeFrameKey.get(),
+            currentFrameKey = homeCaptureFrameKey
+        )
     }
 
     suspend fun awaitRenderedSchedule(scheduleId: Int): Boolean {
@@ -1524,6 +1639,12 @@ fun CourseScheduleAppUi(
     }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && courseManagementActivityLaunched) {
+                courseManagementActivityLaunched = false
+                destinationOwnsButtonReturn = false
+                destinationCollapseHandedOff = false
+                homeMenuSourceHidden = false
+            }
             if (event == Lifecycle.Event.ON_START) {
                 PendingImportSetupStore.consume(context)?.let { pendingImportedSetupId = it }
                 if (initialLifecycleStartSeen) {
@@ -1592,6 +1713,7 @@ fun CourseScheduleAppUi(
             .onGloballyPositioned {
                 homeReadabilityRootSize = it.size
                 homeRootPositionOnScreen = it.positionOnScreen()
+                homeRootPositionInWindow = it.positionInWindow()
             }
             .drawWithContent {
                 val recordCleanFrame =
@@ -1603,21 +1725,33 @@ fun CourseScheduleAppUi(
                 // several backdrop consumers and recording that entire overlay on every animation
                 // frame causes an explosive offscreen-render workload after the first use.
                 // HomeAnchored/HomeMenuDestination own similarly heavy live backdrop consumers;
-                // pause the root capture only while they move, then refresh it again in Open/Idle.
+                // pause this unrelated capture while they move. Their settled Open frame remains
+                // available to flows such as manual-import history detail background capture.
                 // Keep the detailed-settings source frame live while the quick sheet animates.
                 // Key-based throttling leaves the first launch with a stale, partially composed
                 // sheet snapshot; v1.1.1 deliberately recorded every stable draw here.
                 val shouldRecordStableDetailFrame =
                     detailMorphState is DetailMorphState.Idle &&
                         !courseEditorOwnsFrame &&
-                        !homeAnchoredMorphIsMoving &&
-                        !homeMenuDestinationIsMoving
-                if (shouldRecordStableDetailFrame || recordCleanFrame) {
+                        (
+                            homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Open ||
+                                (homeAnchoredOverlayRequest == null &&
+                                    homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Idle)
+                            ) &&
+                        (
+                            homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Open ||
+                                (homeMenuDestinationRequest == null &&
+                                    homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Idle)
+                            )
+                val detailFrameNeedsRecord = shouldRecordStableDetailFrame &&
+                    lastRecordedDetailFrameKey.get() != homeCaptureFrameKey
+                if (detailFrameNeedsRecord || recordCleanFrame) {
                     detailCaptureMaskActive.set(recordCleanFrame)
                     try {
                         detailScreenGraphicsLayer.record {
                             this@drawWithContent.drawContent()
                         }
+                        lastRecordedDetailFrameKey.set(homeCaptureFrameKey)
                     } finally {
                         detailCaptureMaskActive.set(false)
                     }
@@ -1630,9 +1764,6 @@ fun CourseScheduleAppUi(
                 .fillMaxSize()
                 .clipToBounds()
                 .graphicsLayer {
-                    // Live background depth: blur + inertial zoom on the real home surface,
-                    // driven by a single slow Animatable that trails the card morph. No frozen
-                    // snapshot — the backdrop-heavy home is transformed directly each frame.
                     val zoom = dayAgentBackgroundMotionState.backgroundZoom.value
                     val depthProgress =
                         ((1f - zoom) / (1f - DayAgentBackgroundZoomRestScale)).coerceIn(0f, 1f)
@@ -1642,18 +1773,6 @@ fun CourseScheduleAppUi(
                     renderEffect = if (depthProgress > 0.001f) {
                         BlurEffect(blurPx, blurPx, TileMode.Clamp)
                     } else null
-                }
-                .drawWithContent {
-                    val mayRecordHome =
-                        courseEditorRequest == null &&
-                            courseEditorOverlayPhase == CourseEditorOverlayPhase.Idle
-                    if (mayRecordHome && lastRecordedHomeFrameKey.get() != homeCaptureFrameKey) {
-                        screenGraphicsLayer.record { this@drawWithContent.drawContent() }
-                        recordedScheduleId.set(visualState.config.id)
-                        recordedHomeGeneration.incrementAndGet()
-                        lastRecordedHomeFrameKey.set(homeCaptureFrameKey)
-                    }
-                    drawContent()
                 }
         ) {
         // The live home surface owns shared depth for source-anchored overlays. Consumers render
@@ -1667,7 +1786,59 @@ fun CourseScheduleAppUi(
         ) {
         HomeBackgroundBlurLayer(
             zoom = homeOverlayBackgroundZoom,
+            useFrozenHomeScene = useFrozenHomeMorphBlur,
+            sceneKey = homeCaptureFrameKey,
             modifier = Modifier.fillMaxSize()
+        ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithContent {
+                    if (useCachedWeekHomeSurface()) {
+                        if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
+                            // The recorded display list contains every week-course Kyant node.
+                            // Flatten it only for popup motion so those child RenderNodes stop
+                            // participating in every blurred/zoomed frame. The original live tree
+                            // remains composed and resumes after the transition, avoiding a costly
+                            // dispose/recreate cycle and preserving every glass pixel.
+                            screenGraphicsLayer.compositingStrategy =
+                                androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
+                        }
+                        // Replay the already-recorded GPU scene while the outer depth layers and
+                        // the real overlay animate. Recording below those depth layers keeps the
+                        // cache neutral, so a later live-preview handoff cannot double its zoom.
+                        drawLayer(screenGraphicsLayer)
+                    } else {
+                        if (lastRecordedHomeFrameKey.get() != homeCaptureFrameKey) {
+                            // Source-card and top-bar source visibility are part of the key. The
+                            // first preparation frame records a clean home with the real source
+                            // hidden, so the cached background cannot duplicate the moving clone.
+                            screenGraphicsLayer.record { this@drawWithContent.drawContent() }
+                            recordedScheduleId.set(visualState.config.id)
+                            recordedHomeGeneration.incrementAndGet()
+                            lastRecordedHomeFrameKey.set(homeCaptureFrameKey)
+                        }
+                        if (useCachedWeekHomeSurface()) {
+                            // A source handoff can change the frame key in the middle of Opening or
+                            // Closing. The old path recorded the complete week scene and then drew
+                            // that heavy tree live a second time before using the cache next frame.
+                            // Replay the just-recorded, pixel-identical layer immediately instead;
+                            // keeping Offscreen throughout also avoids an Auto -> Offscreen round
+                            // trip at the small-button handoff.
+                            if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
+                                screenGraphicsLayer.compositingStrategy =
+                                    androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
+                            }
+                            drawLayer(screenGraphicsLayer)
+                        } else {
+                            if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(true, false)) {
+                                screenGraphicsLayer.compositingStrategy =
+                                    androidx.compose.ui.graphics.layer.CompositingStrategy.Auto
+                            }
+                            drawContent()
+                        }
+                    }
+                }
         ) {
         Scaffold(
             containerColor = ComposeColor.Transparent,
@@ -1715,6 +1886,7 @@ fun CourseScheduleAppUi(
                             homeShowingAnotherWeek = homeShowingAnotherWeek,
                             onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
                             activeHomeOverlay = activeHomeAnchoredOverlay,
+                            addButtonHidden = addButtonHidden,
                             onAddButtonPositioned = { addButtonBounds = it },
                             onPersonalizeButtonPositioned = { personalizeButtonBounds = it },
                             onToggleAddMenu = { sourceScale ->
@@ -1792,8 +1964,6 @@ fun CourseScheduleAppUi(
                                      state = visualState,
                                      agentState = state,
                                     personalizationPreviewState = personalizationPreviewState,
-                                    personalizeVisible = activeHomeAnchoredOverlay ==
-                                        HomeAnchoredOverlayKind.Personalize,
                                     mode = homeMode,
                                     adaptiveMetrics = homeAdaptiveMetrics,
                                     weekCardHeight = weekCardHeight.dp,
@@ -1937,6 +2107,7 @@ fun CourseScheduleAppUi(
                                         }
                                     },
                                     onDeleteCourseSingleWeek = viewModel::deleteCourseSingleWeek,
+                                    weekEditInteractionEnabled = pickerState.phase is CustomizeUiState.Home,
                                     onScheduleLongPress = {
                                         if (pickerState.phase is CustomizeUiState.Home) {
                                             pendingHomeAnchoredOverlay = null
@@ -2140,27 +2311,182 @@ fun CourseScheduleAppUi(
             modifier = Modifier.layerBackdrop(pickerSceneBackdrop)
         )
     }
-    }
+    } // end cached home content
+    } // end HomeBackgroundBlurLayer
     } // end HomeBackgroundZoomLayer
 
     val latestOpenHomeMenuDestination = rememberUpdatedState<(HomeMenuDestinationKind) -> Unit> {
         kind -> openHomeMenuDestination(kind)
+    }
+    val latestOpenCourseManagement = rememberUpdatedState<() -> Unit> {
+        if (courseManagementActivityLaunched) return@rememberUpdatedState
+        val activity = context.findActivity() ?: return@rememberUpdatedState
+        val sharedDestinationRequest =
+            currentHomeMenuDestinationRequest(HomeMenuDestinationKind.EduImport)
+                ?: return@rememberUpdatedState
+        val sourceBoundsInRoot = sharedDestinationRequest.sourceBoundsInRoot
+        val collapseBoundsInRoot = sharedDestinationRequest.collapseBoundsInRoot
+        if (sourceBoundsInRoot.width <= 2f || sourceBoundsInRoot.height <= 2f) {
+            return@rememberUpdatedState
+        }
+        appScope.launch {
+            val fullFrame = runCatching {
+                detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+            }.getOrNull()
+            val sourceSnapshot = fullFrame?.cropToAnchoredBounds(sourceBoundsInRoot)
+            val collapseSnapshot = fullFrame?.cropToAnchoredBounds(collapseBoundsInRoot)
+            // This Activity transition has no in-process fallback capable of reproducing the
+            // actual glass menu. Do not hide the live source until both real anchors were
+            // captured; otherwise the generic fallback visibly becomes a different menu.
+            if (sourceSnapshot == null || collapseSnapshot == null) return@launch
+            val sourceBoundsInWindow = Rect(
+                left = sourceBoundsInRoot.left + homeRootPositionInWindow.x,
+                top = sourceBoundsInRoot.top + homeRootPositionInWindow.y,
+                right = sourceBoundsInRoot.right + homeRootPositionInWindow.x,
+                bottom = sourceBoundsInRoot.bottom + homeRootPositionInWindow.y
+            )
+            val collapseBoundsInWindow = Rect(
+                left = collapseBoundsInRoot.left + homeRootPositionInWindow.x,
+                top = collapseBoundsInRoot.top + homeRootPositionInWindow.y,
+                right = collapseBoundsInRoot.right + homeRootPositionInWindow.x,
+                bottom = collapseBoundsInRoot.bottom + homeRootPositionInWindow.y
+            )
+            val windowOverlay = activity.window.decorView.overlay
+            val placeholder = sourceSnapshot.let { bitmap ->
+                BitmapDrawable(context.resources, bitmap).apply {
+                    bounds = android.graphics.Rect(
+                        sourceBoundsInWindow.left.roundToInt(),
+                        sourceBoundsInWindow.top.roundToInt(),
+                        sourceBoundsInWindow.right.roundToInt(),
+                        sourceBoundsInWindow.bottom.roundToInt()
+                    )
+                }
+            }
+            placeholder.let(windowOverlay::add)
+            try {
+                // Match AI import history: the moving source is held by a window-overlay snapshot
+                // while two frames record a clean background without the original menu.
+                homeMenuSourceHidden = true
+                withFrameNanos { }
+                withFrameNanos { }
+                val cleanBackground = runCatching {
+                    detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                }.getOrNull()
+                if (cleanBackground == null) {
+                    homeMenuSourceHidden = false
+                    return@launch
+                }
+                val intent = Intent(context, CourseManagementActivity::class.java)
+                    .putCourseManagementInitialState(state)
+                    .putAnchoredSourceBounds(sourceBoundsInWindow)
+                    .putAnchoredCollapseBounds(collapseBoundsInWindow)
+                intent.putAnchoredMorphSnapshots(
+                    AnchoredMorphSnapshots(
+                        background = cleanBackground,
+                        source = sourceSnapshot,
+                        collapse = collapseSnapshot
+                    )
+                )
+                courseManagementActivityLaunched = true
+                activity.startActivityWithAnchoredMorph(intent)
+                // The Activity now owns the exact Edu-import return to the real three-dot button.
+                // Silently dispose the first-level menu underneath it instead of restoring that
+                // menu as a false return anchor.
+                destinationOwnsButtonReturn = true
+                destinationCollapseHandedOff = false
+                homeAnchoredOverlayRequest = null
+                // Keep the window-overlay source alive for the complete shared Edu-import
+                // opening duration. Removing it halfway through the Activity handoff exposed one
+                // frame of the old Home layer on slower devices as a blink.
+                delay(HomeMenuDestinationLegacyMotion.OpenDurationMillis.toLong())
+            } catch (_: Throwable) {
+                courseManagementActivityLaunched = false
+                homeMenuSourceHidden = false
+            } finally {
+                placeholder.let(windowOverlay::remove)
+            }
+        }
+    }
+    val latestOpenJumpWeekDialog = rememberUpdatedState<() -> Unit> {
+        homeAnchoredOverlayRequest = null
+        pendingJumpWeekDialog = true
+    }
+    val latestOpenScheduleSettings = rememberUpdatedState<() -> Unit> {
+        pendingOpenScheduleSettings = true
+        homeAnchoredOverlayRequest = null
     }
     val homeAddActions = remember {
         listOf(
             AddMenuAction(R.drawable.ic_add_course, "添加单节课") {
                 latestOpenHomeMenuDestination.value(HomeMenuDestinationKind.AddCourse)
             },
+            AddMenuAction(R.drawable.ic_courses, "课程管理") {
+                latestOpenCourseManagement.value()
+            },
             AddMenuAction(R.drawable.ic_ai_import, "手动导入课表") {
                 latestOpenHomeMenuDestination.value(HomeMenuDestinationKind.ManualImport)
             },
             AddMenuAction(R.drawable.ic_school_import, "教务系统导入") {
                 latestOpenHomeMenuDestination.value(HomeMenuDestinationKind.EduImport)
+            },
+            AddMenuAction(R.drawable.ic_material_event, "跳转周数") {
+                latestOpenJumpWeekDialog.value()
+            },
+            AddMenuAction(R.drawable.ic_settings, "课表设置") {
+                latestOpenScheduleSettings.value()
             }
         )
     }
 
+    LaunchedEffect(
+        pendingOpenScheduleSettings,
+        homeAnchoredMorphState.phase,
+        screen,
+        state.config.id
+    ) {
+        if (!pendingOpenScheduleSettings || screen !is Screen.Home) return@LaunchedEffect
+        if (homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle) return@LaunchedEffect
+        pendingOpenScheduleSettings = false
+        if (pickerState.phase is CustomizeUiState.Home) {
+            // Equivalent to long-pressing the schedule homepage and tapping the 课表设置
+            // entry pill: open the in-app multi-schedule customization page directly.
+            pickerState.phase = CustomizeUiState.ShowingEntryButton
+            showScheduleEntryPill = true
+            prewarmCurrentScheduleSnapshot()
+            enterCustomizePage()
+        }
+    }
+
+    LaunchedEffect(
+        pendingJumpWeekDialog,
+        homeAnchoredMorphState.phase,
+        screen,
+        state.config.id
+    ) {
+        if (!pendingJumpWeekDialog || screen !is Screen.Home) return@LaunchedEffect
+        if (homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle) return@LaunchedEffect
+        pendingJumpWeekDialog = false
+        // Open the jump-week dialog only after the three-dot menu has fully retracted, so the
+        // dialog never overlaps the closing menu.
+        jumpWeekDialogMounted = true
+        jumpWeekDialogVisible = true
+    }
+
+    LaunchedEffect(sourceButtonFollowThrough) {
+        val follow = sourceButtonFollowThrough ?: return@LaunchedEffect
+        sourceButtonFollowProgress.snapTo(0f)
+        sourceButtonFollowProgress.animateTo(
+            1f,
+            spring(dampingRatio = 0.86f, stiffness = 460f)
+        )
+        sourceButtonFollowThrough = null
+    }
+
     fun closeHomeMenuDestination() {
+        // The destination owns the legacy liquid return to the real button. Dispose the hidden
+        // first-level menu without replaying its independent Closing or button follow-through.
+        destinationOwnsButtonReturn = true
+        destinationCollapseHandedOff = false
         homeAnchoredOverlayRequest = null
         homeMenuDestinationRequest = null
     }
@@ -2179,6 +2505,8 @@ fun CourseScheduleAppUi(
             .graphicsLayer { alpha = if (homeMenuSourceHidden) 0f else 1f },
         onDismissRequest = { homeAnchoredOverlayRequest = null },
         onAddMenuBoundsChanged = { homeAddMenuBoundsInRoot = it },
+        onSourceFollowThrough = { rect -> latestSourceFollowThrough.value(rect) },
+        suppressClose = destinationOwnsButtonReturn,
         personalizePreviewProgress = personalizationPreviewProgress,
         sourceContent = { kind, sourceModifier ->
             HomeIconButtonVisual(
@@ -2255,6 +2583,77 @@ fun CourseScheduleAppUi(
         }
     )
 
+    // The first-level menu alone owns this final button follow-through. Destinations restore the
+    // real button directly at their legacy pinch handoff and never enter this spring choreography.
+    sourceButtonFollowThrough?.let { follow ->
+        val followProgress = sourceButtonFollowProgress.value
+        val rest = addButtonBounds ?: return@let
+        val density = LocalDensity.current
+        val buttonSizePx = with(density) { 42.dp.toPx() }
+        val progress = followProgress
+        val center = Offset(
+            x = follow.startCenter.x + (rest.center.x - follow.startCenter.x) * progress,
+            y = follow.startCenter.y + (rest.center.y - follow.startCenter.y) * progress
+        )
+        val scale = follow.startScale + (1f - follow.startScale) * progress
+        Box(
+            modifier = Modifier
+                .offset {
+                    IntOffset(
+                        (center.x - buttonSizePx / 2f).roundToInt(),
+                        (center.y - buttonSizePx / 2f).roundToInt()
+                    )
+                }
+                .requiredSize(42.dp)
+                .zIndex(300f)
+        ) {
+            HomeIconButtonVisual(
+                backdrop = homeAnchoredOverlayBackdrop,
+                config = state.config,
+                iconRes = R.drawable.ic_more_horizontal,
+                contentDescription = "添加菜单",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    }
+            )
+        }
+    }
+
+    if (jumpWeekDialogMounted) {
+        HomeJumpWeekDialog(
+            show = jumpWeekDialogVisible,
+            initialWeek = homeDisplayWeek,
+            totalWeeks = visualState.config.totalWeeks,
+            backdrop = homeDialogBackdrop,
+            config = visualState.config,
+            onDismissRequest = { jumpWeekDialogVisible = false },
+            onDismissFinished = { targetWeek ->
+                jumpWeekDialogVisible = false
+                jumpWeekDialogMounted = false
+                targetWeek?.let { requestedWeek ->
+                    val boundedWeek = requestedWeek.coerceIn(
+                        1,
+                        visualState.config.totalWeeks.coerceAtLeast(1)
+                    )
+                    appScope.launch {
+                        if (homeMode != HomeMode.Week) {
+                            homeMode = HomeMode.Week
+                            // Let the current week page become the settled week surface first;
+                            // the selected target then enters through the normal week transition.
+                            delay(220)
+                        } else {
+                            withFrameNanos { }
+                        }
+                        homeDisplayWeek = boundedWeek
+                    }
+                }
+            }
+        )
+    }
+
     HomeMenuDestinationOverlayHost(
         request = homeMenuDestinationRequest,
         motionState = homeMenuDestinationMotionState,
@@ -2266,11 +2665,28 @@ fun CourseScheduleAppUi(
         onDismissRequest = ::closeHomeMenuDestination,
         sourceActions = homeAddActions,
         onSourceHandoff = { homeMenuSourceHidden = true },
-        onCollapseHandoff = { homeMenuSourceHidden = false },
-        onClosed = { homeMenuSourceHidden = false },
+        onCollapseHandoff = {
+            destinationCollapseHandedOff = true
+        },
+        onClosed = {
+            homeMenuSourceHidden = false
+            destinationCollapseHandedOff = false
+            destinationOwnsButtonReturn = false
+        },
         onAddCourses = { courses ->
-            viewModel.addCourses(courses)
-            closeHomeMenuDestination()
+            val conflictWeeks = conflictWeeksForAddedCourses(courses, state.courses, state.periods)
+            if (conflictWeeks.isEmpty()) {
+                viewModel.addCourses(courses)
+                closeHomeMenuDestination()
+            } else {
+                pendingCourseGroupEdit = PendingCourseGroupEdit(emptyList(), courses)
+                homeDialog = HomeDialog.ConfirmCourseConflicts(
+                    original = courses.first(),
+                    edited = courses.first(),
+                    targetWeek = effectiveCurrentWeek(state.config),
+                    conflictWeeks = conflictWeeks
+                )
+            }
         },
         onManualImportParsed = { draft ->
             closeHomeMenuDestination()
@@ -2280,7 +2696,20 @@ fun CourseScheduleAppUi(
             }
         },
         captureHistoryBackground = {
-            runCatching { detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+            // History handoff is a rare explicit capture. Advance the frame key so the optimized
+            // stable-frame recorder refreshes both the visible source frame and, after the source
+            // is hidden, the clean background frame. Without this the callback can return the
+            // previous cached menu texture even though Compose has already changed the source.
+            captureRenderToken += 1
+            withFrameNanos { }
+            withFrameNanos { }
+            runCatching {
+                AiImportHistoryBackgroundCapture(
+                    bitmap = detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap(),
+                    rootLeftInWindow = homeRootPositionInWindow.x,
+                    rootTopInWindow = homeRootPositionInWindow.y
+                )
+            }.getOrNull()
         },
         onEduAdapterSelected = { adapter ->
             context.startActivity(
@@ -2405,7 +2834,12 @@ fun CourseScheduleAppUi(
                 val original = originals.singleOrNull()
                 val edited = editedCourses.singleOrNull()
                 if (original != null && edited != null && courseWeeksChanged(original, edited)) {
-                    val conflictWeeks = conflictWeeksForEditedCourse(original, edited, state.courses)
+                    val conflictWeeks = conflictWeeksForEditedCourse(
+                        original,
+                        edited,
+                        state.courses,
+                        state.periods
+                    )
                     if (conflictWeeks.isEmpty()) {
                         viewModel.updateCourse(edited)
                         closeCourseEditor()
@@ -2425,7 +2859,8 @@ fun CourseScheduleAppUi(
                     val conflictWeeks = conflictWeeksForEditedCourseGroup(
                         originals,
                         editedCourses,
-                        state.courses
+                        state.courses,
+                        state.periods
                     )
                     if (conflictWeeks.isEmpty()) {
                         viewModel.replaceCourseGroup(originals, editedCourses)
@@ -2482,6 +2917,45 @@ fun CourseScheduleAppUi(
             onDismissRequest = {
                 AiImportSettingsStore.declineManagedFreeAi(context)
                 showManagedFreeAiOffer = false
+            }
+        )
+    }
+
+    remoteExperience.agreement?.let { agreement ->
+        LiquidAlertDialog(
+            title = agreement.title,
+            message = if (agreement.forceReaccept) {
+                "协议或政策已经更新，请查看新版本并确认同意后继续使用。"
+            } else {
+                "首次使用前，请查看并同意此协议或政策。"
+            },
+            actions = listOf(
+                LiquidAlertAction("查看正文", LiquidAlertActionStyle.Secondary) {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, agreement.url.toUri()))
+                    }
+                },
+                LiquidAlertAction("同意", LiquidAlertActionStyle.Primary) {
+                    SleepDownRemoteConfig.acceptAgreement(context, agreement)
+                }
+            ),
+            backdrop = chromeBackdrop,
+            config = state.config,
+            onDismissRequest = {}
+        )
+    } ?: remoteExperience.notice?.let { notice ->
+        LiquidAlertDialog(
+            title = notice.title,
+            message = notice.content,
+            actions = listOf(
+                LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
+                    SleepDownRemoteConfig.markNoticeShown(context, notice)
+                }
+            ),
+            backdrop = chromeBackdrop,
+            config = state.config,
+            onDismissRequest = {
+                SleepDownRemoteConfig.markNoticeShown(context, notice)
             }
         )
     }
@@ -2562,7 +3036,8 @@ fun CourseScheduleAppUi(
                         dialog.original,
                         dialog.edited,
                         dialog.targetWeek,
-                        state.courses
+                        state.courses,
+                        state.periods
                     )
                     if (conflictWeeks.isEmpty()) {
                         viewModel.updateCourseSingleWeek(
@@ -2586,7 +3061,8 @@ fun CourseScheduleAppUi(
                     val conflictWeeks = conflictWeeksForEditedCourse(
                         dialog.original,
                         dialog.edited,
-                        state.courses
+                        state.courses,
+                        state.periods
                     )
                     if (conflictWeeks.isEmpty()) {
                         viewModel.updateCourse(dialog.edited)
@@ -2611,6 +3087,22 @@ fun CourseScheduleAppUi(
                 config = state.config,
                 onKeepTemporarily = keepConflict@{
                     pendingCourseGroupEdit?.let { groupEdit ->
+                        if (groupEdit.originals.isEmpty()) {
+                            viewModel.addCourses(groupEdit.edited)
+                            pendingCourseGroupEdit = null
+                            pendingConflictCourseId = null
+                            pendingConflictCourseKey = groupEdit.edited.firstOrNull()?.occurrenceOverrideKey()
+                            pendingConflictWeeks = dialog.conflictWeeks
+                            dismissHomeDialog()
+                            closeHomeMenuDestination()
+                            val conflictWeek = dialog.conflictWeeks.first()
+                            appScope.launch {
+                                delay(HomeMenuDestinationCloseDurationMillis.toLong() + 32L)
+                                homeDisplayWeek = conflictWeek
+                                homeMode = HomeMode.Week
+                            }
+                            return@keepConflict
+                        }
                         val editorWasOpen = courseEditorRequest != null
                         viewModel.replaceCourseGroup(groupEdit.originals, groupEdit.edited)
                         pendingCourseGroupEdit = null
@@ -2844,7 +3336,8 @@ fun CourseScheduleAppUi(
                                 dialog.original,
                                 dialog.edited,
                                 dialog.targetWeek,
-                                state.courses
+                                state.courses,
+                                state.periods
                             )
                             if (conflictWeeks.isEmpty()) {
                                 viewModel.updateCourseSingleWeek(
@@ -2867,7 +3360,8 @@ fun CourseScheduleAppUi(
                             val conflictWeeks = conflictWeeksForEditedCourse(
                                 dialog.original,
                                 dialog.edited,
-                                state.courses
+                                state.courses,
+                                state.periods
                             )
                             if (conflictWeeks.isEmpty()) {
                                 viewModel.updateCourse(dialog.edited)
@@ -2992,24 +3486,92 @@ internal val HomeInitialTopInset = 122.dp
 @Composable
 private fun HomeBackgroundBlurLayer(
     zoom: () -> Float,
+    useFrozenHomeScene: () -> Boolean,
+    sceneKey: Any,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
     val density = LocalDensity.current
-    Box(
-        modifier = modifier.graphicsLayer {
-            val depthRange = maxOf(
-                abs(BackgroundZoomOpenScale - 1f),
-                abs(HomeMenuDestinationEduBackgroundScale - 1f)
-            )
-            val depthProgress = (abs(zoom() - 1f) / depthRange).coerceIn(0f, 1f)
-            val blurPx = with(density) { 12.dp.toPx() } * depthProgress
-            renderEffect = if (blurPx > 0.01f) {
-                BlurEffect(blurPx, blurPx, TileMode.Clamp)
-            } else {
-                null
+    val frozenBlurLayer = rememberGraphicsLayer()
+    val frozenRecordKey = remember { AtomicReference<Any?>(null) }
+    val frozenRecordSize = remember { AtomicReference(IntSize.Zero) }
+    val sampleScale = HomeFrozenBlurSampleScale
+    val maximumBlurPx = with(density) { 12.dp.toPx() }
+    val frozenBlurEffect = remember(maximumBlurPx) {
+        BlurEffect(
+            radiusX = maximumBlurPx * sampleScale,
+            radiusY = maximumBlurPx * sampleScale,
+            edgeTreatment = TileMode.Clamp
+        )
+    }
+    // The live path is kept for day view and per-frame personalization preview. Reuse a small
+    // bounded set of RenderEffect instances so those exceptional paths no longer compile a new
+    // full-screen blur effect for every animation frame.
+    val liveBlurEffects = remember(maximumBlurPx) {
+        List(HomeLiveBlurStepCount + 1) { index ->
+            if (index == 0) null else {
+                val radius = maximumBlurPx * index / HomeLiveBlurStepCount.toFloat()
+                BlurEffect(radius, radius, TileMode.Clamp)
             }
-        },
+        }
+    }
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                if (useFrozenHomeScene()) {
+                    renderEffect = null
+                } else {
+                    val depthProgress = homeOverlayDepthProgress(zoom())
+                    val step = (depthProgress * HomeLiveBlurStepCount)
+                        .roundToInt()
+                        .coerceIn(0, HomeLiveBlurStepCount)
+                    renderEffect = liveBlurEffects[step]
+                }
+            }
+            .drawWithContent {
+                if (!useFrozenHomeScene()) {
+                    drawContent()
+                    return@drawWithContent
+                }
+
+                val reducedSize = IntSize(
+                    width = (size.width * sampleScale).roundToInt().coerceAtLeast(1),
+                    height = (size.height * sampleScale).roundToInt().coerceAtLeast(1)
+                )
+                // The week tree below is already a stable GPU GraphicsLayer. Record only when its
+                // semantic frame or window size changes; motion frames merely draw two textures.
+                // This mirrors Android's own Kawase pipeline: blur a downsampled surface, then
+                // upscale it. No Bitmap/ImageBitmap snapshot or CPU readback is involved.
+                if (
+                    frozenRecordKey.get() != sceneKey ||
+                    frozenRecordSize.get() != reducedSize
+                ) {
+                    frozenBlurLayer.record(size = reducedSize) {
+                        withTransform({
+                            scale(
+                                scaleX = sampleScale,
+                                scaleY = sampleScale,
+                                pivot = Offset.Zero
+                            )
+                        }) {
+                            this@drawWithContent.drawContent()
+                        }
+                    }
+                    frozenBlurLayer.renderEffect = frozenBlurEffect
+                    frozenBlurLayer.pivotOffset = Offset.Zero
+                    frozenBlurLayer.scaleX = 1f / sampleScale
+                    frozenBlurLayer.scaleY = 1f / sampleScale
+                    frozenRecordKey.set(sceneKey)
+                    frozenRecordSize.set(reducedSize)
+                }
+
+                val depthProgress = homeOverlayDepthProgress(zoom())
+                if (depthProgress < 0.999f) drawContent()
+                if (depthProgress > 0.001f) {
+                    frozenBlurLayer.alpha = depthProgress
+                    drawLayer(frozenBlurLayer)
+                }
+            },
         content = content
     )
 }
@@ -3260,6 +3822,7 @@ internal fun AppTopBar(
     homeShowingAnotherWeek: Boolean,
     onReturnHomeToCurrentWeek: () -> Unit,
     activeHomeOverlay: HomeAnchoredOverlayKind?,
+    addButtonHidden: Boolean,
     onAddButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
     onPersonalizeButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
     onToggleAddMenu: (Float) -> Unit,
@@ -3313,6 +3876,7 @@ internal fun AppTopBar(
                                 SettingsPage.About -> "关于应用"
                                 SettingsPage.Changelog -> "关于应用"
                                 SettingsPage.Donate -> "捐赠支持"
+								SettingsPage.PrivacyPolicy -> "隐私政策"
                             }
                         },
                         style = MaterialTheme.typography.titleLarge,
@@ -3354,7 +3918,7 @@ internal fun AppTopBar(
                         iconRes = R.drawable.ic_more_horizontal,
                         contentDescription = "添加菜单",
                         selected = false,
-                        visible = activeHomeOverlay != HomeAnchoredOverlayKind.Add,
+                        visible = !addButtonHidden,
                         onClick = onToggleAddMenu,
                         onButtonPositioned = onAddButtonPositioned
                     )
@@ -3688,6 +4252,14 @@ data class AddMenuAction(
     val onClick: () -> Unit
 )
 
+private fun Bitmap.cropToAnchoredBounds(bounds: Rect): Bitmap? = runCatching {
+    val left = bounds.left.roundToInt().coerceIn(0, width - 1)
+    val top = bounds.top.roundToInt().coerceIn(0, height - 1)
+    val cropWidth = bounds.width.roundToInt().coerceIn(1, width - left)
+    val cropHeight = bounds.height.roundToInt().coerceIn(1, height - top)
+    Bitmap.createBitmap(this, left, top, cropWidth, cropHeight)
+}.getOrNull()
+
 @Composable
 fun AddMenuLiquidItem(
     config: ScheduleConfigEntity,
@@ -3708,16 +4280,16 @@ fun AddMenuLiquidItem(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(itemHeight - 4.dp)
-                .clip(RoundedCornerShape(22.dp))
+                .height(itemHeight - 2.dp)
+                .clip(RoundedCornerShape(HomeAddMenuSelectionCornerDp.dp))
                 .background(if (highlighted) selectedColor else ComposeColor.Transparent)
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 16.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Icon(
                     painterResource(action.iconRes),
@@ -4683,12 +5255,15 @@ fun DialogCapsuleField(
     modifier: Modifier = Modifier,
     keyboardType: KeyboardType = KeyboardType.Text,
     minLines: Int = 1,
-    cornerRadius: Dp? = null
+    cornerRadius: Dp? = null,
+    fieldTextColor: ComposeColor? = null
 ) {
     val dark = appUsesDarkTheme(config)
     val fieldBase = if (dark) ComposeColor(0xFF2C2C2E) else ComposeColor.White
     val background = fieldBase.copy(alpha = if (dark) 0.54f else 0.70f)
-    val textColor = readableOn(fieldBase)
+    // Most callers intentionally inherit the surrounding glass foreground. Course editor fields
+    // can override this because their high-opacity capsule has its own contrast domain.
+    val textColor = fieldTextColor ?: LocalContentColor.current
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -4725,7 +5300,6 @@ class SettingsDetailActivity : ComponentActivity() {
             intent.action == Intent.ACTION_VIEW
         }
         val customizeScheduleId = intent.getIntExtra(ScheduleCustomizeIdExtra, -1).takeIf { it > 0 }
-        val useEntrySnapshot = intent.getBooleanExtra(ScheduleEntrySnapshotExtra, false)
         setContent {
             val app = application as CourseScheduleApp
             val viewModel: ScheduleViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
@@ -4759,19 +5333,6 @@ class SettingsDetailActivity : ComponentActivity() {
                 }
                 val scheduleEditReady = customizeScheduleId == null ||
                     state.allConfigs.any { it.id == customizeScheduleId }
-                val editEntrySnapshot = remember(customizeScheduleId, useEntrySnapshot) {
-                    customizeScheduleId?.takeIf { useEntrySnapshot }?.let {
-                        BitmapFactory.decodeFile(ScheduleSnapshotStore.file(this, it).absolutePath)
-                    }
-                }
-                var editEntrySnapshotVisible by remember(editEntrySnapshot) { mutableStateOf(editEntrySnapshot != null) }
-                LaunchedEffect(editEntrySnapshot) {
-                    if (editEntrySnapshot != null) {
-                        withFrameNanos { }
-                        withFrameNanos { }
-                        editEntrySnapshotVisible = false
-                    }
-                }
                 var scheduleExitRequest by remember { mutableIntStateOf(0) }
                 var widgetEditorVisible by remember { mutableStateOf(false) }
                 var interceptSystemBack by remember(section) { mutableStateOf(false) }
@@ -4860,7 +5421,10 @@ class SettingsDetailActivity : ComponentActivity() {
                                     Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                                         .putExtra(SettingsDetailPageExtra, SettingsPage.Donate.name)
                                 )
-                            }
+							},
+							onPrivacyPolicy = {
+								startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java).putExtra(SettingsDetailPageExtra, SettingsPage.PrivacyPolicy.name))
+							}
                         )
                         SettingsPage.BackupRestore -> BackupRestoreSettingsScreen(
                             state = state,
@@ -4894,9 +5458,13 @@ class SettingsDetailActivity : ComponentActivity() {
                                     Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                                         .putExtra(SettingsDetailPageExtra, SettingsPage.Donate.name)
                                 )
-                            }
+							},
+							onPrivacyPolicy = {
+								startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java).putExtra(SettingsDetailPageExtra, SettingsPage.PrivacyPolicy.name))
+							}
                         )
-                        SettingsPage.Donate -> DonateSettingsScreen(state, backdrop)
+						SettingsPage.Donate -> DonateSettingsScreen(state, backdrop)
+						SettingsPage.PrivacyPolicy -> PrivacyPolicySettingsScreen(state, backdrop)
                         SettingsPage.ScheduleManager -> ScheduleManagerScreen(
                             state = state, backdrop = backdrop,
                             onCreateSchedule = { viewModel.createSchedule(it) },
@@ -4905,21 +5473,6 @@ class SettingsDetailActivity : ComponentActivity() {
                             onDeleteSchedule = { viewModel.deleteSchedule(it) }
                         )
                         SettingsPage.Root -> SettingsRootScreen(state, backdrop) {}
-                    }
-                }
-                AnimatedVisibility(
-                    visible = editEntrySnapshotVisible,
-                    enter = EnterTransition.None,
-                    exit = fadeOut(tween(220)),
-                    modifier = Modifier.fillMaxSize().zIndex(200f)
-                ) {
-                    editEntrySnapshot?.let { snapshot ->
-                        Image(
-                            bitmap = snapshot.asImageBitmap(),
-                            contentDescription = null,
-                            contentScale = ContentScale.FillBounds,
-                            modifier = Modifier.fillMaxSize()
-                        )
                     }
                 }
                 top.yukonga.miuix.kmp.utils.MiuixPopupUtils.MiuixPopupHost()
@@ -5593,14 +6146,17 @@ private fun SettingsPageContent(
         SettingsPage.About -> ChangelogSettingsScreen(
             pageState,
             backdrop,
-            onDonate = { onPageChange(SettingsPage.Donate) }
+			onDonate = { onPageChange(SettingsPage.Donate) },
+			onPrivacyPolicy = { onPageChange(SettingsPage.PrivacyPolicy) }
         )
         SettingsPage.Changelog -> ChangelogSettingsScreen(
             pageState,
             backdrop,
-            onDonate = { onPageChange(SettingsPage.Donate) }
+			onDonate = { onPageChange(SettingsPage.Donate) },
+			onPrivacyPolicy = { onPageChange(SettingsPage.PrivacyPolicy) }
         )
-        SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
+		SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
+		SettingsPage.PrivacyPolicy -> PrivacyPolicySettingsScreen(pageState, backdrop)
     }
 }
 
@@ -6543,9 +7099,10 @@ private fun AboutCreditLinkRow(
 
 @Composable
 fun ChangelogSettingsScreen(
-    state: AppState,
-    backdrop: Backdrop?,
-    onDonate: () -> Unit = {}
+	state: AppState,
+	backdrop: Backdrop?,
+	onDonate: () -> Unit = {},
+	onPrivacyPolicy: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -6681,6 +7238,12 @@ fun ChangelogSettingsScreen(
                         onClick = { openProjectPage(SleepDownIssuesUrl) }
                     )
                     SettingsDivider()
+					SettingsNavigationRow(
+						"隐私政策",
+						"了解数据处理、权限用途与个人信息权利",
+						onClick = onPrivacyPolicy
+					)
+					SettingsDivider()
                     SettingsNavigationRow(
                         "捐赠支持",
                         "如果它帮到了你，可以请作者喝杯奶茶",
@@ -6806,6 +7369,8 @@ fun ChangelogSettingsScreen(
             item(key = "about-changelog") {
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
+                SettingsInfoRow("1.2.0", "移除原来的加号菜单和日视图/周视图切换滑块，将相关功能重新整合进功能更完整的三点菜单。首页顶栏更轻、更整洁，课程与日期重新成为视觉中心，常用入口的位置和操作逻辑也更加统一；三点菜单采用全新的液态玻璃外观，从三点按钮打开和收回时更加连贯，拖动时也有更自然的弹性反馈与跟手高光。除了原有功能，现在还可以直接跳转到指定周数，快捷进入多课表管理和全新的课程管理页，让一个入口承担更多日常操作；同名课程会自动归并，并以双列错落卡片展示。长标题、教师、地点和每一条课程安排都可以清楚阅读；进入详情后，可以统一修改课程名称、颜色、教师、地点与备注，也可以单独添加、编辑或删除某一条安排。星期、节次、周次、单双周等信息集中在同一页管理，课程较多时也更容易梳理；课程现在支持自定义开始和结束时间，可以脱离固定节次设置更准确的上课区间。周视图会按照真实时间比例显示课程，并在卡片上下边缘标出起止时间；课程管理、冲突判断、备份导入和今日助手也能够识别这些自定义时间；在周视图中长按课程即可进入编辑，拖动卡片时，指尖和液态玻璃卡片会出现跟手的光场效果，移动过程更灵动。课程可以直接拖到其他星期或节次，右下角角标则用于连续调整课程时长，拖动与缩放互不干扰。松开手指后，课程会立即飞向目标格并播放震荡回弹，不再停在半空等待保存。落点产生的余波会继续带动附近课程轻微位移、缩放和回弹，再逐渐自然消散；遇到冲突或取消移动时，也会沿同样的动画返回原位。切换课表后，长按编辑仍然可以直接使用；针对个性化设置、三点菜单、手动导入、教务导入、课程管理和课程编辑等页面的打开、关闭与切换进行了性能优化，降低周视图和复杂表单同时显示时的负载，减少卡顿、掉帧、闪现和内容跳变，让原有动画在更多场景下保持稳定流畅；灵动岛缩略态的倒计时精简为“X分钟”，不再显示“还剩”；原来的短标签模式改为直接显示课程名称，有限空间里的信息更清楚，也更容易快速识别当前课程；今日助手和 Agent 服务进一步增强稳定性，个别模型服务商暂时不可用时，会自动尝试其他可用服务。Agent 现在也能读取和修改课程的自定义时间，并在执行课程或设置修改前展示计划、影响范围和冲突信息，确认后再完成操作；新增完整的隐私政策说明，清楚介绍课表数据保存在什么位置、哪些功能会联网以及各项权限的用途。用户自行配置的 API Key 等敏感信息只保存在本机，不会写入普通课表备份。")
+                SettingsDivider()
                 SettingsInfoRow("1.1.5", "新增完整的数据备份与恢复功能，可将课表、作息、应用设置、小组件外观及相关图片保存为一个备份文件，恢复前会先检查文件并展示内容预览，替换数据也会再次确认，帮助你更安心地迁移和保管数据；新增“今明课程”桌面小组件，可同时查看今天剩余课程和明天的课程安排，并支持独立设置背景图片、取景、缩放、模糊和亮度；通用设置新增液态玻璃自定义选项，可以自由调节玻璃组件的清晰与模糊程度；现在液态玻璃开启和关闭时的课程卡片颜色、透明度、模糊及字体大小会分别保存，不再和液态玻璃课程卡片共享保存参数；优化平板设置页面的双栏浏览、返回按钮和顶部标题，修复部分设置返回后没有保存的问题；优化 AI 导入页面，改善导入历史和手动导入的显示与动画；修复个性化滑块拖动时跳动以及 100% 吸附点位置不准确的问题；重新设计关于应用页面，加入应用官网、项目仓库、反馈入口，新增功能亮点介绍页，优化深色模式、更新日志和网页打开体验；调大平板横屏课程卡片文字，查看课程名称、地点和教师信息更加清晰。")
                 SettingsDivider()
                 SettingsInfoRow("1.1.4", "修复普通设置保存错误使用个性化字段合并，跟随系统、手动深色模式、首页模式及后台隐藏等设置现在可以稳定持久化；设置详情页返回前等待最新配置写入完成，避免异步保存被页面销毁取消；修复手动切换深色模式时二级设置页触发启动器别名切换、导致 ColorOS 任务被回收并表现为闪退的问题；修复从设置页进入课表详细设置后修改无法持久化的问题，并统一使用课表设置保存确认弹窗。")

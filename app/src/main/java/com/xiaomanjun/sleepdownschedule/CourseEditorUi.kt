@@ -120,6 +120,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
@@ -181,6 +182,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.key
@@ -203,6 +205,7 @@ import top.yukonga.miuix.kmp.squircle.squircleSurface
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -259,6 +262,8 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
+import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
+import top.yukonga.miuix.kmp.basic.BasicComponentDefaults as MiuixBasicComponentDefaults
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -279,6 +284,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
+import java.time.LocalTime
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URLDecoder
@@ -362,6 +368,13 @@ data class CourseEditorFormData(
     val courses: List<CourseEntity> = emptyList()
 )
 
+@OptIn(ExperimentalFoundationApi::class)
+data class CourseEditorPagerPresentation(
+    val pagerState: PagerState,
+    val pageCount: Int,
+    val visible: Boolean
+)
+
 private data class CourseEditorDraft(
     val name: String,
     val teacher: String,
@@ -369,6 +382,8 @@ private data class CourseEditorDraft(
     val weekdays: Set<Int>,
     val periodStart: Int,
     val periodEnd: Int,
+    val customStartTime: String?,
+    val customEndTime: String?,
     val weeks: Set<Int>,
     val parity: WeekParity,
     val note: String
@@ -410,7 +425,7 @@ internal fun weeksForCourseWeekSelectionMode(
     }
 }
 
-private fun CourseWeekSelectionMode.toWeekParity(): WeekParity = when (this) {
+internal fun CourseWeekSelectionMode.toWeekParity(): WeekParity = when (this) {
     CourseWeekSelectionMode.ODD -> WeekParity.ODD
     CourseWeekSelectionMode.EVEN -> WeekParity.EVEN
     CourseWeekSelectionMode.EVERY,
@@ -424,7 +439,7 @@ private fun courseWeekSelectionModeLabel(mode: CourseWeekSelectionMode): String 
     CourseWeekSelectionMode.CUSTOM -> "自定义"
 }
 
-private sealed interface CourseEditorPickerRequest {
+internal sealed interface CourseEditorPickerRequest {
     val title: String
 
     data class Wheel(
@@ -442,6 +457,42 @@ private sealed interface CourseEditorPickerRequest {
         val preferredColumns: Int,
         val onConfirm: (Set<Int>) -> Unit
     ) : CourseEditorPickerRequest
+
+    data class Period(
+        override val title: String,
+        val labels: List<String>,
+        val startIndex: Int,
+        val endIndex: Int,
+        val endIndexUpperBound: Int,
+        val customStartTime: String?,
+        val customEndTime: String?,
+        val regularStartTime: String?,
+        val regularEndTime: String?,
+        val onConfirmPeriods: (Int, Int) -> Unit,
+        val onConfirmCustomTime: (String, String) -> Unit
+    ) : CourseEditorPickerRequest
+}
+
+internal data class PeriodPickerSelectionBounds(
+    val startIndex: Int,
+    val endIndex: Int,
+    val endIndexUpperBound: Int
+)
+
+internal fun boundedPeriodPickerSelection(
+    startIndex: Int,
+    endIndex: Int,
+    requestedEndIndexUpperBound: Int,
+    labelsLastIndex: Int
+): PeriodPickerSelectionBounds {
+    val safeLastIndex = labelsLastIndex.coerceAtLeast(0)
+    val safeUpperBound = requestedEndIndexUpperBound.coerceIn(0, safeLastIndex)
+    val safeStart = startIndex.coerceIn(0, safeUpperBound)
+    return PeriodPickerSelectionBounds(
+        startIndex = safeStart,
+        endIndex = endIndex.coerceIn(safeStart, safeUpperBound),
+        endIndexUpperBound = safeUpperBound
+    )
 }
 
 @Immutable
@@ -456,6 +507,9 @@ private data class CourseEditorGroupingKey(
     val location: String,
     val weekday: Int,
     val periods: List<Int>,
+    val customStartTime: String?,
+    val customEndTime: String?,
+    val customColorArgb: Long?,
     val parity: WeekParity,
     val note: String
 )
@@ -467,6 +521,9 @@ private fun CourseEntity.editorGroupingKey() = CourseEditorGroupingKey(
     location = location.orEmpty().trim(),
     weekday = weekday,
     periods = periods.distinct().sorted(),
+    customStartTime = customStartTime,
+    customEndTime = customEndTime,
+    customColorArgb = customColorArgb,
     parity = weekParity,
     note = note.orEmpty().trim()
 )
@@ -560,11 +617,22 @@ private fun courseEditorDraft(
         weekdays = courses.map(CourseEntity::weekday).filter { it in 1..7 }.toSet().ifEmpty { setOf(1) },
         periodStart = course?.periods?.minOrNull() ?: (periodValues.firstOrNull() ?: 1),
         periodEnd = course?.periods?.maxOrNull() ?: (periodValues.firstOrNull() ?: 1),
+        customStartTime = course?.customStartTime,
+        customEndTime = course?.customEndTime,
         weeks = activeWeeks,
         parity = selectionMode.toWeekParity(),
         note = course?.note.orEmpty()
     )
 }
+
+internal fun courseEditorOriginalForWeekday(
+    originals: List<CourseEntity>,
+    weekday: Int,
+    selectedWeekdayCount: Int
+): CourseEntity? = originals
+    .filter { it.weekday == weekday }
+    .minByOrNull(CourseEntity::id)
+    ?: originals.singleOrNull().takeIf { selectedWeekdayCount == 1 }
 
 private fun CourseEditorDraft.toCourses(
     originals: List<CourseEntity>,
@@ -577,7 +645,7 @@ private fun CourseEditorDraft.toCourses(
     val periods = periodValues.filter { it in periodStart..periodEnd }
     return weekdays.sorted().mapNotNull { weekday ->
         val weekdayOriginals = originalsByWeekday[weekday].orEmpty()
-        val original = weekdayOriginals.minByOrNull(CourseEntity::id)
+        val original = courseEditorOriginalForWeekday(originals, weekday, weekdays.size)
         val targetWeeks = if (keepOriginalDistribution && originals.isNotEmpty()) {
             weekdayOriginals.flatMap(CourseEntity::weeks).distinct().sorted()
         } else {
@@ -594,6 +662,9 @@ private fun CourseEditorDraft.toCourses(
             weeks = targetWeeks,
             weekParity = parity,
             note = note.trim().ifBlank { null },
+            customStartTime = customStartTime,
+            customEndTime = customEndTime,
+            customColorArgb = original?.customColorArgb ?: originals.firstOrNull()?.customColorArgb,
             scheduleId = original?.scheduleId ?: originals.firstOrNull()?.scheduleId ?: 0
         )
     }
@@ -612,7 +683,9 @@ fun NormalizedCourseEditorScreen(
     onSaveWithOriginal: ((CourseEntity, CourseEntity) -> Unit)? = null,
     onSaveGroup: ((List<CourseEntity>, List<CourseEntity>) -> Unit)? = null,
     onDeleteGroup: ((List<CourseEntity>) -> Unit)? = null,
-    pickerRenderInRootScaffold: Boolean = true
+    pickerRenderInRootScaffold: Boolean = true,
+    renderPagerIndicator: Boolean = true,
+    onPagerPresentationChange: ((CourseEditorPagerPresentation) -> Unit)? = null
 ) {
     val config = formData.config
     val editorGroups = remember(initialCourse, formData.courses) {
@@ -635,6 +708,17 @@ fun NormalizedCourseEditorScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var pickerRequest by remember { mutableStateOf<CourseEditorPickerRequest?>(null) }
     val currentPage = pagerState.currentPage.coerceIn(editorGroups.indices)
+    val pagerIndicatorVisible = editorGroups.size > 1 && pickerRequest == null
+
+    SideEffect {
+        onPagerPresentationChange?.invoke(
+            CourseEditorPagerPresentation(
+                pagerState = pagerState,
+                pageCount = editorGroups.size,
+                visible = pagerIndicatorVisible
+            )
+        )
+    }
 
     LaunchedEffect(currentPage) { error = null }
 
@@ -656,6 +740,7 @@ fun NormalizedCourseEditorScreen(
                 draft = draft,
                 onDraftChange = { drafts = drafts + (page to it); error = null },
                 periodValues = periodValues,
+                periods = formData.periods,
                 totalWeeks = config.totalWeeks.coerceAtLeast(1),
                 config = config,
                 backdrop = backdrop,
@@ -685,7 +770,7 @@ fun NormalizedCourseEditorScreen(
                 pageCount = editorGroups.size
             )
         }
-        if (editorGroups.size > 1 && pickerRequest == null) {
+        if (renderPagerIndicator && pagerIndicatorVisible) {
             ProjectPagerIndicator(
                 pagerState = pagerState,
                 pageCount = editorGroups.size,
@@ -714,6 +799,7 @@ private fun CourseEditorFormPage(
     draft: CourseEditorDraft,
     onDraftChange: (CourseEditorDraft) -> Unit,
     periodValues: List<Int>,
+    periods: List<PeriodEntity>,
     totalWeeks: Int,
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
@@ -724,7 +810,20 @@ private fun CourseEditorFormPage(
     onOpenPicker: (CourseEditorPickerRequest) -> Unit,
     pageCount: Int
 ) {
-    val editorContentColor = glassForegroundColor(config)
+    // This form lives on the wallpaper-sampling CourseGlassCard. Its complete foreground domain
+    // must follow the glass contrast decision; appPanelForegroundColor follows the app theme and
+    // produced black row labels on a dark sampled card while values/icons stayed light.
+    val editorContentColor = if (backdrop != null) {
+        LocalAdaptiveGlass.current.contentColor
+    } else {
+        glassForegroundColor(config)
+    }
+    val editorFieldSurface = if (appUsesDarkTheme(config)) {
+        ComposeColor(0xFF2C2C2E).copy(alpha = 0.54f)
+    } else {
+        ComposeColor.White.copy(alpha = 0.70f)
+    }
+    val editorFieldTextColor = readableOn(editorFieldSurface)
     CompositionLocalProvider(LocalContentColor provides editorContentColor) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -757,7 +856,8 @@ private fun CourseEditorFormPage(
                         course.teacher,
                         course.location,
                         compactWeekdaySelectionLabel(groupedCourses.map(CourseEntity::weekday)),
-                        course.periods.takeIf { it.isNotEmpty() }?.let { "第${it.min()}-${it.max()}节" }
+                        if (course.hasCustomTime()) courseTimeLabel(course, periods)
+                        else course.periods.takeIf { it.isNotEmpty() }?.let { "第${it.min()}-${it.max()}节" }
                     ).joinToString(" · "),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                     style = MaterialTheme.typography.labelMedium,
@@ -768,9 +868,36 @@ private fun CourseEditorFormPage(
                 )
             }
         }
-        item(key = "course-name", contentType = "field") { DialogCapsuleField(draft.name, { onDraftChange(draft.copy(name = it)) }, "课程名称", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
-        item(key = "teacher", contentType = "field") { DialogCapsuleField(draft.teacher, { onDraftChange(draft.copy(teacher = it)) }, "教师", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
-        item(key = "location", contentType = "field") { DialogCapsuleField(draft.location, { onDraftChange(draft.copy(location = it)) }, "地点", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
+        item(key = "course-name", contentType = "field") {
+            DialogCapsuleField(
+                value = draft.name,
+                onValueChange = { onDraftChange(draft.copy(name = it)) },
+                placeholder = "课程名称",
+                config = config,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                fieldTextColor = editorFieldTextColor
+            )
+        }
+        item(key = "teacher", contentType = "field") {
+            DialogCapsuleField(
+                value = draft.teacher,
+                onValueChange = { onDraftChange(draft.copy(teacher = it)) },
+                placeholder = "教师",
+                config = config,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                fieldTextColor = editorFieldTextColor
+            )
+        }
+        item(key = "location", contentType = "field") {
+            DialogCapsuleField(
+                value = draft.location,
+                onValueChange = { onDraftChange(draft.copy(location = it)) },
+                placeholder = "地点",
+                config = config,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                fieldTextColor = editorFieldTextColor
+            )
+        }
         item(key = "weekday", contentType = "picker") {
             DialogSingleWheelSelector(
                 title = "星期",
@@ -783,12 +910,41 @@ private fun CourseEditorFormPage(
             ) { "周${weekdayLabel(it)}" }
         }
         item(key = "period-range", contentType = "range-picker") {
-            DialogRangeWheelSelector(
+            DialogPeriodSelector(
                 title = "节次",
                 values = periodValues.ifEmpty { listOf(1) },
+                periods = periods,
                 start = draft.periodStart,
                 end = draft.periodEnd,
-                onRangeSelected = { start, end -> onDraftChange(draft.copy(periodStart = start, periodEnd = end)) },
+                customStartTime = draft.customStartTime,
+                customEndTime = draft.customEndTime,
+                onRangeSelected = { start, end ->
+                    onDraftChange(
+                        draft.copy(
+                            periodStart = start,
+                            periodEnd = end,
+                            customStartTime = null,
+                            customEndTime = null
+                        )
+                    )
+                },
+                onCustomTimeSelected = { startTime, endTime ->
+                    val parsedStart = runCatching { LocalTime.parse(startTime) }.getOrNull()
+                    val parsedEnd = runCatching { LocalTime.parse(endTime) }.getOrNull()
+                    val anchors = if (parsedStart != null && parsedEnd != null) {
+                        courseAnchorPeriodsForTimeRange(parsedStart, parsedEnd, periods)
+                    } else {
+                        emptyList()
+                    }
+                    onDraftChange(
+                        draft.copy(
+                            periodStart = anchors.minOrNull() ?: draft.periodStart,
+                            periodEnd = anchors.maxOrNull() ?: draft.periodEnd,
+                            customStartTime = startTime,
+                            customEndTime = endTime
+                        )
+                    )
+                },
                 onOpenPicker = onOpenPicker,
                 backdrop = backdrop,
                 config = config
@@ -825,7 +981,16 @@ private fun CourseEditorFormPage(
                 config = config
             ) { courseWeekSelectionModeLabel(it) }
         }
-        item(key = "note", contentType = "field") { DialogCapsuleField(draft.note, { onDraftChange(draft.copy(note = it)) }, "备注", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
+        item(key = "note", contentType = "field") {
+            DialogCapsuleField(
+                value = draft.note,
+                onValueChange = { onDraftChange(draft.copy(note = it)) },
+                placeholder = "备注",
+                config = config,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                fieldTextColor = editorFieldTextColor
+            )
+        }
         if (onDelete != null) {
             item(key = "delete", contentType = "action") {
                 Box(Modifier.padding(horizontal = 16.dp)) {
@@ -878,6 +1043,62 @@ private fun <T> DialogMultiGridSelector(
                     onConfirm = { indices ->
                         onSelected(indices.sorted().mapTo(linkedSetOf()) { values[it] })
                     }
+                )
+            )
+        }
+    )
+}
+
+@Composable
+private fun DialogPeriodSelector(
+    title: String,
+    values: List<Int>,
+    periods: List<PeriodEntity>,
+    start: Int,
+    end: Int,
+    customStartTime: String?,
+    customEndTime: String?,
+    onRangeSelected: (Int, Int) -> Unit,
+    onCustomTimeSelected: (String, String) -> Unit,
+    onOpenPicker: (CourseEditorPickerRequest) -> Unit,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    label: (Int) -> String
+) {
+    val safeValues = remember(values) { values.distinct().sorted().ifEmpty { listOf(1) } }
+    val startIndex = safeValues.indexOf(start).takeIf { it >= 0 } ?: 0
+    val endIndex = (safeValues.indexOf(end).takeIf { it >= 0 } ?: startIndex).coerceAtLeast(startIndex)
+    val customRange = remember(customStartTime, customEndTime) {
+        val parsedStart = customStartTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+        val parsedEnd = customEndTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+        if (parsedStart != null && parsedEnd != null && parsedEnd.isAfter(parsedStart)) {
+            parsedStart to parsedEnd
+        } else {
+            null
+        }
+    }
+    CourseEditorPickerValue(
+        title = title,
+        value = customRange?.let { (customStart, customEnd) -> "$customStart - $customEnd" }
+            ?: "${label(safeValues[startIndex])} - ${label(safeValues[endIndex])}",
+        backdrop = backdrop,
+        config = config,
+        onClick = {
+            onOpenPicker(
+                CourseEditorPickerRequest.Period(
+                    title = "选择节次",
+                    labels = safeValues.map(label),
+                    startIndex = startIndex,
+                    endIndex = endIndex,
+                    endIndexUpperBound = safeValues.lastIndex,
+                    customStartTime = customRange?.first?.toString(),
+                    customEndTime = customRange?.second?.toString(),
+                    regularStartTime = periods.firstOrNull { it.periodIndex == safeValues[startIndex] }?.startTime,
+                    regularEndTime = periods.firstOrNull { it.periodIndex == safeValues[endIndex] }?.endTime,
+                    onConfirmPeriods = { selectedStart, selectedEnd ->
+                        onRangeSelected(safeValues[selectedStart], safeValues[selectedEnd])
+                    },
+                    onConfirmCustomTime = onCustomTimeSelected
                 )
             )
         }
@@ -960,71 +1181,114 @@ private fun CourseEditorPickerValue(
     config: ScheduleConfigEntity,
     onClick: () -> Unit
 ) {
-    val dark = !glassUsesLightStyle(config)
-    val buttonSurface = ComposeColor(0xFF15191F).copy(alpha = if (dark) 0.28f else 0.22f)
-    val buttonTextColor = if (dark) ComposeColor.White else ComposeColor(0xFF111111)
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    val buttonTextColor = LocalContentColor.current
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            // Match the original selector capsule's 42dp height. The surrounding LazyColumn keeps
+            // its original 12dp spacing, so replacing four selectors does not grow the dialog.
+            .height(42.dp)
+            // Only round the pressed/selection indication emitted by BasicComponent. This row has
+            // no persistent capsule background in its resting state.
+            .clip(RoundedCornerShape(18.dp))
     ) {
-        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-        if (backdrop != null) {
-            LiquidButton(
-                onClick = onClick,
-                backdrop = backdrop,
-                modifier = Modifier.width(150.dp),
-                height = 42.dp,
-                surfaceColor = buttonSurface,
-                contentPadding = PaddingValues(horizontal = 15.dp),
-                blurRadius = 16.dp,
-                lensHeight = 10.dp,
-                lensAmount = 12.dp,
-                chromaticAberration = false
-            ) {
-                Text(value, color = buttonTextColor, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-            }
-        } else {
-            Box(
-                modifier = Modifier
-                    .width(150.dp)
-                    .clip(RoundedCornerShape(50.dp))
-                    .background(buttonSurface)
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
-                    .padding(horizontal = 15.dp, vertical = 11.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(value, color = buttonTextColor, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-            }
-        }
+        MiuixBasicComponent(
+            title = title,
+            titleColor = MiuixBasicComponentDefaults.titleColor(
+                color = buttonTextColor,
+                disabledColor = buttonTextColor.copy(alpha = 0.38f)
+            ),
+            modifier = Modifier.fillMaxSize(),
+            insideMargin = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+            endActions = {
+                Text(
+                    value,
+                    color = buttonTextColor.copy(alpha = 0.72f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.widthIn(max = 132.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_back),
+                    contentDescription = "打开${title}选择器",
+                    tint = buttonTextColor.copy(alpha = 0.62f),
+                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 180f }
+                )
+            },
+            onClick = onClick
+        )
     }
 }
 
 @Composable
-private fun CourseEditorPickerOverlay(
+internal fun CourseEditorPickerOverlay(
     request: CourseEditorPickerRequest,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     renderInRootScaffold: Boolean,
     onDismiss: () -> Unit
 ) {
-    val dark = !glassUsesLightStyle(config)
-    val pickerContentColor = if (dark) ComposeColor.White else ComposeColor(0xFF111111)
+    val pickerContentColor = if (backdrop != null) {
+        LocalAdaptiveGlass.current.contentColor
+    } else {
+        glassForegroundColor(config)
+    }
+    val dark = pickerContentColor.luminance() > 0.5f
     val wheelRequest = request as? CourseEditorPickerRequest.Wheel
     val gridRequest = request as? CourseEditorPickerRequest.Grid
+    val periodRequest = request as? CourseEditorPickerRequest.Period
+    val periodBounds = remember(periodRequest) {
+        periodRequest?.let {
+            boundedPeriodPickerSelection(
+                startIndex = it.startIndex,
+                endIndex = it.endIndex,
+                requestedEndIndexUpperBound = it.endIndexUpperBound,
+                labelsLastIndex = it.labels.lastIndex
+            )
+        }
+    }
     var startIndex by remember(request) {
-        mutableIntStateOf(wheelRequest?.startIndex?.coerceIn(wheelRequest.labels.indices) ?: 0)
+        mutableIntStateOf(
+            wheelRequest?.startIndex?.coerceIn(wheelRequest.labels.indices)
+                ?: periodBounds?.startIndex
+                ?: 0
+        )
     }
     var endIndex by remember(request) {
         mutableIntStateOf(
             wheelRequest?.let {
                 (it.endIndex ?: it.startIndex).coerceIn(it.labels.indices).coerceAtLeast(startIndex)
-            } ?: 0
+            } ?: periodBounds?.endIndex
+                ?: 0
         )
     }
     var selectedIndices by remember(request) {
         mutableStateOf(gridRequest?.selectedIndices.orEmpty())
     }
+    var customTimeMode by remember(request) {
+        mutableStateOf(periodRequest?.customStartTime != null && periodRequest.customEndTime != null)
+    }
+    val initialCustomStart = remember(request) {
+        periodRequest?.customStartTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+            ?: periodRequest?.regularStartTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+            ?: LocalTime.of(8, 0)
+    }
+    val initialCustomEnd = remember(request) {
+        periodRequest?.customEndTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+            ?: periodRequest?.regularEndTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+            ?: initialCustomStart.plusMinutes(45)
+    }
+    var startHour by remember(request) { mutableIntStateOf(initialCustomStart.hour) }
+    var startMinute by remember(request) { mutableIntStateOf(initialCustomStart.minute) }
+    var endHour by remember(request) { mutableIntStateOf(initialCustomEnd.hour) }
+    var endMinute by remember(request) { mutableIntStateOf(initialCustomEnd.minute) }
+    var timeError by remember(request) { mutableStateOf<String?>(null) }
     top.yukonga.miuix.kmp.overlay.OverlayDialog(
         show = true,
         modifier = Modifier.wrapContentHeight(),
@@ -1047,6 +1311,34 @@ private fun CourseEditorPickerOverlay(
             modifier = Modifier.wrapContentHeight().padding(horizontal = 2.dp, vertical = 2.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (periodRequest != null) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    QuickSheetLiquidAction(
+                        label = "按节次",
+                        enabled = true,
+                        backdrop = backdrop,
+                        config = config,
+                        primary = !customTimeMode,
+                        modifier = Modifier.weight(1f),
+                        height = 42.dp
+                    ) {
+                        customTimeMode = false
+                        timeError = null
+                    }
+                    QuickSheetLiquidAction(
+                        label = "自定义时间",
+                        enabled = true,
+                        backdrop = backdrop,
+                        config = config,
+                        primary = customTimeMode,
+                        modifier = Modifier.weight(1f),
+                        height = 42.dp
+                    ) {
+                        customTimeMode = true
+                        timeError = null
+                    }
+                }
+            }
             if (wheelRequest != null) {
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     val compact = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.15f
@@ -1067,7 +1359,7 @@ private fun CourseEditorPickerOverlay(
                                 startIndex = it
                                 if (wheelRequest.endIndex != null && endIndex < it) endIndex = it
                             },
-                            range = wheelRequest.labels.indices,
+                            range = if (wheelRequest.endIndex != null) 0..endIndex else wheelRequest.labels.indices,
                             visibleItemCount = 3,
                             label = { wheelRequest.labels[it] },
                             colors = pickerColors,
@@ -1077,8 +1369,8 @@ private fun CourseEditorPickerOverlay(
                         if (wheelRequest.endIndex != null) {
                             top.yukonga.miuix.kmp.basic.NumberPicker(
                                 value = endIndex,
-                                onValueChange = { endIndex = it; if (startIndex > it) startIndex = it },
-                                range = wheelRequest.labels.indices,
+                                onValueChange = { endIndex = it },
+                                range = startIndex..wheelRequest.labels.lastIndex,
                                 visibleItemCount = 3,
                                 label = { wheelRequest.labels[it] },
                                 colors = pickerColors,
@@ -1087,6 +1379,89 @@ private fun CourseEditorPickerOverlay(
                             )
                         }
                     }
+                }
+            } else if (periodRequest != null) {
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val compact = maxWidth < 330.dp || LocalDensity.current.fontScale > 1.10f
+                    val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                        color = pickerContentColor,
+                        fontSize = if (compact) 19.sp else 24.sp
+                    )
+                    val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
+                        selectedTextColor = pickerContentColor,
+                        unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
+                        disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
+                        disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
+                    )
+                    if (customTimeMode) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(Modifier.fillMaxWidth()) {
+                                Text("开始", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, color = pickerContentColor.copy(alpha = 0.62f))
+                                Text("结束", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, color = pickerContentColor.copy(alpha = 0.62f))
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 6.dp)
+                            ) {
+                            listOf(
+                                Triple(startHour, 0..23, { value: Int -> startHour = value; timeError = null }),
+                                Triple(startMinute, 0..59, { value: Int -> startMinute = value; timeError = null }),
+                                Triple(endHour, 0..23, { value: Int -> endHour = value; timeError = null }),
+                                Triple(endMinute, 0..59, { value: Int -> endMinute = value; timeError = null })
+                            ).forEachIndexed { index, (value, range, onValueChange) ->
+                                top.yukonga.miuix.kmp.basic.NumberPicker(
+                                    value = value,
+                                    onValueChange = onValueChange,
+                                    range = range,
+                                    visibleItemCount = 3,
+                                    label = { it.toString().padStart(2, '0') + if (index % 2 == 0) "时" else "分" },
+                                    colors = pickerColors,
+                                    textStyle = pickerTextStyle,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)
+                        ) {
+                            top.yukonga.miuix.kmp.basic.NumberPicker(
+                                value = startIndex,
+                                onValueChange = {
+                                    startIndex = it
+                                    if (endIndex < it) endIndex = it
+                                },
+                                range = 0..endIndex,
+                                visibleItemCount = 3,
+                                label = { periodRequest.labels[it] },
+                                colors = pickerColors,
+                                textStyle = pickerTextStyle,
+                                modifier = Modifier.weight(1f)
+                            )
+                            top.yukonga.miuix.kmp.basic.NumberPicker(
+                                value = endIndex,
+                                onValueChange = { endIndex = it },
+                                range = startIndex..(periodBounds?.endIndexUpperBound
+                                    ?: periodRequest.labels.lastIndex),
+                                visibleItemCount = 3,
+                                label = { periodRequest.labels[it] },
+                                colors = pickerColors,
+                                textStyle = pickerTextStyle,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+                timeError?.let { message ->
+                    Text(
+                        text = message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
                 }
             } else if (gridRequest != null) {
                 CourseEditorSelectionGrid(
@@ -1107,6 +1482,19 @@ private fun CourseEditorPickerOverlay(
                             endIndex.takeIf { request.endIndex != null }
                         )
                         is CourseEditorPickerRequest.Grid -> request.onConfirm(selectedIndices)
+                        is CourseEditorPickerRequest.Period -> {
+                            if (customTimeMode) {
+                                val start = LocalTime.of(startHour, startMinute)
+                                val end = LocalTime.of(endHour, endMinute)
+                                if (!end.isAfter(start)) {
+                                    timeError = "结束时间必须晚于开始时间"
+                                    return@QuickSheetLiquidAction
+                                }
+                                request.onConfirmCustomTime(start.toString(), end.toString())
+                            } else {
+                                request.onConfirmPeriods(startIndex, endIndex)
+                            }
+                        }
                     }
                     onDismiss()
                 }

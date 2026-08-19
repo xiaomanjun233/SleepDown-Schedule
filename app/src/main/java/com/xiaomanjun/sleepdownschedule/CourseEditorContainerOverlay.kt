@@ -56,6 +56,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onSizeChanged
@@ -73,10 +75,12 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -103,6 +107,18 @@ private val BackgroundZoomInertialEasing = CubicBezierEasing(0.30f, 0.0f, 0.20f,
 // fit-to-source scale: the shell's clip does the reveal, so keep it close to 1. Lower values
 // reintroduce the shrunken-thumbnail look; 1.0 removes the sense of the content growing.
 private const val CourseEditorContentSettleScale = 0.94f
+private const val CourseEditorPreparedFrameCount = 2
+
+internal fun courseEditorContentReadyForMotion(
+    rootWidth: Int,
+    rootHeight: Int,
+    contentLaidOut: Boolean,
+    recordedFrameCount: Int
+): Boolean =
+    rootWidth > 0 &&
+        rootHeight > 0 &&
+        contentLaidOut &&
+        recordedFrameCount >= CourseEditorPreparedFrameCount
 
 
 enum class CourseEditorOverlayPhase {
@@ -204,6 +220,7 @@ internal fun CourseEditorContainerOverlayHost(
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     var editorContentMounted by remember { mutableStateOf(false) }
     var editorContentReady by remember { mutableStateOf(false) }
+    val editorContentRecordedFrames = remember { AtomicInteger(0) }
     val progress = motionState.progress
     val editorContentAlpha = remember { Animatable(0f) }
     val editorContentReveal = remember { Animatable(0f) }
@@ -226,9 +243,18 @@ internal fun CourseEditorContainerOverlayHost(
             progress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
             editorContentReady = false
+            editorContentRecordedFrames.set(0)
             editorContentMounted = true
             var waitedFrames = 0
-            while (waitedFrames < 12 && (rootSize.width <= 0 || rootSize.height <= 0 || !editorContentReady)) {
+            while (
+                waitedFrames < 12 &&
+                !courseEditorContentReadyForMotion(
+                    rootWidth = rootSize.width,
+                    rootHeight = rootSize.height,
+                    contentLaidOut = editorContentReady,
+                    recordedFrameCount = editorContentRecordedFrames.get()
+                )
+            ) {
                 withFrameNanos { }
                 waitedFrames++
             }
@@ -286,6 +312,7 @@ internal fun CourseEditorContainerOverlayHost(
             }
             editorContentMounted = false
             editorContentReady = false
+            editorContentRecordedFrames.set(0)
             editorContentReveal.snapTo(0f)
             editorContentAlpha.snapTo(0f)
             updatePhase(CourseEditorOverlayPhase.Disposing)
@@ -299,6 +326,7 @@ internal fun CourseEditorContainerOverlayHost(
             }
             editorContentMounted = false
             editorContentReady = false
+            editorContentRecordedFrames.set(0)
             editorContentAlpha.snapTo(0f)
             editorContentReveal.snapTo(0f)
             latestOnRenderedCourseIdChange(null)
@@ -472,7 +500,11 @@ internal fun CourseEditorContainerOverlayHost(
         blurDp.dp.toPx()
     }
     val editorFormBackdrop = backdrop
-    val textColor = glassForegroundColor(config)
+    val textColor = if (backdrop != null) {
+        LocalAdaptiveGlass.current.contentColor
+    } else {
+        glassForegroundColor(config)
+    }
     val revealPath = remember { Path() }
 
     Box(
@@ -504,6 +536,7 @@ internal fun CourseEditorContainerOverlayHost(
             ) {
                 if (editorContentMounted) {
                     CourseEditorScaledContentLayer(
+                        phase = overlayPhase,
                         animatedRect = animatedRect,
                         targetRect = targetRect,
                         sizeProgress = sizeProgress,
@@ -517,6 +550,7 @@ internal fun CourseEditorContainerOverlayHost(
                         course = shownRequest.course,
                         backdrop = editorFormBackdrop,
                         onContentLaidOut = { editorContentReady = true },
+                        onContentRecorded = { editorContentRecordedFrames.incrementAndGet() },
                         onDismissRequest = onDismissRequest,
                         onSave = saveEditedCourse,
                         onDelete = deleteEditedCourse
@@ -528,6 +562,7 @@ internal fun CourseEditorContainerOverlayHost(
                         backdrop = backdrop,
                         config = config,
                         sourceIsWide = !sourceIsWeekCard,
+                        adaptiveMetrics = adaptiveMetrics,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
@@ -545,6 +580,7 @@ internal fun CourseEditorContainerOverlayHost(
 
 @Composable
 private fun CourseEditorScaledContentLayer(
+    phase: CourseEditorOverlayPhase,
     animatedRect: Rect,
     targetRect: Rect,
     sizeProgress: Float,
@@ -558,6 +594,7 @@ private fun CourseEditorScaledContentLayer(
     course: CourseEntity,
     backdrop: Backdrop?,
     onContentLaidOut: () -> Unit,
+    onContentRecorded: () -> Unit,
     onDismissRequest: () -> Unit,
     onSave: (List<CourseEntity>, List<CourseEntity>) -> Unit,
     onDelete: (List<CourseEntity>) -> Unit
@@ -566,6 +603,10 @@ private fun CourseEditorScaledContentLayer(
         return
     }
     val density = LocalDensity.current
+    val editorContentLayer = rememberGraphicsLayer()
+    var pagerPresentation by remember(formData, course) {
+        mutableStateOf<CourseEditorPagerPresentation?>(null)
+    }
     /*
      * Container transform: the form keeps its real layout size and the animated shell's clip
      * reveals a window onto it, so every frame shows correctly proportioned content.
@@ -627,18 +668,70 @@ private fun CourseEditorScaledContentLayer(
                     scaleY = settleScale
                     translationX = translateX
                     translationY = translateY
-                }
+                },
+            contentAlignment = Alignment.TopStart
         ) {
-            CompositionLocalProvider(LocalContentColor provides textColor) {
-                NormalizedCourseEditorScreen(
-                    formData = formData,
-                    initialCourse = course,
-                    onCancel = onDismissRequest,
-                    onSave = {},
-                    onSaveGroup = onSave,
-                    onDelete = {},
-                    onDeleteGroup = onDelete,
-                    backdrop = backdrop
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                .drawWithContent {
+                    if (phase == CourseEditorOverlayPhase.Preparing ||
+                        phase == CourseEditorOverlayPhase.Open
+                    ) {
+                        editorContentLayer.record {
+                            this@drawWithContent.drawContent()
+                        }
+                        if (phase == CourseEditorOverlayPhase.Preparing) {
+                            // HorizontalPager needs a second target-size placement before this
+                            // layer becomes the moving replay.
+                            // Count completed recordings rather than merely the outer size callback
+                            // so Opening can never reuse the Pager's provisional first layout.
+                            onContentRecorded()
+                        }
+                    }
+                    if (phase == CourseEditorOverlayPhase.Open) {
+                        this@drawWithContent.drawContent()
+                    } else {
+                        // The form keeps its real target-size layout, but Opening/Closing replay
+                        // the prepared GPU layer. Text fields, pickers and their backdrop consumers
+                        // no longer re-record while the shell's clip and position change.
+                        drawLayer(editorContentLayer)
+                    }
+                }
+            ) {
+                CompositionLocalProvider(LocalContentColor provides textColor) {
+                    NormalizedCourseEditorScreen(
+                        formData = formData,
+                        initialCourse = course,
+                        onCancel = onDismissRequest,
+                        onSave = {},
+                        onSaveGroup = onSave,
+                        onDelete = {},
+                        onDeleteGroup = onDelete,
+                        backdrop = backdrop,
+                        renderPagerIndicator = false,
+                        onPagerPresentationChange = { presentation ->
+                            if (pagerPresentation != presentation) {
+                                pagerPresentation = presentation
+                            }
+                        }
+                    )
+                }
+            }
+
+            // Parent-data alignment is intentionally outside editorContentLayer. Recording the
+            // Canvas together with the form loses its BoxScope placement on some RenderNode replay
+            // paths and places the indicator at layer origin (top-left). This tiny live Canvas uses
+            // the same target-size parent and transform, so BottomCenter remains authoritative while
+            // the expensive Pager/forms stay cached.
+            pagerPresentation?.takeIf { it.visible && it.pageCount > 1 }?.let { presentation ->
+                ProjectPagerIndicator(
+                    pagerState = presentation.pagerState,
+                    pageCount = presentation.pageCount,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .zIndex(20f)
+                        .padding(bottom = 10.dp)
                 )
             }
         }
@@ -683,11 +776,17 @@ private fun CourseEditorSourceShell(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     sourceIsWide: Boolean,
+    adaptiveMetrics: HomeAdaptiveMetrics,
     modifier: Modifier = Modifier
 ) {
     Box(modifier) {
         if (sourceIsWide) {
-            CourseEditorDaySourceContent(course, backdrop, config)
+            CourseEditorDaySourceContent(
+                course = course,
+                backdrop = backdrop,
+                config = config,
+                tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f
+            )
         } else {
             CourseEditorWeekSourceContent(course, backdrop, config)
         }
@@ -698,44 +797,22 @@ private fun CourseEditorSourceShell(
 private fun CourseEditorDaySourceContent(
     course: CourseEntity,
     backdrop: Backdrop?,
-    config: ScheduleConfigEntity
+    config: ScheduleConfigEntity,
+    tabletFontScale: Float
 ) {
     val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
         else if (config.courseCardGlassEnabled) readableOn(cardColor)
         else glassForegroundColor(config)
-    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
-            course.name,
-            style = MaterialTheme.typography.titleMedium,
-            color = textColor
-        )
-        course.location?.takeIf { it.isNotBlank() }?.let {
-            Text(
-                "地点：" + it,
-                color = textColor.copy(alpha = 0.86f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        course.teacher?.takeIf { it.isNotBlank() }?.let {
-            Text(
-                "教师：" + it,
-                color = textColor.copy(alpha = 0.86f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        course.note?.takeIf { it.isNotBlank() }?.let {
-            Text(
-                "备注：" + it,
-                color = textColor.copy(alpha = 0.86f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
+    DayCourseCardTextContent(
+        course = course,
+        periods = emptyList(),
+        showTime = false,
+        showWeeks = false,
+        textColor = textColor,
+        tabletFontScale = tabletFontScale
+    )
 }
 
 @Composable
@@ -765,7 +842,10 @@ private fun CourseEditorWeekSourceContent(
         }
         val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
         val fontScaleCompensation = density.fontScale.coerceAtLeast(1f)
-        val courseFontScale = config.courseCardFontScale.coerceIn(0.80f, 1.35f)
+        val tabletFontBoost = if (maxWidth >= 120.dp) 1.10f else 1f
+        val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale
+        val courseFontScale = ((previewFontScale ?: config.courseCardFontScale) * tabletFontBoost)
+            .coerceIn(0.80f, 1.35f)
         fun scaledCourseWeekText(value: TextUnit): TextUnit {
             return (value.value * courseFontScale / fontScaleCompensation.coerceAtLeast(1f)).sp
         }

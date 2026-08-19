@@ -371,7 +371,10 @@ class BackupCodecTest {
                                 periods = listOf(1, 2),
                                 weeks = listOf(1, 2, 3),
                                 weekParity = "ALL",
-                                note = "保留"
+                                note = "保留",
+                                customStartTime = "08:12",
+                                customEndTime = "09:26",
+                                customColorArgb = 0xFF6688AAL
                             )
                         ),
                         periods = listOf(

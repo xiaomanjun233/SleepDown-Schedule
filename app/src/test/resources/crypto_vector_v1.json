@@ -1,0 +1,15 @@
+{
+  "remoteSecret": "test-remote-secret-for-sleepdown-v1-0123456789",
+  "applicationId": "com.xiaomanjun.sleepdownschedule",
+  "certificateSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "configVersion": 42,
+  "keyId": "free-vector-a",
+  "baseUrl": "https://provider.example/v1",
+  "model": "gpt-vector",
+  "expiresAt": 1790000000,
+  "nonceHex": "000102030405060708090a0b",
+  "plaintextApiKey": "sk-test-cross-language-vector-2026",
+  "expectedDerivedKey": "OJFAZGiEyI4ZsYjP56LYFPQTrDKOfIBEkTxjm_m6wJo",
+  "expectedNonce": "AAECAwQFBgcICQoL",
+  "expectedCiphertext": "jG01VUW5G32oU65tLmFM4hRLaoB1cRFE-hjThDFgUKRGSV0bBDv9xPbR5vEkKrFvCSY"
+}

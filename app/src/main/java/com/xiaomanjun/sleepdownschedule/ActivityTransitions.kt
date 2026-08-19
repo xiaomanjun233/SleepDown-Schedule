@@ -6,11 +6,14 @@ import android.os.Build
 import androidx.compose.ui.geometry.Rect
 
 const val ScheduleCustomizeIdExtra = "schedule_customize_id"
-const val ScheduleEntrySnapshotExtra = "schedule_entry_snapshot"
 private const val AnchoredSourceLeftExtra = "anchored_source_left"
 private const val AnchoredSourceTopExtra = "anchored_source_top"
 private const val AnchoredSourceRightExtra = "anchored_source_right"
 private const val AnchoredSourceBottomExtra = "anchored_source_bottom"
+private const val AnchoredCollapseLeftExtra = "anchored_collapse_left"
+private const val AnchoredCollapseTopExtra = "anchored_collapse_top"
+private const val AnchoredCollapseRightExtra = "anchored_collapse_right"
+private const val AnchoredCollapseBottomExtra = "anchored_collapse_bottom"
 
 fun Activity.startActivityWithScheduleDepthTransition(intent: Intent) {
     if (Build.VERSION.SDK_INT >= 34) {
@@ -54,6 +57,13 @@ fun Intent.putAnchoredSourceBounds(bounds: Rect): Intent = apply {
     putExtra(AnchoredSourceBottomExtra, bounds.bottom)
 }
 
+fun Intent.putAnchoredCollapseBounds(bounds: Rect): Intent = apply {
+    putExtra(AnchoredCollapseLeftExtra, bounds.left)
+    putExtra(AnchoredCollapseTopExtra, bounds.top)
+    putExtra(AnchoredCollapseRightExtra, bounds.right)
+    putExtra(AnchoredCollapseBottomExtra, bounds.bottom)
+}
+
 fun Activity.returnToScheduleHome() {
     startActivity(
         Intent(this, MainActivity::class.java).addFlags(
@@ -70,5 +80,15 @@ fun Intent.anchoredSourceBoundsOrNull(): Rect? {
         getFloatExtra(AnchoredSourceTopExtra, 0f),
         getFloatExtra(AnchoredSourceRightExtra, 0f),
         getFloatExtra(AnchoredSourceBottomExtra, 0f)
+    ).takeIf { it.width > 1f && it.height > 1f }
+}
+
+fun Intent.anchoredCollapseBoundsOrNull(): Rect? {
+    if (!hasExtra(AnchoredCollapseLeftExtra)) return null
+    return Rect(
+        getFloatExtra(AnchoredCollapseLeftExtra, 0f),
+        getFloatExtra(AnchoredCollapseTopExtra, 0f),
+        getFloatExtra(AnchoredCollapseRightExtra, 0f),
+        getFloatExtra(AnchoredCollapseBottomExtra, 0f)
     ).takeIf { it.width > 1f && it.height > 1f }
 }

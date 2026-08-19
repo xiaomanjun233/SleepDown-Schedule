@@ -69,6 +69,9 @@ data class CourseEntity(
     val weeks: List<Int>,
     val weekParity: WeekParity,
     val note: String?,
+    val customStartTime: String? = null,
+    val customEndTime: String? = null,
+    val customColorArgb: Long? = null,
     @ColumnInfo(defaultValue = "1")
     val scheduleId: Int = 1
 )
@@ -121,7 +124,7 @@ data class ScheduleConfigEntity(
     val darkMode: Boolean = false,
     val defaultWallpaperStyle: DefaultWallpaperStyle = DefaultWallpaperStyle.NONE,
     val hideEmptyWeekends: Boolean = false,
-    val dockAlignment: DockAlignment = DockAlignment.LEFT,
+    val dockAlignment: DockAlignment = DockAlignment.CENTER,
     val defaultHomeMode: HomeStartMode = HomeStartMode.WEEK,
     val liveUpdateActionsEnabled: Boolean = true,
     val liveUpdateChipTextMode: LiveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION,
@@ -233,7 +236,10 @@ class ScheduleConverters {
     @TypeConverter
     fun stringToLiveUpdateChipTextMode(value: String): LiveUpdateChipTextMode =
         when (value) {
-            "AUTO", "NORMAL" -> LiveUpdateChipTextMode.LOCATION
+            // NORMAL is now the user-facing course-name mode. AUTO was the legacy location
+            // alias; SHORT is retained only for old rows/backups and behaves as course name.
+            "AUTO" -> LiveUpdateChipTextMode.LOCATION
+            "SHORT" -> LiveUpdateChipTextMode.NORMAL
             else -> runCatching { LiveUpdateChipTextMode.valueOf(value) }.getOrDefault(LiveUpdateChipTextMode.LOCATION)
         }
 
@@ -249,7 +255,7 @@ class ScheduleConverters {
 
     @TypeConverter
     fun stringToDockAlignment(value: String): DockAlignment =
-        runCatching { DockAlignment.valueOf(value) }.getOrDefault(DockAlignment.LEFT)
+        runCatching { DockAlignment.valueOf(value) }.getOrDefault(DockAlignment.CENTER)
 
     @TypeConverter
     fun homeStartModeToString(value: HomeStartMode): String = value.name
@@ -499,7 +505,7 @@ interface AgentDao {
     suspend fun deleteMessagesBefore(oldestDate: String)
 }
 
-internal const val APP_DATABASE_VERSION = 36
+internal const val APP_DATABASE_VERSION = 37
 
 @Database(
     entities = [
@@ -1056,6 +1062,20 @@ private val MIGRATION_35_36 = object : Migration(35, 36) {
     }
 }
 
+private val MIGRATION_36_37 = object : Migration(36, 37) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("courses", "customStartTime")) {
+            db.execSQL("ALTER TABLE courses ADD COLUMN customStartTime TEXT")
+        }
+        if (!db.hasColumn("courses", "customEndTime")) {
+            db.execSQL("ALTER TABLE courses ADD COLUMN customEndTime TEXT")
+        }
+        if (!db.hasColumn("courses", "customColorArgb")) {
+            db.execSQL("ALTER TABLE courses ADD COLUMN customColorArgb INTEGER")
+        }
+    }
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -1091,7 +1111,8 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_32_34,
     MIGRATION_33_34,
     MIGRATION_34_35,
-    MIGRATION_35_36
+    MIGRATION_35_36,
+    MIGRATION_36_37
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -1136,6 +1157,9 @@ private fun repairDatabaseFileBeforeRoomOpen(path: File) {
                 (db.version >= 28 && !sqliteColumnExists(db, "period_schemes", "noonStartTime")) ||
                 (db.version >= 29 && !sqliteColumnExists(db, "schedule_config", "termState")) ||
                 (db.version >= 30 && !sqliteTableExists(db, "widget_appearances")) ||
+                (db.version >= 37 && !sqliteColumnExists(db, "courses", "customStartTime")) ||
+                (db.version >= 37 && !sqliteColumnExists(db, "courses", "customEndTime")) ||
+                (db.version >= 37 && !sqliteColumnExists(db, "courses", "customColorArgb")) ||
                 !sqliteColumnExists(db, "periods", "scheduleId") ||
                 !sqliteColumnExists(db, "schedule_config", "dockAlignment") ||
                 !sqliteColumnExists(db, "schedule_config", "notificationMode") ||
@@ -1166,12 +1190,15 @@ private fun repairSQLiteDatabase(db: SQLiteDatabase) {
 
 private fun repairCoursesTable(db: SQLiteDatabase) {
     if (!sqliteTableExists(db, "courses")) {
-        db.execSQL("CREATE TABLE courses (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, teacher TEXT, location TEXT, weekday INTEGER NOT NULL, periods TEXT NOT NULL, weeks TEXT NOT NULL, weekParity TEXT NOT NULL, note TEXT, scheduleId INTEGER NOT NULL DEFAULT 1)")
+        db.execSQL("CREATE TABLE courses (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, teacher TEXT, location TEXT, weekday INTEGER NOT NULL, periods TEXT NOT NULL, weeks TEXT NOT NULL, weekParity TEXT NOT NULL, note TEXT, customStartTime TEXT, customEndTime TEXT, customColorArgb INTEGER, scheduleId INTEGER NOT NULL DEFAULT 1)")
         return
     }
     if (!sqliteColumnExists(db, "courses", "scheduleId")) {
         db.execSQL("ALTER TABLE courses ADD COLUMN scheduleId INTEGER NOT NULL DEFAULT 1")
     }
+    ensureSqliteColumn(db, "courses", "customStartTime", "TEXT")
+    ensureSqliteColumn(db, "courses", "customEndTime", "TEXT")
+    ensureSqliteColumn(db, "courses", "customColorArgb", "INTEGER")
 }
 
 private fun repairPeriodSchemeTables(db: SQLiteDatabase) {
@@ -1803,7 +1830,11 @@ class ScheduleRepository(private val database: AppDatabase) {
                         }
                     }
                 }
-                val preview = previewAgentPlan(before, plan)
+                val preview = previewAgentPlan(
+                    before = before,
+                    plan = plan,
+                    periodDefinitions = configDao.getPeriods(scheduleId)
+                )
 
                 plan.actions.forEach { action ->
                     when (action.type) {
@@ -2257,10 +2288,13 @@ class ScheduleRepository(private val database: AppDatabase) {
 
     private fun normalizeCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int): List<CourseEntity> {
         return courses.map {
+            val customRange = it.customTimeRangeOrNull()
             it.copy(
                 weekday = it.weekday.coerceIn(1, 7),
                 periods = it.periods.filter { period -> period > 0 }.distinct().sorted().ifEmpty { listOf(1) },
                 weeks = it.weeks.filter { week -> week > 0 }.distinct().sorted().ifEmpty { listOf(1) },
+                customStartTime = customRange?.first?.toString(),
+                customEndTime = customRange?.second?.toString(),
                 scheduleId = scheduleId
             )
         }
@@ -2371,6 +2405,9 @@ private fun CourseEntity.hasSameOccurrenceSlot(other: CourseEntity): Boolean {
         teacher.orEmpty().trim() == other.teacher.orEmpty().trim() &&
         location.orEmpty().trim() == other.location.orEmpty().trim() &&
         note.orEmpty().trim() == other.note.orEmpty().trim() &&
+        customStartTime == other.customStartTime &&
+        customEndTime == other.customEndTime &&
+        customColorArgb == other.customColorArgb &&
         weekParity == other.weekParity &&
         scheduleId == other.scheduleId
 }
@@ -2383,6 +2420,9 @@ private data class CourseMergeKey(
     val note: String,
     val weekday: Int,
     val periods: List<Int>,
+    val customStartTime: String?,
+    val customEndTime: String?,
+    val customColorArgb: Long?,
     val weekParity: WeekParity
 )
 
@@ -2395,6 +2435,9 @@ private fun CourseEntity.mergeKey(): CourseMergeKey {
         note = note.orEmpty().trim(),
         weekday = weekday,
         periods = periods.distinct().sorted(),
+        customStartTime = customStartTime,
+        customEndTime = customEndTime,
+        customColorArgb = customColorArgb,
         weekParity = weekParity
     )
 }
@@ -2677,7 +2720,7 @@ internal fun ScheduleConfigEntity.switchCourseCardGlassMode(enabled: Boolean): S
     )
 }
 
-fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, wallpaperPortraitCenterX = 0.5f, wallpaperPortraitCenterY = 0.5f, wallpaperPortraitScale = 1f, wallpaperLandscapeCenterX = 0.5f, wallpaperLandscapeCenterY = 0.5f, wallpaperLandscapeScale = 1f, wallpaperSourceWidth = null, wallpaperSourceHeight = null, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, weekCardHeightDp = null, homeTextLight = false, homeChromeBlurScale = DefaultHomeChromeBlurScale, homeChromeSamplingScale = DefaultHomeChromeSamplingScale, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.NONE, hideEmptyWeekends = false, dockAlignment = DockAlignment.LEFT, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false, autoCheckUpdates = true)
+fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = false, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, wallpaperPortraitCenterX = 0.5f, wallpaperPortraitCenterY = 0.5f, wallpaperPortraitScale = 1f, wallpaperLandscapeCenterX = 0.5f, wallpaperLandscapeCenterY = 0.5f, wallpaperLandscapeScale = 1f, wallpaperSourceWidth = null, wallpaperSourceHeight = null, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, weekCardHeightDp = null, homeTextLight = false, homeChromeBlurScale = DefaultHomeChromeBlurScale, homeChromeSamplingScale = DefaultHomeChromeSamplingScale, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.NONE, hideEmptyWeekends = false, dockAlignment = DockAlignment.CENTER, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false, autoCheckUpdates = true)
 
 fun defaultPeriods(scheduleId: Int = 1) = listOf(
     PeriodEntity(1, "08:00", "08:45", scheduleId), PeriodEntity(2, "08:55", "09:40", scheduleId),

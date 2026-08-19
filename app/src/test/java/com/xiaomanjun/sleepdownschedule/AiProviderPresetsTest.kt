@@ -28,26 +28,24 @@ class AiProviderPresetsTest {
     }
 
     @Test
-    fun managedDailyFreeProviderIsFixedToLunaResponses() {
+    fun managedDailyFreeProviderHasNoBundledEndpointOrModel() {
         val profile = AiProviderPresets.dailyFree
         val models = AiProviderPresets.modelOptions(profile)
 
         assertEquals("每日免费 AI", profile.displayName)
-        assertEquals("https://api.chunxiao.pro/v1", profile.baseUrl)
-        assertEquals("gpt-5.6-luna", profile.defaultModel)
+        assertEquals("", profile.baseUrl)
+        assertEquals("", profile.defaultModel)
         assertEquals(AiEndpointStyle.RESPONSES, profile.endpointStyle)
-        assertEquals(listOf("gpt-5.6-luna"), models.map(AiModelOption::model))
+        assertEquals(AiAuthType.CustomHeader, profile.authType)
+        assertEquals(emptyList<String>(), models.map(AiModelOption::model))
         assertTrue(AiProviderPresets.shouldUseResponses(profile))
         assertTrue(AiProviderPresets.supportsImageInput(profile))
     }
 
     @Test
-    fun managedCredentialIsReconstructedWithoutAPlainTextPresetField() {
-        val key = ManagedFreeAiCredentials.apiKey()
-
-        assertTrue(key.startsWith("sk-"))
-        assertTrue(key.length > 40)
-        assertTrue(key.none(Char::isWhitespace))
+    fun managedCredentialIsNotBundledInThePreset() {
+        assertTrue(AiProviderPresets.dailyFree.baseUrl.isBlank())
+        assertTrue(AiProviderPresets.dailyFree.defaultModel.isBlank())
     }
 
     @Test

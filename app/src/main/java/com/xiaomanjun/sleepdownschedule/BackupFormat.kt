@@ -244,7 +244,10 @@ data class BackupCourse(
     val periods: List<Int>,
     val weeks: List<Int>,
     val weekParity: String,
-    val note: String?
+    val note: String?,
+    val customStartTime: String? = null,
+    val customEndTime: String? = null,
+    val customColorArgb: Long? = null
 )
 
 @Serializable

@@ -76,6 +76,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -169,8 +170,8 @@ internal fun MorphSnapshotBackground(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    val scale = backgroundScaleProvider().coerceIn(0.92f, 1f)
-                    val blurProgress = ((1f - scale) / 0.08f).coerceIn(0f, 1f)
+                    val scale = backgroundScaleProvider().coerceIn(0.92f, 1.08f)
+                    val blurProgress = morphSnapshotDepthProgress(scale)
                     val blurPx = blurProgress * 12f * density.density
                     scaleX = scale
                     scaleY = scale
@@ -178,10 +179,10 @@ internal fun MorphSnapshotBackground(
                 }
                 .drawWithContent {
                     drawContent()
-                    val scale = backgroundScaleProvider().coerceIn(0.92f, 1f)
-                    val blurProgress = ((1f - scale) / 0.08f).coerceIn(0f, 1f)
-                    if (blurProgress > 0.001f) {
-                        val radiusPx = 24.dp.toPx() * blurProgress
+                    val scale = backgroundScaleProvider().coerceIn(0.92f, 1.08f)
+                    val shrinkProgress = ((1f - scale) / 0.08f).coerceIn(0f, 1f)
+                    if (shrinkProgress > 0.001f) {
+                        val radiusPx = 24.dp.toPx() * shrinkProgress
                         val outside = Path().apply {
                             fillType = PathFillType.EvenOdd
                             addRect(Rect(0f, 0f, size.width, size.height))
@@ -194,7 +195,7 @@ internal fun MorphSnapshotBackground(
                         }
                         drawPath(outside, Color.Black, blendMode = BlendMode.Clear)
 
-                        val featherPx = 18.dp.toPx() * blurProgress
+                        val featherPx = 18.dp.toPx() * shrinkProgress
                         val featherSteps = 10
                         repeat(featherSteps) { index ->
                             val linear = 1f - index / featherSteps.toFloat()
@@ -211,5 +212,8 @@ internal fun MorphSnapshotBackground(
         )
     }
 }
+
+internal fun morphSnapshotDepthProgress(scale: Float): Float =
+    (abs(scale.coerceIn(0.92f, 1.08f) - 1f) / 0.08f).coerceIn(0f, 1f)
 
 

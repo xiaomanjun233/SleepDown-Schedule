@@ -39,6 +39,7 @@ class CourseScheduleApp : Application() {
     override fun onCreate() {
         super.onCreate()
         AppIconManager.applyStoredMode(this)
+        SleepDownRemoteConfig.initialize(this, applicationScope)
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 setTaskExcludedFromRecents(false)

@@ -123,6 +123,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 import kotlin.math.abs
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
@@ -207,6 +208,8 @@ internal fun AiEduImportProgressPage(
         drawContent()
     }
     val historySnapshotLayer = rememberGraphicsLayer()
+    val historySnapshotRequested = remember { AtomicBoolean(false) }
+    var historySnapshotRequestVersion by remember { mutableStateOf(0) }
     val previewBackdrop = rememberScreenScaledBackdrop(
         backdrop = previewSceneBackdrop,
         scale = { previewBackgroundZoom.value },
@@ -263,9 +266,11 @@ internal fun AiEduImportProgressPage(
     ) {
         Box(
             Modifier
-                .fillMaxSize()
-                .drawWithContent {
-                    historySnapshotLayer.record { this@drawWithContent.drawContent() }
+                    .fillMaxSize()
+                    .drawWithContent {
+                    if (historySnapshotRequestVersion >= 0 && historySnapshotRequested.compareAndSet(true, false)) {
+                        historySnapshotLayer.record { this@drawWithContent.drawContent() }
+                    }
                     drawContent()
                 }
                 .graphicsLayer {
@@ -300,6 +305,8 @@ internal fun AiEduImportProgressPage(
                             backdrop = topBarBackdrop,
                              onClick = { sourceBounds ->
                                  conversationScope.launch {
+                                     historySnapshotRequested.set(true)
+                                     historySnapshotRequestVersion += 1
                                      historySourceHidden = true
                                      withFrameNanos { }
                                      withFrameNanos { }
@@ -436,7 +443,8 @@ internal fun AiEduImportProgressPage(
                             val baseDraft = previewDraft ?: return@send
                             conversationSending = true
                             conversationScope.launch {
-                                val settings = AiImportSettingsStore.load(context)
+                                val settings = AiImportSettingsStore.loadForRuntime(context)
+                                    ?: AiImportSettingsStore.load(context)
                                 var workingProgress = current.copy(
                                     steps = current.steps + listOf(
                                         "正在理解你的新要求",

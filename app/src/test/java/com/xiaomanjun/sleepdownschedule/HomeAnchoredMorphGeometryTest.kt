@@ -10,6 +10,9 @@ import org.junit.Test
 class HomeAnchoredMorphGeometryTest {
     private val source = Rect(880f, 48f, 922f, 90f)
     private val target = Rect(606f, 104f, 808f, 272f)
+    private val destination = Rect(100f, 200f, 900f, 1400f)
+    private val menuRect = Rect(700f, 104f, 900f, 300f)
+    private val button = Rect(880f, 48f, 922f, 90f)
 
     @Test
     fun openingStartsAtSourceButton() {
@@ -49,138 +52,520 @@ class HomeAnchoredMorphGeometryTest {
     }
 
     @Test
-    fun addMenuSqueezesHorizontallyInPlaceBeforeExpansion() {
-        val geometry = homeAddMenuMorphGeometry(
-            source = source,
-            target = target,
-            rawProgress = HomeAddMenuSqueezeFraction,
-            closing = false,
-            pinchDiameterPx = 10f,
-            minimumDropPx = 36f,
-            maximumDropPx = 72f,
-            maximumArcPx = 48f,
-            targetCornerRadiusPx = 26f,
-            reboundOvershootPx = 12f
-        )
+    fun threeDotMenuOpeningStartsAtSourceAndEndsAtTarget() {
+        val start = addMenuGeometry(0f, false)
+        val end = addMenuGeometry(1f, false)
 
-        assertEquals(source.center.x, geometry.rect.center.x, Tolerance)
-        assertEquals(source.center.y, geometry.rect.center.y, Tolerance)
-        assertEquals(source.width * HomeAddMenuSqueezedWidthFraction, geometry.rect.width, Tolerance)
-        assertEquals(source.height, geometry.rect.height, Tolerance)
+        assertRectEquals(source, start.rect)
+        assertRectEquals(target, end.rect)
+        assertEquals(HomeAddMenuTargetCornerDp, end.cornerRadiusPx, Tolerance)
     }
 
     @Test
-    fun addMenuCornerStartsResolvingDuringTheSqueeze() {
-        val start = addMenuGeometry(progress = 0f, closing = false)
-        val midway = addMenuGeometry(
-            progress = HomeAddMenuSqueezeFraction / 2f,
-            closing = false
+    fun addMenuOuterCornerIsConcentricWithTheSelectionCapsule() {
+        assertEquals(30f, HomeAddMenuTargetCornerDp, Tolerance)
+        assertEquals(19f, HomeAddMenuSelectionCornerDp, Tolerance)
+        assertEquals(11f, HomeAddMenuConcentricInsetDp, Tolerance)
+        assertEquals(
+            HomeAddMenuSelectionCornerDp + HomeAddMenuConcentricInsetDp,
+            HomeAddMenuTargetCornerDp,
+            Tolerance
         )
-        val squeezed = addMenuGeometry(
-            progress = HomeAddMenuSqueezeFraction,
-            closing = false
-        )
-
-        assertTrue(midway.cornerRadiusPx > start.cornerRadiusPx)
-        assertTrue(squeezed.cornerRadiusPx > midway.cornerRadiusPx)
-        assertTrue(squeezed.cornerRadiusPx < 32f)
-        assertEquals(0f, midway.contentAlpha, Tolerance)
     }
 
     @Test
-    fun productionAddMenuStartsCornerMorphDuringShorterDropWithoutMovingContentHandoff() {
-        fun productionGeometry(progress: Float) = homeAnchoredMorphGeometry(
-            source = source,
-            target = target,
-            rawProgress = progress,
+    fun addMenuHandsTheOuterClipBackToTheSettledKyantSurface() {
+        assertTrue(homeAddMenuShellClipEnabled(HomeAnchoredOverlayPhase.Opening))
+        assertTrue(!homeAddMenuShellClipEnabled(HomeAnchoredOverlayPhase.Open))
+        assertTrue(homeAddMenuShellClipEnabled(HomeAnchoredOverlayPhase.Closing))
+    }
+
+    @Test
+    fun threeDotMenuOpeningPinchesInPlaceWhileFalling() {
+        val early = addMenuGeometry(ThreeDotMenuMotion.OpenPinchFraction / 2f, false).rect
+        val droplet = addMenuGeometry(ThreeDotMenuMotion.OpenPinchFraction, false).rect
+
+        assertEquals(source.center.x, early.center.x, Tolerance)
+        assertTrue(early.center.y > source.center.y)
+        assertTrue(early.width < source.width)
+        assertTrue(early.height < source.height)
+        assertEquals(18f, droplet.width, Tolerance)
+        assertEquals(18f, droplet.height, Tolerance)
+        assertEquals(source.center.x, droplet.center.x, Tolerance)
+        assertEquals(source.center.y + 36f, droplet.center.y, Tolerance)
+    }
+
+    @Test
+    fun threeDotMenuOpeningPinchShrinksContinuously() {
+        var previous = addMenuGeometry(0f, false).rect
+        for (step in 1..28) {
+            val progress = ThreeDotMenuMotion.OpenPinchFraction * step / 28f
+            val current = addMenuGeometry(progress, false).rect
+            assertEquals(source.center.x, current.center.x, Tolerance)
+            assertTrue(current.center.y >= previous.center.y - Tolerance)
+            assertTrue(current.width <= previous.width + Tolerance)
+            assertTrue(current.height <= previous.height + Tolerance)
+            assertTrue(current.width > 0f)
+            assertTrue(current.height > 0f)
+            previous = current
+        }
+    }
+
+    @Test
+    fun threeDotMenuOpeningExpansionStartsWithoutABoundaryJump() {
+        val boundary = ThreeDotMenuMotion.OpenPinchFraction
+        val epsilon = 0.00001f
+        val before = addMenuGeometry(boundary - epsilon, false).rect
+        val atBoundary = addMenuGeometry(boundary, false).rect
+        val after = addMenuGeometry(boundary + epsilon, false).rect
+
+        assertTrue(kotlin.math.abs(atBoundary.left - before.left) < 0.05f)
+        assertTrue(kotlin.math.abs(atBoundary.top - before.top) < 0.05f)
+        assertTrue(kotlin.math.abs(after.left - atBoundary.left) < 0.05f)
+        assertTrue(kotlin.math.abs(after.top - atBoundary.top) < 0.05f)
+        assertTrue(kotlin.math.abs(after.right - atBoundary.right) < 0.05f)
+        assertTrue(kotlin.math.abs(after.bottom - atBoundary.bottom) < 0.05f)
+    }
+
+    @Test
+    fun threeDotMenuOpeningRestoresTheGoldenExpansionCurves() {
+        val earlyPosition = threeDotMenuOpeningPositionProgress(0.20f)
+        val earlySize = threeDotMenuOpeningSizeProgress(0.20f)
+        val latePosition = threeDotMenuOpeningPositionProgress(0.80f)
+        val lateSize = threeDotMenuOpeningSizeProgress(0.80f)
+
+        assertTrue(earlyPosition > earlySize)
+        assertTrue(earlyPosition > 0.45f)
+        assertTrue(latePosition > 0.95f)
+        assertTrue(lateSize > 0.90f)
+        assertEquals(1f, threeDotMenuOpeningPositionProgress(1f), Tolerance)
+        assertEquals(1f, threeDotMenuOpeningSizeProgress(1f), Tolerance)
+    }
+
+    @Test
+    fun threeDotMenuOpeningExpansionUsesRightEdgeAnchoring() {
+        val expansion = 0.50f
+        val raw = ThreeDotMenuMotion.OpenPinchFraction +
+            expansion * (1f - ThreeDotMenuMotion.OpenPinchFraction)
+        val geometry = addMenuGeometry(raw, false)
+        val sizeProgress = threeDotMenuOpeningSizeProgress(expansion)
+        val dropletRight = source.center.x + 9f
+        val expectedRight = lerpHomeMorph(dropletRight, target.right, sizeProgress)
+
+        assertEquals(expectedRight, geometry.rect.right, Tolerance)
+        assertTrue(geometry.rect.center.x < source.center.x)
+        assertTrue(geometry.rect.center.y > source.center.y + 36f)
+    }
+
+    @Test
+    fun threeDotMenuOpeningExpansionGrowsContinuouslyToTheCurrentMenu() {
+        var previous = addMenuGeometry(ThreeDotMenuMotion.OpenPinchFraction, false).rect
+        val pulseStart = ThreeDotMenuMotion.OpenPinchFraction +
+            0.82f * (1f - ThreeDotMenuMotion.OpenPinchFraction)
+        var progress = ThreeDotMenuMotion.OpenPinchFraction + 0.01f
+        while (progress <= pulseStart) {
+            val current = addMenuGeometry(progress, false).rect
+            assertTrue(
+                "width shrank at $progress: ${previous.width} -> ${current.width}",
+                current.width >= previous.width - 0.02f
+            )
+            assertTrue(
+                "height shrank at $progress: ${previous.height} -> ${current.height}",
+                current.height >= previous.height - 0.02f
+            )
+            previous = current
+            progress += 0.01f
+        }
+
+        var maximumWidth = previous.width
+        var maximumHeight = previous.height
+        while (progress <= 1f + Tolerance) {
+            val current = addMenuGeometry(progress.coerceAtMost(1f), false).rect
+            maximumWidth = maxOf(maximumWidth, current.width)
+            maximumHeight = maxOf(maximumHeight, current.height)
+            progress += 0.01f
+        }
+        assertTrue(maximumWidth > target.width)
+        assertTrue(maximumHeight > target.height)
+        assertTrue(maximumWidth < target.width * 1.01f)
+        assertTrue(maximumHeight < target.height * 1.01f)
+        assertRectEquals(target, addMenuGeometry(1f, false).rect)
+    }
+
+    @Test
+    fun threeDotMenuOpeningReboundPeaksDuringExpansionAndSettles() {
+        val peakRaw = ThreeDotMenuMotion.OpenPinchFraction +
+            ThreeDotMenuMotion.OpenReboundPeakFraction *
+            (1f - ThreeDotMenuMotion.OpenPinchFraction)
+        val peak = addMenuGeometry(peakRaw, false)
+        val peakWithoutRebound = addMenuGeometry(
+            progress = peakRaw,
             closing = false,
-            pinchDiameterPx = 18f,
-            minimumDropPx = 36f,
-            maximumDropPx = 72f,
-            maximumArcPx = 48f,
-            targetCornerRadiusPx = 30f,
-            pinchFractionOverride = HomeAddMenuPinchFraction,
-            cornerMorphDuringPinchFraction = 0.42f,
-            handoffStartFraction = 0.1135f,
-            handoffEndFraction = 0.28f,
-            contentStartFraction = 0.154f,
-            contentEndFraction = 0.424f
+            verticalReboundAmplitudePx = 0f
         )
 
-        val start = productionGeometry(0f)
-        val duringDrop = productionGeometry(HomeAddMenuPinchFraction / 2f)
-        val endOfDrop = productionGeometry(HomeAddMenuPinchFraction)
-        assertTrue(duringDrop.cornerRadiusPx > start.cornerRadiusPx)
-        assertTrue(endOfDrop.cornerRadiusPx > duringDrop.cornerRadiusPx)
-        assertTrue(endOfDrop.rect.center.y > source.center.y)
+        assertEquals(12f, peak.rect.center.y - peakWithoutRebound.rect.center.y, Tolerance)
+        assertTrue(peak.rect.width > 18f)
+        assertTrue(peak.rect.width < target.width)
+        assertTrue(peak.expansionProgress in 0.39f..0.41f)
+        assertRectEquals(target, addMenuGeometry(1f, false).rect)
+    }
 
-        val oldHandoff = homeAnchoredMorphGeometry(
-            source = source,
-            target = target,
-            rawProgress = 0.43f,
+    @Test
+    fun threeDotMenuClosingSinksBeforeReturning() {
+        val start = addMenuGeometry(1f, true).rect
+        val sink = addMenuGeometry(0.94f, true).rect
+
+        assertEquals(target.center.x, sink.center.x, Tolerance)
+        assertTrue(sink.center.y > start.center.y)
+        assertTrue(sink.height < start.height)
+        assertTrue(sink.width >= start.width - Tolerance)
+    }
+
+    @Test
+    fun threeDotMenuClosingSinkOverlapsTheReturnCurve() {
+        var maximumCenterY = target.center.y
+        var raw = 1f
+        while (raw >= 0.70f) {
+            maximumCenterY = maxOf(maximumCenterY, addMenuGeometry(raw, true).rect.center.y)
+            raw -= 0.002f
+        }
+
+        assertTrue(maximumCenterY > target.center.y + 12f)
+        val beforeBlend = addMenuGeometry(0.921f, true).rect.center
+        val afterBlend = addMenuGeometry(0.919f, true).rect.center
+        assertTrue(kotlin.math.abs(afterBlend.x - beforeBlend.x) < 2f)
+        assertTrue(kotlin.math.abs(afterBlend.y - beforeBlend.y) < 2f)
+    }
+
+    @Test
+    fun threeDotMenuClosingUsesAnIndependentTrajectoryAndReturnsExactly() {
+        val openingMiddle = addMenuGeometry(0.50f, false).rect
+        val closingMiddle = addMenuGeometry(0.50f, true).rect
+
+        assertTrue(kotlin.math.abs(openingMiddle.center.x - closingMiddle.center.x) > 8f)
+        assertTrue(kotlin.math.abs(openingMiddle.center.y - closingMiddle.center.y) > 8f)
+        assertRectEquals(target, addMenuGeometry(1f, true).rect)
+        assertRectEquals(source, addMenuGeometry(0f, true).rect)
+    }
+
+    @Test
+    fun threeDotMenuUsesRequestedOpeningAndClosingDurations() {
+        assertEquals(440, HomeAddMenuMorphOpenDurationMillis)
+        assertEquals(285, HomeAddMenuMorphCloseDurationMillis)
+    }
+
+    @Test
+    fun threeDotMenuOpeningStartsAtPressedSourceFootprint() {
+        val pressed = 1.047f
+        val geometry = addMenuGeometry(0f, false, pressed)
+        val expected = Rect(
+            left = source.center.x - source.width * pressed / 2f,
+            top = source.center.y - source.height * pressed / 2f,
+            right = source.center.x + source.width * pressed / 2f,
+            bottom = source.center.y + source.height * pressed / 2f
+        )
+
+        assertRectEquals(expected, geometry.rect)
+        assertEquals(1f, geometry.sourceScale, Tolerance)
+    }
+
+    @Test
+    fun threeDotMenuSourceCloneShrinksWithThePressedShell() {
+        val pressed = 1.047f
+        val droplet = addMenuGeometry(ThreeDotMenuMotion.OpenPinchFraction, false, pressed)
+        val expanding = addMenuGeometry(0.50f, false, pressed)
+        val expectedScale = 18f / (source.width * pressed)
+
+        assertEquals(expectedScale, droplet.sourceScale, Tolerance)
+        assertEquals(expectedScale, expanding.sourceScale, Tolerance)
+        assertEquals(1f, droplet.sourceAlpha, Tolerance)
+        assertTrue(expanding.sourceAlpha < 1f)
+    }
+
+    @Test
+    fun destinationSharedTrajectoryStartsAtMenuAndEndsAtDestination() {
+        assertRectEquals(menuRect, destinationTrajectoryGeometry(0f, false).rect)
+        assertRectEquals(destination, destinationTrajectoryGeometry(1f, false).rect)
+    }
+
+    @Test
+    fun destinationSharedTrajectoryReturnsDirectlyToCollapseButtonBounds() {
+        assertRectEquals(destination, destinationTrajectoryGeometry(1f, true).rect)
+        assertRectEquals(button, destinationTrajectoryGeometry(0f, true).rect)
+        assertTrue(
+            kotlin.math.abs(
+                destinationTrajectoryGeometry(0f, true).rect.center.x - menuRect.center.x
+            ) > 20f
+        )
+    }
+
+    @Test
+    fun destinationLegacyOpeningMovesAndGrowsDirectlyFromTheMenu() {
+        val early = destinationTrajectoryGeometry(0.16f, false).rect
+
+        assertTrue(early.center.x < menuRect.center.x)
+        assertTrue(early.center.y > menuRect.center.y)
+        assertTrue(early.width > menuRect.width)
+        assertTrue(early.height > menuRect.height)
+        assertTrue(early.width > 72f)
+    }
+
+    @Test
+    fun destinationTrajectoryHelperMatchesTheLegacyDirectGeometry() {
+        val helper = destinationTrajectoryGeometry(0.42f, false)
+        val explicit = homeAnchoredMorphGeometry(
+            source = menuRect,
+            target = destination,
+            rawProgress = 0.42f,
             closing = false,
+            directClosing = true,
+            directSourceCornerRadiusPx = HomeAddMenuTargetCornerDp,
             pinchDiameterPx = 18f,
-            minimumDropPx = 36f,
+            minimumDropPx = 12f,
             maximumDropPx = 72f,
-            maximumArcPx = 48f,
+            maximumArcPx = 88f,
             targetCornerRadiusPx = 32f,
-            handoffStartFraction = 0.015f,
-            handoffEndFraction = 0.20f,
-            contentStartFraction = 0.06f,
-            contentEndFraction = 0.36f
+            motionStyle = HomeMorphEasingStyle.Legacy
         )
-        val newHandoff = productionGeometry(0.43f)
-        assertEquals(oldHandoff.surfaceAlpha, newHandoff.surfaceAlpha, 0.002f)
-        assertEquals(oldHandoff.contentAlpha, newHandoff.contentAlpha, 0.002f)
+
+        assertRectEquals(explicit.rect, helper.rect)
+        assertEquals(explicit.cornerRadiusPx, helper.cornerRadiusPx, Tolerance)
+        assertEquals(explicit.pathProgress, helper.pathProgress, Tolerance)
     }
 
     @Test
-    fun addMenuClosingExactlyReversesTheCapturedOpeningGeometry() {
-        val capturedScale = 1.047f
-        val opening = addMenuGeometry(
-            progress = 0f,
-            closing = false,
-            sourcePressedScale = capturedScale
-        )
-        val closing = addMenuGeometry(
-            progress = 0f,
+    fun destinationClosingMatchesTheLegacyButtonAnchoredGeometry() {
+        val helper = destinationTrajectoryGeometry(0.42f, true)
+        val explicit = homeAnchoredMorphGeometry(
+            source = button,
+            target = destination,
+            rawProgress = 0.42f,
             closing = true,
-            sourcePressedScale = capturedScale
+            directClosing = false,
+            directSourceCornerRadiusPx = 21f,
+            pinchDiameterPx = 18f,
+            minimumDropPx = 12f,
+            maximumDropPx = 72f,
+            maximumArcPx = 88f,
+            targetCornerRadiusPx = 32f,
+            motionStyle = HomeMorphEasingStyle.Legacy
         )
 
-        assertEquals(source.width * capturedScale, opening.rect.width, Tolerance)
-        assertEquals(source.height * capturedScale, opening.rect.height, Tolerance)
-        assertEquals(source.center.x, opening.rect.center.x, Tolerance)
-        assertEquals(source.center.y, opening.rect.center.y, Tolerance)
-        assertRectEquals(opening.rect, closing.rect)
-
-        val openingMid = addMenuGeometry(0.58f, false, capturedScale)
-        val closingMid = addMenuGeometry(0.58f, true, capturedScale)
-        assertRectEquals(openingMid.rect, closingMid.rect)
-        assertEquals(openingMid.contentAlpha, closingMid.contentAlpha, Tolerance)
+        assertRectEquals(explicit.rect, helper.rect)
+        assertEquals(explicit.pathProgress, helper.pathProgress, Tolerance)
     }
 
     @Test
-    fun addMenuKeepsDownwardReboundButFinishesAtOriginalTargetHeight() {
-        val peakProgress = HomeAddMenuSqueezeFraction +
-            HomeAddMenuReboundPeakFraction * (1f - HomeAddMenuSqueezeFraction)
-        val peak = addMenuGeometry(progress = peakProgress, closing = false)
-        val peakWithoutRebound = homeAddMenuMorphGeometry(
+    fun fullScreenDestinationRestoresRoundedShellImmediatelyOnClose() {
+        val start = destinationTrajectoryGeometry(1f, true)
+        val justStarted = destinationTrajectoryGeometry(0.99f, true)
+        val endpoint = destinationTrajectoryGeometry(0f, true)
+
+        assertEquals(
+            46f,
+            homeMenuDestinationRenderedCornerRadiusPx(
+                geometry = start,
+                rawProgress = 1f,
+                isFullScreen = true,
+                closing = true,
+                sourceCornerRadiusPx = HomeAddMenuTargetCornerDp,
+                collapseCornerRadiusPx = 21f,
+                middleCornerRadiusPx = 46f
+            ),
+            Tolerance
+        )
+        assertEquals(
+            46f,
+            homeMenuDestinationRenderedCornerRadiusPx(
+                geometry = justStarted,
+                rawProgress = 0.99f,
+                isFullScreen = true,
+                closing = true,
+                sourceCornerRadiusPx = HomeAddMenuTargetCornerDp,
+                collapseCornerRadiusPx = 21f,
+                middleCornerRadiusPx = 46f
+            ),
+            Tolerance
+        )
+        assertEquals(
+            21f,
+            homeMenuDestinationRenderedCornerRadiusPx(
+                geometry = endpoint,
+                rawProgress = 0f,
+                isFullScreen = true,
+                closing = true,
+                sourceCornerRadiusPx = HomeAddMenuTargetCornerDp,
+                collapseCornerRadiusPx = 21f,
+                middleCornerRadiusPx = 46f
+            ),
+            Tolerance
+        )
+    }
+
+    @Test
+    fun stableActivityContentOffsetPreservesRootCoordinatesInsideAnimatedShell() {
+        val rootExtent = 1080f
+        val shellStart = 648f
+        val shellExtent = 388f
+        val rootPosition = 668f
+        val stableChildPlacement = (shellExtent - rootExtent) / 2f
+        val localOffset = anchoredStableContentOffsetPx(
+            positionInRootPx = rootPosition,
+            shellStartPx = shellStart,
+            rootExtentPx = rootExtent,
+            shellExtentPx = shellExtent
+        )
+
+        assertEquals(
+            rootPosition,
+            shellStart + stableChildPlacement + localOffset,
+            Tolerance
+        )
+    }
+
+    @Test
+    fun personalizationReusesThreeDotMenuMotionDurations() {
+        assertEquals(330, HomeMenuDestinationLegacyMotion.OpenDurationMillis)
+        assertEquals(350, HomeMenuDestinationLegacyMotion.CloseDurationMillis)
+        assertEquals(350, HomeMenuDestinationCloseDurationMillis)
+        assertEquals(HomeAddMenuMorphOpenDurationMillis, HomePersonalizeMorphOpenDurationMillis)
+        assertEquals(HomeAddMenuMorphCloseDurationMillis, HomePersonalizeMorphCloseDurationMillis)
+        assertTrue(HomeMenuDestinationLegacyMotion.OpenDurationMillis != HomeAddMenuMorphOpenDurationMillis)
+        assertEquals(HomePersonalizeMorphCloseDurationMillis, HomeAddMenuMorphCloseDurationMillis)
+    }
+
+    @Test
+    fun personalizationWrapperDelegatesToTheThreeDotLiquidGeometry() {
+        val helper = homePersonalizationTrajectoryGeometry(
             source = source,
-            target = target,
-            rawProgress = peakProgress,
-            closing = false,
-            pinchDiameterPx = 10f,
+            target = destination,
+            rawProgress = 0.47f,
+            pinchDiameterPx = 18f,
             minimumDropPx = 36f,
             maximumDropPx = 72f,
-            maximumArcPx = 48f,
-            targetCornerRadiusPx = 32f,
-            reboundOvershootPx = 0f
+            maximumArcPx = 88f,
+            targetCornerRadiusPx = 28f,
+            sourcePressedScale = 1.04f
         )
-        val endpoint = addMenuGeometry(progress = 1f, closing = false)
+        val explicit = homeThreeDotMenuTrajectoryGeometry(
+            source = source,
+            target = destination,
+            rawProgress = 0.47f,
+            closing = false,
+            sourceCornerRadiusPx = minOf(source.width, source.height) / 2f,
+            targetCornerRadiusPx = 28f,
+            sourcePressedScale = 1.04f,
+            openingPinchDiameterPx = 18f,
+            openingMinimumDropPx = 36f,
+            openingMaximumDropPx = 72f,
+            openingMaximumArcPx = 88f
+        )
 
-        assertTrue(peak.rect.top > peakWithoutRebound.rect.top)
-        assertRectEquals(target, endpoint.rect)
+        assertRectEquals(explicit.rect, helper.rect)
+        assertEquals(explicit.sourceAlpha, helper.sourceAlpha, Tolerance)
+        assertEquals(explicit.contentAlpha, helper.contentAlpha, Tolerance)
+    }
+
+    @Test
+    fun normalDestinationDefersFormContentUntilTheShellIsStableAndNeverBlursItOnOpen() {
+        assertEquals(
+            0f,
+            homeMenuDestinationContentAlpha(
+                rawProgress = HomeMenuDestinationLegacyMotion.NonFullscreenContentRevealStart,
+                isFullScreen = false,
+                closing = false
+            ),
+            Tolerance
+        )
+        assertTrue(
+            homeMenuDestinationContentAlpha(
+                rawProgress = 0.62f,
+                isFullScreen = false,
+                closing = false
+            ) > 0f
+        )
+        assertEquals(
+            1f,
+            homeMenuDestinationContentAlpha(
+                rawProgress = HomeMenuDestinationLegacyMotion.NonFullscreenContentRevealEnd,
+                isFullScreen = false,
+                closing = false
+            ),
+            Tolerance
+        )
+        assertEquals(
+            0f,
+            homeMenuDestinationOpeningContentBlurMix(rawProgress = 0.62f, isFullScreen = false),
+            Tolerance
+        )
+    }
+
+    @Test
+    fun centeredSharedTrajectoryUsesItsBezierCenterRatherThanTheMenuTrailingEdge() {
+        val raw = ThreeDotMenuMotion.OpenPinchFraction +
+            0.50f * (1f - ThreeDotMenuMotion.OpenPinchFraction)
+        val centered = homeCenteredSharedObjectTrajectoryGeometry(
+            source = source,
+            target = target,
+            rawProgress = raw,
+            closing = false,
+            sourceCornerRadiusPx = 21f,
+            targetCornerRadiusPx = 32f,
+            openingPinchDiameterPx = 18f,
+            openingMinimumDropPx = 36f,
+            openingMaximumDropPx = 72f,
+            openingMaximumArcPx = 48f,
+            verticalReboundAmplitudePx = 12f,
+            closingSinkOffsetPx = 12f,
+            closingControlDropPx = 28f
+        )
+        val trailingEdge = addMenuGeometry(raw, false)
+
+        assertTrue(kotlin.math.abs(centered.rect.center.x - trailingEdge.rect.center.x) > 8f)
+        assertEquals(target.center.x, homeCenteredSharedObjectTrajectoryGeometry(
+            source = source,
+            target = target,
+            rawProgress = 1f,
+            closing = false,
+            targetCornerRadiusPx = 32f
+        ).rect.center.x, Tolerance)
+    }
+
+    @Test
+    fun openingUsesANonLinearCubicAndKeepsMovingThroughTheRebound() {
+        val atTwentyPercent = homeAnchoredOpenMotionProgress(0.20f)
+        val atFortyPercent = homeAnchoredOpenMotionProgress(0.40f)
+        val atReboundEnd = homeAnchoredOpenMotionProgress(HomeAnchoredOpenSettleStartFraction)
+        val atNinetyPercent = homeAnchoredOpenMotionProgress(0.90f)
+
+        // A linear trajectory would make f(0.4) exactly twice f(0.2).
+        assertTrue(kotlin.math.abs(atFortyPercent - atTwentyPercent * 2f) > 0.04f)
+        assertTrue(atTwentyPercent > 0.20f)
+        // The shell still has meaningful distance left after rebound; it has not entered a long
+        // near-static tail before the final settle.
+        assertTrue(atReboundEnd < 0.90f)
+        assertTrue(atNinetyPercent < 0.96f)
+        assertTrue(atNinetyPercent > atReboundEnd)
+        val terminalVelocity = (
+            homeAnchoredOpenMotionProgress(1f) - homeAnchoredOpenMotionProgress(0.98f)
+            ) / 0.02f
+        assertTrue(terminalVelocity > 0.30f)
+        assertEquals(1f, homeAnchoredOpenMotionProgress(1f), Tolerance)
+    }
+
+    @Test
+    fun closingRetainsVelocityIntoTheSourceHandoff() {
+        val terminalVelocity = (
+            homeAnchoredCloseMotionProgress(0.02f) - homeAnchoredCloseMotionProgress(0f)
+            ) / 0.02f
+        assertTrue(terminalVelocity > 0.15f)
+    }
+
+    @Test
+    fun bothOverlayCloseDurationsAreShorterThanOpening() {
+        assertTrue(HomeAddMenuMorphCloseDurationMillis < HomeAnchoredMorphOpenDurationMillis)
+        assertTrue(HomePersonalizeMorphCloseDurationMillis < HomeAnchoredMorphOpenDurationMillis)
     }
 
     @Test
@@ -207,6 +592,29 @@ class HomeAnchoredMorphGeometryTest {
     }
 
     @Test
+    fun reboundFinishesAtItsBoundaryAndIsNotReplayedOnClose() {
+        val settleRawProgress = HomeAnchoredMorphPinchFraction +
+            HomeAnchoredOpenSettleStartFraction * (1f - HomeAnchoredMorphPinchFraction)
+        val settleBase = geometry(progress = settleRawProgress)
+        val settled = homeMorphWithVerticalRebound(
+            geometry = settleBase,
+            closing = false,
+            overshootPx = 12f,
+            peakProgress = 0.40f
+        )
+        assertRectEquals(settleBase.rect, settled.rect)
+
+        val closingBase = geometry(progress = 0.58f, closing = true)
+        val closingWithRebound = homeMorphWithVerticalRebound(
+            geometry = closingBase,
+            closing = true,
+            overshootPx = 12f,
+            peakProgress = 0.40f
+        )
+        assertRectEquals(closingBase.rect, closingWithRebound.rect)
+    }
+
+    @Test
     fun openingFinishesAtTargetPanel() {
         assertRectEquals(target, geometry(progress = 1f).rect)
     }
@@ -218,17 +626,65 @@ class HomeAnchoredMorphGeometryTest {
     }
 
     @Test
+    fun closingUsesResponsiveTrajectoryWithoutMovingPhaseHandoffs() {
+        val openingAtSameProgress = geometry(progress = 0.90f, closing = false)
+        val closingAfterFirstTenth = geometry(progress = 0.90f, closing = true)
+
+        val openingDistanceFromTarget =
+            kotlin.math.abs(openingAtSameProgress.rect.center.x - target.center.x)
+        val closingDistanceFromTarget =
+            kotlin.math.abs(closingAfterFirstTenth.rect.center.x - target.center.x)
+        assertTrue(closingDistanceFromTarget > openingDistanceFromTarget * 3f)
+        assertEquals(
+            openingAtSameProgress.expansionProgress,
+            closingAfterFirstTenth.expansionProgress,
+            Tolerance
+        )
+        assertEquals(
+            openingAtSameProgress.surfaceAlpha,
+            closingAfterFirstTenth.surfaceAlpha,
+            Tolerance
+        )
+        assertEquals(
+            openingAtSameProgress.contentAlpha,
+            closingAfterFirstTenth.contentAlpha,
+            Tolerance
+        )
+    }
+
+    @Test
+    fun legacyMotionStyleRestoresPreviousClosingPhaseClock() {
+        val legacy = legacyGeometry(progress = 0.5f, closing = true)
+        val directional = geometry(progress = 0.5f, closing = true)
+
+        // The previous version eased the closing phase clock with the reverse close cubic, so
+        // halfway through a close the legacy shell is still much closer to the target than the
+        // linear phase clock used by the current directional style.
+        assertTrue(legacy.pathProgress < directional.pathProgress * 0.5f)
+    }
+
+    @Test
+    fun legacyClosingUsesPreviousHandoffWindow() {
+        val legacy = legacyGeometry(progress = 0.4f, closing = true)
+        val directional = geometry(progress = 0.4f, closing = true)
+
+        // The previous close kept the source clone almost until the very end (0.015..0.12),
+        // while the directional close fades it out through the shared opening window.
+        assertTrue(legacy.surfaceAlpha < directional.surfaceAlpha * 0.5f)
+    }
+
+    @Test
     fun addTargetUsesSpecifiedSizeAndClampsToRoot() {
         val root = IntSize(1080, 1920)
         val result = homeAddMenuTargetRect(
             source = Rect(1010f, 80f, 1052f, 122f),
             rootSize = root,
             density = 2f,
-            actionCount = 3
+            actionCount = 6
         )
 
-        assertEquals(416f, result.width, Tolerance)
-        assertEquals(440f, result.height, Tolerance)
+        assertEquals(388f, result.width, Tolerance)
+        assertEquals(634f, result.height, Tolerance)
         assertInBounds(result, root, margin = 24f)
     }
 
@@ -239,21 +695,21 @@ class HomeAnchoredMorphGeometryTest {
             source = source,
             rootSize = IntSize(1080, 1920),
             density = 2f,
-            actionCount = 3
+            actionCount = 6
         )
 
         assertEquals(source.right, result.right, Tolerance)
         assertEquals(source.bottom + 8f, result.top, Tolerance)
-        assertEquals(416f, result.width, Tolerance)
+        assertEquals(388f, result.width, Tolerance)
     }
 
     @Test
     fun addMenuDividerAndRowGapsRemainInsideContinuousActionHitRegions() {
-        assertEquals(-1, homeAddMenuHitIndex(60f, 60f, 73f, 44f, 3))
-        assertEquals(0, homeAddMenuHitIndex(61f, 60f, 73f, 44f, 3))
-        assertEquals(0, homeAddMenuHitIndex(72.9f, 60f, 73f, 44f, 3))
-        assertEquals(0, homeAddMenuHitIndex(116.9f, 60f, 73f, 44f, 3))
-        assertEquals(1, homeAddMenuHitIndex(117f, 60f, 73f, 44f, 3))
+        assertEquals(-1, homeAddMenuHitIndex(52f, 52f, 61f, 40f, 5))
+        assertEquals(0, homeAddMenuHitIndex(53f, 52f, 61f, 40f, 5))
+        assertEquals(0, homeAddMenuHitIndex(60.9f, 52f, 61f, 40f, 5))
+        assertEquals(0, homeAddMenuHitIndex(100.9f, 52f, 61f, 40f, 5))
+        assertEquals(1, homeAddMenuHitIndex(101f, 52f, 61f, 40f, 5))
     }
 
     @Test
@@ -328,8 +784,47 @@ class HomeAnchoredMorphGeometryTest {
     private fun addMenuGeometry(
         progress: Float,
         closing: Boolean,
-        sourcePressedScale: Float = 1f
-    ): HomeAnchoredMorphGeometry = homeAddMenuMorphGeometry(
+        sourcePressedScale: Float = 1f,
+        verticalReboundAmplitudePx: Float = 12f
+    ): HomeAnchoredMorphGeometry = homeThreeDotMenuTrajectoryGeometry(
+        source = source,
+        target = target,
+        rawProgress = progress,
+        closing = closing,
+        sourceCornerRadiusPx = 21f,
+        targetCornerRadiusPx = HomeAddMenuTargetCornerDp,
+        sourcePressedScale = sourcePressedScale,
+        openingPinchDiameterPx = 18f,
+        openingMinimumDropPx = 36f,
+        openingMaximumDropPx = 72f,
+        openingMaximumArcPx = 48f,
+        verticalReboundAmplitudePx = verticalReboundAmplitudePx,
+        closingSinkOffsetPx = 12f,
+        closingControlDropPx = 28f
+    )
+
+    private fun destinationTrajectoryGeometry(
+        progress: Float,
+        closing: Boolean
+    ): HomeAnchoredMorphGeometry = homeMenuDestinationTrajectoryGeometry(
+        sourceBoundsInRoot = menuRect,
+        collapseBoundsInRoot = button,
+        target = destination,
+        rawProgress = progress,
+        closing = closing,
+        menuCornerRadiusPx = HomeAddMenuTargetCornerDp,
+        buttonCornerRadiusPx = 21f,
+        pinchDiameterPx = 18f,
+        minimumDropPx = 12f,
+        maximumDropPx = 72f,
+        maximumArcPx = 88f,
+        targetCornerRadiusPx = 32f
+    )
+
+    private fun legacyGeometry(
+        progress: Float,
+        closing: Boolean
+    ): HomeAnchoredMorphGeometry = homeAnchoredMorphGeometry(
         source = source,
         target = target,
         rawProgress = progress,
@@ -338,9 +833,8 @@ class HomeAnchoredMorphGeometryTest {
         minimumDropPx = 36f,
         maximumDropPx = 72f,
         maximumArcPx = 48f,
-        targetCornerRadiusPx = 32f,
-        reboundOvershootPx = 12f,
-        sourcePressedScale = sourcePressedScale
+        targetCornerRadiusPx = 26f,
+        motionStyle = HomeMorphEasingStyle.Legacy
     )
 
     private fun assertRectEquals(expected: Rect, actual: Rect) {

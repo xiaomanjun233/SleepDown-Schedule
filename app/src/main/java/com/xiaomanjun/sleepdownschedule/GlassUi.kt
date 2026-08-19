@@ -246,10 +246,18 @@ fun buildCourseCardColorAssignments(
 @Composable
 fun courseCardBaseColor(config: ScheduleConfigEntity, course: CourseEntity? = null): Color {
     if (config.cardColorArgb != MulticolorCourseCardArgb) return Color(config.cardColorArgb.toInt())
+    courseCardColorOverrideForMode(config, course)?.let { return Color(it.toInt()) }
     val palette = LocalCourseCardPalette.current.ifEmpty { DefaultCourseCardPalette }
     val stableKey = course?.let(::courseCardColorKey) ?: "default"
     LocalCourseCardColorAssignments.current[stableKey]?.let { return Color(it.toInt()) }
     return Color(palette[(stableKey.hashCode() and Int.MAX_VALUE) % palette.size].toInt())
+}
+
+internal fun courseCardColorOverrideForMode(
+    config: ScheduleConfigEntity,
+    course: CourseEntity?
+): Long? = course?.customColorArgb?.takeIf {
+    config.cardColorArgb == MulticolorCourseCardArgb
 }
 
 internal fun courseGlassTintAlpha(cardAlpha: Float, quality: Float, hasWallpaper: Boolean): Float {

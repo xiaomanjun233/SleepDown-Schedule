@@ -308,7 +308,17 @@ fun TodayAgentHost(
     onAgentAction: AgentActionHandler = { _, _ -> }
 ) {
     val context = LocalContext.current
-    var hasApiKey by remember { mutableStateOf(AiImportSettingsStore.load(context).apiKey.isNotBlank()) }
+    val scope = rememberCoroutineScope()
+    fun todayAgentHasUsableAi(): Boolean {
+        if (AiImportSettingsStore.resolveAvailableSettings(context) != null) return true
+        // The backend-issued daily-free AI may still be loading its signed config. Opening the
+        // conversation is allowed whenever the daily-free provider is the selected provider; the
+        // run then surfaces the config state and the click below refreshes the config.
+        return AiImportSettingsStore.load(context).profile.id == AiProviderPresets.dailyFree.id
+    }
+    var hasApiKey by remember {
+        mutableStateOf(todayAgentHasUsableAi())
+    }
     var enabled by remember(date, state.config.id) { mutableStateOf(DayAgentPreferences.isEnabled(context)) }
     var hasDecision by remember(date, state.config.id) { mutableStateOf(DayAgentPreferences.hasDecision(context)) }
     val preferenceVersion by DayAgentPreferences.changes.collectAsStateWithLifecycle(initialValue = 0L)
@@ -320,13 +330,13 @@ fun TodayAgentHost(
     }
 
     LaunchedEffect(aiSettingsVersion) {
-        hasApiKey = AiImportSettingsStore.load(context).apiKey.isNotBlank()
+        hasApiKey = todayAgentHasUsableAi()
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         enabled = DayAgentPreferences.isEnabled(context)
         hasDecision = DayAgentPreferences.hasDecision(context)
-        hasApiKey = AiImportSettingsStore.load(context).apiKey.isNotBlank()
+        hasApiKey = todayAgentHasUsableAi()
     }
 
     if (!hasDecision) {
@@ -365,6 +375,18 @@ fun TodayAgentHost(
             isActive = isActive,
             weatherEnabled = DayAgentPreferences.isWeatherEnabled(context),
             hasApiKey = hasApiKey,
+            activateAvailableAi = {
+                val ready = AiImportSettingsStore.activateAvailableSettings(context) != null
+                val usable = ready ||
+                    AiImportSettingsStore.load(context).profile.id == AiProviderPresets.dailyFree.id
+                if (!ready && usable) {
+                    // The daily-free config was still loading; force a refresh so the first run
+                    // can use the backend-issued key as soon as it is available.
+                    SleepDownRemoteConfig.refresh(scope, force = true)
+                }
+                hasApiKey = usable
+                usable
+            },
             backgroundMotionState = backgroundMotionState,
             onPrepareOpen = onPrepareOpen,
             onAgentDismissed = onAgentDismissed,
@@ -383,6 +405,7 @@ fun TodayAgentCard(
     isActive: Boolean,
     weatherEnabled: Boolean,
     hasApiKey: Boolean,
+    activateAvailableAi: () -> Boolean,
     backgroundMotionState: DayAgentBackgroundMotionState,
     onPrepareOpen: suspend () -> Unit,
     onAgentDismissed: () -> Unit,
@@ -538,7 +561,7 @@ fun TodayAgentCard(
     }
 
     fun openConversation(question: String?) {
-        if (!hasApiKey || dialogOpen || dialogOpening) return
+        if (dialogOpen || dialogOpening) return
         dialogOpening = true
         scope.launch {
             try {
@@ -609,7 +632,7 @@ fun TodayAgentCard(
                 interactionSource = sourceCardInteractionSource,
                 indication = null,
                 onClick = {
-                    if (hasApiKey) {
+                    if (activateAvailableAi()) {
                         openConversation(null)
                     } else {
                         onAgentAction(
@@ -1190,7 +1213,7 @@ private fun DayAgentConversationDialog(
             }
         }
     }
-    fun dismissAnimated() {
+    fun dismissAnimated(afterDismiss: (() -> Unit)? = null) {
         if (closing) return
         closing = true
         keyboard?.hide()
@@ -1255,6 +1278,10 @@ private fun DayAgentConversationDialog(
             // The pixel-aligned source cover is already above the warmed card. Remove the Dialog
             // exactly when the Morph reaches its source geometry; no fixed frame delay is needed.
             onDismiss()
+            // Page-opening Agent actions are dispatched only after the source card has handed
+            // ownership back to Home. Dispatching them at button-down left the Agent card alive
+            // underneath the destination Activity/overlay for one transition.
+            afterDismiss?.invoke()
         }
     }
 
@@ -1589,7 +1616,8 @@ private fun DayAgentConversationDialog(
                                           val preview = remember(plan, facts.sourceHash) {
                                               previewAgentPlan(
                                                   before = facts.semesterCourses,
-                                                  plan = plan
+                                                  plan = plan,
+                                                  periodDefinitions = facts.periodDefinitions
                                               )
                                           }
                                           val containsCourseActions = plan.actions.any { action ->
@@ -1662,19 +1690,26 @@ private fun DayAgentConversationDialog(
                                               modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false },
                                               onClick = {
                                                   if (actionKey !in appliedActionKeys.value) {
-                                                      executingActionKeys += actionKey
-                                                      onAgentAction(plan) { result ->
-                                                          executingActionKeys -= actionKey
-                                                          actionFeedback = actionFeedback + (actionKey to result)
-                                                           if (result.success && result.verified) {
-                                                              appliedActionKeys.value =
-                                                                  appliedActionKeys.value + actionKey
-                                                              DayAgentPreferences.markActionApplied(
-                                                                  dialogContext,
-                                                                  state.config.id,
-                                                                  actionKey
-                                                              )
+                                                      val dispatch = {
+                                                          executingActionKeys += actionKey
+                                                          onAgentAction(plan) { result ->
+                                                              executingActionKeys -= actionKey
+                                                              actionFeedback = actionFeedback + (actionKey to result)
+                                                               if (result.success && result.verified) {
+                                                                  appliedActionKeys.value =
+                                                                      appliedActionKeys.value + actionKey
+                                                                  DayAgentPreferences.markActionApplied(
+                                                                      dialogContext,
+                                                                      state.config.id,
+                                                                      actionKey
+                                                                  )
+                                                              }
                                                           }
+                                                      }
+                                                      if (plan.actions.singleOrNull()?.type == AgentValidatedActionType.OPEN_SETTINGS) {
+                                                          dismissAnimated(afterDismiss = dispatch)
+                                                      } else {
+                                                          dispatch()
                                                       }
                                                   }
                                               }

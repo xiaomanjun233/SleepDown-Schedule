@@ -29,6 +29,9 @@ class BackupRoomRestoreTest {
                                 weeks = listOf(1),
                                 weekParity = WeekParity.ALL,
                                 note = null,
+                                customStartTime = "08:12",
+                                customEndTime = "08:38",
+                                customColorArgb = 0xFF6688AAL,
                                 scheduleId = 7
                             )
                         ),
@@ -82,6 +85,9 @@ class BackupRoomRestoreTest {
         assertEquals(scheduleId, rows.configs.single().id)
         assertEquals("file:///data/wallpaper", rows.configs.single().wallpaperUri)
         assertEquals(scheduleId, rows.courses.single().scheduleId)
+        assertEquals("08:12", rows.courses.single().customStartTime)
+        assertEquals("08:38", rows.courses.single().customEndTime)
+        assertEquals(0xFF6688AAL, rows.courses.single().customColorArgb)
         assertEquals(
             "[[agent_image:11111111-1111-1111-1111-111111111111.jpg]]\n看图",
             rows.agentMessages.single().content

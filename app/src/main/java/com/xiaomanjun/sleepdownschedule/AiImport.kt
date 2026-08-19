@@ -353,8 +353,10 @@ object AiProviderPresets {
         id = "sleepdown_daily_free",
         displayName = "每日免费 AI",
         providerType = AiProviderType.OpenAIResponses,
-        baseUrl = "https://api.chunxiao.pro/v1",
-        defaultModel = "gpt-5.6-luna",
+        // The hosted MiMo endpoint authenticates with `api-key`, not an OpenAI Bearer token.
+        authType = AiAuthType.CustomHeader,
+        baseUrl = "",
+        defaultModel = "",
         capabilities = AiProviderCapabilities(
             supportsImageInput = true,
             supportsTextInput = true,
@@ -365,7 +367,7 @@ object AiProviderPresets {
         endpointStyle = AiEndpointStyle.RESPONSES,
         structuredOutputMode = StructuredOutputMode.JSON_SCHEMA,
         supportsVision = true,
-        availableModels = listOf("gpt-5.6-luna")
+        availableModels = emptyList()
     )
 
     val deepSeek = AiProviderProfile(
@@ -566,9 +568,7 @@ object AiProviderPresets {
     }
 
     fun modelOptions(providerId: String): List<AiModelOption> = when (providerId) {
-        dailyFree.id -> listOf(
-            AiModelOption("5.6 Luna", "gpt-5.6-luna", supportsImageInput = true, supportsResponses = true)
-        )
+        dailyFree.id -> emptyList()
         openAI.id -> listOf(
             AiModelOption("GPT-5.6", "gpt-5.6", supportsImageInput = true, supportsResponses = true),
             AiModelOption("5.6 Sol", "gpt-5.6-sol", supportsImageInput = true, supportsResponses = true),
@@ -733,7 +733,9 @@ object AiImportSettingsStore {
         changeVersion.value = changeVersion.value + 1L
     }
 
-    private fun managedFreeSettings(prefs: android.content.SharedPreferences): AiImportSettings {
+    fun notifyRemoteConfigChanged() = notifyChanged()
+
+    private fun managedFreeSettings(context: Context, prefs: android.content.SharedPreferences): AiImportSettings {
         val effort = runCatching {
             AiReasoningEffort.valueOf(
                 prefs.getString(
@@ -742,10 +744,7 @@ object AiImportSettingsStore {
                 ).orEmpty()
             )
         }.getOrDefault(AiProviderPresets.dailyFree.reasoningEffort)
-        return AiImportSettings(
-            profile = AiProviderPresets.dailyFree.copy(reasoningEffort = effort),
-            apiKey = ManagedFreeAiCredentials.apiKey()
-        )
+        return SleepDownRemoteConfig.managedFreeSettings(context, effort)
     }
 
     fun hasUserConfiguredApiKey(context: Context): Boolean {
@@ -755,17 +754,65 @@ object AiImportSettingsStore {
         return profiles.any { profile -> loadProvider(context, profile.id).apiKey.isNotBlank() }
     }
 
+    private fun AiImportSettings.isReadyForUse(): Boolean =
+        profile.id != AiProviderPresets.none.id &&
+            apiKey.isNotBlank() &&
+            profile.baseUrl.isNotBlank() &&
+            profile.defaultModel.isNotBlank()
+
+    /**
+     * Resolves the configuration an AI entry point can actually use.
+     *
+     * The settings page keeps keys scoped to each provider, so the selected provider can be
+     * "关闭" (or an incomplete draft) while a valid bound provider still exists. Entry points
+     * must not interpret that state as "no key". If no user provider is usable, the remotely
+     * managed daily-free provider is a valid fallback whenever its signed configuration is ready.
+     */
+    fun resolveAvailableSettings(context: Context): AiImportSettings? {
+        load(context).takeIf { it.isReadyForUse() }?.let { return it }
+
+        val userSettings = selectableProfiles(context)
+            .asSequence()
+            .filterNot { it.id == AiProviderPresets.none.id || AiProviderPresets.isManagedFreeId(it.id) }
+            .map { loadProvider(context, it.id) }
+            .firstOrNull { it.isReadyForUse() }
+        if (userSettings != null) return userSettings
+
+        val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+        // A user who explicitly declined the managed offer must not be silently switched back
+        // after a later remote-config refresh. Otherwise an updated bootstrap would overwrite the
+        // user's provider choice even though the encrypted credential is correctly cached.
+        if (prefs.getString(KeyManagedFreeOfferDecision, null) == ManagedFreeOfferDeclined) return null
+        return managedFreeSettings(context, prefs).takeIf { it.isReadyForUse() }
+    }
+
+    /** Makes the resolved fallback active so the service and runtime picker read the same model. */
+    fun activateAvailableSettings(context: Context): AiImportSettings? {
+        val current = load(context)
+        if (current.isReadyForUse()) return current
+        return resolveAvailableSettings(context)?.also { resolved ->
+            if (resolved.profile.id != current.profile.id) save(context, resolved)
+        }
+    }
+
+    /**
+     * Reads the configuration that a network request can actually use. UI settings may display an
+     * incomplete selected draft, but request services must fall back to a complete user profile or
+     * the signed daily-free configuration instead of sending an empty key.
+     */
+    fun loadForRuntime(context: Context): AiImportSettings? = resolveAvailableSettings(context)
+
     fun shouldOfferManagedFreeAi(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         if (prefs.contains(KeyManagedFreeOfferDecision)) return false
         if (load(context).profile.id == AiProviderPresets.dailyFree.id) return false
-        return !hasUserConfiguredApiKey(context)
+        return !hasUserConfiguredApiKey(context) && SleepDownRemoteConfig.isManagedFreeAvailable(context)
     }
 
     fun enableManagedFreeAi(context: Context) {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         prefs.edit { putString(KeyManagedFreeOfferDecision, ManagedFreeOfferEnabled) }
-        save(context, managedFreeSettings(prefs))
+        save(context, managedFreeSettings(context, prefs))
     }
 
     fun declineManagedFreeAi(context: Context) {
@@ -1069,7 +1116,7 @@ object AiImportSettingsStore {
         val savedProviderId = prefs.getString(KeyProviderId, AiProviderPresets.none.id).orEmpty()
         val preset = selectableProfiles(context).firstOrNull { it.id == savedProviderId }
             ?: AiProviderPresets.none
-        if (AiProviderPresets.isManagedFreeId(preset.id)) return managedFreeSettings(prefs)
+        if (AiProviderPresets.isManagedFreeId(preset.id)) return managedFreeSettings(context, prefs)
         val providerType = runCatching {
             AiProviderType.valueOf(prefs.getString(KeyProviderType, preset.providerType.name).orEmpty())
         }.getOrDefault(preset.providerType)
@@ -1130,7 +1177,7 @@ object AiImportSettingsStore {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         val current = load(context)
         val preset = presetFor(context, providerId)
-        if (AiProviderPresets.isManagedFreeId(preset.id)) return managedFreeSettings(prefs)
+        if (AiProviderPresets.isManagedFreeId(preset.id)) return managedFreeSettings(context, prefs)
         val profile = when {
             current.profile.id == preset.id -> current.profile
             !prefs.contains(providerKey(KeyBaseUrl, preset.id)) -> preset

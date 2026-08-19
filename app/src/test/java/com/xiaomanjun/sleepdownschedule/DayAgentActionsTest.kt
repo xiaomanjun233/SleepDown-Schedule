@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -91,6 +92,44 @@ class DayAgentActionsTest {
         assertEquals(AgentValidatedActionType.SET_SETTING, action.type)
         assertEquals("SCHEDULE_NAME", action.settingKey)
         assertEquals("大三下", action.settingValue)
+    }
+
+    @Test
+    fun exposesAndValidatesCustomCourseTimeInWritePlan() {
+        val facts = factsAt(9, 0, emptyList()).copy(
+            scheduleId = 7,
+            totalWeeks = 18,
+            periodDefinitions = listOf(
+                PeriodEntity(1, "08:00", "08:45", 7),
+                PeriodEntity(2, "08:55", "09:40", 7)
+            )
+        )
+        val response = "请确认。<agent_actions>[" +
+            "{\"type\":\"ADD_COURSE\",\"scope\":\"CURRENT_WEEK\",\"course\":{" +
+            "\"name\":\"无机非金属材料学\",\"weekday\":1,\"periods\":[1]," +
+            "\"customStartTime\":\"10:10\",\"customEndTime\":\"11:55\"" +
+            "}}]</agent_actions>"
+
+        val action = parseAgentActions(response, facts).actions.single()
+
+        assertEquals("10:10", action.edited?.customStartTime)
+        assertEquals("11:55", action.edited?.customEndTime)
+    }
+
+    @Test
+    fun rejectsPartialOrReversedCustomCourseTime() {
+        val facts = factsAt(9, 0, emptyList()).copy(
+            periodDefinitions = listOf(PeriodEntity(1, "08:00", "08:45", 7))
+        )
+        val partial = "<agent_actions>{\"type\":\"ADD_COURSE\",\"scope\":\"CURRENT_WEEK\"," +
+            "\"course\":{\"name\":\"测试\",\"weekday\":1,\"periods\":[1]," +
+            "\"customStartTime\":\"10:10\"}}</agent_actions>"
+        val reversed = "<agent_actions>{\"type\":\"ADD_COURSE\",\"scope\":\"CURRENT_WEEK\"," +
+            "\"course\":{\"name\":\"测试\",\"weekday\":1,\"periods\":[1]," +
+            "\"customStartTime\":\"12:00\",\"customEndTime\":\"11:00\"}}</agent_actions>"
+
+        assertTrue(parseAgentActions(partial, facts).actions.isEmpty())
+        assertTrue(parseAgentActions(reversed, facts).actions.isEmpty())
     }
 
     @Test

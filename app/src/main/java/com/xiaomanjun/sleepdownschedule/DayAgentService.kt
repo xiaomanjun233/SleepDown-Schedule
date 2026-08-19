@@ -276,7 +276,10 @@ class DayAgentService(private val context: Context) {
         require(facts.semesterCourses.all { it.scheduleId == facts.scheduleId }) {
             "当前课表数据边界异常，请返回首页后重试"
         }
-        val settings = AiImportSettingsStore.load(context)
+        // Resolve the same usable profile as the entry-point card. A selected but incomplete
+        // draft must not mask the signed backend-issued daily-free credential at request time.
+        val settings = AiImportSettingsStore.loadForRuntime(context)
+            ?: AiImportSettingsStore.load(context)
         require(settings.profile.id != AiProviderPresets.none.id) { "请先在 AI 设置中选择服务商" }
         require(settings.apiKey.isNotBlank()) { "请先在 AI 设置中配置 API Key" }
         val miMoWebSearchAvailable = supportsMiMoOfficialWebSearch(

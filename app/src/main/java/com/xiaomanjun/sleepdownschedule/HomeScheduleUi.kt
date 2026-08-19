@@ -493,18 +493,6 @@ fun HomeDateTitle(
         verticalArrangement = Arrangement.Center
     ) {
         HomeReadableText(
-            "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}",
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = 21.sp,
-                lineHeight = 23.sp
-            ),
-            fontWeight = FontWeight.Bold,
-            color = color,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Clip
-        )
-        HomeReadableText(
             when {
                 beforeScheduleTerm -> "当前暂未开学"
                 afterScheduleTerm -> "学期已结束"
@@ -512,13 +500,25 @@ fun HomeDateTitle(
                 else -> "第${displayWeek}周"
             },
             style = MaterialTheme.typography.labelMedium.copy(
-                fontSize = 14.sp,
-                lineHeight = 16.sp
+                fontSize = 16.sp,
+                lineHeight = 18.sp
             ),
             fontWeight = FontWeight.Medium,
             color = color.copy(alpha = 0.68f),
             maxLines = 1,
             softWrap = false
+        )
+        HomeReadableText(
+            "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}",
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = 19.sp,
+                lineHeight = 21.sp
+            ),
+            fontWeight = FontWeight.Bold,
+            color = color,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip
         )
     }
 }
@@ -629,7 +629,6 @@ internal fun HomeScreen(
     state: AppState,
     agentState: AppState = state,
     personalizationPreviewState: PersonalizationPreviewState,
-    personalizeVisible: Boolean,
     mode: HomeMode,
     adaptiveMetrics: HomeAdaptiveMetrics,
     weekCardHeight: Dp,
@@ -655,24 +654,54 @@ internal fun HomeScreen(
     onResolveCourseConflict: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onScheduleLongPress: () -> Unit = {},
+    weekEditInteractionEnabled: Boolean = true,
 ) {
     val homeOverscrollFactory = rememberHapticMiuixOverscrollFactory()
     val cardColor = remember(state.config.cardColorArgb, state.config.cardAlpha) {
         ComposeColor(state.config.cardColorArgb.toInt()).copy(alpha = state.config.cardAlpha)
     }
     val textColor = homeForegroundColor(state.config)
-    var weekEditMode by remember { mutableStateOf(false) }
-    var pendingSingleWeekDelete by remember { mutableStateOf<Pair<CourseEntity, Int>?>(null) }
+    var weekEditMode by remember(state.config.id) { mutableStateOf(false) }
+    var pendingSingleWeekDelete by remember(state.config.id) {
+        mutableStateOf<Pair<CourseEntity, Int>?>(null)
+    }
     val haptic = LocalHapticFeedback.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     // `weekCardHeight` already resolves to the adaptive value when the user has not chosen one.
     // Recomputing it here on tablets discarded live slider updates and made personalization look
     // broken even though the config was saved correctly.
     val effectiveWeekCardHeight = weekCardHeight
 
+    LaunchedEffect(state.config.id, weekEditInteractionEnabled) {
+        if (!weekEditInteractionEnabled) {
+            // The multi-schedule picker temporarily owns the home gesture surface. Clear the
+            // edit session before it opens so returning to Home recreates the long-press entry
+            // path instead of leaving the root pointer input in its edit-mode tap-only branch.
+            weekEditMode = false
+            pendingSingleWeekDelete = null
+        }
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                weekEditMode = false
+                pendingSingleWeekDelete = null
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(weekEditMode, onScheduleLongPress) {
+            .pointerInput(
+                state.config.id,
+                weekEditMode,
+                onScheduleLongPress,
+                weekEditInteractionEnabled
+            ) {
+                if (!weekEditInteractionEnabled) return@pointerInput
                 if (weekEditMode) {
                     detectTapGestures(onTap = { weekEditMode = false })
                 } else {
@@ -726,34 +755,37 @@ internal fun HomeScreen(
                         onAgentAction = onAgentAction
                     )
                 }
-                HomeMode.Week -> CompositionLocalProvider(
-                    LocalOverscrollFactory provides homeOverscrollFactory,
-                    LocalPersonalizationPreview provides personalizationPreviewState
-                ) {
-                    SinglePillWeekScheduleScreen(
-                        state = state,
-                        displayWeek = displayWeek,
-                        adaptiveMetrics = adaptiveMetrics,
-                        cardHeight = effectiveWeekCardHeight,
-                        cardColor = cardColor,
-                        textColor = textColor,
-                        backdrop = backdrop,
-                        floatingCourseBackdrop = floatingCourseBackdrop,
-                        headerBackdrop = weekHeaderBackdrop,
-                        onSwipeWeek = onSwipeWeek,
-                        onContentUnderTopBarChange = onContentUnderTopBarChange,
-                        weekEditMode = weekEditMode,
-                        personalizeVisible = personalizeVisible,
-                        onEnterWeekEditMode = { weekEditMode = true },
-                        onUpdateCourseSingleWeek = onUpdateCourseSingleWeek,
-                        conflictFocusCourseId = conflictFocusCourseId,
-                        conflictFocusCourseKey = conflictFocusCourseKey,
-                        onResolveCourseConflict = onResolveCourseConflict,
-                        onDeleteCourseSingleWeek = { course, week ->
-                            pendingSingleWeekDelete = course to week
-                        },
-                        onCourseClick = { course, week, sourceBounds -> onCourseClick(course, week, sourceBounds) }
-                    )
+                HomeMode.Week -> key(state.config.id) {
+                    CompositionLocalProvider(
+                        LocalOverscrollFactory provides homeOverscrollFactory,
+                        LocalPersonalizationPreview provides personalizationPreviewState
+                    ) {
+                        SinglePillWeekScheduleScreen(
+                            state = state,
+                            displayWeek = displayWeek,
+                            adaptiveMetrics = adaptiveMetrics,
+                            cardHeight = effectiveWeekCardHeight,
+                            cardColor = cardColor,
+                            textColor = textColor,
+                            backdrop = backdrop,
+                            floatingCourseBackdrop = floatingCourseBackdrop,
+                            headerBackdrop = weekHeaderBackdrop,
+                            onSwipeWeek = onSwipeWeek,
+                            onContentUnderTopBarChange = onContentUnderTopBarChange,
+                            weekEditMode = weekEditMode,
+                            onEnterWeekEditMode = { weekEditMode = true },
+                            onUpdateCourseSingleWeek = onUpdateCourseSingleWeek,
+                            conflictFocusCourseId = conflictFocusCourseId,
+                            conflictFocusCourseKey = conflictFocusCourseKey,
+                            onResolveCourseConflict = onResolveCourseConflict,
+                            onDeleteCourseSingleWeek = { course, week ->
+                                pendingSingleWeekDelete = course to week
+                            },
+                            onCourseClick = { course, week, sourceBounds ->
+                                onCourseClick(course, week, sourceBounds)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -1196,6 +1228,8 @@ internal fun CourseEntity.occurrenceOverrideKey(): String {
     return listOf(
         weekday.toString(),
         periods.distinct().sorted().joinToString(","),
+        customStartTime.orEmpty(),
+        customEndTime.orEmpty(),
         name.trim()
     ).joinToString("|")
 }
@@ -1501,11 +1535,14 @@ internal fun DayScheduleScreen(
             val targetWeekOrNull = scheduleWeekForDateOrNull(state.config, targetDate)
             val targetWeek = targetWeekOrNull ?: effectiveCurrentWeek(state.config, targetDate)
             val targetWeekday = targetDate.dayOfWeek.toChineseWeekday()
-            val dayCourses = remember(state.courses, targetWeekOrNull, targetWeekday) {
+            val dayCourses = remember(state.courses, state.periods, targetWeekOrNull, targetWeekday) {
                 if (targetWeekOrNull == null) emptyList() else weekCourseBuckets(state.courses, targetWeekOrNull)
                     .byWeekday[targetWeekday]
                     .orEmpty()
-                    .sortedWith(compareBy<CourseEntity> { it.periods.minOrNull() ?: Int.MAX_VALUE }.thenBy { it.name })
+                    .sortedWith(
+                        compareBy<CourseEntity> { courseStartTime(it, state.periods) ?: LocalTime.MAX }
+                            .thenBy { it.name }
+                    )
             }
             val listState = rememberLazyListState()
             val contentUnderTopBar by remember {
@@ -1705,12 +1742,9 @@ private fun DayPartHeader(
     periods: List<PeriodEntity>,
     textColor: ComposeColor
 ) {
-    val periodByIndex = remember(periods) { periods.associateBy { it.periodIndex } }
-    val firstPeriod = courses.flatMap(CourseEntity::periods).minOrNull()
-    val lastPeriod = courses.flatMap(CourseEntity::periods).maxOrNull()
-    val timeRange = remember(firstPeriod, lastPeriod, periodByIndex) {
-        val start = firstPeriod?.let(periodByIndex::get)?.startTime
-        val end = lastPeriod?.let(periodByIndex::get)?.endTime
+    val timeRange = remember(courses, periods) {
+        val start = courses.mapNotNull { courseStartTime(it, periods) }.minOrNull()
+        val end = courses.mapNotNull { courseEndTime(it, periods) }.maxOrNull()
         if (start != null && end != null) "$start–$end" else null
     }
     Row(
@@ -1777,6 +1811,52 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
 }
 
 @Composable
+internal fun DayCourseCardTextContent(
+    course: CourseEntity,
+    periods: List<PeriodEntity>,
+    showTime: Boolean,
+    showWeeks: Boolean,
+    textColor: ComposeColor,
+    tabletFontScale: Float
+) {
+    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        val safeTabletScale = tabletFontScale.coerceAtLeast(1f)
+        val titleStyle = MaterialTheme.typography.titleMedium.copy(
+            fontSize = MaterialTheme.typography.titleMedium.fontSize * safeTabletScale,
+            lineHeight = MaterialTheme.typography.titleMedium.lineHeight * safeTabletScale
+        )
+        val bodyStyle = MaterialTheme.typography.bodyMedium.copy(
+            fontSize = MaterialTheme.typography.bodyMedium.fontSize * safeTabletScale,
+            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * safeTabletScale
+        )
+        Text(course.name, style = titleStyle, color = textColor)
+        if (showTime) {
+            Text(
+                courseHomeTimeDetail(course, periods),
+                style = bodyStyle,
+                color = textColor.copy(alpha = 0.86f)
+            )
+        }
+        if (!course.location.isNullOrBlank()) {
+            Text("地点：" + course.location, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+        }
+        if (!course.teacher.isNullOrBlank()) {
+            Text("教师：" + course.teacher, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+        }
+        if (showWeeks) {
+            Text(
+                "周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity),
+                style = bodyStyle,
+                color = textColor.copy(alpha = 0.86f)
+            )
+        }
+        if (!course.note.isNullOrBlank()) {
+            Text("备注：" + course.note, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+        }
+    }
+}
+
+@Composable
 fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f) {
     val resolvedCardColor = if (config.cardColorArgb == MulticolorCourseCardArgb) courseCardBaseColor(config, course) else cardColor
     val textColor =
@@ -1827,23 +1907,14 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         shape = RoundedCornerShape(24.dp),
         onClick = if (onClick != null) ({ onClick(ownBounds) }) else null
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            val safeTabletScale = tabletFontScale.coerceAtLeast(1f)
-            val titleStyle = MaterialTheme.typography.titleMedium.copy(
-                fontSize = MaterialTheme.typography.titleMedium.fontSize * safeTabletScale,
-                lineHeight = MaterialTheme.typography.titleMedium.lineHeight * safeTabletScale
-            )
-            val bodyStyle = MaterialTheme.typography.bodyMedium.copy(
-                fontSize = MaterialTheme.typography.bodyMedium.fontSize * safeTabletScale,
-                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * safeTabletScale
-            )
-            Text(course.name, style = titleStyle, color = textColor)
-            if (showTime) Text(courseTimeLabel(course, periods) + " · 第 " + course.periods.joinToString(",") + " 节", style = bodyStyle, color = textColor.copy(alpha = 0.86f))
-            if (!course.location.isNullOrBlank()) Text("地点：" + course.location, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
-            if (!course.teacher.isNullOrBlank()) Text("教师：" + course.teacher, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
-            if (showWeeks) Text("周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity), style = bodyStyle, color = textColor.copy(alpha = 0.86f))
-            if (!course.note.isNullOrBlank()) Text("备注：" + course.note, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
-        }
+        DayCourseCardTextContent(
+            course = course,
+            periods = periods,
+            showTime = showTime,
+            showWeeks = showWeeks,
+            textColor = textColor,
+            tabletFontScale = tabletFontScale
+        )
     }
     }
 }
@@ -1865,7 +1936,7 @@ fun ImportPreviewCourseCard(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(course.name, style = MaterialTheme.typography.titleMedium, color = textColor)
-            Text(courseTimeLabel(course, periods) + " · 第 " + course.periods.joinToString(",") + " 节", color = textColor.copy(alpha = 0.86f))
+            Text(courseHomeTimeDetail(course, periods), color = textColor.copy(alpha = 0.86f))
             if (!course.location.isNullOrBlank()) Text("地点：" + course.location, color = textColor.copy(alpha = 0.86f))
             if (!course.teacher.isNullOrBlank()) Text("教师：" + course.teacher, color = textColor.copy(alpha = 0.86f))
             Text("周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity), color = textColor.copy(alpha = 0.86f))
@@ -1873,3 +1944,10 @@ fun ImportPreviewCourseCard(
         }
     }
 }
+
+private fun courseHomeTimeDetail(course: CourseEntity, periods: List<PeriodEntity>): String =
+    if (course.hasCustomTime()) {
+        courseTimeLabel(course, periods)
+    } else {
+        courseTimeLabel(course, periods) + " · 第 " + course.periods.joinToString(",") + " 节"
+    }

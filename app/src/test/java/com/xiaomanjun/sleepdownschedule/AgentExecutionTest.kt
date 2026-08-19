@@ -40,6 +40,38 @@ class AgentExecutionTest {
     }
 
     @Test
+    fun customTimeCollisionUsesWallClockRangeInsteadOfPeriodAnchor() {
+        val first = course(1, "高数", weekday = 1, periods = listOf(1)).copy(
+            customStartTime = "10:10",
+            customEndTime = "11:00"
+        )
+        val second = course(2, "英语", weekday = 1, periods = listOf(2)).copy(
+            customStartTime = "11:10",
+            customEndTime = "12:00"
+        )
+        val plan = AgentPlan(
+            listOf(
+                update(
+                    second,
+                    second.copy(customStartTime = "10:45", customEndTime = "11:30")
+                )
+            )
+        )
+
+        val preview = previewAgentPlan(
+            before = listOf(first, second),
+            plan = plan,
+            periodDefinitions = listOf(
+                PeriodEntity(1, "08:00", "08:45"),
+                PeriodEntity(2, "08:55", "09:40")
+            )
+        )
+
+        assertTrue(preview.hasWarnings)
+        assertEquals(listOf(1, 2), preview.newConflicts.single().periods)
+    }
+
+    @Test
     fun currentWeekUpdatePreservesOtherWeeks() {
         val original = course(
             id = 1,

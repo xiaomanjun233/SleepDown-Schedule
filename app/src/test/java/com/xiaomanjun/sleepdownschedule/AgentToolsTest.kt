@@ -19,6 +19,42 @@ import org.junit.Test
 
 class AgentToolsTest {
     @Test
+    fun courseReadToolExposesExactCustomTimeToTheAgent() {
+        val course = CourseEntity(
+            id = 7L,
+            name = "无机非金属材料学",
+            teacher = null,
+            location = null,
+            weekday = 1,
+            periods = listOf(1),
+            weeks = listOf(1),
+            weekParity = WeekParity.ALL,
+            note = null,
+            customStartTime = "10:10",
+            customEndTime = "11:55",
+            scheduleId = 1
+        )
+        val facts = DayAgentFacts(
+            date = java.time.LocalDate.of(2026, 8, 18),
+            now = java.time.LocalDateTime.of(2026, 8, 18, 9, 0),
+            today = emptyList(),
+            tomorrow = emptyList(),
+            week = emptyList(),
+            weather = null,
+            sourceHash = "test",
+            semesterCourses = listOf(course),
+            scheduleId = 1
+        )
+
+        val result = executeAgentReadTools(
+            listOf(AgentToolCall("semester", AgentToolName.GET_SEMESTER_SCHEDULE)),
+            facts
+        ).single()
+
+        assertTrue(result.content.contains("自定义时间=10:10-11:55"))
+    }
+
+    @Test
     fun persistedExecutionTraceCanBeReopenedWithoutEnteringModelHistory() {
         val statuses = listOf(
             AgentRunStatus(AgentRunStatusIcon.THINKING, "分析请求"),

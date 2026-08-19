@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,41 +93,106 @@ import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sign
 import kotlin.math.sin
 
 internal const val HomeAnchoredMorphOpenDurationMillis = 430
-internal const val HomeAddMenuMorphOpenDurationMillis = 520
+internal const val HomePersonalizeMorphOpenDurationMillis = ThreeDotMenuMotion.OpenDurationMillis
 internal const val HomeAnchoredMorphCloseDurationMillis = 360
-internal const val HomePersonalizeMorphCloseDurationMillis = 310
-internal const val HomeAddMenuPinchFraction = 0.20f
-internal const val HomeAddMenuSqueezeFraction = 0.34f
-internal const val HomeAddMenuSqueezedWidthFraction = 0.76f
-internal const val HomeAddMenuReboundPeakFraction = 0.40f
+internal const val HomePersonalizeMorphCloseDurationMillis = ThreeDotMenuMotion.CloseDurationMillis
+internal const val HomeAnchoredOpenSettleStartFraction = 0.82f
 internal const val HomeAnchoredMorphPinchFraction = 0.28f
 internal const val HomeAnchoredMorphClosePinchFraction = 0.08f
 internal const val HomeAnchoredMorphBackgroundDurationMillis = 460
 internal const val HomeAnchoredMorphBackgroundDelayMillis = 20
 internal const val HomeAnchoredMorphBackgroundScale = 1.08f
 
-private const val HomeAddMenuTargetCornerDp = 30f
-private const val HomeAddMenuSelectionCornerDp = 19f
-private const val HomeAddMenuConcentricInsetDp =
-    HomeAddMenuTargetCornerDp - HomeAddMenuSelectionCornerDp
-private const val HomeAddMenuActionContentWidthDp = 186f
-private const val HomeAddMenuActionColumnInsetDp = 2f
-private const val HomeAddMenuSelectionVerticalInsetDp = 2f
+/** Motion parameters for the three-dot first-level menu's shared-object trajectory. */
+internal object ThreeDotMenuMotion {
+    const val OpenDurationMillis = 440
+    const val CloseDurationMillis = 285
 
+    const val OpenPinchFraction = 0.28f
+    const val OpenPinchDiameterDp = 18f
+    const val OpenMinimumDropDp = 36f
+    const val OpenMaximumDropDp = 72f
+    const val OpenReboundPeakFraction = 0.40f
+    const val OpenReboundAmplitudeDp = 12f
+
+    const val CloseSinkEndFraction = 0.13f
+    const val CloseReturnStartFraction = 0.08f
+    const val CloseReturnBlendEndFraction = 0.15f
+    const val CloseControlXFraction = 0.40f
+    const val CloseSinkOffsetDp = 6f
+    const val CloseControlDropDp = 14f
+    const val CloseSinkCompression = 0.012f
+
+    val CloseReturnEasing = CubicBezierEasing(0.45f, 0.0f, 0.20f, 1.0f)
+}
+
+internal const val HomeAddMenuMorphOpenDurationMillis = ThreeDotMenuMotion.OpenDurationMillis
+internal const val HomeAddMenuMorphCloseDurationMillis = ThreeDotMenuMotion.CloseDurationMillis
+
+internal const val HomeAddMenuTargetCornerDp = 30f
+internal const val HomeAddMenuSelectionCornerDp = 19f
+internal const val HomeAddMenuConcentricInsetDp =
+    HomeAddMenuTargetCornerDp - HomeAddMenuSelectionCornerDp
+private const val HomeAddMenuActionContentWidthDp = 172f
+private const val HomeAddMenuActionColumnInsetDp = 2f
+private const val HomeAddMenuSelectionVerticalInsetDp = 1f
+private const val HomeAddMenuContentTopPaddingDp = 6f
+private const val HomeAddMenuModeHeightDp = 52f
+private const val HomeAddMenuSectionGapDp = 4f
+private const val HomeAddMenuDividerHeightDp = 1f
+private const val HomeAddMenuActionItemHeightDp = 40f
+private const val HomeAddMenuActionGapDp = 0f
+
+// The visible trajectory is cubic-bezier for its complete duration. LinearEasing below is only
+// used as the phase clock, so absolute handoff/rebound timings stay stable.
+// Neither curve ends with y2=1: both retain visible terminal velocity instead of crawling through
+// a long zero-speed tail. The source/content handoff hides the final endpoint stop.
+private val HomeAnchoredOpenMotionEasing = CubicBezierEasing(0.10f, 0.60f, 0.88f, 0.88f)
+// Closing is deliberately independent: it responds immediately, settles cleanly, and runs over
+// a shorter duration instead of replaying the opening rebound backwards.
+private val HomeAnchoredCloseMotionEasing = CubicBezierEasing(0.22f, 0.75f, 0.60f, 0.90f)
+internal val HomeAnchoredBackgroundEasing = CubicBezierEasing(0.30f, 0.0f, 0.20f, 1.0f)
+
+// The recovered 02:38 opening stack is shared by every Home popup trajectory. The generic
+// anchored/detail transitions below still retain their older easing where they are used elsewhere.
 private val HomeAnchoredFallEasing = CubicBezierEasing(0.22f, 0.0f, 0.42f, 1.0f)
 private val HomeAnchoredOpenPositionEasing = CubicBezierEasing(0.16f, 0.78f, 0.18f, 1.0f)
 private val HomeAnchoredOpenSizeEasing = CubicBezierEasing(0.20f, 0.48f, 0.24f, 1.0f)
 private val HomeAnchoredCloseEasing = CubicBezierEasing(0.28f, 0.06f, 0.20f, 1.0f)
-internal val HomeAnchoredBackgroundEasing = CubicBezierEasing(0.30f, 0.0f, 0.20f, 1.0f)
+
+internal fun homeAnchoredOpenMotionProgress(progress: Float): Float {
+    return HomeAnchoredOpenMotionEasing.transform(progress.coerceIn(0f, 1f))
+}
+
+internal fun homeAnchoredCloseMotionProgress(progress: Float): Float {
+    val value = progress.coerceIn(0f, 1f)
+    return 1f - HomeAnchoredCloseMotionEasing.transform(1f - value)
+}
+
+/**
+ * Selects the visible trajectory used by [homeAnchoredMorphGeometry].
+ *
+ * [Directional] is the generic anchored transition style with a linear phase clock and
+ * direction-specific cubics. [Legacy] restores the previous version's easing stack (a close-eased
+ * phase clock plus fall/position/size cubics and closing handoff windows) for the independently
+ * owned personalization and Home menu destination domains.
+ */
+internal enum class HomeMorphEasingStyle {
+    Directional,
+    Legacy
+}
 
 internal enum class HomeAnchoredOverlayKind {
     Add,
@@ -211,19 +277,38 @@ internal fun homeAnchoredMorphGeometry(
     handoffStartFraction: Float = 0.05f,
     handoffEndFraction: Float = 0.34f,
     contentStartFraction: Float = 0.18f,
-    contentEndFraction: Float = 0.55f
+    contentEndFraction: Float = 0.55f,
+    motionStyle: HomeMorphEasingStyle = HomeMorphEasingStyle.Directional
 ): HomeAnchoredMorphGeometry {
     val raw = rawProgress.coerceIn(0f, 1f)
-    val pathProgress = if (closing) {
+    val legacy = motionStyle == HomeMorphEasingStyle.Legacy
+    // Phase progress stays linear in both directions. This keeps the droplet section, content
+    // handoff thresholds and rebound peak at their existing absolute times; only the visual
+    // trajectory inside each phase receives direction-specific easing.
+    // The legacy path instead reverses the previous close easing onto the phase clock and keeps
+    // the old open/close pinch split, matching the previous version frame for frame.
+    val pathProgress = if (legacy && closing) {
         1f - HomeAnchoredCloseEasing.transform(1f - raw)
     } else {
         raw
     }.coerceIn(0f, 1f)
-    val pinchFraction = pinchFractionOverride?.coerceIn(0.08f, 0.72f) ?: if (closing) {
-        HomeAnchoredMorphClosePinchFraction
+    val pinchFraction = pinchFractionOverride?.coerceIn(0.08f, 0.72f)
+        ?: if (legacy && closing) {
+            HomeAnchoredMorphClosePinchFraction
+        } else {
+            HomeAnchoredMorphPinchFraction
+        }
+    fun motionProgress(progress: Float): Float = if (closing) {
+        homeAnchoredCloseMotionProgress(progress)
     } else {
-        HomeAnchoredMorphPinchFraction
+        homeAnchoredOpenMotionProgress(progress)
     }
+    fun positionProgress(progress: Float): Float =
+        if (legacy) HomeAnchoredOpenPositionEasing.transform(progress) else motionProgress(progress)
+    fun sizeProgress(progress: Float): Float =
+        if (legacy) HomeAnchoredOpenSizeEasing.transform(progress) else motionProgress(progress)
+    fun fallProgress(progress: Float): Float =
+        if (legacy) HomeAnchoredFallEasing.transform(progress) else motionProgress(progress)
     val sourceCenter = source.center
     val pressedScale = sourcePressedScale.coerceIn(1f, 1.16f)
     val initialSourceWidth = source.width * pressedScale
@@ -252,8 +337,8 @@ internal fun homeAnchoredMorphGeometry(
     )
 
     if (directClosing) {
-        val position = HomeAnchoredOpenPositionEasing.transform(pathProgress)
-        val size = HomeAnchoredOpenSizeEasing.transform(pathProgress)
+        val position = positionProgress(pathProgress)
+        val size = sizeProgress(pathProgress)
         centerX = lerpHomeMorph(sourceCenter.x, targetCenter.x, position)
         centerY = lerpHomeMorph(sourceCenter.y, targetCenter.y, position)
         width = lerpHomeMorph(initialSourceWidth, target.width, size)
@@ -268,8 +353,8 @@ internal fun homeAnchoredMorphGeometry(
         expansionProgress = pathProgress
     } else if (pathProgress <= pinchFraction) {
         val local = (pathProgress / pinchFraction).coerceIn(0f, 1f)
-        val fall = HomeAnchoredFallEasing.transform(local)
-        val diameterProgress = HomeAnchoredOpenSizeEasing.transform(local)
+        val fall = fallProgress(local)
+        val diameterProgress = sizeProgress(local)
         width = lerpHomeMorph(initialSourceWidth, pinchDiameterPx, diameterProgress)
         height = lerpHomeMorph(initialSourceHeight, pinchDiameterPx, diameterProgress)
         centerX = sourceCenter.x
@@ -291,8 +376,8 @@ internal fun homeAnchoredMorphGeometry(
     } else {
         val local = ((pathProgress - pinchFraction) /
             (1f - pinchFraction)).coerceIn(0f, 1f)
-        val position = HomeAnchoredOpenPositionEasing.transform(local)
-        val size = HomeAnchoredOpenSizeEasing.transform(local)
+        val position = positionProgress(local)
+        val size = sizeProgress(local)
         val deltaY = targetCenter.y - pinchCenterY
         val arc = min(maximumArcPx, abs(deltaY) * 0.22f)
         val controlX = (pinchCenterX + targetCenter.x) / 2f
@@ -304,8 +389,17 @@ internal fun homeAnchoredMorphGeometry(
         centerY = inverse * inverse * pinchCenterY +
             2f * inverse * position * controlY +
             position * position * targetCenter.y
-        val pulseWindow = ((local - 0.82f) / 0.18f).coerceIn(0f, 1f)
-        val pulseScale = 1f + sin(PI.toFloat() * pulseWindow) * 0.008f
+        val pulseWindow = if (legacy) {
+            ((local - 0.82f) / 0.18f).coerceIn(0f, 1f)
+        } else {
+            ((local - 0.64f) /
+                (HomeAnchoredOpenSettleStartFraction - 0.64f)).coerceIn(0f, 1f)
+        }
+        val pulseScale = if (legacy) {
+            1f + sin(PI.toFloat() * pulseWindow) * 0.008f
+        } else {
+            1f
+        }
         width = lerpHomeMorph(pinchDiameterPx, target.width, size) * pulseScale
         height = lerpHomeMorph(pinchDiameterPx, target.height, size) * pulseScale
         cornerRadius = lerpHomeMorph(
@@ -318,12 +412,12 @@ internal fun homeAnchoredMorphGeometry(
         expansionProgress = local
     }
 
-    val handoff = if (closing) {
+    val handoff = if (legacy && closing) {
         homeMorphSmoothStep(0.015f, 0.12f, expansionProgress)
     } else {
         homeMorphSmoothStep(handoffStartFraction, handoffEndFraction, expansionProgress)
     }
-    val contentAlpha = if (closing) {
+    val contentAlpha = if (legacy && closing) {
         homeMorphSmoothStep(0.04f, 0.20f, expansionProgress)
     } else {
         homeMorphSmoothStep(contentStartFraction, contentEndFraction, expansionProgress)
@@ -352,10 +446,18 @@ internal fun homeAddMenuTargetRect(
     actionCount: Int,
     adaptiveMetrics: HomeAdaptiveMetrics? = null
 ): Rect {
-    // R_outer - R_inner = 30dp - 19dp = 11dp. Derive the shell from the compact 186dp
+    // R_outer - R_inner = 30dp - 19dp = 11dp. Derive the shell from the compact 172dp
     // action-content width so the selected capsule has identical left, right and bottom insets.
     val width = (HomeAddMenuActionContentWidthDp + HomeAddMenuConcentricInsetDp * 2f) * density
-    val height = (90f + 42f * actionCount + 2f * (actionCount - 1).coerceAtLeast(0)) * density
+    val height = (
+        HomeAddMenuContentTopPaddingDp +
+            HomeAddMenuModeHeightDp +
+            HomeAddMenuSectionGapDp * 2f +
+            HomeAddMenuDividerHeightDp +
+            HomeAddMenuActionItemHeightDp * actionCount +
+            HomeAddMenuActionGapDp * (actionCount - 1).coerceAtLeast(0) +
+            (HomeAddMenuConcentricInsetDp - HomeAddMenuSelectionVerticalInsetDp)
+        ) * density
     val marginPx = 12f * density
     val sourceGapPx = 4f * density
     val safeBounds = adaptiveMetrics?.contentRectPx(rootSize, density)
@@ -392,117 +494,381 @@ internal fun homeAddMenuHitIndex(
     return (actionY / actionStep).toInt().takeIf { it in 0 until actionCount } ?: -1
 }
 
-@Suppress("UNUSED_PARAMETER")
-internal fun homeAddMenuMorphGeometry(
+internal fun homeAddMenuShellClipEnabled(phase: HomeAnchoredOverlayPhase): Boolean =
+    phase != HomeAnchoredOverlayPhase.Idle && phase != HomeAnchoredOverlayPhase.Open
+
+internal fun threeDotMenuOpeningPositionProgress(expansionProgress: Float): Float =
+    HomeAnchoredOpenPositionEasing.transform(expansionProgress.coerceIn(0f, 1f))
+
+internal fun threeDotMenuOpeningSizeProgress(expansionProgress: Float): Float =
+    HomeAnchoredOpenSizeEasing.transform(expansionProgress.coerceIn(0f, 1f))
+
+private fun threeDotQuadraticBezier(
+    start: Offset,
+    control: Offset,
+    end: Offset,
+    progress: Float
+): Offset {
+    val value = progress.coerceIn(0f, 1f)
+    val inverse = 1f - value
+    return Offset(
+        x = inverse * inverse * start.x +
+            2f * inverse * value * control.x +
+            value * value * end.x,
+        y = inverse * inverse * start.y +
+            2f * inverse * value * control.y +
+            value * value * end.y
+    )
+}
+
+/** Personalization uses the exact same liquid-object trajectory as the three-dot menu. */
+internal fun homePersonalizationTrajectoryGeometry(
     source: Rect,
     target: Rect,
     rawProgress: Float,
-    closing: Boolean,
     pinchDiameterPx: Float,
     minimumDropPx: Float,
     maximumDropPx: Float,
     maximumArcPx: Float,
     targetCornerRadiusPx: Float,
-    reboundOvershootPx: Float,
-    sourcePressedScale: Float = 1f
+    sourcePressedScale: Float = 1f,
+    closing: Boolean = false,
+    verticalReboundAmplitudePx: Float = 0f,
+    closingSinkOffsetPx: Float = 0f,
+    closingControlDropPx: Float = 0f
+): HomeAnchoredMorphGeometry = homeThreeDotMenuTrajectoryGeometry(
+    source = source,
+    target = target,
+    rawProgress = rawProgress,
+    closing = closing,
+    sourceCornerRadiusPx = min(source.width, source.height) / 2f,
+    targetCornerRadiusPx = targetCornerRadiusPx,
+    sourcePressedScale = sourcePressedScale,
+    openingPinchDiameterPx = pinchDiameterPx,
+    openingMinimumDropPx = minimumDropPx,
+    openingMaximumDropPx = maximumDropPx,
+    openingMaximumArcPx = maximumArcPx,
+    verticalReboundAmplitudePx = verticalReboundAmplitudePx,
+    closingSinkOffsetPx = closingSinkOffsetPx,
+    closingControlDropPx = closingControlDropPx
+)
+
+/**
+ * Shared liquid-object trajectory used by the Home popups.
+ *
+ * Opening starts as a pressed source, drops into a small droplet, then grows while following a
+ * quadratic Bezier. Closing is intentionally not the reverse: it first sinks a little, then
+ * follows a separate Bezier back into the source. The first-level menu keeps its recovered
+ * trailing-edge growth; larger panels use center growth so their complete shell follows the path.
+ */
+private fun homeLiquidSharedObjectTrajectoryGeometry(
+    source: Rect,
+    target: Rect,
+    rawProgress: Float,
+    closing: Boolean,
+    sourceCornerRadiusPx: Float? = null,
+    targetCornerRadiusPx: Float,
+    sourcePressedScale: Float = 1f,
+    openingPinchDiameterPx: Float = min(source.width, source.height),
+    openingPinchFraction: Float,
+    openingMinimumDropPx: Float = 0f,
+    openingMaximumDropPx: Float = Float.MAX_VALUE,
+    openingMaximumArcPx: Float = Float.MAX_VALUE,
+    verticalReboundAmplitudePx: Float = 0f,
+    closingSinkOffsetPx: Float = 0f,
+    closingControlDropPx: Float = 0f,
+    openingRightEdgeAnchored: Boolean
 ): HomeAnchoredMorphGeometry {
     val raw = rawProgress.coerceIn(0f, 1f)
-    // Progress itself runs from 1 -> 0 while closing. Reusing the opening geometry makes the
-    // complete close motion (including squeeze and rebound) an exact reverse playback.
-    val pathProgress = raw
-    val squeezeFraction = HomeAddMenuSqueezeFraction
-    val sourceCenter = source.center
-    val targetCenter = target.center
-    val pressedHandoffScale = sourcePressedScale.coerceIn(1f, 1.16f)
-    val initialWidth = source.width * pressedHandoffScale
-    val initialHeight = source.height * pressedHandoffScale
-    val squeezedWidth = source.width * HomeAddMenuSqueezedWidthFraction
-    val sourceRadius = min(source.width, source.height) / 2f
-    // Start resolving the button's circular corner into the menu corner during the squeeze,
-    // instead of waiting for the expansion phase. Keeping a shared boundary value removes the
-    // visible "droplet, then panel" beat without changing source/surface/content handoff timing.
-    val squeezedCornerRadius = lerpHomeMorph(
-        sourceRadius,
-        targetCornerRadiusPx,
-        0.30f
-    )
-
-    val centerX: Float
-    val centerY: Float
+    val motion = ThreeDotMenuMotion
+    val pressedScale = sourcePressedScale.coerceIn(1f, 1.16f)
+    val initialWidth = source.width * pressedScale
+    val initialHeight = source.height * pressedScale
+    val sourceRadius =
+        (sourceCornerRadiusPx ?: (min(source.width, source.height) / 2f)) * pressedScale
+    val center: Offset
     val width: Float
     val height: Float
     val cornerRadius: Float
-    val expansionProgress: Float
-    val sourceScale: Float
-    if (pathProgress <= squeezeFraction) {
-        val squeeze = homeMorphSmoothStep(0f, squeezeFraction, pathProgress)
-        centerX = sourceCenter.x
-        centerY = sourceCenter.y
-        width = lerpHomeMorph(initialWidth, squeezedWidth, squeeze)
-        height = lerpHomeMorph(initialHeight, source.height, squeeze)
-        cornerRadius = lerpHomeMorph(
-            sourceRadius * pressedHandoffScale,
-            squeezedCornerRadius,
-            squeeze
+    val openAmount: Float
+    var sourceScale = 1f
+    var anchoredRight: Float? = null
+
+    if (!closing) {
+        val pinchFraction = openingPinchFraction.coerceIn(0f, 0.90f)
+        val hasOpeningPinch = pinchFraction > 0.0001f
+        val pinchDiameter = openingPinchDiameterPx.coerceAtLeast(1f)
+        val dropDistance = (abs(target.center.y - source.center.y) * 0.18f).coerceIn(
+            openingMinimumDropPx.coerceAtLeast(0f),
+            openingMaximumDropPx.coerceAtLeast(openingMinimumDropPx)
         )
-        expansionProgress = 0f
-        sourceScale = lerpHomeMorph(pressedHandoffScale, 0.96f, squeeze)
+        val pinchCenter = Offset(
+            x = source.center.x,
+            y = source.center.y + dropDistance
+        )
+
+        if (hasOpeningPinch && raw <= pinchFraction) {
+            val pinchProgress = (raw / pinchFraction).coerceIn(0f, 1f)
+            val fallProgress = HomeAnchoredFallEasing.transform(pinchProgress)
+            val diameterProgress = threeDotMenuOpeningSizeProgress(pinchProgress)
+            width = lerpHomeMorph(initialWidth, pinchDiameter, diameterProgress)
+            height = lerpHomeMorph(initialHeight, pinchDiameter, diameterProgress)
+            center = Offset(
+                x = source.center.x,
+                y = lerpHomeMorph(source.center.y, pinchCenter.y, fallProgress)
+            )
+            cornerRadius = min(
+                lerpHomeMorph(sourceRadius, pinchDiameter / 2f, diameterProgress),
+                min(width, height) / 2f
+            )
+            sourceScale = min(width, height) /
+                min(initialWidth, initialHeight).coerceAtLeast(1f)
+            openAmount = 0f
+        } else {
+            val expansion = if (hasOpeningPinch) {
+                ((raw - pinchFraction) / (1f - pinchFraction)).coerceIn(0f, 1f)
+            } else {
+                raw
+            }
+            val positionProgress = threeDotMenuOpeningPositionProgress(expansion)
+            val sizeProgress = threeDotMenuOpeningSizeProgress(expansion)
+            val expansionStartCenter = if (hasOpeningPinch) pinchCenter else source.center
+            val expansionStartWidth = if (hasOpeningPinch) pinchDiameter else initialWidth
+            val expansionStartHeight = if (hasOpeningPinch) pinchDiameter else initialHeight
+            val expansionStartCorner = if (hasOpeningPinch) pinchDiameter / 2f else sourceRadius
+            val deltaY = target.center.y - expansionStartCenter.y
+            val arc = min(openingMaximumArcPx.coerceAtLeast(0f), abs(deltaY) * 0.22f)
+            val control = Offset(
+                x = (expansionStartCenter.x + target.center.x) / 2f,
+                y = (expansionStartCenter.y + target.center.y) / 2f + sign(deltaY) * arc
+            )
+            val trajectoryCenter = threeDotQuadraticBezier(
+                start = expansionStartCenter,
+                control = control,
+                end = target.center,
+                progress = positionProgress
+            )
+            val reboundPeak = motion.OpenReboundPeakFraction
+            val reboundOffset = if (expansion <= reboundPeak) {
+                verticalReboundAmplitudePx * homeMorphSmoothStep(
+                    reboundPeak * 0.45f,
+                    reboundPeak,
+                    expansion
+                )
+            } else {
+                verticalReboundAmplitudePx * (
+                    1f - homeMorphSmoothStep(reboundPeak, 1f, expansion)
+                    )
+            }
+            center = Offset(
+                x = trajectoryCenter.x,
+                y = trajectoryCenter.y + reboundOffset
+            )
+            val pulseWindow = ((expansion - 0.82f) / 0.18f).coerceIn(0f, 1f)
+            val pulseScale = 1f + sin(PI.toFloat() * pulseWindow) * 0.008f
+            width = lerpHomeMorph(expansionStartWidth, target.width, sizeProgress) * pulseScale
+            height = lerpHomeMorph(expansionStartHeight, target.height, sizeProgress) * pulseScale
+            cornerRadius = lerpHomeMorph(expansionStartCorner, targetCornerRadiusPx, sizeProgress)
+            if (openingRightEdgeAnchored) {
+                val expansionStartRight = expansionStartCenter.x + expansionStartWidth / 2f
+                anchoredRight = lerpHomeMorph(expansionStartRight, target.right, sizeProgress)
+            }
+            sourceScale = if (hasOpeningPinch) {
+                pinchDiameter / min(initialWidth, initialHeight).coerceAtLeast(1f)
+            } else {
+                1f
+            }
+            openAmount = expansion
+        }
     } else {
-        val expansion = ((pathProgress - squeezeFraction) / (1f - squeezeFraction)).coerceIn(0f, 1f)
-        val position = HomeAnchoredOpenPositionEasing.transform(expansion)
-        val size = HomeAnchoredOpenSizeEasing.transform(expansion)
-        centerX = lerpHomeMorph(sourceCenter.x, targetCenter.x, position)
-        centerY = lerpHomeMorph(sourceCenter.y, targetCenter.y, position)
-        width = lerpHomeMorph(squeezedWidth, target.width, size)
-        height = lerpHomeMorph(source.height, target.height, size)
-        cornerRadius = lerpHomeMorph(squeezedCornerRadius, targetCornerRadiusPx, size)
-        expansionProgress = expansion
-        sourceScale = 0.96f
+        val closeProgress = 1f - raw
+        val sinkProgress = homeMorphSmoothStep(0f, motion.CloseSinkEndFraction, closeProgress)
+        val returnClock = ((closeProgress - motion.CloseReturnStartFraction) /
+            (1f - motion.CloseReturnStartFraction)).coerceIn(0f, 1f)
+        val returnProgress = motion.CloseReturnEasing.transform(returnClock)
+        val returnBlend = homeMorphSmoothStep(
+            motion.CloseReturnStartFraction,
+            motion.CloseReturnBlendEndFraction,
+            closeProgress
+        )
+        val sunkCenter = Offset(
+            x = target.center.x,
+            y = target.center.y + closingSinkOffsetPx * sinkProgress
+        )
+        val returnStart = Offset(
+            x = target.center.x,
+            y = target.center.y + closingSinkOffsetPx
+        )
+        val returnControl = Offset(
+            x = lerpHomeMorph(
+                returnStart.x,
+                source.center.x,
+                motion.CloseControlXFraction
+            ),
+            y = returnStart.y + closingControlDropPx
+        )
+        val returnCenter = threeDotQuadraticBezier(
+            start = returnStart,
+            control = returnControl,
+            end = source.center,
+            progress = returnProgress
+        )
+        center = Offset(
+            x = lerpHomeMorph(sunkCenter.x, returnCenter.x, returnBlend),
+            y = lerpHomeMorph(sunkCenter.y, returnCenter.y, returnBlend)
+        )
+
+        val shrinkProgress = 1f - (1f - returnProgress).pow(1.12f)
+        val compressionProgress = when {
+            closeProgress <= 0.10f -> homeMorphSmoothStep(0f, 0.10f, closeProgress)
+            closeProgress <= 0.22f -> 1f - homeMorphSmoothStep(0.10f, 0.22f, closeProgress)
+            else -> 0f
+        }
+        width = lerpHomeMorph(target.width, initialWidth, shrinkProgress)
+        height = lerpHomeMorph(target.height, initialHeight, shrinkProgress) *
+            (1f - motion.CloseSinkCompression * compressionProgress)
+        cornerRadius = lerpHomeMorph(targetCornerRadiusPx, sourceRadius, shrinkProgress)
+        openAmount = 1f - shrinkProgress
     }
-    val handoff = homeMorphSmoothStep(0.08f, 0.30f, pathProgress)
-    val geometry = HomeAnchoredMorphGeometry(
+
+    val handoff = if (closing) {
+        homeMorphSmoothStep(0f, 0.18f, openAmount)
+    } else {
+        homeMorphSmoothStep(0.05f, 0.34f, openAmount)
+    }
+    val left = anchoredRight?.minus(width) ?: (center.x - width / 2f)
+    val right = anchoredRight ?: (center.x + width / 2f)
+    return HomeAnchoredMorphGeometry(
         rect = Rect(
-            left = centerX - width / 2f,
-            top = centerY - height / 2f,
-            right = centerX + width / 2f,
-            bottom = centerY + height / 2f
+            left = left,
+            top = center.y - height / 2f,
+            right = right,
+            bottom = center.y + height / 2f
         ),
         cornerRadiusPx = cornerRadius,
         sourceScale = sourceScale,
         sourceAlpha = 1f - handoff,
         surfaceAlpha = handoff,
-        contentAlpha = homeMorphSmoothStep(0.34f, 0.72f, expansionProgress),
-        pathProgress = pathProgress,
-        expansionProgress = expansionProgress
+        contentAlpha = if (closing) {
+            homeMorphSmoothStep(0.16f, 0.46f, openAmount)
+        } else {
+            homeMorphSmoothStep(0.18f, 0.55f, openAmount)
+        },
+        pathProgress = raw,
+        expansionProgress = openAmount
     )
-    return if (reboundOvershootPx > 0f) {
-        homeMorphWithVerticalRebound(
-            geometry = geometry,
-            closing = closing,
-            overshootPx = reboundOvershootPx,
-            peakProgress = HomeAddMenuReboundPeakFraction
-        )
-    } else {
-        geometry
-    }
 }
 
-@Suppress("UNUSED_PARAMETER")
+/** The recovered 02:38 menu motion grows from its trailing edge. */
+internal fun homeThreeDotMenuTrajectoryGeometry(
+    source: Rect,
+    target: Rect,
+    rawProgress: Float,
+    closing: Boolean,
+    sourceCornerRadiusPx: Float? = null,
+    targetCornerRadiusPx: Float,
+    sourcePressedScale: Float = 1f,
+    openingPinchDiameterPx: Float = min(source.width, source.height),
+    openingMinimumDropPx: Float = 0f,
+    openingMaximumDropPx: Float = Float.MAX_VALUE,
+    openingMaximumArcPx: Float = Float.MAX_VALUE,
+    verticalReboundAmplitudePx: Float = 0f,
+    closingSinkOffsetPx: Float = 0f,
+    closingControlDropPx: Float = 0f
+): HomeAnchoredMorphGeometry = homeLiquidSharedObjectTrajectoryGeometry(
+    source = source,
+    target = target,
+    rawProgress = rawProgress,
+    closing = closing,
+    sourceCornerRadiusPx = sourceCornerRadiusPx,
+    targetCornerRadiusPx = targetCornerRadiusPx,
+    sourcePressedScale = sourcePressedScale,
+    openingPinchDiameterPx = openingPinchDiameterPx,
+    openingPinchFraction = ThreeDotMenuMotion.OpenPinchFraction,
+    openingMinimumDropPx = openingMinimumDropPx,
+    openingMaximumDropPx = openingMaximumDropPx,
+    openingMaximumArcPx = openingMaximumArcPx,
+    verticalReboundAmplitudePx = verticalReboundAmplitudePx,
+    closingSinkOffsetPx = closingSinkOffsetPx,
+    closingControlDropPx = closingControlDropPx,
+    openingRightEdgeAnchored = true
+)
+
+/**
+ * Center-growing variant for large Home panels. Its rect is always derived from the Bezier center
+ * plus width/height, avoiding the first-level menu's intentional trailing-edge expansion.
+ */
+internal fun homeCenteredSharedObjectTrajectoryGeometry(
+    source: Rect,
+    target: Rect,
+    rawProgress: Float,
+    closing: Boolean,
+    sourceCornerRadiusPx: Float? = null,
+    targetCornerRadiusPx: Float,
+    sourcePressedScale: Float = 1f,
+    openingPinchDiameterPx: Float = min(source.width, source.height),
+    openingPinchFraction: Float = ThreeDotMenuMotion.OpenPinchFraction,
+    openingMinimumDropPx: Float = 0f,
+    openingMaximumDropPx: Float = Float.MAX_VALUE,
+    openingMaximumArcPx: Float = Float.MAX_VALUE,
+    verticalReboundAmplitudePx: Float = 0f,
+    closingSinkOffsetPx: Float = 0f,
+    closingControlDropPx: Float = 0f
+): HomeAnchoredMorphGeometry = homeLiquidSharedObjectTrajectoryGeometry(
+    source = source,
+    target = target,
+    rawProgress = rawProgress,
+    closing = closing,
+    sourceCornerRadiusPx = sourceCornerRadiusPx,
+    targetCornerRadiusPx = targetCornerRadiusPx,
+    sourcePressedScale = sourcePressedScale,
+    openingPinchDiameterPx = openingPinchDiameterPx,
+    openingPinchFraction = openingPinchFraction,
+    openingMinimumDropPx = openingMinimumDropPx,
+    openingMaximumDropPx = openingMaximumDropPx,
+    openingMaximumArcPx = openingMaximumArcPx,
+    verticalReboundAmplitudePx = verticalReboundAmplitudePx,
+    closingSinkOffsetPx = closingSinkOffsetPx,
+    closingControlDropPx = closingControlDropPx,
+    openingRightEdgeAnchored = false
+)
+
 internal fun homeMorphWithVerticalRebound(
     geometry: HomeAnchoredMorphGeometry,
     closing: Boolean,
     overshootPx: Float,
-    peakProgress: Float
+    peakProgress: Float,
+    legacyClosingRebound: Boolean = false
 ): HomeAnchoredMorphGeometry {
-    val reboundOffset = run {
-        val expansion = geometry.expansionProgress
-        val peak = peakProgress.coerceIn(0.20f, 0.80f)
-        if (expansion <= peak) {
-            overshootPx * homeMorphSmoothStep(peak * 0.45f, peak, expansion)
-        } else {
-            overshootPx * (1f - homeMorphSmoothStep(peak, 1f, expansion))
+    // Closing has its own direct return and must not replay the opening bounce backwards.
+    if (!legacyClosingRebound && (closing || overshootPx <= 0f)) return geometry
+        val reboundOffset = run {
+            val expansion = geometry.expansionProgress
+            val peak = peakProgress.coerceIn(0.20f, 0.80f)
+            if (legacyClosingRebound) {
+                if (expansion <= peak) {
+                    overshootPx * homeMorphSmoothStep(peak * 0.45f, peak, expansion)
+                } else {
+                    overshootPx * (1f - homeMorphSmoothStep(peak, 1f, expansion))
+                }
+            } else if (expansion <= peak) {
+                // The bounce starts earlier, during the expansion, so the shell dips down while
+                // it is still growing instead of wobbling after arrival.
+                overshootPx * homeMorphSmoothStep(peak * 0.20f, peak, expansion)
+            } else if (expansion >= HomeAnchoredOpenSettleStartFraction) {
+                0f
+            } else {
+                // One-shot bounce: after bottoming out at the overshoot limit the shell returns
+                // to the target in a single smooth pass and settles — no oscillation.
+                overshootPx * (
+                    1f - homeMorphSmoothStep(
+                        peak,
+                        HomeAnchoredOpenSettleStartFraction,
+                        expansion
+                    )
+                    )
+            }
         }
-    }
     return geometry.copy(
         rect = Rect(
             left = geometry.rect.left,
@@ -616,21 +982,30 @@ internal fun HomeAnchoredMorphOverlayHost(
     modifier: Modifier = Modifier,
     onDismissRequest: () -> Unit,
     onAddMenuBoundsChanged: (Rect) -> Unit = {},
+    onSourceFollowThrough: (Rect) -> Unit = {},
+    suppressClose: Boolean = false,
+    onSilentDisposed: () -> Unit = {},
     personalizePreviewProgress: Float = 0f,
     sourceContent: @Composable BoxScope.(HomeAnchoredOverlayKind, Modifier) -> Unit,
     personalizeContent: @Composable (Modifier) -> Unit
 ) {
     var renderedRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
     var panelContentPrepared by remember { mutableStateOf(false) }
+    val personalizeContentRecorded = remember {
+        java.util.concurrent.atomic.AtomicBoolean(false)
+    }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val latestOnDismissRequest by rememberUpdatedState(onDismissRequest)
     val latestOnAddMenuBoundsChanged by rememberUpdatedState(onAddMenuBoundsChanged)
+    val latestOnSourceFollowThrough by rememberUpdatedState(onSourceFollowThrough)
+    val latestOnSilentDisposed by rememberUpdatedState(onSilentDisposed)
 
     LaunchedEffect(request, adaptiveMetrics.profile) {
         if (request != null) {
             motionState.phase = HomeAnchoredOverlayPhase.Preparing
             renderedRequest = request
             panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize
+            personalizeContentRecorded.set(false)
             motionState.renderedKind = request.kind
             motionState.progress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
@@ -640,11 +1015,21 @@ internal fun HomeAnchoredMorphOverlayHost(
                 waitedFrames++
             }
             if (request.kind == HomeAnchoredOverlayKind.Personalize) {
-                // Compose, measure and record the heavy slider tree before geometry starts moving.
-                // Two complete frames ensure its nested backdrop consumers have produced a stable
-                // raster that Opening can reuse without live re-recording.
-                panelContentPrepared = true
+                // Give the week-view scene cache one complete preparation frame before mounting
+                // the slider tree. Recording both the full week grid and every personalization
+                // control in the same frame was the remaining first-open spike on dense schedules.
                 withFrameNanos { }
+                // Compose, measure and record the heavy slider tree before geometry starts moving.
+                // Wait for the draw callback instead of assuming that two display frames are enough
+                // on every device. This prevents Opening from racing the first GPU recording.
+                panelContentPrepared = true
+                var contentWaitFrames = 0
+                while (!personalizeContentRecorded.get() && contentWaitFrames < 8) {
+                    withFrameNanos { }
+                    contentWaitFrames++
+                }
+                // Keep one handoff frame after the layer is recorded so Kyant's backdrop consumer
+                // and the cached settings tree never enter the same moving frame.
                 withFrameNanos { }
             }
             motionState.phase = HomeAnchoredOverlayPhase.Opening
@@ -653,7 +1038,13 @@ internal fun HomeAnchoredMorphOverlayHost(
                     motionState.progress.animateTo(
                         1f,
                         tween(
-                            durationMillis = HomeAnchoredMorphOpenDurationMillis,
+                            durationMillis = if (
+                                request.kind == HomeAnchoredOverlayKind.Personalize
+                            ) {
+                                HomePersonalizeMorphOpenDurationMillis
+                            } else {
+                                HomeAddMenuMorphOpenDurationMillis
+                            },
                             easing = LinearEasing
                         )
                     )
@@ -663,7 +1054,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                         motionState.backgroundZoom.animateTo(
                             HomeAnchoredMorphBackgroundScale,
                             tween(
-                                durationMillis = HomeAnchoredMorphBackgroundDurationMillis,
+                                durationMillis = HomePersonalizeMorphOpenDurationMillis,
                                 delayMillis = HomeAnchoredMorphBackgroundDelayMillis,
                                 easing = HomeAnchoredBackgroundEasing
                             )
@@ -673,41 +1064,54 @@ internal fun HomeAnchoredMorphOverlayHost(
             }
             motionState.phase = HomeAnchoredOverlayPhase.Open
         } else if (renderedRequest != null) {
-            motionState.phase = HomeAnchoredOverlayPhase.Closing
-            coroutineScope {
-                launch {
-                    motionState.progress.animateTo(
-                        0f,
-                        tween(
-                            durationMillis = if (
-                                renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize
-                            ) {
-                                HomePersonalizeMorphCloseDurationMillis
-                            } else {
-                                HomeAnchoredMorphCloseDurationMillis
-                            },
-                            easing = LinearEasing
-                        )
-                    )
-                }
-                if (motionState.backgroundZoom.value > 1.0001f) {
+            if (suppressClose) {
+                // Silent cleanup: the destination owns the button return. Dispose this hidden
+                // first-level menu without playing a second visible Close or follow-through.
+                motionState.progress.snapTo(0f)
+                motionState.backgroundZoom.snapTo(1f)
+                motionState.phase = HomeAnchoredOverlayPhase.Disposing
+                panelContentPrepared = false
+                renderedRequest = null
+                motionState.renderedKind = null
+                motionState.phase = HomeAnchoredOverlayPhase.Idle
+                latestOnSilentDisposed()
+            } else {
+                motionState.phase = HomeAnchoredOverlayPhase.Closing
+                coroutineScope {
                     launch {
-                        motionState.backgroundZoom.animateTo(
-                            1f,
+                        motionState.progress.animateTo(
+                            0f,
                             tween(
-                                durationMillis = HomeAnchoredMorphBackgroundDurationMillis,
-                                delayMillis = HomeAnchoredMorphBackgroundDelayMillis,
-                                easing = HomeAnchoredBackgroundEasing
+                                durationMillis = if (
+                                    renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize
+                                ) {
+                                    HomePersonalizeMorphCloseDurationMillis
+                                } else {
+                                    HomeAddMenuMorphCloseDurationMillis
+                                },
+                                easing = LinearEasing
                             )
                         )
                     }
+                    if (motionState.backgroundZoom.value > 1.0001f) {
+                        launch {
+                            motionState.backgroundZoom.animateTo(
+                                1f,
+                                tween(
+                                    durationMillis = HomePersonalizeMorphCloseDurationMillis,
+                                    delayMillis = HomeAnchoredMorphBackgroundDelayMillis,
+                                    easing = HomeAnchoredBackgroundEasing
+                                )
+                            )
+                        }
+                    }
                 }
+                motionState.phase = HomeAnchoredOverlayPhase.Disposing
+                panelContentPrepared = false
+                renderedRequest = null
+                motionState.renderedKind = null
+                motionState.phase = HomeAnchoredOverlayPhase.Idle
             }
-            motionState.phase = HomeAnchoredOverlayPhase.Disposing
-            panelContentPrepared = false
-            renderedRequest = null
-            motionState.renderedKind = null
-            motionState.phase = HomeAnchoredOverlayPhase.Idle
         } else {
             panelContentPrepared = false
             motionState.progress.snapTo(0f)
@@ -772,6 +1176,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                 previewProgress = personalizePreviewProgress,
                 contentMounted = panelContentPrepared,
                 onContentLaidOut = {},
+                onContentRecorded = { personalizeContentRecorded.set(true) },
                 onDismissRequest = { latestOnDismissRequest() },
                 sourceContent = { sourceModifier ->
                     sourceContent(HomeAnchoredOverlayKind.Personalize, sourceModifier)
@@ -791,45 +1196,74 @@ internal fun HomeAnchoredMorphOverlayHost(
             motionState
         ) {
             derivedStateOf {
-                val liquidGeometry = homeAnchoredMorphGeometry(
+                homeThreeDotMenuTrajectoryGeometry(
                     source = shown.sourceBoundsInRoot,
                     target = targetRect,
                     rawProgress = motionState.progress.value,
-                    // Closing drives progress backwards, so this remains an exact reverse path.
-                    closing = false,
-                    pinchDiameterPx = with(density) { 18.dp.toPx() },
-                    minimumDropPx = with(density) { 36.dp.toPx() },
-                    maximumDropPx = with(density) { 72.dp.toPx() },
-                    maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() },
+                    closing = motionState.phase == HomeAnchoredOverlayPhase.Closing,
+                    sourceCornerRadiusPx = with(density) { 21.dp.toPx() },
                     targetCornerRadiusPx = with(density) { HomeAddMenuTargetCornerDp.dp.toPx() },
                     sourcePressedScale = shown.sourcePressedScale,
-                    pinchFractionOverride = HomeAddMenuPinchFraction,
-                    cornerMorphDuringPinchFraction = 0.42f,
-                    // These local fractions preserve the previous absolute handoff windows after
-                    // shortening the pinch/drop phase from 28% to 20% of the complete motion.
-                    handoffStartFraction = 0.1135f,
-                    handoffEndFraction = 0.28f,
-                    contentStartFraction = 0.154f,
-                    contentEndFraction = 0.424f
-                )
-                homeMorphWithVerticalRebound(
-                    geometry = liquidGeometry,
-                    closing = false,
-                    overshootPx = with(density) { 12.dp.toPx() },
-                    peakProgress = HomeAddMenuReboundPeakFraction
+                    openingPinchDiameterPx = with(density) {
+                        ThreeDotMenuMotion.OpenPinchDiameterDp.dp.toPx()
+                    },
+                    openingMinimumDropPx = with(density) {
+                        ThreeDotMenuMotion.OpenMinimumDropDp.dp.toPx()
+                    },
+                    openingMaximumDropPx = with(density) {
+                        ThreeDotMenuMotion.OpenMaximumDropDp.dp.toPx()
+                    },
+                    openingMaximumArcPx = with(density) {
+                        adaptiveMetrics.animationArc.toPx()
+                    },
+                    verticalReboundAmplitudePx = with(density) {
+                        ThreeDotMenuMotion.OpenReboundAmplitudeDp.dp.toPx()
+                    },
+                    closingSinkOffsetPx = with(density) {
+                        ThreeDotMenuMotion.CloseSinkOffsetDp.dp.toPx()
+                    },
+                    closingControlDropPx = with(density) {
+                        ThreeDotMenuMotion.CloseControlDropDp.dp.toPx()
+                    }
                 )
             }
+        }
+        var sourceHandedOff by remember(shown.kind) { mutableStateOf(false) }
+        LaunchedEffect(shown.kind, motionState.phase) {
+            if (shown.kind != HomeAnchoredOverlayKind.Add) return@LaunchedEffect
+            if (suppressClose) return@LaunchedEffect
+            if (motionState.phase != HomeAnchoredOverlayPhase.Closing) return@LaunchedEffect
+            // Hand the collapsing shell over to the follow-through button while the droplet is
+            // still at the source anchor, so the real button never pops in at rest.
+            snapshotFlow { motionState.progress.value }.first { it <= 0.02f }
+            if (motionState.phase != HomeAnchoredOverlayPhase.Closing) return@LaunchedEffect
+            sourceHandedOff = true
+            latestOnSourceFollowThrough(geometry.value.rect)
         }
         val shape = remember(geometry, density) {
             DeferredHomeMorphShape(geometry, continuous = false, density = density)
         }
+        val settledSurfaceShape = remember {
+            RoundedCornerShape(HomeAddMenuTargetCornerDp.dp)
+        }
+        val sourcePressedScale = shown.sourcePressedScale.coerceIn(1f, 1.16f)
         val maxContentBlurPx = with(density) { 5.dp.toPx() }
         var outsideDragHighlightedIndex by remember(shown.kind) { mutableIntStateOf(-1) }
         val outsideDragHaptic = LocalHapticFeedback.current
-        val menuContentPaddingPx = with(density) { 8.dp.toPx() }
-        val menuModeHeightPx = with(density) { 60.dp.toPx() }
-        val menuActionTopPx = with(density) { 73.dp.toPx() }
-        val menuActionStepPx = with(density) { 44.dp.toPx() }
+        val menuContentTopPaddingPx = with(density) { HomeAddMenuContentTopPaddingDp.dp.toPx() }
+        val menuContentHorizontalPaddingPx = with(density) {
+            (HomeAddMenuConcentricInsetDp - HomeAddMenuActionColumnInsetDp).dp.toPx()
+        }
+        val menuModeHeightPx = with(density) { HomeAddMenuModeHeightDp.dp.toPx() }
+        val menuActionTopPx = with(density) {
+            (
+                HomeAddMenuModeHeightDp + HomeAddMenuSectionGapDp * 2f +
+                    HomeAddMenuDividerHeightDp
+                ).dp.toPx()
+        }
+        val menuActionStepPx = with(density) {
+            (HomeAddMenuActionItemHeightDp + HomeAddMenuActionGapDp).dp.toPx()
+        }
 
         fun targetMenuPosition(rootPosition: Offset): Offset? {
             val rect = geometry.value.rect
@@ -842,8 +1276,8 @@ internal fun HomeAnchoredMorphOverlayHost(
 
         fun outsideDragActionIndex(rootPosition: Offset): Int {
             val targetPosition = targetMenuPosition(rootPosition) ?: return -1
-            val innerY = targetPosition.y - menuContentPaddingPx
-            // The divider and the 2dp row gaps are visual only. Fold their hit area into the
+            val innerY = targetPosition.y - menuContentTopPaddingPx
+            // The divider/section spacing is visual only. Fold its hit area into the
             // nearest action so sliding through them never drops gesture ownership. In particular,
             // the full strip below the mode switch belongs to the first "添加单节课" action.
             return homeAddMenuHitIndex(
@@ -889,10 +1323,10 @@ internal fun HomeAnchoredMorphOverlayHost(
                     val selectedIndex = outsideDragHighlightedIndex
                     outsideDragHighlightedIndex = -1
                     if (completedNormally && targetPosition != null) {
-                        val innerX = targetPosition.x - menuContentPaddingPx
-                        val innerY = targetPosition.y - menuContentPaddingPx
+                        val innerX = targetPosition.x - menuContentHorizontalPaddingPx
+                        val innerY = targetPosition.y - menuContentTopPaddingPx
                         if (innerY in 0f..menuModeHeightPx) {
-                            val innerWidth = targetRect.width - menuContentPaddingPx * 2f
+                            val innerWidth = targetRect.width - menuContentHorizontalPaddingPx * 2f
                             val targetMode = if (innerX < innerWidth / 2f) HomeMode.Day else HomeMode.Week
                             if (targetMode != homeMode) {
                                 outsideDragHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -926,16 +1360,25 @@ internal fun HomeAnchoredMorphOverlayHost(
                         current.top.roundToInt()
                     )
                 }
+                .graphicsLayer {
+                    // The moving shell owns clipping only while geometry is changing. At Open the
+                    // static Kyant surface below owns its real 34dp outline, so highlight and shadow
+                    // remain free to render outside the fill without exposing a stale dynamic shape.
+                    clip = homeAddMenuShellClipEnabled(motionState.phase)
+                    this.shape = shape
+                }
                 .layout { measurable, _ ->
+                    // Measure the heavy glass subtree once at its final target size. The animated
+                    // shell changes its reported size and clips the child around the shell center.
+                    val targetWidth = targetRect.width.roundToInt().coerceAtLeast(1)
+                    val targetHeight = targetRect.height.roundToInt().coerceAtLeast(1)
+                    val placeable = measurable.measure(Constraints.fixed(targetWidth, targetHeight))
                     val current = geometry.value.rect
                     val width = current.width.roundToInt().coerceAtLeast(1)
                     val height = current.height.roundToInt().coerceAtLeast(1)
-                    val placeable = measurable.measure(Constraints.fixed(width, height))
-                    layout(width, height) { placeable.place(0, 0) }
-                }
-                .graphicsLayer {
-                    clip = motionState.phase != HomeAnchoredOverlayPhase.Open
-                    this.shape = shape
+                    layout(width, height) {
+                        placeable.place((width - targetWidth) / 2, (height - targetHeight) / 2)
+                    }
                 }
                 .clickable(
                     interactionSource = remember {
@@ -962,28 +1405,27 @@ internal fun HomeAnchoredMorphOverlayHost(
                         1f - homeMorphSmoothStep(0.42f, 0.98f, geometry.value.expansionProgress)
                         )
                 },
-                contentScaleXProvider = {
-                    geometry.value.rect.width / targetRect.width.coerceAtLeast(1f)
-                },
-                contentScaleYProvider = {
-                    geometry.value.rect.height / targetRect.height.coerceAtLeast(1f)
-                },
                 externalHighlightedIndex = outsideDragHighlightedIndex,
                 interactive = motionState.phase == HomeAnchoredOverlayPhase.Opening ||
                     motionState.phase == HomeAnchoredOverlayPhase.Open,
-                shape = shape,
+                shape = settledSurfaceShape,
                 modifier = Modifier.fillMaxSize()
             )
 
             Box(
                 modifier = Modifier
+                    .align(Alignment.Center)
                     .requiredSize(
-                        width = with(density) { shown.sourceBoundsInRoot.width.toDp() },
-                        height = with(density) { shown.sourceBoundsInRoot.height.toDp() }
+                        width = with(density) {
+                            (shown.sourceBoundsInRoot.width * sourcePressedScale).toDp()
+                        },
+                        height = with(density) {
+                            (shown.sourceBoundsInRoot.height * sourcePressedScale).toDp()
+                        }
                     )
                     .graphicsLayer {
                         val current = geometry.value
-                        alpha = current.sourceAlpha
+                        alpha = if (sourceHandedOff) 0f else current.sourceAlpha
                         scaleX = current.sourceScale
                         scaleY = current.sourceScale
                         compositingStrategy = CompositingStrategy.Offscreen
@@ -1071,6 +1513,7 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
     previewProgress: Float,
     contentMounted: Boolean,
     onContentLaidOut: () -> Unit,
+    onContentRecorded: () -> Unit,
     onDismissRequest: () -> Unit,
     sourceContent: @Composable (Modifier) -> Unit,
     content: @Composable (Modifier) -> Unit
@@ -1086,22 +1529,28 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
         motionState
     ) {
         derivedStateOf {
-            homeAnchoredMorphGeometry(
+            // Personalization and the three-dot menu are one liquid object choreography. The
+            // performance work below only changes recording and backdrop sampling.
+            homePersonalizationTrajectoryGeometry(
                 source = sourceBounds,
                 target = targetRect,
                 rawProgress = motionState.progress.value,
-                // Closing drives progress backwards, so this remains an exact reverse path.
-                closing = false,
                 pinchDiameterPx = with(density) { 18.dp.toPx() },
                 minimumDropPx = with(density) { 36.dp.toPx() },
                 maximumDropPx = with(density) { 72.dp.toPx() },
                 maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() },
                 targetCornerRadiusPx = with(density) { 28.dp.toPx() },
                 sourcePressedScale = sourcePressedScale,
-                handoffStartFraction = 0.015f,
-                handoffEndFraction = 0.20f,
-                contentStartFraction = 0.06f,
-                contentEndFraction = 0.36f
+                closing = motionState.phase == HomeAnchoredOverlayPhase.Closing,
+                verticalReboundAmplitudePx = with(density) {
+                    ThreeDotMenuMotion.OpenReboundAmplitudeDp.dp.toPx()
+                },
+                closingSinkOffsetPx = with(density) {
+                    ThreeDotMenuMotion.CloseSinkOffsetDp.dp.toPx()
+                },
+                closingControlDropPx = with(density) {
+                    ThreeDotMenuMotion.CloseControlDropDp.dp.toPx()
+                }
             )
         }
     }
@@ -1113,12 +1562,31 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
             )
         }
     }
-    val showAura by remember(blurProgress, backdrop, adaptiveMetrics.isLargeScreen) {
+    val warmupBackdropEffects = motionState.phase == HomeAnchoredOverlayPhase.Preparing
+    val progressiveBackdropBlurProgress by remember(blurProgress, warmupBackdropEffects) {
+        derivedStateOf {
+            val quantized = quantizeHomeProgressiveBackdropBlurProgress(blurProgress.value)
+            if (warmupBackdropEffects) {
+                // A nearly invisible first bucket gives Android a complete target-sized effect
+                // chain before the first visible Opening frame. It is not a replacement bitmap;
+                // Open still samples the live backdrop and hosts the real form.
+                max(quantized, 1f / HomeProgressiveBackdropBlurStepCount)
+            } else {
+                quantized
+            }
+        }
+    }
+    val showAura by remember(
+        progressiveBackdropBlurProgress,
+        backdrop,
+        adaptiveMetrics.isLargeScreen,
+        warmupBackdropEffects
+    ) {
         derivedStateOf {
             adaptiveMetrics.isLargeScreen &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 backdrop != null &&
-                blurProgress.value > 0.005f
+                (warmupBackdropEffects || progressiveBackdropBlurProgress > 0.005f)
         }
     }
     val shape = remember(geometry, density) {
@@ -1126,6 +1594,18 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
     }
     val maxContentBlurPx = with(density) { 5.dp.toPx() }
     val personalizeContentLayer = rememberGraphicsLayer()
+    val personalizeBlurredContentLayer = rememberGraphicsLayer()
+    val fixedContentBlurEffect = remember(maxContentBlurPx) {
+        BlurEffect(maxContentBlurPx, maxContentBlurPx, TileMode.Clamp)
+    }
+    val preparingContentRecorded = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
+    val closingBlurRecorded = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
+    LaunchedEffect(contentMounted) {
+        if (!contentMounted) {
+            preparingContentRecorded.set(false)
+            closingBlurRecorded.set(false)
+        }
+    }
     val targetWidth = with(density) { targetRect.width.toDp() }
     val targetHeight = with(density) { targetRect.height.toDp() }
 
@@ -1145,23 +1625,31 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
             leftFeatherPxProvider = {
                 with(density) { 104.dp.toPx() } * geometry.value.expansionProgress.coerceIn(0f, 1f)
             },
-            blurProgressProvider = { blurProgress.value },
-            alphaProvider = { geometry.value.surfaceAlpha * blurProgress.value },
+            blurProgressProvider = { progressiveBackdropBlurProgress },
+            alphaProvider = {
+                val visibleAlpha = geometry.value.surfaceAlpha * blurProgress.value
+                if (warmupBackdropEffects) max(visibleAlpha, 0.001f) else visibleAlpha
+            },
             modifier = Modifier
                 .offset {
                     val leftFeatherPx = with(density) { 104.dp.toPx() } *
                         geometry.value.expansionProgress.coerceIn(0f, 1f)
                     IntOffset(
                         (geometry.value.rect.left - leftFeatherPx).coerceAtLeast(0f).roundToInt(),
-                        0
+                        (geometry.value.rect.top - with(density) { 56.dp.toPx() })
+                            .coerceAtLeast(0f).roundToInt()
                     )
                 }
                 .layout { measurable, _ ->
                     val leftFeatherPx = with(density) { 104.dp.toPx() } *
                         geometry.value.expansionProgress.coerceIn(0f, 1f)
                     val left = (geometry.value.rect.left - leftFeatherPx).coerceAtLeast(0f)
-                    val width = (rootSize.width - left.roundToInt()).coerceAtLeast(1)
-                    val height = rootSize.height.coerceAtLeast(1)
+                    val rightFeatherPx = with(density) { 56.dp.toPx() }
+                    val verticalFeatherPx = with(density) { 56.dp.toPx() }
+                    val width = (geometry.value.rect.width + leftFeatherPx + rightFeatherPx)
+                        .roundToInt().coerceAtLeast(1)
+                    val height = (geometry.value.rect.height + verticalFeatherPx * 2f)
+                        .roundToInt().coerceAtLeast(1)
                     val placeable = measurable.measure(Constraints.fixed(width, height))
                     layout(width, height) { placeable.place(0, 0) }
                 }
@@ -1180,12 +1668,22 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
                 val current = geometry.value.rect
                 val width = current.width.roundToInt().coerceAtLeast(1)
                 val height = current.height.roundToInt().coerceAtLeast(1)
+                // The shell and Kyant surface remain in the animated rect's coordinate space.
+                // DeferredHomePersonalizeMorphPanel already measures only the heavy form content at
+                // target size; moving this whole node into target coordinates offsets the Morph.
                 val placeable = measurable.measure(Constraints.fixed(width, height))
                 layout(width, height) { placeable.place(0, 0) }
             }
             .graphicsLayer {
-                clip = true
+                val fullOpenEndpoint = motionState.phase == HomeAnchoredOverlayPhase.Open &&
+                    geometry.value.pathProgress >= 0.999f
+                clip = !fullOpenEndpoint
                 this.shape = shape
+                compositingStrategy = if (fullOpenEndpoint) {
+                    CompositingStrategy.Auto
+                } else {
+                    CompositingStrategy.Offscreen
+                }
             }
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
@@ -1201,6 +1699,7 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
             targetHeight = targetHeight,
             shape = shape,
             progressiveBlur = adaptiveMetrics.isLargeScreen,
+            warmupBackdropEffects = warmupBackdropEffects,
             surfaceAlphaProvider = {
                 geometry.value.surfaceAlpha * if (adaptiveMetrics.isLargeScreen) {
                     1f
@@ -1210,11 +1709,12 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
             },
             contentAlphaProvider = { geometry.value.contentAlpha },
             contentBlurRadiusPxProvider = {
-                maxContentBlurPx * (
-                    1f - homeMorphSmoothStep(0.42f, 0.98f, geometry.value.expansionProgress)
-                    )
+                // Blur is now a crossfade between two pre-recorded GPU layers below. Leaving this
+                // outer target-sized layer unblurred avoids recomputing a full form RenderEffect on
+                // every animation tick.
+                0f
             },
-            backdropBlurProgressProvider = { blurProgress.value },
+            backdropBlurProgressProvider = { progressiveBackdropBlurProgress },
             onContentLaidOut = onContentLaidOut,
             modifier = Modifier.fillMaxSize(),
             content = { contentModifier ->
@@ -1222,20 +1722,58 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
                     content(
                         contentModifier.drawWithContent {
                             val phase = motionState.phase
-                            if (phase == HomeAnchoredOverlayPhase.Preparing ||
-                                phase == HomeAnchoredOverlayPhase.Open
+                            if (phase == HomeAnchoredOverlayPhase.Preparing &&
+                                preparingContentRecorded.compareAndSet(false, true)
                             ) {
                                 personalizeContentLayer.record {
                                     this@drawWithContent.drawContent()
                                 }
+                                personalizeBlurredContentLayer.record(
+                                    size = IntSize(
+                                        size.width.roundToInt().coerceAtLeast(1),
+                                        size.height.roundToInt().coerceAtLeast(1)
+                                    )
+                                ) {
+                                    drawLayer(personalizeContentLayer)
+                                }
+                                personalizeBlurredContentLayer.renderEffect = fixedContentBlurEffect
+                                onContentRecorded()
                             }
                             if (phase == HomeAnchoredOverlayPhase.Open) {
-                                // Live controls own the stable Open state. Drawing them directly
-                                // avoids a record/read hazard at the final animation frame while the
-                                // recording above remains current for a later Closing transition.
+                                preparingContentRecorded.set(true)
+                                closingBlurRecorded.set(false)
+                                // Open is a live, interactive state. Do not re-record the entire
+                                // settings tree on every slider/preview frame; the Preparing layer
+                                // is retained for the next close and the live tree is drawn once.
                                 this@drawWithContent.drawContent()
                             } else {
-                                drawLayer(personalizeContentLayer)
+                                if (phase == HomeAnchoredOverlayPhase.Closing &&
+                                    closingBlurRecorded.compareAndSet(false, true)
+                                ) {
+                                    personalizeContentLayer.record {
+                                        this@drawWithContent.drawContent()
+                                    }
+                                    personalizeBlurredContentLayer.record(
+                                        size = IntSize(
+                                            size.width.roundToInt().coerceAtLeast(1),
+                                            size.height.roundToInt().coerceAtLeast(1)
+                                        )
+                                    ) {
+                                        drawLayer(personalizeContentLayer)
+                                    }
+                                    personalizeBlurredContentLayer.renderEffect = fixedContentBlurEffect
+                                }
+                                val blurMix = (
+                                    1f - homeMorphSmoothStep(
+                                        0.42f,
+                                        0.98f,
+                                        geometry.value.expansionProgress
+                                    )
+                                    ).coerceIn(0f, 1f)
+                                personalizeContentLayer.alpha = 1f - blurMix
+                                personalizeBlurredContentLayer.alpha = blurMix
+                                if (blurMix < 0.999f) drawLayer(personalizeContentLayer)
+                                if (blurMix > 0.001f) drawLayer(personalizeBlurredContentLayer)
                             }
                         }
                     )
@@ -1293,6 +1831,7 @@ private fun DeferredHomePersonalizeMorphPanel(
     targetHeight: androidx.compose.ui.unit.Dp,
     shape: Shape,
     progressiveBlur: Boolean,
+    warmupBackdropEffects: Boolean,
     surfaceAlphaProvider: () -> Float,
     contentAlphaProvider: () -> Float,
     contentBlurRadiusPxProvider: () -> Float,
@@ -1307,8 +1846,10 @@ private fun DeferredHomePersonalizeMorphPanel(
     } else {
         Color(0xFF121212).copy(alpha = 0.30f)
     }
-    val showSurface by remember(surfaceAlphaProvider, backdrop) {
-        derivedStateOf { backdrop == null || surfaceAlphaProvider() > 0.005f }
+    val showSurface by remember(surfaceAlphaProvider, backdrop, warmupBackdropEffects) {
+        derivedStateOf {
+            warmupBackdropEffects || backdrop == null || surfaceAlphaProvider() > 0.005f
+        }
     }
 
     Box(modifier) {
@@ -1320,9 +1861,17 @@ private fun DeferredHomePersonalizeMorphPanel(
                         shape = shape,
                         surfaceColor = surfaceColor,
                         blurProgressProvider = backdropBlurProgressProvider,
+                        warmupBackdropEffects = warmupBackdropEffects,
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = surfaceAlphaProvider() }
+                            .graphicsLayer {
+                                val visibleAlpha = surfaceAlphaProvider()
+                                alpha = if (warmupBackdropEffects) {
+                                    max(visibleAlpha, 0.001f)
+                                } else {
+                                    visibleAlpha
+                                }
+                            }
                     )
                 } else {
                     LiquidPanel(
@@ -1385,10 +1934,13 @@ private fun DeferredProgressivePersonalizeSurface(
     shape: Shape,
     surfaceColor: Color,
     blurProgressProvider: () -> Float,
+    warmupBackdropEffects: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val showBackdropPass by remember(blurProgressProvider) {
-        derivedStateOf { blurProgressProvider().coerceIn(0f, 1f) > 0.005f }
+    val showBackdropPass by remember(blurProgressProvider, warmupBackdropEffects) {
+        derivedStateOf {
+            warmupBackdropEffects || blurProgressProvider().coerceIn(0f, 1f) > 0.005f
+        }
     }
     Box(
         modifier = modifier.graphicsLayer {
@@ -1400,7 +1952,12 @@ private fun DeferredProgressivePersonalizeSurface(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = blurProgressProvider().coerceIn(0f, 1f) }
+                    .graphicsLayer {
+                        val progress = blurProgressProvider().coerceIn(0f, 1f)
+                        // Preparing compiles the real blur path without producing a visible
+                        // pre-flash. The normal Opening alpha begins on the next frame.
+                        alpha = if (warmupBackdropEffects) 0.001f else progress
+                    }
                     .drawPlainBackdrop(
                         backdrop = backdrop,
                         shape = { shape },
@@ -1492,8 +2049,6 @@ internal fun HomeAddMenuMorphPanel(
     surfaceAlphaProvider: () -> Float,
     contentAlphaProvider: () -> Float,
     contentBlurRadiusPxProvider: () -> Float = { 0f },
-    contentScaleXProvider: () -> Float = { 1f },
-    contentScaleYProvider: () -> Float = { 1f },
     externalHighlightedIndex: Int = -1,
     interactive: Boolean,
     shape: Shape,
@@ -1502,9 +2057,17 @@ internal fun HomeAddMenuMorphPanel(
     var highlightedIndex by remember { mutableIntStateOf(-1) }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val haptic = LocalHapticFeedback.current
-    val itemStepPx = with(density) { 44.dp.toPx() }
-    val modeHeightPx = with(density) { 60.dp.toPx() }
-    val actionTopPx = with(density) { 73.dp.toPx() }
+    val itemStepPx = with(density) {
+        (HomeAddMenuActionItemHeightDp + HomeAddMenuActionGapDp).dp.toPx()
+    }
+    val contentTopPaddingPx = with(density) { HomeAddMenuContentTopPaddingDp.dp.toPx() }
+    val modeHeightPx = with(density) { HomeAddMenuModeHeightDp.dp.toPx() }
+    val actionTopPx = with(density) {
+        (
+            HomeAddMenuModeHeightDp + HomeAddMenuSectionGapDp * 2f +
+                HomeAddMenuDividerHeightDp
+            ).dp.toPx()
+    }
     val lightGlass = glassUsesLightStyle(config)
     val textColor = glassForegroundColor(config)
     val showSurface by remember(surfaceAlphaProvider, backdrop) {
@@ -1516,7 +2079,7 @@ internal fun HomeAddMenuMorphPanel(
         // Keep one continuous action hit region below the mode switch. The divider is decoration,
         // not a separate pointer target, and row spacing is assigned to the preceding row.
         return homeAddMenuHitIndex(
-            y = y,
+            y = y - contentTopPaddingPx,
             modeHeight = modeHeightPx,
             actionTop = actionTopPx,
             actionStep = itemStepPx,
@@ -1556,7 +2119,8 @@ internal fun HomeAddMenuMorphPanel(
                     val index = highlightedIndex
                     highlightedIndex = -1
                     if (completedNormally) {
-                        if (lastPosition.y <= modeHeightPx) {
+                        val innerY = lastPosition.y - contentTopPaddingPx
+                        if (innerY in 0f..modeHeightPx) {
                             val targetMode = if (lastPosition.x < size.width / 2f) {
                                 HomeMode.Day
                             } else {
@@ -1611,9 +2175,6 @@ internal fun HomeAddMenuMorphPanel(
                 .graphicsLayer {
                     val contentAlpha = contentAlphaProvider()
                     alpha = contentAlpha
-                    scaleX = contentScaleXProvider().coerceIn(0.01f, 1f)
-                    scaleY = contentScaleYProvider().coerceIn(0.01f, 1f)
-                    transformOrigin = TransformOrigin.Center
                     val blurPx = if (contentAlpha > 0.01f) {
                         contentBlurRadiusPxProvider()
                     } else {
@@ -1632,7 +2193,7 @@ internal fun HomeAddMenuMorphPanel(
                 }
                 .padding(
                     start = (HomeAddMenuConcentricInsetDp - HomeAddMenuActionColumnInsetDp).dp,
-                    top = 8.dp,
+                    top = HomeAddMenuContentTopPaddingDp.dp,
                     end = (HomeAddMenuConcentricInsetDp - HomeAddMenuActionColumnInsetDp).dp,
                     bottom = (HomeAddMenuConcentricInsetDp - HomeAddMenuSelectionVerticalInsetDp).dp
                 )
@@ -1641,34 +2202,34 @@ internal fun HomeAddMenuMorphPanel(
             CompositionLocalProvider(LocalContentColor provides textColor) {
                 Row(
                     modifier = Modifier
-                        .width(154.dp)
+                        .width(134.dp)
                         .align(Alignment.CenterHorizontally)
-                        .height(60.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        .height(HomeAddMenuModeHeightDp.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     ModeTile(HomeMode.Day, R.drawable.ic_day_view, "日视图")
                     ModeTile(HomeMode.Week, R.drawable.ic_week_view, "周视图")
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(HomeAddMenuSectionGapDp.dp))
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 18.dp)
-                        .height(1.dp)
+                        .padding(horizontal = 16.dp)
+                        .height(HomeAddMenuDividerHeightDp.dp)
                         .background(textColor.copy(alpha = 0.14f))
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(HomeAddMenuSectionGapDp.dp))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = HomeAddMenuActionColumnInsetDp.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    verticalArrangement = Arrangement.spacedBy(HomeAddMenuActionGapDp.dp)
                 ) {
                     actions.forEachIndexed { index, action ->
                         AddMenuLiquidItem(
                             config = config,
                             action = action,
-                            itemHeight = 42.dp,
+                            itemHeight = HomeAddMenuActionItemHeightDp.dp,
                             highlighted = externalHighlightedIndex == index ||
                                 highlightedIndex == index
                         )
@@ -1680,7 +2241,7 @@ internal fun HomeAddMenuMorphPanel(
 
     Box(
         modifier = modifier,
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.TopEnd
     ) {
         if (showSurface) {
             val surfaceModifier = Modifier
@@ -1725,7 +2286,7 @@ internal fun HomeAddMenuMorphPanel(
     }
 }
 
-private fun lerpHomeMorph(start: Float, stop: Float, fraction: Float): Float {
+internal fun lerpHomeMorph(start: Float, stop: Float, fraction: Float): Float {
     val safe = fraction.coerceIn(0f, 1f)
     return start + (stop - start) * safe
 }

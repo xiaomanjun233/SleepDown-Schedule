@@ -29,6 +29,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme"
@@ -140,6 +141,16 @@
             android:exported="false"
             android:theme="@style/AppTheme"
             android:parentActivityName=".MainActivity" />
+        <activity
+            android:name=".CourseManagementActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".MainActivity" />
+        <activity
+            android:name=".CourseManagementDetailActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".CourseManagementActivity" />
         <activity
             android:name=".EduSchoolSelectActivity"
             android:exported="false"
