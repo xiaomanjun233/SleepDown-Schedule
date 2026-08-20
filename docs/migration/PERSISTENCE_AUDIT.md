@@ -153,7 +153,7 @@ Room 类型转换器还负责：课程 `periods/weeks` 列表 JSON、`WeekParity
 | `sleepdown_ai_import_key` | 加密 AI provider API key | `DO_NOT_MIGRATE` |
 | `sleepdown_edu_login_history_key` | 加密教务登录历史 JSON（含 Cookie） | `DO_NOT_MIGRATE` |
 
-两者都是 Android Keystore 中的 AES/GCM key。密文、IV、alias 名称和原始 key 都不能写入普通备份；导入后通过设置页重新输入 API key、重新登录教务系统。`ManagedFreeAiCredentials.apiKey()` 是应用自身的 bundled credential，也不是用户备份字段。
+两者都是 Android Keystore 中的 AES/GCM key。密文、IV、alias 名称和原始 key 都不能写入普通备份；导入后通过设置页重新输入用户自定义 API key、重新登录教务系统。官方免费 AI 配置由后端远程下发，本地只缓存服务端密文及其有效期，不持久化或备份明文 API key。
 
 ### 6.4 不随应用数据迁移的系统状态
 

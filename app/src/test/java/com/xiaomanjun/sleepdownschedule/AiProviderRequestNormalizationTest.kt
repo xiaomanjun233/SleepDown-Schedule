@@ -67,6 +67,17 @@ class AiProviderRequestNormalizationTest {
         assertTrue(normalized.supportsPdfDirect)
     }
 
+    @Test
+    fun backendPublishedResponsesUrlIsNormalizedBeforeAppendingEndpoint() {
+        assertEquals(
+            "https://api.example.com/v1",
+            normalizeAiBaseUrlForProvider(
+                AiProviderPresets.dailyFree.id,
+                "https://api.example.com/v1/responses"
+            )
+        )
+    }
+
     private fun providerConfig(
         providerId: String,
         baseUrl: String,

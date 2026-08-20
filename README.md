@@ -154,6 +154,10 @@ CourseSchedule/
 
 本项目对第三方代码的引用和修改范围见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
+## 开发协作
+
+本项目部分代码分析、实现、测试与文档整理由 OpenAI Codex 协助完成，最终内容由项目作者审阅并发布。
+
 ## 许可证
 
 本项目采用 [SleepDown 署名非商业、源码可见许可 1.1](LICENSE.md)，**不是 OSI 定义的开源软件**。

@@ -27,7 +27,7 @@ object AgentSettingRegistry {
         AgentSettingDefinition("NOTIFICATION_MODE", "课程提醒样式", "STANDARD/LIVE_UPDATE", "NOTIFICATIONS"),
         AgentSettingDefinition("REALTIME_ACTIVITY", "实时活动通知样式", "true/false", "NOTIFICATIONS"),
         AgentSettingDefinition("LIVE_UPDATE_ACTIONS_ENABLED", "实时活动内操作按钮", "true/false", "NOTIFICATIONS"),
-        AgentSettingDefinition("LIVE_UPDATE_CHIP_TEXT", "实时活动缩略文字", "LOCATION/COUNTDOWN/SHORT/NORMAL", "NOTIFICATIONS"),
+        AgentSettingDefinition("LIVE_UPDATE_CHIP_TEXT", "实时活动缩略文字", "LOCATION/COUNTDOWN/NORMAL", "NOTIFICATIONS"),
         AgentSettingDefinition("FOLLOW_SYSTEM_DARK_MODE", "跟随系统深浅模式", "true/false", "GENERAL"),
         AgentSettingDefinition("DARK_MODE", "应用深色模式（关闭跟随后生效）", "true/false", "GENERAL"),
         AgentSettingDefinition("HIDE_FROM_RECENTS", "从最近任务隐藏", "true/false", "GENERAL"),
@@ -170,7 +170,11 @@ object AgentSettingRegistry {
             "COURSE_CARD_FONT_PERCENT" -> raw.floatIn(80f, 135f)
             "WEEK_CARD_HEIGHT_DP" -> raw.floatIn(38f, 80f)
             "COURSE_CARD_COLOR" -> normalizeColor(raw)
-            "LIVE_UPDATE_CHIP_TEXT" -> raw.uppercase().takeIf { it in setOf("LOCATION", "COUNTDOWN", "SHORT", "NORMAL") }
+            "LIVE_UPDATE_CHIP_TEXT" -> when (raw.uppercase()) {
+                "SHORT" -> "NORMAL"
+                "LOCATION", "COUNTDOWN", "NORMAL" -> raw.uppercase()
+                else -> null
+            }
             "NOTIFICATION_MODE" -> raw.uppercase().takeIf { it in setOf("STANDARD", "LIVE_UPDATE") }
             "HOME_TEXT_STYLE" -> raw.uppercase().takeIf { it in setOf("LIGHT", "DARK") }
             "DEFAULT_WALLPAPER_STYLE" -> raw.uppercase().takeIf { it in setOf("KANBAN", "NONE") }

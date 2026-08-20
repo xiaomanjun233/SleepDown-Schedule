@@ -77,4 +77,18 @@ class CourseEditorGroupingTest {
             conflictWeeksForEditedCourseGroup(listOf(original), listOf(moved), listOf(original, other))
         )
     }
+
+    @Test
+    fun singleCourseMovedToAnotherWeekdayKeepsItsDatabaseId() {
+        val original = course(41, weekday = 1, weeks = listOf(1, 2, 3))
+
+        assertEquals(
+            41L,
+            courseEditorOriginalForWeekday(
+                originals = listOf(original),
+                weekday = 5,
+                selectedWeekdayCount = 1
+            )?.id
+        )
+    }
 }

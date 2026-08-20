@@ -21,6 +21,41 @@ class AppDatabaseMigrationTest {
     )
 
     @Test
+    fun migrate36To37PreservesCoursesAndAddsExactTimeAndColorColumns() {
+        helper.createDatabase(TEST_DATABASE, 36).use { database ->
+            database.execSQL(
+                """
+                INSERT INTO courses (
+                    id, name, teacher, location, weekday, periods, weeks,
+                    weekParity, note, scheduleId
+                ) VALUES (
+                    42, '数据结构', '张老师', 'A101', 2, '[1,2]', '[1,2,3]',
+                    'ALL', '升级后保留', 7
+                )
+                """.trimIndent()
+            )
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            APP_DATABASE_VERSION,
+            true,
+            *APP_DATABASE_MIGRATIONS.toTypedArray()
+        ).use { database ->
+            assertSingleText(database, "SELECT name FROM courses WHERE id = 42", "数据结构")
+            assertSingleValue(database, "SELECT scheduleId FROM courses WHERE id = 42", 7)
+            database.query(
+                "SELECT customStartTime, customEndTime, customColorArgb FROM courses WHERE id = 42"
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(true, cursor.isNull(0))
+                assertEquals(true, cursor.isNull(1))
+                assertEquals(true, cursor.isNull(2))
+            }
+        }
+    }
+
+    @Test
     fun migrate32To34PreservesUserScheduleData() {
         helper.createDatabase(TEST_DATABASE, 32).use { database ->
             database.execSQL(

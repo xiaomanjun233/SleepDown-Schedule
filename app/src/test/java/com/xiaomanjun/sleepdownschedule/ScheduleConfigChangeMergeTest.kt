@@ -6,6 +6,20 @@ import org.junit.Test
 
 class ScheduleConfigChangeMergeTest {
     @Test
+    fun newSchedulesDefaultToCenteredDock() {
+        val converters = ScheduleConverters()
+        assertEquals(DockAlignment.CENTER, defaultConfig().dockAlignment)
+        assertEquals(
+            DockAlignment.CENTER,
+            converters.stringToDockAlignment("UNKNOWN")
+        )
+        assertEquals(
+            LiveUpdateChipTextMode.NORMAL,
+            converters.stringToLiveUpdateChipTextMode("SHORT")
+        )
+    }
+
+    @Test
     fun tabletRootSelectionAlwaysClearsNestedDetailRoute() {
         val liquidGlass = TabletSettingsNavigationState()
             .pushDetail(SettingsPage.LiquidGlass)

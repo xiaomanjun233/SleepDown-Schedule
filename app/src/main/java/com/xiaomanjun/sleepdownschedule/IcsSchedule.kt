@@ -169,7 +169,9 @@ object IcsScheduleCodec {
                 appendLine("X-SLEEPDOWN-PERIOD:${period.periodIndex},${period.startTime},${period.endTime}")
             }
             courses.sortedWith(compareBy<CourseEntity> { it.weekday }.thenBy { it.name }).forEach { course ->
-                val ranges = contiguousPeriodRanges(course.periods, periodsByIndex)
+                val ranges = course.customTimeRangeOrNull()?.let { (start, end) ->
+                    listOf(IcsPeriodRange(course.periods.distinct().sorted(), start, end))
+                } ?: contiguousPeriodRanges(course.periods, periodsByIndex)
                 course.weeks.distinct().sorted()
                     .filter { it in 1..config.totalWeeks && parityMatches(course.weekParity, it) }
                     .forEach { week ->

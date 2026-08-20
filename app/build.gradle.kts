@@ -18,6 +18,7 @@ val releaseStoreFilePath = releaseSecret("sleepdown.releaseStoreFile", "SLEEPDOW
 val releaseStorePassword = releaseSecret("sleepdown.releaseStorePassword", "SLEEPDOWN_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = releaseSecret("sleepdown.releaseKeyAlias", "SLEEPDOWN_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseSecret("sleepdown.releaseKeyPassword", "SLEEPDOWN_RELEASE_KEY_PASSWORD")
+val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOWN_REMOTE_CONFIG_SECRET").orEmpty()
 val hasReleaseSigning = listOf(
     releaseStoreFilePath,
     releaseStorePassword,
@@ -64,6 +65,7 @@ android {
         versionCode = 26
         versionName = "1.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "SLEEPDOWN_API_BASE_URL", "\"https://api.sleepdownschedule.cn\"")
     }
 
     sourceSets {
@@ -85,12 +87,16 @@ android {
     buildTypes {
         getByName("debug") {
             applicationIdSuffix = ".debug"
+            buildConfigField("String", "SLEEPDOWN_REMOTE_CONFIG_SECRET", "\"\"")
+            buildConfigField("boolean", "SLEEPDOWN_REMOTE_AI_ENABLED", "false")
         }
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             signingConfig = signingConfigs.findByName("release")
+            buildConfigField("String", "SLEEPDOWN_REMOTE_CONFIG_SECRET", "\"$remoteConfigSecret\"")
+            buildConfigField("boolean", "SLEEPDOWN_REMOTE_AI_ENABLED", remoteConfigSecret.isNotBlank().toString())
         }
         create("benchmark") {
             initWith(getByName("release"))

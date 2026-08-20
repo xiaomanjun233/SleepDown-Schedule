@@ -111,6 +111,48 @@ class CourseConflictResolutionTest {
         assertFalse(first.conflictsWith(course(4, periods = listOf(4), weeks = listOf(1)), 1))
     }
 
+    @Test
+    fun `new course conflict check reports overlapping weeks before insertion`() {
+        val existing = course(8, periods = listOf(2), weeks = listOf(1, 3))
+        val added = course(0, periods = listOf(2), weeks = listOf(1, 2, 3))
+
+        assertEquals(
+            listOf(1, 3),
+            conflictWeeksForAddedCourses(listOf(added), listOf(existing))
+        )
+    }
+
+    @Test
+    fun `custom time conflicts use exact clock overlap instead of anchor periods`() {
+        val definitions = listOf(
+            PeriodEntity(1, "08:00", "08:45"),
+            PeriodEntity(2, "08:55", "09:40")
+        )
+        val existing = course(8, periods = listOf(1), weeks = listOf(1))
+        val inBreak = course(0, periods = listOf(1), weeks = listOf(1)).copy(
+            customStartTime = "08:46",
+            customEndTime = "08:54"
+        )
+        val overlapping = inBreak.copy(customStartTime = "08:30", customEndTime = "09:00")
+
+        assertEquals(
+            emptyList<Int>(),
+            conflictWeeksForAddedCourses(listOf(inBreak), listOf(existing), definitions)
+        )
+        assertEquals(
+            listOf(1),
+            conflictWeeksForAddedCourses(listOf(overlapping), listOf(existing), definitions)
+        )
+
+        val groups = buildWeekConflictGroups(
+            courses = listOf(existing, inBreak),
+            periodIndexes = definitions.map(PeriodEntity::periodIndex),
+            periodDefinitions = definitions
+        )
+        assertEquals(2, groups.size)
+        assertFalse(groups.any(WeekConflictGroup::hasConflict))
+    }
+
     private fun course(
         id: Long,
         periods: List<Int>,

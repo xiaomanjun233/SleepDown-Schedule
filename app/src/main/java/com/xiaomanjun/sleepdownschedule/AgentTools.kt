@@ -541,4 +541,7 @@ private fun agentPeriodResult(facts: DayAgentFacts): String =
 private fun agentCourseLine(course: CourseEntity): String =
     "ID=${course.id} ${course.name}；星期=${course.weekday}；节次=${course.periods.joinToString(",")}" +
         "；周次=${course.weeks.joinToString(",")}；单双周=${course.weekParity}" +
-        "；地点=${course.location ?: "待确认"}；教师=${course.teacher ?: "待确认"}"
+        "；地点=${course.location ?: "待确认"}；教师=${course.teacher ?: "待确认"}" +
+        course.customTimeRangeOrNull()?.let { (start, end) ->
+            "；自定义时间=${start}-${end}（优先于节次默认时间）"
+        }.orEmpty()

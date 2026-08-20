@@ -291,7 +291,10 @@ object BackupExportMapper {
                     periods = course.periods,
                     weeks = course.weeks,
                     weekParity = course.weekParity.name,
-                    note = course.note
+                    note = course.note,
+                    customStartTime = course.customStartTime,
+                    customEndTime = course.customEndTime,
+                    customColorArgb = course.customColorArgb
                 )
             }
             val backupSessions = snapshot.agentDailySessions

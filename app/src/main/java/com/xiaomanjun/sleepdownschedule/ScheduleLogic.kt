@@ -75,7 +75,10 @@ data class ScheduleImportCourse(
     val periods: List<Int>,
     val weeks: List<Int>,
     val weekParity: WeekParityPayload = WeekParityPayload.ALL,
-    val note: String? = null
+    val note: String? = null,
+    val customStartTime: String? = null,
+    val customEndTime: String? = null,
+    val customColorArgb: Long? = null
 )
 
 @Serializable
@@ -344,6 +347,19 @@ object ScheduleImportParser {
             require(course.periods.all { it in validPeriodIndexes }) { "$row 引用了不存在的节次" }
             require(course.weeks.isNotEmpty()) { "$row weeks 不能为空" }
             require(course.weeks.all { it in 1..payload.scheduleConfig.totalWeeks }) { "$row weeks 超出 totalWeeks" }
+            val customStartText = course.customStartTime?.trim()?.ifBlank { null }
+            val customEndText = course.customEndTime?.trim()?.ifBlank { null }
+            require((customStartText == null) == (customEndText == null)) {
+                "$row 自定义开始和结束时间必须同时提供"
+            }
+            if (customStartText != null && customEndText != null) {
+                val customStart = parseTime(customStartText, "$row customStartTime")
+                val customEnd = parseTime(customEndText, "$row customEndTime")
+                require(customStart < customEnd) { "$row 自定义结束时间必须晚于开始时间" }
+            }
+            require(course.customColorArgb == null || course.customColorArgb in 0L..0xFFFFFFFFL) {
+                "$row customColorArgb 必须是有效 ARGB 值"
+            }
             val normalizedWeeks = normalizeImportedWeekSelection(
                 weeks = course.weeks,
                 parity = when (course.weekParity) {
@@ -360,7 +376,10 @@ object ScheduleImportParser {
                 periods = course.periods.distinct().sorted(),
                 weeks = normalizedWeeks.weeks,
                 weekParity = normalizedWeeks.parity,
-                note = course.note?.trim()?.ifBlank { null }
+                note = course.note?.trim()?.ifBlank { null },
+                customStartTime = customStartText,
+                customEndTime = customEndText,
+                customColorArgb = course.customColorArgb
             )
         }
         return ImportDraft(
@@ -417,7 +436,13 @@ object ScheduleImportParser {
                             "E", "EVEN" -> WeekParityPayload.EVEN
                             else -> WeekParityPayload.ALL
                         },
-                        note = tokenText(fields.getOrNull(7))
+                        note = tokenText(fields.getOrNull(7)),
+                        customStartTime = tokenText(fields.getOrNull(8)),
+                        customEndTime = tokenText(fields.getOrNull(9)),
+                        customColorArgb = tokenText(fields.getOrNull(10))?.let { encoded ->
+                            encoded.toLongOrNull()
+                                ?: throw IllegalArgumentException("课程颜色必须是十进制 ARGB")
+                        }
                     )
                 }
             }
@@ -516,7 +541,10 @@ fun buildSleepDownScheduleToken(
                     WeekParity.ODD -> "O"
                     WeekParity.EVEN -> "E"
                 },
-                tokenField(course.note)
+                tokenField(course.note),
+                tokenField(course.customStartTime),
+                tokenField(course.customEndTime),
+                course.customColorArgb?.toString() ?: "-"
             ).joinToString("|")
         }
     return buildString {
@@ -743,21 +771,107 @@ fun parityMatches(parity: WeekParity, week: Int): Boolean = when (parity) {
 }
 
 fun courseStartTime(course: CourseEntity, periods: List<PeriodEntity>): LocalTime? {
+    course.customTimeRangeOrNull()?.let { return it.first }
     val first = course.periods.minOrNull() ?: return null
-    return periods.firstOrNull { it.periodIndex == first }?.startTime?.let { LocalTime.parse(it) }
+    return periods.firstOrNull { it.periodIndex == first }?.startTime?.let {
+        runCatching { LocalTime.parse(it) }.getOrNull()
+    }
 }
 
 fun courseEndTime(course: CourseEntity, periods: List<PeriodEntity>): LocalTime? {
+    course.customTimeRangeOrNull()?.let { return it.second }
     val last = course.periods.maxOrNull() ?: return null
-    return periods.firstOrNull { it.periodIndex == last }?.endTime?.let { LocalTime.parse(it) }
+    return periods.firstOrNull { it.periodIndex == last }?.endTime?.let {
+        runCatching { LocalTime.parse(it) }.getOrNull()
+    }
 }
 
 fun courseTimeLabel(course: CourseEntity, periods: List<PeriodEntity>): String {
+    course.customTimeRangeOrNull()?.let { (start, end) ->
+        return start.toString() + " - " + end.toString()
+    }
     val first = course.periods.minOrNull()
     val last = course.periods.maxOrNull()
     val start = periods.firstOrNull { it.periodIndex == first }?.startTime ?: "--:--"
     val end = periods.firstOrNull { it.periodIndex == last }?.endTime ?: "--:--"
     return start + " - " + end
+}
+
+fun CourseEntity.customTimeRangeOrNull(): Pair<LocalTime, LocalTime>? {
+    val start = customStartTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: return null
+    val end = customEndTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: return null
+    return (start to end).takeIf { end.isAfter(start) }
+}
+
+fun CourseEntity.hasCustomTime(): Boolean = customTimeRangeOrNull() != null
+
+internal fun courseAllowsWeekPeriodDrag(course: CourseEntity): Boolean = !course.hasCustomTime()
+
+/**
+ * Keeps exact-time courses compatible with the existing period-backed grid and notifications.
+ * Every period touched by the exact interval becomes an anchor; if the interval sits completely
+ * inside a break, the nearest period start is used as a stable fallback.
+ */
+fun courseAnchorPeriodsForTimeRange(
+    start: LocalTime,
+    end: LocalTime,
+    periods: List<PeriodEntity>
+): List<Int> {
+    val parsed = periods.mapNotNull { period ->
+        val periodStart = runCatching { LocalTime.parse(period.startTime) }.getOrNull() ?: return@mapNotNull null
+        val periodEnd = runCatching { LocalTime.parse(period.endTime) }.getOrNull() ?: return@mapNotNull null
+        Triple(period.periodIndex, periodStart, periodEnd)
+    }.sortedBy { it.first }
+    val overlaps = parsed.filter { (_, periodStart, periodEnd) -> periodStart < end && periodEnd > start }
+        .map { it.first }
+    if (overlaps.isNotEmpty()) return overlaps
+    val startMinute = start.hour * 60 + start.minute
+    return parsed.minByOrNull { (_, periodStart, _) ->
+        kotlin.math.abs(periodStart.hour * 60 + periodStart.minute - startMinute)
+    }?.let { listOf(it.first) }.orEmpty()
+}
+
+data class WeekExactTimePlacement(
+    val topRows: Float,
+    val heightRows: Float
+)
+
+internal fun exactTimeWeekPlacement(
+    course: CourseEntity,
+    periods: List<PeriodEntity>
+): WeekExactTimePlacement? {
+    val (courseStart, courseEnd) = course.customTimeRangeOrNull() ?: return null
+    val parsed = periods.sortedBy { it.periodIndex }.mapNotNull { period ->
+        val start = runCatching { LocalTime.parse(period.startTime) }.getOrNull() ?: return@mapNotNull null
+        val end = runCatching { LocalTime.parse(period.endTime) }.getOrNull() ?: return@mapNotNull null
+        Triple(period.periodIndex, start, end)
+    }
+    if (parsed.isEmpty()) return null
+
+    fun position(time: LocalTime): Float {
+        if (!time.isAfter(parsed.first().second)) return 0f
+        parsed.forEachIndexed { index, (_, rowStart, rowEnd) ->
+            if (!time.isAfter(rowEnd)) {
+                val rowMinutes = java.time.Duration.between(rowStart, rowEnd).toMinutes().coerceAtLeast(1L)
+                val elapsed = java.time.Duration.between(rowStart, time).toMinutes()
+                return index + (elapsed.toFloat() / rowMinutes.toFloat()).coerceIn(0f, 1f)
+            }
+            val nextStart = parsed.getOrNull(index + 1)?.second
+            if (nextStart == null || time.isBefore(nextStart)) {
+                // Breaks have no dedicated grid height. Collapse them onto the boundary between
+                // two period rows while keeping every in-period minute continuously mappable.
+                return (index + 1).toFloat()
+            }
+        }
+        return parsed.size.toFloat()
+    }
+
+    val top = position(courseStart).coerceIn(0f, parsed.size.toFloat())
+    val bottom = position(courseEnd).coerceIn(top, parsed.size.toFloat())
+    return WeekExactTimePlacement(
+        topRows = top,
+        heightRows = (bottom - top).coerceAtLeast(0f)
+    )
 }
 
 fun parityLabel(parity: WeekParity): String = when (parity) {
@@ -1033,7 +1147,7 @@ object NotificationScheduler {
     private fun buildLiveUpdateNotification(context: Context, name: String, timeText: String, location: String, minutesLeft: Int, showActions: Boolean, muteKey: String, muteUntil: String, chipTextMode: LiveUpdateChipTextMode): android.app.Notification {
         val placeText = location.ifBlank { "未设置地点" }
         val countdownText = if (minutesLeft <= 0) "准备上课" else "还剩${minutesLeft}分钟"
-        val shortText = liveUpdateChipText(chipTextMode, placeText, countdownText, minutesLeft)
+        val shortText = liveUpdateChipText(chipTextMode, name, placeText, minutesLeft)
         // Chip text is strictly a compact/island presentation choice. The
         // expanded notification always keeps the same complete course content.
         val titleText = name
@@ -1094,10 +1208,20 @@ object NotificationScheduler {
         runCatching {
             builder.extras.putBoolean("android.requestPromotedOngoing", true)
         }
+        // Android's promoted chip API is String on some releases and CharSequence on newer
+        // releases. Prefer the latter so the urgency-colored number and white unit can survive
+        // where the platform supports spans, then keep the plain-string fallback for old builds.
         runCatching {
             builder.javaClass
-                .getMethod("setShortCriticalText", String::class.java)
+                .getMethod("setShortCriticalText", CharSequence::class.java)
                 .invoke(builder, shortText)
+        }.recoverCatching {
+            builder.javaClass
+                .getMethod("setShortCriticalText", String::class.java)
+                .invoke(builder, shortText.toString())
+        }
+        runCatching {
+            builder.extras.putCharSequence("android.shortCriticalText", shortText)
         }
         return builder.build().also { notification ->
             val promotable = runCatching {
@@ -1110,14 +1234,27 @@ object NotificationScheduler {
         }
     }
 
-    private fun liveUpdateChipText(mode: LiveUpdateChipTextMode, placeText: String, countdownText: String, minutesLeft: Int): String {
-        val shortLabel = if (minutesLeft <= 0) "上课中" else "快上课"
+    private fun liveUpdateChipText(
+        mode: LiveUpdateChipTextMode,
+        courseName: String,
+        placeText: String,
+        minutesLeft: Int
+    ): CharSequence {
         return when (mode) {
-            LiveUpdateChipTextMode.SHORT -> shortLabel
-            LiveUpdateChipTextMode.COUNTDOWN -> countdownText
-            LiveUpdateChipTextMode.LOCATION,
-            LiveUpdateChipTextMode.NORMAL -> placeText
+            LiveUpdateChipTextMode.COUNTDOWN -> liveUpdateCountdownChipText(minutesLeft)
+            LiveUpdateChipTextMode.LOCATION -> placeText
+            // SHORT remains readable for old persisted settings, but no longer exposes a short
+            // label. Both legacy SHORT and the new NORMAL value show the actual course name.
+            LiveUpdateChipTextMode.SHORT,
+            LiveUpdateChipTextMode.NORMAL -> courseName
         }
+    }
+
+    private fun liveUpdateCountdownChipText(minutesLeft: Int): CharSequence {
+        val safeMinutes = minutesLeft.coerceAtLeast(0)
+        // Keep the island text plain. Some promoted-notification renderers reject or partially
+        // preserve spans in shortCriticalText, which made the countdown fail to render normally.
+        return "${safeMinutes}分钟"
     }
 
     private fun minutesUntil(timeText: String): Int {

@@ -74,6 +74,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
@@ -191,7 +192,6 @@ import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.TransformOrigin
@@ -240,6 +240,7 @@ import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.backdrop.catalog.components.LiquidSlider
 import com.kyant.backdrop.catalog.components.LiquidToggle
+import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
@@ -270,6 +271,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
@@ -283,6 +286,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.pow
 import kotlin.math.sqrt
 import kotlin.math.ceil
@@ -305,7 +309,6 @@ internal fun SinglePillWeekScheduleScreen(
     onSwipeWeek: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     weekEditMode: Boolean = false,
-    personalizeVisible: Boolean = false,
     onEnterWeekEditMode: () -> Unit = {},
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     conflictFocusCourseId: Long? = null,
@@ -314,7 +317,11 @@ internal fun SinglePillWeekScheduleScreen(
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit
 ) {
-    val rowHeaderWidth = if (adaptiveMetrics.isLargeScreen) 56.dp else 52.dp
+    // Keep the period rail and the weekday grid on one shared horizontal geometry. The phone
+    // rail used to be 52dp, which left little breathing room around HH:mm labels and made the
+    // course columns look slightly left-heavy. The wider rail moves the complete card grid as a
+    // unit while the header below derives its leading slot from the exact same boundary.
+    val rowHeaderWidth = 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
     val now = LocalTime.now()
@@ -352,7 +359,11 @@ internal fun SinglePillWeekScheduleScreen(
         0.dp
     }
     val weekGridEndPadding = if (adaptiveMetrics.isLargeScreen) 0.dp else 8.dp
-    val weekHeaderLabelsEndPadding = if (adaptiveMetrics.isLargeScreen) 0.dp else 4.dp
+    val weekHeaderOuterHorizontalPadding = 4.dp
+    val weekHeaderLeadingSlotWidth =
+        (rowHeaderWidth - weekHeaderOuterHorizontalPadding).coerceAtLeast(0.dp)
+    val weekHeaderLabelsEndPadding =
+        (weekGridEndPadding - weekHeaderOuterHorizontalPadding).coerceAtLeast(0.dp)
     val transitionTravelWidth = if (adaptiveMetrics.isLargeScreen) {
         (
             adaptiveMetrics.screenWidth - horizontalContentStartPadding -
@@ -458,7 +469,10 @@ internal fun SinglePillWeekScheduleScreen(
         onContentUnderTopBarChange(contentUnderTopBar)
     }
     var overlayHostBounds by remember { mutableStateOf<Rect?>(null) }
-    val weekEditOverlay = rememberWeekEditOverlayController(scrollState)
+    val weekEditOverlay = rememberWeekEditOverlayController(
+        scrollState = scrollState,
+        scheduleId = state.config.id
+    )
     val stationaryCoursesBackdrop = rememberLayerBackdrop()
     val needsStationaryCoursesBackdrop = weekEditMode || weekEditOverlay.request != null
     val floatingSamplingBase = floatingCourseBackdrop ?: backdrop
@@ -469,17 +483,47 @@ internal fun SinglePillWeekScheduleScreen(
     }
     val overlayScreenHeightPx = with(density) { adaptiveMetrics.screenHeight.toPx() }
     val overlayEdgePx = with(density) { if (adaptiveMetrics.isLargeScreen) 64.dp.toPx() else 88.dp.toPx() }
-    LaunchedEffect(displayWeek, weekEditMode) {
+    // Keep a small cross-axis drawing gutter around HorizontalPager while edit chrome is visible.
+    // The first-row delete pill can then overlap the weekday header instead of being clipped or
+    // pushed into the course card. Retain it briefly for the exit scale/fade as well.
+    var retainEditControlOverflow by remember { mutableStateOf(weekEditMode) }
+    LaunchedEffect(weekEditMode) {
+        if (weekEditMode) {
+            retainEditControlOverflow = true
+        } else {
+            delay(150)
+            retainEditControlOverflow = false
+        }
+    }
+    // Keep equal drawing/scrolling room on both sides while edit chrome is visible. The
+    // previous top-only gutter protected the first-row delete pill but left the last-row card
+    // and resize handle inside the pager's clip boundary, so the final grid cell could neither
+    // be reached reliably nor be shown completely during the edit-mode entrance frame.
+    val editControlOverflow = if (retainEditControlOverflow) 12.dp else 0.dp
+    LaunchedEffect(state.config.id, displayWeek, weekEditMode) {
         if (!weekEditMode) weekEditOverlay.clear()
     }
-    LaunchedEffect(state.courses, displayWeek) {
-        if (weekEditOverlay.awaitingCommit) {
-            withFrameNanos { }
-            delay(if (weekEditOverlay.request?.mode == WeekEditOverlayMode.Resize) 180 else 90)
-            weekEditOverlay.clear()
+    LaunchedEffect(
+        state.courses,
+        displayWeek,
+        weekEditOverlay.committedTargetKey,
+        weekEditOverlay.committedTargetWeek
+    ) {
+        if (weekEditCommitTargetPresent(
+                courses = state.courses,
+                targetKey = weekEditOverlay.committedTargetKey,
+                targetWeek = weekEditOverlay.committedTargetWeek
+            )
+        ) {
+            // The target card reports its measured bounds through onGloballyPositioned. Waiting for
+            // an unconditional extra frame here made the floating card settle, then visibly hover
+            // while Room/Flow completed the handoff. Mark commit readiness immediately and let the
+            // measured-target gate decide the exact ownership frame.
+            weekEditOverlay.completeCommitHandoff()
         }
     }
 
+    CompositionLocalProvider(LocalWeekEditMotionState provides weekEditOverlay) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -521,13 +565,13 @@ internal fun SinglePillWeekScheduleScreen(
                     modifier = Modifier
                         .height(46.dp)
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                        .padding(horizontal = weekHeaderOuterHorizontalPadding, vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     WeekHeaderPill(headerBackdrop, state.config, selected = false) {
                         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                             Box(
-                                modifier = Modifier.width(rowHeaderWidth - 4.dp).fillMaxHeight(),
+                                modifier = Modifier.width(weekHeaderLeadingSlotWidth).fillMaxHeight(),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -557,8 +601,8 @@ internal fun SinglePillWeekScheduleScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(cardHeight * state.periods.size)
-                        .clipToBounds()
+                        .height(cardHeight * state.periods.size + editControlOverflow)
+                        .then(if (retainEditControlOverflow) Modifier else Modifier.clipToBounds())
                 ) {
                     Column(
                         modifier = Modifier
@@ -664,10 +708,15 @@ internal fun SinglePillWeekScheduleScreen(
                         HorizontalPager(
                             state = pagerState,
                             modifier = Modifier
+                                .offset(y = -editControlOverflow)
                                 .fillMaxWidth()
-                                .height(cardHeight * state.periods.size),
+                                .height(cardHeight * state.periods.size + editControlOverflow * 2f),
                             userScrollEnabled = !weekEditMode,
-                            beyondViewportPageCount = if (personalizeVisible) 0 else 1,
+                            // Keep the pager topology stable while a home overlay opens/closes.
+                            // Disposing the adjacent week at the exact frame Personalization
+                            // starts, then rebuilding it on close, competes with the full-screen
+                            // glass/background layers and is visible as a week-only hitch.
+                            beyondViewportPageCount = 1,
                             key = { it }
                         ) { page ->
                             val pageWeek = page + 1
@@ -682,6 +731,8 @@ internal fun SinglePillWeekScheduleScreen(
                             WeekCourseColumnsLayer(
                                 modifier = Modifier.padding(
                                     start = rowHeaderWidth,
+                                    top = editControlOverflow,
+                                    bottom = editControlOverflow,
                                     end = weekGridEndPadding
                                 ),
                                 courses = pageCourses,
@@ -723,21 +774,17 @@ internal fun SinglePillWeekScheduleScreen(
                                 onFinishMoveOverlay = { velocity ->
                                     weekEditOverlay.finishMove(
                                         velocity = velocity,
-                                        periodIndexes = periodIndexes,
-                                        weekdayCount = pageWeekdays.size,
                                         onUpdateCourseSingleWeek = onUpdateCourseSingleWeek
                                     )
                                 },
                                 onFinishResizeOverlay = { velocity ->
                                     weekEditOverlay.finishResize(
                                         velocity = velocity,
-                                        periodIndexes = periodIndexes,
-                                        weekdayCount = pageWeekdays.size,
                                         resizePaddingPx = with(density) { 4.dp.toPx() },
                                         onUpdateCourseSingleWeek = onUpdateCourseSingleWeek
                                     )
                                 },
-                                onCancelWeekEditOverlay = weekEditOverlay::clear,
+                                onCancelWeekEditOverlay = weekEditOverlay::cancelGesture,
                                 onCourseClick = { course, sourceBounds ->
                                     onCourseClick(course, pageWeek, sourceBounds)
                                 }
@@ -755,12 +802,18 @@ internal fun SinglePillWeekScheduleScreen(
             offsetX = weekEditOverlay.offsetX,
             offsetY = weekEditOverlay.offsetY,
             overlayScale = weekEditOverlay.scale,
+            overlayAlpha = weekEditOverlay.alpha * weekEditOverlay.revealProgress,
+            liftProgress = weekEditOverlay.liftProgress,
+            rotation = weekEditOverlay.rotation,
+            pointerPosition = weekEditOverlay.pointerPosition,
+            gestureActive = weekEditOverlay.gestureActive,
             gridOffsetY = weekEditOverlay.gridOffsetY,
             gridScrollCompensationY = weekEditOverlay.gridScrollCompensationY,
             heightPx = weekEditOverlay.height,
             backdrop = liftedCourseBackdrop ?: floatingSamplingBase,
             config = state.config
         )
+    }
     }
 }
 
@@ -771,6 +824,11 @@ private fun WeekEditOverlayHost(
     offsetX: Float,
     offsetY: Float,
     overlayScale: Float,
+    overlayAlpha: Float,
+    liftProgress: Float,
+    rotation: Float,
+    pointerPosition: Offset,
+    gestureActive: Boolean,
     gridOffsetY: Float,
     gridScrollCompensationY: Float,
     heightPx: Float,
@@ -791,22 +849,72 @@ private fun WeekEditOverlayHost(
         windowHeight = windowSize.height
     )
     val cardShape = remember(cardCorner) { RoundedRectangle(cardCorner) }
+    val highlightScope = rememberCoroutineScope()
+    val glowRadiusPx = with(density) { (widthDp * 1.9f).coerceIn(84.dp, 140.dp).toPx() }
+    val dragHighlight = remember(highlightScope, glowRadiusPx) {
+        InteractiveHighlight(
+            animationScope = highlightScope,
+            radius = { glowRadiusPx },
+            ambientAlpha = 0f,
+            spotAlpha = 0.115f,
+            fallbackAlpha = 0.075f
+        )
+    }
+    val localPointer = Offset(pointerPosition.x - host.left, pointerPosition.y - host.top)
+    LaunchedEffect(localPointer, gestureActive) {
+        dragHighlight.updateExternal(localPointer, gestureActive, followPointerExactly = true)
+    }
     val left = req.sourceBounds.left - host.left + offsetX
     val top = req.sourceBounds.top - host.top + offsetY
+    val cardGlowRadiusPx = with(density) { (widthDp * 1.65f).coerceIn(72.dp, 120.dp).toPx() }
+    val cardHighlight = remember(highlightScope, cardGlowRadiusPx) {
+        InteractiveHighlight(
+            animationScope = highlightScope,
+            radius = { cardGlowRadiusPx },
+            ambientAlpha = 0f,
+            spotAlpha = 0.068f,
+            fallbackAlpha = 0.046f
+        )
+    }
+    val liftPx = with(density) { 8.dp.toPx() }
+    val touchTransformOrigin = remember(req.initialPointerPosition, req.sourceBounds) {
+        TransformOrigin(
+            pivotFractionX = (
+                (req.initialPointerPosition.x - req.sourceBounds.left) /
+                    req.sourceBounds.width.coerceAtLeast(1f)
+                ).coerceIn(0f, 1f),
+            pivotFractionY = (
+                (req.initialPointerPosition.y - req.sourceBounds.top) /
+                    req.sourceBounds.height.coerceAtLeast(1f)
+                ).coerceIn(0f, 1f)
+        )
+    }
+    val localCardCenter = Offset(
+        x = left + req.sourceBounds.width / 2f,
+        y = top + heightPx / 2f - liftPx * liftProgress
+    )
+    val cardGlowPressed = gestureActive || liftProgress > 0.01f
+    LaunchedEffect(cardGlowPressed) {
+        cardHighlight.updateExternal(
+            Offset(cardGlowRadiusPx, cardGlowRadiusPx),
+            cardGlowPressed
+        )
+    }
+    val cardGlowDiameterDp = with(density) { (cardGlowRadiusPx * 2f).toDp() }
     val target = when (req.mode) {
         WeekEditOverlayMode.Move -> weekCourseEditTarget(
             periodIndexes = req.periodIndexes,
             weekday = req.dayIndex + (offsetX / req.gridColumnWidthPx).roundToInt(),
             startPeriod = req.periodIndex + (gridOffsetY / req.periodRowHeightPx).roundToInt(),
             span = req.currentSpan,
-            weekdayCount = 7
+            weekdayCount = req.weekdayCount
         )
         WeekEditOverlayMode.Resize -> weekCourseEditTarget(
             periodIndexes = req.periodIndexes,
             weekday = req.dayIndex,
             startPeriod = req.periodIndex,
             span = (heightPx / req.periodRowHeightPx).roundToInt().coerceIn(1, req.maxSpan),
-            weekdayCount = 7
+            weekdayCount = req.weekdayCount
         )
     }
     val previewCourse = when (req.mode) {
@@ -819,16 +927,46 @@ private fun WeekEditOverlayHost(
     val previewTop = req.sourceBounds.top - host.top - gridScrollCompensationY +
         ((target.periods.firstOrNull() ?: req.periodIndex) - req.periodIndex) * req.periodRowHeightPx
     val previewHeight = (req.periodRowHeightPx * target.periods.size.coerceAtLeast(1) - with(density) { 4.dp.toPx() }).coerceAtLeast(with(density) { 18.dp.toPx() })
+    val animatedPreviewLeft by animateFloatAsState(
+        targetValue = previewLeft,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 620f),
+        label = "week-edit-preview-left"
+    )
+    val animatedPreviewTop by animateFloatAsState(
+        targetValue = previewTop,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 620f),
+        label = "week-edit-preview-top"
+    )
+    val animatedPreviewHeight by animateFloatAsState(
+        targetValue = previewHeight,
+        animationSpec = spring(dampingRatio = 0.74f, stiffness = 560f),
+        label = "week-edit-preview-height"
+    )
+    val elevationPx = with(density) { 18.dp.toPx() }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .zIndex(90f)
+            .then(dragHighlight.modifier)
     ) {
         Box(
             modifier = Modifier
-                .offset { IntOffset(previewLeft.roundToInt(), previewTop.roundToInt()) }
+                .offset {
+                    IntOffset(
+                        (localCardCenter.x - cardGlowRadiusPx).roundToInt(),
+                        (localCardCenter.y - cardGlowRadiusPx).roundToInt()
+                    )
+                }
+                .size(cardGlowDiameterDp)
+                .graphicsLayer { alpha = overlayAlpha }
+                .then(cardHighlight.modifier)
+        )
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(animatedPreviewLeft.roundToInt(), animatedPreviewTop.roundToInt()) }
                 .width(widthDp)
-                .height(with(density) { previewHeight.toDp() })
+                .height(with(density) { animatedPreviewHeight.toDp() })
+                .graphicsLayer { alpha = 0.18f + liftProgress * 0.72f }
                 .clip(cardShape)
                 .background(
                     if (conflict) MaterialTheme.colorScheme.error.copy(alpha = 0.32f)
@@ -841,8 +979,21 @@ private fun WeekEditOverlayHost(
                 .width(widthDp)
                 .height(heightDp)
                 .graphicsLayer {
-                    scaleX = overlayScale
-                    scaleY = overlayScale
+                    // A resize handle owns only the lower edge: keep the top edge and width fixed
+                    // instead of applying the move gesture's two-axis lifted scale around the
+                    // fingertip. The card can therefore grow/shrink in exactly one direction.
+                    transformOrigin = if (req.mode == WeekEditOverlayMode.Resize) {
+                        TransformOrigin(0.5f, 0f)
+                    } else {
+                        touchTransformOrigin
+                    }
+                    scaleX = if (req.mode == WeekEditOverlayMode.Resize) 1f else overlayScale
+                    scaleY = if (req.mode == WeekEditOverlayMode.Resize) 1f else overlayScale
+                    translationY = -liftPx * liftProgress
+                    rotationZ = rotation
+                    alpha = overlayAlpha
+                    shadowElevation = elevationPx * liftProgress
+                    shape = cardShape
                 }
         ) {
             CourseGlassCard(
@@ -1311,8 +1462,8 @@ fun WeekDayColumn(
     onCancelWeekEditOverlay: () -> Unit = {}
 ) {
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
-    val conflictGroups = remember(courses, periodIndexes) {
-        buildWeekConflictGroups(courses, periodIndexes)
+    val conflictGroups = remember(courses, periodIndexes, periods) {
+        buildWeekConflictGroups(courses, periodIndexes, periods)
     }
     Box(
         modifier = Modifier
@@ -1329,9 +1480,14 @@ fun WeekDayColumn(
                         it.occurrenceOverrideKey() == conflictFocusCourseKey
                 }
                 ?: group.courses.first()
-            group.segments
+            val visibleSegments = group.segments
                 .filter { it.course.id == visibleCourse.id }
-                .forEach { segment ->
+            val renderedSegments = if (visibleCourse.hasCustomTime()) {
+                visibleSegments.minByOrNull { it.startPosition }?.let(::listOf).orEmpty()
+            } else {
+                visibleSegments
+            }
+            renderedSegments.forEach { segment ->
                     val underlyingSegment = group.segments
                         .asSequence()
                         .filter { it.course.id != visibleCourse.id }
@@ -1345,11 +1501,18 @@ fun WeekDayColumn(
                                 .thenBy { it.course.id }
                         )
                         .firstOrNull()
-                    val segmentHeight = (cardHeight * segment.span.toFloat() - 4.dp)
-                        .coerceAtLeast(18.dp)
+                    val exactPlacement = exactTimeWeekPlacement(segment.course, periods)
+                    val segmentTopRows = exactPlacement?.topRows ?: segment.startPosition.toFloat()
+                    val segmentHeightRows = exactPlacement?.heightRows ?: segment.span.toFloat()
+                    val segmentHeight = if (exactPlacement != null) {
+                        (cardHeight * segmentHeightRows).coerceAtLeast(1.dp)
+                    } else {
+                        (cardHeight * segmentHeightRows - 4.dp).coerceAtLeast(18.dp)
+                    }
+                    val segmentTopInset = if (exactPlacement != null) 0.dp else 2.dp
                     Box(
                         modifier = Modifier
-                            .offset(y = cardHeight * segment.startPosition.toFloat() + 2.dp)
+                            .offset(y = cardHeight * segmentTopRows + segmentTopInset)
                             .fillMaxWidth()
                             .padding(horizontal = 2.dp)
                             .height(segmentHeight)
@@ -1399,6 +1562,33 @@ fun WeekDayColumn(
                             onFinishResizeOverlay = onFinishResizeOverlay,
                             onCancelWeekEditOverlay = onCancelWeekEditOverlay
                         )
+                        exactPlacement?.let {
+                            val labelColor = glassForegroundColor(config)
+                            Text(
+                                text = segment.course.customStartTime.orEmpty(),
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .offset(y = (-10).dp)
+                                    .zIndex(12f),
+                                color = labelColor,
+                                fontSize = 8.sp,
+                                lineHeight = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = segment.course.customEndTime.orEmpty(),
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .offset(y = 10.dp)
+                                    .zIndex(12f),
+                                color = labelColor,
+                                fontSize = 8.sp,
+                                lineHeight = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
         }
@@ -1517,7 +1707,7 @@ private fun continuousSpanFrom(course: CourseEntity, start: Int, periodIndexes: 
     return span
 }
 
-private data class WeekCourseEditTarget(
+internal data class WeekCourseEditTarget(
     val weekday: Int,
     val periods: List<Int>,
     val valid: Boolean
@@ -1540,13 +1730,150 @@ data class WeekEditOverlayRequest(
     val periodRowHeightPx: Float,
     val periodIndexes: List<Int>,
     val weekCourses: List<CourseEntity>,
-    val editWeek: Int
+    val editWeek: Int,
+    val weekdayCount: Int,
+    val initialPointerPosition: Offset
 )
 
+internal const val WeekEditLiftedScale = 1.12f
+private const val WeekEditProjectionSeconds = 0.015f
+// The bottom handle moves with the resized card. A conservative gain prevents tiny local pointer
+// changes from turning into several timetable rows while retaining continuous visual feedback.
+private const val WeekEditResizeDragGain = 0.52f
+
+internal fun weekEditResizeHeightAfterDrag(
+    currentHeightPx: Float,
+    dragDeltaYPx: Float,
+    periodRowHeightPx: Float,
+    maxSpan: Int,
+    resizePaddingPx: Float
+): Float {
+    val safeRowHeight = periodRowHeightPx.coerceAtLeast(1f)
+    val safeMaxSpan = maxSpan.coerceAtLeast(1)
+    val minHeight = (safeRowHeight - resizePaddingPx).coerceAtLeast(1f)
+    val maxHeight = (safeRowHeight * safeMaxSpan - resizePaddingPx).coerceAtLeast(minHeight)
+    return (currentHeightPx + dragDeltaYPx * WeekEditResizeDragGain)
+        .coerceIn(minHeight, maxHeight)
+}
+
+internal fun weekEditResizeTargetSpan(
+    heightPx: Float,
+    periodRowHeightPx: Float,
+    maxSpan: Int
+): Int = (heightPx / periodRowHeightPx.coerceAtLeast(1f))
+    .roundToInt()
+    .coerceIn(1, maxSpan.coerceAtLeast(1))
+
+internal data class WeekEditNeighborRippleTransform(
+    val translationFactor: Float,
+    val scale: Float,
+    val rotationFactor: Float
+)
+
+internal data class WeekEditLandingImpactTransform(
+    val translationFactor: Float,
+    val scaleX: Float,
+    val scaleY: Float
+)
+
+internal data class WeekEditRealCardLandingTransform(
+    val liftFactor: Float,
+    val scale: Float
+)
+
+/**
+ * Maps the destination card from the lifted finger pose to its real timetable geometry.
+ * Progress intentionally accepts a small spring overshoot so the physical card can pass the
+ * surface by a fraction before settling, without ever changing its logical grid position.
+ */
+internal fun weekEditRealCardLandingTransform(progress: Float): WeekEditRealCardLandingTransform {
+    val springProgress = progress.coerceIn(-0.20f, 1.22f)
+    val remaining = 1f - springProgress
+    return WeekEditRealCardLandingTransform(
+        liftFactor = remaining,
+        scale = 1f + (WeekEditLiftedScale - 1f) * remaining
+    )
+}
+
+internal fun weekEditLandingImpactTransform(progress: Float): WeekEditLandingImpactTransform {
+    val safeProgress = progress.coerceIn(0f, 1f)
+    fun smooth(value: Float): Float {
+        val clamped = value.coerceIn(0f, 1f)
+        return clamped * clamped * (3f - 2f * clamped)
+    }
+    val zScale = when {
+        safeProgress <= 0.18f -> 1f - 0.095f * smooth(safeProgress / 0.18f)
+        safeProgress <= 0.46f -> 0.905f + 0.155f * smooth((safeProgress - 0.18f) / 0.28f)
+        safeProgress <= 0.72f -> 1.060f - 0.080f * smooth((safeProgress - 0.46f) / 0.26f)
+        else -> 0.980f + 0.020f * smooth((safeProgress - 0.72f) / 0.28f)
+    }
+    return WeekEditLandingImpactTransform(
+        translationFactor = 0f,
+        scaleX = zScale,
+        scaleY = zScale
+    )
+}
+
+internal fun weekEditProjectedOffset(
+    position: Float,
+    velocity: Float,
+    maximumProjection: Float
+): Float = position + (velocity * WeekEditProjectionSeconds)
+    .coerceIn(-maximumProjection.coerceAtLeast(0f), maximumProjection.coerceAtLeast(0f))
+
+internal fun weekEditNeighborRippleTransform(
+    distancePx: Float,
+    radiusPx: Float,
+    progress: Float,
+    horizontalDirection: Float = 0f
+): WeekEditNeighborRippleTransform {
+    val safeRadius = radiusPx.coerceAtLeast(1f)
+    val distanceRatio = (distancePx / safeRadius).coerceIn(0f, 1f)
+    val delayedStart = distanceRatio * 0.28f
+    val arrival = (progress.coerceIn(0f, 1f) - delayedStart) / (1f - delayedStart)
+    if (distanceRatio >= 1f || arrival <= 0f || arrival >= 1f) {
+        return WeekEditNeighborRippleTransform(0f, 1f, 0f)
+    }
+    val safeArrival = arrival.coerceIn(0f, 1f)
+    // The squared sine envelope has zero slope at both boundaries. Combined with exponential
+    // damping it gives the neighbouring cards a real acceleration/deceleration curve instead of
+    // letting a linear remaining-time multiplier cut the second bounce off abruptly.
+    val smoothEnvelope = sin(Math.PI.toFloat() * safeArrival).pow(2f)
+    val distanceAttenuation = (1f - distanceRatio).pow(0.72f)
+    val damping = exp(-1.15f * safeArrival)
+    val attenuation = distanceAttenuation * smoothEnvelope * damping
+    // Two and a half deliberately slow Z cycles. The final half-cycle and zero-slope envelope
+    // converge on the resting scale without a velocity discontinuity.
+    val zWave = -sin(safeArrival * Math.PI.toFloat() * 5f) * attenuation
+    return WeekEditNeighborRippleTransform(
+        translationFactor = 0f,
+        scale = 1f + zWave * 0.105f,
+        rotationFactor = horizontalDirection.coerceIn(-1f, 1f) * zWave * 0f
+    )
+}
+
+internal fun weekEditCommitTargetPresent(
+    courses: List<CourseEntity>,
+    targetKey: String?,
+    targetWeek: Int
+): Boolean {
+    if (targetKey == null || targetWeek <= 0) return false
+    return coursesVisibleInWeek(courses, targetWeek).any {
+        it.occurrenceOverrideKey() == targetKey
+    }
+}
+
+private val LocalWeekEditMotionState = compositionLocalOf<WeekEditOverlayController?> { null }
+
 @Composable
-private fun rememberWeekEditOverlayController(scrollState: ScrollState): WeekEditOverlayController {
+private fun rememberWeekEditOverlayController(
+    scrollState: ScrollState,
+    scheduleId: Int
+): WeekEditOverlayController {
     val scope = rememberCoroutineScope()
-    return remember(scope, scrollState) { WeekEditOverlayController(scope, scrollState) }
+    return remember(scope, scrollState, scheduleId) {
+        WeekEditOverlayController(scope, scrollState)
+    }
 }
 
 private class WeekEditOverlayController(
@@ -1566,25 +1893,106 @@ private class WeekEditOverlayController(
     private val overlayY = Animatable(0f)
     private val overlayHeight = Animatable(0f)
     private val overlayScale = Animatable(1f)
+    private val overlayAlpha = Animatable(1f)
+    private val overlayReveal = Animatable(0f)
+    private val overlayLift = Animatable(0f)
+    private val realCardLandingAnimation = Animatable(1f)
+    private val landingImpactAnimation = Animatable(1f)
+    private val overlayRotation = Animatable(0f)
+    private val landingRippleAnimation = Animatable(1f)
     private var scrollCompensationY by mutableFloatStateOf(0f)
     private var autoScrollDirection by mutableIntStateOf(0)
+    private var dragPointerX by mutableFloatStateOf(0f)
     private var dragPointerY by mutableFloatStateOf(0f)
+    private var gestureTargetX by mutableFloatStateOf(0f)
+    private var gestureTargetY by mutableFloatStateOf(0f)
+    private var gestureTargetHeight by mutableFloatStateOf(0f)
+    private var releaseFrameX by mutableFloatStateOf(0f)
+    private var releaseFrameY by mutableFloatStateOf(0f)
+    private var releaseFrameHeight by mutableFloatStateOf(0f)
+    private var releaseFrameActive by mutableStateOf(false)
+    private var directManipulation by mutableStateOf(false)
+    private var handoffRunning = false
+    private var landingFlightRunning = false
+    private var landingFlightComplete = false
+    private var commitTargetReady = false
+    private var realCardTargetMeasured = false
+    private var pendingLandingCenter = Offset.Zero
+    private var pendingLandingRadius = 1f
+    private var landingRippleStarted = false
+    var gestureActive by mutableStateOf(false)
+        private set
+    var realCardVisible by mutableStateOf(false)
+        private set
+    var realCardLandingActive by mutableStateOf(false)
+        private set
+    var landingRippleCenter by mutableStateOf<Offset?>(null)
+        private set
+    var landingRippleRadius by mutableFloatStateOf(1f)
+        private set
 
-    val offsetX: Float get() = overlayX.value
-    val offsetY: Float get() = overlayY.value
-    val height: Float get() = overlayHeight.value
+    val offsetX: Float get() =
+        when {
+            releaseFrameActive -> releaseFrameX
+            directManipulation && request?.mode == WeekEditOverlayMode.Move -> gestureTargetX
+            else -> overlayX.value
+        }
+    val offsetY: Float get() =
+        when {
+            releaseFrameActive -> releaseFrameY
+            directManipulation && request?.mode == WeekEditOverlayMode.Move -> gestureTargetY
+            else -> overlayY.value
+        }
+    val height: Float get() =
+        when {
+            releaseFrameActive -> releaseFrameHeight
+            directManipulation && request?.mode == WeekEditOverlayMode.Resize -> gestureTargetHeight
+            else -> overlayHeight.value
+        }
     val scale: Float get() = overlayScale.value
-    val gridOffsetY: Float get() = overlayY.value + scrollCompensationY
+    val alpha: Float get() = overlayAlpha.value
+    val revealProgress: Float get() = overlayReveal.value
+    val liftProgress: Float get() = overlayLift.value
+    val realCardLandingProgress: Float get() = realCardLandingAnimation.value
+    val impactProgress: Float get() = landingImpactAnimation.value
+    val rotation: Float get() = overlayRotation.value
+    val pointerPosition: Offset get() = Offset(dragPointerX, dragPointerY)
+    val landingRippleProgress: Float get() = landingRippleAnimation.value
+    val gridOffsetY: Float get() = offsetY + scrollCompensationY
     val gridScrollCompensationY: Float get() = scrollCompensationY
 
-    fun clear() {
+    fun clear(preserveLandingRipple: Boolean = false) {
         awaitingCommit = false
         committedTargetKey = null
         committedTargetWeek = 0
         request = null
+        gestureActive = false
+        directManipulation = false
+        handoffRunning = false
+        landingFlightRunning = false
+        landingFlightComplete = false
+        commitTargetReady = false
+        realCardTargetMeasured = false
+        realCardVisible = false
+        realCardLandingActive = false
+        pendingLandingCenter = Offset.Zero
+        pendingLandingRadius = 1f
         scrollCompensationY = 0f
         autoScrollDirection = 0
+        dragPointerX = 0f
         dragPointerY = 0f
+        gestureTargetX = 0f
+        gestureTargetY = 0f
+        gestureTargetHeight = 0f
+        releaseFrameX = 0f
+        releaseFrameY = 0f
+        releaseFrameHeight = 0f
+        releaseFrameActive = false
+        landingRippleStarted = false
+        if (!preserveLandingRipple) {
+            landingRippleCenter = null
+            landingRippleRadius = 1f
+        }
     }
 
     fun start(nextRequest: WeekEditOverlayRequest) {
@@ -1592,14 +2000,61 @@ private class WeekEditOverlayController(
         committedTargetKey = null
         committedTargetWeek = 0
         request = nextRequest
+        gestureActive = true
+        directManipulation = true
+        handoffRunning = false
+        landingFlightRunning = false
+        landingFlightComplete = false
+        commitTargetReady = false
+        realCardTargetMeasured = false
+        realCardVisible = false
+        realCardLandingActive = false
+        pendingLandingCenter = Offset.Zero
+        pendingLandingRadius = 1f
+        landingRippleStarted = false
+        landingRippleCenter = null
+        landingRippleRadius = 1f
+        gestureTargetX = 0f
+        gestureTargetY = 0f
+        gestureTargetHeight = nextRequest.sourceBounds.height
+        releaseFrameX = 0f
+        releaseFrameY = 0f
+        releaseFrameHeight = nextRequest.sourceBounds.height
+        releaseFrameActive = false
+        dragPointerX = nextRequest.initialPointerPosition.x
+        dragPointerY = nextRequest.initialPointerPosition.y
         scope.launch {
             overlayX.snapTo(0f)
             overlayY.snapTo(0f)
             overlayHeight.snapTo(nextRequest.sourceBounds.height)
-            overlayScale.snapTo(1.035f)
+            overlayScale.snapTo(0.985f)
+            overlayAlpha.snapTo(1f)
+            overlayReveal.snapTo(0f)
+            overlayLift.snapTo(0f)
+            realCardLandingAnimation.snapTo(1f)
+            landingImpactAnimation.snapTo(1f)
+            overlayRotation.snapTo(0f)
+            landingRippleAnimation.snapTo(1f)
             scrollCompensationY = 0f
             autoScrollDirection = 0
-            dragPointerY = nextRequest.sourceBounds.center.y
+            launch {
+                overlayReveal.animateTo(
+                    1f,
+                    tween(durationMillis = 90, easing = CubicBezierEasing(0.20f, 0.78f, 0.18f, 1f))
+                )
+            }
+            launch {
+                overlayScale.animateTo(
+                    WeekEditLiftedScale,
+                    spring(dampingRatio = 0.66f, stiffness = 980f)
+                )
+            }
+            launch {
+                overlayLift.animateTo(
+                    1f,
+                    spring(dampingRatio = 0.68f, stiffness = 720f)
+                )
+            }
         }
     }
 
@@ -1610,38 +2065,95 @@ private class WeekEditOverlayController(
         resizePaddingPx: Float
     ) {
         val activeRequest = request ?: return
-        scope.launch {
-            when (activeRequest.mode) {
-                WeekEditOverlayMode.Move -> {
-                    overlayX.snapTo(overlayX.value + delta.x)
-                    overlayY.snapTo(overlayY.value + delta.y)
-                    dragPointerY += delta.y
+        when (activeRequest.mode) {
+            WeekEditOverlayMode.Move -> {
+                // Keep the logical target on the pointer event itself. Queuing these additions in
+                // animation coroutines made fast drags accumulate a visible one-to-two-frame lag.
+                gestureTargetX += delta.x
+                gestureTargetY += delta.y
+                dragPointerX += delta.x
+                dragPointerY += delta.y
+                scope.launch {
+                    launch {
+                        overlayRotation.animateTo(
+                            (delta.x * 0.018f).coerceIn(-0.28f, 0.28f),
+                            spring(dampingRatio = 0.96f, stiffness = 1_450f)
+                        )
+                    }
                     autoScroll(activeRequest, screenHeightPx, edgePx)
                 }
-                WeekEditOverlayMode.Resize -> {
-                    val minHeight = activeRequest.periodRowHeightPx - resizePaddingPx
-                    val maxHeight = activeRequest.periodRowHeightPx * activeRequest.maxSpan - resizePaddingPx
-                    overlayHeight.snapTo((overlayHeight.value + delta.y).coerceIn(minHeight, maxHeight))
-                }
             }
+            WeekEditOverlayMode.Resize -> {
+                val previousHeight = gestureTargetHeight
+                gestureTargetHeight = weekEditResizeHeightAfterDrag(
+                    currentHeightPx = previousHeight,
+                    dragDeltaYPx = delta.y,
+                    periodRowHeightPx = activeRequest.periodRowHeightPx,
+                    maxSpan = activeRequest.maxSpan,
+                    resizePaddingPx = resizePaddingPx
+                )
+                dragPointerX += delta.x
+                dragPointerY += gestureTargetHeight - previousHeight
+            }
+        }
+    }
+
+    fun cancelGesture() {
+        val activeRequest = request ?: return
+        gestureActive = false
+        scope.launch {
+            overlayX.snapTo(gestureTargetX)
+            overlayY.snapTo(gestureTargetY)
+            overlayHeight.snapTo(gestureTargetHeight)
+            directManipulation = false
+            val xJob = launch {
+                overlayX.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = 440f))
+            }
+            val yJob = launch {
+                overlayY.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = 440f))
+            }
+            val heightJob = launch {
+                overlayHeight.animateTo(
+                    activeRequest.sourceBounds.height,
+                    spring(dampingRatio = 0.66f, stiffness = 440f)
+                )
+            }
+            val scaleJob = launch {
+                overlayScale.animateTo(1f, spring(dampingRatio = 0.60f, stiffness = 450f))
+            }
+            val liftJob = launch {
+                overlayLift.animateTo(0f, spring(dampingRatio = 0.64f, stiffness = 470f))
+            }
+            val rotationJob = launch {
+                overlayRotation.animateTo(0f, spring(dampingRatio = 0.58f, stiffness = 450f))
+            }
+            xJob.join()
+            yJob.join()
+            heightJob.join()
+            scaleJob.join()
+            liftJob.join()
+            rotationJob.join()
+            clear()
         }
     }
 
     fun finishMove(
         velocity: Velocity,
-        periodIndexes: List<Int>,
-        weekdayCount: Int,
         onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit
     ) {
         val activeRequest = request ?: return
-        val projectedX = overlayX.value + velocity.x * 0.08f
-        val projectedGridY = gridOffsetY + velocity.y * 0.08f
+        gestureActive = false
+        // The preview and persistence target must be calculated from the exact same finger frame.
+        // A release-velocity projection made the saved cell differ from the one shown under the
+        // card, especially near half-cell boundaries.
+        val releaseGridX = gestureTargetX
+        val releaseGridY = gestureTargetY + scrollCompensationY
         val target = weekCourseEditTarget(
-            periodIndexes = periodIndexes,
-            weekday = activeRequest.dayIndex + (projectedX / activeRequest.gridColumnWidthPx).roundToInt(),
-            startPeriod = activeRequest.periodIndex + (projectedGridY / activeRequest.periodRowHeightPx).roundToInt(),
+            periodIndexes = activeRequest.periodIndexes,
+            weekday = activeRequest.dayIndex + (releaseGridX / activeRequest.gridColumnWidthPx).roundToInt(),
+            startPeriod = activeRequest.periodIndex + (releaseGridY / activeRequest.periodRowHeightPx).roundToInt(),
             span = activeRequest.currentSpan,
-            weekdayCount = weekdayCount
+            weekdayCount = activeRequest.weekdayCount
         )
         val edited = activeRequest.course.copy(weekday = target.weekday, periods = target.periods)
         val canSave = target.valid &&
@@ -1654,57 +2166,55 @@ private class WeekEditOverlayController(
         } else {
             0f
         }
-        scope.launch {
-            launch {
-                overlayX.animateTo(
-                    targetX,
-                    spring(dampingRatio = 0.72f, stiffness = 520f),
-                    initialVelocity = velocity.x
-                )
-            }
-            launch {
-                overlayScale.animateTo(
-                    1f,
-                    spring(dampingRatio = 0.78f, stiffness = 520f)
-                )
-            }
-            overlayY.animateTo(
-                targetY,
-                spring(dampingRatio = 0.72f, stiffness = 520f),
-                initialVelocity = velocity.y
+        pendingLandingCenter = activeRequest.sourceBounds.center + Offset(targetX, targetY)
+        pendingLandingRadius = maxOf(
+            activeRequest.gridColumnWidthPx * 3.8f,
+            activeRequest.periodRowHeightPx * 3.0f
+        )
+        if (canSave) {
+            committedTargetKey = edited.copy(weeks = listOf(activeRequest.editWeek)).occurrenceOverrideKey()
+            committedTargetWeek = activeRequest.editWeek
+            awaitingCommit = true
+            beginLandingFlight(
+                targetX = targetX,
+                targetY = targetY,
+                targetHeight = activeRequest.sourceBounds.height,
+                releaseVelocity = velocity
             )
-            if (canSave) {
-                committedTargetKey = edited.copy(weeks = listOf(activeRequest.editWeek)).occurrenceOverrideKey()
-                committedTargetWeek = activeRequest.editWeek
-                onUpdateCourseSingleWeek(activeRequest.course, edited, activeRequest.editWeek)
-                awaitingCommit = true
-            } else {
-                clear()
-                overlayX.snapTo(0f)
-                overlayY.snapTo(0f)
-                overlayScale.snapTo(1f)
-            }
+            onUpdateCourseSingleWeek(activeRequest.course, edited, activeRequest.editWeek)
+        } else {
+            // The original occurrence is already a real card, so it can take over immediately.
+            committedTargetKey = activeRequest.course.occurrenceOverrideKey()
+            committedTargetWeek = activeRequest.editWeek
+            awaitingCommit = false
+            commitTargetReady = true
+            beginLandingFlight(
+                targetX = targetX,
+                targetY = targetY,
+                targetHeight = activeRequest.sourceBounds.height,
+                releaseVelocity = velocity
+            )
         }
     }
 
     fun finishResize(
         velocity: Velocity,
-        periodIndexes: List<Int>,
-        weekdayCount: Int,
         resizePaddingPx: Float,
         onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit
     ) {
         val activeRequest = request ?: return
-        val projectedHeight = overlayHeight.value + velocity.y * 0.08f
-        val targetSpan = (projectedHeight / activeRequest.periodRowHeightPx)
-            .roundToInt()
-            .coerceIn(1, activeRequest.maxSpan)
+        gestureActive = false
+        val targetSpan = weekEditResizeTargetSpan(
+            heightPx = gestureTargetHeight,
+            periodRowHeightPx = activeRequest.periodRowHeightPx,
+            maxSpan = activeRequest.maxSpan
+        )
         val target = weekCourseEditTarget(
-            periodIndexes = periodIndexes,
+            periodIndexes = activeRequest.periodIndexes,
             weekday = activeRequest.dayIndex,
             startPeriod = activeRequest.periodIndex,
             span = targetSpan,
-            weekdayCount = weekdayCount
+            weekdayCount = activeRequest.weekdayCount
         )
         val edited = activeRequest.course.copy(periods = target.periods)
         val canSave = target.valid &&
@@ -1715,28 +2225,192 @@ private class WeekEditOverlayController(
         } else {
             activeRequest.sourceBounds.height
         }
-        scope.launch {
-            launch {
-                overlayScale.animateTo(
-                    1f,
-                    spring(dampingRatio = 0.78f, stiffness = 520f)
+        pendingLandingCenter = Offset(
+            x = activeRequest.sourceBounds.center.x,
+            y = activeRequest.sourceBounds.top + targetHeight / 2f
+        )
+        pendingLandingRadius = maxOf(
+            activeRequest.gridColumnWidthPx * 3.8f,
+            activeRequest.periodRowHeightPx * 3.0f
+        )
+        if (canSave) {
+            committedTargetKey = edited.copy(weeks = listOf(activeRequest.editWeek)).occurrenceOverrideKey()
+            committedTargetWeek = activeRequest.editWeek
+            awaitingCommit = true
+            beginLandingFlight(
+                targetX = 0f,
+                targetY = 0f,
+                targetHeight = targetHeight,
+                releaseVelocity = Velocity(0f, velocity.y * WeekEditResizeDragGain)
+            )
+            onUpdateCourseSingleWeek(activeRequest.course, edited, activeRequest.editWeek)
+        } else {
+            committedTargetKey = activeRequest.course.occurrenceOverrideKey()
+            committedTargetWeek = activeRequest.editWeek
+            awaitingCommit = false
+            commitTargetReady = true
+            beginLandingFlight(
+                targetX = 0f,
+                targetY = 0f,
+                targetHeight = targetHeight,
+                releaseVelocity = Velocity(0f, velocity.y * WeekEditResizeDragGain)
+            )
+        }
+    }
+
+    fun completeCommitHandoff() {
+        if (!awaitingCommit) return
+        awaitingCommit = false
+        commitTargetReady = true
+        maybeHandoffOverlayToRealCard()
+    }
+
+    fun updateRealLandingCenter(center: Offset) {
+        if (committedTargetKey != null) {
+            pendingLandingCenter = center
+            realCardTargetMeasured = true
+            maybeHandoffOverlayToRealCard()
+        }
+    }
+
+    private fun beginLandingFlight(
+        targetX: Float,
+        targetY: Float,
+        targetHeight: Float,
+        releaseVelocity: Velocity
+    ) {
+        if (landingFlightRunning || landingFlightComplete) return
+        landingFlightRunning = true
+        // Publish the exact release pose synchronously. Animatable.snapTo is suspendable, so
+        // waiting to leave direct-manipulation mode inside the coroutine could leave one rendered
+        // frame parked at its previous value before the landing spring became observable.
+        releaseFrameX = gestureTargetX
+        releaseFrameY = gestureTargetY
+        releaseFrameHeight = gestureTargetHeight
+        releaseFrameActive = true
+        directManipulation = false
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            overlayX.snapTo(gestureTargetX)
+            overlayY.snapTo(gestureTargetY)
+            overlayHeight.snapTo(gestureTargetHeight)
+            releaseFrameActive = false
+            // Reuse the original conflict-return flight: the same damped spring handles a legal
+            // destination and a rejected drop (whose target is the source). This keeps the release
+            // continuous with the finger instead of pinning the clone through a new tween.
+            val landingPositionSpec = spring<Float>(dampingRatio = 0.66f, stiffness = 390f)
+            val landingHeightSpec = spring<Float>(dampingRatio = 0.66f, stiffness = 360f)
+            val xJob = launch {
+                overlayX.animateTo(
+                    targetX,
+                    landingPositionSpec,
+                    initialVelocity = releaseVelocity.x.coerceIn(-2_400f, 2_400f)
                 )
             }
-            overlayHeight.animateTo(
-                targetHeight,
-                spring(dampingRatio = 0.72f, stiffness = 480f),
-                initialVelocity = velocity.y
-            )
-            if (canSave) {
-                committedTargetKey = edited.copy(weeks = listOf(activeRequest.editWeek)).occurrenceOverrideKey()
-                committedTargetWeek = activeRequest.editWeek
-                onUpdateCourseSingleWeek(activeRequest.course, edited, activeRequest.editWeek)
-                awaitingCommit = true
-            } else {
-                clear()
-                overlayHeight.snapTo(0f)
-                overlayScale.snapTo(1f)
+            val yJob = launch {
+                overlayY.animateTo(
+                    targetY,
+                    landingPositionSpec,
+                    initialVelocity = releaseVelocity.y.coerceIn(-2_400f, 2_400f)
+                )
             }
+            val heightJob = launch {
+                overlayHeight.animateTo(
+                    targetHeight,
+                    landingHeightSpec,
+                    initialVelocity = releaseVelocity.y.coerceIn(-1_800f, 1_800f)
+                )
+            }
+            val scaleJob = launch {
+                // Keep the impact on the floating card and start it in the release frame. The
+                // lower stiffness preserves one readable compression/rebound instead of finishing
+                // before the clone reaches its snapped cell.
+                overlayScale.animateTo(
+                    1f,
+                    spring(dampingRatio = 0.46f, stiffness = 300f)
+                )
+            }
+            val rotationJob = launch {
+                overlayRotation.animateTo(
+                    0f,
+                    spring(dampingRatio = 0.68f, stiffness = 390f)
+                )
+            }
+            // The clone must lose its lifted Z offset during the same landing flight. Room can
+            // legitimately take longer than the spring; keeping liftProgress at 1f until the
+            // repository-backed card appears makes the clone visibly hover at its destination.
+            // Returning it to the grid plane here keeps the visual landing continuous while the
+            // existing real-card handoff still waits for the persisted occurrence.
+            val liftJob = launch {
+                overlayLift.animateTo(
+                    0f,
+                    spring(dampingRatio = 0.66f, stiffness = 360f)
+                )
+            }
+            xJob.join()
+            yJob.join()
+            heightJob.join()
+            if (!landingRippleStarted) {
+                landingRippleStarted = true
+                startLandingRipple(
+                    center = pendingLandingCenter,
+                    radius = pendingLandingRadius
+                )
+            }
+            rotationJob.join()
+            liftJob.join()
+            scaleJob.join()
+            landingFlightRunning = false
+            landingFlightComplete = true
+            maybeHandoffOverlayToRealCard()
+        }
+    }
+
+    private fun maybeHandoffOverlayToRealCard() {
+        if (commitTargetReady && landingFlightComplete && realCardTargetMeasured) {
+            handoffOverlayToRealCard()
+        }
+    }
+
+    private fun handoffOverlayToRealCard() {
+        if (handoffRunning || committedTargetKey == null) return
+        handoffRunning = true
+        scope.launch {
+            awaitingCommit = false
+            // The overlay has already completed the full visible flight and rebound. Room only
+            // transfers ownership in place and must never gate or restart the landing motion.
+            realCardLandingAnimation.snapTo(1f)
+            landingImpactAnimation.snapTo(1f)
+            realCardLandingActive = false
+            realCardVisible = true
+            overlayAlpha.animateTo(
+                0f,
+                tween(
+                    durationMillis = 135,
+                    easing = CubicBezierEasing(0.20f, 0.72f, 0.22f, 1f)
+                )
+            )
+            request = null
+            gestureActive = false
+            directManipulation = false
+            releaseFrameActive = false
+            scrollCompensationY = 0f
+            autoScrollDirection = 0
+            handoffRunning = false
+            overlayAlpha.snapTo(1f)
+        }
+    }
+
+    private fun startLandingRipple(center: Offset, radius: Float) {
+        landingRippleCenter = center
+        landingRippleRadius = radius.coerceAtLeast(1f)
+        scope.launch {
+            landingRippleAnimation.snapTo(0f)
+            landingRippleAnimation.animateTo(
+                1f,
+                tween(durationMillis = 900, easing = LinearEasing)
+            )
+            landingRippleCenter = null
+            landingRippleRadius = 1f
         }
     }
 
@@ -1780,7 +2454,7 @@ private class WeekEditOverlayController(
     }
 }
 
-private fun weekCourseEditTarget(
+internal fun weekCourseEditTarget(
     periodIndexes: List<Int>,
     weekday: Int,
     startPeriod: Int,
@@ -1788,10 +2462,25 @@ private fun weekCourseEditTarget(
     weekdayCount: Int
 ): WeekCourseEditTarget {
     val safeWeekday = weekday.coerceIn(1, weekdayCount.coerceAtLeast(1))
-    val startPosition = periodIndexes.indexOf(startPeriod)
-    if (startPosition < 0 || span <= 0) {
+    if (periodIndexes.isEmpty() || span <= 0) {
         return WeekCourseEditTarget(safeWeekday, emptyList(), false)
     }
+    val requestedPosition = periodIndexes.indexOf(startPeriod).let { exactPosition ->
+        when {
+            exactPosition >= 0 -> exactPosition
+            // A fast release can put the overlay a few pixels below the timetable. Treat that
+            // overshoot as the last legal start row instead of rejecting an otherwise valid drop
+            // on the bottom cell. Keep an above-top release invalid so accidental edge escapes
+            // still spring back to the source card.
+            startPeriod > periodIndexes.last() -> periodIndexes.lastIndex
+            else -> -1
+        }
+    }
+    if (requestedPosition < 0) {
+        return WeekCourseEditTarget(safeWeekday, emptyList(), false)
+    }
+    val maxStartPosition = (periodIndexes.size - span).coerceAtLeast(0)
+    val startPosition = requestedPosition.coerceIn(0, maxStartPosition)
     val targetPeriods = periodIndexes.drop(startPosition).take(span)
     return WeekCourseEditTarget(
         weekday = safeWeekday,
@@ -1889,24 +2578,30 @@ fun WeekCourseBlock(
     val startupIndex = ((periodIndex - 1).coerceAtLeast(0) * 7 + (dayIndex - 1).coerceAtLeast(0)) * 2 + stackIndex
     var ownBounds by remember { mutableStateOf<Rect?>(null) }
     val haptic = LocalHapticFeedback.current
+    val weekEditMotionState = LocalWeekEditMotionState.current
     val isOverlayTarget = activeOverlayTargetKey != null &&
         activeOverlayTargetWeek == editWeek &&
         activeOverlayTargetWeek in course.weeks &&
         course.occurrenceOverrideKey() == activeOverlayTargetKey
-    val isOverlaySource = activeOverlayCourseId == course.id || isOverlayTarget
+    val editControlHandoffTarget = when {
+        isOverlayTarget -> if (weekEditMotionState?.realCardVisible == true) 1f else 0f
+        activeOverlayCourseId == course.id -> 1f - (weekEditMotionState?.revealProgress ?: 1f)
+        else -> 1f
+    }.coerceIn(0f, 1f)
+    val editControlHandoffProgress by animateFloatAsState(
+        targetValue = editControlHandoffTarget,
+        animationSpec = spring(dampingRatio = 0.56f, stiffness = 620f),
+        label = "week-edit-controls-handoff-${course.id}"
+    )
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
+    val customTimeLocked = !courseAllowsWeekPeriodDrag(course)
     val currentSpan = remember(course.periods, periodIndex, periodIndexes) {
         continuousSpanFrom(course, periodIndex, periodIndexes)
             .takeIf { it > 0 }
             ?: course.periods.size.coerceAtLeast(1)
     }
-    var moveDragX by remember(course.id, editWeek) { mutableFloatStateOf(0f) }
-    var moveDragY by remember(course.id, editWeek) { mutableFloatStateOf(0f) }
-    var resizeDragY by remember(course.id, editWeek) { mutableFloatStateOf(0f) }
-    var resizeVelocityHintY by remember(course.id, editWeek) { mutableFloatStateOf(0f) }
     var bodyDragging by remember(course.id, editWeek) { mutableStateOf(false) }
     var handleDragging by remember(course.id, editWeek) { mutableStateOf(false) }
-    var settlingResizeTarget by remember(course.id, editWeek) { mutableStateOf<WeekCourseEditTarget?>(null) }
     var conflictActionResolving by remember(course.id, editWeek) { mutableStateOf(false) }
     var conflictFlightTarget by remember(course.id, editWeek) { mutableStateOf<CourseEntity?>(null) }
     val conflictPillDismiss = remember(course.id, editWeek) { Animatable(0f) }
@@ -1919,33 +2614,6 @@ fun WeekCourseBlock(
         .takeIf { it > 1f }
         ?: measuredCardWidthPx
     val periodRowHeightPx = with(density) { periodRowHeight.toPx() }.coerceAtLeast(1f)
-    fun moveTarget(): WeekCourseEditTarget {
-        val dayDelta = (moveDragX / gridColumnWidthPx).roundToInt()
-        val periodDelta = (moveDragY / periodRowHeightPx).roundToInt()
-        return weekCourseEditTarget(
-            periodIndexes = periodIndexes,
-            weekday = dayIndex + dayDelta,
-            startPeriod = periodIndex + periodDelta,
-            span = currentSpan,
-            weekdayCount = weekdayCount
-        )
-    }
-    fun resizeTargetForDrag(dragY: Float): WeekCourseEditTarget {
-        val spanDelta = (dragY / periodRowHeightPx).roundToInt()
-        return weekCourseEditTarget(
-            periodIndexes = periodIndexes,
-            weekday = dayIndex,
-            startPeriod = periodIndex,
-            span = (currentSpan + spanDelta).coerceIn(1, periodIndexes.size.coerceAtLeast(1)),
-            weekdayCount = weekdayCount
-        )
-    }
-    fun resizeTarget(): WeekCourseEditTarget = resizeTargetForDrag(resizeDragY)
-    val liveTarget = when {
-        bodyDragging -> moveTarget()
-        handleDragging -> resizeTarget()
-        else -> null
-    }
     /*
      * WeekCourseBlock always lives inside the stationary course recorder. Sampling the
      * lifted backdrop here would make the source card read the recorder that is currently
@@ -1964,20 +2632,16 @@ fun WeekCourseBlock(
         remember { mutableFloatStateOf(0f) }
     }
     val pressScale by animateFloatAsState(
-        targetValue = if (bodyDragging || handleDragging) 1.035f else 1f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 560f),
+        targetValue = if (bodyDragging || handleDragging) WeekEditLiftedScale else 1f,
+        animationSpec = spring(dampingRatio = 0.60f, stiffness = 470f),
         label = "week-edit-press-scale-${course.id}"
     )
-    val settledResizeHeight = settlingResizeTarget?.let { target ->
-        val rawHeight = periodRowHeight * target.periods.size.coerceAtLeast(1).toFloat() - 4.dp
-        if (rawHeight < 18.dp) 18.dp else rawHeight
-    } ?: height
-    val animatedSettledResizeHeight by animateDpAsState(
-        targetValue = settledResizeHeight,
-        animationSpec = spring(dampingRatio = 0.76f, stiffness = 430f),
-        label = "week-edit-saved-height-${course.id}"
+    val editActivationProgress by animateFloatAsState(
+        targetValue = if (editMode) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.68f, stiffness = 420f),
+        label = "week-edit-activation-${course.id}"
     )
-    val displayedHeight = if (settlingResizeTarget != null) animatedSettledResizeHeight else height
+    val displayedHeight = height
     val windowSize = currentWindowSizeDp()
     val cardWidthForCorner = gridColumnWidth
         .takeIf { it > 0.dp }
@@ -1992,24 +2656,10 @@ fun WeekCourseBlock(
     val resizeStartIndex = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
     val resizeMaxSpan = (periodIndexes.size - resizeStartIndex).coerceAtLeast(1)
     val baseHeightPx = with(density) { height.toPx() }
-    val minResizeHeightPx = with(density) { periodRowHeightPx - 4.dp.toPx() }
-    val maxResizeHeightPx = with(density) { periodRowHeightPx * resizeMaxSpan - 4.dp.toPx() }
-    val resizeRevealHeight = if (handleDragging) {
-        with(density) {
-            (baseHeightPx + resizeDragY)
-                .coerceAtLeast(minResizeHeightPx)
-                .coerceAtMost(maxResizeHeightPx)
-                .toDp()
-        }
-    } else {
-        displayedHeight
-    }
-    val resizeGlassShellHeight = if (handleDragging || settlingResizeTarget != null) {
-        with(density) { maxResizeHeightPx.toDp() }
-    } else {
-        resizeRevealHeight
-    }
-    fun buildWeekEditOverlayRequest(mode: WeekEditOverlayMode): WeekEditOverlayRequest? {
+    fun buildWeekEditOverlayRequest(
+        mode: WeekEditOverlayMode,
+        pointerInSource: Offset
+    ): WeekEditOverlayRequest? {
         val bounds = ownBounds ?: return null
         return WeekEditOverlayRequest(
             mode = mode,
@@ -2023,11 +2673,21 @@ fun WeekCourseBlock(
             periodRowHeightPx = periodRowHeightPx,
             periodIndexes = periodIndexes,
             weekCourses = allWeekCourses,
-            editWeek = editWeek
+            editWeek = editWeek,
+            weekdayCount = weekdayCount,
+            initialPointerPosition = bounds.topLeft + pointerInSource
         )
     }
-    val liftedVisualActive =
-        bodyDragging || handleDragging || settlingResizeTarget != null || conflictActionResolving
+    val liftedVisualActive = bodyDragging || handleDragging || conflictActionResolving
+    val resizeHandleInputEnabled =
+        editMode &&
+            !customTimeLocked &&
+            !bodyDragging &&
+            !conflictActionResolving &&
+            (
+                activeOverlayCourseId == null ||
+                    (handleDragging && activeOverlayCourseId == course.id)
+                )
     LaunchedEffect(liftedVisualActive) {
         if (liftedVisualActive) onDragStateChanged(dayIndex, course.id) else onDragStateChanged(null, null)
     }
@@ -2039,28 +2699,37 @@ fun WeekCourseBlock(
             conflictCardFlight.snapTo(0f)
         }
     }
-    val bodyGestureModifier = Modifier.pointerInput(editMode, course.id, editWeek, currentSpan) {
-        if (editMode) {
+    val bodyGestureModifier = Modifier.pointerInput(editMode, customTimeLocked, course.id, editWeek, currentSpan) {
+        if (editMode && !customTimeLocked) {
             val velocityTracker = VelocityTracker()
             detectDragGesturesAfterLongPress(
-                onDragStart = {
+                onDragStart = { startPosition ->
                     velocityTracker.resetTracking()
-                    bodyDragging = true
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    buildWeekEditOverlayRequest(WeekEditOverlayMode.Move)?.let(onStartWeekEditOverlay)
+                    buildWeekEditOverlayRequest(WeekEditOverlayMode.Move, startPosition)?.let { request ->
+                        bodyDragging = true
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onStartWeekEditOverlay(request)
+                    }
                 },
                 onDrag = { change, dragAmount ->
-                    change.consume()
-                    velocityTracker.addPosition(change.uptimeMillis, change.position)
-                    onDragWeekEditOverlay(dragAmount)
+                    if (bodyDragging) {
+                        change.consume()
+                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+                        onDragWeekEditOverlay(dragAmount)
+                    }
                 },
                 onDragEnd = {
-                    bodyDragging = false
-                    onFinishMoveOverlay(velocityTracker.calculateVelocity())
+                    if (bodyDragging) {
+                        onFinishMoveOverlay(velocityTracker.calculateVelocity())
+                        bodyDragging = false
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
                 },
                 onDragCancel = {
-                    bodyDragging = false
-                    onCancelWeekEditOverlay()
+                    if (bodyDragging) {
+                        bodyDragging = false
+                        onCancelWeekEditOverlay()
+                    }
                 }
             )
         } else {
@@ -2068,7 +2737,7 @@ fun WeekCourseBlock(
                 onTap = { onCourseClick(course, ownBounds) },
                 onLongPress = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onEnterEditMode()
+                    if (!editMode) onEnterEditMode()
                 }
             )
         }
@@ -2088,16 +2757,55 @@ fun WeekCourseBlock(
             delayFactor = 0.12f,
             alphaStart = 0f
         )
+    val realLandingLiftPx = with(density) { 8.dp.toPx() }
     val tailModifier = Modifier
         .graphicsLayer {
             val tailX = layerOffset?.let { offset ->
                 val progress = (kotlin.math.abs(offset.value) / layerTravel.coerceAtLeast(1f)).coerceIn(0f, 1f)
                 tailBase * progress * tailDirection
             } ?: 0f
+            val rippleCenter = weekEditMotionState?.landingRippleCenter
+            val bounds = ownBounds
+            val ripple = if (
+                rippleCenter != null &&
+                bounds != null &&
+                !isOverlayTarget &&
+                activeOverlayCourseId != course.id
+            ) {
+                val deltaX = bounds.center.x - rippleCenter.x
+                val deltaY = bounds.center.y - rippleCenter.y
+                weekEditNeighborRippleTransform(
+                    distancePx = sqrt(deltaX * deltaX + deltaY * deltaY),
+                    radiusPx = weekEditMotionState.landingRippleRadius,
+                    progress = weekEditMotionState.landingRippleProgress,
+                    horizontalDirection = deltaX / weekEditMotionState.landingRippleRadius.coerceAtLeast(1f)
+                )
+            } else {
+                WeekEditNeighborRippleTransform(0f, 1f, 0f)
+            }
+            val realLanding = if (isOverlayTarget && weekEditMotionState?.realCardLandingActive == true) {
+                weekEditRealCardLandingTransform(weekEditMotionState.realCardLandingProgress)
+            } else {
+                WeekEditRealCardLandingTransform(liftFactor = 0f, scale = 1f)
+            }
+            val landingImpact = if (isOverlayTarget && weekEditMotionState?.realCardLandingActive == true) {
+                weekEditLandingImpactTransform(weekEditMotionState.impactProgress)
+            } else {
+                WeekEditLandingImpactTransform(translationFactor = 0f, scaleX = 1f, scaleY = 1f)
+            }
             translationX = tailX
+            // Landing happens on the repository-backed card at its new logical bounds. Only Z
+            // depth is animated; its timetable X/Y never diverges from the persisted target.
+            translationY = -realLandingLiftPx * realLanding.liftFactor
+            scaleX = ripple.scale * realLanding.scale * landingImpact.scaleX
+            scaleY = ripple.scale * realLanding.scale * landingImpact.scaleY
+            rotationZ = ripple.rotationFactor
         }
         .onGloballyPositioned { coordinates ->
             ownBounds = coordinates.boundsInRoot()
+            if (isOverlayTarget) {
+                weekEditMotionState?.updateRealLandingCenter(coordinates.boundsInRoot().center)
+            }
         }
     CourseBoundsSource(
         courseId = course.id,
@@ -2113,32 +2821,6 @@ fun WeekCourseBlock(
                 .then(bodyGestureModifier)
                 .zIndex(if (liftedVisualActive) 3f else 0f)
         ) {
-            if (bodyDragging && liveTarget != null) {
-                val target = liveTarget
-                val targetOffsetX = (target.weekday - dayIndex) * gridColumnWidthPx
-                val targetOffsetY = ((target.periods.firstOrNull() ?: periodIndex) - periodIndex) * periodRowHeightPx
-                val rawTargetHeight = periodRowHeight * target.periods.size.coerceAtLeast(1).toFloat() - 4.dp
-                val targetPreviewHeight = if (rawTargetHeight < 18.dp) 18.dp else rawTargetHeight
-                val editedCourse = course.copy(weekday = target.weekday, periods = target.periods)
-                val targetHasConflict = !target.valid || hasWeekCourseEditConflict(course, editedCourse, allWeekCourses, editWeek)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(targetPreviewHeight)
-                        .graphicsLayer {
-                            translationX = targetOffsetX
-                            translationY = targetOffsetY
-                        }
-                        .clip(cardShape)
-                        .background(
-                            if (targetHasConflict) {
-                                MaterialTheme.colorScheme.error.copy(alpha = 0.32f)
-                            } else {
-                                ComposeColor.Gray.copy(alpha = 0.24f)
-                            }
-                    )
-                )
-            }
             conflictUnderlyingCourse
                 ?.takeIf { conflictActionResolving && conflictUnderlyingSpan > 0 }
                 ?.let { underlyingCourse ->
@@ -2228,12 +2910,19 @@ fun WeekCourseBlock(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(resizeRevealHeight)
+                    .height(displayedHeight)
                     .graphicsLayer {
-                        val activeScale = if (bodyDragging || handleDragging) 1.035f else pressScale
-                        translationX = if (bodyDragging) moveDragX else 0f
-                        translationY = if (bodyDragging) moveDragY else 0f
-                        rotationZ = if (bodyDragging || handleDragging) 0f else editJitter
+                        val activeScale = if (bodyDragging) {
+                            WeekEditLiftedScale
+                        } else {
+                            pressScale * (1f + editActivationProgress * 0.006f)
+                        }
+                        transformOrigin = if (handleDragging) {
+                            TransformOrigin(0.5f, 0f)
+                        } else {
+                            TransformOrigin.Center
+                        }
+                        rotationZ = if (bodyDragging || handleDragging) 0f else editJitter * editActivationProgress
                         scaleX = activeScale
                         scaleY = activeScale
                         val departureAlpha = if (conflictActionResolving) {
@@ -2241,13 +2930,18 @@ fun WeekCourseBlock(
                         } else {
                             1f
                         }
-                        alpha = if (isOverlaySource) 0f else departureAlpha
+                        alpha = when {
+                            isOverlayTarget -> if (weekEditMotionState?.realCardVisible == true) 1f else 0f
+                            activeOverlayCourseId == course.id ->
+                                1f - (weekEditMotionState?.revealProgress ?: 1f)
+                            else -> departureAlpha
+                        }
                     }
             ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(resizeRevealHeight)
+                    .height(displayedHeight)
                     .clipToBounds()
             ) {
             CourseGlassCard(
@@ -2256,7 +2950,7 @@ fun WeekCourseBlock(
                 course = course,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(resizeGlassShellHeight),
+                    .height(displayedHeight),
                 shape = cardShape,
                 onClick = null
             ) {}
@@ -2409,7 +3103,7 @@ fun WeekCourseBlock(
             }
             }
             }
-            if (conflictWarning && !editMode) {
+            if (conflictWarning && !editMode && !customTimeLocked) {
                 val pillDismissProgress = conflictPillDismiss.value.coerceIn(0f, 1f)
                 val pillTextColor =
                     if (glassUsesLightStyle(config)) ComposeColor.Black else ComposeColor.White
@@ -2483,15 +3177,32 @@ fun WeekCourseBlock(
                     )
                 }
             }
-            if (editMode) {
+            AnimatedVisibility(
+                visible = editMode,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = (-5).dp, y = (-5).dp)
+                    .size(22.dp)
+                    .graphicsLayer {
+                        alpha = editControlHandoffProgress.coerceIn(0f, 1f)
+                        val handoffScale = 0.42f + editControlHandoffProgress * 0.58f
+                        scaleX = handoffScale
+                        scaleY = handoffScale
+                    }
+                    .zIndex(7f),
+                enter = fadeIn(tween(125, delayMillis = (startupIndex % 7) * 9)) +
+                    scaleIn(
+                        animationSpec = spring(dampingRatio = 0.54f, stiffness = 520f),
+                        initialScale = 0.28f,
+                        transformOrigin = TransformOrigin(1f, 1f)
+                    ),
+                exit = fadeOut(tween(90)) +
+                    scaleOut(tween(120), targetScale = 0.55f, transformOrigin = TransformOrigin(1f, 1f))
+            ) {
                 GlassSurface(
                     backdrop = activeCardBackdrop,
                     config = config,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = (-5).dp, y = (-5).dp)
-                        .size(22.dp)
-                        .zIndex(7f),
+                    modifier = Modifier.fillMaxSize(),
                     shape = RoundedCornerShape(50),
                     tokens = GlassTokens.pill(intensity = 0.82f).copy(
                         surfaceAlpha = 0.36f,
@@ -2519,38 +3230,76 @@ fun WeekCourseBlock(
                             .background(ComposeColor.White)
                     )
                 }
+            }
+            AnimatedVisibility(
+                visible = editMode && !customTimeLocked,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = 4.dp, y = 4.dp)
+                    .size(44.dp)
+                    .graphicsLayer {
+                        alpha = editControlHandoffProgress.coerceIn(0f, 1f)
+                        val handoffScale = 0.42f + editControlHandoffProgress * 0.58f
+                        scaleX = handoffScale
+                        scaleY = handoffScale
+                    }
+                    .zIndex(6f),
+                enter = fadeIn(tween(135, delayMillis = 45 + (startupIndex % 7) * 8)) +
+                    scaleIn(
+                        animationSpec = spring(dampingRatio = 0.52f, stiffness = 470f),
+                        initialScale = 0.32f,
+                        transformOrigin = TransformOrigin(0f, 0f)
+                    ),
+                exit = fadeOut(tween(90)) +
+                    scaleOut(tween(125), targetScale = 0.55f, transformOrigin = TransformOrigin(0f, 0f))
+            ) {
                 WeekResizeCornerHandle(
                     config = config,
                     selected = handleDragging,
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .offset(x = 4.dp, y = 4.dp)
-                        .size(44.dp)
-                        .zIndex(6f)
-                        .pointerInput(course.id, editWeek, currentSpan) {
+                        .fillMaxSize()
+                        .then(
+                            if (resizeHandleInputEnabled) {
+                                Modifier.pointerInput(course.id, editWeek, currentSpan) {
                             val velocityTracker = VelocityTracker()
                             detectDragGestures(
                                 onDragStart = {
                                     velocityTracker.resetTracking()
-                                    handleDragging = true
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    buildWeekEditOverlayRequest(WeekEditOverlayMode.Resize)?.let(onStartWeekEditOverlay)
+                                    buildWeekEditOverlayRequest(
+                                        WeekEditOverlayMode.Resize,
+                                        Offset(measuredCardWidthPx, baseHeightPx)
+                                    )?.let { request ->
+                                        handleDragging = true
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onStartWeekEditOverlay(request)
+                                    }
                                 },
                                 onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                    onDragWeekEditOverlay(dragAmount)
+                                    if (handleDragging) {
+                                        change.consume()
+                                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                        onDragWeekEditOverlay(dragAmount)
+                                    }
                                 },
                                 onDragEnd = {
-                                    handleDragging = false
-                                    onFinishResizeOverlay(velocityTracker.calculateVelocity())
+                                    if (handleDragging) {
+                                        onFinishResizeOverlay(velocityTracker.calculateVelocity())
+                                        handleDragging = false
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    }
                                 },
                                 onDragCancel = {
-                                    handleDragging = false
-                                    onCancelWeekEditOverlay()
+                                    if (handleDragging) {
+                                        handleDragging = false
+                                        onCancelWeekEditOverlay()
+                                    }
                                 }
                             )
-                        }
+                                }
+                            } else {
+                                Modifier
+                            }
+                        )
                 )
             }
             }

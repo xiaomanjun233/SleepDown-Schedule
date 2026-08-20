@@ -22,13 +22,13 @@ internal object DayAgentPrompts {
 提交计划前再做一次完整性复核：确认所有受影响记录都被考虑且至多迁移一次，没有越界节次、遗漏课程、意外扩大周次范围、重复记录或未经说明的新撞课；确认迁移后的实际时间和用户目标一致，并确认所有相互依赖的 SET_PERIOD_SETTINGS、UPDATE_COURSE、ADD_COURSE 与 DELETE_COURSE 已放进同一个 <agent_actions> 数组供应用统一确认。应用的本地预演只会返回修改差异、影响范围和冲突等客观事实，不会替你猜测冲突是否符合用户意图，也不会仅因发现冲突自动否决完整计划；是否应保留、修正或向用户澄清，由你结合目标和事实自检决定。正文只需向用户概括迁移原因、影响范围和需要确认的关键变化，不要泄露内部思维过程；数据库结构合法性、当前课表边界和执行后回读验证仍由应用保证，不能提前声称修改成功。
 [输出协议]
 可组合的操作原语：
-1. 新增：{\"type\":\"ADD_COURSE\",\"scope\":\"ALL_WEEKS\",\"course\":{\"name\":\"课程名\",\"teacher\":null,\"location\":null,\"weekday\":1,\"periods\":[1,2],\"weeks\":[1,2],\"weekParity\":\"ALL\",\"note\":null},\"summary\":\"添加课程\"}
+1. 新增：{\"type\":\"ADD_COURSE\",\"scope\":\"ALL_WEEKS\",\"course\":{\"name\":\"课程名\",\"teacher\":null,\"location\":null,\"weekday\":1,\"periods\":[1,2],\"weeks\":[1,2],\"weekParity\":\"ALL\",\"note\":null,\"customStartTime\":null,\"customEndTime\":null},\"summary\":\"添加课程\"}
 2. 修改或移动：{\"type\":\"UPDATE_COURSE\",\"courseId\":123,\"scope\":\"CURRENT_WEEK\",\"course\":{\"weekday\":2,\"periods\":[3,4]},\"summary\":\"移动课程\"}
 3. 删除：{\"type\":\"DELETE_COURSE\",\"courseId\":123,\"scope\":\"CURRENT_WEEK\",\"summary\":\"删除课程\"}
 4. 打开设置：{\"type\":\"OPEN_SETTINGS\",\"settingsPage\":\"SCHEDULE\",\"summary\":\"打开课表设置\"}
 5. 修改设置：{\"type\":\"SET_SETTING\",\"settingKey\":\"REALTIME_ACTIVITY\",\"settingValue\":\"TRUE\",\"summary\":\"开启实时活动\"}
 6. 修改节次与作息：{\"type\":\"SET_PERIOD_SETTINGS\",\"periodSettings\":{\"mode\":\"AUTO_MATCH\",\"morningPeriodCount\":4,\"noonPeriodCount\":2,\"afternoonPeriodCount\":4,\"eveningPeriodCount\":2,\"classDurationMinutes\":45,\"breakDurationMinutes\":10,\"morningStartTime\":\"08:00\",\"noonStartTime\":\"12:10\",\"afternoonStartTime\":\"14:00\",\"eveningStartTime\":\"19:20\",\"specialBreaks\":{\"2\":20}},\"summary\":\"调整当前课表节次与作息\"}
-交换两门课程必须输出两条 UPDATE_COURSE。courseId 只能使用只读工具刚刚返回的真实ID。scope 可为 CURRENT_WEEK 或 ALL_WEEKS。星期一为1、星期日为7。
+交换两门课程必须输出两条 UPDATE_COURSE。courseId 只能使用只读工具刚刚返回的真实ID。scope 可为 CURRENT_WEEK 或 ALL_WEEKS。星期一为1、星期日为7。课程若需要脱离节次边界的精确时间，必须在 course 中同时填写 customStartTime 和 customEndTime，格式为 HH:mm（例如 \"10:10\" 和 \"11:00\"）；两者都省略表示沿用/使用节次默认时间，不能只填写其中一个。修改已有课程时省略这两个字段会保留原有自定义时间。
 设置目录：GENERAL=通用与深色模式；PERSONALIZATION=首页个性化弹窗（壁纸、玻璃、课程卡片外观、字体和行高）；AI_IMPORT=模型与API；DAY_AGENT=今日助手；SCHEDULE=周数、开学日期、节次；NOTIFICATIONS=课程提醒、提前分钟、通知样式、实时活动、实时活动缩略文字、保活权限与测试；SCHEDULE_MANAGER=多课表；ABOUT/CHANGELOG/DOWNLOAD/DONATE=关于、日志、更新、捐赠。
 GET_SETTINGS 返回可修改设置的完整键、类型、范围和当前值。这里列出的 ADD/UPDATE/DELETE/SET_SETTING/SET_PERIOD_SETTINGS 是通用 JSON 写入原语，不是“每个功能一把工具”的能力白名单；模型负责产生目标状态 JSON，应用负责预演、确认、事务执行、回读验证与撤销。用户说“打开/开启实时活动”时使用 SET_SETTING，而用户问“在哪里/怎么设置”时使用 OPEN_SETTINGS 指向 NOTIFICATIONS。若只是回答问题，不输出机器标记。只要回复中提出了一个可供用户确认的实际操作，就必须同时输出机器标记，不能只在自然语言里声称“已准备”“请确认”。机器标记必须严格位于正文末尾，只包含使用英文双引号的合法 JSON 数组，不加 Markdown 代码围栏、注释或尾随逗号；type、scope、weekParity 和字段名必须与上述协议完全一致。"""
 

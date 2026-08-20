@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.Alignment
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 internal const val AiImportHistoryParabolicMotionExtra = "ai_import_history_parabolic_motion"
@@ -173,6 +175,8 @@ private fun AiImportHistoryPage(
     var entries by remember { mutableStateOf(AiImportHistoryStore.load(context)) }
     val scope = rememberCoroutineScope()
     val snapshotLayer = rememberGraphicsLayer()
+    val snapshotRequested = remember { AtomicBoolean(false) }
+    var snapshotRequestVersion by remember { mutableStateOf(0) }
     var rootPosition by remember { mutableStateOf(Offset.Zero) }
     Box(
         Modifier
@@ -180,7 +184,9 @@ private fun AiImportHistoryPage(
             .fillMaxSize()
             .onGloballyPositioned { rootPosition = it.positionInWindow() }
             .drawWithContent {
-                snapshotLayer.record { this@drawWithContent.drawContent() }
+                if (snapshotRequestVersion >= 0 && snapshotRequested.compareAndSet(true, false)) {
+                    snapshotLayer.record { this@drawWithContent.drawContent() }
+                }
                 drawContent()
             }
     ) {
@@ -215,6 +221,10 @@ private fun AiImportHistoryPage(
                             },
                             onOpen = { bounds ->
                                 scope.launch {
+                                    snapshotRequested.set(true)
+                                    snapshotRequestVersion += 1
+                                    withFrameNanos { }
+                                    withFrameNanos { }
                                     val frame = runCatching {
                                         snapshotLayer.toImageBitmap().asAndroidBitmap()
                                     }.getOrNull()

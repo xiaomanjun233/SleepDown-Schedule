@@ -101,7 +101,10 @@ data class AgentCourseDraft(
     val periods: List<Int>,
     val weeks: List<Int>,
     val weekParity: String = "ALL",
-    val note: String? = null
+    val note: String? = null,
+    /** Optional exact wall-clock range for courses that do not align to period boundaries. */
+    val customStartTime: String? = null,
+    val customEndTime: String? = null
 )
 
 data class ParsedAgentCourseDraft(
@@ -131,7 +134,10 @@ data class AgentCoursePatch(
     val periods: List<Int>? = null,
     val weeks: List<Int>? = null,
     val weekParity: String? = null,
-    val note: String? = null
+    val note: String? = null,
+    /** Set both fields to define an exact range; omit both to preserve an existing range. */
+    val customStartTime: String? = null,
+    val customEndTime: String? = null
 )
 
 @Serializable
@@ -217,7 +223,6 @@ fun buildDayAgentFacts(
 ): DayAgentFacts {
     val scheduleCourses = courses.filter { it.scheduleId == config.id }
     val schedulePeriods = periods.filter { it.scheduleId == config.id }
-    val periodMap = schedulePeriods.associateBy { it.periodIndex }
     val termState = derivedScheduleTermState(config, date)
     val termStatus = scheduleTermStatusDescription(config, date)
     val currentWeek = effectiveCurrentWeek(config, date)
@@ -227,10 +232,8 @@ fun buildDayAgentFacts(
         return scheduleCourses.asSequence()
             .filter { it.weekday == weekday && week in it.weeks && parityMatches(it.weekParity, week) }
             .mapNotNull { course ->
-                val first = course.periods.minOrNull()?.let(periodMap::get)
-                val last = course.periods.maxOrNull()?.let(periodMap::get)
-                val start = first?.startTime?.let(::parseAgentTime)
-                val end = last?.endTime?.let(::parseAgentTime)
+                val start = courseStartTime(course, schedulePeriods)
+                val end = courseEndTime(course, schedulePeriods)
                 if (start == null || end == null) null else AgentCourseSlot(course, targetDate, start, end)
             }
             .sortedBy { it.start }
@@ -446,6 +449,11 @@ private fun validateAgentCoursePatch(
     if (weekday !in 1..7 || periods.isEmpty() || weeks.isEmpty()) return null
     val parity = patch.weekParity?.let { runCatching { WeekParity.valueOf(it.uppercase()) }.getOrNull() }
         ?: base?.weekParity ?: WeekParity.ALL
+    val customRange = normalizeAgentCustomTimeRange(
+        start = patch.customStartTime,
+        end = patch.customEndTime,
+        base = base
+    ) ?: return null
     return if (base != null) {
         base.copy(
             name = name,
@@ -456,6 +464,8 @@ private fun validateAgentCoursePatch(
             weeks = weeks,
             weekParity = parity,
             note = patch.note?.trim()?.takeIf { it.isNotBlank() } ?: base.note,
+            customStartTime = customRange.first,
+            customEndTime = customRange.second,
             scheduleId = facts.scheduleId
         )
     } else {
@@ -468,9 +478,32 @@ private fun validateAgentCoursePatch(
             weeks = weeks,
             weekParity = parity,
             note = patch.note?.trim()?.takeIf { it.isNotBlank() },
+            customStartTime = customRange.first,
+            customEndTime = customRange.second,
             scheduleId = facts.scheduleId
         )
     }
+}
+
+/**
+ * Normalize the exact time range used by course-management's custom-time mode.  Agent action
+ * fields are optional for updates: when omitted, the existing range is carried forward.  A
+ * partial or reversed range is rejected instead of silently falling back to period times, which
+ * would make a confirmed "10:10" request appear to succeed while storing a different schedule.
+ */
+private fun normalizeAgentCustomTimeRange(
+    start: String?,
+    end: String?,
+    base: CourseEntity?
+): Pair<String?, String?>? {
+    if (start == null && end == null) {
+        return base?.customStartTime to base?.customEndTime
+    }
+    if (start.isNullOrBlank() || end.isNullOrBlank()) return null
+    val parsedStart = parseAgentTime(start) ?: return null
+    val parsedEnd = parseAgentTime(end) ?: return null
+    if (!parsedEnd.isAfter(parsedStart)) return null
+    return parsedStart.toString() to parsedEnd.toString()
 }
 
 private fun normalizeAgentSettingsPage(value: String?): String? = when (value?.trim()?.uppercase()) {
@@ -560,7 +593,15 @@ fun parseAgentCourseDraft(content: String, facts: DayAgentFacts): ParsedAgentCou
     val validPeriodIndexes = facts.periodDefinitions.mapTo(hashSetOf()) { it.periodIndex }
     val periods = draft.periods.distinct().sorted().filter { it in validPeriodIndexes }
     val weeks = draft.weeks.distinct().sorted().filter { it in 1..facts.totalWeeks }
+    val customRange = normalizeAgentCustomTimeRange(
+        start = draft.customStartTime,
+        end = draft.customEndTime,
+        base = null
+    )
     if (draft.name.isBlank() || draft.weekday !in 1..7 || periods.isEmpty() || weeks.isEmpty()) {
+        return ParsedAgentCourseDraft(displayText, null)
+    }
+    if ((draft.customStartTime != null || draft.customEndTime != null) && customRange == null) {
         return ParsedAgentCourseDraft(displayText, null)
     }
     val parity = runCatching { WeekParity.valueOf(draft.weekParity.uppercase()) }.getOrDefault(WeekParity.ALL)
@@ -575,6 +616,8 @@ fun parseAgentCourseDraft(content: String, facts: DayAgentFacts): ParsedAgentCou
             weeks = weeks,
             weekParity = parity,
             note = draft.note?.trim()?.takeIf(String::isNotBlank),
+            customStartTime = customRange?.first,
+            customEndTime = customRange?.second,
             scheduleId = facts.scheduleId
         )
     )

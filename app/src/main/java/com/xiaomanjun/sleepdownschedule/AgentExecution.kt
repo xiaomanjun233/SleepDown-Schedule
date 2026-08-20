@@ -46,7 +46,8 @@ internal class AgentPlanRejectedException(message: String) : IllegalStateExcepti
 
 internal fun previewAgentPlan(
     before: List<CourseEntity>,
-    plan: AgentPlan
+    plan: AgentPlan,
+    periodDefinitions: List<PeriodEntity> = emptyList()
 ): AgentPlanPreview {
     val working = before.toMutableList()
     var temporaryId = -1L
@@ -94,8 +95,8 @@ internal fun previewAgentPlan(
         }
     }
 
-    val beforeConflicts = agentConflictKeys(findAgentCourseConflicts(before))
-    val newConflicts = findAgentCourseConflicts(working)
+    val beforeConflicts = agentConflictKeys(findAgentCourseConflicts(before, periodDefinitions))
+    val newConflicts = findAgentCourseConflicts(working, periodDefinitions)
         .filterNot { conflict -> agentConflictKey(conflict) in beforeConflicts }
     val changedIds = buildSet {
         plan.actions.forEach { action ->
@@ -169,20 +170,33 @@ private fun CourseEntity.agentContentEquals(other: CourseEntity): Boolean =
         weeks.sorted() == other.weeks.sorted() &&
         weekParity == other.weekParity &&
         note == other.note &&
+        customStartTime == other.customStartTime &&
+        customEndTime == other.customEndTime &&
         scheduleId == other.scheduleId
 
-private fun findAgentCourseConflicts(courses: List<CourseEntity>): List<AgentCourseConflict> {
+private fun findAgentCourseConflicts(
+    courses: List<CourseEntity>,
+    periodDefinitions: List<PeriodEntity> = emptyList()
+): List<AgentCourseConflict> {
     val result = mutableListOf<AgentCourseConflict>()
     for (firstIndex in courses.indices) {
         val first = courses[firstIndex]
         for (secondIndex in firstIndex + 1 until courses.size) {
             val second = courses[secondIndex]
             if (first.weekday != second.weekday) continue
-            val periods = first.periods.intersect(second.periods.toSet()).sorted()
-            if (periods.isEmpty()) continue
             val weeks = first.activeAgentWeeks().intersect(second.activeAgentWeeks()).sorted()
             if (weeks.isEmpty()) continue
-            result += AgentCourseConflict(first, second, weeks, periods)
+            val conflictingWeeks = weeks.filter { week ->
+                first.conflictsWith(second, week, periodDefinitions)
+            }
+            if (conflictingWeeks.isEmpty()) continue
+            // Exact-time courses can overlap even when their period anchors differ. Keep the
+            // shared anchors for the normal case and expose both anchors for that diagnostic
+            // case so the preview still tells the Agent which timetable rows are involved.
+            val periods = first.periods.intersect(second.periods.toSet()).sorted().ifEmpty {
+                (first.periods + second.periods).distinct().sorted()
+            }
+            result += AgentCourseConflict(first, second, conflictingWeeks, periods)
         }
     }
     return result

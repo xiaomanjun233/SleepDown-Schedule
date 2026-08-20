@@ -113,6 +113,14 @@ class ScheduleViewModel(
             repository.replaceCourseGroup(originals, replacements)
         }
 
+    fun replaceCourseGroupAndThen(
+        originals: List<CourseEntity>,
+        replacements: List<CourseEntity>,
+        onSuccess: () -> Unit
+    ) = launchCourseMutation("课程已更新", onSuccess) {
+        repository.replaceCourseGroup(originals, replacements)
+    }
+
     fun updateCourseSingleWeek(original: CourseEntity, edited: CourseEntity, targetWeek: Int) =
         launchCourseMutation {
         repository.updateCourseSingleWeek(original, edited, targetWeek)
@@ -131,6 +139,11 @@ class ScheduleViewModel(
         repository.deleteCourses(courses)
     }
 
+    fun deleteCoursesAndThen(courses: List<CourseEntity>, onSuccess: () -> Unit) =
+        launchCourseMutation("课程已删除", onSuccess) {
+            repository.deleteCourses(courses)
+        }
+
     fun deleteCoursesSingleWeek(courses: List<CourseEntity>, targetWeek: Int) =
         launchCourseMutation("课程已删除") {
             repository.deleteCoursesSingleWeek(courses, targetWeek)
@@ -143,12 +156,14 @@ class ScheduleViewModel(
 
     private fun launchCourseMutation(
         successMessage: String? = null,
+        onSuccess: (() -> Unit)? = null,
         mutation: suspend () -> Unit
     ) = viewModelScope.launch {
         try {
             mutation()
             refreshCoordinator.request()
             successMessage?.let { snackbar.value = it }
+            onSuccess?.invoke()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {

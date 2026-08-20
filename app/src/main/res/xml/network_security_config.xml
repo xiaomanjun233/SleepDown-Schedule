@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Custom BYOK providers may still use explicitly configured HTTP endpoints. -->
+    <base-config cleartextTrafficPermitted="true" />
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">sleepdownschedule.cn</domain>
+    </domain-config>
+</network-security-config>

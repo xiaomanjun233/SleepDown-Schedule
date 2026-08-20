@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule
 
+import java.time.LocalTime
+
 /**
  * A visually continuous portion of a course. Imported courses may contain
  * discontinuous period indexes, so they must not be represented by one tall card.
@@ -27,7 +29,8 @@ data class WeekConflictGroup(
 
 fun buildWeekConflictGroups(
     courses: List<CourseEntity>,
-    periodIndexes: List<Int>
+    periodIndexes: List<Int>,
+    periodDefinitions: List<PeriodEntity> = emptyList()
 ): List<WeekConflictGroup> {
     if (periodIndexes.isEmpty()) return emptyList()
     val positionByPeriod = periodIndexes.withIndex().associate { it.value to it.index }
@@ -59,35 +62,102 @@ fun buildWeekConflictGroups(
     )
     if (segments.isEmpty()) return emptyList()
 
-    val groups = mutableListOf<WeekConflictGroup>()
-    var active = mutableListOf(segments.first())
-    var activeEnd = segments.first().endPosition
-    segments.drop(1).forEach { segment ->
-        if (segment.startPosition <= activeEnd) {
-            active += segment
-            activeEnd = maxOf(activeEnd, segment.endPosition)
-        } else {
-            groups += WeekConflictGroup(active.toList())
-            active = mutableListOf(segment)
-            activeEnd = segment.endPosition
+    fun overlaps(first: WeekCourseSegment, second: WeekCourseSegment): Boolean {
+        if (first.startPosition > second.endPosition || second.startPosition > first.endPosition) {
+            return false
+        }
+        if (periodDefinitions.isEmpty() ||
+            (!first.course.hasCustomTime() && !second.course.hasCustomTime())
+        ) return true
+        val firstIntervals = first.course.copy(periods = first.periods)
+            .occupiedTimeIntervals(periodDefinitions)
+        val secondIntervals = second.course.copy(periods = second.periods)
+            .occupiedTimeIntervals(periodDefinitions)
+        if (firstIntervals.isEmpty() || secondIntervals.isEmpty()) return true
+        return firstIntervals.any { (firstStart, firstEnd) ->
+            secondIntervals.any { (secondStart, secondEnd) ->
+                firstStart < secondEnd && secondStart < firstEnd
+            }
         }
     }
-    groups += WeekConflictGroup(active.toList())
-    return groups
+
+    val remaining = segments.indices.toMutableSet()
+    val groups = mutableListOf<WeekConflictGroup>()
+    while (remaining.isNotEmpty()) {
+        val queue = ArrayDeque<Int>()
+        val component = mutableListOf<WeekCourseSegment>()
+        val firstIndex = remaining.first()
+        remaining.remove(firstIndex)
+        queue.addLast(firstIndex)
+        while (queue.isNotEmpty()) {
+            val index = queue.removeFirst()
+            val segment = segments[index]
+            component += segment
+            val connected = remaining.filter { candidate -> overlaps(segment, segments[candidate]) }
+            connected.forEach { candidate ->
+                remaining.remove(candidate)
+                queue.addLast(candidate)
+            }
+        }
+        groups += WeekConflictGroup(
+            component.sortedWith(
+                compareBy<WeekCourseSegment> { it.startPosition }
+                    .thenBy { it.endPosition }
+                    .thenBy { it.course.id }
+            )
+        )
+    }
+    return groups.sortedWith(
+        compareBy<WeekConflictGroup> { group -> group.segments.minOf { it.startPosition } }
+            .thenBy { group -> group.segments.minOf { it.endPosition } }
+    )
 }
 
 fun CourseEntity.conflictsWith(other: CourseEntity, week: Int): Boolean {
+    return conflictsWith(other, week, emptyList())
+}
+
+fun CourseEntity.conflictsWith(
+    other: CourseEntity,
+    week: Int,
+    periodDefinitions: List<PeriodEntity>
+): Boolean {
     if (id == other.id || scheduleId != other.scheduleId || weekday != other.weekday) return false
     if (week !in weeks || week !in other.weeks) return false
     if (!parityMatches(weekParity, week) || !parityMatches(other.weekParity, week)) return false
+    if (periodDefinitions.isNotEmpty() && (hasCustomTime() || other.hasCustomTime())) {
+        val ownIntervals = occupiedTimeIntervals(periodDefinitions)
+        val otherIntervals = other.occupiedTimeIntervals(periodDefinitions)
+        if (ownIntervals.isNotEmpty() && otherIntervals.isNotEmpty()) {
+            return ownIntervals.any { (ownStart, ownEnd) ->
+                otherIntervals.any { (otherStart, otherEnd) ->
+                    ownStart < otherEnd && otherStart < ownEnd
+                }
+            }
+        }
+    }
     val otherPeriods = other.periods.toHashSet()
     return periods.any(otherPeriods::contains)
+}
+
+private fun CourseEntity.occupiedTimeIntervals(
+    periodDefinitions: List<PeriodEntity>
+): List<Pair<LocalTime, LocalTime>> {
+    customTimeRangeOrNull()?.let { return listOf(it) }
+    val definitions = periodDefinitions.associateBy(PeriodEntity::periodIndex)
+    return periods.distinct().mapNotNull { periodIndex ->
+        val period = definitions[periodIndex] ?: return@mapNotNull null
+        val start = runCatching { LocalTime.parse(period.startTime) }.getOrNull() ?: return@mapNotNull null
+        val end = runCatching { LocalTime.parse(period.endTime) }.getOrNull() ?: return@mapNotNull null
+        (start to end).takeIf { end.isAfter(start) }
+    }
 }
 
 fun conflictWeeksForEditedCourse(
     original: CourseEntity,
     edited: CourseEntity,
-    courses: List<CourseEntity>
+    courses: List<CourseEntity>,
+    periodDefinitions: List<PeriodEntity> = emptyList()
 ): List<Int> {
     return edited.weeks
         .distinct()
@@ -96,8 +166,8 @@ fun conflictWeeksForEditedCourse(
             parityMatches(edited.weekParity, week) &&
                 courses.any { other ->
                     other.id != original.id &&
-                        edited.conflictsWith(other, week) &&
-                        !original.conflictsWith(other, week)
+                        edited.conflictsWith(other, week, periodDefinitions) &&
+                        !original.conflictsWith(other, week, periodDefinitions)
                 }
         }
 }
@@ -105,7 +175,8 @@ fun conflictWeeksForEditedCourse(
 fun conflictWeeksForEditedCourseGroup(
     originals: List<CourseEntity>,
     edited: List<CourseEntity>,
-    courses: List<CourseEntity>
+    courses: List<CourseEntity>,
+    periodDefinitions: List<PeriodEntity> = emptyList()
 ): List<Int> {
     val originalIds = originals.map(CourseEntity::id).toSet()
     val otherCourses = courses.filterNot { it.id in originalIds }
@@ -118,22 +189,43 @@ fun conflictWeeksForEditedCourseGroup(
                 replacement.weekday in 1..7 &&
                     week in replacement.weeks &&
                     otherCourses.any { other ->
-                        replacement.conflictsWith(other, week) &&
-                            originals.none { original -> original.conflictsWith(other, week) }
+                        replacement.conflictsWith(other, week, periodDefinitions) &&
+                            originals.none { original ->
+                                original.conflictsWith(other, week, periodDefinitions)
+                            }
                     }
             }
         }
 }
 
+fun conflictWeeksForAddedCourses(
+    added: List<CourseEntity>,
+    courses: List<CourseEntity>,
+    periodDefinitions: List<PeriodEntity> = emptyList()
+): List<Int> = added
+    .flatMap(CourseEntity::weeks)
+    .distinct()
+    .sorted()
+    .filter { week ->
+        added.any { candidate ->
+            week in candidate.weeks &&
+                courses.any { existing ->
+                    candidate.conflictsWith(existing, week, periodDefinitions)
+                }
+        }
+    }
+
 fun conflictWeeksForSingleWeekEdit(
     original: CourseEntity,
     edited: CourseEntity,
     targetWeek: Int,
-    courses: List<CourseEntity>
+    courses: List<CourseEntity>,
+    periodDefinitions: List<PeriodEntity> = emptyList()
 ): List<Int> = conflictWeeksForEditedCourse(
     original = original.copy(weeks = listOf(targetWeek)),
     edited = edited.copy(weeks = listOf(targetWeek)),
-    courses = courses
+    courses = courses,
+    periodDefinitions = periodDefinitions
 )
 
 fun nearestAvailableCourseMove(

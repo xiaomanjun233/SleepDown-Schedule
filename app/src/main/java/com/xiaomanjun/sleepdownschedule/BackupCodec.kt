@@ -480,6 +480,18 @@ object BackupCodec {
                 course.teacher?.let { validateText("course teacher", it) }
                 course.location?.let { validateText("course location", it) }
                 course.note?.let { validateText("course note", it) }
+                course.customStartTime?.let { validateShortText("course customStartTime", it, allowBlank = false) }
+                course.customEndTime?.let { validateShortText("course customEndTime", it, allowBlank = false) }
+                if ((course.customStartTime == null) != (course.customEndTime == null)) {
+                    fail("课程自定义起止时间必须同时存在")
+                }
+                if (course.customStartTime != null && course.customEndTime != null) {
+                    val start = runCatching { java.time.LocalTime.parse(course.customStartTime) }.getOrNull()
+                        ?: fail("课程自定义开始时间非法")
+                    val end = runCatching { java.time.LocalTime.parse(course.customEndTime) }.getOrNull()
+                        ?: fail("课程自定义结束时间非法")
+                    if (!end.isAfter(start)) fail("课程自定义结束时间必须晚于开始时间")
+                }
                 if (course.weekday !in 1..7) fail("课程 weekday 非法")
                 if (course.periods.any { it < 0 } || course.weeks.any { it < 0 }) fail("课程 periods/weeks 非法")
                 if (course.periods.any { it !in periodIndexes }) fail("课程引用了不存在的 periodIndex")

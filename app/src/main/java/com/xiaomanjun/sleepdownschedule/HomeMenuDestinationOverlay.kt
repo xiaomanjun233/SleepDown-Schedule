@@ -57,6 +57,7 @@ import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 internal enum class HomeMenuDestinationKind { AddCourse, ManualImport, EduImport }
@@ -136,12 +137,131 @@ private fun destinationSmoothStep(edge0: Float, edge1: Float, value: Float): Flo
     return x * x * (3f - 2f * x)
 }
 
-private const val DestinationOpenDurationMillis = 330
-private const val DestinationPanelOpenDurationMillis = 400
-internal const val HomeMenuDestinationCloseDurationMillis = 430
+internal object HomeMenuDestinationLegacyMotion {
+    const val OpenDurationMillis = 330
+    const val CloseDurationMillis = 350
+
+    // The form handoff remains delayed so cached and live text fields never overlap visibly.
+    // This is a rendering policy only; it does not alter the recovered 1.1.5 shell geometry.
+    const val NonFullscreenContentRevealStart = 0.52f
+    const val NonFullscreenContentRevealEnd = 0.72f
+}
+
+internal fun homeMenuDestinationContentAlpha(
+    rawProgress: Float,
+    isFullScreen: Boolean,
+    closing: Boolean
+): Float = when {
+    closing && isFullScreen -> destinationSmoothStep(0.16f, 0.42f, rawProgress)
+    closing -> destinationSmoothStep(0.66f, 0.90f, rawProgress)
+    isFullScreen -> destinationSmoothStep(0.055f, 0.24f, rawProgress)
+    else -> destinationSmoothStep(
+        HomeMenuDestinationLegacyMotion.NonFullscreenContentRevealStart,
+        HomeMenuDestinationLegacyMotion.NonFullscreenContentRevealEnd,
+        rawProgress
+    )
+}
+
+internal fun homeMenuDestinationOpeningContentBlurMix(
+    rawProgress: Float,
+    isFullScreen: Boolean
+): Float = if (isFullScreen) {
+    1f - destinationSmoothStep(0.24f, 0.82f, rawProgress)
+} else {
+    // The underlying form is a GraphicsLayer cache. Blending a blurred copy of that cache with
+    // its clear copy is particularly visible on cursor/input-field chrome during a fast morph.
+    0f
+}
+
+/**
+ * Keeps the real source outline intact until the source clone has handed off. Increasing the
+ * radius during that overlap clips Kyant's highlight at the exact frame where the Activity and
+ * the source window exchange ownership. The middle radius is introduced only after the source is
+ * visually gone, then the full-screen endpoint releases the transient shell altogether.
+ */
+internal fun homeMenuDestinationRenderedCornerRadiusPx(
+    geometry: HomeAnchoredMorphGeometry,
+    rawProgress: Float,
+    isFullScreen: Boolean,
+    closing: Boolean,
+    sourceCornerRadiusPx: Float,
+    collapseCornerRadiusPx: Float,
+    middleCornerRadiusPx: Float
+): Float {
+    if (!isFullScreen) {
+        return geometry.cornerRadiusPx
+    }
+    if (closing) {
+        // A full-screen destination has no visible corner at rest. As soon as it starts closing,
+        // restore the transient shell radius used by the 1.1.5 transition, then converge on the
+        // real three-dot button radius before the source window resumes ownership.
+        val path = geometry.pathProgress
+        val closeRadiusEnd = 0.35f
+        return if (path >= closeRadiusEnd) {
+            middleCornerRadiusPx
+        } else {
+            collapseCornerRadiusPx + (middleCornerRadiusPx - collapseCornerRadiusPx) *
+                (path / closeRadiusEnd).coerceIn(0f, 1f)
+        }
+    }
+    if (rawProgress >= 0.999f) {
+        return geometry.cornerRadiusPx
+    }
+    val sourceHandoffEnd = 0.20f
+    val middleRadiusEnd = 0.35f
+    val path = geometry.pathProgress
+    return when {
+        path <= sourceHandoffEnd -> sourceCornerRadiusPx
+        path >= middleRadiusEnd -> middleCornerRadiusPx
+        else -> sourceCornerRadiusPx + (middleCornerRadiusPx - sourceCornerRadiusPx) *
+            ((path - sourceHandoffEnd) / (middleRadiusEnd - sourceHandoffEnd))
+    }
+}
+
+private const val DestinationOpenDurationMillis = HomeMenuDestinationLegacyMotion.OpenDurationMillis
+internal const val HomeMenuDestinationCloseDurationMillis =
+    HomeMenuDestinationLegacyMotion.CloseDurationMillis
 private const val DestinationBackgroundDurationMillis = 420
 internal const val HomeMenuDestinationEduBackgroundScale = 1.08f
 private val DestinationBackgroundEasing = CubicBezierEasing(0.30f, 0f, 0.20f, 1f)
+
+/**
+ * The recovered 1.1.5 shared-object trajectory for Home menu destinations.
+ *
+ * Opening morphs directly from the first-level menu bounds. Closing uses the real three-dot button
+ * as the geometry source while progress runs back to zero, so the destination is absorbed directly
+ * into that button without a menu waypoint or first-level-menu choreography.
+ */
+internal fun homeMenuDestinationTrajectoryGeometry(
+    sourceBoundsInRoot: Rect,
+    collapseBoundsInRoot: Rect,
+    target: Rect,
+    rawProgress: Float,
+    closing: Boolean,
+    menuCornerRadiusPx: Float,
+    buttonCornerRadiusPx: Float,
+    pinchDiameterPx: Float,
+    minimumDropPx: Float,
+    maximumDropPx: Float,
+    maximumArcPx: Float,
+    targetCornerRadiusPx: Float
+): HomeAnchoredMorphGeometry {
+    val morphSource = if (closing) collapseBoundsInRoot else sourceBoundsInRoot
+    return homeAnchoredMorphGeometry(
+        source = morphSource,
+        target = target,
+        rawProgress = rawProgress,
+        closing = closing,
+        directClosing = !closing,
+        directSourceCornerRadiusPx = if (closing) buttonCornerRadiusPx else menuCornerRadiusPx,
+        pinchDiameterPx = pinchDiameterPx,
+        minimumDropPx = minimumDropPx,
+        maximumDropPx = maximumDropPx,
+        maximumArcPx = maximumArcPx,
+        targetCornerRadiusPx = targetCornerRadiusPx,
+        motionStyle = HomeMorphEasingStyle.Legacy
+    )
+}
 
 internal fun homeMenuDestinationTargetRect(
     kind: HomeMenuDestinationKind,
@@ -196,16 +316,19 @@ internal fun HomeMenuDestinationOverlayHost(
     onClosed: () -> Unit,
     onAddCourses: (List<CourseEntity>) -> Unit,
     onManualImportParsed: (ImportDraft) -> Unit,
-    captureHistoryBackground: suspend () -> Bitmap?,
+    captureHistoryBackground: suspend () -> AiImportHistoryBackgroundCapture?,
     onEduAdapterSelected: (EduAdapter) -> Unit
 ) {
     var renderedRequest by remember { mutableStateOf<HomeMenuDestinationRequest?>(null) }
     var destinationContentPrepared by remember { mutableStateOf(false) }
+    var collapseHandedOff by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     var historyDetailRequest by remember { mutableStateOf<AiImportHistoryDetailMorphRequest?>(null) }
     var hiddenHistoryEntryId by remember { mutableStateOf<String?>(null) }
     var historyImportRequested by remember { mutableStateOf(false) }
     val destinationContentLayer = rememberGraphicsLayer()
+    val destinationContentRecorded = remember { AtomicBoolean(false) }
+    val destinationClosingRecorded = remember { AtomicBoolean(false) }
     val latestDismiss by rememberUpdatedState(onDismissRequest)
     val latestSourceHandoff by rememberUpdatedState(onSourceHandoff)
     val latestCollapseHandoff by rememberUpdatedState(onCollapseHandoff)
@@ -215,7 +338,10 @@ internal fun HomeMenuDestinationOverlayHost(
         if (request != null) {
             motionState.kind = request.kind
             renderedRequest = request
+            collapseHandedOff = false
             destinationContentPrepared = false
+            destinationContentRecorded.set(false)
+            destinationClosingRecorded.set(false)
             motionState.phase = HomeAnchoredOverlayPhase.Preparing
             motionState.progress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
@@ -238,11 +364,7 @@ internal fun HomeMenuDestinationOverlayHost(
                     motionState.progress.animateTo(
                         1f,
                         tween(
-                            durationMillis = if (request.kind == HomeMenuDestinationKind.EduImport) {
-                                DestinationOpenDurationMillis
-                            } else {
-                                DestinationPanelOpenDurationMillis
-                            },
+                            durationMillis = DestinationOpenDurationMillis,
                             easing = LinearEasing
                         )
                     )
@@ -257,7 +379,11 @@ internal fun HomeMenuDestinationOverlayHost(
                 }
                 launch {
                     motionState.backgroundZoom.animateTo(
-                        if (request.kind == HomeMenuDestinationKind.EduImport) { HomeMenuDestinationEduBackgroundScale } else { HomeAnchoredMorphBackgroundScale },
+                        if (request.kind == HomeMenuDestinationKind.EduImport) {
+                            HomeMenuDestinationEduBackgroundScale
+                        } else {
+                            HomeAnchoredMorphBackgroundScale
+                        },
                         tween(
                             DestinationBackgroundDurationMillis,
                             delayMillis = HomeAnchoredMorphBackgroundDelayMillis,
@@ -273,7 +399,10 @@ internal fun HomeMenuDestinationOverlayHost(
                 launch {
                     motionState.progress.animateTo(
                         0f,
-                        tween(HomeMenuDestinationCloseDurationMillis, easing = LinearEasing)
+                        tween(
+                            durationMillis = HomeMenuDestinationCloseDurationMillis,
+                            easing = LinearEasing
+                        )
                     )
                 }
                 launch {
@@ -285,6 +414,8 @@ internal fun HomeMenuDestinationOverlayHost(
             }
             motionState.phase = HomeAnchoredOverlayPhase.Disposing
             destinationContentPrepared = false
+            destinationContentRecorded.set(false)
+            destinationClosingRecorded.set(false)
             renderedRequest = null
             motionState.phase = HomeAnchoredOverlayPhase.Idle
             motionState.kind = null
@@ -327,61 +458,37 @@ internal fun HomeMenuDestinationOverlayHost(
                     motionState.phase == HomeAnchoredOverlayPhase.Closing ||
                         motionState.phase == HomeAnchoredOverlayPhase.Disposing
                 val rawProgress = motionState.progress.value
-                val morphSource = if (destinationClosing) {
-                    shown.collapseBoundsInRoot
-                } else {
-                    shown.sourceBoundsInRoot
-                }
-                val baseGeometry = homeAnchoredMorphGeometry(
-                    source = morphSource,
+                val geometry = homeMenuDestinationTrajectoryGeometry(
+                    sourceBoundsInRoot = shown.sourceBoundsInRoot,
+                    collapseBoundsInRoot = shown.collapseBoundsInRoot,
                     target = target,
                     rawProgress = rawProgress,
-                    // Menu destinations morph directly between the open menu and their target.
                     closing = destinationClosing,
-                    directClosing = !destinationClosing,
-                    directSourceCornerRadiusPx = with(density) {
-                        if (destinationClosing) 21.dp.toPx() else 32.dp.toPx()
-                    },
+                    menuCornerRadiusPx = with(density) { HomeAddMenuTargetCornerDp.dp.toPx() },
+                    buttonCornerRadiusPx = with(density) { 21.dp.toPx() },
                     pinchDiameterPx = with(density) { 18.dp.toPx() },
                     minimumDropPx = with(density) { 12.dp.toPx() },
                     maximumDropPx = with(density) { adaptiveMetrics.animationArc.toPx() },
-                    maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() + 16.dp.toPx() },
+                    maximumArcPx = with(density) {
+                        adaptiveMetrics.animationArc.toPx() + 16.dp.toPx()
+                    },
                     targetCornerRadiusPx = with(density) {
                         if (isFullScreen) 0.dp.toPx() else 32.dp.toPx()
                     }
                 )
-                val geometry = if (isFullScreen) {
-                    baseGeometry
-                } else {
-                    homeMorphWithVerticalRebound(
-                        geometry = baseGeometry,
-                        closing = destinationClosing,
-                        overshootPx = with(density) { 14.dp.toPx() },
-                        peakProgress = 0.40f
-                    )
-                }
                 val fullScreenOpenEndpoint = isFullScreen &&
                     !destinationClosing && rawProgress >= 0.999f
-                val renderedCornerRadiusPx = if (isFullScreen) {
-                    if (fullScreenOpenEndpoint) {
-                        0f
-                    } else {
-                        val progress = geometry.pathProgress
-                        val sourceCorner = with(density) { 32.dp.toPx() }
-                        val middleCorner = with(density) { 46.dp.toPx() }
-                        if (progress <= 0.35f) {
-                            sourceCorner + (middleCorner - sourceCorner) * (progress / 0.35f)
-                        } else {
-                            middleCorner
-                        }
-                    }
-                } else {
-                    geometry.cornerRadiusPx
-                }
+                val renderedCornerRadiusPx = homeMenuDestinationRenderedCornerRadiusPx(
+                    geometry = geometry,
+                    rawProgress = rawProgress,
+                    isFullScreen = isFullScreen,
+                    closing = destinationClosing,
+                    sourceCornerRadiusPx = with(density) { HomeAddMenuTargetCornerDp.dp.toPx() },
+                    collapseCornerRadiusPx = with(density) { 21.dp.toPx() },
+                    middleCornerRadiusPx = with(density) { 46.dp.toPx() }
+                )
                 val sourceHandoffStart = if (isFullScreen) 0.035f else 0.12f
                 val sourceHandoffEnd = if (isFullScreen) 0.20f else 0.40f
-                val destinationHandoffStart = if (isFullScreen) 0.055f else 0.14f
-                val destinationHandoffEnd = if (isFullScreen) 0.24f else 0.34f
                 val sourceCloneAlpha = if (destinationClosing) {
                     0f
                 } else {
@@ -401,23 +508,16 @@ internal fun HomeMenuDestinationOverlayHost(
                         closeElapsed
                     )
                 } else {
-                    maxContentBlurPx * (
-                        1f - destinationSmoothStep(
-                            destinationHandoffEnd,
-                            if (isFullScreen) 0.82f else 0.88f,
-                            rawProgress
-                        )
-                        )
+                    maxContentBlurPx * homeMenuDestinationOpeningContentBlurMix(
+                        rawProgress = rawProgress,
+                        isFullScreen = isFullScreen
+                    )
                 }
-                val destinationContentAlpha = if (destinationClosing) {
-                    if (isFullScreen) {
-                        destinationSmoothStep(0.16f, 0.42f, rawProgress)
-                    } else {
-                        destinationSmoothStep(0.66f, 0.90f, rawProgress)
-                    }
-                } else {
-                    destinationSmoothStep(destinationHandoffStart, destinationHandoffEnd, rawProgress)
-                }
+                val destinationContentAlpha = homeMenuDestinationContentAlpha(
+                    rawProgress = rawProgress,
+                    isFullScreen = isFullScreen,
+                    closing = destinationClosing
+                )
                 HomeMenuDestinationFrame(
                     geometry = geometry,
                     destinationClosing = destinationClosing,
@@ -441,10 +541,15 @@ internal fun HomeMenuDestinationOverlayHost(
             }
         }
         LaunchedEffect(collapseHandoffReached) {
-            if (collapseHandoffReached) latestCollapseHandoff(shown.kind)
+            if (collapseHandoffReached && !collapseHandedOff) {
+                collapseHandedOff = true
+                latestCollapseHandoff(shown.kind)
+            }
         }
         val destinationShape = remember(frame, density) { DeferredDestinationShape(frame, density) }
-        val sourceMenuShape = remember { androidx.compose.foundation.shape.RoundedCornerShape(32.dp) }
+        val sourceMenuShape = remember {
+            androidx.compose.foundation.shape.RoundedCornerShape(HomeAddMenuTargetCornerDp.dp)
+        }
         val targetWidth = with(density) { target.width.toDp() }
         val targetHeight = with(density) { target.height.toDp() }
         val destinationTestTag = when (shown.kind) {
@@ -453,9 +558,6 @@ internal fun HomeMenuDestinationOverlayHost(
             HomeMenuDestinationKind.EduImport -> "benchmark_home_destination_edu_import"
         }
 
-        val showDestinationSurface by remember(frame, backdrop) {
-            derivedStateOf { backdrop == null || frame.value.destinationSurfaceAlpha > 0.005f }
-        }
         val showSourceClone by remember(frame) {
             derivedStateOf { frame.value.sourceCloneAlpha > 0.005f }
         }
@@ -482,51 +584,59 @@ internal fun HomeMenuDestinationOverlayHost(
                     val rect = frame.value.geometry.rect
                     IntOffset(rect.left.roundToInt(), rect.top.roundToInt())
                 }
+                .graphicsLayer {
+                    val current = frame.value
+                    // The real button resumes ownership at the legacy pinch boundary.
+                    alpha = if (collapseHandedOff) 0f else 1f
+                    // Clip is OUTER to the animated layout, so its layer size is the animated
+                    // shell size instead of the stable target size of the inner content.
+                    clip = !current.fullScreenOpenEndpoint
+                    shape = destinationShape
+                }
                 .layout { measurable, _ ->
+                    // Keep the heavy destination subtree at its stable final size; the animated
+                    // shell only changes its reported size and clips the centered child.
+                    val stableWidth = target.width.roundToInt().coerceAtLeast(1)
+                    val stableHeight = target.height.roundToInt().coerceAtLeast(1)
+                    val placeable = measurable.measure(Constraints.fixed(stableWidth, stableHeight))
                     val rect = frame.value.geometry.rect
                     val width = rect.width.roundToInt().coerceAtLeast(1)
                     val height = rect.height.roundToInt().coerceAtLeast(1)
-                    val placeable = measurable.measure(Constraints.fixed(width, height))
-                    layout(width, height) { placeable.place(0, 0) }
+                    layout(width, height) {
+                        placeable.place((width - stableWidth) / 2, (height - stableHeight) / 2)
+                    }
                 }
-                .semantics { testTag = destinationTestTag }
-                .graphicsLayer {
-                    val current = frame.value
-                    alpha = if (
-                        current.destinationClosing &&
-                        current.geometry.pathProgress <= HomeAnchoredMorphClosePinchFraction
-                    ) 0f else 1f
-                    clip = !current.fullScreenOpenEndpoint
-                    shape = destinationShape
-                },
+                .semantics { testTag = destinationTestTag },
             contentAlignment = Alignment.Center
         ) {
             val lightGlass = glassUsesLightStyle(state.config)
-            if (showDestinationSurface) {
-                if (backdrop != null) {
-                    LiquidPanel(
-                        backdrop = backdrop,
-                        modifier = Modifier.fillMaxSize().graphicsLayer {
-                            alpha = frame.value.destinationSurfaceAlpha
-                        },
-                        shape = destinationShape,
-                        surfaceColor = if (lightGlass) {
-                            Color.White.copy(alpha = 0.18f)
-                        } else {
-                            Color(0xFF121212).copy(alpha = 0.30f)
-                        },
-                        blurRadius = 10.dp
-                    ) { }
-                } else {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { alpha = frame.value.destinationSurfaceAlpha }
-                            .background(
-                                if (appUsesDarkTheme(state.config)) Color(0xFF1C1C1E) else Color.White
-                            )
-                    )
-                }
+            // Keep the material composed throughout Preparing and Opening. Mounting drawBackdrop
+            // at the same frame the cached form hands off can flash text fields on some GPUs.
+            if (backdrop != null) {
+                LiquidPanel(
+                    backdrop = backdrop,
+                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                        alpha = frame.value.destinationSurfaceAlpha
+                    },
+                    shape = destinationShape,
+                    surfaceColor = if (lightGlass) {
+                        Color.White.copy(alpha = 0.18f)
+                    } else {
+                        Color(0xFF121212).copy(alpha = 0.30f)
+                    },
+                    blurRadius = 10.dp,
+                    lensHeight = 12.dp,
+                    lensAmount = 16.dp
+                ) { }
+            } else {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = frame.value.destinationSurfaceAlpha }
+                        .background(
+                            if (appUsesDarkTheme(state.config)) Color(0xFF1C1C1E) else Color.White
+                        )
+                )
             }
             if (showSourceClone) {
                 Box(
@@ -568,20 +678,32 @@ internal fun HomeMenuDestinationOverlayHost(
                         .requiredSize(targetWidth, targetHeight)
                         .drawWithContent {
                             val phase = motionState.phase
-                            if (phase == HomeAnchoredOverlayPhase.Preparing ||
-                                phase == HomeAnchoredOverlayPhase.Open
+                            if (phase == HomeAnchoredOverlayPhase.Preparing &&
+                                destinationContentRecorded.compareAndSet(false, true)
                             ) {
                                 destinationContentLayer.record {
                                     this@drawWithContent.drawContent()
                                 }
                             }
                             if (phase == HomeAnchoredOverlayPhase.Open) {
-                                // At the opening endpoint draw the live form directly. Reading the
-                                // same GraphicsLayer immediately after re-recording it can expose a
-                                // one-frame empty/old texture on some Vulkan drivers. The recording
-                                // above is still kept current for the later closing animation.
+                                // Open is interactive. Keep the real form live and avoid recording
+                                // the full destination tree on every frame.
                                 this@drawWithContent.drawContent()
                             } else {
+                                if (phase == HomeAnchoredOverlayPhase.Opening &&
+                                    destinationContentRecorded.compareAndSet(false, true)
+                                ) {
+                                    destinationContentLayer.record {
+                                        this@drawWithContent.drawContent()
+                                    }
+                                }
+                                if (phase == HomeAnchoredOverlayPhase.Closing &&
+                                    destinationClosingRecorded.compareAndSet(false, true)
+                                ) {
+                                    destinationContentLayer.record {
+                                        this@drawWithContent.drawContent()
+                                    }
+                                }
                                 drawLayer(destinationContentLayer)
                             }
                         }

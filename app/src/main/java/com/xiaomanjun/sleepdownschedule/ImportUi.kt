@@ -287,12 +287,23 @@ private fun formatAiImportFileSize(bytes: Int): String {
     }
 }
 
+/**
+ * A Home graphics-layer frame is rooted at the Home content node, while history buttons report
+ * bounds in window coordinates. Keep the producer origin with the bitmap so source crops are
+ * always made in the same coordinate space.
+ */
+data class AiImportHistoryBackgroundCapture(
+    val bitmap: Bitmap,
+    val rootLeftInWindow: Float,
+    val rootTopInWindow: Float
+)
+
 @Composable
 fun NormalizedAiManualImportScreen(
     state: AppState,
     backdrop: Backdrop?,
     onCancel: () -> Unit,
-    captureHistoryBackground: suspend () -> Bitmap? = { null },
+    captureHistoryBackground: suspend () -> AiImportHistoryBackgroundCapture? = { null },
     hiddenHistoryEntryId: String? = null,
     onOpenHistoryEntry: (AiImportHistoryEntry, Rect, Bitmap?) -> Unit = { _, _, _ -> },
     onParsed: (ImportDraft) -> Unit
@@ -673,10 +684,13 @@ fun NormalizedAiManualImportScreen(
         hiddenHistoryEntryId = hiddenHistoryEntryId,
         onOpenHistory = { sourceBounds ->
             scope.launch {
-                val sourceSnapshot = captureHistoryBackground()
-                    ?.cropToAiHistorySource(sourceBounds)
+                val captured = captureHistoryBackground()
+                val sourceSnapshot = captured?.cropToAiHistorySource(sourceBounds)
+                // A malformed crop cannot represent the real source button. Keeping the source
+                // mounted is preferable to hiding it and exposing a black/uncurved Activity shell.
+                if (sourceSnapshot == null) return@launch
                 val windowOverlay = (context as? Activity)?.window?.decorView?.overlay
-                val sourcePlaceholder = sourceSnapshot?.let { bitmap ->
+                val sourcePlaceholder = sourceSnapshot.let { bitmap ->
                     android.graphics.drawable.BitmapDrawable(context.resources, bitmap).apply {
                         bounds = android.graphics.Rect(
                             sourceBounds.left.roundToInt(),
@@ -686,34 +700,41 @@ fun NormalizedAiManualImportScreen(
                         )
                     }
                 }
-                sourcePlaceholder?.let { windowOverlay?.add(it) }
+                sourcePlaceholder.let { windowOverlay?.add(it) }
                 try {
                     historySourceHidden = true
                     withFrameNanos { }
                     withFrameNanos { }
-                    val backgroundSnapshot = captureHistoryBackground()
+                    val backgroundSnapshot = captureHistoryBackground()?.bitmap
+                    // The detail Activity needs both halves of the handoff. Starting it without
+                    // the clean source-page frame regresses to the black fallback shell that the
+                    // real source was just hidden to avoid.
+                    if (backgroundSnapshot == null) {
+                        historySourceHidden = false
+                        return@launch
+                    }
                     val intent = Intent(context, AiImportHistoryActivity::class.java)
                         .putAnchoredSourceBounds(sourceBounds)
                         .putExtra(AiImportHistoryParabolicMotionExtra, true)
-                    if (backgroundSnapshot != null) {
-                        intent.putAnchoredMorphSnapshots(
-                            AnchoredMorphSnapshots(
-                                background = backgroundSnapshot,
-                                source = sourceSnapshot
-                            )
+                    intent.putAnchoredMorphSnapshots(
+                        AnchoredMorphSnapshots(
+                            background = backgroundSnapshot,
+                            source = sourceSnapshot
                         )
-                    }
+                    )
                     (context as? ComponentActivity)?.startActivityWithAnchoredMorph(intent)
                         ?: context.startActivity(intent)
                     delay(180)
                 } finally {
-                    sourcePlaceholder?.let { windowOverlay?.remove(it) }
+                    sourcePlaceholder.let { windowOverlay?.remove(it) }
                 }
             }
         },
         onOpenHistoryEntry = { entry, sourceBounds ->
             scope.launch {
-                val sourceSnapshot = captureHistoryBackground()?.cropToAiHistorySource(sourceBounds)
+                val sourceSnapshot = captureHistoryBackground()
+                    ?.cropToAiHistorySource(sourceBounds)
+                if (sourceSnapshot == null) return@launch
                 onOpenHistoryEntry(entry, sourceBounds, sourceSnapshot)
             }
         },
@@ -1033,7 +1054,16 @@ private fun AiManualImportDialogContent(
 }
 
 @Composable
-fun DonateSettingsScreen(state: AppState, backdrop: Backdrop?) {
+fun DonateSettingsScreen(
+	state: AppState,
+	backdrop: Backdrop?
+) {
+	val scope = rememberCoroutineScope()
+	val remoteConfigState by SleepDownRemoteConfig.state.collectAsStateWithLifecycle()
+	val donationSection = remoteConfigState.bootstrap?.donations
+	LaunchedEffect(Unit) {
+		SleepDownRemoteConfig.refresh(scope, force = true)
+	}
     val topPadding = detailContentTopPadding()
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
@@ -1054,6 +1084,15 @@ fun DonateSettingsScreen(state: AppState, backdrop: Backdrop?) {
                 contentScale = ContentScale.FillWidth
             )
         }
+		if (donationSection?.published == true) {
+			item(key = "donation-thanks-inline") {
+				DonationThanksPanel(
+					state = state,
+					backdrop = backdrop,
+					section = donationSection
+				)
+			}
+		}
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 SettingsInfoRow("使用方式", "打开微信扫一扫，识别上方赞赏码即可。谢谢你愿意支持这个小小的课程表继续变好。")
@@ -2411,13 +2450,22 @@ fun ConfirmScheduleScreen(
     }
 }
 
-private fun Bitmap.cropToAiHistorySource(bounds: Rect): Bitmap? = runCatching {
-    val left = bounds.left.roundToInt().coerceIn(0, width - 1)
-    val top = bounds.top.roundToInt().coerceIn(0, height - 1)
-    val cropWidth = bounds.width.roundToInt().coerceIn(1, width - left)
-    val cropHeight = bounds.height.roundToInt().coerceIn(1, height - top)
-    Bitmap.createBitmap(this, left, top, cropWidth, cropHeight)
-}.getOrNull()
+private fun AiImportHistoryBackgroundCapture.cropToAiHistorySource(bounds: Rect): Bitmap? =
+    runCatching {
+        val left = (bounds.left - rootLeftInWindow).roundToInt()
+        val top = (bounds.top - rootTopInWindow).roundToInt()
+        val cropWidth = bounds.width.roundToInt()
+        val cropHeight = bounds.height.roundToInt()
+        // Do not clamp an invalid window/root conversion to an edge pixel. A partial source is
+        // worse than no transition because it makes the button disappear before a malformed
+        // black shell takes over.
+        if (left < 0 || top < 0 || cropWidth <= 0 || cropHeight <= 0 ||
+            left + cropWidth > bitmap.width || top + cropHeight > bitmap.height
+        ) {
+            return@runCatching null
+        }
+        Bitmap.createBitmap(bitmap, left, top, cropWidth, cropHeight)
+    }.getOrNull()
 
 @Composable
 private fun AiImportChatPreview(

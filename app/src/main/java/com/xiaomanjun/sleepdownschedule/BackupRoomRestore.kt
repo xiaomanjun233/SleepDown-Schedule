@@ -172,6 +172,9 @@ object BackupRoomRestoreMapper {
                     weeks = course.weeks,
                     weekParity = strictBackupEnum<WeekParity>(course.weekParity, "weekParity"),
                     note = course.note,
+                    customStartTime = course.customStartTime,
+                    customEndTime = course.customEndTime,
+                    customColorArgb = course.customColorArgb,
                     scheduleId = targetScheduleId
                 )
             }

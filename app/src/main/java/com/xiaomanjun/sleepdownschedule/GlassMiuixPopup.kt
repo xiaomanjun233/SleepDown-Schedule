@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
 import top.yukonga.miuix.kmp.basic.DropdownColors
 import top.yukonga.miuix.kmp.basic.DropdownEntry
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
@@ -78,7 +79,7 @@ private fun Modifier.miuixCascadingPopupSurface(
     config: ScheduleConfigEntity,
     blurRadius: Dp
 ): Modifier {
-    val dark = !glassUsesLightStyle(config)
+    val dark = appUsesDarkTheme(config)
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
         return background(settingsPageBackground(settingsVisualConfig(config)))
     }
@@ -87,7 +88,10 @@ private fun Modifier.miuixCascadingPopupSurface(
         // Miuix owns the animated primary/secondary clip paths. Keeping this rectangular lets
         // the same material follow both surfaces without fighting the cascade morph geometry.
         shape = { RectangleShape },
-        effects = { blur(blurRadius.toPx()) },
+        effects = {
+            blur(blurRadius.coerceAtMost(14.dp).toPx())
+            lens(4.dp.toPx(), 8.dp.toPx(), chromaticAberration = false)
+        },
         highlight = null,
         shadow = null,
         onDrawSurface = {
@@ -129,7 +133,7 @@ internal fun GlassMiuixCascadingPopup(
     collapseOnSelection: Boolean = true
 ) {
     val transparent = Color.Transparent
-    val popupColors = if (!glassUsesLightStyle(config)) {
+    val popupColors = if (appUsesDarkTheme(config)) {
         darkColorScheme(
             primary = MaterialTheme.colorScheme.primary,
             background = transparent,
@@ -153,7 +157,7 @@ internal fun GlassMiuixCascadingPopup(
     val surfaceModifier = Modifier.miuixCascadingPopupSurface(
         backdrop = backdrop,
         config = config,
-        blurRadius = 28.dp
+        blurRadius = 14.dp
     )
     MiuixTheme(colors = popupColors) {
         when (host) {
