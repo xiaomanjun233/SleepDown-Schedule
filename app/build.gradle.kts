@@ -184,7 +184,7 @@ dependencies {
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.palette:palette-ktx:1.0.0")
     compileOnly("com.oplus.animation:viewseamless:1.0.0@aar")
-    implementation("io.github.kyant0:backdrop:2.0.0-alpha03")
+    implementation("io.github.kyant0:backdrop:2.0.0")
     implementation("io.github.kyant0:shapes:1.2.0")
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.3")
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.3")
