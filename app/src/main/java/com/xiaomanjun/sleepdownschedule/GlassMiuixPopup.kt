@@ -3,12 +3,12 @@ package com.xiaomanjun.sleepdownschedule
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -79,15 +79,16 @@ private fun Modifier.miuixCascadingPopupSurface(
     config: ScheduleConfigEntity,
     blurRadius: Dp
 ): Modifier {
-    val dark = appUsesDarkTheme(config)
+    val dark = !glassUsesLightStyle(config)
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
         return background(settingsPageBackground(settingsVisualConfig(config)))
     }
     return drawBackdrop(
         backdrop = backdrop,
-        // Miuix owns the animated primary/secondary clip paths. Keeping this rectangular lets
-        // the same material follow both surfaces without fighting the cascade morph geometry.
-        shape = { RectangleShape },
+        // Backdrop's lens shader requires a CornerBasedShape. A zero-radius rounded rect is
+        // pixel-identical to RectangleShape while satisfying that runtime contract; Miuix still
+        // owns the animated primary/secondary clip paths outside this material layer.
+        shape = { RoundedCornerShape(0.dp) },
         effects = {
             blur(blurRadius.coerceAtMost(14.dp).toPx())
             lens(4.dp.toPx(), 8.dp.toPx(), chromaticAberration = false)
@@ -133,7 +134,7 @@ internal fun GlassMiuixCascadingPopup(
     collapseOnSelection: Boolean = true
 ) {
     val transparent = Color.Transparent
-    val popupColors = if (appUsesDarkTheme(config)) {
+    val popupColors = if (!glassUsesLightStyle(config)) {
         darkColorScheme(
             primary = MaterialTheme.colorScheme.primary,
             background = transparent,

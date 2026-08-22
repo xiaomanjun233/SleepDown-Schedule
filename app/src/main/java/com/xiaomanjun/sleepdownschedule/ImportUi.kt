@@ -2,7 +2,6 @@ package com.xiaomanjun.sleepdownschedule
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.app.ActivityManager
 import android.app.DatePickerDialog
 import android.app.Application
@@ -201,6 +200,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
+import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
+import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
+import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
+import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -309,6 +316,7 @@ fun NormalizedAiManualImportScreen(
     onParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
+    val transitionDensity = LocalDensity.current
     val scope = rememberCoroutineScope()
     var jsonText by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -321,12 +329,10 @@ fun NormalizedAiManualImportScreen(
     var historySourceHidden by remember { mutableStateOf(false) }
     var historyEntries by remember { mutableStateOf(AiImportHistoryStore.load(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val textColor = glassForegroundColor(state.config)
     val aiFileUploadVisible = aiSettings.profile.id != AiProviderPresets.deepSeek.id
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                historySourceHidden = false
                 historyEntries = AiImportHistoryStore.load(context)
             }
         }
@@ -509,7 +515,10 @@ fun NormalizedAiManualImportScreen(
                             routeMessage = "已取消，文件没有发送给 AI。"
                         }
                     )
-                    context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
+                    context.openRegisteredActivity(
+                        TransitionRouteId.ImportToAiProgress,
+                        Intent(context, AiEduImportProgressActivity::class.java)
+                    )
                 }
                 .onFailure {
                     error = it.message ?: "文件读取失败"
@@ -654,7 +663,10 @@ fun NormalizedAiManualImportScreen(
                 routeMessage = "已取消，课表口令没有发送给 AI。"
             }
         )
-        context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
+        context.openRegisteredActivity(
+            TransitionRouteId.ImportToAiProgress,
+            Intent(context, AiEduImportProgressActivity::class.java)
+        )
     }
     AiManualImportDialogContent(
         state = state,
@@ -684,49 +696,51 @@ fun NormalizedAiManualImportScreen(
         hiddenHistoryEntryId = hiddenHistoryEntryId,
         onOpenHistory = { sourceBounds ->
             scope.launch {
+                // TODO(OPLUS_DEFERRED_20260823): Retained for investigation only. The signed
+                // PLJ110 acceptance build still flashed blank on this native OPEN path.
                 val captured = captureHistoryBackground()
                 val sourceSnapshot = captured?.cropToAiHistorySource(sourceBounds)
                 // A malformed crop cannot represent the real source button. Keeping the source
                 // mounted is preferable to hiding it and exposing a black/uncurved Activity shell.
                 if (sourceSnapshot == null) return@launch
-                val windowOverlay = (context as? Activity)?.window?.decorView?.overlay
-                val sourcePlaceholder = sourceSnapshot.let { bitmap ->
-                    android.graphics.drawable.BitmapDrawable(context.resources, bitmap).apply {
-                        bounds = android.graphics.Rect(
-                            sourceBounds.left.roundToInt(),
-                            sourceBounds.top.roundToInt(),
-                            sourceBounds.right.roundToInt(),
-                            sourceBounds.bottom.roundToInt()
-                        )
-                    }
+                val activity = context as? ComponentActivity ?: return@launch
+                val anchor = TransitionAnchorFrame(
+                    boundsInWindow = sourceBounds,
+                    cornerRadiusPx = with(transitionDensity) { 21.dp.toPx() },
+                    bitmap = sourceSnapshot
+                )
+                val releaseOpeningSource =
+                    activity.attachOpeningSourceSnapshotHandoff(anchor) ?: return@launch
+                historySourceHidden = true
+                withFrameNanos { }
+                withFrameNanos { }
+                val backgroundSnapshot = captureHistoryBackground()?.bitmap
+                // The detail Activity needs both halves of the handoff. Starting it without
+                // the clean source-page frame regresses to the black fallback shell that the
+                // real source was just hidden to avoid.
+                if (backgroundSnapshot == null) {
+                    releaseOpeningSource()
+                    historySourceHidden = false
+                    return@launch
                 }
-                sourcePlaceholder.let { windowOverlay?.add(it) }
-                try {
-                    historySourceHidden = true
-                    withFrameNanos { }
-                    withFrameNanos { }
-                    val backgroundSnapshot = captureHistoryBackground()?.bitmap
-                    // The detail Activity needs both halves of the handoff. Starting it without
-                    // the clean source-page frame regresses to the black fallback shell that the
-                    // real source was just hidden to avoid.
-                    if (backgroundSnapshot == null) {
-                        historySourceHidden = false
-                        return@launch
-                    }
-                    val intent = Intent(context, AiImportHistoryActivity::class.java)
-                        .putAnchoredSourceBounds(sourceBounds)
-                        .putExtra(AiImportHistoryParabolicMotionExtra, true)
-                    intent.putAnchoredMorphSnapshots(
-                        AnchoredMorphSnapshots(
-                            background = backgroundSnapshot,
-                            source = sourceSnapshot
-                        )
+                val intent = Intent(context, AiImportHistoryActivity::class.java)
+                val launchResult = ActivityTransitionCoordinator.open(
+                    activity = activity,
+                    routeId = TransitionRouteId.ManualImportToHistory,
+                    intent = intent,
+                    payload = TransitionPayload(
+                        openingAnchor = anchor,
+                        returnAnchorProvider = StaticTransitionAnchorProvider(anchor),
+                        backgroundBitmap = backgroundSnapshot,
+                        onOpeningSourceHandoff = releaseOpeningSource,
+                        nativeSourceLeashAlphaOutOnOpen = true,
+                        onSourceReleased = { historySourceHidden = false }
                     )
-                    (context as? ComponentActivity)?.startActivityWithAnchoredMorph(intent)
-                        ?: context.startActivity(intent)
-                    delay(180)
-                } finally {
-                    sourcePlaceholder.let { windowOverlay?.remove(it) }
+                )
+                if (launchResult is TransitionLaunchResult.Failed) {
+                    releaseOpeningSource()
+                    historySourceHidden = false
+                    return@launch
                 }
             }
         },
@@ -802,6 +816,8 @@ private fun AiManualImportDialogContent(
     onOpenHistoryEntry: (AiImportHistoryEntry, Rect) -> Unit,
     onPrimaryAction: () -> Unit
 ) {
+    // This destination is rendered directly on the Home glass/backdrop. Its complete foreground
+    // domain must therefore follow that glass, independently from the application day/night mode.
     val textColor = glassForegroundColor(state.config)
     val dialogLightStyle = glassUsesLightStyle(state.config)
     val windowSize = currentWindowSizeDp()
@@ -816,6 +832,7 @@ private fun AiManualImportDialogContent(
     // the inner content; the platform dialog and its expensive backdrop are never remeasured.
     val panelHeight = minOf(safeHeight, 500.dp)
     val mode = selectedMode
+    CompositionLocalProvider(LocalContentColor provides textColor) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -826,6 +843,7 @@ private fun AiManualImportDialogContent(
             onDismiss = onCancel,
             backdrop = backdrop,
             config = state.config,
+            buttonLightStyleOverride = dialogLightStyle,
             onConfirm = onPrimaryAction
         )
         if (mode == 1) {
@@ -834,7 +852,7 @@ private fun AiManualImportDialogContent(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(22.dp))
-                    .background(ComposeColor.Black.copy(alpha = if (glassUsesLightStyle(state.config)) 0.035f else 0.18f))
+                    .background(ComposeColor.Black.copy(alpha = if (dialogLightStyle) 0.035f else 0.18f))
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -853,7 +871,7 @@ private fun AiManualImportDialogContent(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(22.dp))
-                    .background(ComposeColor.Black.copy(alpha = if (glassUsesLightStyle(state.config)) 0.035f else 0.18f))
+                    .background(ComposeColor.Black.copy(alpha = if (dialogLightStyle) 0.035f else 0.18f))
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -872,7 +890,7 @@ private fun AiManualImportDialogContent(
                     "刷新",
                     onRefreshSettings,
                     monochromeNeutral = true,
-                    neutralLightStyle = dialogLightStyle
+                    lightStyleOverride = dialogLightStyle
                 )
             }
         }
@@ -886,6 +904,7 @@ private fun AiManualImportDialogContent(
                 config = state.config,
                 width = maxWidth,
                 highContrast = true,
+                followAppTheme = false,
                 onSelected = onModeSelected
             )
         }
@@ -899,7 +918,7 @@ private fun AiManualImportDialogContent(
                             onCopyPrompt,
                             modifier = Modifier.weight(1f),
                             monochromeNeutral = true,
-                            neutralLightStyle = dialogLightStyle
+                            lightStyleOverride = dialogLightStyle
                         )
                         DialogLiquidButton(
                             backdrop,
@@ -907,7 +926,7 @@ private fun AiManualImportDialogContent(
                             onCleanText,
                             modifier = Modifier.weight(1f),
                             monochromeNeutral = true,
-                            neutralLightStyle = dialogLightStyle
+                            lightStyleOverride = dialogLightStyle
                         )
                     }
                     DialogCapsuleField(
@@ -917,6 +936,8 @@ private fun AiManualImportDialogContent(
                         config = state.config,
                         minLines = 5,
                         cornerRadius = 16.dp,
+                        fieldTextColor = textColor,
+                        fieldLightStyleOverride = dialogLightStyle,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -1050,6 +1071,7 @@ private fun AiManualImportDialogContent(
                 )
             }
         }
+    }
     }
 }
 
@@ -1922,7 +1944,10 @@ fun EduImportBrowserScreen(
                                     screenCaptureStatus = null
                                 }
                             }.getOrElse {
-                                context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
+                                context.openRegisteredActivity(
+                                    TransitionRouteId.ImportToAiProgress,
+                                    Intent(context, AiEduImportProgressActivity::class.java)
+                                )
                                 AiEduImportProgressSession.clearActions()
                                 setAiProgress(aiProgress?.copy(
                                     steps = aiProgress?.steps.orEmpty() + "识屏截图失败",
@@ -1933,7 +1958,10 @@ fun EduImportBrowserScreen(
                                 aiParsing = false
                                 return@launch
                             }
-                            context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
+                            context.openRegisteredActivity(
+                                TransitionRouteId.ImportToAiProgress,
+                                Intent(context, AiEduImportProgressActivity::class.java)
+                            )
                             prepareCapturePreview(screenCapture, settings, screenMode = true)
                         }
                     }
@@ -1948,7 +1976,10 @@ fun EduImportBrowserScreen(
 
         AiEduImportProgressSession.clearActions()
         setAiProgress(AiEduImportProgress(steps = listOf("准备读取当前页面")))
-        context.startActivity(Intent(context, AiEduImportProgressActivity::class.java))
+        context.openRegisteredActivity(
+            TransitionRouteId.ImportToAiProgress,
+            Intent(context, AiEduImportProgressActivity::class.java)
+        )
         setAiProgress(aiProgress?.copy(routeLabel = routeLabel))
         onMessage("正在分层抓取当前页面...")
         aiParsing = true

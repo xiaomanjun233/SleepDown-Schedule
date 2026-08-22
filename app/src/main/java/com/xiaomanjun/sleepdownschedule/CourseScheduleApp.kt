@@ -15,6 +15,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import java.io.File
 import java.time.LocalDate
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 
 /**
  * Process-level dependency owner and lifecycle coordinator.
@@ -40,6 +41,7 @@ class CourseScheduleApp : Application() {
         super.onCreate()
         AppIconManager.applyStoredMode(this)
         SleepDownRemoteConfig.initialize(this, applicationScope)
+        ActivityTransitionCoordinator.install(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 setTaskExcludedFromRecents(false)

@@ -43,21 +43,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
+import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 
-internal const val AiImportHistoryParabolicMotionExtra = "ai_import_history_parabolic_motion"
-
-class AiImportHistoryActivity : ComponentActivity() {
-    private var morphSnapshotToken: Long? = null
-
+open class AiImportHistoryActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        ActivityTransitionCoordinator.prepareDestinationBeforeOnCreate(this)
         super.onCreate(savedInstanceState)
+        ActivityTransitionCoordinator.installDestinationWindowBackground(this)
         enableEdgeToEdge()
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
-        val sourceBounds = intent.anchoredSourceBoundsOrNull()
-        val useParabolicMotion = intent.getBooleanExtra(AiImportHistoryParabolicMotionExtra, false)
-        morphSnapshotToken = intent.anchoredMorphSnapshotTokenOrNull()
-        val transitionSnapshots = AnchoredMorphSnapshotStore.get(morphSnapshotToken)
         val app = application as CourseScheduleApp
         setContent {
             val state by app.repository.state.collectAsStateWithLifecycle(AppState())
@@ -66,17 +63,8 @@ class AiImportHistoryActivity : ComponentActivity() {
                 var detailSourceHidden by remember { mutableStateOf(false) }
                 var returnToMain by remember { mutableStateOf(false) }
                 Box(Modifier.fillMaxSize()) {
-                    AnchoredDetailActivityMorph(
-                        sourceBounds = sourceBounds,
-                        sourceCornerRadius = 21.dp,
-                        backgroundSnapshot = transitionSnapshots?.background,
-                        sourceSnapshot = transitionSnapshots?.source,
-                        motionStyle = if (useParabolicMotion) {
-                            AnchoredDetailMotionStyle.Parabolic
-                        } else {
-                            AnchoredDetailMotionStyle.Liquid
-                        },
-                        onFinished = { finish() },
+                    CrossActivityTransitionHost(
+                        activity = this@AiImportHistoryActivity,
                         sourceContent = {
                             Box(
                                 Modifier.fillMaxSize().background(
@@ -124,7 +112,9 @@ class AiImportHistoryActivity : ComponentActivity() {
                                     detailSourceHidden = false
                                     detailRequest = null
                                     if (returnToMain) {
-                                        startActivity(
+                                        ActivityTransitionCoordinator.openImmediate(
+                                            this@AiImportHistoryActivity,
+                                            TransitionRouteId.ReturnToHome,
                                             Intent(this@AiImportHistoryActivity, MainActivity::class.java).addFlags(
                                                 Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                                             )
@@ -157,11 +147,10 @@ class AiImportHistoryActivity : ComponentActivity() {
         }
     }
 
-    override fun onDestroy() {
-        if (isFinishing) AnchoredMorphSnapshotStore.remove(morphSnapshotToken)
-        super.onDestroy()
-    }
 }
+
+/** Opaque manifest host for the verified ColorOS ViewSeamless AI-history route. */
+class OplusAiImportHistoryActivity : AiImportHistoryActivity()
 
 @Composable
 private fun AiImportHistoryPage(

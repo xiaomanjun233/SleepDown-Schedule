@@ -96,6 +96,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import kotlin.math.abs
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 
 private val SnapshotSchoolWeekdays = (1..5).toList()
 private val SnapshotFullWeekdays = (1..7).toList()
@@ -124,7 +126,11 @@ class ScheduleManagerActivity : ComponentActivity() {
                         val intent = Intent(this, SettingsDetailActivity::class.java)
                             .putExtra("settings_page", SettingsPage.Schedule.name)
                             .putScheduleCustomizeId(id)
-                        startActivityWithScheduleDepthTransition(intent)
+                        ActivityTransitionCoordinator.openImmediate(
+                            this,
+                            TransitionRouteId.ScheduleManagerToSettingsDetail,
+                            intent
+                        )
                     },
                     onCreate = {
                         Log.d("ScheduleManager", "create schedule")

@@ -9,7 +9,15 @@ data class RemoteBootstrap(
     val notices: List<RemoteNotice> = emptyList(),
     val agreements: RemoteAgreementSet = RemoteAgreementSet(),
     val ai: RemoteAiConfig? = null,
-    val donations: RemoteDonationSection = RemoteDonationSection()
+    val donations: RemoteDonationSection = RemoteDonationSection(),
+    val transitions: RemoteTransitionConfig = RemoteTransitionConfig()
+)
+
+/** Server-side kill switches. Missing or stale configuration always keeps native transitions off. */
+@Serializable
+data class RemoteTransitionConfig(
+    val oplusViewSeamlessEnabled: Boolean = false,
+    val oplusRouteAllowlist: Set<String> = emptySet()
 )
 
 @Serializable

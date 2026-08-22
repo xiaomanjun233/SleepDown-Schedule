@@ -62,23 +62,92 @@
 - 官网源码位于 `sleepdown-site/`，线上仍由已预付杭州 ECS 直出；不要在未授权时创建 OSS Bucket、CDN 域名或其他按量资源。
 - `SleepDown-Server/` 是私有后端源码，不属于公开 Android 仓库或任何 GitHub Release 的发布范围；不得暂存、提交、推送或上传其中的源码、构建产物、数据库、环境文件、管理配置、API Key、加密密钥或其他服务端凭据。
 
+## 跨 Activity Transition 统一框架（2026-08-22 重建）
+
+目的：业务层只声明路线、Intent 和锚点，由统一控制层选择现有 Legacy renderer 或按路线开放的 ColorOS ViewSeamless；不得在页面中直接选择动画后端。现有 Morph 的几何、时序、easing、glass、Backdrop、快照和首尾帧参数仍留在原 renderer。
+
+- `app/src/main/java/com/xiaomanjun/sleepdownschedule/transition/`
+  - `TransitionRoute.kt`：集中路线表；每条路线声明目标 Activity、`Anchored` / `Depth` / `PlatformDefault` / `TaskReturn` Legacy profile、窗口策略和 native policy。
+  - `TransitionSession.kt`：每次跳转独立 `TransitionSessionId` 与状态机 `Created → SourceReady → NativeRegistered → NativeRunning | LegacyRunning → Open → Closing → Finished/Cancelled/Failed`；支持 `parentSessionId` 和 callback generation。
+  - `TransitionPayload.kt`：按 session 保存打开/返回锚点、独立软件快照、背景快照、真实 source 恢复回调与 exactly-once 清理句柄；Intent 只传 route/session 标识。
+  - `ActivityTransitionCoordinator.kt`：统一 `open`、`openImmediate`、目的页预处理和 close；同步拒绝、异常、无效锚点、`onAnimationStart` 120ms 超时或 end-before-start 均回到同一路线的 Legacy profile。
+  - `CrossActivityTransitionHost.kt`：`NativeRegistered` 时保持真实 Legacy 起始帧；仅同 session 的 `onAnimationStart` 可释放临时 Morph 壳并显示已预组合的真实页面。
+  - `OplusSeamlessBackend.kt`：按 session 管理带真实圆角 outline 的临时 source View、回调、返回 bridge、纵向拖动即时清理和 source-resume watchdog；不存在全局 `activeSession`。能力 gate 只看运行时类/API/版本/feature、窗口形态、锚点/软件位图和 opaque 目标策略，不看 manufacturer、brand、ROM 属性或动画等级。
+  - `OplusVendorCallbackFactory.kt`：唯一直接引用厂商 callback 类的隔离适配层；通用代码只反射加载，R8 keep 位于 `app/proguard-rules.pro`。
+- 生产 Oplus 开关由 `RemoteTransitionConfig` 的全局开关与逐路线 allowlist 双重控制，缺失配置默认 Legacy；当前 allowlist 为空，所有正式路线仍保持原效果。
+- Legacy 组件继续使用 `AppTheme.TranslucentMorph`；只有路线 native 注册成功后才改写 Intent 到独立的 opaque 宿主组件（当前为课程详情和 AI 历史），日夜模式分别提供匹配背景。注册拒绝时仍启动原 Legacy 组件。
+- 旧 Probe Activity、`ForceOplusDetailTheme`、硬编码 `FullOpaqueNoGlass` 路由和生产临时日志已移出 main；二分入口只在 `app/src/debug/.../OplusTransitionDebugHarness.kt`。
+- 同 Activity 的首页弹层、历史详情、课程编辑器、周视图拖拽和定制多课表 `CustomizeUiState` 未迁移。详细接入说明见 `docs/TRANSITION_FRAMEWORK.md`。
+
+## ColorOS ViewSeamless（Oplus 无缝转场）专题
+
+### 依赖与接入方式
+
+- `compileOnly("com.oplus.animation:viewseamless:1.0.0@aar")`（官方文档 13771 指定作用域）。AAR 内为 no-op stub（`setSeamlessView=false`、`getVersion=-1`），真实能力由 ColorOS 系统实现提供；全部通过反射访问，缺类/版本/方法差异/异常均安全回退 `AnchoredDetailActivityMorph`。
+- public API：`OplusViewSeamless.setSeamlessView(View, Context, Bundle, AnimationCallback)`、`finishCurrentAnimation()`、`skipBackAnim(Activity)`、`setSkipViewSeamless(Activity)`、`setForceLeashAlphaOut(Activity, boolean)`、`getVersion()`、`AnimationCallback` 三个回调；常量含 `VIEW_SEAMLESS_OPEN/CLOSE`、`BUNDLE_COLOR/RADIUS/RECT/BITMAP/FORCE_LEASH_ALPHA_OUT/ALPHA_OUT_ON_POSITION_CHANGE/VIEW_VISIBLE/LIST_COVER/VIEW_WITH_ALPHA`、`OS_16_0_BASE=37000`/`OS_16_1_BASE=38000`/`OS_17_0_BASE=40000`。
+- 官方条件：ColorOS 16.1+、动效等级 B+ 及以上；受浮窗、兼容模式、平行视窗、分屏等场景限制。官方示例以 `getVersion()>OS_16_0_BASE` 且 `setSeamlessView()` 返回 true 后再 `startActivity(intent, bundle)`。
+- SDK 1.0.0 无独立 return-target update API；返回复用 `setSeamlessView` + `VIEW_SEAMLESS_CLOSE` 与源快照/按钮 bridge。
+
+### 真机事实（PLJ110 = ColorOS 17 内测 / Android SDK 37）
+
+- `ro.build.version.oplusrom.confidential=V17.0.0`、`PLJ110_17.0.0.64(SP03CN01)`；公开 `oplusrom=V16.0.0`、display `16.0` 是伪装属性，**不得作为能力 gate**。runtime class `com.oplus.animation.OplusViewSeamless` 存在，`getVersion()=40003`、`isFeatureEnabled()=true`；`persist.sys.oplus.anim_level=1`。无 manufacturer/brand 硬编码 gate。
+- 早期曾判定"动效等级=1 低于 B+ → skip anim"为根因，**该结论已被后续实验推翻**：同设备、同 source 下多个 opaque destination 均成功接管。真实根因在 destination 内部结构/渲染层（见二分进度）。
+- 兼容层处理过的坑：`view rect isEmpty`（source View 必须 attached/laid out/非空 bounds，用 `doOnPreDraw` 就绪 + 点击前验证）、`HARDWARE bitmap`（仅 SDK Bundle 用独立软件 `ARGB_8888` 副本，原 snapshot 不 recycle）、`skip anim`（透明 window 或低动效等级会触发，见下）、源 View 无 background/在 backdrop material 层（`viewBackground null` → skip；用非 null 背景或 alpha=1 避免"hidden"判定）。
+
+### 二分实验进度（已确认）
+
+| 层 | destination 内容 | theme | 结果 |
+|---|---|---|---|
+| Native / ComposeView | OplusTestDetailActivity 等 | opaque | ✅ startAnimation + springs |
+| EmptyOpaque | `Text("test")` | AppTheme.OplusSeamlessDetail | ✅ 接管 |
+| ComposeProbe | `Column{Text("课程管理"); Card{Text("课程1")}}` | 同上 | ✅ 接管 |
+| MorphEmptyOpaque | `AnchoredDetailActivityMorph` + `Text("test")` | 同上 | ✅ 接管（Morph 本身不是 skip 因素） |
+| FullOpaqueNoGlass | 真实 `CourseManagementDetailPage`，去掉 glass/backdrop/Morph | 同上 | ✅ 接管 |
+| 正式 Detail | 完整（TranslucentMorph + Morph + LiquidGlass/backdrop） | TranslucentMorph | ❌ skip anim |
+
+结论：source/API/bundle/snapshot/ComposeView/透明 window（单因素）均正常；**正式页面比 FullOpaqueNoGlass 多出的部分是 LiquidGlass / backdrop / RenderEffect / graphicsLayer / snapshot 层——这些是剩余的最大嫌疑**，逐层恢复实验尚未完成（见下一步）。二分实验用 `OplusBisectRoute` 枚举 + `oplusBisectRoute` 开关在三个 probe Activity 间切换，全部实验 Activity 均为临时诊断代码，结束即删。
+
+### 当前遗留问题（2026-08-23 真机未通过，按用户要求暂缓）
+
+> 统一代码标记：`TODO(OPLUS_DEFERRED_20260823)`。这些代码是尚未奏效的调查尝试，保留用于后续对照，不得描述为已修复，也不得在用户未明确恢复该议题前继续扩散到更多路线。
+
+1. **源位置"漏出一样卡片"**：此前“ColorOS 固有语义”的结论已推翻。PLJ110 的 `oplus-framework.jar` 显示：`BUNDLE_VIEW_VISIBLE=true` 只会在动画启动后把传入 `setSeamlessView` 的那个 View 设为 alpha 0；小红书另有系统 `View.performClick/startActivity` hook、RUS 和 `view_seamless_third_party=true` 专用链路，不能当作普通 public SDK 的同条件对照。应用原先把软件 bitmap 同时作为临时 bridge 背景画进 source Window 和 `BUNDLE_BITMAP` 系统 leash，且 Compose 隐藏不保证旧 Surface buffer 已提交，因此形成底层静止副本。当前 Native 先等待不含业务 source 的 frame commit，再添加“只提供 attached bounds/background metadata、`draw()` 不输出像素”的注册 View；系统动画仍只使用同一 `BUNDLE_BITMAP`。手动导入的 180ms `windowOverlay` 占位已下沉到 `LegacyTransitionBackend`，仅 Parabolic 真正启动时创建，Native 路径从不挂载。
+2. **首页返回仍为中心淡出**：首页→课程管理和首页→教务导入的 OPEN 可被 Oplus 接管，但用户要求 CLOSE 使用完整 `HomeMenuDestination` Legacy Morph 返回真实三点按钮。当前 `LegacyOnly` 路线会执行 Morph，并尝试用 `setSkipViewSeamless` 退出 vendor CLOSE、用 Android 14+ `overrideActivityTransition(..., 0, 0)` 清除平台尾动画；2026-08-23 签名验收包真机仍出现中心淡出，说明 CLOSE 的 WM Shell/remote-transition 所有权并未被这组调用可靠移交。不得把它记为“正常 fallback 已实现”，也不得改用会直接跳过 Morph 的 `skipBackAnim`。
+3. **课程详情与 AI 历史仍闪空帧**：课程详情 CLOSE 仍闪；AI 进度→AI 历史及手动导入→AI 历史的 OPEN/CLOSE 仍闪。尝试过在 CLOSE 末段对 registration View 恢复 `draw/alpha/visibility`，以及在 AI OPEN 隐藏真实源前挂载精确源 Bitmap overlay、等 `onAnimationStart` 再交接；同一签名验收包确认均未消除问题。不能再以“忘记恢复 alpha”或“缺少 opening overlay”作为已确认根因。
+4. **返回后的 bridge/真实 source 清理仍需与空帧分开判断**：exact-session cleanup、CLOSE end、纵向拖动和 700ms watchdog 的竞争结构仍保留，但这只能说明清理归属，不证明系统 leash 消失前已有可见且提交完成的 source buffer；不得据此宣称返回空帧或中心淡出已经解决。
+
+### Oplus 源快照 View 生命周期（当前实现）
+
+以下仅描述当前代码，不代表 PLJ110 视觉验收通过；带 `TODO(OPLUS_DEFERRED_20260823)` 的交接点均为失败后保留的调查证据。
+
+- `OplusSeamlessBackend.open` 先通过 `registerFrameCommitCallback` 确认隐藏真实 source 的帧已提交，再在 source decor 创建带 rounded outline 的 registration-only View；它保留 non-null `BitmapDrawable` 供 ColorOS 校验颜色/可见性，但覆盖 `draw()` 禁止进入应用 Surface。`NativeSessionResource` 持有其 bitmap、callback 和 source Activity 弱引用。
+- 打开失败/异常立即按同路线启动 Legacy；打开成功则 registration View 保留贯穿 open→return。真实动画像素只经 `BUNDLE_BITMAP` 提交；`BUNDLE_RADIUS` 使用真实 px，`BUNDLE_VIEW_VISIBLE=true` 允许系统管理注册 View 的 alpha，`BUNDLE_VIEW_WITH_ALPHA=true` 保留圆角外透明像素。
+- CLOSE 复用相同 session/source View，并用实时返回锚点更新 bounds、bitmap 和 outline；失败立即转原 Legacy closing，不调用会硬切动画的 `skipBackAnim`。
+- CLOSE end、纵向拖动或 700ms watchdog 竞争同一个 exactly-once `TransitionPayloadStore.remove(sessionId)`；禁止再由业务页 `onResume` 提前显示真实 source。
+
+### 演进历史（压缩流水账，含关键 SHA）
+
+- 2026-08-20 已发布分支 `codex/release-1.2.0`（tag `v1.2.0`，commit `73cea36`）以未提交 `--no-commit --no-ff` 合入 `main`，工作树保留，禁止代为 commit/push。
+- Home → CourseManagement 打开经 `tryStartOplusViewSeamless`（整三点菜单外壳 bridge + 三点按钮 return bridge，`BUNDLE_RECT` 用 bridge `getBoundsOnScreen()`）；兼容层反射 + 软件 Bitmap + `doOnPreDraw` 就绪验证；失败细分 `sourceBridgeMissing/Detached/NotLaidOut/ZeroSize/BoundsEmpty`。
+- 关键验证包 SHA：`2A3EC77E...`、`F8713D68...`、`F9820320...`、`6AEA3B67...`、`566EC05B...`（Home↔CourseManagement 系列，均覆盖安装到 `3B15AE023YL00000`）。
+- 2026-08-21 transition 抽象层建立（见上），并完成课程卡→详情的 Oplus 二分（EmptyOpaque → ComposeProbe → MorphEmptyOpaque → FullOpaqueNoGlass 全部成功）。
+
 ## 已验证与待验收
 
-- 最新独立 Morph、缓存、课程管理、自定义时间与周视图长按编辑策略通过 46 项 `HomeAnchoredMorphGeometryTest`、9 项 `HomeMotionPerformancePolicyTest`、11 项 `WeekEditMotionTest`、5 项 `DetailMorphBlurTest` 和 2 项 `CourseManagementTest`；完整 `testGithubDebugUnitTest` 为 344/344。本轮通过 `assembleRelease`（GitHub/Store Kotlin、R8、资源优化、lintVital、签名打包），APK 使用既有 Xiaomanjun RSA-4096 证书和 v2 scheme；benchmark Kotlin 编译仍沿用上一个基线结果。
-- 2026-08-19 14:33 构建并覆盖安装了 Rebase 前的签名 GitHub 预发布校验包到无线 PLJ110（`1.2.0` / `versionCode=26`，SHA-256 `DEB87CEE2EF1E9B68A469A937D245D0C239B998EA011D8CE29BC2A9901463A81`）；安装结果为 `Success`，助手未启动或操作应用。最终 GitHub Release 附件以 `v1.2.0` 发布页记录的哈希为准。
-- 2026-08-18 17:50 构建了包含退出圆角、课程管理同构壳层与托管 AI 密钥配置的签名 GitHub Release（`1.2.0` / `versionCode=26`，SHA-256 `84529B2D40F380B2B813908B379E2DD4F1633753699DCD8C4CC397DC37DF96C3`）；Release `BuildConfig` 已确认远端 AI 开关启用且密钥非空。遵照当前要求未安装、未启动或操作应用。
-- 2026-08-18 03:20 构建了当前签名 GitHub Release（`1.2.0` / `versionCode=26`，SHA-256 `A2442309BA562DD36927E84855658B5FB302734D1998CC1048BB921B4E26CE81`）。当时 `adb devices -l` 与 mDNS 均未发现设备，最后已知 PLJ110 地址 `192.168.1.2:36749` 明确拒绝连接，因此该包尚未安装；没有启动或操作应用。
-- 最新 Release 已于 2026-08-18 01:11 覆盖安装到 PLJ110（`1.2.0` / `versionCode=26`，SHA-256 `CD806EEDF3CBD614601CB7475B110558B951D91750FA5197C64F69C53E9B418F`）；助手未启动或操作应用。
-- 2026-08-17 15:26 另构建了包含长按编辑动效的 Release（SHA-256 `395965712A7C7A82DFCFAC232217D2A5DA2542176479A90A31E4DAC1AAFA7F56`），遵照用户要求未安装。
-- 用户仍需优先验收：周视图长按编辑的首排删除键层级、按钮/角标弹出、1.07× 抬起、阻尼跟手/惯性/缩放、指尖与卡片弥散光、落地回弹/邻卡涟漪及保存交接；从三点菜单进入独立课程管理 Activity、课程卡全屏详情及左滑删除、四列自定义时间和周视图真实比例/拖拽锁定/上下边缘居中时间标注、新增课程冲突提示、课程编辑器反色、三点菜单 11dp 三边同心间距，以及既有个性化/二级页/课程编辑器无缝动画与页码提示符定位。
+- 最新独立 Morph、缓存、课程管理、自定义时间与周视图长按编辑策略继续通过原 344 项测试；统一 Transition 框架新增 20 项路线、状态机、并发 fallback、callback generation、嵌套 session、payload 清理、进程重建、能力 gate 和 kill switch 测试，完整 `testGithubDebugUnitTest` 为 364/364。GitHub/Store Debug、签名 Release（Kotlin、R8、资源优化、lintVital）和两渠道 benchmark app、benchmark 测试 APK 均构建通过。
+- 正式 Oplus 全局开关及逐路线 allowlist 当前默认关闭；Release manifest 不含 debug Probe，R8 mapping 保留厂商 callback 隔离层。未完成下述 PLJ110 正式页面验收前不得远程开启。
+- PLJ110 已确认完整课程详情的独立 opaque 宿主可由 ColorOS 正常接管；第一批扩展路线同时包含 AI 进度页→AI 历史（Legacy Liquid）和手动导入弹窗→AI 历史（Legacy Parabolic），共用同一个正式 AI 历史页面与独立 opaque 宿主。
+- 2026-08-23 最后安装到 `3B15AE023YL00000` 的包是临时强制 Oplus 的签名 GitHub Release 验收包；构建后仓库源码已经恢复远程配置 gate。该包真机确认：首页两条路线 CLOSE 仍中心淡出，课程详情 CLOSE 仍闪空帧，AI 历史 OPEN/CLOSE 仍闪空帧。本轮结论是“未修复并暂缓”，不是待用户重复验收。
+- 既有其他真机视觉与交互验收项（周视图长按编辑、课程管理、三点菜单 11dp 同心间距、个性化/二级页无缝动画等）不因本轮失败结论而自动失效；后续按具体任务分别验收。
 - 完整 backup、四变体、benchmark compile、真实 v1.1.5 恢复、Store 权限与新包 Widget 首装仍待发布前补跑。
 - 性能 benchmark 路线按当前任务需要启用；已有诊断代码、trace 结论和失败方案记录在 `docs/performance/UI_PERFORMANCE_BENCHMARK_HANDOFF.md`。
 
 ## 下一步
 
-1. 等待用户完成上述真机视觉与交互验收，按反馈做小范围修正。
-2. 发布前补齐迁移、备份、四变体及 Store/GitHub 渠道验证。
-3. 确认 Draft PR、应用商店身份和升级说明后，再由用户决定是否推送、合并远端或发布；当前不要发布。
+1. **暂停 Oplus 空帧与首页 CLOSE fallback 调查**；用户未明确恢复前，不再调整 callback 时序、overlay、registration View、Morph 几何或 vendor Bundle，也不要求用户重复测试。
+2. 若用户以后恢复调查，先固定一个最后已知“不闪空帧”的可复现版本/录像作为对照，同时抓取 WM Shell transition、ActivityTaskManager、ViewSeamless callback 与 SurfaceFlinger/帧提交证据，确定系统 leash、opaque destination 和 source buffer 的真实交接顺序；禁止继续凭视觉猜测叠加延时或快照层。
+3. 只有首页 Legacy CLOSE 真正回到三点按钮且所有正式详情/AI 历史 OPEN/CLOSE 无空帧后，才重新做立即返回、长停留、20 次往返、源移动/消失与 fallback 零变化验收；此前全局开关及逐路线远程 allowlist 保持关闭。
+4. 发布前补齐迁移、备份、真实 v1.1.5 恢复、Store 权限与新包 Widget 首装；确认 Draft PR、应用商店身份和升级说明后，由用户决定是否推送、合并远端或发布；当前不要发布、不要 commit。
 
 ## 工作方式
 

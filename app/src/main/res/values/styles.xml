@@ -19,6 +19,17 @@
         <item name="android:windowNoTitle">true</item>
     </style>
 
+    <!-- Opaque detail theme for ColorOS ViewSeamless destinations. ViewSeamless requires an
+         opaque destination window (a transparent one makes OplusViewSeamlessRemoteManager log
+         `skip anim`). Glass for these pages is provided by the page content itself, not by a
+         translucent window. -->
+    <style name="AppTheme.OplusSeamlessDetail" parent="@style/AppTheme">
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowBackground">#FFEDEEF3</item>
+        <item name="android:windowDisablePreview">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
     <style name="WidgetCourseRow">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">54dp</item>

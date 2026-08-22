@@ -39,6 +39,10 @@
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -77,7 +81,7 @@
         </activity>
         <activity-alias
             android:name=".LauncherFollow"
-            android:enabled="true"
+            android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:label="@string/app_name"
@@ -147,14 +151,29 @@
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".MainActivity" />
         <activity
+            android:name=".OplusCourseManagementActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.OplusSeamlessDetail"
+            android:parentActivityName=".MainActivity" />
+        <activity
             android:name=".CourseManagementDetailActivity"
             android:exported="false"
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".CourseManagementActivity" />
         <activity
+            android:name=".OplusCourseManagementDetailActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.OplusSeamlessDetail"
+            android:parentActivityName=".CourseManagementActivity" />
+        <activity
             android:name=".EduSchoolSelectActivity"
             android:exported="false"
-            android:theme="@style/AppTheme"
+            android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".MainActivity" />
+        <activity
+            android:name=".OplusEduSchoolSelectActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.OplusSeamlessDetail"
             android:parentActivityName=".MainActivity" />
         <activity
             android:name=".EduImportActivity"
@@ -170,6 +189,11 @@
             android:name=".AiImportHistoryActivity"
             android:exported="false"
             android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".AiEduImportProgressActivity" />
+        <activity
+            android:name=".OplusAiImportHistoryActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.OplusSeamlessDetail"
             android:parentActivityName=".AiEduImportProgressActivity" />
         <activity
             android:name=".AiImportHistoryDetailActivity"

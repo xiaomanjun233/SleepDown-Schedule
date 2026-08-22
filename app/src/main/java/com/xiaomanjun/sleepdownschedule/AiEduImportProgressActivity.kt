@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
@@ -58,9 +59,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -110,14 +111,18 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidPanel
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
+import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
+import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
+import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -156,6 +161,28 @@ class AiEduImportProgressActivity : ComponentActivity() {
             }
         }
     }
+}
+
+internal fun aiComposerBottomInsetPx(
+    imeBottomPx: Int,
+    navigationBottomPx: Int,
+    baselineRootHeightPx: Int,
+    currentRootHeightPx: Int,
+    baselineRootTopOnScreenPx: Int,
+    currentRootTopOnScreenPx: Int,
+    tolerancePx: Int
+): Int {
+    if (imeBottomPx <= navigationBottomPx) return navigationBottomPx
+    if (baselineRootHeightPx <= 0 || currentRootHeightPx <= 0) return imeBottomPx
+
+    // OEMs can honor ADJUST_NOTHING in three different ways: leave the root untouched,
+    // resize it, or pan the whole window. Only compensate the portion that has not already
+    // been applied by the window manager, otherwise the composer moves by two IME heights.
+    val resizedByPx = (baselineRootHeightPx - currentRootHeightPx).coerceAtLeast(0)
+    val pannedByPx = (baselineRootTopOnScreenPx - currentRootTopOnScreenPx).coerceAtLeast(0)
+    val alreadyAppliedPx = maxOf(resizedByPx, pannedByPx)
+    val remainingPx = (imeBottomPx - alreadyAppliedPx).coerceAtLeast(0)
+    return if (remainingPx <= tolerancePx) 0 else remainingPx
 }
 
 @Composable
@@ -200,6 +227,9 @@ internal fun AiEduImportProgressPage(
     var previewSourceHidden by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     var rootPositionOnScreen by remember { mutableStateOf(Offset.Zero) }
+    var rootPositionInWindow by remember { mutableStateOf(Offset.Zero) }
+    var baselineRootHeightPx by remember { mutableIntStateOf(0) }
+    var baselineRootTopOnScreenPx by remember { mutableIntStateOf(0) }
     val previewBackgroundZoom = remember { Animatable(1f) }
     val previewSceneBackdrop = rememberLayerBackdrop { drawContent() }
     val conversationPageColor = settingsPageBackground(settingsVisualConfig(config))
@@ -223,30 +253,30 @@ internal fun AiEduImportProgressPage(
     var historySourceHidden by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val density = LocalDensity.current
-    val view = LocalView.current
-    val displayHeightPx = remember(view) { view.resources.displayMetrics.heightPixels }
     val imeBottomPx = WindowInsets.ime.getBottom(density)
     val navigationBottomPx = WindowInsets.navigationBars.getBottom(density)
     val insetTolerancePx = with(density) { 24.dp.roundToPx() }
-    val windowAlreadyResizedForIme = imeBottomPx > 0 &&
-        rootSize.height > 0 &&
-        rootSize.height + imeBottomPx <= displayHeightPx + insetTolerancePx
-    val composerBottomInsetPx = when {
-        imeBottomPx <= 0 -> navigationBottomPx
-        windowAlreadyResizedForIme -> 0
-        else -> imeBottomPx
-    }
-    val conversationScope = rememberCoroutineScope()
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                historySourceHidden = false
-            }
+    LaunchedEffect(
+        imeBottomPx,
+        navigationBottomPx,
+        rootSize.height,
+        rootPositionOnScreen.y
+    ) {
+        if (imeBottomPx <= navigationBottomPx && rootSize.height > 0) {
+            baselineRootHeightPx = rootSize.height
+            baselineRootTopOnScreenPx = rootPositionOnScreen.y.roundToInt()
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    val composerBottomInsetPx = aiComposerBottomInsetPx(
+        imeBottomPx = imeBottomPx,
+        navigationBottomPx = navigationBottomPx,
+        baselineRootHeightPx = baselineRootHeightPx,
+        currentRootHeightPx = rootSize.height,
+        baselineRootTopOnScreenPx = baselineRootTopOnScreenPx,
+        currentRootTopOnScreenPx = rootPositionOnScreen.y.roundToInt(),
+        tolerancePx = insetTolerancePx
+    )
+    val conversationScope = rememberCoroutineScope()
     LaunchedEffect(current.finished) {
         if (current.finished) executionExpanded = false
     }
@@ -262,6 +292,7 @@ internal fun AiEduImportProgressPage(
             .onGloballyPositioned {
                 rootSize = it.size
                 rootPositionOnScreen = it.positionOnScreen()
+                rootPositionInWindow = it.boundsInWindow().topLeft
             }
     ) {
         Box(
@@ -305,23 +336,63 @@ internal fun AiEduImportProgressPage(
                             backdrop = topBarBackdrop,
                              onClick = { sourceBounds ->
                                  conversationScope.launch {
+                                     // TODO(OPLUS_DEFERRED_20260823): Exact source-overlay handoff
+                                     // remains unverified; PLJ110 still showed an AI-history OPEN
+                                     // blank frame in the signed acceptance build.
+                                     // Capture the real button before hiding it, then record a
+                                     // second frame for the clean page background used by Morph.
                                      historySnapshotRequested.set(true)
                                      historySnapshotRequestVersion += 1
+                                     withFrameNanos { }
+                                     val sourceSnapshot = runCatching {
+                                         historySnapshotLayer.toImageBitmap().asAndroidBitmap()
+                                     }.getOrNull()?.cropToWindowBounds(
+                                         sourceBounds,
+                                         rootPositionInWindow
+                                     ) ?: return@launch
+                                     val activity = context as? ComponentActivity
+                                         ?: return@launch
+                                     val anchor = TransitionAnchorFrame(
+                                         boundsInWindow = sourceBounds,
+                                         cornerRadiusPx = with(density) { 21.dp.toPx() },
+                                         bitmap = sourceSnapshot
+                                     )
+                                     val releaseOpeningSource =
+                                         activity.attachOpeningSourceSnapshotHandoff(anchor)
+                                             ?: return@launch
                                      historySourceHidden = true
+                                     historySnapshotRequested.set(true)
+                                     historySnapshotRequestVersion += 1
                                      withFrameNanos { }
                                      withFrameNanos { }
                                      val backgroundSnapshot = runCatching {
                                          historySnapshotLayer.toImageBitmap().asAndroidBitmap()
-                                     }.getOrNull()
-                                     val intent = Intent(context, AiImportHistoryActivity::class.java)
-                                         .putAnchoredSourceBounds(sourceBounds)
-                                     if (backgroundSnapshot != null) {
-                                         intent.putAnchoredMorphSnapshots(
-                                             AnchoredMorphSnapshots(background = backgroundSnapshot)
-                                         )
+                                     }.getOrNull() ?: run {
+                                         releaseOpeningSource()
+                                         historySourceHidden = false
+                                         return@launch
                                      }
-                                     (context as? ComponentActivity)?.startActivityWithAnchoredMorph(intent)
-                                         ?: context.startActivity(intent)
+                                     val intent = Intent(context, AiImportHistoryActivity::class.java)
+                                     val launchResult = ActivityTransitionCoordinator.open(
+                                         activity = activity,
+                                         routeId = TransitionRouteId.AiProgressToHistory,
+                                         intent = intent,
+                                         payload = TransitionPayload(
+                                             openingAnchor = anchor,
+                                             returnAnchorProvider =
+                                                 StaticTransitionAnchorProvider(anchor),
+                                             backgroundBitmap = backgroundSnapshot,
+                                             onOpeningSourceHandoff = releaseOpeningSource,
+                                             nativeSourceLeashAlphaOutOnOpen = true,
+                                             onSourceReleased = {
+                                                 historySourceHidden = false
+                                             }
+                                         )
+                                     )
+                                     if (launchResult is TransitionLaunchResult.Failed) {
+                                         releaseOpeningSource()
+                                         historySourceHidden = false
+                                     }
                                 }
                             }
                         )
@@ -553,6 +624,17 @@ internal fun AiEduImportProgressPage(
         }
     }
 }
+
+private fun Bitmap.cropToWindowBounds(
+    bounds: androidx.compose.ui.geometry.Rect,
+    rootPosition: Offset
+): Bitmap? = runCatching {
+    val left = (bounds.left - rootPosition.x).roundToInt().coerceIn(0, width - 1)
+    val top = (bounds.top - rootPosition.y).roundToInt().coerceIn(0, height - 1)
+    val cropWidth = bounds.width.roundToInt().coerceIn(1, width - left)
+    val cropHeight = bounds.height.roundToInt().coerceIn(1, height - top)
+    Bitmap.createBitmap(this, left, top, cropWidth, cropHeight)
+}.getOrNull()
 
 @Composable
 private fun AiEduConversationTurnSummary(

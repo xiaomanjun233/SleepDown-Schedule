@@ -93,7 +93,10 @@ android {
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             signingConfig = signingConfigs.findByName("release")
             buildConfigField("String", "SLEEPDOWN_REMOTE_CONFIG_SECRET", "\"$remoteConfigSecret\"")
             buildConfigField("boolean", "SLEEPDOWN_REMOTE_AI_ENABLED", remoteConfigSecret.isNotBlank().toString())
@@ -180,6 +183,7 @@ dependencies {
     implementation("androidx.metrics:metrics-performance:1.0.0")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.palette:palette-ktx:1.0.0")
+    compileOnly("com.oplus.animation:viewseamless:1.0.0@aar")
     implementation("io.github.kyant0:backdrop:2.0.0-alpha03")
     implementation("io.github.kyant0:shapes:1.2.0")
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.3")

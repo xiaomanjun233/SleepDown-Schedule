@@ -83,6 +83,7 @@ fun LiquidDialogSurface(
     modifier: Modifier = Modifier,
     size: LiquidDialogSize = LiquidDialogSize.Standard,
     blurRadius: Dp = 10.dp,
+    followGlassContrast: Boolean = false,
     content: @Composable BoxScope.() -> Unit
 ) {
     val windowSize = currentWindowSizeDp()
@@ -96,11 +97,21 @@ fun LiquidDialogSurface(
     val dialogWidth = (windowSize.width * 0.92f).coerceAtMost(600.dp)
     val dialogMaxHeight = (safeHeight * 0.82f).coerceAtMost(600.dp)
     val shape = RoundedCornerShape(32.dp)
-    // This full dialog owns an opaque-enough material layer, so it follows the application
-    // theme just like alerts and pickers. Wallpaper contrast is not a valid surface decision
-    // here: it made light-mode forms become black whenever a dark wallpaper was selected.
-    val dark = appUsesDarkTheme(config)
-    val textColor = if (dark) Color.White else Color(0xFF111111)
+    // Most full dialogs own an opaque-enough material layer and therefore follow the app theme.
+    // Home destinations can opt into the sampled glass domain when the wallpaper remains the
+    // visible material behind the whole form.
+    val dark = if (followGlassContrast) {
+        !glassUsesLightStyle(config)
+    } else {
+        appUsesDarkTheme(config)
+    }
+    val textColor = if (followGlassContrast) {
+        glassForegroundColor(config)
+    } else if (dark) {
+        Color.White
+    } else {
+        Color(0xFF111111)
+    }
     val surfaceColor = if (dark) {
         Color(0xFF121212).copy(alpha = 0.28f)
     } else {
@@ -140,7 +151,7 @@ fun LiquidDialogSurface(
         Box(
             modifier = panelModifier
                 .clip(shape)
-                .background(if (appUsesDarkTheme(config)) Color(0xFF1C1C1E) else Color.White),
+                .background(if (dark) Color(0xFF1C1C1E) else Color.White),
             content = panelContent
         )
     }
@@ -154,8 +165,15 @@ fun LiquidDialogHeader(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     buttonBlurRadius: Dp = 3.dp,
+    buttonLightStyleOverride: Boolean? = null,
     onConfirm: (() -> Unit)? = null
 ) {
+    val inheritedContentColor = LocalContentColor.current
+    val titleColor = if (inheritedContentColor == Color.Unspecified) {
+        appPanelForegroundColor(config)
+    } else {
+        inheritedContentColor
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -170,7 +188,8 @@ fun LiquidDialogHeader(
                 .align(Alignment.CenterStart)
                 .offset(y = 4.dp),
             role = DialogButtonRole.Cancel,
-            blurRadius = buttonBlurRadius
+            blurRadius = buttonBlurRadius,
+            lightStyleOverride = buttonLightStyleOverride
         )
         Text(
             text = title,
@@ -181,7 +200,7 @@ fun LiquidDialogHeader(
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
-            color = appPanelForegroundColor(config),
+            color = titleColor,
             maxLines = 1
         )
         if (onConfirm != null) {
@@ -193,7 +212,8 @@ fun LiquidDialogHeader(
                     .align(Alignment.CenterEnd)
                     .offset(y = 4.dp),
                 role = DialogButtonRole.Confirm,
-                blurRadius = buttonBlurRadius
+                blurRadius = buttonBlurRadius,
+                lightStyleOverride = buttonLightStyleOverride
             )
         }
     }
