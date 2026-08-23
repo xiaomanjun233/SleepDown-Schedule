@@ -491,6 +491,28 @@ class GlassFrameworkTest {
                 prewarmDistancePx = prewarmDistance
             ).mountMaterial
         )
+        assertTrue(
+            decideCourseGlassViewportMaterial(
+                enabled = true,
+                currentlyMounted = true,
+                previousDistanceOutsidePx = null,
+                boundsInWindow = Rect(1_900f, 500f, 2_100f, 700f),
+                viewport = viewport,
+                prewarmDistancePx = prewarmDistance,
+                cullHorizontal = false
+            ).mountMaterial
+        )
+        assertFalse(
+            decideCourseGlassViewportMaterial(
+                enabled = true,
+                currentlyMounted = true,
+                previousDistanceOutsidePx = null,
+                boundsInWindow = Rect(500f, 2_880f, 700f, 3_080f),
+                viewport = viewport,
+                prewarmDistancePx = prewarmDistance,
+                cullHorizontal = false
+            ).mountMaterial
+        )
     }
 
     @Test

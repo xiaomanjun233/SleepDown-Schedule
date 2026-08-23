@@ -104,8 +104,9 @@ class HomeMotionPerformancePolicyTest {
     @Test
     fun frozenWeekBlurUsesQuarterAreaSurfaceAndBoundedLiveEffects() {
         assertEquals(0.25f, HomeFrozenBlurSampleScale * HomeFrozenBlurSampleScale, 0.0001f)
-        assertEquals(12, HomeLiveBlurStepCount)
-        assertEquals(HomeLiveBlurStepCount, HomeProgressiveBackdropBlurStepCount)
+        assertEquals(32, HomeLiveBlurStepCount)
+        assertEquals(12, HomeNonClosingBlurStepCount)
+        assertEquals(12, HomeProgressiveBackdropBlurStepCount)
         assertTrue(
             shouldUseFrozenWeekHomeBlur(
                 screenIsHome = true,
@@ -137,6 +138,33 @@ class HomeMotionPerformancePolicyTest {
                 screenIsHome = true,
                 previewActive = false,
                 overlayActive = false
+            )
+        )
+    }
+
+    @Test
+    fun closingReturnsToFullResolutionBeforeBlurReachesClearEndpoint() {
+        assertEquals(3, quantizeHomeBackgroundBlurStep(0.07f, closing = false))
+        assertEquals(2, quantizeHomeBackgroundBlurStep(0.07f, closing = true))
+        assertFalse(
+            shouldUseFullResolutionClosingBlur(
+                frozenHomeScene = true,
+                closing = false,
+                blurProgress = 0.2f
+            )
+        )
+        assertFalse(
+            shouldUseFullResolutionClosingBlur(
+                frozenHomeScene = true,
+                closing = true,
+                blurProgress = HomeClosingFullResolutionBlurHandoffProgress + 0.01f
+            )
+        )
+        assertTrue(
+            shouldUseFullResolutionClosingBlur(
+                frozenHomeScene = true,
+                closing = true,
+                blurProgress = HomeClosingFullResolutionBlurHandoffProgress
             )
         )
     }

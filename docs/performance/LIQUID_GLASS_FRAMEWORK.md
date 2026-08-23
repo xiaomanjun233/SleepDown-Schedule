@@ -86,16 +86,16 @@
 
 ### 课程卡视口材质生命周期
 
-- 大玻璃性能开关开启时，周视图每张课程卡用真实 `boundsInWindow` 与当前 DecorView 分辨率判断可见性。卡片完全离开窗口后只移除 Backdrop surface 与全分辨率 decoration 材质节点；文字、布局、点击、长按、语义和 Composition 状态继续存在。
-- 预热距离按窗口短边的 12% 计算，并限制在 `72dp–160dp`。离屏卡只有在距离缩小、即将反向进入窗口时才在该带内重建材质；继续远离的卡不会预热，避免左右 Pager 和上下滚动一次性恢复全部消费者。
-- `GlassGroup` 不再让共享效果链包含所有已 Composition 的成员。它用同一窗口判定过滤真实可见/方向性预热成员，只有成员集合跨越窗口或预热边界时才重算计划，普通逐像素滚动不触发 Compose 状态变化。每卡原先逐帧把绝对 bounds 写入 Compose State 的路径也改为非观察型最新锚点引用，仅真实宽度变化才更新 State；点击、长按和余震绘制仍读取最新 bounds。这样相邻 Pager 页和纵向窗口外卡片不会继续扩大共享 RenderTarget，也不会因位置变化触发 N 卡重组。
+- 大玻璃性能开关开启时，周视图每张课程卡用真实 `boundsInWindow` 与当前 DecorView 分辨率判断纵向可见性。卡片完全离开窗口上下边界后只移除 Backdrop surface 与全分辨率 decoration 材质节点；文字、布局、点击、长按、语义和 Composition 状态继续存在。
+- 预热距离按窗口短边的 12% 计算，并限制在 `72dp–160dp`。纵向离屏卡只有在距离缩小、即将返回时才在该带内重建材质。真机反馈表明横向相邻页在第一次拖动时才按方向预热，会把整页 shader 重建挤到手势首帧；因此 Pager 保留的相邻周改为常驻预热，不再做横向材质卸载。
+- `GlassGroup` 用同一纵向窗口判定过滤真实可见/方向性预热成员，只有成员集合跨越上下窗口或预热边界时才重算计划，普通逐像素滚动不触发 Compose 状态变化。每卡原先逐帧把绝对 bounds 写入 Compose State 的路径也改为非观察型最新锚点引用，仅真实宽度变化才更新 State；点击、长按和余震绘制仍读取最新 bounds。这样纵向窗口外卡片不会继续扩大共享 RenderTarget，也不会因位置变化触发 N 卡重组；横向仍需后续整页空间合批才能进一步降低双页同时可见时的效果链数。
 - 启动飞入、课程长按编辑/拖拽、冲突交接及活动 overlay 期间关闭该视口门控，避免源卡锚点或编辑态材质被错误回收；全局缓存遮挡生命周期仍由独立 `CourseGlassOcclusionPhase` 控制。
 
 ### 缓存遮挡生命周期
 
 - 只有确实形成大范围遮挡的个性化面板、菜单目的页和课程编辑器进入该路线；194×317dp 的右上角三点菜单不构成实质覆盖，始终保留课程卡材质渲染。
-- 实质遮挡路线从 Opening 开始复用 0.5×、四分之一像素面积的 `HomeBackgroundBlurLayer`。模糊时序与故意滞后的 zoom 解耦，12 个稳定 RenderEffect 档位从首帧逐级增加并在 Opening 前 38% 达到原 12dp 最大值；不再把清晰帧与最大模糊帧按 alpha 叠化。缓存帧 key 完全匹配且 `GraphicsLayer` 已实际切到 Offscreen 后，Opening 的首个有效缓存帧即把课程卡切到 `Suspended`。只卸载材质 surface/decoration；内容、布局、点击、手势、语义和 Composition 状态保留。
-- 关闭请求立即启动原 Closing，不等待两帧预热或 500ms 超时。首版曾保持最大模糊到 Closing 只剩 24% 再集中释放，第二版 `remainingProgress^0.4` 的材质恢复仍挤在末尾；Opening 保持不变，当前 Closing 使用端点平滑的 `smootherstep(remainingProgress^0.55)`，从中段更早连续卸载并在终点归零。课程卡在剩余 40% 时、背景仍约保留 69% 模糊强度的遮挡下进入 `Prewarming` 并强制录制一次材质，把 shader/layer 分配从最后几帧前移。`snapshotFlow` 只观察这一阈值，不因每帧 progress 重启协程。个性化滑块 preview key/progress 有效时硬绕过 staged blur，只保留原 legacy 景深，避免实时预览被全局模糊污染。
+- 实质遮挡路线从 Opening 开始复用 0.5×、四分之一像素面积的 `HomeBackgroundBlurLayer`。背景预建 32 个 RenderEffect，但 Opening/实时预览继续按原 12 档节奏映射并在前 38% 达到原 12dp 最大值；只有 Closing 使用全部 32 档（每档约 0.375dp）。个性化面板自身的 Backdrop 渐进模糊仍保持 12 档。Opening 不做清晰/模糊双层 alpha 叠画。缓存帧 key 完全匹配且 `GraphicsLayer` 已实际切到 Offscreen 后，Opening 的首个有效缓存帧即把课程卡切到 `Suspended`。只卸载材质 surface/decoration；内容、布局、点击、手势、语义和 Composition 状态保留。
+- 关闭请求立即启动原 Closing，不等待两帧预热或 500ms 超时。Opening 保持不变，Closing 使用端点平滑的 `smootherstep(remainingProgress^0.55)`，从中段持续卸载并在终点归零。课程卡在剩余 40%、背景仍约有 69% 模糊遮挡时进入 `Prewarming` 并录制一次材质。此前直到模糊归零才同时从 0.5× 冻结纹理切回全分辨率缓存，最后一档同时改变 blur 和采样分辨率，形成肉眼跳变；当前 Closing 在仍有 42% 模糊强度（约 5dp）时提前切回已录制的全分辨率单层，并用 32 档继续降到 0。全程仍只画一个缓存层，不做双层交叉淡化或逐帧创建 RenderEffect。个性化滑块 preview 保持硬绕过 staged blur。
 - 不创建 Bitmap/ImageBitmap 截图，不改变背景 blur/zoom、Morph 时间线或终态页面。用户在旧实现的 6 卡同屏场景中已主观观察到掉帧减少，但尚无 Macrobenchmark/Perfetto 数据；当前仍不宣称量化收益。
 
 ## 同 Activity Morph
@@ -151,3 +151,4 @@
 - 用户确认该包总体掉帧明显减少，同时指出 Closing 集中卸载模糊不自然、个性化滑块预览被错误垫上全局模糊，并说明 12 卡 Pager 滑动仍掉帧。后续包保持 Opening 不变，修正 Closing 曲线和 preview 隔离，并将采样阈值调整为 8/12。
 - 新包只构建 `assembleGithubRelease`，使用 `--no-parallel --max-workers=2`、跳过资源压缩但保留 Kotlin、R8、lintVital 与签名；双开关核对为大玻璃性能 `true`、液态动效 `false`。APK 大小 `6,446,118` bytes，SHA-256 `2C5DFE997D447C7A857325829497E3B2D4B9B856BA8824BF98B9AFAE2CB6B8E4`，已覆盖安装到 PLJ110 `3B15AE023YL00000`，未由 Codex 启动或操作。
 - 本轮继续前移 Closing 材质恢复/模糊释放，并新增双轴视口材质生命周期、合批成员过滤和滚动 bounds 非观察型锚点。只构建同开关的 `assembleGithubRelease`，`--no-parallel --max-workers=2`、跳过资源压缩，Kotlin、R8、lintVital、打包和签名均通过；实际值仍为大玻璃性能 `true`、液态动效 `false`。最终 APK 大小 `6,446,118` bytes，SHA-256 `EA6C78A588DF912D5E98DCB2F59159E7706619DB777A2CDBDDAF1441F279CC0D`。设备重新连接后已于 2026-08-24 覆盖安装到 PLJ110 `3B15AE023YL00000`，安装结果为 `Success`；Codex 未启动或操作应用，真机视觉与性能仍待用户观察。
+- 用户反馈 `EA6C78A5...` 包横向 Pager 仍卡顿，Closing 的主要问题是模糊卸载点跳变。本轮将相邻周恢复为常驻预热、保留纵向卸载，并把 Closing 背景改为 32 档和 42% 模糊处的提前全分辨率单层交接；Opening 保留原 12 档节奏。最终只构建同开关的 `assembleGithubRelease`，Kotlin、R8、lintVital、打包和签名通过；实际值为大玻璃性能 `true`、液态动效 `false`。APK 大小 `6,446,118` bytes，SHA-256 `38F38439D90F5744DE52129450517115BE50461EE21703A6C69D853DD1D7483C`。构建后设备仍从 ADB 离线，覆盖安装返回 `no devices/emulators found`，故该包尚未安装、未启动。

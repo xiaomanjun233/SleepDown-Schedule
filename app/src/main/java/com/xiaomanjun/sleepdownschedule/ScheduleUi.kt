@@ -1436,6 +1436,10 @@ fun CourseScheduleAppUi(
             homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing) ||
             homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
+    val homeBackgroundBlurClosing =
+        homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing ||
+            homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
     val weekCourseGlassClosingProgress: () -> Float? = when {
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing ->
             ({ courseEditorMotionState.progress.value })
@@ -2004,6 +2008,7 @@ fun CourseScheduleAppUi(
         HomeBackgroundBlurLayer(
             blurProgress = homeOverlayBackgroundBlurProgress,
             useFrozenHomeScene = useFrozenHomeMorphBlur,
+            closing = { homeBackgroundBlurClosing },
             sceneKey = homeCaptureFrameKey,
             modifier = Modifier.fillMaxSize()
         ) {
@@ -3793,6 +3798,7 @@ internal val HomeInitialTopInset = 122.dp
 private fun HomeBackgroundBlurLayer(
     blurProgress: () -> Float,
     useFrozenHomeScene: () -> Boolean,
+    closing: () -> Boolean,
     sceneKey: Any,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
@@ -3825,28 +3831,41 @@ private fun HomeBackgroundBlurLayer(
     Box(
         modifier = modifier
             .graphicsLayer {
-                if (useFrozenHomeScene()) {
+                val frozenHomeScene = useFrozenHomeScene()
+                val progress = blurProgress().coerceIn(0f, 1f)
+                val isClosing = closing()
+                val step = quantizeHomeBackgroundBlurStep(progress, isClosing)
+                val fullResolutionClosingBlur = shouldUseFullResolutionClosingBlur(
+                    frozenHomeScene = frozenHomeScene,
+                    closing = isClosing,
+                    blurProgress = progress
+                )
+                if (frozenHomeScene && !fullResolutionClosingBlur) {
                     renderEffect = null
                 } else {
-                    val step = (blurProgress().coerceIn(0f, 1f) * HomeLiveBlurStepCount)
-                        .roundToInt()
-                        .coerceIn(0, HomeLiveBlurStepCount)
                     renderEffect = liveBlurEffects[step]
                 }
             }
             .drawWithContent {
-                if (!useFrozenHomeScene()) {
+                val frozenHomeScene = useFrozenHomeScene()
+                if (!frozenHomeScene) {
                     drawContent()
                     return@drawWithContent
                 }
 
-                val step = (blurProgress().coerceIn(0f, 1f) * HomeLiveBlurStepCount)
-                    .roundToInt()
-                    .coerceIn(0, HomeLiveBlurStepCount)
-                if (step == 0) {
-                    // Preserve the exact full-resolution first/last frame. Once blur begins the
-                    // quarter-area frozen layer becomes the sole background, avoiding a clear +
-                    // max-blur crossfade that exposed the material-node handoff.
+                val progress = blurProgress().coerceIn(0f, 1f)
+                val isClosing = closing()
+                val step = quantizeHomeBackgroundBlurStep(progress, isClosing)
+                val fullResolutionClosingBlur = shouldUseFullResolutionClosingBlur(
+                    frozenHomeScene = true,
+                    closing = isClosing,
+                    blurProgress = progress
+                )
+                if (step == 0 || fullResolutionClosingBlur) {
+                    // Opening remains exclusively on the quarter-area frozen layer. Closing moves
+                    // back to the already-recorded full-resolution home while several dp of blur
+                    // still conceal the resolution handoff, so the final clear frame no longer
+                    // swaps both blur strength and source resolution at once.
                     drawContent()
                     return@drawWithContent
                 }

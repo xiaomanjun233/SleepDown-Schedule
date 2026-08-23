@@ -1733,7 +1733,11 @@ fun WeekDayColumn(
                                         groupedCandidateDistances[candidate.id],
                                     boundsInWindow = candidateWindowBounds,
                                     viewport = viewport,
-                                    prewarmDistancePx = prewarmDistance
+                                    prewarmDistancePx = prewarmDistance,
+                                    // HorizontalPager deliberately keeps adjacent weeks composed.
+                                    // Rebuilding their shader chains on the first drag frame costs
+                                    // more than retaining them; cull only vertically here.
+                                    cullHorizontal = false
                                 )
                                 groupedCandidateMounts[candidate.id] = decision.mountMaterial
                                 groupedCandidateDistances[candidate.id] = decision.distanceOutsidePx
@@ -3120,7 +3124,8 @@ fun WeekCourseBlock(
                 prewarmDistancePx = adaptiveCourseGlassPrewarmDistancePx(
                     viewport = viewport,
                     density = density.density
-                )
+                ),
+                cullHorizontal = false
             )
             previousViewportDistance[0] = decision.distanceOutsidePx
             if (viewportMaterialMounted != decision.mountMaterial) {

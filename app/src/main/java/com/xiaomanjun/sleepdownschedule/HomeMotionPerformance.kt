@@ -10,8 +10,20 @@ import kotlin.math.roundToInt
  */
 internal const val HomeFrozenBlurSampleScale = 0.5f
 
-/** Only used by the live preview fallback; reusing these effects avoids per-frame shader churn. */
-internal const val HomeLiveBlurStepCount = 12
+/**
+ * Prebuilt background effects. 32 levels keep the final full-screen blur release below a 0.4dp
+ * visual increment without returning to per-frame RenderEffect allocation.
+ */
+internal const val HomeLiveBlurStepCount = 32
+
+/** Preserve the already-accepted Opening/live-preview cadence. */
+internal const val HomeNonClosingBlurStepCount = 12
+
+/**
+ * During Closing, leave the half-resolution blur while several dp of blur can still conceal the
+ * resolution handoff. The remaining fade uses the already-recorded full-resolution home layer.
+ */
+internal const val HomeClosingFullResolutionBlurHandoffProgress = 0.42f
 
 /** Opening reaches the full blur early enough to cover the material-node handoff. */
 internal const val HomeOpeningBlurFullProgress = 0.38f
@@ -24,7 +36,7 @@ internal const val HomeClosingBlurProgressExponent = 0.55f
  * the home scene. This keeps their visual timing continuous while preventing a new backdrop
  * effect chain from being configured for every animation frame.
  */
-internal const val HomeProgressiveBackdropBlurStepCount = HomeLiveBlurStepCount
+internal const val HomeProgressiveBackdropBlurStepCount = 12
 
 internal fun quantizeHomeProgressiveBackdropBlurProgress(progress: Float): Float =
     (progress.coerceIn(0f, 1f) * HomeProgressiveBackdropBlurStepCount)
@@ -56,6 +68,28 @@ internal fun stagedHomeOverlayBlurProgress(
         smoothStep(0f, HomeOpeningBlurFullProgress, progress)
     }
     return maxOf(legacy, staged).coerceIn(0f, 1f)
+}
+
+internal fun shouldUseFullResolutionClosingBlur(
+    frozenHomeScene: Boolean,
+    closing: Boolean,
+    blurProgress: Float
+): Boolean =
+    frozenHomeScene &&
+        closing &&
+        blurProgress.coerceIn(0f, 1f) <= HomeClosingFullResolutionBlurHandoffProgress
+
+internal fun quantizeHomeBackgroundBlurStep(
+    blurProgress: Float,
+    closing: Boolean
+): Int {
+    val activeStepCount = if (closing) HomeLiveBlurStepCount else HomeNonClosingBlurStepCount
+    val quantizedProgress =
+        (blurProgress.coerceIn(0f, 1f) * activeStepCount).roundToInt().toFloat() /
+            activeStepCount
+    return (quantizedProgress * HomeLiveBlurStepCount)
+        .roundToInt()
+        .coerceIn(0, HomeLiveBlurStepCount)
 }
 
 private fun smoothStep(edge0: Float, edge1: Float, value: Float): Float {

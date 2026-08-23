@@ -38,7 +38,9 @@ internal fun decideCourseGlassViewportMaterial(
     previousDistanceOutsidePx: Float?,
     boundsInWindow: Rect,
     viewport: Rect,
-    prewarmDistancePx: Float
+    prewarmDistancePx: Float,
+    cullHorizontal: Boolean = true,
+    cullVertical: Boolean = true
 ): CourseGlassViewportMaterialDecision {
     if (viewport.width <= 0f || viewport.height <= 0f ||
         boundsInWindow.width <= 0f || boundsInWindow.height <= 0f
@@ -50,11 +52,13 @@ internal fun decideCourseGlassViewportMaterial(
     }
 
     val horizontalDistance = when {
+        !cullHorizontal -> 0f
         boundsInWindow.right <= viewport.left -> viewport.left - boundsInWindow.right
         boundsInWindow.left >= viewport.right -> boundsInWindow.left - viewport.right
         else -> 0f
     }
     val verticalDistance = when {
+        !cullVertical -> 0f
         boundsInWindow.bottom <= viewport.top -> viewport.top - boundsInWindow.bottom
         boundsInWindow.top >= viewport.bottom -> boundsInWindow.top - viewport.bottom
         else -> 0f
@@ -68,10 +72,10 @@ internal fun decideCourseGlassViewportMaterial(
     }
 
     val intersectsWindow =
-        boundsInWindow.left < viewport.right &&
-            boundsInWindow.right > viewport.left &&
-            boundsInWindow.top < viewport.bottom &&
-            boundsInWindow.bottom > viewport.top
+        (!cullHorizontal ||
+            (boundsInWindow.left < viewport.right && boundsInWindow.right > viewport.left)) &&
+            (!cullVertical ||
+                (boundsInWindow.top < viewport.bottom && boundsInWindow.bottom > viewport.top))
     if (intersectsWindow) {
         return CourseGlassViewportMaterialDecision(
             mountMaterial = true,
