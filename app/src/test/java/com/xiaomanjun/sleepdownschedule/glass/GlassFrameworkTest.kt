@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -248,6 +249,46 @@ class GlassFrameworkTest {
         assertEquals(
             GlassRendererKind.KyantReference,
             state.rendererFor(descriptor("home-personalization"))
+        )
+    }
+
+    @Test
+    fun phase3LiquidMotionPolicyIsIndependentFromPhase2RendererPolicy() {
+        val phase3Only = GlassBackendPolicy.experiments(
+            largeSurfaceEnabled = false,
+            liquidMotionEnabled = true
+        )
+        assertTrue(phase3Only.usesNewMotion(GlassSceneKeys.HomeThreeDotMenuMotion))
+        assertFalse(phase3Only.usesNewMotion("home-personalization"))
+        assertEquals(
+            GlassRendererKind.KyantReference,
+            phase3Only.rendererFor(
+                GlassSurfaceDescriptor(
+                    id = "phase2-disabled",
+                    domain = GlassBackdropDomain.ChromeCombined,
+                    materialRole = GlassMaterialRole.MorphShell,
+                    requestedRenderer = GlassRendererKind.StableEnvelopeExperimental,
+                    sceneKey = GlassSceneKeys.HomeMenuDestinationAddCourse
+                )
+            )
+        )
+
+        val combined = GlassBackendPolicy.experiments(
+            largeSurfaceEnabled = true,
+            liquidMotionEnabled = true
+        )
+        assertTrue(combined.usesNewMotion(GlassSceneKeys.HomeThreeDotMenuMotion))
+        assertEquals(
+            GlassRendererKind.StableEnvelopeExperimental,
+            combined.rendererFor(
+                GlassSurfaceDescriptor(
+                    id = "phase2-enabled",
+                    domain = GlassBackdropDomain.ChromeCombined,
+                    materialRole = GlassMaterialRole.MorphShell,
+                    requestedRenderer = GlassRendererKind.StableEnvelopeExperimental,
+                    sceneKey = GlassSceneKeys.HomeMenuDestinationAddCourse
+                )
+            )
         )
     }
 
@@ -636,6 +677,58 @@ class GlassFrameworkTest {
         assertTrue(moving.tangentStretch > 0f)
         assertTrue(moving.crossAxisSqueeze > 0f)
         assertTrue(moving.tailLag > 0f || moving.rebound > 0f)
+    }
+
+    @Test
+    fun issue70OutlineSpringLeavesLegacyEndpointsAndContentCoordinatesUntouched() {
+        val source = Rect(80f, 120f, 122f, 162f)
+        val target = Rect(430f, 280f, 624f, 597f)
+        val spec = issue70InspiredLiquidOutlineMotionSpec(durationSeconds = 0.44f)
+
+        fun deformation(progress: Float, direction: LiquidMorphDirection) = spec.sample(
+            LiquidMorphInput(
+                source = source,
+                target = target,
+                rawProgress = progress,
+                direction = direction
+            )
+        )
+
+        assertEquals(LiquidDeformationFrame.None, deformation(0f, LiquidMorphDirection.Opening))
+        assertEquals(LiquidDeformationFrame.None, deformation(1f, LiquidMorphDirection.Opening))
+        assertEquals(LiquidDeformationFrame.None, deformation(1f, LiquidMorphDirection.Closing))
+        assertEquals(LiquidDeformationFrame.None, deformation(0f, LiquidMorphDirection.Closing))
+        assertTrue(deformation(0.42f, LiquidMorphDirection.Opening).tangentStretch > 0f)
+        val routeTangentFrame = spec.sample(
+            LiquidMorphInput(
+                source = source,
+                target = target,
+                rawProgress = 0.42f,
+                direction = LiquidMorphDirection.Opening,
+                trajectoryTangentAngleRadians = 0.25f
+            )
+        )
+        assertEquals(0.25f, routeTangentFrame.tangentAngleRadians, 0.0001f)
+
+        val bounds = Rect(28f, 28f, 222f, 345f)
+        val contentPoint = Offset(91f, 173f)
+        assertEquals(
+            contentPoint,
+            liquidMotionTransformPoint(
+                point = contentPoint,
+                bounds = bounds,
+                deformation = LiquidDeformationFrame.None
+            )
+        )
+        // The outline moves independently, while the accepted content point remains available to
+        // the legacy target-sized layout channel above.
+        assertFalse(
+            contentPoint == liquidMotionTransformPoint(
+                point = contentPoint,
+                bounds = bounds,
+                deformation = deformation(0.42f, LiquidMorphDirection.Opening)
+            )
+        )
     }
 
     @Test

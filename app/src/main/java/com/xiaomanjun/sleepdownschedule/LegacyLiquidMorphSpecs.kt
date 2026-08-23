@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule
 
 import androidx.compose.ui.geometry.Rect
+import com.xiaomanjun.sleepdownschedule.glass.GlassSceneKeys
 import com.xiaomanjun.sleepdownschedule.glass.LiquidBackdropDepthFrame
 import com.xiaomanjun.sleepdownschedule.glass.LiquidContentHandoffFrame
 import com.xiaomanjun.sleepdownschedule.glass.LiquidLayerLifecycleFrame
@@ -99,7 +100,7 @@ internal fun legacyThreeDotMenuMorphSpec(
     verticalReboundAmplitudePx: Float,
     closingSinkOffsetPx: Float,
     closingControlDropPx: Float
-): LegacyHomeLiquidMorphSpec = LegacyHomeLiquidMorphSpec("home-three-dot-menu") { input ->
+): LegacyHomeLiquidMorphSpec = LegacyHomeLiquidMorphSpec(GlassSceneKeys.HomeThreeDotMenuMotion) { input ->
     homeThreeDotMenuTrajectoryGeometry(
         source = source,
         target = target,

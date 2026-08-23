@@ -25,6 +25,9 @@ val skipReleaseResourceShrink = providers.gradleProperty("sleepdown.skipReleaseR
 val enableLargeGlassExperiment = providers.gradleProperty("sleepdown.enableLargeGlassExperiment")
     .map(String::toBoolean)
     .getOrElse(false)
+val enableLiquidMotionExperiment = providers.gradleProperty("sleepdown.enableLiquidMotionExperiment")
+    .map(String::toBoolean)
+    .getOrElse(false)
 val hasReleaseSigning = listOf(
     releaseStoreFilePath,
     releaseStorePassword,
@@ -76,6 +79,11 @@ android {
             "boolean",
             "SLEEPDOWN_LARGE_GLASS_EXPERIMENT",
             enableLargeGlassExperiment.toString()
+        )
+        buildConfigField(
+            "boolean",
+            "SLEEPDOWN_LIQUID_MOTION_EXPERIMENT",
+            enableLiquidMotionExperiment.toString()
         )
     }
 

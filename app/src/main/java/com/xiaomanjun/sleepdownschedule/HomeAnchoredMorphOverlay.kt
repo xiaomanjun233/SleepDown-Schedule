@@ -101,10 +101,15 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionLayer
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphController
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphControllerBridge
+import com.xiaomanjun.sleepdownschedule.glass.LiquidDeformationFrame
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphDirection
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphInput
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphPhase
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMotionOutlineShape
 import com.xiaomanjun.sleepdownschedule.glass.insetRoundedRectLens
 import com.xiaomanjun.sleepdownschedule.glass.insetShapeFor
 import com.xiaomanjun.sleepdownschedule.glass.isAllocationEfficientFor
+import com.xiaomanjun.sleepdownschedule.glass.issue70InspiredLiquidOutlineMotionSpec
 import com.xiaomanjun.sleepdownschedule.glass.pixelAligned
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
@@ -114,6 +119,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -157,6 +163,7 @@ internal object ThreeDotMenuMotion {
 
 internal const val HomeAddMenuMorphOpenDurationMillis = ThreeDotMenuMotion.OpenDurationMillis
 internal const val HomeAddMenuMorphCloseDurationMillis = ThreeDotMenuMotion.CloseDurationMillis
+private const val HomeAddMenuLiquidMotionPaddingDp = 28f
 
 internal const val HomeAddMenuTargetCornerDp = 30f
 internal const val HomeAddMenuSelectionCornerDp = 19f
@@ -1309,6 +1316,89 @@ internal fun HomeAnchoredMorphOverlayHost(
         val shape = remember(geometry, density) {
             DeferredHomeMorphShape(geometry, continuous = false, density = density)
         }
+        val glassSceneState = LocalGlassSceneState.current
+        val useDecoupledLiquidMotion =
+            glassSceneState?.backendPolicy?.usesNewMotion(morphSpec.routeKey) == true
+        val openingOutlineMotionSpec = remember {
+            issue70InspiredLiquidOutlineMotionSpec(
+                durationSeconds = HomeAddMenuMorphOpenDurationMillis / 1_000f
+            )
+        }
+        val closingOutlineMotionSpec = remember {
+            issue70InspiredLiquidOutlineMotionSpec(
+                durationSeconds = HomeAddMenuMorphCloseDurationMillis / 1_000f
+            )
+        }
+        val liquidMotionDeformation = remember(
+            useDecoupledLiquidMotion,
+            motionState,
+            shown.sourceBoundsInRoot,
+            targetRect,
+            openingOutlineMotionSpec,
+            closingOutlineMotionSpec
+        ) {
+            derivedStateOf {
+                val phase = motionState.phase
+                if (!useDecoupledLiquidMotion ||
+                    (phase != HomeAnchoredOverlayPhase.Opening &&
+                        phase != HomeAnchoredOverlayPhase.Closing)
+                ) {
+                    LiquidDeformationFrame.None
+                } else {
+                    val closing = phase == HomeAnchoredOverlayPhase.Closing
+                    val progress = motionState.progress.value
+                    val tangentStep = 0.0025f
+                    val tangentStartProgress = (progress - tangentStep).coerceAtLeast(0f)
+                    val tangentEndProgress = (progress + tangentStep).coerceAtMost(1f)
+                    val tangentStart = morphSpec.homeGeometry(
+                        source = shown.sourceBoundsInRoot,
+                        target = targetRect,
+                        rawProgress = tangentStartProgress,
+                        closing = closing
+                    ).rect.center
+                    val tangentEnd = morphSpec.homeGeometry(
+                        source = shown.sourceBoundsInRoot,
+                        target = targetRect,
+                        rawProgress = tangentEndProgress,
+                        closing = closing
+                    ).rect.center
+                    val tangentDelta = tangentEnd - tangentStart
+                    val tangentAngle = if (
+                        abs(tangentDelta.x) + abs(tangentDelta.y) > 0.001f
+                    ) {
+                        atan2(tangentDelta.y, tangentDelta.x)
+                    } else {
+                        null
+                    }
+                    val input = LiquidMorphInput(
+                        source = shown.sourceBoundsInRoot,
+                        target = targetRect,
+                        rawProgress = progress,
+                        direction = if (closing) {
+                            LiquidMorphDirection.Closing
+                        } else {
+                            LiquidMorphDirection.Opening
+                        },
+                        trajectoryTangentAngleRadians = tangentAngle
+                    )
+                    if (closing) closingOutlineMotionSpec.sample(input)
+                    else openingOutlineMotionSpec.sample(input)
+                }
+            }
+        }
+        val liquidMotionPaddingPx = with(density) {
+            HomeAddMenuLiquidMotionPaddingDp.dp.roundToPx()
+        }
+        val liquidMotionShape = remember(geometry, liquidMotionDeformation, liquidMotionPaddingPx) {
+            LiquidMotionOutlineShape(
+                contentInsetPx = liquidMotionPaddingPx.toFloat(),
+                cornerRadiusPx = { geometry.value.cornerRadiusPx },
+                deformation = { liquidMotionDeformation.value }
+            )
+        }
+        val liquidMotionActive = useDecoupledLiquidMotion &&
+            (motionState.phase == HomeAnchoredOverlayPhase.Opening ||
+                motionState.phase == HomeAnchoredOverlayPhase.Closing)
         val settledSurfaceShape = remember {
             RoundedCornerShape(HomeAddMenuTargetCornerDp.dp)
         }
@@ -1421,9 +1511,10 @@ internal fun HomeAnchoredMorphOverlayHost(
             modifier = Modifier
                 .offset {
                     val current = geometry.value.rect
+                    val outlinePadding = if (liquidMotionActive) liquidMotionPaddingPx else 0
                     IntOffset(
-                        current.left.roundToInt(),
-                        current.top.roundToInt()
+                        current.left.roundToInt() - outlinePadding,
+                        current.top.roundToInt() - outlinePadding
                     )
                 }
                 .graphicsLayer {
@@ -1431,7 +1522,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                     // static Kyant surface below owns its real 34dp outline, so highlight and shadow
                     // remain free to render outside the fill without exposing a stale dynamic shape.
                     clip = homeAddMenuShellClipEnabled(motionState.phase)
-                    this.shape = shape
+                    this.shape = if (liquidMotionActive) liquidMotionShape else shape
                 }
                 .layout { measurable, _ ->
                     // Measure the heavy glass subtree once at its final target size. The animated
@@ -1440,8 +1531,11 @@ internal fun HomeAnchoredMorphOverlayHost(
                     val targetHeight = targetRect.height.roundToInt().coerceAtLeast(1)
                     val placeable = measurable.measure(Constraints.fixed(targetWidth, targetHeight))
                     val current = geometry.value.rect
-                    val width = current.width.roundToInt().coerceAtLeast(1)
-                    val height = current.height.roundToInt().coerceAtLeast(1)
+                    val outlinePadding = if (liquidMotionActive) liquidMotionPaddingPx else 0
+                    val contentWidth = current.width.roundToInt().coerceAtLeast(1)
+                    val contentHeight = current.height.roundToInt().coerceAtLeast(1)
+                    val width = contentWidth + outlinePadding * 2
+                    val height = contentHeight + outlinePadding * 2
                     layout(width, height) {
                         placeable.place((width - targetWidth) / 2, (height - targetHeight) / 2)
                     }

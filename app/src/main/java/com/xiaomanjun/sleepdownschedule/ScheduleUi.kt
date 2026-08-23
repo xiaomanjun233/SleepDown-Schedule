@@ -591,11 +591,10 @@ fun CourseScheduleAppUi(
         ?.let { baseVisualState.copy(config = it) }
         ?: baseVisualState
     val glassBackendPolicy = remember {
-        if (BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT) {
-            GlassBackendPolicy.Phase2LargeSurfaceExperiment
-        } else {
-            GlassBackendPolicy.ReferenceOnly
-        }
+        GlassBackendPolicy.experiments(
+            largeSurfaceEnabled = BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT,
+            liquidMotionEnabled = BuildConfig.SLEEPDOWN_LIQUID_MOTION_EXPERIMENT
+        )
     }
     val glassSceneState = rememberGlassSceneState(
         sceneId = "home",

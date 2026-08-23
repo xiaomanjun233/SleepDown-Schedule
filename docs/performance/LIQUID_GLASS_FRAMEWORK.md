@@ -8,7 +8,7 @@
 - 默认渲染后端仍是 `KyantReference`。现有 blur、lens、色散、tint、highlight、shadow、inner shadow、Shape、内容绘制顺序和交互参数未删减；阶段二实验只能通过显式 Gradle 属性进入受控 Release。
 - 全项目不再由业务代码直接创建、组合或挂载 `LayerBackdrop`，也不再散落调用 `drawBackdrop` / `drawPlainBackdrop`；这些调用集中在 `glass/SleepDownGlassSurface.kt`。`ScaledBackdrop` 仍是 Backdrop 坐标转换接口实现，不是额外消费者。
 - 首页仍保留 `Background`、`Content`、`PickerScene` 三个真实采样域；`ChromeCombined` 只组合前两个，Android Dialog 通过 `DialogBridge` 和既有屏幕坐标补偿采样，未合成错误的全局 Backdrop。
-- 普通构建仍使用空 allowlist。阶段二稳定 envelope 策略显式列出三个首页菜单目的页，以及大屏个性化的渐进模糊、Backdrop aura 两条独立效果通道，并由默认 `false` 的 `sleepdown.enableLargeGlassExperiment` 再做总门控；课程卡 `GlassGroup`、独立弹簧与速度形变仍无启用路线。
+- 普通构建仍使用空 allowlist。阶段二稳定 envelope 策略显式列出三个首页菜单目的页，以及大屏个性化的渐进模糊、Backdrop aura 两条独立效果通道，并由默认 `false` 的 `sleepdown.enableLargeGlassExperiment` 再做总门控。阶段三为首页三点菜单单独增加 `sleepdown.enableLiquidMotionExperiment` 与 motion allowlist；两批实验互不隐式开启。课程卡 `GlassGroup` 仍无启用路线。
 - 本轮没有修改 Oplus callback、Bundle、系统 leash、返回时序、能力开关或逐路线 allowlist。
 
 ## 上游约束与本地决策
@@ -89,11 +89,19 @@
 
 三点菜单、个性化、菜单目的页和课程编辑器首先使用 `Legacy` spec。它们继续委托给已验收的原几何/时序；课程编辑器已直接消费 spec 的几何、圆角、内容交接和 blur 字段。测试在 Opening/Closing 多个关键进度点锁定原输出。
 
-`IndependentSpringMotionSpec` 与 `KinematicLiquidDeformationSpec` 是参考 [Issue #70](https://github.com/Kyant0/AndroidLiquidGlass/issues/70) 后建立的远期 motion 数据模型：轨迹弹簧和形状弹簧相互独立，速度/加速度只形变运动中的玻璃轮廓，内容布局保持真实尺寸；没有复制该示例逐帧改变布局 `.size()` 的路线。`newMotionRouteAllowlist` 当前为空。
+`IndependentSpringMotionSpec` 与 `KinematicLiquidDeformationSpec` 参考 [Issue #70](https://github.com/Kyant0/AndroidLiquidGlass/issues/70) 的低刚度、低阻尼弹簧语言建立。上游示例由同一个进度逐帧改变 `.size()`、圆角和内容 alpha；本地不复制动态 `.size()`，也不让弹簧进度改写已验收的 Legacy 路径与内容交接。
+
+阶段三第一条实验路线是首页三点菜单：
+
+- Legacy 通道继续独占真实 rect、Quadratic Bézier 轨迹、440/285ms 时间线、源/目标 alpha、blur、点击映射和返回锚点；
+- 独立 outline 通道使用 `stiffness=200`、shape `dampingRatio=0.5` 的 Issue #70 风格弹簧，速度/加速度只生成切向拉伸、横向挤压、尾部滞后和回弹；
+- 外壳使用独立 Bézier 轮廓和固定 28dp 形变余量，内部 `HomeAddMenuMorphPanel` 仍按最终 194×317dp 真实尺寸测量与居中放置，不缩放文字、按钮、圆角布局或交互坐标；
+- 形变只在 Opening/Closing 存在；端点严格为零，Open 立即回到原 Kyant 30dp 静态 surface 并释放运动 outline；
+- 普通包保持关闭。受控包需显式传入 `-Psleepdown.enableLiquidMotionExperiment=true`，目前只 allowlist `home-three-dot-menu`。
 
 ## 后续启用门槛
 
-用户随后明确要求安装；阶段二第二批实验包已覆盖安装，但没有启动或执行真机性能/视觉测试。后续经用户明确允许后，按以下顺序做最小充分验收，但不能自动开启实验后端：
+阶段二第二批实验包覆盖安装后，用户已肉眼比较并反馈“好像没有什么帧数变化”；没有对应 Macrobenchmark/Perfetto 数据，因此该结论只记为主观无明显改善，不能记成量化无收益或量化回退。阶段二继续默认关闭，不扩大 allowlist。后续经用户明确允许后，按以下顺序做最小充分验收，但不能自动开启实验后端：
 
 1. 小米平板固定 120Hz、壁纸与配置，执行两组五轮基线/改后测试；
 2. 三点菜单、中心弹窗、个性化、课程编辑器和 1/8/16/32 卡片场景分别抓取 JankStats 与 Perfetto；
@@ -104,8 +112,9 @@
 ## 本轮验证状态
 
 - 独立的 Backdrop `2.0.0` 迁移提交在框架改造前已通过既有 378/378 JVM 单测及 GitHub/Store Debug、benchmark、Release/R8 本地构建。
-- 阶段一基线的完整 `testGithubDebugUnitTest` 为 397/397；当时 `GlassFrameworkTest` 共 19 项。阶段二累计新增 4 项包络像素定位、路线门控、面积上限和 aura 几何测试；项目没有生成 Release unit-test task，且按用户约束没有改跑 Debug，因此这 4 项尚未执行，不能计入已通过数量。
+- 阶段一基线的完整 `testGithubDebugUnitTest` 为 397/397；当时 `GlassFrameworkTest` 共 19 项。阶段二累计新增 4 项包络像素定位、路线门控、面积上限和 aura 几何测试，阶段三新增 2 项独立门控、弹簧端点与轮廓坐标测试；项目没有生成 Release unit-test task，且按用户约束没有改跑 Debug，因此这 6 项尚未执行，不能计入已通过数量。
 - 按用户的长期构建约束，最终只构建 GitHub Release；使用 `-Psleepdown.skipReleaseResourceShrink=true` 跳过测试阶段的资源裁剪，Kotlin、R8、lintVital、打包和签名均通过。正式发布前仍应在用户要求时补一次默认开启资源压缩的 Release。
 - 新 APK 的 SHA-256 为 `C5E4F2487D2CFB1746868B55BAB92E1D554076CC986D091D5329E652581F535E`，签名校验通过，并成功覆盖安装到 PLJ110 `3B15AE023YL00000`；没有启动或操作应用。
-- 阶段二第二批使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLargeGlassExperiment=true --no-parallel --max-workers=2` 构建通过 Kotlin、R8、lintVital、打包与签名；确认生成的 Release `BuildConfig` 实验值为 `true`。实验 APK SHA-256 为 `D47506F3E42A2177EC0482D6D14CCEA0AFC96D829623670186E9634BE0C12B87`，大小 `6,429,734` bytes，已于 2026-08-23 覆盖安装到 PLJ110 `3B15AE023YL00000`，未启动或操作应用。
-- 本轮未执行真机 UI、Macrobenchmark 或 Perfetto 采集，因此不宣称量化性能收益；稳定 envelope 只存在于显式实验包，默认构建、`GlassGroup` 和新 motion spec 仍保持关闭。
+- 阶段二第二批使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLargeGlassExperiment=true --no-parallel --max-workers=2` 构建通过 Kotlin、R8、lintVital、打包与签名；确认生成的 Release `BuildConfig` 实验值为 `true`。实验 APK SHA-256 为 `D47506F3E42A2177EC0482D6D14CCEA0AFC96D829623670186E9634BE0C12B87`，大小 `6,429,734` bytes，已于 2026-08-23 覆盖安装到 PLJ110 `3B15AE023YL00000`；用户随后肉眼观察未发现明显帧率变化，未采集量化 trace。
+- 阶段三使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLiquidMotionExperiment=true --no-parallel --max-workers=2` 构建通过 Kotlin、R8、lintVital、打包与签名；生成的 Release 已确认 `SLEEPDOWN_LARGE_GLASS_EXPERIMENT=false`、`SLEEPDOWN_LIQUID_MOTION_EXPERIMENT=true`。APK SHA-256 为 `880BD142F469DEB46F2CDD0887FB3BD2350263E9D0821F5AA3F87E00D235070A`，大小 `6,429,734` bytes，未安装、未启动。
+- 本轮未执行真机 UI、Macrobenchmark 或 Perfetto 采集，因此不宣称液态自然度或量化性能收益；稳定 envelope、阶段三 motion 与 `GlassGroup` 在普通构建中仍保持关闭。

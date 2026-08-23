@@ -214,6 +214,8 @@ data class LiquidMorphInput(
     val target: Rect,
     val rawProgress: Float,
     val direction: LiquidMorphDirection,
+    /** Source-to-target tangent of the accepted route at this progress, when available. */
+    val trajectoryTangentAngleRadians: Float? = null,
     val backdropScale: Float = 1f,
     val backdropBlurPx: Float = 0f,
     val useCachedBackdrop: Boolean = false
@@ -316,6 +318,21 @@ fun interface LiquidDeformationSpec {
 }
 
 val NoLiquidDeformationSpec = LiquidDeformationSpec { _, _ -> LiquidDeformationFrame.None }
+
+/**
+ * A motion-only channel. It deliberately has no content/layout callback: the accepted route
+ * geometry and content handoff keep using their existing spec while this channel deforms only the
+ * transient glass outline.
+ */
+data class DecoupledLiquidOutlineMotionSpec(
+    val motion: LiquidMotionSpec,
+    val deformation: LiquidDeformationSpec
+) {
+    fun sample(input: LiquidMorphInput): LiquidDeformationFrame {
+        val motionFrame = motion.sample(input)
+        return deformation.sample(input, motionFrame)
+    }
+}
 
 data class SegmentedLiquidMorphSpec(
     override val routeKey: String,
@@ -438,7 +455,9 @@ data class KinematicLiquidDeformationSpec(
 
         val delta = input.target.center - input.source.center
         val directionOffset = if (input.direction == LiquidMorphDirection.Closing) PI.toFloat() else 0f
-        val tangentAngle = atan2(delta.y, delta.x) + directionOffset
+        val tangentAngle = (
+            input.trajectoryTangentAngleRadians ?: atan2(delta.y, delta.x)
+            ) + directionOffset
         val speed = abs(motion.trajectory.velocity)
         val acceleration = motion.shape.acceleration
         val speedFraction = (speed / velocityForMaximum).coerceIn(0f, 1f)
@@ -453,6 +472,36 @@ data class KinematicLiquidDeformationSpec(
         )
     }
 }
+
+/**
+ * Issue #70-inspired low-stiffness/low-bounce shape clock. Unlike the sample from that issue,
+ * this never drives Modifier.size: the legacy trajectory owns the real rect and the independent
+ * spring output is consumed only by the moving outline renderer.
+ */
+fun issue70InspiredLiquidOutlineMotionSpec(
+    durationSeconds: Float
+): DecoupledLiquidOutlineMotionSpec = DecoupledLiquidOutlineMotionSpec(
+    motion = IndependentSpringMotionSpec(
+        trajectoryClock = SpringProgressClock(
+            stiffness = 200f,
+            dampingRatio = 0.72f,
+            durationSeconds = durationSeconds
+        ),
+        shapeClock = SpringProgressClock(
+            stiffness = 200f,
+            dampingRatio = 0.5f,
+            durationSeconds = durationSeconds
+        )
+    ),
+    deformation = KinematicLiquidDeformationSpec(
+        maximumTangentStretch = 0.07f,
+        maximumCrossAxisSqueeze = 0.04f,
+        maximumTailLag = 0.05f,
+        maximumRebound = 0.03f,
+        velocityForMaximum = 6f,
+        accelerationForMaximum = 240f
+    )
+)
 
 val LinearLiquidMotionSpec = LiquidMotionSpec { input ->
     val progress = input.rawProgress.coerceIn(0f, 1f)

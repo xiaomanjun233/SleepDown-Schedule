@@ -76,7 +76,9 @@
 - 三点菜单、个性化、菜单目的页和课程编辑器已接入 Legacy Morph spec/controller；原轨迹、时序、圆角和内容交接保持不变。普通构建仍使用 `ReferenceOnly` 空 allowlist；`GlassGroup`、独立弹簧和速度/加速度形变默认关闭，未获真机像素与 Perfetto 双重证据前不得转为默认路线。
 - 阶段二第一批为首页三点菜单进入“添加课程 / 手动导入 / 教务导入”接入固定 RenderTarget 的稳定 envelope 实验。它只替换原本逐帧改变尺寸的外层 clip，内部 Kyant surface、lens SDF、材质参数、内容真实尺寸和 Legacy 330/350ms 几何不变；非全屏 Open 只保留目标尺寸圆角 clip，教务导入全屏 Open 释放转场 layer。
 - 阶段二第二批为大屏个性化面板的渐进 blur 与 Backdrop aura 增加独立固定 RenderTarget。`GlassInsetLens` 按 Backdrop 2.0 正式版 rounded-rect Shader 语义实现 envelope 内动态 rect/radius SDF，不再用逐帧 Modifier `.size()` 驱动折射；原动态渐变、边框、内容、alpha、feather mask、材质参数和采样域不变。主面板/aura envelope 面积上限为最终目标的 `1.65x` / `1.45x`，超限逐通道回退 Reference。手机个性化 `LiquidPanel` 与课程编辑器仍保持 Reference。全部阶段二路线共用默认 `false` 的 `sleepdown.enableLargeGlassExperiment` 总开关和逐场景 allowlist，未获真机像素与 Perfetto 双证据前不得默认开启。
-- 诊断 counter、实验边界、测试与后续启用门槛见 `docs/performance/LIQUID_GLASS_FRAMEWORK.md`。用户随后只授权构建与覆盖安装；当前液态玻璃包已安装，但未启动、未操作，也未执行真机 UI、Macrobenchmark 或 Perfetto。后续真机性能/视觉测试仍需用户明确要求。
+- 阶段二实验包覆盖安装后，用户肉眼观察“好像还没有什么帧数变化”；没有 Macrobenchmark/Perfetto 数据，故只记录为主观无明显改善，不宣称量化无收益或回退。阶段二继续默认关闭，不扩大 allowlist。
+- 阶段三第一条实验路线为首页三点菜单。它参考 Issue #70 的 `stiffness=200`、shape `dampingRatio=0.5` 弹簧语言，但不复制逐帧 `.size()`：Legacy 通道继续独占真实 rect、Bezier 轨迹、440/285ms 时序、内容 alpha/blur、点击映射和返回锚点；独立 outline 通道只在 Opening/Closing 对玻璃外壳施加切向拉伸、横向挤压、尾部滞后和回弹，内部 194×317dp 内容始终按真实终态尺寸测量和居中，不缩放文字或按钮。端点形变为零，Open 继续由原 Kyant 30dp surface 绘制。该路线由默认 `false` 的 `sleepdown.enableLiquidMotionExperiment` 和 `home-three-dot-menu` allowlist 双重控制，与阶段二开关相互独立。
+- 诊断 counter、实验边界、测试与后续启用门槛见 `docs/performance/LIQUID_GLASS_FRAMEWORK.md`。阶段三受控 Release 已构建但未安装、未启动；后续真机性能/视觉测试仍需用户明确要求。
 - 本轮不修改或恢复 Oplus 调查；`TODO(OPLUS_DEFERRED_20260823)`、callback、Bundle、leash、fallback 和远程 allowlist 继续保持暂停状态。
 
 ## 跨 Activity Transition 统一框架（2026-08-22 重建）
@@ -153,7 +155,7 @@
 
 - 最新独立 Morph、缓存、课程管理、自定义时间与周视图长按编辑策略继续通过原 344 项测试；统一 Transition 框架新增 20 项路线、状态机、并发 fallback、callback generation、嵌套 session、payload 清理、进程重建、能力 gate 和 kill switch 测试，完整 `testGithubDebugUnitTest` 为 364/364。GitHub/Store Debug、签名 Release（Kotlin、R8、资源优化、lintVital）和两渠道 benchmark app、benchmark 测试 APK 均构建通过。
 - 液态玻璃 2.0 统一框架完成后，完整 `testGithubDebugUnitTest` 为 397/397，其中新增框架测试 19 项；GitHub 签名 Release 使用 `-Psleepdown.skipReleaseResourceShrink=true` 通过 Kotlin、R8、lintVital、打包与签名构建，并于 2026-08-23 覆盖安装到 `3B15AE023YL00000`。该包未启动或执行真机验收，不能据此宣称量化性能改善。
-- 阶段二累计新增 4 项稳定 envelope 像素定位、路线门控、面积上限与 aura 几何测试，但项目没有 Release unit-test task，且按“只构建 Release”约束未改跑 Debug，故尚未计入已通过总数。第二批启用 `-Psleepdown.enableLargeGlassExperiment=true` 的签名 GitHub Release 已用 `--no-parallel --max-workers=2`、关闭资源压缩并保留 R8/lintVital 构建通过，SHA-256 为 `D47506F3E42A2177EC0482D6D14CCEA0AFC96D829623670186E9634BE0C12B87`；已于 2026-08-23 覆盖安装到 PLJ110 `3B15AE023YL00000`，但未启动，也未执行真机 UI、Macrobenchmark 或 Perfetto。
+- 阶段二累计新增 4 项稳定 envelope 像素定位、路线门控、面积上限与 aura 几何测试；阶段三新增 2 项独立门控、弹簧端点与轮廓坐标测试。项目没有 Release unit-test task，且按“只构建 Release”约束未改跑 Debug，故这 6 项尚未计入已通过总数。阶段二实验 Release（SHA-256 `D47506F3E42A2177EC0482D6D14CCEA0AFC96D829623670186E9634BE0C12B87`）已覆盖安装，用户肉眼观察未发现明显帧率变化但未抓量化 trace。阶段三启用 `-Psleepdown.enableLiquidMotionExperiment=true`、关闭阶段二开关的签名 GitHub Release 已用 `--no-parallel --max-workers=2`、关闭资源压缩并保留 R8/lintVital 构建通过，SHA-256 为 `880BD142F469DEB46F2CDD0887FB3BD2350263E9D0821F5AA3F87E00D235070A`；尚未安装、启动或真机验收。
 - 正式 Oplus 全局开关及逐路线 allowlist 当前默认关闭；Release manifest 不含 debug Probe，R8 mapping 保留厂商 callback 隔离层。未完成下述 PLJ110 正式页面验收前不得远程开启。
 - PLJ110 已确认完整课程详情的独立 opaque 宿主可由 ColorOS 正常接管；第一批扩展路线同时包含 AI 进度页→AI 历史（Legacy Liquid）和手动导入弹窗→AI 历史（Legacy Parabolic），共用同一个正式 AI 历史页面与独立 opaque 宿主。
 - 此前安装到 `3B15AE023YL00000` 的临时强制 Oplus 验收包曾真机确认：首页两条路线 CLOSE 仍中心淡出，课程详情 CLOSE 仍闪空帧，AI 历史 OPEN/CLOSE 仍闪空帧；源码随后恢复远程配置 gate。本轮液态玻璃 Release 已覆盖该临时包，但没有恢复 Oplus 调查或重新验收，因此结论仍是“未修复并暂缓”，不是待用户重复验收。
@@ -167,7 +169,7 @@
 2. 若用户以后恢复调查，先固定一个最后已知“不闪空帧”的可复现版本/录像作为对照，同时抓取 WM Shell transition、ActivityTaskManager、ViewSeamless callback 与 SurfaceFlinger/帧提交证据，确定系统 leash、opaque destination 和 source buffer 的真实交接顺序；禁止继续凭视觉猜测叠加延时或快照层。
 3. 只有首页 Legacy CLOSE 真正回到三点按钮且所有正式详情/AI 历史 OPEN/CLOSE 无空帧后，才重新做立即返回、长停留、20 次往返、源移动/消失与 fallback 零变化验收；此前全局开关及逐路线远程 allowlist 保持关闭。
 4. 发布前补齐迁移、备份、真实 v1.1.5 恢复、Store 权限与新包 Widget 首装；确认 Draft PR、应用商店身份和升级说明后，由用户决定是否推送、合并远端或发布。Oplus 调查分支保持封存；当前液态玻璃任务只允许按既定计划创建本地提交，不得推送、打标签或发布。
-5. 液态玻璃阶段二后续优先验证首页三个菜单目的页及大屏个性化两个固定效果通道的像素一致性和 RenderTarget 尺寸是否稳定；用户重新允许安装/真机测试前不执行。课程编辑器仍须先实现并审计其专用动态 rect lens/SDF 与内容层生命周期，不能直接复用固定终态 lens 或当前个性化 aura 路线。
+5. 液态玻璃下一步先对阶段三三点菜单做单路线主观录像验收：观察拉伸、挤压、尾部滞后、回弹是否自然，同时确认文字/按钮没有非等比形变、端点/返回锚点不跳。未通过则只调独立 outline spec 或一键关闭，不改 Legacy 内容通道。阶段二后续量化仍需验证首页三个菜单目的页及大屏个性化两个固定效果通道的像素一致性和 RenderTarget 尺寸是否稳定；课程编辑器仍须先实现并审计其专用动态 rect lens/SDF 与内容层生命周期。
 
 ## 工作方式
 

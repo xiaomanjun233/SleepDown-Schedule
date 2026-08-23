@@ -68,6 +68,7 @@ enum class GlassRendererKind {
 
 /** Stable identifiers shared by renderer policy, diagnostics and business-route adapters. */
 object GlassSceneKeys {
+    const val HomeThreeDotMenuMotion = "home-three-dot-menu"
     const val HomeMenuDestinationAddCourse = "home-menu-destination:add-course"
     const val HomeMenuDestinationManualImport = "home-menu-destination:manual-import"
     const val HomeMenuDestinationEduImport = "home-menu-destination:edu-import"
@@ -81,6 +82,8 @@ object GlassSceneKeys {
         HomePersonalizationProgressiveSurface,
         HomePersonalizationBackdropAura
     )
+
+    val Phase3LiquidMotionRoutes: Set<String> = setOf(HomeThreeDotMenuMotion)
 }
 
 /**
@@ -120,6 +123,30 @@ data class GlassBackendPolicy(
          */
         val Phase2LargeSurfaceExperiment = GlassBackendPolicy(
             stableEnvelopeRouteAllowlist = GlassSceneKeys.Phase2LargeSurfaceEnvelopeRoutes
+        )
+
+        /**
+         * First phase-3 experiment. The accepted route geometry and content handoff remain on the
+         * legacy channel; only the moving glass outline consumes the independent spring channel.
+         */
+        val Phase3LiquidMotionExperiment = GlassBackendPolicy(
+            newMotionRouteAllowlist = GlassSceneKeys.Phase3LiquidMotionRoutes
+        )
+
+        fun experiments(
+            largeSurfaceEnabled: Boolean,
+            liquidMotionEnabled: Boolean
+        ): GlassBackendPolicy = GlassBackendPolicy(
+            stableEnvelopeRouteAllowlist = if (largeSurfaceEnabled) {
+                GlassSceneKeys.Phase2LargeSurfaceEnvelopeRoutes
+            } else {
+                emptySet()
+            },
+            newMotionRouteAllowlist = if (liquidMotionEnabled) {
+                GlassSceneKeys.Phase3LiquidMotionRoutes
+            } else {
+                emptySet()
+            }
         )
     }
 }
