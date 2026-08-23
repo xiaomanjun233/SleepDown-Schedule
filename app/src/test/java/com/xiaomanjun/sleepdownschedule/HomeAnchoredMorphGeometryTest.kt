@@ -766,6 +766,30 @@ class HomeAnchoredMorphGeometryTest {
         assertEquals(0.55f, dragging, Tolerance)
     }
 
+    @Test
+    fun personalizationAuraGeometryPreservesLegacyOffsetAndMeasuredSize() {
+        val geometry = HomeAnchoredMorphGeometry(
+            rect = Rect(40f, 80f, 240f, 380f),
+            cornerRadiusPx = 28f,
+            sourceScale = 1f,
+            sourceAlpha = 0f,
+            surfaceAlpha = 1f,
+            contentAlpha = 1f,
+            pathProgress = 0.5f,
+            expansionProgress = 0.25f
+        )
+
+        val aura = homePersonalizationAuraGeometry(
+            geometry = geometry,
+            leftFeatherMaximumPx = 104f,
+            rightFeatherPx = 56f,
+            verticalFeatherPx = 56f
+        )
+
+        assertRectEquals(Rect(14f, 24f, 296f, 436f), aura.rectInRoot)
+        assertEquals(0f, aura.cornerRadiusPx, Tolerance)
+    }
+
     private fun geometry(
         progress: Float,
         closing: Boolean = false

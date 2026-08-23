@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.glass.CourseGlassClosingPrewarmProgress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -44,10 +45,68 @@ class HomeMotionPerformancePolicyTest {
     }
 
     @Test
+    fun substantialOverlayBlurLeadsOpeningAndReleasesBeforeClosingTail() {
+        assertTrue(
+            stagedHomeOverlayBlurProgress(
+                legacyDepthProgress = 0f,
+                morphProgress = 0.2f,
+                closing = false
+            ) > 0.5f
+        )
+        assertEquals(
+            1f,
+            stagedHomeOverlayBlurProgress(
+                legacyDepthProgress = 0f,
+                morphProgress = HomeOpeningBlurFullProgress,
+                closing = false
+            ),
+            0.0001f
+        )
+        val earlyClosingBlur = stagedHomeOverlayBlurProgress(
+            legacyDepthProgress = 0f,
+            morphProgress = 0.8f,
+            closing = true
+        )
+        val middleClosingBlur = stagedHomeOverlayBlurProgress(
+            legacyDepthProgress = 0f,
+            morphProgress = 0.4f,
+            closing = true
+        )
+        assertTrue(earlyClosingBlur > 0.98f)
+        assertTrue(middleClosingBlur in 0.67f..0.71f)
+        assertTrue(
+            stagedHomeOverlayBlurProgress(
+                legacyDepthProgress = 0f,
+                morphProgress = CourseGlassClosingPrewarmProgress,
+                closing = true
+            ) > 0.67f
+        )
+        assertEquals(
+            0f,
+            stagedHomeOverlayBlurProgress(
+                legacyDepthProgress = 0f,
+                morphProgress = 0f,
+                closing = true
+            ),
+            0.0001f
+        )
+        assertEquals(
+            0.4f,
+            stagedHomeOverlayBlurProgress(
+                legacyDepthProgress = 0.4f,
+                morphProgress = null,
+                closing = false
+            ),
+            0.0001f
+        )
+    }
+
+    @Test
     fun frozenWeekBlurUsesQuarterAreaSurfaceAndBoundedLiveEffects() {
         assertEquals(0.25f, HomeFrozenBlurSampleScale * HomeFrozenBlurSampleScale, 0.0001f)
-        assertEquals(12, HomeLiveBlurStepCount)
-        assertEquals(HomeLiveBlurStepCount, HomeProgressiveBackdropBlurStepCount)
+        assertEquals(32, HomeLiveBlurStepCount)
+        assertEquals(12, HomeNonClosingBlurStepCount)
+        assertEquals(12, HomeProgressiveBackdropBlurStepCount)
         assertTrue(
             shouldUseFrozenWeekHomeBlur(
                 screenIsHome = true,
@@ -79,6 +138,55 @@ class HomeMotionPerformancePolicyTest {
                 screenIsHome = true,
                 previewActive = false,
                 overlayActive = false
+            )
+        )
+    }
+
+    @Test
+    fun closingReturnsToFullResolutionBeforeBlurReachesClearEndpoint() {
+        assertEquals(3, quantizeHomeBackgroundBlurStep(0.07f, closing = false))
+        assertEquals(2, quantizeHomeBackgroundBlurStep(0.07f, closing = true))
+        assertFalse(
+            shouldUseFullResolutionClosingBlur(
+                frozenHomeScene = true,
+                closing = false,
+                blurProgress = 0.2f
+            )
+        )
+        assertFalse(
+            shouldUseFullResolutionClosingBlur(
+                frozenHomeScene = true,
+                closing = true,
+                blurProgress = HomeClosingFullResolutionBlurHandoffProgress + 0.01f
+            )
+        )
+        assertTrue(
+            shouldUseFullResolutionClosingBlur(
+                frozenHomeScene = true,
+                closing = true,
+                blurProgress = HomeClosingFullResolutionBlurHandoffProgress
+            )
+        )
+    }
+
+    @Test
+    fun personalizationSliderPreviewNeverUsesTransitionBlur() {
+        assertFalse(
+            shouldUseStagedHomeOverlayBlur(
+                previewActive = true,
+                substantialOverlayActive = true
+            )
+        )
+        assertTrue(
+            shouldUseStagedHomeOverlayBlur(
+                previewActive = false,
+                substantialOverlayActive = true
+            )
+        )
+        assertFalse(
+            shouldUseStagedHomeOverlayBlur(
+                previewActive = false,
+                substantialOverlayActive = false
             )
         )
     }

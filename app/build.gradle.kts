@@ -19,6 +19,15 @@ val releaseStorePassword = releaseSecret("sleepdown.releaseStorePassword", "SLEE
 val releaseKeyAlias = releaseSecret("sleepdown.releaseKeyAlias", "SLEEPDOWN_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseSecret("sleepdown.releaseKeyPassword", "SLEEPDOWN_RELEASE_KEY_PASSWORD")
 val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOWN_REMOTE_CONFIG_SECRET").orEmpty()
+val skipReleaseResourceShrink = providers.gradleProperty("sleepdown.skipReleaseResourceShrink")
+    .map(String::toBoolean)
+    .getOrElse(false)
+val enableLargeGlassExperiment = providers.gradleProperty("sleepdown.enableLargeGlassExperiment")
+    .map(String::toBoolean)
+    .getOrElse(false)
+val enableLiquidMotionExperiment = providers.gradleProperty("sleepdown.enableLiquidMotionExperiment")
+    .map(String::toBoolean)
+    .getOrElse(false)
 val hasReleaseSigning = listOf(
     releaseStoreFilePath,
     releaseStorePassword,
@@ -66,6 +75,16 @@ android {
         versionName = "1.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SLEEPDOWN_API_BASE_URL", "\"https://api.sleepdownschedule.cn\"")
+        buildConfigField(
+            "boolean",
+            "SLEEPDOWN_LARGE_GLASS_EXPERIMENT",
+            enableLargeGlassExperiment.toString()
+        )
+        buildConfigField(
+            "boolean",
+            "SLEEPDOWN_LIQUID_MOTION_EXPERIMENT",
+            enableLiquidMotionExperiment.toString()
+        )
     }
 
     sourceSets {
@@ -92,8 +111,11 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            isShrinkResources = !skipReleaseResourceShrink
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             signingConfig = signingConfigs.findByName("release")
             buildConfigField("String", "SLEEPDOWN_REMOTE_CONFIG_SECRET", "\"$remoteConfigSecret\"")
             buildConfigField("boolean", "SLEEPDOWN_REMOTE_AI_ENABLED", remoteConfigSecret.isNotBlank().toString())
@@ -180,7 +202,8 @@ dependencies {
     implementation("androidx.metrics:metrics-performance:1.0.0")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.palette:palette-ktx:1.0.0")
-    implementation("io.github.kyant0:backdrop:2.0.0-alpha03")
+    compileOnly("com.oplus.animation:viewseamless:1.0.0@aar")
+    implementation("io.github.kyant0:backdrop:2.0.0")
     implementation("io.github.kyant0:shapes:1.2.0")
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.3")
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.3")

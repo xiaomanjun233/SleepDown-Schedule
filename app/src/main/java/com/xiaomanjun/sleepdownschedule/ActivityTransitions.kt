@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Build
 import androidx.compose.ui.geometry.Rect
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 
 const val ScheduleCustomizeIdExtra = "schedule_customize_id"
 private const val AnchoredSourceLeftExtra = "anchored_source_left"
@@ -14,16 +16,6 @@ private const val AnchoredCollapseLeftExtra = "anchored_collapse_left"
 private const val AnchoredCollapseTopExtra = "anchored_collapse_top"
 private const val AnchoredCollapseRightExtra = "anchored_collapse_right"
 private const val AnchoredCollapseBottomExtra = "anchored_collapse_bottom"
-
-fun Activity.startActivityWithScheduleDepthTransition(intent: Intent) {
-    if (Build.VERSION.SDK_INT >= 34) {
-        startActivity(intent)
-    } else {
-        startActivity(intent)
-        @Suppress("DEPRECATION")
-        overridePendingTransition(R.anim.schedule_depth_enter, R.anim.schedule_depth_exit)
-    }
-}
 
 fun Activity.installScheduleDepthTransitions() {
     if (Build.VERSION.SDK_INT >= 34) {
@@ -65,7 +57,9 @@ fun Intent.putAnchoredCollapseBounds(bounds: Rect): Intent = apply {
 }
 
 fun Activity.returnToScheduleHome() {
-    startActivity(
+    ActivityTransitionCoordinator.openImmediate(
+        this,
+        TransitionRouteId.ReturnToHome,
         Intent(this, MainActivity::class.java).addFlags(
             Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         )

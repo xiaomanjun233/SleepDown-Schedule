@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".OplusTransitionDebugSourceActivity"
+            android:exported="true"
+            android:theme="@style/AppTheme" />
+        <activity
+            android:name=".OplusTransitionDebugDestinationActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.OplusSeamlessDetail" />
+    </application>
+</manifest>

@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -25,6 +26,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -32,13 +35,19 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.shadow.Shadow
-import com.kyant.backdrop.shadow.InnerShadow
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
+import com.xiaomanjun.sleepdownschedule.glass.GlassHighlightFrame
+import com.xiaomanjun.sleepdownschedule.glass.GlassHighlightStyle
+import com.xiaomanjun.sleepdownschedule.glass.GlassInnerShadowFrame
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
+import com.xiaomanjun.sleepdownschedule.glass.decorationOnly
+import com.xiaomanjun.sleepdownschedule.glass.referenceLensSampleScale
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.sampledBackdropOnly
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import kotlin.math.roundToInt
 
 const val MulticolorCourseCardArgb = 0x00000000L
@@ -174,8 +183,8 @@ fun buildCourseCardColorAssignments(
             val hsv = courseCardHsv(color)
             courseCardArgb(
                 hsv.copy(
-                    saturation = hsv.saturation.coerceIn(0.38f, 0.82f),
-                    value = hsv.value.coerceIn(0.74f, 0.94f)
+                    saturation = hsv.saturation.coerceIn(0.34f, 0.70f),
+                    value = hsv.value.coerceIn(0.82f, 0.95f)
                 )
             )
         }
@@ -185,31 +194,45 @@ fun buildCourseCardColorAssignments(
     val requiredCandidates = maxOf(36, keys.size * 4)
     val candidates = ArrayList<Long>(requiredCandidates)
     var generation = 0
-    while (candidates.size < requiredCandidates && generation < requiredCandidates * 4) {
+    val hueOffsets = floatArrayOf(0f, -9f, 9f, -18f, 18f, -28f, 28f)
+    val saturationSteps = floatArrayOf(0f, -0.10f, 0.08f, -0.17f, 0.14f)
+    val valueSteps = floatArrayOf(0f, 0.07f, -0.05f, 0.11f, -0.09f)
+    while (candidates.size < requiredCandidates && generation < requiredCandidates * 16) {
         val baseIndex = generation % bases.size
         val cycle = generation / bases.size
         val baseHsv = courseCardHsv(bases[baseIndex])
-        val saturationSteps = floatArrayOf(-0.22f, 0.18f, -0.10f, 0.28f, 0f)
-        val valueSteps = floatArrayOf(0.10f, -0.12f, 0.04f, -0.06f, 0f)
         val candidate = if (cycle == 0) {
             bases[baseIndex]
         } else {
+            val hueIndex = cycle % hueOffsets.size
+            val saturationIndex = (cycle / hueOffsets.size) % saturationSteps.size
+            val valueIndex =
+                (cycle / (hueOffsets.size * saturationSteps.size)) % valueSteps.size
             courseCardArgb(
                 baseHsv.copy(
-                    hue = (baseHsv.hue + cycle * 137.50776f + baseIndex * 11f) % 360f,
-                    saturation = (baseHsv.saturation + saturationSteps[(cycle - 1) % saturationSteps.size]).coerceIn(0.34f, 0.88f),
-                    value = (baseHsv.value + valueSteps[(cycle - 1) % valueSteps.size]).coerceIn(0.68f, 0.96f)
+                    // Keep generated courses recognisably inside the wallpaper's colour family.
+                    // The old golden-angle rotation could turn a blue wallpaper green or purple.
+                    hue = (baseHsv.hue + hueOffsets[hueIndex] + 360f) % 360f,
+                    saturation = (baseHsv.saturation + saturationSteps[saturationIndex])
+                        .coerceIn(0.30f, 0.74f),
+                    value = (baseHsv.value + valueSteps[valueIndex])
+                        .coerceIn(0.80f, 0.97f)
                 )
             )
         }
-        if (candidates.none { courseCardPerceptualDistance(it, candidate) < 0.035 }) {
+        if (candidates.none { courseCardPerceptualDistance(it, candidate) < 0.022 }) {
             candidates += candidate
         }
         generation++
     }
-    DefaultCourseCardPalette.forEach { fallback ->
-        if (candidates.size < requiredCandidates && candidates.none { courseCardPerceptualDistance(it, fallback) < 0.035 }) {
-            candidates += fallback
+    if (representativeColors.isEmpty()) {
+        DefaultCourseCardPalette.forEach { fallback ->
+            if (candidates.size < requiredCandidates && candidates.none {
+                    courseCardPerceptualDistance(it, fallback) < 0.022
+                }
+            ) {
+                candidates += fallback
+            }
         }
     }
 
@@ -275,54 +298,7 @@ internal fun courseSimpleBlurTintAlpha(cardAlpha: Float, quality: Float, hasWall
         .coerceIn(0f, 0.18f)
 }
 
-data class GlassTokens(
-    val blur: Dp,
-    val lensHeight: Dp,
-    val lensAmount: Dp,
-    val surfaceAlpha: Float,
-    val borderAlpha: Float,
-    val highlightAlpha: Float = 0.06f,
-    val shadowAlpha: Float = 0.16f,
-    val innerShadowAlpha: Float = 0.12f,
-    val chromaticAberration: Boolean = false,
-    val depthEffect: Boolean = true,
-    val useVibrancy: Boolean = true
-) {
-    companion object {
-        fun pill(intensity: Float = 1f, reduceTransparency: Boolean = false) = GlassTokens(
-            blur = if (reduceTransparency) 0.dp else (2.5f * intensity.coerceIn(0.4f, 1.5f)).dp,
-            lensHeight = if (reduceTransparency) 0.dp else (12f * intensity.coerceIn(0.4f, 1.5f)).dp,
-            lensAmount = if (reduceTransparency) 0.dp else (24f * intensity.coerceIn(0.4f, 1.5f)).dp,
-            surfaceAlpha = if (reduceTransparency) 0.86f else 0.18f,
-            borderAlpha = if (reduceTransparency) 0.18f else 0.32f,
-            highlightAlpha = if (reduceTransparency) 0.04f else 0.055f,
-            shadowAlpha = if (reduceTransparency) 0.08f else 0.14f,
-            innerShadowAlpha = if (reduceTransparency) 0.05f else 0.09f
-        )
-
-        fun dialog(intensity: Float = 1f, reduceTransparency: Boolean = false) = GlassTokens(
-            blur = if (reduceTransparency) 0.dp else (4f * intensity.coerceIn(0.4f, 1.5f)).dp,
-            lensHeight = if (reduceTransparency) 0.dp else (16f * intensity.coerceIn(0.4f, 1.5f)).dp,
-            lensAmount = if (reduceTransparency) 0.dp else (32f * intensity.coerceIn(0.4f, 1.5f)).dp,
-            surfaceAlpha = if (reduceTransparency) 0.92f else 0.40f,
-            borderAlpha = if (reduceTransparency) 0.16f else 0.28f,
-            highlightAlpha = if (reduceTransparency) 0.04f else 0.06f,
-            shadowAlpha = if (reduceTransparency) 0.08f else 0.18f,
-            innerShadowAlpha = if (reduceTransparency) 0.05f else 0.11f
-        )
-
-        fun courseCard(blur: Float, reduceTransparency: Boolean = false) = GlassTokens(
-            blur = if (reduceTransparency) 0.dp else blur.coerceIn(0f, LiquidCourseCardBlurMax).dp,
-            lensHeight = if (reduceTransparency) 0.dp else 10.dp,
-            lensAmount = if (reduceTransparency) 0.dp else 20.dp,
-            surfaceAlpha = if (reduceTransparency) 0.92f else 0.52f,
-            borderAlpha = if (reduceTransparency) 0.14f else 0.24f,
-            highlightAlpha = if (reduceTransparency) 0.035f else 0.045f,
-            shadowAlpha = if (reduceTransparency) 0.08f else 0.14f,
-            innerShadowAlpha = if (reduceTransparency) 0.05f else 0.10f
-        )
-    }
-}
+typealias GlassTokens = GlassMaterialSpec
 
 @Composable
 fun appUsesDarkTheme(config: ScheduleConfigEntity): Boolean {
@@ -350,6 +326,8 @@ fun GlassSurface(
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
     baseSurfaceColorOverride: Color? = null,
+    domain: GlassBackdropDomain = GlassBackdropDomain.ChromeCombined,
+    debugLabel: String = "GlassSurface",
     content: @Composable () -> Unit
 ) {
     val glassBackdrop = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
@@ -368,43 +346,54 @@ fun GlassSurface(
     }
     val clearAlpha = tokens.surfaceAlpha * quality
     val surfaceColor = if (selected) selectedColor else base.copy(alpha = clearAlpha)
+    val restHighlightAlpha = if (hasWallpaper) 0f else tokens.highlightAlpha * 0.72f
+    val highlightAlpha = if (selected) {
+        tokens.highlightAlpha + 0.10f * pressProgress
+    } else {
+        restHighlightAlpha + tokens.highlightAlpha * 0.65f * pressProgress
+    }
+    val descriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = debugLabel,
+        domain = domain,
+        materialRole = tokens.role
+    )
+    val effectFrame = GlassEffectFrame(
+        blur = tokens.blur * quality,
+        lensHeight = tokens.lensHeight * quality * (0.7f + 0.3f * pressProgress),
+        lensAmount = tokens.lensAmount * quality * (0.85f + 0.35f * pressProgress),
+        useVibrancy = tokens.useVibrancy,
+        depthEffect = tokens.depthEffect,
+        chromaticAberration = tokens.chromaticAberration,
+        highlight = GlassHighlightFrame(
+            style = if (highlightAlpha <= 0.001f) {
+                GlassHighlightStyle.Plain
+            } else {
+                GlassHighlightStyle.Default
+            },
+            alpha = highlightAlpha
+        ),
+        shadowAlpha = if (selected) {
+            tokens.shadowAlpha + 0.12f * pressProgress
+        } else {
+            tokens.shadowAlpha * pressProgress
+        },
+        innerShadow = GlassInnerShadowFrame(
+            radius = if (selected) 6.dp else 3.dp * pressProgress,
+            alpha = if (selected) {
+                tokens.innerShadowAlpha + 0.10f * pressProgress
+            } else {
+                tokens.innerShadowAlpha * pressProgress
+            }
+        ),
+        layerScale = 1f + 0.055f * pressProgress
+    )
     val contentModifier = if (useGlass) {
-        modifier.drawBackdrop(
+        modifier.sleepDownGlassSurface(
             backdrop = glassBackdrop,
+            descriptor = descriptor,
+            material = tokens,
             shape = { shape },
-            effects = {
-                if (tokens.useVibrancy) vibrancy()
-                blur((tokens.blur * quality).toPx())
-                lens(
-                    (tokens.lensHeight * quality).toPx() * (0.7f + 0.3f * pressProgress),
-                    (tokens.lensAmount * quality).toPx() * (0.85f + 0.35f * pressProgress),
-                    depthEffect = tokens.depthEffect,
-                    chromaticAberration = tokens.chromaticAberration
-                )
-            },
-            highlight = {
-                val restAlpha = if (hasWallpaper) 0f else tokens.highlightAlpha * 0.72f
-                val alpha = if (selected) {
-                    tokens.highlightAlpha + 0.10f * pressProgress
-                } else {
-                    restAlpha + tokens.highlightAlpha * 0.65f * pressProgress
-                }
-                if (alpha <= 0.001f) Highlight.Plain else Highlight.Default.copy(alpha = alpha)
-            },
-            shadow = {
-                Shadow(alpha = if (selected) tokens.shadowAlpha + 0.12f * pressProgress else tokens.shadowAlpha * pressProgress)
-            },
-            innerShadow = {
-                InnerShadow(
-                    radius = if (selected) 6.dp else 3.dp * pressProgress,
-                    alpha = if (selected) tokens.innerShadowAlpha + 0.10f * pressProgress else tokens.innerShadowAlpha * pressProgress
-                )
-            },
-            layerBlock = {
-                val scale = 1f + 0.055f * pressProgress
-                scaleX = scale
-                scaleY = scale
-            },
+            effectFrame = effectFrame,
             onDrawSurface = {
                 drawRect(surfaceColor)
                 if (lightGlass) {
@@ -456,6 +445,7 @@ fun GlassPill(
         tokens = GlassTokens.pill(),
         selected = selected,
         onClick = onClick,
+        debugLabel = "GlassPill",
         content = content
     )
 }
@@ -474,27 +464,36 @@ fun GlassLens(
     val lightGlass = glassUsesLightStyle(config)
     val surfaceColor = if (lightGlass) Color.Black.copy(alpha = 0.07f * quality) else Color.White.copy(alpha = 0.08f * quality)
     val shape = RoundedCornerShape(50)
+    val material = remember { GlassMaterialSpec.lens() }
+    val descriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "GlassLens",
+        domain = GlassBackdropDomain.ChromeCombined,
+        materialRole = GlassMaterialRole.Lens
+    )
+    val effectFrame = GlassEffectFrame(
+        blur = 3.dp * quality,
+        lensHeight = 8.dp * quality + 16.dp * quality * pressProgress,
+        lensAmount = 14.dp * quality + 20.dp * quality * pressProgress,
+        useVibrancy = true,
+        chromaticAberration = false,
+        highlight = GlassHighlightFrame(
+            style = GlassHighlightStyle.Default,
+            alpha = 0.08f + 0.10f * pressProgress
+        ),
+        shadowAlpha = 0.18f + 0.16f * pressProgress,
+        innerShadow = GlassInnerShadowFrame(
+            radius = 6.dp,
+            alpha = 0.18f + 0.16f * pressProgress
+        ),
+        layerScale = 1f + 0.04f * pressProgress
+    )
     val contentModifier = if (useGlass) {
-        modifier.drawBackdrop(
+        modifier.sleepDownGlassSurface(
             backdrop = glassBackdrop,
+            descriptor = descriptor,
+            material = material,
             shape = { shape },
-            effects = {
-                vibrancy()
-                blur((3.dp * quality).toPx())
-                lens(
-                    (8.dp * quality).toPx() + (16.dp * quality).toPx() * pressProgress,
-                    (14.dp * quality).toPx() + (20.dp * quality).toPx() * pressProgress,
-                    chromaticAberration = false
-                )
-            },
-            highlight = { Highlight.Default.copy(alpha = 0.08f + 0.10f * pressProgress) },
-            shadow = { Shadow(alpha = 0.18f + 0.16f * pressProgress) },
-            innerShadow = { InnerShadow(radius = 6.dp, alpha = 0.18f + 0.16f * pressProgress) },
-            layerBlock = {
-                val scale = 1f + 0.04f * pressProgress
-                scaleX = scale
-                scaleY = scale
-            },
+            effectFrame = effectFrame,
             onDrawSurface = {
                 drawRect(surfaceColor)
                 if (lightGlass) {
@@ -527,9 +526,38 @@ fun GlassDialogSurface(
         modifier = modifier,
         shape = shape,
         tokens = GlassTokens.dialog(),
+        domain = GlassBackdropDomain.DialogBridge,
+        debugLabel = "GlassDialogSurface",
         content = content
     )
 }
+
+internal fun courseCardGlassEffectFrame(
+    tokens: GlassMaterialSpec,
+    liveBlur: Float,
+    quality: Float,
+    hasWallpaper: Boolean
+): GlassEffectFrame = GlassEffectFrame(
+    blur = liveBlur.coerceIn(0f, LiquidCourseCardBlurMax).dp * quality,
+    lensHeight = tokens.lensHeight * quality * (if (hasWallpaper) 1f else 0.78f),
+    lensAmount = tokens.lensAmount * quality * (if (hasWallpaper) 1f else 1.35f),
+    useVibrancy = tokens.useVibrancy,
+    depthEffect = tokens.depthEffect,
+    chromaticAberration = tokens.chromaticAberration,
+    highlight = GlassHighlightFrame(
+        style = GlassHighlightStyle.Default,
+        alpha = if (hasWallpaper) {
+            tokens.highlightAlpha
+        } else {
+            maxOf(tokens.highlightAlpha, 0.10f)
+        }
+    ),
+    shadowAlpha = tokens.shadowAlpha,
+    innerShadow = GlassInnerShadowFrame(
+        radius = 5.dp,
+        alpha = tokens.innerShadowAlpha
+    )
+)
 
 @Composable
 fun CourseGlassCard(
@@ -539,9 +567,15 @@ fun CourseGlassCard(
     course: CourseEntity? = null,
     shape: Shape = RoundedCornerShape(12.dp),
     blurOverride: Float? = null,
+    renderSurface: Boolean = true,
+    mountMaterial: Boolean = true,
+    backdropSampleScale: Float = 1f,
+    sampledShape: Shape? = null,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
+    val mountMaterialNodes =
+        mountMaterial && LocalCourseGlassOcclusionPhase.current.mountsMaterialNodes
     val previewState = LocalPersonalizationPreview.current
     val glassBackdrop = if (config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
     val simpleBlurBackdrop = if (!config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
@@ -553,6 +587,49 @@ fun CourseGlassCard(
     val hasWallpaper = config.hasAnyWallpaper()
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
+    val liveLiquidBlur = blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur
+    val liquidEffectFrame = courseCardGlassEffectFrame(
+        tokens = tokens,
+        liveBlur = liveLiquidBlur,
+        quality = quality,
+        hasWallpaper = hasWallpaper
+    )
+    val liquidDescriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "CourseGlassCard",
+        domain = GlassBackdropDomain.Content,
+        materialRole = GlassMaterialRole.CourseCard,
+        sceneKey = "course-card"
+    )
+    val simpleBlurValue = (blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur)
+        .coerceIn(0f, SimpleCourseCardBlurMax) * quality
+    val simpleMaterial = GlassMaterialSpec.simpleBlur(simpleBlurValue.dp)
+    val simpleDescriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "CourseSimpleBlurCard",
+        domain = GlassBackdropDomain.Content,
+        materialRole = GlassMaterialRole.SimpleBlur,
+        sceneKey = "course-card-simple-blur"
+    )
+    val activeBackdropSampleScale = referenceLensSampleScale(
+        requestedScale = backdropSampleScale,
+        hasSupportedSampledShape = sampledShape != null
+    )
+    val usesSampledBackdrop = renderSurface && useGlass && activeBackdropSampleScale < 0.999f
+    val activeSampledShape = sampledShape ?: shape
+    val sampledEffectFrame = liquidEffectFrame.sampledBackdropOnly(activeBackdropSampleScale)
+    val decorationEffectFrame = liquidEffectFrame.decorationOnly()
+    val liquidSurfaceDraw: DrawScope.() -> Unit = {
+        val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
+        drawRect(
+            baseColor.copy(
+                alpha = courseGlassTintAlpha(liveAlpha, quality, hasWallpaper)
+            )
+        )
+        drawRect(
+            Color.White.copy(alpha = if (lightGlass) 0.012f else 0.008f),
+            blendMode = BlendMode.Screen
+        )
+        drawRect(Color.Black.copy(alpha = if (lightGlass) 0.004f else 0.014f))
+    }
     val cardModifier = modifier
         .then(
             if (onClick == null) Modifier else Modifier
@@ -578,43 +655,34 @@ fun CourseGlassCard(
                 )
         )
     Box(modifier = cardModifier) {
-        val surfaceModifier = if (useGlass) {
+        val separateDecoration = mountMaterialNodes && useGlass && (!renderSurface || usesSampledBackdrop)
+        val surfaceModifier = if (!mountMaterialNodes || !renderSurface) {
+            Modifier
+        } else if (usesSampledBackdrop) {
+            Modifier
+                .fillMaxSize(activeBackdropSampleScale)
+                .sleepDownGlassSurface(
+                    backdrop = glassBackdrop,
+                    descriptor = liquidDescriptor,
+                    material = tokens,
+                    shape = { activeSampledShape },
+                    effectFrame = sampledEffectFrame,
+                    additionalLayerBlock = {
+                        transformOrigin = TransformOrigin(0f, 0f)
+                        scaleX = 1f / activeBackdropSampleScale
+                        scaleY = 1f / activeBackdropSampleScale
+                    }
+                )
+        } else if (useGlass) {
             Modifier
                 .matchParentSize()
-                .drawBackdrop(
+                .sleepDownGlassSurface(
                         backdrop = glassBackdrop,
+                        descriptor = liquidDescriptor,
+                        material = tokens,
                         shape = { shape },
-                        effects = {
-                            if (tokens.useVibrancy) vibrancy()
-                            val liveBlur = blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur
-                            blur((liveBlur.coerceIn(0f, LiquidCourseCardBlurMax).dp * quality).toPx())
-                            lens(
-                                (tokens.lensHeight * quality * if (hasWallpaper) 1f else 0.78f).toPx(),
-                                (tokens.lensAmount * quality * if (hasWallpaper) 1f else 1.35f).toPx(),
-                                depthEffect = tokens.depthEffect,
-                                chromaticAberration = tokens.chromaticAberration
-                            )
-                        },
-                        highlight = {
-                            Highlight.Default.copy(
-                                alpha = if (hasWallpaper) tokens.highlightAlpha else maxOf(tokens.highlightAlpha, 0.10f)
-                            )
-                        },
-                        shadow = { Shadow(alpha = tokens.shadowAlpha) },
-                        innerShadow = { InnerShadow(radius = 5.dp, alpha = tokens.innerShadowAlpha) },
-                        onDrawSurface = {
-                            val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
-                            drawRect(
-                                baseColor.copy(
-                                    alpha = courseGlassTintAlpha(liveAlpha, quality, hasWallpaper)
-                                )
-                            )
-                            drawRect(
-                                Color.White.copy(alpha = if (lightGlass) 0.012f else 0.008f),
-                                blendMode = BlendMode.Screen
-                            )
-                            drawRect(Color.Black.copy(alpha = if (lightGlass) 0.004f else 0.014f))
-                        }
+                        effectFrame = liquidEffectFrame,
+                        onDrawSurface = liquidSurfaceDraw
                 )
         } else if (simpleBlurBackdrop != null) {
             // Non-liquid mode still samples the content behind the course card, but
@@ -622,18 +690,20 @@ fun CourseGlassCard(
             // material rather than falling all the way back to an opaque rectangle.
             Modifier
                 .matchParentSize()
-                .drawBackdrop(
+                .sleepDownGlassSurface(
                     backdrop = simpleBlurBackdrop,
+                    descriptor = simpleDescriptor,
+                    material = simpleMaterial,
                     shape = { shape },
-                    effects = {
-                        blur(
-                            ((blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur)
-                                .coerceIn(0f, SimpleCourseCardBlurMax) * quality).dp.toPx()
-                        )
-                    },
-                    highlight = { Highlight.Default.copy(alpha = 0.10f) },
-                    shadow = { Shadow(alpha = 0.12f) },
-                    innerShadow = { InnerShadow(radius = 3.dp, alpha = 0.08f) },
+                    effectFrame = GlassEffectFrame(
+                        blur = simpleBlurValue.dp,
+                        highlight = GlassHighlightFrame(
+                            style = GlassHighlightStyle.Default,
+                            alpha = 0.10f
+                        ),
+                        shadowAlpha = 0.12f,
+                        innerShadow = GlassInnerShadowFrame(radius = 3.dp, alpha = 0.08f)
+                    ),
                     onDrawSurface = {
                         drawRect(
                             baseColor.copy(
@@ -656,6 +726,25 @@ fun CourseGlassCard(
                 }
         }
         Box(surfaceModifier)
+        if (separateDecoration) {
+            // Shared/downsampled consumers own only the expensive sampled backdrop. Keep tint,
+            // highlight, outer shadow and inner shadow at full resolution and per-card geometry.
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .sleepDownGlassSurface(
+                        backdrop = glassBackdrop,
+                        descriptor = liquidDescriptor,
+                        material = tokens,
+                        shape = { shape },
+                        effectFrame = decorationEffectFrame,
+                        sceneState = null,
+                        effectsOverride = {},
+                        onDrawBackdrop = { _ -> },
+                        onDrawSurface = liquidSurfaceDraw
+                    )
+            )
+        }
         content()
         if (pressed) {
             Box(

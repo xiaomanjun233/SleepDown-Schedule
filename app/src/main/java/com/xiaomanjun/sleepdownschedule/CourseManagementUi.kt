@@ -1,6 +1,5 @@
 package com.xiaomanjun.sleepdownschedule
 
-import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
@@ -62,7 +61,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -103,9 +101,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
+import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
+import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
+import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
@@ -121,7 +123,7 @@ import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-private const val CourseManagementCourseIdExtra = "course_management_course_id"
+internal const val CourseManagementCourseIdExtra = "course_management_course_id"
 private const val CourseManagementInitialStateTokenExtra = "course_management_initial_state_token"
 private val CourseManagementCardShape = RoundedCornerShape(20.dp)
 
@@ -135,7 +137,7 @@ private val CourseManagementCardShape = RoundedCornerShape(20.dp)
  * live destination content stable from its very first composition. Room remains the source of
  * truth and replaces the handoff as soon as its loaded state arrives.
  */
-private object CourseManagementStateHandoffStore {
+internal object CourseManagementStateHandoffStore {
     private val nextToken = AtomicLong(1L)
     private val states = ConcurrentHashMap<Long, AppState>()
 
@@ -159,27 +161,24 @@ internal fun Intent.putCourseManagementInitialState(state: AppState): Intent = a
     putExtra(CourseManagementInitialStateTokenExtra, CourseManagementStateHandoffStore.put(state))
 }
 
-private fun Intent.courseManagementInitialStateTokenOrNull(): Long? =
+internal fun Intent.courseManagementInitialStateTokenOrNull(): Long? =
     getLongExtra(CourseManagementInitialStateTokenExtra, 0L).takeIf { it > 0L }
 
-private fun stableCourseManagementState(live: AppState, initial: AppState?): AppState =
+internal fun stableCourseManagementState(live: AppState, initial: AppState?): AppState =
     if (!live.loaded && initial?.loaded == true) initial else live
 
-class CourseManagementActivity : ComponentActivity() {
-    private var morphSnapshotToken: Long? = null
+open class CourseManagementActivity : ComponentActivity() {
     private var stateHandoffToken: Long? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ActivityTransitionCoordinator.prepareDestinationBeforeOnCreate(this)
         super.onCreate(savedInstanceState)
+        ActivityTransitionCoordinator.installDestinationWindowBackground(this)
         enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
-        val sourceBounds = intent.anchoredSourceBoundsOrNull()
-        val collapseBounds = intent.anchoredCollapseBoundsOrNull()
-        morphSnapshotToken = intent.anchoredMorphSnapshotTokenOrNull()
         stateHandoffToken = intent.courseManagementInitialStateTokenOrNull()
-        val transitionSnapshots = AnchoredMorphSnapshotStore.get(morphSnapshotToken)
         val initialState = CourseManagementStateHandoffStore.get(stateHandoffToken)
         setContent {
             val app = application as CourseScheduleApp
@@ -192,26 +191,13 @@ class CourseManagementActivity : ComponentActivity() {
                 CourseManagementColorProvider(state) {
                     GlassMiuixSettingsTheme(settingsVisualConfig(state.config)) {
                         Box(Modifier.fillMaxSize()) {
-                            AnchoredDetailActivityMorph(
-                                 sourceBounds = sourceBounds,
-                                 collapseBounds = collapseBounds,
-                                 sourceCornerRadius = 30.dp,
-                                 collapseCornerRadius = 21.dp,
-                                 backgroundSnapshot = transitionSnapshots?.background,
-                                 sourceSnapshot = transitionSnapshots?.source,
-                                 collapseSnapshot = transitionSnapshots?.collapse,
-                                 // Course management is the same second-level destination as
-                                 // Edu import. Reuse the activity counterpart of the Home menu
-                                 // destination trajectory so the two entry/exit paths stay exact.
-                                 motionStyle = AnchoredDetailMotionStyle.HomeMenuDestination,
-                                 // Unlike the in-place school picker, this Activity already owns
-                                 // a clean background before its first rendered frame. Start with
-                                 // the destination page clipped by the source shell so the old
-                                 // three-dot menu is never replayed during the handoff.
-                                 destinationFirstOpening = true,
-                                onFinished = { finish() },
+                            CrossActivityTransitionHost(
+                                activity = this@CourseManagementActivity,
                                 sourceContent = {
-                                    CourseManagementSourceMenuFallback(config = state.config)
+                                    HomeMenuActivitySourceFallback(
+                                        config = state.config,
+                                        highlightedRowIndex = 2
+                                    )
                                 }
                             ) { requestClose ->
                                 val pageSnapshotLayer = rememberGraphicsLayer()
@@ -238,10 +224,12 @@ class CourseManagementActivity : ComponentActivity() {
                                         config = state.config,
                                         onBack = requestClose
                                     ) { backdrop ->
+                                        val transitionDensity = LocalDensity.current
                                         CourseManagementScreen(
-                                            state = state,
-                                            backdrop = backdrop,
-                                            onBack = requestClose,
+                                             state = state,
+                                             backdrop = backdrop,
+                                             onBack = requestClose,
+                                            transitionActivity = this@CourseManagementActivity,
                                             captureTransitionFrame = {
                                                 pageSnapshotRequested.set(true)
                                                 pageSnapshotRequestVersion += 1
@@ -251,18 +239,45 @@ class CourseManagementActivity : ComponentActivity() {
                                                 }.getOrNull()
                                             },
                                             transitionRootPosition = pageRootPosition,
-                                            onOpenCourse = { courseId, detailSourceBounds, snapshots ->
+                                             onOpenCourse = {
+                                                 courseId,
+                                                 detailSourceBounds,
+                                                snapshots,
+                                                 onOpeningSourceHandoff,
+                                                onSourceReleased ->
                                                 val detailIntent = Intent(
                                                     this@CourseManagementActivity,
                                                     CourseManagementDetailActivity::class.java
                                                 )
                                                     .putExtra(CourseManagementCourseIdExtra, courseId)
                                                     .putCourseManagementInitialState(state)
-                                                    .putAnchoredSourceBounds(detailSourceBounds)
-                                                if (snapshots != null) {
-                                                    detailIntent.putAnchoredMorphSnapshots(snapshots)
-                                                }
-                                                startActivityWithAnchoredMorph(detailIntent)
+                                                val anchor = TransitionAnchorFrame(
+                                                    boundsInWindow = detailSourceBounds,
+                                                    bitmap = snapshots?.source,
+                                                    cornerRadiusPx = with(transitionDensity) {
+                                                        20.dp.toPx()
+                                                    }
+                                                )
+                                                val launchResult = ActivityTransitionCoordinator.open(
+                                                    activity = this@CourseManagementActivity,
+                                                    routeId = TransitionRouteId.CourseManagementToDetail,
+                                                    intent = detailIntent,
+                                                    payload = TransitionPayload(
+                                                        openingAnchor = anchor,
+                                                        // Course detail closes to the same captured
+                                                        // card frame. The Oplus backend owns a plain
+                                                        // decor snapshot View for the whole session;
+                                                        // business UI no longer exposes a Compose
+                                                        // AndroidView as a vendor source.
+                                                        returnAnchorProvider =
+                                                            TransitionAnchorProvider { anchor },
+                                                        backgroundBitmap = snapshots?.background,
+                                                        onOpeningSourceHandoff = onOpeningSourceHandoff,
+                                                        nativeSourceLeashAlphaOutOnOpen = true,
+                                                        onSourceReleased = onSourceReleased
+                                                    )
+                                                )
+                                                launchResult !is TransitionLaunchResult.Failed
                                             }
                                         )
                                     }
@@ -278,36 +293,27 @@ class CourseManagementActivity : ComponentActivity() {
         }
     }
 
-    override fun finish() {
-        super.finish()
-        @Suppress("DEPRECATION")
-        overridePendingTransition(0, 0)
-    }
-
     override fun onDestroy() {
         if (isFinishing) {
-            AnchoredMorphSnapshotStore.remove(morphSnapshotToken)
             CourseManagementStateHandoffStore.remove(stateHandoffToken)
         }
         super.onDestroy()
     }
 }
 
-class CourseManagementDetailActivity : ComponentActivity() {
-    private var morphSnapshotToken: Long? = null
+open class CourseManagementDetailActivity : ComponentActivity() {
     private var stateHandoffToken: Long? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ActivityTransitionCoordinator.prepareDestinationBeforeOnCreate(this)
         super.onCreate(savedInstanceState)
+        ActivityTransitionCoordinator.installDestinationWindowBackground(this)
         enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         val courseId = intent.getLongExtra(CourseManagementCourseIdExtra, Long.MIN_VALUE)
-        val sourceBounds = intent.anchoredSourceBoundsOrNull()
-        morphSnapshotToken = intent.anchoredMorphSnapshotTokenOrNull()
         stateHandoffToken = intent.courseManagementInitialStateTokenOrNull()
-        val transitionSnapshots = AnchoredMorphSnapshotStore.get(morphSnapshotToken)
         val initialState = CourseManagementStateHandoffStore.get(stateHandoffToken)
         setContent {
             val app = application as CourseScheduleApp
@@ -323,15 +329,8 @@ class CourseManagementDetailActivity : ComponentActivity() {
                 CourseManagementColorProvider(state) {
                     GlassMiuixSettingsTheme(settingsVisualConfig(state.config)) {
                         Box(Modifier.fillMaxSize()) {
-                            AnchoredDetailActivityMorph(
-                                sourceBounds = sourceBounds,
-                                sourceCornerRadius = 20.dp,
-                                backgroundSnapshot = transitionSnapshots?.background,
-                                sourceSnapshot = transitionSnapshots?.source,
-                                // Independently copy the Home course-card parabola without
-                                // coupling later Home editor tuning to this Activity transition.
-                                motionStyle = AnchoredDetailMotionStyle.CourseManagementDetail,
-                                onFinished = { finish() },
+                            CrossActivityTransitionHost(
+                                activity = this@CourseManagementDetailActivity,
                                 sourceContent = {
                                     group?.let {
                                         ManagedCourseListCardContent(
@@ -391,12 +390,17 @@ class CourseManagementDetailActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (isFinishing) {
-            AnchoredMorphSnapshotStore.remove(morphSnapshotToken)
             CourseManagementStateHandoffStore.remove(stateHandoffToken)
         }
         super.onDestroy()
     }
 }
+
+/**
+ * Opaque manifest host for ColorOS ViewSeamless. It inherits the exact production detail page;
+ * the legacy route continues to target [CourseManagementDetailActivity]'s translucent window.
+ */
+class OplusCourseManagementDetailActivity : CourseManagementDetailActivity()
 
 @Composable
 private fun CourseManagementColorProvider(
@@ -467,24 +471,22 @@ internal fun CourseManagementScreen(
     state: AppState,
     backdrop: Backdrop?,
     onBack: () -> Unit,
+    transitionActivity: ComponentActivity? = null,
     captureTransitionFrame: suspend () -> Bitmap? = { null },
     transitionRootPosition: Offset = Offset.Zero,
-    onOpenCourse: (Long, Rect, AnchoredMorphSnapshots?) -> Unit
+    onOpenCourse: suspend (
+        Long,
+        Rect,
+        AnchoredMorphSnapshots?,
+        () -> Unit,
+        () -> Unit
+    ) -> Boolean
 ) {
     val groups = remember(state.courses) { buildManagedCourseGroups(state.courses) }
     val foreground = appPanelForegroundColor(state.config)
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    val activity = transitionActivity
     var hiddenGroupKey by remember { mutableStateOf<String?>(null) }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) hiddenGroupKey = null
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
 
     BackHandler(onBack = onBack)
     Box(
@@ -521,36 +523,53 @@ internal fun CourseManagementScreen(
                                     sourceBounds,
                                     transitionRootPosition
                                 )
-                                val windowOverlay = (context as? Activity)?.window?.decorView?.overlay
-                                val placeholder = sourceSnapshot?.let { bitmap ->
-                                    BitmapDrawable(context.resources, bitmap).apply {
-                                        bounds = android.graphics.Rect(
-                                            sourceBounds.left.roundToInt(),
-                                            sourceBounds.top.roundToInt(),
-                                            sourceBounds.right.roundToInt(),
-                                            sourceBounds.bottom.roundToInt()
-                                        )
+                                val sourceActivity = activity ?: return@launch
+                                val sourceOverlay = sourceActivity.window.decorView.overlay
+                                if (sourceSnapshot == null) return@launch
+                                val openingSourcePlaceholder = BitmapDrawable(
+                                    sourceActivity.resources,
+                                    sourceSnapshot
+                                ).apply {
+                                    setBounds(
+                                        sourceBounds.left.roundToInt(),
+                                        sourceBounds.top.roundToInt(),
+                                        sourceBounds.right.roundToInt(),
+                                        sourceBounds.bottom.roundToInt()
+                                    )
+                                }
+                                val sourceHandoffReleased = AtomicBoolean(false)
+                                val releaseOpeningSource = {
+                                    if (sourceHandoffReleased.compareAndSet(false, true)) {
+                                        sourceOverlay.remove(openingSourcePlaceholder)
                                     }
                                 }
-                                placeholder?.let { windowOverlay?.add(it) }
-                                try {
-                                    hiddenGroupKey = group.key
-                                    withFrameNanos { }
-                                    withFrameNanos { }
-                                    val cleanBackground = captureTransitionFrame()
-                                    onOpenCourse(
-                                        group.representative.id,
-                                        sourceBounds,
-                                        cleanBackground?.let {
-                                            AnchoredMorphSnapshots(
-                                                background = it,
-                                                source = sourceSnapshot
-                                            )
-                                        }
-                                    )
-                                    delay(HomeMenuDestinationLegacyMotion.OpenDurationMillis.toLong())
-                                } finally {
-                                    placeholder?.let { windowOverlay?.remove(it) }
+                                val sourceHandoffAttached = runCatching {
+                                    sourceOverlay.add(openingSourcePlaceholder)
+                                    true
+                                }.getOrDefault(false)
+                                if (!sourceHandoffAttached) return@launch
+                                hiddenGroupKey = group.key
+                                withFrameNanos { }
+                                withFrameNanos { }
+                                val cleanBackground = captureTransitionFrame()
+                                if (cleanBackground == null) {
+                                    releaseOpeningSource()
+                                    hiddenGroupKey = null
+                                    return@launch
+                                }
+                                val launched = onOpenCourse(
+                                    group.representative.id,
+                                    sourceBounds,
+                                    AnchoredMorphSnapshots(
+                                        background = cleanBackground,
+                                        source = sourceSnapshot
+                                    ),
+                                    releaseOpeningSource,
+                                    { hiddenGroupKey = null }
+                                )
+                                if (!launched) {
+                                    releaseOpeningSource()
+                                    hiddenGroupKey = null
                                 }
                             }
                         }
@@ -575,17 +594,29 @@ private fun ManagedCourseListCard(
         modifier = Modifier
             .fillMaxWidth()
             .onGloballyPositioned { sourceBounds = it.boundsInWindow() }
-            .graphicsLayer { alpha = if (sourceHidden) 0f else 1f }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) {
+                // Use the full grid cell bounds as the Oplus source rect: the cell includes the
+                // card plus its grid padding/gap, so the placeholder covers the whole spot and no
+                // underlying card leaks out during the motion (accepting a rectangular morph).
                 sourceBounds?.let(onClick)
             }
     ) {
-        ManagedCourseListCardContent(group, config, periods, Modifier.fillMaxWidth())
+        ManagedCourseListCardContent(
+            group = group,
+            config = config,
+            periods = periods,
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer { alpha = if (sourceHidden) 0f else 1f }
+        )
     }
 }
+
+/** Opaque host selected only after ColorOS accepts the Home → course-management session. */
+class OplusCourseManagementActivity : CourseManagementActivity()
 
 private fun Bitmap.cropToCourseManagementBounds(bounds: Rect, rootPosition: Offset): Bitmap? =
     runCatching {
@@ -680,7 +711,10 @@ private fun ManagedCourseListCardContent(
 }
 
 @Composable
-private fun CourseManagementSourceMenuFallback(config: ScheduleConfigEntity) {
+internal fun HomeMenuActivitySourceFallback(
+    config: ScheduleConfigEntity,
+    highlightedRowIndex: Int
+) {
     val foreground = appPanelForegroundColor(config)
     Column(
         Modifier
@@ -701,13 +735,15 @@ private fun CourseManagementSourceMenuFallback(config: ScheduleConfigEntity) {
                             .height(24.dp)
                             .clip(RoundedCornerShape(50))
                             .background(
-                                if (index == 2) foreground.copy(alpha = 0.34f)
+                                if (index == highlightedRowIndex) foreground.copy(alpha = 0.34f)
                                 else Color.Transparent
                             )
                     )
                     Text(
                         label,
-                        color = foreground.copy(alpha = if (index == 2) 1f else 0.74f),
+                        color = foreground.copy(
+                            alpha = if (index == highlightedRowIndex) 1f else 0.74f
+                        ),
                         style = MiuixTheme.textStyles.body2,
                         modifier = Modifier.padding(start = 10.dp)
                     )
@@ -734,7 +770,7 @@ private data class PendingCourseManagementConflictSave(
 )
 
 @Composable
-private fun CourseManagementDetailPage(
+internal fun CourseManagementDetailPage(
     group: ManagedCourseGroup,
     state: AppState,
     onBack: () -> Unit,

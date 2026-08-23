@@ -15,7 +15,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -63,10 +62,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.boundsInWindow
@@ -88,9 +85,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.ZoneId
 import kotlin.math.abs
 import top.yukonga.miuix.kmp.squircle.squircleClip
 
@@ -551,7 +545,6 @@ private fun WidgetRemoteViewsPreview(
     val context = LocalContext.current
     val renderSize = remember(type) { canonicalWidgetPreviewSize(type) }
     var remoteViews by remember(type) { mutableStateOf<RemoteViews?>(null) }
-    var previewBackground by remember(type) { mutableStateOf<Bitmap?>(null) }
     val latestOnReady = rememberUpdatedState(onReady)
     LaunchedEffect(type, appearance, state, transparentBackground) {
         // Slider/crop gestures can emit dozens of appearance snapshots per second. Keep the
@@ -569,44 +562,6 @@ private fun WidgetRemoteViewsPreview(
                         transparentBackground = transparentBackground
                     ) to null
                 }
-                val zone = ZoneId.systemDefault()
-                val today = LocalDate.now(zone)
-                val now = LocalTime.now(zone)
-                val targetDate = if (now >= LocalTime.of(22, 0)) today.plusDays(1) else today
-                val dayCourseCounts = if (type == WidgetAppearanceVariant.TODAY_TOMORROW) {
-                    val limit = todayTomorrowWidgetLayoutMetrics(
-                        renderSize,
-                        context.resources.configuration.fontScale
-                    ).maxCoursesPerDay
-                    listOf(
-                        MiuixTodayWidgetRenderer.coursesForDate(state, today).size.coerceAtMost(limit),
-                        MiuixTodayWidgetRenderer.coursesForDate(state, today.plusDays(1)).size.coerceAtMost(limit)
-                    )
-                } else {
-                    emptyList()
-                }
-                val courseLimit = if (type == WidgetAppearanceVariant.COURSES_SQUARE) 2 else 4
-                val courseCount = when (type) {
-                    WidgetAppearanceVariant.TODAY_ASSISTANT -> 0
-                    WidgetAppearanceVariant.TODAY_TOMORROW -> dayCourseCounts.sum()
-                    else -> MiuixTodayWidgetRenderer.coursesForDate(state, targetDate)
-                        .count {
-                            targetDate != today ||
-                                courseEndTime(it, state.periods)?.isAfter(now) != false
-                        }
-                        .coerceAtMost(courseLimit)
-                }
-                val custom = WidgetBackgroundRenderer.render(
-                    context = appContext,
-                    appearance = appearance,
-                    size = renderSize,
-                    courseCount = courseCount,
-                    darkMode = MiuixTodayWidgetRenderer.usesDarkTheme(
-                        appContext,
-                        state.config
-                    ),
-                    dayCourseCounts = dayCourseCounts
-                )
                 val views = when (type) {
                     WidgetAppearanceVariant.COURSES_LARGE ->
                         MiuixTodayWidgetRenderer.buildViews(
@@ -645,7 +600,7 @@ private fun WidgetRemoteViewsPreview(
                         )
                     }
                 }
-                if (transparentBackground || custom != null) {
+                if (transparentBackground) {
                     val root = when (type) {
                         WidgetAppearanceVariant.TODAY_ASSISTANT -> R.id.widget_agent_root
                         WidgetAppearanceVariant.TODAY_TOMORROW -> R.id.widget_tt_root
@@ -659,13 +614,15 @@ private fun WidgetRemoteViewsPreview(
                     views.setInt(root, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
                     views.setViewVisibility(background, android.view.View.GONE)
                 }
-                views to custom?.bitmap
+                // Keep the wallpaper, its pre-rendered glass frames and all text inside the same
+                // RemoteViews hierarchy. Splitting the bitmap into a separately scaled Compose
+                // Image let tablet density rounding move the frames away from their text.
+                views to null
             }
         }
         rendered.exceptionOrNull()?.let { if (it is CancellationException) throw it }
-        rendered.onSuccess { (views, background) ->
+        rendered.onSuccess { (views, _) ->
             remoteViews = views
-            previewBackground = if (transparentBackground) null else background
             latestOnReady.value()
         }.onFailure {
             android.util.Log.e("WidgetPreview", "Failed to render ${type.key} preview", it)
@@ -689,14 +646,6 @@ private fun WidgetRemoteViewsPreview(
             .squircleClip(logicalCornerRadius),
         contentAlignment = Alignment.Center
     ) {
-        previewBackground?.let { background ->
-            Image(
-                bitmap = background.asImageBitmap(),
-                contentDescription = null,
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
         val scale = with(density) {
             (maxWidth.toPx() / renderSize.widthDp.dp.toPx()).coerceAtLeast(0.1f)
         }

@@ -42,12 +42,8 @@ import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.utils.DampedDragAnimation
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
-import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
@@ -55,6 +51,15 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
@@ -102,7 +107,94 @@ fun LiquidBottomTabs(
         if (isLightTheme) lightContainerColor.copy(containerAlpha)
         else Color(0xFF121212).copy(containerAlpha)
 
-    val tabsBackdrop = rememberLayerBackdrop()
+    val tabsBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.ChromeCombined,
+        providerId = "liquid-bottom-tabs-accent-content"
+    )
+    val containerMaterial = remember(
+        blurRadius,
+        lensHeight,
+        lensAmount,
+        containerColor,
+        chromaticAberrationEnabled,
+        containerShadowEnabled
+    ) {
+        GlassMaterialSpec(
+            role = GlassMaterialRole.Control,
+            blur = blurRadius,
+            lensHeight = lensHeight,
+            lensAmount = lensAmount,
+            surfaceAlpha = containerColor.alpha,
+            borderAlpha = 0f,
+            highlightAlpha = 1f,
+            shadowAlpha = if (containerShadowEnabled) 1f else 0f,
+            innerShadowAlpha = 0f,
+            chromaticAberration = chromaticAberrationEnabled,
+            depthEffect = false
+        )
+    }
+    val movingAccentMaterial = remember(
+        containerMaterial,
+        useOfficialGlassParameters,
+        officialHighlightAlpha
+    ) {
+        containerMaterial.copy(
+            highlightAlpha = if (useOfficialGlassParameters) officialHighlightAlpha else 0.45f
+        )
+    }
+    val selectedLensHeight = indicatorLensHeight ?: if (useOfficialGlassParameters) 10f.dp else 22f.dp
+    val selectedLensAmount = indicatorLensAmount ?: if (useOfficialGlassParameters) 14f.dp else 31f.dp
+    val indicatorMaterial = remember(
+        selectedLensHeight,
+        selectedLensAmount,
+        useOfficialGlassParameters,
+        officialHighlightAlpha,
+        officialShadowAlpha,
+        officialInnerShadowAlpha,
+        indicatorShadowEnabled,
+        indicatorInnerShadowEnabled
+    ) {
+        GlassMaterialSpec(
+            role = GlassMaterialRole.Control,
+            blur = 0.dp,
+            lensHeight = selectedLensHeight,
+            lensAmount = selectedLensAmount,
+            surfaceAlpha = if (useOfficialGlassParameters) 0.1f else 0.07f,
+            borderAlpha = 0f,
+            highlightAlpha = if (useOfficialGlassParameters) officialHighlightAlpha else 0.45f,
+            shadowAlpha = if (indicatorShadowEnabled) {
+                if (useOfficialGlassParameters) officialShadowAlpha else 1f
+            } else {
+                0f
+            },
+            innerShadowAlpha = if (indicatorInnerShadowEnabled) {
+                if (useOfficialGlassParameters) officialInnerShadowAlpha else 1f
+            } else {
+                0f
+            },
+            chromaticAberration = if (useOfficialGlassParameters) true else chromaticAberrationEnabled,
+            depthEffect = false,
+            useVibrancy = false
+        )
+    }
+    val containerDescriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "LiquidBottomTabsContainer",
+        domain = GlassBackdropDomain.ChromeCombined,
+        materialRole = GlassMaterialRole.Control,
+        sceneKey = "liquid-bottom-tabs-container"
+    )
+    val movingAccentDescriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "LiquidBottomTabsMovingAccent",
+        domain = GlassBackdropDomain.ChromeCombined,
+        materialRole = GlassMaterialRole.Control,
+        sceneKey = "liquid-bottom-tabs-moving-accent"
+    )
+    val indicatorDescriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "LiquidBottomTabsIndicator",
+        domain = GlassBackdropDomain.ChromeCombined,
+        materialRole = GlassMaterialRole.Control,
+        sceneKey = "liquid-bottom-tabs-indicator"
+    )
 
     BoxWithConstraints(
         modifier,
@@ -192,10 +284,13 @@ fun LiquidBottomTabs(
                 .graphicsLayer {
                     translationX = panelOffset
                 }
-                .drawBackdrop(
+                .sleepDownGlassSurface(
                     backdrop = backdrop,
+                    descriptor = containerDescriptor,
+                    material = containerMaterial,
                     shape = { Capsule() },
-                    effects = {
+                    effectFrame = GlassEffectFrame(blur = null),
+                    effectsOverride = {
                         vibrancy()
                         blur(blurRadius.toPx())
                         lens(
@@ -204,13 +299,14 @@ fun LiquidBottomTabs(
                             chromaticAberration = chromaticAberrationEnabled
                         )
                     },
-                    layerBlock = {
+                    highlightOverride = { Highlight.Default },
+                    additionalLayerBlock = {
                         val progress = dampedDragAnimation.pressProgress
                         val scale = lerp(1f, 1f + 16f.dp.toPx() / size.width, progress)
                         scaleX = scale
                         scaleY = scale
                     },
-                    shadow = if (containerShadowEnabled) ({ Shadow.Default }) else null,
+                    shadowOverride = if (containerShadowEnabled) ({ Shadow.Default }) else null,
                     onDrawSurface = { drawRect(containerColor) }
                 )
                 .then(interactiveHighlight.modifier)
@@ -231,14 +327,17 @@ fun LiquidBottomTabs(
                     Modifier
                         .clearAndSetSemantics {}
                         .alpha(0f)
-                        .layerBackdrop(tabsBackdrop)
+                        .glassBackdropProducer(tabsBackdrop)
                         .graphicsLayer {
                             translationX = panelOffset
                         }
-                        .drawBackdrop(
+                        .sleepDownGlassSurface(
                             backdrop = backdrop,
+                            descriptor = movingAccentDescriptor,
+                            material = movingAccentMaterial,
                             shape = { Capsule() },
-                            effects = {
+                            effectFrame = GlassEffectFrame(blur = null),
+                            effectsOverride = {
                                 val progress = dampedDragAnimation.pressProgress
                                 vibrancy()
                                 blur(blurRadius.toPx())
@@ -248,11 +347,11 @@ fun LiquidBottomTabs(
                                     chromaticAberration = chromaticAberrationEnabled
                                 )
                             },
-                            highlight = {
+                            highlightOverride = {
                                 val progress = dampedDragAnimation.pressProgress
                                 Highlight.Default.copy(alpha = progress * if (useOfficialGlassParameters) officialHighlightAlpha else 0.45f)
                             },
-                            shadow = if (containerShadowEnabled) ({ Shadow.Default }) else null,
+                            shadowOverride = if (containerShadowEnabled) ({ Shadow.Default }) else null,
                             onDrawSurface = { drawRect(containerColor) }
                         )
                         .then(interactiveHighlight.modifier)
@@ -278,30 +377,31 @@ fun LiquidBottomTabs(
                 }
                 .then(interactiveHighlight.gestureModifier)
                 .then(dampedDragAnimation.modifier)
-                .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
+                .sleepDownGlassSurface(
+                    backdrop = rememberGlassCombinedBackdrop(backdrop, tabsBackdrop),
+                    descriptor = indicatorDescriptor,
+                    material = indicatorMaterial,
                     shape = { Capsule() },
-                    effects = {
+                    effectFrame = GlassEffectFrame(blur = null),
+                    effectsOverride = {
                         val progress = dampedDragAnimation.pressProgress
-                        val selectedLensHeight = indicatorLensHeight ?: if (useOfficialGlassParameters) 10f.dp else 22f.dp
-                        val selectedLensAmount = indicatorLensAmount ?: if (useOfficialGlassParameters) 14f.dp else 31f.dp
                         lens(
                             selectedLensHeight.toPx() * progress,
                             selectedLensAmount.toPx() * progress,
                             chromaticAberration = if (useOfficialGlassParameters) true else chromaticAberrationEnabled
                         )
                     },
-                    highlight = {
+                    highlightOverride = {
                         val progress = dampedDragAnimation.pressProgress
                         Highlight.Default.copy(alpha = progress * if (useOfficialGlassParameters) officialHighlightAlpha else 0.45f)
                     },
-                    shadow = if (indicatorShadowEnabled) {
+                    shadowOverride = if (indicatorShadowEnabled) {
                         {
                             val progress = dampedDragAnimation.pressProgress
                             Shadow(alpha = progress * if (useOfficialGlassParameters) officialShadowAlpha else 1f)
                         }
                     } else null,
-                    innerShadow = if (indicatorInnerShadowEnabled) {
+                    innerShadowOverride = if (indicatorInnerShadowEnabled) {
                         {
                             val progress = dampedDragAnimation.pressProgress
                             InnerShadow(
@@ -310,7 +410,7 @@ fun LiquidBottomTabs(
                             )
                         }
                     } else null,
-                    layerBlock = {
+                    additionalLayerBlock = {
                         scaleX = dampedDragAnimation.scaleX
                         scaleY = dampedDragAnimation.scaleY
                         val velocity = dampedDragAnimation.velocity / 10f

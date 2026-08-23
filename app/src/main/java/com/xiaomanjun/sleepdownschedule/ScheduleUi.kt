@@ -210,6 +210,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -265,14 +266,33 @@ import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.backdrop.catalog.components.LiquidSlider
 import com.kyant.backdrop.catalog.components.LiquidToggle
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
 import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
+import com.xiaomanjun.sleepdownschedule.glass.GlassRenderPhase
+import com.xiaomanjun.sleepdownschedule.glass.GlassSamplingLink
+import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNode
+import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNodeRole
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackendPolicy
+import com.xiaomanjun.sleepdownschedule.glass.CourseGlassRestoreWaveCount
+import com.xiaomanjun.sleepdownschedule.glass.courseGlassRestoreWave as resolveCourseGlassRestoreWave
+import com.xiaomanjun.sleepdownschedule.glass.shouldSuspendCourseGlassMaterials
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
+import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
+import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
+import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
+import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
 import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -574,11 +594,27 @@ fun CourseScheduleAppUi(
         ?.takeIf { it.id == baseVisualState.config.id }
         ?.let { baseVisualState.copy(config = it) }
         ?: baseVisualState
+    val glassBackendPolicy = remember {
+        GlassBackendPolicy.experiments(
+            largeSurfaceEnabled = BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT,
+            liquidMotionEnabled = BuildConfig.SLEEPDOWN_LIQUID_MOTION_EXPERIMENT
+        )
+    }
+    val glassSceneState = rememberGlassSceneState(
+        sceneId = "home",
+        backendPolicy = glassBackendPolicy
+    )
     val screenGraphicsLayer = rememberGraphicsLayer()
+    val courseGlassWarmupGraphicsLayer = rememberGraphicsLayer()
     // The week grid is already recorded into this layer for Morph motion. Reuse that GPU layer
     // as the personalization backdrop producer so the glass does not traverse every live
     // week-card RenderNode again on each animation frame.
-    val cachedWeekHomeBackdrop = rememberLayerBackdrop(screenGraphicsLayer)
+    val cachedWeekHomeBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "home-cached-week-scene",
+        sceneState = glassSceneState,
+        graphicsLayer = screenGraphicsLayer
+    )
     val detailScreenGraphicsLayer = rememberGraphicsLayer()
     val recordedScheduleId = remember { AtomicInteger(-1) }
     val recordedHomeGeneration = remember { AtomicLong(0L) }
@@ -608,6 +644,15 @@ fun CourseScheduleAppUi(
     }
     var renderedHomeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     var homeDialogVisible by remember { mutableStateOf(false) }
+    val appScope = rememberCoroutineScope()
+    var courseGlassOcclusionPhase by remember {
+        mutableStateOf(CourseGlassOcclusionPhase.Live)
+    }
+    var courseGlassRestoreWave by remember {
+        mutableIntStateOf(CourseGlassRestoreWaveCount)
+    }
+    var courseGlassPrewarmDrawRequest by remember { mutableIntStateOf(0) }
+    val courseGlassPrewarmRecordedRequest = remember { AtomicInteger(0) }
     var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var pendingCourseGroupEdit by remember { mutableStateOf<PendingCourseGroupEdit?>(null) }
     var pendingCourseGroupDelete by remember { mutableStateOf<List<CourseEntity>>(emptyList()) }
@@ -652,7 +697,7 @@ fun CourseScheduleAppUi(
     var jumpWeekDialogVisible by remember { mutableStateOf(false) }
     var pendingJumpWeekDialog by remember { mutableStateOf(false) }
     var pendingOpenScheduleSettings by remember { mutableStateOf(false) }
-    var courseManagementActivityLaunched by remember { mutableStateOf(false) }
+    var homeMenuActivityLaunched by remember { mutableStateOf(false) }
     var destinationOwnsButtonReturn by remember { mutableStateOf(false) }
     var destinationCollapseHandedOff by remember { mutableStateOf(false) }
     var addButtonBounds by remember { mutableStateOf<Rect?>(null) }
@@ -679,6 +724,7 @@ fun CourseScheduleAppUi(
             homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle
     val addButtonHidden = activeHomeAnchoredOverlay == HomeAnchoredOverlayKind.Add ||
         sourceButtonFollowThrough != null ||
+        homeMenuActivityLaunched ||
         (destinationTransitionActive && !destinationCollapseHandedOff)
 
     fun openHomeAnchoredOverlay(kind: HomeAnchoredOverlayKind, sourcePressedScale: Float = 1f) {
@@ -781,7 +827,6 @@ fun CourseScheduleAppUi(
             AiEduImportProgressSession.consumeFinalImportRequest()
         }
     }
-    val appScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(externalIcsUri, state.loaded) {
         val uri = externalIcsUri ?: return@LaunchedEffect
@@ -808,10 +853,46 @@ fun CourseScheduleAppUi(
                 Toast.makeText(context, error.message ?: "ICS 文件读取失败", Toast.LENGTH_SHORT).show()
             }
     }
-    val backgroundBackdrop = rememberLayerBackdrop()
-    val contentBackdrop = rememberLayerBackdrop()
-    val pickerSceneBackdrop = rememberLayerBackdrop()
-    val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
+    val backgroundBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Background,
+        providerId = "home-background",
+        sceneState = glassSceneState
+    )
+    val contentBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "home-content",
+        sceneState = glassSceneState
+    )
+    val pickerSceneBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.PickerScene,
+        providerId = "home-picker-scene",
+        sceneState = glassSceneState
+    )
+    val chromeBackdrop = rememberGlassCombinedBackdrop(backgroundBackdrop, contentBackdrop)
+    remember(glassSceneState) {
+        glassSceneState.requireValidTopology(
+            nodes = listOf(
+                GlassTopologyNode("home-background", GlassBackdropDomain.Background, GlassTopologyNodeRole.Producer),
+                GlassTopologyNode("home-content", GlassBackdropDomain.Content, GlassTopologyNodeRole.Producer),
+                GlassTopologyNode("home-chrome", GlassBackdropDomain.ChromeCombined, GlassTopologyNodeRole.Consumer),
+                GlassTopologyNode("home-picker", GlassBackdropDomain.PickerScene, GlassTopologyNodeRole.Producer),
+                GlassTopologyNode("home-dialog", GlassBackdropDomain.DialogBridge, GlassTopologyNodeRole.Consumer),
+                GlassTopologyNode("home-cached-week", GlassBackdropDomain.Content, GlassTopologyNodeRole.Producer),
+                GlassTopologyNode(
+                    "home-personalization",
+                    GlassBackdropDomain.ChromeCombined,
+                    GlassTopologyNodeRole.Consumer
+                )
+            ),
+            links = listOf(
+                GlassSamplingLink("home-background", "home-chrome"),
+                GlassSamplingLink("home-content", "home-chrome"),
+                GlassSamplingLink("home-background", "home-dialog"),
+                GlassSamplingLink("home-content", "home-dialog"),
+                GlassSamplingLink("home-cached-week", "home-personalization")
+            )
+        )
+    }
     var homeReadabilityRootSize by remember { mutableStateOf(IntSize.Zero) }
     var homeRootPositionOnScreen by remember { mutableStateOf(Offset.Zero) }
     var homeRootPositionInWindow by remember { mutableStateOf(Offset.Zero) }
@@ -1050,6 +1131,15 @@ fun CourseScheduleAppUi(
         homeDialogVisible -> "DialogOpen"
         else -> "Idle"
     }
+    val glassRenderPhase = when {
+        startupAnimation.contains("Prepare", ignoreCase = true) -> GlassRenderPhase.Preparing
+        startupAnimation.contains("Close", ignoreCase = true) -> GlassRenderPhase.Closing
+        startupAnimation != "Idle" -> GlassRenderPhase.Moving
+        else -> GlassRenderPhase.Live
+    }
+    LaunchedEffect(glassRenderPhase) {
+        glassSceneState.synchronizePhase(glassRenderPhase)
+    }
     val startupEntranceSpec = rememberStartupEntranceSpec(
         phase = startupPhase,
         courseCount = state.courses.size,
@@ -1062,6 +1152,7 @@ fun CourseScheduleAppUi(
             homeDialogVisible
     )
     PerformanceAnimationState(startupAnimation, startupAnimation != "Idle")
+    GlassPerformanceDiagnostics(glassSceneState, startupAnimation)
     StartupJankStats(
         phase = startupPhase,
         screen = if (screen is Screen.Home) "Home" else if (screen is Screen.Config) "Settings" else "Other",
@@ -1133,7 +1224,7 @@ fun CourseScheduleAppUi(
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
     ) ?: contentBackdrop
-    val homeDialogBackdrop = rememberCombinedBackdrop(
+    val homeDialogBackdrop = rememberGlassCombinedBackdrop(
         homeDialogBackgroundBackdrop,
         homeDialogContentBackdrop
     )
@@ -1310,6 +1401,147 @@ fun CourseScheduleAppUi(
             cachedFrameKey = lastRecordedHomeFrameKey.get(),
             currentFrameKey = homeCaptureFrameKey
         )
+    }
+    val substantialHomeAnchoredCoverage =
+        activeHomeAnchoredOverlay == HomeAnchoredOverlayKind.Personalize &&
+            (
+                homeAnchoredOverlayRequest?.kind == HomeAnchoredOverlayKind.Personalize ||
+                    homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle
+                )
+    val substantialMenuDestinationCoverage =
+        homeMenuDestinationRequest != null ||
+            homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle
+    val substantialCourseEditorCoverage =
+        courseEditorRequest != null || courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
+    val weekCourseGlassCacheCoverExpected =
+        BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT &&
+            screen is Screen.Home &&
+            homeMode == HomeMode.Week &&
+            personalizationSliderPreviewKey == null &&
+            personalizationPreviewProgress <= 0.001f &&
+            (
+                substantialHomeAnchoredCoverage ||
+                    substantialMenuDestinationCoverage ||
+                    substantialCourseEditorCoverage
+                )
+    val weekCourseGlassSubstantialOverlayActive =
+        (
+            substantialHomeAnchoredCoverage &&
+                (
+                    homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Opening ||
+                        homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Open
+                    )
+            ) ||
+            homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Opening ||
+            homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Open ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Open
+    val weekCourseGlassOverlayClosing =
+        (substantialHomeAnchoredCoverage &&
+            homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing) ||
+            homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
+    val homeBackgroundBlurClosing =
+        homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing ||
+            homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
+    val weekCourseGlassClosingProgress: () -> Float? = when {
+        courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing ->
+            ({ courseEditorMotionState.progress.value })
+        homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ->
+            ({ homeMenuDestinationMotionState.progress.value })
+        substantialHomeAnchoredCoverage &&
+            homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing ->
+            ({ homeAnchoredMorphState.progress.value })
+        else -> ({ null })
+    }
+    val homeOverlayBackgroundBlurProgress: () -> Float = {
+        val legacyDepth = homeOverlayDepthProgress(homeOverlayBackgroundZoom())
+        val previewActive = personalizationSliderPreviewKey != null ||
+            personalizationPreviewProgress > 0.001f
+        val substantialOverlayActive = substantialCourseEditorCoverage ||
+            substantialMenuDestinationCoverage || substantialHomeAnchoredCoverage
+        if (!shouldUseStagedHomeOverlayBlur(previewActive, substantialOverlayActive)) {
+            legacyDepth
+        } else when {
+            substantialCourseEditorCoverage &&
+                courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle ->
+                stagedHomeOverlayBlurProgress(
+                    legacyDepthProgress = legacyDepth,
+                    morphProgress = courseEditorMotionState.progress.value,
+                    closing = courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
+                )
+            substantialMenuDestinationCoverage &&
+                homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle ->
+                stagedHomeOverlayBlurProgress(
+                    legacyDepthProgress = legacyDepth,
+                    morphProgress = homeMenuDestinationMotionState.progress.value,
+                    closing = homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing
+                )
+            substantialHomeAnchoredCoverage &&
+                homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ->
+                stagedHomeOverlayBlurProgress(
+                    legacyDepthProgress = legacyDepth,
+                    morphProgress = homeAnchoredMorphState.progress.value,
+                    closing = homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing
+                )
+            else -> legacyDepth
+        }
+    }
+    LaunchedEffect(
+        weekCourseGlassCacheCoverExpected,
+        weekCourseGlassSubstantialOverlayActive,
+        weekCourseGlassOverlayClosing,
+        homeCaptureFrameKey
+    ) {
+        if (!weekCourseGlassCacheCoverExpected) {
+            courseGlassRestoreWave = CourseGlassRestoreWaveCount
+            courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
+            return@LaunchedEffect
+        }
+        if (weekCourseGlassOverlayClosing && courseGlassOcclusionPhase != CourseGlassOcclusionPhase.Live) {
+            // Restore one spatial group per rendered frame. The current page is rebuilt
+            // centre-out during waves 1-4; retained Pager neighbours follow during waves 5-8.
+            // All eight waves finish while the cached home is still strongly blurred.
+            for (wave in (courseGlassRestoreWave + 1)..CourseGlassRestoreWaveCount) {
+                snapshotFlow { resolveCourseGlassRestoreWave(weekCourseGlassClosingProgress()) }
+                    .first { it >= wave }
+                courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Prewarming
+                courseGlassRestoreWave = wave
+                courseGlassPrewarmDrawRequest += 1
+                withFrameNanos { }
+            }
+            return@LaunchedEffect
+        }
+        if (
+            courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Live &&
+            weekCourseGlassSubstantialOverlayActive
+        ) {
+            // The low-resolution HomeBackgroundBlurLayer starts crossfading as soon as Opening
+            // changes the depth curve. Suspend only after its exact clear cache is active, so the
+            // first motion frame remains pixel-identical while expensive card materials disappear.
+            repeat(3) {
+                val exactCacheActive = useCachedWeekHomeSurface() &&
+                    weekHomeSurfaceUsesOffscreenCache.get()
+                if (shouldSuspendCourseGlassMaterials(
+                        experimentEnabled = BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT,
+                        weekMode = homeMode == HomeMode.Week,
+                        exactCacheCoverActive = exactCacheActive,
+                        substantialOverlayActive = true
+                    )
+                ) {
+                    courseGlassRestoreWave = 0
+                    courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Suspended
+                    return@LaunchedEffect
+                }
+                withFrameNanos { }
+            }
+        }
+    }
+    val effectiveCourseGlassOcclusionPhase = if (weekCourseGlassCacheCoverExpected) {
+        courseGlassOcclusionPhase
+    } else {
+        CourseGlassOcclusionPhase.Live
     }
 
     suspend fun awaitRenderedSchedule(scheduleId: Int): Boolean {
@@ -1638,12 +1870,6 @@ fun CourseScheduleAppUi(
     }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && courseManagementActivityLaunched) {
-                courseManagementActivityLaunched = false
-                destinationOwnsButtonReturn = false
-                destinationCollapseHandedOff = false
-                homeMenuSourceHidden = false
-            }
             if (event == Lifecycle.Event.ON_START) {
                 PendingImportSetupStore.consume(context)?.let { pendingImportedSetupId = it }
                 if (initialLifecycleStartSeen) {
@@ -1702,7 +1928,8 @@ fun CourseScheduleAppUi(
         LocalAdaptiveGlass provides adaptiveGlassState,
         LocalHomeReadability provides homeReadabilityContext,
         LocalCourseCardPalette provides wallpaperImages.representativeColors,
-        LocalCourseCardColorAssignments provides homeCourseColorAssignments
+        LocalCourseCardColorAssignments provides homeCourseColorAssignments,
+        LocalGlassSceneState provides glassSceneState
     ) {
     Box(
         modifier = Modifier
@@ -1781,8 +2008,9 @@ fun CourseScheduleAppUi(
                 .background(MaterialTheme.colorScheme.background)
         ) {
         HomeBackgroundBlurLayer(
-            zoom = homeOverlayBackgroundZoom,
+            blurProgress = homeOverlayBackgroundBlurProgress,
             useFrozenHomeScene = useFrozenHomeMorphBlur,
+            closing = { homeBackgroundBlurClosing },
             sceneKey = homeCaptureFrameKey,
             modifier = Modifier.fillMaxSize()
         ) {
@@ -1790,7 +2018,40 @@ fun CourseScheduleAppUi(
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithContent {
-                    if (useCachedWeekHomeSurface()) {
+                    val requestedPrewarm = courseGlassPrewarmDrawRequest
+                    val keepCachedDuringRestore =
+                        courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Prewarming &&
+                            weekCourseGlassOverlayClosing &&
+                            weekHomeSurfaceUsesOffscreenCache.get()
+                    val cachedHomeActive = useCachedWeekHomeSurface() || keepCachedDuringRestore
+                    val shouldRecordPrewarm =
+                        courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Prewarming &&
+                            requestedPrewarm > courseGlassPrewarmRecordedRequest.get() &&
+                            cachedHomeActive
+                    if (shouldRecordPrewarm) {
+                        // Warm only the newly admitted spatial group in a hidden display list. Keep
+                        // replaying the original exact cache so partially restored cards never
+                        // become visible through the fading blur. The last wave nests the complete
+                        // warm layer into the normal cache with a single cheap drawLayer command.
+                        courseGlassWarmupGraphicsLayer.record {
+                            this@drawWithContent.drawContent()
+                        }
+                        if (courseGlassRestoreWave >= CourseGlassRestoreWaveCount) {
+                            screenGraphicsLayer.record {
+                                drawLayer(courseGlassWarmupGraphicsLayer)
+                            }
+                            recordedScheduleId.set(visualState.config.id)
+                            recordedHomeGeneration.incrementAndGet()
+                            lastRecordedHomeFrameKey.set(homeCaptureFrameKey)
+                        }
+                        courseGlassPrewarmRecordedRequest.set(requestedPrewarm)
+                        glassSceneState.recordPrewarmHit(GlassBackdropDomain.Content)
+                        if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
+                            screenGraphicsLayer.compositingStrategy =
+                                androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
+                        }
+                        drawLayer(screenGraphicsLayer)
+                    } else if (cachedHomeActive) {
                         if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
                             // The recorded display list contains every week-course Kyant node.
                             // Flatten it only for popup motion so those child RenderNodes stop
@@ -1904,7 +2165,7 @@ fun CourseScheduleAppUi(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .layerBackdrop(backgroundBackdrop)
+                        .glassBackdropProducer(backgroundBackdrop)
                 ) {
                     if (screen is Screen.Home) {
                         if (!visualState.loaded) {
@@ -1948,7 +2209,7 @@ fun CourseScheduleAppUi(
                 }
                 val contentModifier = Modifier
                     .fillMaxSize()
-                    .layerBackdrop(contentBackdrop)
+                    .glassBackdropProducer(contentBackdrop)
                 Column(modifier = contentModifier) {
                     if (screen !is Screen.Home) {
                         message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
@@ -2037,7 +2298,10 @@ fun CourseScheduleAppUi(
                                                     if (page == SettingsPage.Schedule) {
                                                         intent.putExtra(ScheduleCustomizeIdExtra, state.config.id)
                                                     }
-                                                    context.startActivity(intent)
+                                                    context.openRegisteredActivity(
+                                                        TransitionRouteId.HomeToSettingsDetail,
+                                                        intent
+                                                    )
                                                 }
                                                 onResult(
                                                     AgentPlanExecutionResult(
@@ -2102,9 +2366,11 @@ fun CourseScheduleAppUi(
                                             pendingConflictWeeks = emptyList()
                                         }
                                     },
-                                    onDeleteCourseSingleWeek = viewModel::deleteCourseSingleWeek,
-                                    weekEditInteractionEnabled = pickerState.phase is CustomizeUiState.Home,
-                                    onScheduleLongPress = {
+                                     onDeleteCourseSingleWeek = viewModel::deleteCourseSingleWeek,
+                                      weekEditInteractionEnabled = pickerState.phase is CustomizeUiState.Home,
+                                      courseGlassOcclusionPhase = effectiveCourseGlassOcclusionPhase,
+                                      courseGlassRestoreWave = courseGlassRestoreWave,
+                                      onScheduleLongPress = {
                                         if (pickerState.phase is CustomizeUiState.Home) {
                                             pendingHomeAnchoredOverlay = null
                                             homeAnchoredOverlayRequest = null
@@ -2126,7 +2392,10 @@ fun CourseScheduleAppUi(
                                             if (it == SettingsPage.Schedule) {
                                                 intent.putExtra(ScheduleCustomizeIdExtra, state.config.id)
                                             }
-                                            context.startActivity(intent)
+                                            context.openRegisteredActivity(
+                                                TransitionRouteId.HomeToSettingsDetail,
+                                                intent
+                                            )
                                         },
                                         onSave = viewModel::saveConfig,
                                         onUpdateConfig = viewModel::saveNotificationSettings,
@@ -2304,7 +2573,7 @@ fun CourseScheduleAppUi(
             },
             // Capture the complete manager (cards, title, indicators and actions) in a producer
             // that does not contain the later quick-settings sheet consumer.
-            modifier = Modifier.layerBackdrop(pickerSceneBackdrop)
+            modifier = Modifier.glassBackdropProducer(pickerSceneBackdrop)
         )
     }
     } // end cached home content
@@ -2314,54 +2583,72 @@ fun CourseScheduleAppUi(
     val latestOpenHomeMenuDestination = rememberUpdatedState<(HomeMenuDestinationKind) -> Unit> {
         kind -> openHomeMenuDestination(kind)
     }
-    val latestOpenCourseManagement = rememberUpdatedState<() -> Unit> {
-        if (courseManagementActivityLaunched) return@rememberUpdatedState
-        val activity = context.findActivity() ?: return@rememberUpdatedState
-        val sharedDestinationRequest =
-            currentHomeMenuDestinationRequest(HomeMenuDestinationKind.EduImport)
-                ?: return@rememberUpdatedState
-        val sourceBoundsInRoot = sharedDestinationRequest.sourceBoundsInRoot
-        val collapseBoundsInRoot = sharedDestinationRequest.collapseBoundsInRoot
-        if (sourceBoundsInRoot.width <= 2f || sourceBoundsInRoot.height <= 2f) {
-            return@rememberUpdatedState
-        }
-        appScope.launch {
-            val fullFrame = runCatching {
-                detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
-            }.getOrNull()
-            val sourceSnapshot = fullFrame?.cropToAnchoredBounds(sourceBoundsInRoot)
-            val collapseSnapshot = fullFrame?.cropToAnchoredBounds(collapseBoundsInRoot)
-            // This Activity transition has no in-process fallback capable of reproducing the
-            // actual glass menu. Do not hide the live source until both real anchors were
-            // captured; otherwise the generic fallback visibly becomes a different menu.
-            if (sourceSnapshot == null || collapseSnapshot == null) return@launch
-            val sourceBoundsInWindow = Rect(
-                left = sourceBoundsInRoot.left + homeRootPositionInWindow.x,
-                top = sourceBoundsInRoot.top + homeRootPositionInWindow.y,
-                right = sourceBoundsInRoot.right + homeRootPositionInWindow.x,
-                bottom = sourceBoundsInRoot.bottom + homeRootPositionInWindow.y
-            )
-            val collapseBoundsInWindow = Rect(
-                left = collapseBoundsInRoot.left + homeRootPositionInWindow.x,
-                top = collapseBoundsInRoot.top + homeRootPositionInWindow.y,
-                right = collapseBoundsInRoot.right + homeRootPositionInWindow.x,
-                bottom = collapseBoundsInRoot.bottom + homeRootPositionInWindow.y
-            )
-            val windowOverlay = activity.window.decorView.overlay
-            val placeholder = sourceSnapshot.let { bitmap ->
-                BitmapDrawable(context.resources, bitmap).apply {
-                    bounds = android.graphics.Rect(
+    fun releaseHomeMenuActivitySource() {
+        homeMenuActivityLaunched = false
+        destinationOwnsButtonReturn = false
+        destinationCollapseHandedOff = false
+        homeMenuSourceHidden = false
+    }
+    val latestOpenHomeActivityDestination =
+        rememberUpdatedState<(TransitionRouteId, Intent) -> Unit> { routeId, targetIntent ->
+            if (homeMenuActivityLaunched) return@rememberUpdatedState
+            val activity = context.findActivity() ?: return@rememberUpdatedState
+            val sharedDestinationRequest =
+                currentHomeMenuDestinationRequest(HomeMenuDestinationKind.EduImport)
+                    ?: return@rememberUpdatedState
+            val sourceBoundsInRoot = sharedDestinationRequest.sourceBoundsInRoot
+            val collapseBoundsInRoot = sharedDestinationRequest.collapseBoundsInRoot
+            if (sourceBoundsInRoot.width <= 2f || sourceBoundsInRoot.height <= 2f) {
+                return@rememberUpdatedState
+            }
+            homeMenuActivityLaunched = true
+            appScope.launch {
+            var openingSourceHandoffOwnedBySession = false
+            var openingSourcePlaceholder: BitmapDrawable? = null
+            val openingSourceOverlay = activity.window.decorView.overlay
+            try {
+                val fullFrame = runCatching {
+                    detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                }.getOrNull()
+                val sourceSnapshot = fullFrame?.cropToAnchoredBounds(sourceBoundsInRoot)
+                val collapseSnapshot = fullFrame?.cropToAnchoredBounds(collapseBoundsInRoot)
+                // Never hide the accepted glass menu unless both the complete opening source and
+                // the real top-right return button have been captured successfully.
+                if (sourceSnapshot == null || collapseSnapshot == null) {
+                    releaseHomeMenuActivitySource()
+                    return@launch
+                }
+                val sourceBoundsInWindow = Rect(
+                    left = sourceBoundsInRoot.left + homeRootPositionInWindow.x,
+                    top = sourceBoundsInRoot.top + homeRootPositionInWindow.y,
+                    right = sourceBoundsInRoot.right + homeRootPositionInWindow.x,
+                    bottom = sourceBoundsInRoot.bottom + homeRootPositionInWindow.y
+                )
+                val collapseBoundsInWindow = Rect(
+                    left = collapseBoundsInRoot.left + homeRootPositionInWindow.x,
+                    top = collapseBoundsInRoot.top + homeRootPositionInWindow.y,
+                    right = collapseBoundsInRoot.right + homeRootPositionInWindow.x,
+                    bottom = collapseBoundsInRoot.bottom + homeRootPositionInWindow.y
+                )
+                openingSourcePlaceholder = BitmapDrawable(context.resources, sourceSnapshot).apply {
+                    setBounds(
                         sourceBoundsInWindow.left.roundToInt(),
                         sourceBoundsInWindow.top.roundToInt(),
                         sourceBoundsInWindow.right.roundToInt(),
                         sourceBoundsInWindow.bottom.roundToInt()
                     )
                 }
-            }
-            placeholder.let(windowOverlay::add)
-            try {
-                // Match AI import history: the moving source is held by a window-overlay snapshot
-                // while two frames record a clean background without the original menu.
+                val sourceHandoffAttached = runCatching {
+                    openingSourceOverlay.add(checkNotNull(openingSourcePlaceholder))
+                    true
+                }.getOrDefault(false)
+                if (!sourceHandoffAttached) {
+                    releaseHomeMenuActivitySource()
+                    return@launch
+                }
+                // Preserve the exact clicked menu until either ColorOS actually starts its spring
+                // or the Legacy backend synchronously installs its own placeholder. The hidden
+                // Compose frame below is still what the destination backdrop records.
                 homeMenuSourceHidden = true
                 withFrameNanos { }
                 withFrameNanos { }
@@ -2369,43 +2656,83 @@ fun CourseScheduleAppUi(
                     detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
                 }.getOrNull()
                 if (cleanBackground == null) {
-                    homeMenuSourceHidden = false
+                    releaseHomeMenuActivitySource()
                     return@launch
                 }
-                val intent = Intent(context, CourseManagementActivity::class.java)
-                    .putCourseManagementInitialState(state)
-                    .putAnchoredSourceBounds(sourceBoundsInWindow)
-                    .putAnchoredCollapseBounds(collapseBoundsInWindow)
-                intent.putAnchoredMorphSnapshots(
-                    AnchoredMorphSnapshots(
-                        background = cleanBackground,
-                        source = sourceSnapshot,
-                        collapse = collapseSnapshot
+                val openingAnchor = TransitionAnchorFrame(
+                    boundsInWindow = sourceBoundsInWindow,
+                    cornerRadiusPx = with(density) { HomeAddMenuTargetCornerDp.dp.toPx() },
+                    bitmap = sourceSnapshot
+                )
+                val returnAnchor = TransitionAnchorFrame(
+                    boundsInWindow = collapseBoundsInWindow,
+                    cornerRadiusPx = with(density) { 21.dp.toPx() },
+                    bitmap = collapseSnapshot
+                )
+                val launchResult = ActivityTransitionCoordinator.open(
+                    activity = activity,
+                    routeId = routeId,
+                    intent = targetIntent,
+                    payload = TransitionPayload(
+                        openingAnchor = openingAnchor,
+                        returnAnchorProvider = StaticTransitionAnchorProvider(returnAnchor),
+                        backgroundBitmap = cleanBackground,
+                        onOpeningSourceHandoff = {
+                            activity.runOnUiThread {
+                                openingSourcePlaceholder?.let(openingSourceOverlay::remove)
+                                openingSourcePlaceholder = null
+                            }
+                        },
+                        // The source placeholder intentionally remains visible across the async
+                        // Activity launch. Ask the public ColorOS API to alpha the source Activity
+                        // leash when its native animation starts, preventing a stationary menu
+                        // from remaining below the moving system bitmap.
+                        nativeSourceLeashAlphaOutOnOpen = true,
+                        // Source onResume happens before ColorOS finishes its CLOSE spring. Let
+                        // the session-scoped backend release the hidden menu/button only after the
+                        // matching native end callback (or Legacy completion/watchdog).
+                        onSourceReleased = {
+                            activity.runOnUiThread { releaseHomeMenuActivitySource() }
+                        }
                     )
                 )
-                courseManagementActivityLaunched = true
-                activity.startActivityWithAnchoredMorph(intent)
+                if (launchResult is TransitionLaunchResult.Failed) {
+                    releaseHomeMenuActivitySource()
+                    return@launch
+                }
+                openingSourceHandoffOwnedBySession = true
                 // The Activity now owns the exact Edu-import return to the real three-dot button.
                 // Silently dispose the first-level menu underneath it instead of restoring that
                 // menu as a false return anchor.
                 destinationOwnsButtonReturn = true
                 destinationCollapseHandedOff = false
                 homeAnchoredOverlayRequest = null
-                // Keep the window-overlay source alive for the complete shared Edu-import
-                // opening duration. Removing it halfway through the Activity handoff exposed one
-                // frame of the old Home layer on slower devices as a blink.
-                delay(HomeMenuDestinationLegacyMotion.OpenDurationMillis.toLong())
             } catch (_: Throwable) {
-                courseManagementActivityLaunched = false
-                homeMenuSourceHidden = false
+                releaseHomeMenuActivitySource()
             } finally {
-                placeholder.let(windowOverlay::remove)
+                if (!openingSourceHandoffOwnedBySession) {
+                    openingSourcePlaceholder?.let(openingSourceOverlay::remove)
+                    openingSourcePlaceholder = null
+                }
             }
         }
+        }
+    val latestOpenCourseManagement = rememberUpdatedState<() -> Unit> {
+        latestOpenHomeActivityDestination.value(
+            TransitionRouteId.HomeToCourseManagement,
+            Intent(context, CourseManagementActivity::class.java)
+                .putCourseManagementInitialState(state)
+        )
+    }
+    val latestOpenEduSchoolSelect = rememberUpdatedState<() -> Unit> {
+        latestOpenHomeActivityDestination.value(
+            TransitionRouteId.HomeToEduImport,
+            Intent(context, EduSchoolSelectActivity::class.java)
+        )
     }
     val latestOpenJumpWeekDialog = rememberUpdatedState<() -> Unit> {
-        homeAnchoredOverlayRequest = null
         pendingJumpWeekDialog = true
+        homeAnchoredOverlayRequest = null
     }
     val latestOpenScheduleSettings = rememberUpdatedState<() -> Unit> {
         pendingOpenScheduleSettings = true
@@ -2423,7 +2750,7 @@ fun CourseScheduleAppUi(
                 latestOpenHomeMenuDestination.value(HomeMenuDestinationKind.ManualImport)
             },
             AddMenuAction(R.drawable.ic_school_import, "教务系统导入") {
-                latestOpenHomeMenuDestination.value(HomeMenuDestinationKind.EduImport)
+                latestOpenEduSchoolSelect.value()
             },
             AddMenuAction(R.drawable.ic_material_event, "跳转周数") {
                 latestOpenJumpWeekDialog.value()
@@ -2499,7 +2826,9 @@ fun CourseScheduleAppUi(
         modifier = Modifier
             .zIndex(24f)
             .graphicsLayer { alpha = if (homeMenuSourceHidden) 0f else 1f },
-        onDismissRequest = { homeAnchoredOverlayRequest = null },
+        onDismissRequest = {
+            homeAnchoredOverlayRequest = null
+        },
         onAddMenuBoundsChanged = { homeAddMenuBoundsInRoot = it },
         onSourceFollowThrough = { rect -> latestSourceFollowThrough.value(rect) },
         suppressClose = destinationOwnsButtonReturn,
@@ -2708,7 +3037,8 @@ fun CourseScheduleAppUi(
             }.getOrNull()
         },
         onEduAdapterSelected = { adapter ->
-            context.startActivity(
+            context.openRegisteredActivity(
+                TransitionRouteId.SchoolSelectToEduImport,
                 Intent(context, EduImportActivity::class.java)
                     .putExtra(EduAdapterExtra, adapter.toIntentKey())
             )
@@ -3403,7 +3733,8 @@ fun CourseScheduleAppUi(
                             LiquidDialogSize.Compact
                         } else {
                             LiquidDialogSize.Standard
-                        }
+                        },
+                        followGlassContrast = dialog is HomeDialog.ImportSchedule
                     ) {
                         dialogContent()
                     }
@@ -3481,8 +3812,9 @@ internal val HomeInitialTopInset = 122.dp
 
 @Composable
 private fun HomeBackgroundBlurLayer(
-    zoom: () -> Float,
+    blurProgress: () -> Float,
     useFrozenHomeScene: () -> Boolean,
+    closing: () -> Boolean,
     sceneKey: Any,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
@@ -3493,12 +3825,13 @@ private fun HomeBackgroundBlurLayer(
     val frozenRecordSize = remember { AtomicReference(IntSize.Zero) }
     val sampleScale = HomeFrozenBlurSampleScale
     val maximumBlurPx = with(density) { 12.dp.toPx() }
-    val frozenBlurEffect = remember(maximumBlurPx) {
-        BlurEffect(
-            radiusX = maximumBlurPx * sampleScale,
-            radiusY = maximumBlurPx * sampleScale,
-            edgeTreatment = TileMode.Clamp
-        )
+    val frozenBlurEffects = remember(maximumBlurPx, sampleScale) {
+        List(HomeLiveBlurStepCount + 1) { index ->
+            if (index == 0) null else {
+                val radius = maximumBlurPx * sampleScale * index / HomeLiveBlurStepCount.toFloat()
+                BlurEffect(radius, radius, TileMode.Clamp)
+            }
+        }
     }
     // The live path is kept for day view and per-frame personalization preview. Reuse a small
     // bounded set of RenderEffect instances so those exceptional paths no longer compile a new
@@ -3514,18 +3847,41 @@ private fun HomeBackgroundBlurLayer(
     Box(
         modifier = modifier
             .graphicsLayer {
-                if (useFrozenHomeScene()) {
+                val frozenHomeScene = useFrozenHomeScene()
+                val progress = blurProgress().coerceIn(0f, 1f)
+                val isClosing = closing()
+                val step = quantizeHomeBackgroundBlurStep(progress, isClosing)
+                val fullResolutionClosingBlur = shouldUseFullResolutionClosingBlur(
+                    frozenHomeScene = frozenHomeScene,
+                    closing = isClosing,
+                    blurProgress = progress
+                )
+                if (frozenHomeScene && !fullResolutionClosingBlur) {
                     renderEffect = null
                 } else {
-                    val depthProgress = homeOverlayDepthProgress(zoom())
-                    val step = (depthProgress * HomeLiveBlurStepCount)
-                        .roundToInt()
-                        .coerceIn(0, HomeLiveBlurStepCount)
                     renderEffect = liveBlurEffects[step]
                 }
             }
             .drawWithContent {
-                if (!useFrozenHomeScene()) {
+                val frozenHomeScene = useFrozenHomeScene()
+                if (!frozenHomeScene) {
+                    drawContent()
+                    return@drawWithContent
+                }
+
+                val progress = blurProgress().coerceIn(0f, 1f)
+                val isClosing = closing()
+                val step = quantizeHomeBackgroundBlurStep(progress, isClosing)
+                val fullResolutionClosingBlur = shouldUseFullResolutionClosingBlur(
+                    frozenHomeScene = true,
+                    closing = isClosing,
+                    blurProgress = progress
+                )
+                if (step == 0 || fullResolutionClosingBlur) {
+                    // Opening remains exclusively on the quarter-area frozen layer. Closing moves
+                    // back to the already-recorded full-resolution home while several dp of blur
+                    // still conceal the resolution handoff, so the final clear frame no longer
+                    // swaps both blur strength and source resolution at once.
                     drawContent()
                     return@drawWithContent
                 }
@@ -3553,7 +3909,6 @@ private fun HomeBackgroundBlurLayer(
                             this@drawWithContent.drawContent()
                         }
                     }
-                    frozenBlurLayer.renderEffect = frozenBlurEffect
                     frozenBlurLayer.pivotOffset = Offset.Zero
                     frozenBlurLayer.scaleX = 1f / sampleScale
                     frozenBlurLayer.scaleY = 1f / sampleScale
@@ -3561,12 +3916,9 @@ private fun HomeBackgroundBlurLayer(
                     frozenRecordSize.set(reducedSize)
                 }
 
-                val depthProgress = homeOverlayDepthProgress(zoom())
-                if (depthProgress < 0.999f) drawContent()
-                if (depthProgress > 0.001f) {
-                    frozenBlurLayer.alpha = depthProgress
-                    drawLayer(frozenBlurLayer)
-                }
+                frozenBlurLayer.renderEffect = frozenBlurEffects[step]
+                frozenBlurLayer.alpha = 1f
+                drawLayer(frozenBlurLayer)
             },
         content = content
     )
@@ -3609,13 +3961,15 @@ fun CenterLiquidDialog(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     size: LiquidDialogSize = LiquidDialogSize.Standard,
+    followGlassContrast: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     LiquidDialogSurface(
         backdrop = backdrop,
         config = config,
         modifier = modifier,
-        size = size
+        size = size,
+        followGlassContrast = followGlassContrast
     ) {
         Column(
             modifier = if (size == LiquidDialogSize.Standard) {
@@ -5147,13 +5501,13 @@ fun DialogLiquidButton(
     blurRadius: Dp = 3.dp,
     destructiveFilled: Boolean = false,
     monochromeNeutral: Boolean = false,
-    neutralLightStyle: Boolean? = null,
+    lightStyleOverride: Boolean? = null,
     highContrast: Boolean = false,
     roundIcon: Boolean = false
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val useMonochromeNeutral = role == DialogButtonRole.Neutral && monochromeNeutral
-    val neutralDark = neutralLightStyle?.not() ?: darkTheme
+    val controlDark = lightStyleOverride?.not() ?: darkTheme
     val useRoundIcon = roundIcon && role != DialogButtonRole.Neutral
     val resolvedIconRes = iconRes ?: when {
         useRoundIcon && role == DialogButtonRole.Cancel -> R.drawable.ic_close_light
@@ -5164,21 +5518,21 @@ fun DialogLiquidButton(
         DialogButtonRole.Confirm -> ComposeColor.White
         DialogButtonRole.Cancel -> ComposeColor.White
         DialogButtonRole.Neutral -> if (useMonochromeNeutral) {
-            if (neutralDark) ComposeColor.White else ComposeColor.Black
+            if (controlDark) ComposeColor.White else ComposeColor.Black
         } else MaterialTheme.colorScheme.primary
     }
     val surfaceColor = if (highContrast) {
-        ComposeColor.Black.copy(alpha = if (darkTheme) 0.62f else 0.52f)
+        ComposeColor.Black.copy(alpha = if (controlDark) 0.62f else 0.52f)
     } else when (role) {
         DialogButtonRole.Confirm -> ComposeColor(0xFF0A84FF).copy(alpha = 0.82f)
         DialogButtonRole.Cancel -> if (destructiveFilled) {
             ComposeColor(0xFFFF453A).copy(alpha = 0.78f)
         } else {
-            ComposeColor.Black.copy(alpha = if (darkTheme) 0.42f else 0.30f)
+            ComposeColor.Black.copy(alpha = if (controlDark) 0.42f else 0.30f)
         }
         DialogButtonRole.Neutral -> if (useMonochromeNeutral) {
-            (if (neutralDark) ComposeColor.Black else ComposeColor.White)
-                .copy(alpha = if (neutralDark) 0.46f else 0.62f)
+            (if (controlDark) ComposeColor.Black else ComposeColor.White)
+                .copy(alpha = if (controlDark) 0.46f else 0.62f)
         } else ComposeColor.Transparent
     }
     if (backdrop != null) {
@@ -5252,9 +5606,10 @@ fun DialogCapsuleField(
     keyboardType: KeyboardType = KeyboardType.Text,
     minLines: Int = 1,
     cornerRadius: Dp? = null,
-    fieldTextColor: ComposeColor? = null
+    fieldTextColor: ComposeColor? = null,
+    fieldLightStyleOverride: Boolean? = null
 ) {
-    val dark = appUsesDarkTheme(config)
+    val dark = fieldLightStyleOverride?.not() ?: appUsesDarkTheme(config)
     val fieldBase = if (dark) ComposeColor(0xFF2C2C2E) else ComposeColor.White
     val background = fieldBase.copy(alpha = if (dark) 0.54f else 0.70f)
     // Most callers intentionally inherit the surrounding glass foreground. Course editor fields
@@ -5267,6 +5622,7 @@ fun DialogCapsuleField(
         singleLine = minLines == 1,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = if (minLines == 1) ImeAction.Done else ImeAction.Default),
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
+        cursorBrush = SolidColor(textColor),
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius ?: if (minLines == 1) 50.dp else 24.dp))
             .background(background)
@@ -5358,7 +5714,9 @@ class SettingsDetailActivity : ComponentActivity() {
                             backdrop = backdrop,
                             onUpdateConfig = viewModel::saveGeneralSettings,
                             onOpenLiquidGlass = {
-                                startActivity(
+                                ActivityTransitionCoordinator.openImmediate(
+                                    this@SettingsDetailActivity,
+                                    TransitionRouteId.SettingsToSettingsDetail,
                                     Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                                         .putExtra(SettingsDetailPageExtra, SettingsPage.LiquidGlass.name)
                                 )
@@ -5413,20 +5771,29 @@ class SettingsDetailActivity : ComponentActivity() {
                             state = state,
                             backdrop = backdrop,
                             onDonate = {
-                                startActivity(
+                                ActivityTransitionCoordinator.openImmediate(
+                                    this@SettingsDetailActivity,
+                                    TransitionRouteId.SettingsToSettingsDetail,
                                     Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                                         .putExtra(SettingsDetailPageExtra, SettingsPage.Donate.name)
                                 )
 							},
 							onPrivacyPolicy = {
-								startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java).putExtra(SettingsDetailPageExtra, SettingsPage.PrivacyPolicy.name))
+								ActivityTransitionCoordinator.openImmediate(
+                                    this@SettingsDetailActivity,
+                                    TransitionRouteId.SettingsToSettingsDetail,
+                                    Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
+                                        .putExtra(SettingsDetailPageExtra, SettingsPage.PrivacyPolicy.name)
+                                )
 							}
                         )
                         SettingsPage.BackupRestore -> BackupRestoreSettingsScreen(
                             state = state,
                             backdrop = backdrop,
                             onOpenPreview = { source ->
-                                startActivity(
+                                ActivityTransitionCoordinator.openImmediate(
+                                    this@SettingsDetailActivity,
+                                    TransitionRouteId.SettingsToSettingsDetail,
                                     Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                                         .setData(source)
                                         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -5450,13 +5817,20 @@ class SettingsDetailActivity : ComponentActivity() {
                             state = state,
                             backdrop = backdrop,
                             onDonate = {
-                                startActivity(
+                                ActivityTransitionCoordinator.openImmediate(
+                                    this@SettingsDetailActivity,
+                                    TransitionRouteId.SettingsToSettingsDetail,
                                     Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                                         .putExtra(SettingsDetailPageExtra, SettingsPage.Donate.name)
                                 )
 							},
 							onPrivacyPolicy = {
-								startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java).putExtra(SettingsDetailPageExtra, SettingsPage.PrivacyPolicy.name))
+								ActivityTransitionCoordinator.openImmediate(
+                                    this@SettingsDetailActivity,
+                                    TransitionRouteId.SettingsToSettingsDetail,
+                                    Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
+                                        .putExtra(SettingsDetailPageExtra, SettingsPage.PrivacyPolicy.name)
+                                )
 							}
                         )
 						SettingsPage.Donate -> DonateSettingsScreen(state, backdrop)
@@ -5487,9 +5861,11 @@ private fun scheduleConfigStateForEdit(state: AppState, scheduleId: Int): AppSta
     return state.copy(config = targetConfig.copy(id = scheduleId), periods = targetPeriods)
 }
 
-class EduSchoolSelectActivity : ComponentActivity() {
+open class EduSchoolSelectActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        ActivityTransitionCoordinator.prepareDestinationBeforeOnCreate(this)
         super.onCreate(savedInstanceState)
+        ActivityTransitionCoordinator.installDestinationWindowBackground(this)
         enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
@@ -5499,25 +5875,40 @@ class EduSchoolSelectActivity : ComponentActivity() {
             )
             val state by viewModel.state.collectAsStateWithLifecycle()
             CourseScheduleTheme(config = state.config) {
-                DetailActivityScaffold(
-                    title = "选择学校",
-                    config = state.config,
-                    onBack = { finish() }
-                ) { backdrop ->
-                    EduSchoolPickerScreen(
-                        state = state,
-                        onSelect = { adapter ->
-                            startActivity(
-                                Intent(this, EduImportActivity::class.java)
-                                    .putExtra(EduAdapterExtra, adapter.toIntentKey())
-                            )
-                        }
-                    )
+                CrossActivityTransitionHost(
+                    activity = this@EduSchoolSelectActivity,
+                    sourceContent = {
+                        HomeMenuActivitySourceFallback(
+                            config = state.config,
+                            highlightedRowIndex = 4
+                        )
+                    }
+                ) { requestClose ->
+                    DetailActivityScaffold(
+                        title = "选择学校",
+                        config = state.config,
+                        onBack = requestClose
+                    ) {
+                        EduSchoolPickerScreen(
+                            state = state,
+                            onSelect = { adapter ->
+                                ActivityTransitionCoordinator.openImmediate(
+                                    this@EduSchoolSelectActivity,
+                                    TransitionRouteId.SchoolSelectToEduImport,
+                                    Intent(this, EduImportActivity::class.java)
+                                        .putExtra(EduAdapterExtra, adapter.toIntentKey())
+                                )
+                            }
+                        )
+                    }
                 }
             }
         }
     }
 }
+
+/** Opaque host selected only after ColorOS accepts the Home → school-selection session. */
+class OplusEduSchoolSelectActivity : EduSchoolSelectActivity()
 
 @OptIn(ExperimentalMaterial3Api::class)
 class EduImportActivity : ComponentActivity() {
@@ -6550,7 +6941,8 @@ fun ScheduleManagerScreen(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {
-                                context.startActivity(
+                                context.openRegisteredActivity(
+                                    TransitionRouteId.SettingsToSettingsDetail,
                                     Intent(context, SettingsDetailActivity::class.java)
                                         .putExtra(SettingsDetailPageExtra, SettingsPage.Schedule.name)
                                         .putExtra(ScheduleCustomizeIdExtra, profile.id)
@@ -6907,7 +7299,10 @@ private fun AboutFeatureCard(
     eyebrow: String,
     title: String
 ) {
-    val imageBackdrop = rememberLayerBackdrop()
+    val imageBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "about-feature-image"
+    )
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val wideCard = maxWidth >= 560.dp
         val cardRatio = if (wideCard) 16f / 8.5f else 1.08f
@@ -6922,7 +7317,7 @@ private fun AboutFeatureCard(
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
-                    .layerBackdrop(imageBackdrop),
+                    .glassBackdropProducer(imageBackdrop),
                 contentScale = ContentScale.Crop
             )
             ProgressiveBackdropBlur(

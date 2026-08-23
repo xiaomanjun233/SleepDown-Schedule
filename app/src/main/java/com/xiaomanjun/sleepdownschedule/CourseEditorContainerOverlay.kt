@@ -78,6 +78,18 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.glass.LiquidBackdropDepthFrame
+import com.xiaomanjun.sleepdownschedule.glass.LiquidContentHandoffFrame
+import com.xiaomanjun.sleepdownschedule.glass.LiquidLayerLifecycleFrame
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphDirection
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphController
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphControllerBridge
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphFrame
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphInput
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphPhase
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphSpec
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMotionSample
+import com.xiaomanjun.sleepdownschedule.glass.LiquidProgressKinematics
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicInteger
@@ -134,8 +146,25 @@ enum class CourseEditorOverlayPhase {
 class CourseEditorMotionState internal constructor() {
     val progress = Animatable(0f)
     val backgroundZoom = Animatable(1f)
-    var phase by mutableStateOf(CourseEditorOverlayPhase.Idle)
-        internal set
+    private val controllerBridge = LiquidMorphControllerBridge { "course-editor" }
+    val liquidMorphController: LiquidMorphController get() = controllerBridge.controller
+    private var currentPhase by mutableStateOf(CourseEditorOverlayPhase.Idle)
+    var phase: CourseEditorOverlayPhase
+        get() = currentPhase
+        internal set(value) {
+            if (currentPhase == value) return
+            currentPhase = value
+            controllerBridge.synchronize(
+                when (value) {
+                    CourseEditorOverlayPhase.Idle -> LiquidMorphPhase.Idle
+                    CourseEditorOverlayPhase.Preparing -> LiquidMorphPhase.Preparing
+                    CourseEditorOverlayPhase.Opening -> LiquidMorphPhase.Opening
+                    CourseEditorOverlayPhase.Open -> LiquidMorphPhase.Open
+                    CourseEditorOverlayPhase.Closing -> LiquidMorphPhase.Closing
+                    CourseEditorOverlayPhase.Disposing -> LiquidMorphPhase.Released
+                }
+            )
+        }
     var closingSourceBoundsOverride by mutableStateOf<Rect?>(null)
         internal set
 
@@ -406,31 +435,6 @@ internal fun CourseEditorContainerOverlayHost(
     // targetWeek is also required when a day-view course is edited, so it cannot identify
     // the visual source. Keep the source layout captured with the request instead.
     val sourceIsWeekCard = !shownRequest.sourceIsDayCard
-    val rawProgress = progress.value.coerceIn(0f, 1f)
-    val visualProgress = courseEditorVisualProgress(rawProgress, overlayPhase)
-    val positionProgress = visualProgress.position
-    val sizeProgress = visualProgress.size
-    val cornerProgress = smoothStep(0.04f, 0.90f, sizeProgress)
-    val pulseScale = courseEditorSettleScale(rawProgress, overlayPhase)
-    val animatedRect = curvedCourseEditorRect(
-        source = sourceRect,
-        target = targetRect,
-        positionProgress = positionProgress,
-        sizeProgress = sizeProgress,
-        pulseScale = pulseScale,
-        maxArcPx = with(density) { adaptiveMetrics.animationArc.toPx() }
-    )
-    val animatedModifier = Modifier
-        .offset {
-            IntOffset(
-                animatedRect.left.roundToInt(),
-                animatedRect.top.roundToInt()
-            )
-        }
-        .size(
-            width = with(density) { animatedRect.width.toDp() },
-            height = with(density) { animatedRect.height.toDp() }
-        )
     val sourceCornerPx = remember(sourceRect, density, adaptiveMetrics, sourceIsWeekCard) {
         with(density) {
             if (sourceIsWeekCard) {
@@ -445,8 +449,63 @@ internal fun CourseEditorContainerOverlayHost(
             }
         }
     }
+    val morphSpec = remember(
+        sourceRect,
+        targetRect,
+        sourceCornerPx,
+        adaptiveMetrics,
+        density.density,
+        hasSourceTransform
+    ) {
+        legacyCourseEditorMorphSpec(
+            source = sourceRect,
+            target = targetRect,
+            sourceCornerRadiusPx = sourceCornerPx,
+            targetCornerRadiusPx = with(density) { 32.dp.toPx() },
+            maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() },
+            sourceBlurMaxPx = with(density) { 6.dp.toPx() },
+            destinationBlurMaxPx = with(density) { 5.dp.toPx() },
+            hasSourceTransform = hasSourceTransform
+        )
+    }
+    val rawProgress = progress.value.coerceIn(0f, 1f)
+    val closingMorph = overlayPhase == CourseEditorOverlayPhase.Closing ||
+        overlayPhase == CourseEditorOverlayPhase.Disposing
+    val morphFrame = morphSpec.frame(
+        LiquidMorphInput(
+            source = sourceRect,
+            target = targetRect,
+            rawProgress = rawProgress,
+            direction = if (closingMorph) {
+                LiquidMorphDirection.Closing
+            } else {
+                LiquidMorphDirection.Opening
+            },
+            backdropScale = motionState.backgroundZoom.value,
+            backdropBlurPx = with(density) {
+                12.dp.toPx() * homeOverlayDepthProgress(motionState.backgroundZoom.value)
+            },
+            useCachedBackdrop = overlayPhase == CourseEditorOverlayPhase.Preparing ||
+                overlayPhase == CourseEditorOverlayPhase.Opening ||
+                overlayPhase == CourseEditorOverlayPhase.Closing ||
+                overlayPhase == CourseEditorOverlayPhase.Disposing
+        )
+    )
+    val sizeProgress = morphFrame.shapeProgress
+    val animatedRect = morphFrame.rect
+    val animatedModifier = Modifier
+        .offset {
+            IntOffset(
+                animatedRect.left.roundToInt(),
+                animatedRect.top.roundToInt()
+            )
+        }
+        .size(
+            width = with(density) { animatedRect.width.toDp() },
+            height = with(density) { animatedRect.height.toDp() }
+        )
     val corner = with(density) {
-        interpolateFloat(sourceCornerPx, 32.dp.toPx(), cornerProgress)
+        morphFrame.cornerRadiusPx
             .coerceIn(6.dp.toPx(), 36.dp.toPx())
             .toDp()
     }
@@ -454,13 +513,11 @@ internal fun CourseEditorContainerOverlayHost(
     // Keeping the form fully opaque underneath the fading source was most visible for
     // wide day-view cards: both text layouts were composited for several frames and the
     // form appeared to flicker into place. Make the two layers complementary instead.
-    val openingContentHandoff = smoothStep(0.12f, 0.50f, positionProgress)
-    val closingContentHandoff = smoothStep(0.04f, 0.18f, positionProgress)
     val contentAlpha = if (editorContentMounted) {
         editorContentAlpha.value * when (overlayPhase) {
             CourseEditorOverlayPhase.Preparing,
-            CourseEditorOverlayPhase.Opening -> openingContentHandoff
-            CourseEditorOverlayPhase.Closing -> closingContentHandoff
+            CourseEditorOverlayPhase.Opening,
+            CourseEditorOverlayPhase.Closing -> morphFrame.content.destinationContentAlpha
             else -> 1f
         }
     } else {
@@ -471,33 +528,20 @@ internal fun CourseEditorContainerOverlayHost(
     val sourceCoverAlpha = if (hasSourceTransform) {
         when (overlayPhase) {
             CourseEditorOverlayPhase.Preparing,
-            CourseEditorOverlayPhase.Opening -> 1f - smoothStep(0.12f, 0.50f, positionProgress)
+            CourseEditorOverlayPhase.Opening -> morphFrame.content.sourceAlpha
             CourseEditorOverlayPhase.Closing,
-            CourseEditorOverlayPhase.Disposing -> 1f - closingContentHandoff
+            CourseEditorOverlayPhase.Disposing -> morphFrame.content.sourceAlpha
             else -> 0f
         }
     } else 0f
-    val sourceContentBlurPx = with(density) {
-        val blurProgress = when (overlayPhase) {
-            CourseEditorOverlayPhase.Closing,
-            CourseEditorOverlayPhase.Disposing -> smoothStep(0f, 0.12f, positionProgress)
-            else -> smoothStep(0f, 0.24f, positionProgress)
-        }
-        6.dp.toPx() * blurProgress
-    }
-    val editorContentBlurPx = with(density) {
-        val blurDp = when (overlayPhase) {
-            CourseEditorOverlayPhase.Preparing,
-            // Keep the form softly blurred through almost all of its enlargement.
-            // It only resolves once the content is about to finish settling.
-            CourseEditorOverlayPhase.Opening ->
-                5f * (1f - smoothStep(0.90f, 1f, positionProgress))
-            CourseEditorOverlayPhase.Closing -> 5f
-            CourseEditorOverlayPhase.Disposing -> 5f
-            CourseEditorOverlayPhase.Open -> 0f
-            CourseEditorOverlayPhase.Idle -> 0f
-        }
-        blurDp.dp.toPx()
+    val sourceContentBlurPx = morphFrame.content.sourceBlurPx
+    val editorContentBlurPx = when (overlayPhase) {
+        CourseEditorOverlayPhase.Preparing,
+        CourseEditorOverlayPhase.Opening,
+        CourseEditorOverlayPhase.Closing,
+        CourseEditorOverlayPhase.Disposing -> morphFrame.content.destinationBlurPx
+        CourseEditorOverlayPhase.Open,
+        CourseEditorOverlayPhase.Idle -> 0f
     }
     val editorFormBackdrop = backdrop
     val textColor = if (backdrop != null) {
@@ -1096,4 +1140,81 @@ private fun curvedCourseEditorRect(
 private fun smoothStep(edge0: Float, edge1: Float, value: Float): Float {
     val t = ((value - edge0) / (edge1 - edge0).coerceAtLeast(0.0001f)).coerceIn(0f, 1f)
     return t * t * (3f - 2f * t)
+}
+
+internal fun legacyCourseEditorMorphSpec(
+    source: Rect,
+    target: Rect,
+    sourceCornerRadiusPx: Float,
+    targetCornerRadiusPx: Float,
+    maximumArcPx: Float,
+    sourceBlurMaxPx: Float,
+    destinationBlurMaxPx: Float,
+    hasSourceTransform: Boolean
+): LiquidMorphSpec = object : LiquidMorphSpec {
+    override val routeKey: String = "course-editor"
+
+    override fun frame(input: LiquidMorphInput): LiquidMorphFrame {
+        val closing = input.direction == LiquidMorphDirection.Closing
+        val phase = if (closing) CourseEditorOverlayPhase.Closing else CourseEditorOverlayPhase.Opening
+        val visualProgress = courseEditorVisualProgress(input.rawProgress, phase)
+        val pulseScale = courseEditorSettleScale(input.rawProgress, phase)
+        val rect = curvedCourseEditorRect(
+            source = source,
+            target = target,
+            positionProgress = visualProgress.position,
+            sizeProgress = visualProgress.size,
+            pulseScale = pulseScale,
+            maxArcPx = maximumArcPx
+        )
+        val cornerProgress = smoothStep(0.04f, 0.90f, visualProgress.size)
+        val corner = interpolateFloat(
+            sourceCornerRadiusPx,
+            targetCornerRadiusPx,
+            cornerProgress
+        )
+        val openingHandoff = smoothStep(0.12f, 0.50f, visualProgress.position)
+        val closingHandoff = smoothStep(0.04f, 0.18f, visualProgress.position)
+        val destinationAlpha = if (closing) closingHandoff else openingHandoff
+        val sourceAlpha = if (hasSourceTransform) 1f - destinationAlpha else 0f
+        val sourceBlurProgress = if (closing) {
+            smoothStep(0f, 0.12f, visualProgress.position)
+        } else {
+            smoothStep(0f, 0.24f, visualProgress.position)
+        }
+        val destinationBlur = if (closing) {
+            destinationBlurMaxPx
+        } else {
+            destinationBlurMaxPx * (1f - smoothStep(0.90f, 1f, visualProgress.position))
+        }
+        val trajectory = LiquidProgressKinematics(visualProgress.position, 0f, 0f)
+        val shape = LiquidProgressKinematics(visualProgress.size, 0f, 0f)
+        val moving = closing || input.rawProgress < 0.999f
+        return LiquidMorphFrame(
+            rect = rect,
+            cornerRadiusPx = corner,
+            trajectoryProgress = visualProgress.position,
+            shapeProgress = visualProgress.size,
+            motion = LiquidMotionSample(trajectory = trajectory, shape = shape),
+            content = LiquidContentHandoffFrame(
+                sourceAlpha = sourceAlpha,
+                destinationSurfaceAlpha = 1f,
+                destinationContentAlpha = destinationAlpha,
+                sourceBlurPx = sourceBlurMaxPx * sourceBlurProgress,
+                destinationBlurPx = destinationBlur,
+                destinationMounted = true,
+                destinationInteractive = !moving
+            ),
+            backdropDepth = LiquidBackdropDepthFrame(
+                scale = input.backdropScale,
+                blurPx = input.backdropBlurPx,
+                useCachedScene = input.useCachedBackdrop
+            ),
+            layerLifecycle = LiquidLayerLifecycleFrame(
+                keepMorphClip = moving,
+                keepOffscreenLayer = moving,
+                prewarmRequired = !closing && input.rawProgress <= 0f
+            )
+        )
+    }
 }

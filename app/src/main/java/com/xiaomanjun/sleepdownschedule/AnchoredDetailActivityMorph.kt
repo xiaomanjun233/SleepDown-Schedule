@@ -1,6 +1,5 @@
 package com.xiaomanjun.sleepdownschedule
 
-import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
@@ -56,8 +55,9 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.coroutineScope
@@ -127,12 +127,6 @@ internal fun Intent.putAnchoredMorphSnapshots(value: AnchoredMorphSnapshots): In
 internal fun Intent.anchoredMorphSnapshotTokenOrNull(): Long? =
     getLongExtra(AnchoredMorphSnapshotTokenExtra, 0L).takeIf { it > 0L }
 
-fun Activity.startActivityWithAnchoredMorph(intent: Intent) {
-    startActivity(intent)
-    @Suppress("DEPRECATION")
-    overridePendingTransition(0, 0)
-}
-
 private data class AnchoredDetailMorphValues(
     val backgroundAlpha: Float,
     val sourceAlpha: Float,
@@ -183,6 +177,13 @@ internal fun anchoredStableContentOffsetPx(
     shellExtentPx: Float
 ): Float = positionInRootPx - shellStartPx + (rootExtentPx - shellExtentPx) / 2f
 
+/** Controls only ownership of the opening; the existing renderer and all motion values stay intact. */
+internal enum class AnchoredDetailOpeningMode {
+    AnimateLegacy,
+    HoldSourceFrame,
+    ShowDestination
+}
+
 @Composable
 internal fun AnchoredDetailActivityMorph(
     sourceBounds: Rect?,
@@ -197,10 +198,26 @@ internal fun AnchoredDetailActivityMorph(
     collapseSnapshot: Bitmap? = null,
     motionStyle: AnchoredDetailMotionStyle = AnchoredDetailMotionStyle.Liquid,
     destinationFirstOpening: Boolean = false,
+    suppressOpening: Boolean = false,
+    openingMode: AnchoredDetailOpeningMode = if (suppressOpening) {
+        AnchoredDetailOpeningMode.ShowDestination
+    } else {
+        AnchoredDetailOpeningMode.AnimateLegacy
+    },
+    onOpened: () -> Unit = {},
+    onCloseRequested: (() -> Boolean)? = null,
     content: @Composable (requestClose: () -> Unit) -> Unit
 ) {
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
-    val progress = remember(sourceBounds) { Animatable(if (sourceBounds == null) 1f else 0f) }
+    val progress = remember(sourceBounds) {
+        Animatable(
+            if (sourceBounds == null || openingMode == AnchoredDetailOpeningMode.ShowDestination) {
+                1f
+            } else {
+                0f
+            }
+        )
+    }
     val backgroundScale = remember(backgroundSnapshot) { Animatable(1f) }
     var closing by remember(sourceBounds) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -210,16 +227,25 @@ internal fun AnchoredDetailActivityMorph(
         usesCourseEditorMotion
     val usesHomeMenuDestinationMotion = motionStyle == AnchoredDetailMotionStyle.HomeMenuDestination
     val usesDestinationFirstOpening = usesHomeMenuDestinationMotion && destinationFirstOpening
-    val snapshotBackdrop = rememberLayerBackdrop()
+    val snapshotBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.ActivityBackground,
+        providerId = "anchored-detail-snapshot"
+    )
+    val bypassLegacyOpening = openingMode == AnchoredDetailOpeningMode.ShowDestination
+    val renderedProgress = if (bypassLegacyOpening) 1f else progress.value
 
     fun close() {
         if (closing) return
+        if (onCloseRequested?.invoke() == true) return
         if (sourceBounds == null) {
             onFinished()
             return
         }
         closing = true
         scope.launch {
+            if (openingMode == AnchoredDetailOpeningMode.ShowDestination && progress.value < 1f) {
+                progress.snapTo(1f)
+            }
             coroutineScope {
                 launch {
                     backgroundScale.animateTo(
@@ -252,8 +278,14 @@ internal fun AnchoredDetailActivityMorph(
     }
 
     BackHandler(onBack = ::close)
-    LaunchedEffect(sourceBounds, rootSize, motionStyle) {
-        if (sourceBounds != null && rootSize.width > 0 && rootSize.height > 0 && progress.value < 1f) {
+    LaunchedEffect(sourceBounds, rootSize, motionStyle, openingMode) {
+        if (openingMode == AnchoredDetailOpeningMode.ShowDestination) {
+            if (progress.value < 1f) progress.snapTo(1f)
+        } else if (
+            openingMode == AnchoredDetailOpeningMode.AnimateLegacy &&
+            sourceBounds != null && rootSize.width > 0 && rootSize.height > 0 &&
+            progress.value < 1f
+        ) {
             // Precompose the destination before motion starts. This matches the detailed-settings
             // transition and avoids a backdrop-heavy page entering composition mid-animation.
             withFrameNanos { }
@@ -294,6 +326,9 @@ internal fun AnchoredDetailActivityMorph(
                     )
                 }
             }
+            onOpened()
+        } else if (sourceBounds == null) {
+            onOpened()
         }
     }
 
@@ -302,8 +337,8 @@ internal fun AnchoredDetailActivityMorph(
             .fillMaxSize()
             .onSizeChanged { rootSize = it }
     ) {
-        backgroundSnapshot?.let { bitmap ->
-            Box(Modifier.fillMaxSize().layerBackdrop(snapshotBackdrop)) {
+        backgroundSnapshot?.takeIf { !bypassLegacyOpening || closing }?.let { bitmap ->
+            Box(Modifier.fillMaxSize().glassBackdropProducer(snapshotBackdrop)) {
                 MorphSnapshotBackground(
                     bitmap = bitmap,
                     backgroundScaleProvider = { backgroundScale.value },
@@ -321,10 +356,12 @@ internal fun AnchoredDetailActivityMorph(
                 sourceCornerRadius = sourceCornerRadius,
                 collapseCornerRadius = collapseCornerRadius,
                 rootSize = rootSize,
-                sourceSnapshot = sourceSnapshot,
-                collapseSnapshot = collapseSnapshot,
-                backdrop = snapshotBackdrop.takeIf { backgroundSnapshot != null },
-                progress = progress.value,
+                sourceSnapshot = sourceSnapshot.takeIf { !bypassLegacyOpening || closing },
+                collapseSnapshot = collapseSnapshot.takeIf { !bypassLegacyOpening || closing },
+                backdrop = snapshotBackdrop.takeIf {
+                    backgroundSnapshot != null && (!bypassLegacyOpening || closing)
+                },
+                progress = renderedProgress,
                 closing = closing,
                 destinationFirstOpening = usesDestinationFirstOpening,
                 onClose = ::close,
@@ -339,8 +376,8 @@ internal fun AnchoredDetailActivityMorph(
                     collapseSnapshot ?: sourceSnapshot
                 } else {
                     sourceSnapshot
-                },
-                progress = progress.value,
+                }.takeIf { !bypassLegacyOpening || closing },
+                progress = renderedProgress,
                 closing = closing,
                 parabolic = motionStyle == AnchoredDetailMotionStyle.Parabolic || usesCourseEditorMotion,
                 openingDownward = false,
@@ -354,8 +391,8 @@ internal fun AnchoredDetailActivityMorph(
                 sourceBounds = sourceBounds,
                 rootSize = rootSize,
                 sourceCornerRadius = sourceCornerRadius,
-                sourceSnapshot = sourceSnapshot,
-                progress = progress.value,
+                sourceSnapshot = sourceSnapshot.takeIf { !bypassLegacyOpening || closing },
+                progress = renderedProgress,
                 closing = closing,
                 onClose = ::close,
                 sourceContent = sourceContent,
@@ -903,6 +940,7 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
         targetCornerRadiusPx = targetCornerRadiusPx,
         motionStyle = HomeMorphEasingStyle.Legacy
     )
+    val fullOpenEndpoint = !detailMorphUsesTransientClip(progress, closing)
     Box(
         Modifier
             .fillMaxSize()
@@ -923,12 +961,20 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
                 with(density) { geometry.rect.height.toDp() }
             )
             .graphicsLayer {
-                clip = true
+                clip = !fullOpenEndpoint
                 shape = RoundedCornerShape(with(density) { geometry.cornerRadiusPx.toDp() })
-                compositingStrategy = CompositingStrategy.Offscreen
-                renderEffect = platformBlurRenderEffect(
-                    detailMotionBlurRadiusDp(geometry.expansionProgress) * density.density
-                )
+                compositingStrategy = if (fullOpenEndpoint) {
+                    CompositingStrategy.Auto
+                } else {
+                    CompositingStrategy.Offscreen
+                }
+                renderEffect = if (fullOpenEndpoint) {
+                    null
+                } else {
+                    platformBlurRenderEffect(
+                        detailMotionBlurRadiusDp(geometry.expansionProgress) * density.density
+                    )
+                }
             }
     ) {
         if (geometry.sourceAlpha > 0.001f) {
@@ -955,10 +1001,8 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
                 }
             }
         }
-        if (geometry.contentAlpha > 0.001f) {
-            Box(Modifier.fillMaxSize().graphicsLayer { alpha = geometry.contentAlpha }) {
-                content(onClose)
-            }
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = geometry.contentAlpha }) {
+            content(onClose)
         }
     }
 }

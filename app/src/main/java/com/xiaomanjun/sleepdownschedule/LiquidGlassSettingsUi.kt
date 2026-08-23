@@ -36,8 +36,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import kotlin.math.abs
 import kotlin.math.pow
 import top.yukonga.miuix.kmp.squircle.squircleClip
@@ -234,7 +235,10 @@ private fun LiquidGlassDockPreview(
     config: ScheduleConfigEntity,
     darkTheme: Boolean
 ) {
-    val previewBackdrop = rememberLayerBackdrop()
+    val previewBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Background,
+        providerId = "liquid-glass-settings-preview"
+    )
     val adaptiveGlass = remember(darkTheme) {
         adaptiveGlassStateFromLuminance(
             luminance = if (darkTheme) 0.28f else 0.72f,
@@ -254,7 +258,7 @@ private fun LiquidGlassDockPreview(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .layerBackdrop(previewBackdrop)
+                    .glassBackdropProducer(previewBackdrop)
             ) {
                 Image(
                     painter = painterResource(

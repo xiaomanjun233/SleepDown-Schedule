@@ -29,6 +29,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.text.DateFormat
 import java.util.Date
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 
 class AiImportHistoryDetailActivity : ComponentActivity() {
     companion object {
@@ -65,7 +67,9 @@ class AiImportHistoryDetailActivity : ComponentActivity() {
                     motionStyle = AnchoredDetailMotionStyle.DetailSettings,
                     onFinished = {
                         if (returnToMain) {
-                            startActivity(
+                            ActivityTransitionCoordinator.openImmediate(
+                                this,
+                                TransitionRouteId.ReturnToHome,
                                 Intent(this, MainActivity::class.java).addFlags(
                                     Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                                 )

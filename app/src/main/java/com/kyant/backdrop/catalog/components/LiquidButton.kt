@@ -30,12 +30,18 @@ import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
-import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -83,19 +89,56 @@ fun LiquidButton(
             }
         )
     }
+    val material = remember(
+        blurRadius,
+        lensHeight,
+        lensAmount,
+        chromaticAberration,
+        tint,
+        surfaceColor,
+        shadowEnabled
+    ) {
+        GlassMaterialSpec(
+            role = GlassMaterialRole.Control,
+            blur = blurRadius,
+            lensHeight = lensHeight,
+            lensAmount = lensAmount,
+            surfaceAlpha = when {
+                surfaceColor.isSpecified -> surfaceColor.alpha
+                tint.isSpecified -> 0.22f
+                else -> 0f
+            },
+            borderAlpha = 0f,
+            highlightAlpha = 1f,
+            shadowAlpha = if (shadowEnabled) 1f else 0f,
+            innerShadowAlpha = 0f,
+            chromaticAberration = chromaticAberration,
+            depthEffect = false
+        )
+    }
+    val descriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "LiquidButton",
+        domain = GlassBackdropDomain.ChromeCombined,
+        materialRole = GlassMaterialRole.Control,
+        sceneKey = "liquid-button"
+    )
 
     Row(
         modifier
-            .drawBackdrop(
+            .sleepDownGlassSurface(
                 backdrop = backdrop,
+                descriptor = descriptor,
+                material = material,
                 shape = { shape },
-                effects = {
+                effectFrame = GlassEffectFrame(blur = null),
+                effectsOverride = {
                     vibrancy()
                     blur(blurRadius.toPx())
                     lens(lensHeight.toPx(), lensAmount.toPx(), chromaticAberration = chromaticAberration)
                 },
-                shadow = if (shadowEnabled) ({ Shadow.Default }) else null,
-                layerBlock = if (isInteractive) {
+                highlightOverride = { Highlight.Default },
+                shadowOverride = if (shadowEnabled) ({ Shadow.Default }) else null,
+                additionalLayerBlock = if (isInteractive) {
                     {
                         val width = size.width
                         val height = size.height

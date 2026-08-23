@@ -1,0 +1,197 @@
+package com.xiaomanjun.sleepdownschedule.transition
+
+import com.xiaomanjun.sleepdownschedule.R
+
+/** Stable wire identifiers used in Intents and structured transition diagnostics. */
+enum class TransitionRouteId(val wireName: String) {
+    HomeToCourseManagement("home_to_course_management"),
+    CourseManagementToDetail("course_management_to_detail"),
+    ManualImportToHistory("manual_import_to_history"),
+    AiProgressToHistory("ai_progress_to_history"),
+    HomeToSettingsDetail("home_to_settings_detail"),
+    SettingsToSettingsDetail("settings_to_settings_detail"),
+    ScheduleManagerToSettingsDetail("schedule_manager_to_settings_detail"),
+    HomeToEduImport("home_to_edu_import"),
+    SchoolSelectToEduImport("school_select_to_edu_import"),
+    ImportToAiProgress("import_to_ai_progress"),
+    ReturnToHome("return_to_home");
+
+    companion object {
+        fun fromWireName(value: String?): TransitionRouteId? =
+            entries.firstOrNull { it.wireName == value }
+    }
+}
+
+enum class AnchoredLegacyProfileId {
+    HomeMenuDestination,
+    CourseManagementDetail,
+    Liquid,
+    Parabolic
+}
+
+sealed interface LegacyTransitionProfile {
+    data class Anchored(
+        val profileId: AnchoredLegacyProfileId,
+        val sourceCornerRadiusDp: Float,
+        val returnCornerRadiusDp: Float = sourceCornerRadiusDp,
+        val destinationFirstOpening: Boolean = false
+    ) : LegacyTransitionProfile
+
+    data class Depth(
+        val openEnterAnimation: Int,
+        val openExitAnimation: Int,
+        val closeEnterAnimation: Int,
+        val closeExitAnimation: Int
+    ) : LegacyTransitionProfile
+
+    data object PlatformDefault : LegacyTransitionProfile
+    data object TaskReturn : LegacyTransitionProfile
+}
+
+enum class TransitionNativePolicy { Never, OplusAllowlisted }
+
+enum class TransitionNativeClosePolicy { MatchOpen, LegacyOnly }
+
+enum class TransitionDestinationWindowPolicy { Existing, OpaqueNativeCandidate }
+
+data class TransitionRouteSpec(
+    val id: TransitionRouteId,
+    val destinationClassName: String,
+    val legacyProfile: LegacyTransitionProfile,
+    val nativePolicy: TransitionNativePolicy = TransitionNativePolicy.Never,
+    val nativeClosePolicy: TransitionNativeClosePolicy =
+        TransitionNativeClosePolicy.MatchOpen,
+    val destinationWindowPolicy: TransitionDestinationWindowPolicy =
+        TransitionDestinationWindowPolicy.Existing,
+    /**
+     * A real opaque Activity component used only after ViewSeamless accepts this route. Activity
+     * aliases cannot change WindowManager's translucency classification for their target and must
+     * never be used here.
+     */
+    val nativeDestinationClassName: String? = null,
+    val requiresOpeningAnchor: Boolean = false,
+    val requiresReturnAnchor: Boolean = false
+)
+
+/**
+ * Single source of truth for every in-app Activity route. External Intents, widgets and deep links
+ * intentionally stay outside this catalog because their task-stack semantics belong to Android.
+ */
+object TransitionRouteCatalog {
+    private const val PackageName = "com.xiaomanjun.sleepdownschedule"
+
+    private val routes = listOf(
+        TransitionRouteSpec(
+            id = TransitionRouteId.HomeToCourseManagement,
+            destinationClassName = "$PackageName.CourseManagementActivity",
+            legacyProfile = LegacyTransitionProfile.Anchored(
+                profileId = AnchoredLegacyProfileId.HomeMenuDestination,
+                sourceCornerRadiusDp = 30f,
+                returnCornerRadiusDp = 21f,
+                destinationFirstOpening = true
+            ),
+            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
+            nativeClosePolicy = TransitionNativeClosePolicy.LegacyOnly,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName = "$PackageName.OplusCourseManagementActivity",
+            requiresOpeningAnchor = true,
+            requiresReturnAnchor = true
+        ),
+        TransitionRouteSpec(
+            id = TransitionRouteId.CourseManagementToDetail,
+            destinationClassName = "$PackageName.CourseManagementDetailActivity",
+            legacyProfile = LegacyTransitionProfile.Anchored(
+                profileId = AnchoredLegacyProfileId.CourseManagementDetail,
+                sourceCornerRadiusDp = 20f
+            ),
+            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName =
+                "$PackageName.OplusCourseManagementDetailActivity",
+            requiresOpeningAnchor = true,
+            requiresReturnAnchor = true
+        ),
+        TransitionRouteSpec(
+            id = TransitionRouteId.ManualImportToHistory,
+            destinationClassName = "$PackageName.AiImportHistoryActivity",
+            legacyProfile = LegacyTransitionProfile.Anchored(
+                profileId = AnchoredLegacyProfileId.Parabolic,
+                sourceCornerRadiusDp = 21f
+            ),
+            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName = "$PackageName.OplusAiImportHistoryActivity",
+            requiresOpeningAnchor = true,
+            requiresReturnAnchor = true
+        ),
+        TransitionRouteSpec(
+            id = TransitionRouteId.AiProgressToHistory,
+            destinationClassName = "$PackageName.AiImportHistoryActivity",
+            legacyProfile = LegacyTransitionProfile.Anchored(
+                profileId = AnchoredLegacyProfileId.Liquid,
+                sourceCornerRadiusDp = 21f
+            ),
+            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName = "$PackageName.OplusAiImportHistoryActivity",
+            requiresOpeningAnchor = true,
+            requiresReturnAnchor = true
+        ),
+        TransitionRouteSpec(
+            TransitionRouteId.HomeToSettingsDetail,
+            "$PackageName.SettingsDetailActivity",
+            LegacyTransitionProfile.PlatformDefault
+        ),
+        TransitionRouteSpec(
+            TransitionRouteId.SettingsToSettingsDetail,
+            "$PackageName.SettingsDetailActivity",
+            LegacyTransitionProfile.PlatformDefault
+        ),
+        TransitionRouteSpec(
+            TransitionRouteId.ScheduleManagerToSettingsDetail,
+            "$PackageName.SettingsDetailActivity",
+            LegacyTransitionProfile.Depth(
+                R.anim.schedule_depth_enter,
+                R.anim.schedule_depth_exit,
+                R.anim.schedule_depth_pop_enter,
+                R.anim.schedule_depth_pop_exit
+            )
+        ),
+        TransitionRouteSpec(
+            id = TransitionRouteId.HomeToEduImport,
+            destinationClassName = "$PackageName.EduSchoolSelectActivity",
+            legacyProfile = LegacyTransitionProfile.Anchored(
+                profileId = AnchoredLegacyProfileId.HomeMenuDestination,
+                sourceCornerRadiusDp = 30f,
+                returnCornerRadiusDp = 21f,
+                destinationFirstOpening = true
+            ),
+            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
+            nativeClosePolicy = TransitionNativeClosePolicy.LegacyOnly,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName = "$PackageName.OplusEduSchoolSelectActivity",
+            requiresOpeningAnchor = true,
+            requiresReturnAnchor = true
+        ),
+        TransitionRouteSpec(
+            TransitionRouteId.SchoolSelectToEduImport,
+            "$PackageName.EduImportActivity",
+            LegacyTransitionProfile.PlatformDefault
+        ),
+        TransitionRouteSpec(
+            TransitionRouteId.ImportToAiProgress,
+            "$PackageName.AiEduImportProgressActivity",
+            LegacyTransitionProfile.PlatformDefault
+        ),
+        TransitionRouteSpec(
+            TransitionRouteId.ReturnToHome,
+            "$PackageName.MainActivity",
+            LegacyTransitionProfile.TaskReturn
+        )
+    ).associateBy(TransitionRouteSpec::id)
+
+    fun get(id: TransitionRouteId): TransitionRouteSpec =
+        checkNotNull(routes[id]) { "Unregistered transition route: $id" }
+
+    fun all(): Collection<TransitionRouteSpec> = routes.values
+}

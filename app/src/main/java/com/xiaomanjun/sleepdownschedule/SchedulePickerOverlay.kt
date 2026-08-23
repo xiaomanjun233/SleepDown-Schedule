@@ -79,12 +79,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -155,20 +158,43 @@ internal fun Modifier.quickSheetBackdropModifier(
                 }
             )
     }
-    return drawBackdrop(
+    val surfaceAlpha = when {
+        inner && dark -> 0.88f
+        inner -> 0.86f
+        dark -> 0.74f
+        else -> 0.72f
+    }
+    val lensHeight = if (inner) 2.dp else 4.dp
+    val lensAmount = if (inner) 4.dp else 8.dp
+    val material = GlassMaterialSpec.dialog().copy(
+        blur = effectiveBlurRadius,
+        lensHeight = lensHeight,
+        lensAmount = lensAmount,
+        surfaceAlpha = surfaceAlpha,
+        borderAlpha = 0f,
+        highlightAlpha = 0f,
+        shadowAlpha = 0f,
+        innerShadowAlpha = 0f,
+        depthEffect = false,
+        useVibrancy = false
+    )
+    val descriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = if (inner) "QuickSheetInner" else "QuickSheet",
+        domain = GlassBackdropDomain.DialogBridge,
+        materialRole = GlassMaterialRole.Dialog
+    )
+    return sleepDownGlassSurface(
         backdrop = backdrop,
+        descriptor = descriptor,
+        material = material,
         shape = { shape },
-        effects = {
-            blur(effectiveBlurRadius.toPx())
+        effectFrame = GlassEffectFrame(
+            blur = effectiveBlurRadius,
             // Keep the established neutral refraction without the additional full-sheet shader.
-            lens(
-                if (inner) 2.dp.toPx() else 4.dp.toPx(),
-                if (inner) 4.dp.toPx() else 8.dp.toPx(),
-                chromaticAberration = false
-            )
-        },
-        highlight = null,
-        shadow = null,
+            lensHeight = lensHeight,
+            lensAmount = lensAmount,
+            chromaticAberration = false
+        ),
         onDrawSurface = {
             drawRect(
                 when {
@@ -740,7 +766,10 @@ fun SchedulePickerOverlay(
         ?.let { id -> allState.allConfigs.firstOrNull { it.id == id } ?: defaultConfig(id) }
         ?: selectedConfig
     val scope = rememberCoroutineScope()
-    val managerBackdrop = rememberLayerBackdrop()
+    val managerBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.PickerScene,
+        providerId = "schedule-picker-manager"
+    )
     var deleteConfirmTarget by remember { mutableStateOf<ScheduleProfileEntity?>(null) }
     var showShareOptions by remember { mutableStateOf(false) }
     var targetCardBounds by remember { mutableStateOf<Rect?>(null) }
@@ -841,7 +870,7 @@ fun SchedulePickerOverlay(
             Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = backdropAlpha))
-                .layerBackdrop(managerBackdrop)
+                .glassBackdropProducer(managerBackdrop)
                 .pointerInput(phaseInputEnabled, pickerState.deletingScheduleId) {
                     detectTapGestures(onTap = {
                         if (pickerState.phase is CustomizeUiState.Picker) {

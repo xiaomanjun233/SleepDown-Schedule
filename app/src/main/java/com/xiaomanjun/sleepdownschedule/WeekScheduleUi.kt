@@ -204,6 +204,7 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
@@ -242,10 +243,6 @@ import com.kyant.backdrop.catalog.components.LiquidSlider
 import com.kyant.backdrop.catalog.components.LiquidToggle
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
@@ -254,6 +251,26 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassGroupCandidate
+import com.xiaomanjun.sleepdownschedule.glass.GlassGroupMaximumMembers
+import com.xiaomanjun.sleepdownschedule.glass.GlassGroupPlanner
+import com.xiaomanjun.sleepdownschedule.glass.GlassGroupRenderEligibility
+import com.xiaomanjun.sleepdownschedule.glass.GlassSceneKeys
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
+import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassRestorePlan
+import com.xiaomanjun.sleepdownschedule.glass.adaptiveCourseGlassPrewarmDistancePx
+import com.xiaomanjun.sleepdownschedule.glass.adaptiveCourseGlassSampleScale
+import com.xiaomanjun.sleepdownschedule.glass.decideCourseGlassViewportMaterial
+import com.xiaomanjun.sleepdownschedule.glass.glassGroupEligibility
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.sampled
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassGroupSurface
+import com.xiaomanjun.sleepdownschedule.glass.toTightLayerPlan
+import com.xiaomanjun.sleepdownschedule.glass.isGlassGroupEnabled
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -473,11 +490,14 @@ internal fun SinglePillWeekScheduleScreen(
         scrollState = scrollState,
         scheduleId = state.config.id
     )
-    val stationaryCoursesBackdrop = rememberLayerBackdrop()
+    val stationaryCoursesBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "week-stationary-courses"
+    )
     val needsStationaryCoursesBackdrop = weekEditMode || weekEditOverlay.request != null
     val floatingSamplingBase = floatingCourseBackdrop ?: backdrop
     val liftedCourseBackdrop = if (floatingSamplingBase != null) {
-        rememberCombinedBackdrop(floatingSamplingBase, stationaryCoursesBackdrop)
+        rememberGlassCombinedBackdrop(floatingSamplingBase, stationaryCoursesBackdrop)
     } else {
         null
     }
@@ -672,7 +692,7 @@ internal fun SinglePillWeekScheduleScreen(
                             .fillMaxSize()
                             .then(
                                 if (needsStationaryCoursesBackdrop) {
-                                    Modifier.layerBackdrop(stationaryCoursesBackdrop)
+                                    Modifier.glassBackdropProducer(stationaryCoursesBackdrop)
                                 } else {
                                     Modifier
                                 }
@@ -1421,6 +1441,36 @@ fun WeekHeaderPill(backdrop: Backdrop?, config: ScheduleConfigEntity, selected: 
     )
 }
 
+private data class WeekRenderedSegment(
+    val groupIndex: Int,
+    val group: WeekConflictGroup,
+    val segment: WeekCourseSegment
+)
+
+private fun renderedWeekSegments(
+    conflictGroups: List<WeekConflictGroup>,
+    conflictFocusCourseId: Long?,
+    conflictFocusCourseKey: String?
+): List<WeekRenderedSegment> = buildList {
+    conflictGroups.forEachIndexed { groupIndex, group ->
+        val visibleCourse = group.courses.firstOrNull { it.id == conflictFocusCourseId }
+            ?: group.courses.firstOrNull {
+                conflictFocusCourseKey != null &&
+                    it.occurrenceOverrideKey() == conflictFocusCourseKey
+            }
+            ?: group.courses.first()
+        val visibleSegments = group.segments.filter { it.course.id == visibleCourse.id }
+        val segments = if (visibleCourse.hasCustomTime()) {
+            visibleSegments.minByOrNull { it.startPosition }?.let(::listOf).orEmpty()
+        } else {
+            visibleSegments
+        }
+        segments.forEach { segment ->
+            add(WeekRenderedSegment(groupIndex, group, segment))
+        }
+    }
+}
+
 @Composable
 fun WeekDayColumn(
     courses: List<CourseEntity>,
@@ -1451,6 +1501,8 @@ fun WeekDayColumn(
     onDeleteSingleWeekCourse: (CourseEntity) -> Unit = {},
     onCourseClick: (CourseEntity, Rect?) -> Unit,
     onDragStateChanged: (dayIndex: Int?, courseId: Long?) -> Unit = { _, _ -> },
+    composedCourseCardCount: Int = courses.size,
+    occlusionMaterialMounted: Boolean = true,
     draggingCourseId: Long? = null,
     activeOverlayCourseId: Long? = null,
     activeOverlayTargetKey: String? = null,
@@ -1461,46 +1513,87 @@ fun WeekDayColumn(
     onFinishResizeOverlay: (Velocity) -> Unit = {},
     onCancelWeekEditOverlay: () -> Unit = {}
 ) {
+    val density = LocalDensity.current
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
     val conflictGroups = remember(courses, periodIndexes, periods) {
         buildWeekConflictGroups(courses, periodIndexes, periods)
     }
-    Box(
+    val renderedSegments = remember(
+        conflictGroups,
+        conflictFocusCourseId,
+        conflictFocusCourseKey
+    ) {
+        renderedWeekSegments(
+            conflictGroups = conflictGroups,
+            conflictFocusCourseId = conflictFocusCourseId,
+            conflictFocusCourseKey = conflictFocusCourseKey
+        )
+    }
+    val glassSceneState = LocalGlassSceneState.current
+    val courseGlassOcclusionPhase = LocalCourseGlassOcclusionPhase.current
+    val quality = LocalGlassQuality.current
+    val previewState = LocalPersonalizationPreview.current
+    val startupPhase = LocalStartupPhase.current
+    val hasWallpaper = config.hasAnyWallpaper()
+    val tokens = GlassTokens.courseCard(config.courseCardBlur)
+    val liveBlur = previewState?.cardBlur ?: config.courseCardBlur
+    val effectFrame = courseCardGlassEffectFrame(
+        tokens = tokens,
+        liveBlur = liveBlur,
+        quality = quality,
+        hasWallpaper = hasWallpaper
+    )
+    val courseBackdropSampleScale = adaptiveCourseGlassSampleScale(
+        composedCardCount = composedCourseCardCount,
+        enabled = !editMode &&
+            glassSceneState?.isGlassGroupEnabled(GlassSceneKeys.WeekCourseCards) == true
+    )
+    val windowSize = currentWindowSizeDp()
+    val rootView = LocalView.current
+    val viewportCullingEnabled = BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT &&
+        startupPhase == StartupPhase.FullQuality &&
+        !editMode &&
+        draggingCourseId == null &&
+        activeOverlayCourseId == null &&
+        activeOverlayTargetKey == null
+    val mayGroupCourseCards = glassSceneState != null &&
+        courseGlassOcclusionPhase.mountsMaterialNodes &&
+        occlusionMaterialMounted &&
+        backdrop != null &&
+        config.courseCardGlassEnabled &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        startupPhase == StartupPhase.FullQuality &&
+        !editMode &&
+        draggingCourseId == null &&
+        !weekMotionOutgoing &&
+        layerOffset?.isRunning != true &&
+        abs(layerOffset?.value ?: 0f) < 0.5f &&
+        activeOverlayCourseId == null &&
+        activeOverlayTargetKey == null
+
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .height(cardHeight * periods.size.toFloat())
     ) {
-        Column(Modifier.fillMaxSize()) {
-            periods.forEach { EmptyWeekCell(cardHeight, emptyBackground) }
-        }
-        conflictGroups.forEachIndexed { groupIndex, group ->
-            val visibleCourse = group.courses.firstOrNull { it.id == conflictFocusCourseId }
-                ?: group.courses.firstOrNull {
-                    conflictFocusCourseKey != null &&
-                        it.occurrenceOverrideKey() == conflictFocusCourseKey
-                }
-                ?: group.courses.first()
-            val visibleSegments = group.segments
-                .filter { it.course.id == visibleCourse.id }
-            val renderedSegments = if (visibleCourse.hasCustomTime()) {
-                visibleSegments.minByOrNull { it.startPosition }?.let(::listOf).orEmpty()
+        val viewportWidthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
+        val viewportHeightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
+        val horizontalInsetPx = with(density) { 2.dp.roundToPx().toFloat() }
+        val allGroupedCandidates = remember(
+            mayGroupCourseCards,
+            renderedSegments,
+            periods,
+            cardHeight,
+            maxWidth,
+            gridColumnWidth,
+            windowSize,
+            density.density
+        ) {
+            if (!mayGroupCourseCards) {
+                emptyList()
             } else {
-                visibleSegments
-            }
-            renderedSegments.forEach { segment ->
-                    val underlyingSegment = group.segments
-                        .asSequence()
-                        .filter { it.course.id != visibleCourse.id }
-                        .filter {
-                            it.startPosition <= segment.endPosition &&
-                                it.endPosition >= segment.startPosition
-                        }
-                        .sortedWith(
-                            compareBy<WeekCourseSegment> { it.startPosition }
-                                .thenBy { it.endPosition }
-                                .thenBy { it.course.id }
-                        )
-                        .firstOrNull()
+                renderedSegments.map { rendered ->
+                    val segment = rendered.segment
                     val exactPlacement = exactTimeWeekPlacement(segment.course, periods)
                     val segmentTopRows = exactPlacement?.topRows ?: segment.startPosition.toFloat()
                     val segmentHeightRows = exactPlacement?.heightRows ?: segment.span.toFloat()
@@ -1510,61 +1603,243 @@ fun WeekDayColumn(
                         (cardHeight * segmentHeightRows - 4.dp).coerceAtLeast(18.dp)
                     }
                     val segmentTopInset = if (exactPlacement != null) 0.dp else 2.dp
+                    val topPx = with(density) {
+                        (cardHeight * segmentTopRows + segmentTopInset).roundToPx().toFloat()
+                    }
+                    val heightPx = with(density) {
+                        segmentHeight.roundToPx().toFloat()
+                    }.coerceAtLeast(1f)
+                    val cardWidthForCorner = gridColumnWidth.takeIf { it > 0.dp } ?: maxWidth
+                    val cardCorner = adaptiveWeekCardCornerRadius(
+                        cardWidth = (cardWidthForCorner - 4.dp).coerceAtLeast(1.dp),
+                        cardHeight = segmentHeight,
+                        windowWidth = windowSize.width,
+                        windowHeight = windowSize.height
+                    )
+                    GlassGroupCandidate(
+                        id = "${segment.course.id}:${segment.startPosition}:${segment.endPosition}:${rendered.groupIndex}",
+                        domain = GlassBackdropDomain.Content,
+                        materialKey = "week-course-card-liquid",
+                        boundsInViewport = Rect(
+                            left = horizontalInsetPx,
+                            top = topPx,
+                            right = (viewportWidthPx - horizontalInsetPx)
+                                .coerceAtLeast(horizontalInsetPx + 1f),
+                            bottom = topPx + heightPx
+                        ),
+                        cornerRadiusPx = with(density) { cardCorner.toPx() }
+                    )
+                }
+            }
+        }
+        val groupedCandidateMounts = remember(dayIndex, editWeek) {
+            mutableMapOf<String, Boolean>()
+        }
+        val groupedCandidateDistances = remember(dayIndex, editWeek) {
+            mutableMapOf<String, Float>()
+        }
+        var mountedGroupedCandidateIds by remember(dayIndex, editWeek) {
+            mutableStateOf<Set<String>?>(null)
+        }
+        val groupedCandidates = if (!viewportCullingEnabled) {
+            allGroupedCandidates
+        } else {
+            mountedGroupedCandidateIds?.let { mountedIds ->
+                allGroupedCandidates.filter { it.id in mountedIds }
+            } ?: allGroupedCandidates
+        }
+        val groupViewport = remember(viewportWidthPx, viewportHeightPx) {
+            Rect(0f, 0f, viewportWidthPx, viewportHeightPx)
+        }
+        val groupPlans = remember(groupViewport, groupedCandidates) {
+            GlassGroupPlanner.plan(
+                viewport = groupViewport,
+                candidates = groupedCandidates,
+                maxMembersPerPlan = GlassGroupMaximumMembers
+            )
+        }
+        val groupLayerPlans = remember(groupPlans) {
+            groupPlans.map { it.toTightLayerPlan() }
+        }
+        val sampledGroupLayerPlans = remember(groupLayerPlans, courseBackdropSampleScale) {
+            groupLayerPlans.map { it.sampled(courseBackdropSampleScale) }
+        }
+        val groupedSurfaceEnabled = mayGroupCourseCards &&
+            groupedCandidates.size > sampledGroupLayerPlans.size &&
+            sampledGroupLayerPlans.isNotEmpty() &&
+            sampledGroupLayerPlans.all { layerPlan ->
+                requireNotNull(glassSceneState).glassGroupEligibility(
+                    sceneKey = GlassSceneKeys.WeekCourseCards,
+                    plan = layerPlan.localPlan,
+                    effectFrame = effectFrame
+                ) == GlassGroupRenderEligibility.Eligible
+            }
+
+        if (groupedSurfaceEnabled) {
+            val activeSceneState = requireNotNull(glassSceneState)
+            val activeBackdrop = requireNotNull(backdrop)
+            sampledGroupLayerPlans.forEachIndexed { index, layerPlan ->
+                val plan = layerPlan.localPlan
+                val layerWidth = with(density) { layerPlan.size.width.toDp() }
+                val layerHeight = with(density) { layerPlan.size.height.toDp() }
+                key("week-course-glass-group", index, plan.members.first().id) {
                     Box(
                         modifier = Modifier
-                            .offset(y = cardHeight * segmentTopRows + segmentTopInset)
-                            .fillMaxWidth()
-                            .padding(horizontal = 2.dp)
-                            .height(segmentHeight)
-                            .zIndex(groupIndex.toFloat())
-                    ) {
-                        WeekCourseBlock(
-                            course = segment.course,
-                            periods = periods,
-                            height = segmentHeight,
-                            cardColor = cardColor,
-                            backdrop = backdrop,
-                            floatingBackdrop = floatingBackdrop,
-                            config = config,
-                            weekMotionDirection = weekMotionDirection,
-                            weekMotionOutgoing = weekMotionOutgoing,
-                            dayIndex = dayIndex,
-                            periodIndex = periodIndexes[segment.startPosition],
-                            gridColumnWidth = gridColumnWidth,
-                            periodRowHeight = periodRowHeight,
-                            layerOffset = layerOffset,
-                            layerTravel = layerTravel,
-                            stackIndex = groupIndex,
-                            conflictWarning = group.hasConflict,
-                            conflictUnderlyingCourse = underlyingSegment?.course,
-                            conflictUnderlyingPeriodIndex = underlyingSegment
-                                ?.let { periodIndexes[it.startPosition] },
-                            conflictUnderlyingSpan = underlyingSegment?.span ?: 0,
-                            onResolveConflict = { moved ->
-                                onResolveCourseConflict(segment.course, moved)
-                            },
-                            editMode = editMode,
-                            editWeek = editWeek,
-                            allWeekCourses = allWeekCourses,
-                            weekdayCount = weekdayCount,
-                            editScrollState = editScrollState,
-                            onEnterEditMode = onEnterEditMode,
-                            onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
-                            onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
-                            onCourseClick = onCourseClick,
-                            onDragStateChanged = onDragStateChanged,
-                            activeOverlayCourseId = activeOverlayCourseId,
-                            activeOverlayTargetKey = activeOverlayTargetKey,
-                            activeOverlayTargetWeek = activeOverlayTargetWeek,
-                            onStartWeekEditOverlay = onStartWeekEditOverlay,
-                            onDragWeekEditOverlay = onDragWeekEditOverlay,
-                            onFinishMoveOverlay = onFinishMoveOverlay,
-                            onFinishResizeOverlay = onFinishResizeOverlay,
-                            onCancelWeekEditOverlay = onCancelWeekEditOverlay
+                            .offset { layerPlan.offsetInViewport }
+                            .size(layerWidth, layerHeight)
+                            .sleepDownGlassGroupSurface(
+                                backdrop = activeBackdrop,
+                                plan = plan,
+                                material = tokens,
+                                effectFrame = effectFrame,
+                                sceneState = activeSceneState,
+                                sceneKey = GlassSceneKeys.WeekCourseCards,
+                                sampleScale = courseBackdropSampleScale
+                            )
+                    )
+                }
+            }
+        }
+        if (mayGroupCourseCards && allGroupedCandidates.isNotEmpty()) {
+            // Keep the layout/text tree alive, but let the shared material plan contain only
+            // visible or directionally prewarmed members. The set changes only at card/window
+            // boundaries, so ordinary scroll pixels do not cause recomposition.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onGloballyPositioned { coordinates ->
+                        val viewport = Rect(
+                            left = 0f,
+                            top = 0f,
+                            right = rootView.width.toFloat(),
+                            bottom = rootView.height.toFloat()
                         )
-                        exactPlacement?.let {
-                            val labelColor = glassForegroundColor(config)
-                            Text(
+                        val prewarmDistance = adaptiveCourseGlassPrewarmDistancePx(
+                            viewport = viewport,
+                            density = density.density
+                        )
+                        val mountedIds = buildSet {
+                            allGroupedCandidates.forEach { candidate ->
+                                val bounds = candidate.boundsInViewport
+                                val topLeft = coordinates.localToWindow(bounds.topLeft)
+                                val bottomRight = coordinates.localToWindow(bounds.bottomRight)
+                                val candidateWindowBounds = Rect(
+                                    left = minOf(topLeft.x, bottomRight.x),
+                                    top = minOf(topLeft.y, bottomRight.y),
+                                    right = maxOf(topLeft.x, bottomRight.x),
+                                    bottom = maxOf(topLeft.y, bottomRight.y)
+                                )
+                                val decision = decideCourseGlassViewportMaterial(
+                                    enabled = viewportCullingEnabled,
+                                    currentlyMounted = groupedCandidateMounts[candidate.id] ?: true,
+                                    previousDistanceOutsidePx =
+                                        groupedCandidateDistances[candidate.id],
+                                    boundsInWindow = candidateWindowBounds,
+                                    viewport = viewport,
+                                    prewarmDistancePx = prewarmDistance,
+                                    // HorizontalPager deliberately keeps adjacent weeks composed.
+                                    // Rebuilding their shader chains on the first drag frame costs
+                                    // more than retaining them; cull only vertically here.
+                                    cullHorizontal = false
+                                )
+                                groupedCandidateMounts[candidate.id] = decision.mountMaterial
+                                groupedCandidateDistances[candidate.id] = decision.distanceOutsidePx
+                                if (decision.mountMaterial) add(candidate.id)
+                            }
+                        }
+                        if (mountedGroupedCandidateIds != mountedIds) {
+                            mountedGroupedCandidateIds = mountedIds
+                        }
+                    }
+            )
+        }
+        Column(Modifier.fillMaxSize()) {
+            periods.forEach { EmptyWeekCell(cardHeight, emptyBackground) }
+        }
+        renderedSegments.forEach { rendered ->
+            val groupIndex = rendered.groupIndex
+            val group = rendered.group
+            val segment = rendered.segment
+            val underlyingSegment = group.segments
+                .asSequence()
+                .filter { it.course.id != segment.course.id }
+                .filter {
+                    it.startPosition <= segment.endPosition &&
+                        it.endPosition >= segment.startPosition
+                }
+                .sortedWith(
+                    compareBy<WeekCourseSegment> { it.startPosition }
+                        .thenBy { it.endPosition }
+                        .thenBy { it.course.id }
+                )
+                .firstOrNull()
+            val exactPlacement = exactTimeWeekPlacement(segment.course, periods)
+            val segmentTopRows = exactPlacement?.topRows ?: segment.startPosition.toFloat()
+            val segmentHeightRows = exactPlacement?.heightRows ?: segment.span.toFloat()
+            val segmentHeight = if (exactPlacement != null) {
+                (cardHeight * segmentHeightRows).coerceAtLeast(1.dp)
+            } else {
+                (cardHeight * segmentHeightRows - 4.dp).coerceAtLeast(18.dp)
+            }
+            val segmentTopInset = if (exactPlacement != null) 0.dp else 2.dp
+            Box(
+                modifier = Modifier
+                    .offset(y = cardHeight * segmentTopRows + segmentTopInset)
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp)
+                    .height(segmentHeight)
+                    .zIndex(groupIndex.toFloat())
+            ) {
+                WeekCourseBlock(
+                    course = segment.course,
+                    periods = periods,
+                    height = segmentHeight,
+                    cardColor = cardColor,
+                    backdrop = backdrop,
+                    floatingBackdrop = floatingBackdrop,
+                    config = config,
+                    weekMotionDirection = weekMotionDirection,
+                    weekMotionOutgoing = weekMotionOutgoing,
+                    dayIndex = dayIndex,
+                    periodIndex = periodIndexes[segment.startPosition],
+                    gridColumnWidth = gridColumnWidth,
+                    periodRowHeight = periodRowHeight,
+                    layerOffset = layerOffset,
+                    layerTravel = layerTravel,
+                    stackIndex = groupIndex,
+                    conflictWarning = group.hasConflict,
+                    conflictUnderlyingCourse = underlyingSegment?.course,
+                    conflictUnderlyingPeriodIndex = underlyingSegment
+                        ?.let { periodIndexes[it.startPosition] },
+                    conflictUnderlyingSpan = underlyingSegment?.span ?: 0,
+                    onResolveConflict = { moved ->
+                        onResolveCourseConflict(segment.course, moved)
+                    },
+                    editMode = editMode,
+                    editWeek = editWeek,
+                    allWeekCourses = allWeekCourses,
+                    weekdayCount = weekdayCount,
+                    editScrollState = editScrollState,
+                    onEnterEditMode = onEnterEditMode,
+                    onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
+                    onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
+                    onCourseClick = onCourseClick,
+                    onDragStateChanged = onDragStateChanged,
+                    activeOverlayCourseId = activeOverlayCourseId,
+                    activeOverlayTargetKey = activeOverlayTargetKey,
+                    activeOverlayTargetWeek = activeOverlayTargetWeek,
+                    onStartWeekEditOverlay = onStartWeekEditOverlay,
+                    onDragWeekEditOverlay = onDragWeekEditOverlay,
+                    onFinishMoveOverlay = onFinishMoveOverlay,
+                    onFinishResizeOverlay = onFinishResizeOverlay,
+                    onCancelWeekEditOverlay = onCancelWeekEditOverlay,
+                    renderCardSurface = !groupedSurfaceEnabled,
+                    occlusionMaterialMounted = occlusionMaterialMounted,
+                    backdropSampleScale = courseBackdropSampleScale
+                )
+                exactPlacement?.let {
+                    val labelColor = glassForegroundColor(config)
+                    Text(
                                 text = segment.course.customStartTime.orEmpty(),
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
@@ -1575,8 +1850,8 @@ fun WeekDayColumn(
                                 lineHeight = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1
-                            )
-                            Text(
+                    )
+                    Text(
                                 text = segment.course.customEndTime.orEmpty(),
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
@@ -1587,10 +1862,9 @@ fun WeekDayColumn(
                                 lineHeight = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1
-                            )
-                        }
-                    }
+                    )
                 }
+            }
         }
     }
 }
@@ -1632,6 +1906,7 @@ fun WeekCourseColumnsLayer(
 ) {
     val density = LocalDensity.current
     val coursesByWeekday = remember(courses) { courses.groupBy { it.weekday } }
+    val courseGlassRestorePlan = LocalCourseGlassRestorePlan.current
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -1642,7 +1917,7 @@ fun WeekCourseColumnsLayer(
         var draggingDayIndex by remember { mutableStateOf<Int?>(null) }
         var draggingCourseId by remember { mutableStateOf<Long?>(null) }
         Row(modifier = Modifier.fillMaxWidth()) {
-            weekdays.forEach { day ->
+            weekdays.forEachIndexed { columnIndex, day ->
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -1680,6 +1955,12 @@ fun WeekCourseColumnsLayer(
                             draggingDayIndex = dayIndex
                             draggingCourseId = courseId
                         },
+                        composedCourseCardCount = courses.size,
+                        occlusionMaterialMounted = courseGlassRestorePlan.mountsColumn(
+                            pageWeek = editWeek,
+                            columnIndex = columnIndex,
+                            columnCount = weekdays.size
+                        ),
                         draggingCourseId = draggingCourseId,
                         activeOverlayCourseId = activeOverlayCourseId,
                         activeOverlayTargetKey = activeOverlayTargetKey,
@@ -2555,7 +2836,10 @@ fun WeekCourseBlock(
     onDragWeekEditOverlay: (Offset) -> Unit = {},
     onFinishMoveOverlay: (Velocity) -> Unit = {},
     onFinishResizeOverlay: (Velocity) -> Unit = {},
-    onCancelWeekEditOverlay: () -> Unit = {}
+    onCancelWeekEditOverlay: () -> Unit = {},
+    renderCardSurface: Boolean = true,
+    occlusionMaterialMounted: Boolean = true,
+    backdropSampleScale: Float = 1f
 ) {
     val locationText = course.location.orEmpty()
     val hasLocation = locationText.isNotBlank()
@@ -2566,9 +2850,21 @@ fun WeekCourseBlock(
         else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor)
         else glassForegroundColor(config)
     val density = LocalDensity.current
+    val rootView = LocalView.current
     val tailDirection = if (weekMotionOutgoing) -weekMotionDirection else weekMotionDirection
     val tailBase = with(density) { (32.dp + ((periodIndex - 1).coerceAtLeast(0).coerceAtMost(9) * 9f).dp + (stackIndex * 16f).dp).toPx() }
     val startupPhase = LocalStartupPhase.current
+    val viewportCullingEnabled = BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT &&
+        startupPhase == StartupPhase.FullQuality &&
+        !editMode &&
+        activeOverlayCourseId == null &&
+        activeOverlayTargetKey == null
+    var viewportMaterialMounted by remember(course.id, dayIndex, periodIndex, editWeek) {
+        mutableStateOf(true)
+    }
+    val previousViewportDistance = remember(course.id, dayIndex, periodIndex, editWeek) {
+        FloatArray(1) { Float.NaN }
+    }
     val startupOrigin = startupOriginForWeekCard(
         dayIndex = dayIndex,
         periodIndex = periodIndex,
@@ -2576,7 +2872,15 @@ fun WeekCourseBlock(
         periodCount = periods.size
     )
     val startupIndex = ((periodIndex - 1).coerceAtLeast(0) * 7 + (dayIndex - 1).coerceAtLeast(0)) * 2 + stackIndex
-    var ownBounds by remember { mutableStateOf<Rect?>(null) }
+    // Position changes on every pager/vertical-scroll frame but does not affect composition.
+    // Keep the latest anchor in a non-observable holder so scrolling N cards cannot schedule N
+    // recompositions; only a real width change updates the small measured-width state below.
+    val ownBoundsRef = remember(course.id, dayIndex, periodIndex, editWeek) {
+        arrayOfNulls<Rect>(1)
+    }
+    var measuredCardWidth by remember(course.id, dayIndex, periodIndex, editWeek) {
+        mutableFloatStateOf(0f)
+    }
     val haptic = LocalHapticFeedback.current
     val weekEditMotionState = LocalWeekEditMotionState.current
     val isOverlayTarget = activeOverlayTargetKey != null &&
@@ -2609,7 +2913,9 @@ fun WeekCourseBlock(
     val scope = rememberCoroutineScope()
     val screenHeightPx = with(density) { currentWindowSizeDp().height.toPx() }
     val edgeScrollThresholdPx = with(density) { 92.dp.toPx() }
-    val measuredCardWidthPx = ownBounds?.width?.coerceAtLeast(1f) ?: with(density) { 48.dp.toPx() }
+    val measuredCardWidthPx = measuredCardWidth
+        .takeIf { it > 1f }
+        ?: with(density) { 48.dp.toPx() }
     val gridColumnWidthPx = with(density) { gridColumnWidth.toPx() }
         .takeIf { it > 1f }
         ?: measuredCardWidthPx
@@ -2653,6 +2959,9 @@ fun WeekCourseBlock(
         windowHeight = windowSize.height
     )
     val cardShape = remember(cardCorner) { RoundedRectangle(cardCorner) }
+    val sampledCardShape = remember(cardCorner, backdropSampleScale) {
+        RoundedRectangle(cardCorner * backdropSampleScale.coerceIn(0.5f, 1f))
+    }
     val resizeStartIndex = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
     val resizeMaxSpan = (periodIndexes.size - resizeStartIndex).coerceAtLeast(1)
     val baseHeightPx = with(density) { height.toPx() }
@@ -2660,7 +2969,7 @@ fun WeekCourseBlock(
         mode: WeekEditOverlayMode,
         pointerInSource: Offset
     ): WeekEditOverlayRequest? {
-        val bounds = ownBounds ?: return null
+        val bounds = ownBoundsRef[0] ?: return null
         return WeekEditOverlayRequest(
             mode = mode,
             course = course,
@@ -2734,7 +3043,7 @@ fun WeekCourseBlock(
             )
         } else {
             detectTapGestures(
-                onTap = { onCourseClick(course, ownBounds) },
+                onTap = { onCourseClick(course, ownBoundsRef[0]) },
                 onLongPress = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     if (!editMode) onEnterEditMode()
@@ -2765,7 +3074,7 @@ fun WeekCourseBlock(
                 tailBase * progress * tailDirection
             } ?: 0f
             val rippleCenter = weekEditMotionState?.landingRippleCenter
-            val bounds = ownBounds
+            val bounds = ownBoundsRef[0]
             val ripple = if (
                 rippleCenter != null &&
                 bounds != null &&
@@ -2802,9 +3111,36 @@ fun WeekCourseBlock(
             rotationZ = ripple.rotationFactor
         }
         .onGloballyPositioned { coordinates ->
-            ownBounds = coordinates.boundsInRoot()
+            val boundsInRoot = coordinates.boundsInRoot()
+            ownBoundsRef[0] = boundsInRoot
+            if (abs(measuredCardWidth - boundsInRoot.width) > 0.5f) {
+                measuredCardWidth = boundsInRoot.width
+            }
             if (isOverlayTarget) {
-                weekEditMotionState?.updateRealLandingCenter(coordinates.boundsInRoot().center)
+                weekEditMotionState?.updateRealLandingCenter(boundsInRoot.center)
+            }
+            val viewport = Rect(
+                left = 0f,
+                top = 0f,
+                right = rootView.width.toFloat(),
+                bottom = rootView.height.toFloat()
+            )
+            val decision = decideCourseGlassViewportMaterial(
+                enabled = viewportCullingEnabled,
+                currentlyMounted = viewportMaterialMounted,
+                previousDistanceOutsidePx = previousViewportDistance[0]
+                    .takeUnless { it.isNaN() },
+                boundsInWindow = coordinates.boundsInWindow(),
+                viewport = viewport,
+                prewarmDistancePx = adaptiveCourseGlassPrewarmDistancePx(
+                    viewport = viewport,
+                    density = density.density
+                ),
+                cullHorizontal = false
+            )
+            previousViewportDistance[0] = decision.distanceOutsidePx
+            if (viewportMaterialMounted != decision.mountMaterial) {
+                viewportMaterialMounted = decision.mountMaterial
             }
         }
     CourseBoundsSource(
@@ -2952,6 +3288,11 @@ fun WeekCourseBlock(
                     .fillMaxWidth()
                     .height(displayedHeight),
                 shape = cardShape,
+                renderSurface = renderCardSurface,
+                mountMaterial = occlusionMaterialMounted &&
+                    (!viewportCullingEnabled || viewportMaterialMounted),
+                backdropSampleScale = backdropSampleScale,
+                sampledShape = sampledCardShape,
                 onClick = null
             ) {}
             BoxWithConstraints(Modifier.fillMaxWidth().height(displayedHeight).clipToBounds()) {

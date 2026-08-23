@@ -30,8 +30,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
@@ -83,7 +84,10 @@ fun GlassMiuixRootSettingsScaffold(
 ) {
     val pageConfig = settingsVisualConfig(config)
     val pageColor = settingsPageBackground(pageConfig)
-    val contentBackdrop = rememberLayerBackdrop {
+    val contentBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "settings-root-content"
+    ) {
         drawRect(pageColor)
         drawContent()
     }
@@ -115,7 +119,7 @@ fun GlassMiuixRootSettingsScaffold(
                     Modifier
                         .fillMaxSize()
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
-                        .layerBackdrop(contentBackdrop)
+                        .glassBackdropProducer(contentBackdrop)
                 ) {
                     content(innerPadding)
                 }
@@ -138,8 +142,14 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
 ) {
     val pageConfig = settingsVisualConfig(config)
     val pageColor = settingsPageBackground(pageConfig)
-    val backgroundBackdrop = rememberLayerBackdrop()
-    val contentBackdrop = rememberLayerBackdrop {
+    val backgroundBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Background,
+        providerId = "settings-tablet-background"
+    )
+    val contentBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "settings-tablet-content"
+    ) {
         drawRect(pageColor)
         drawContent()
     }
@@ -149,7 +159,7 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
                 Modifier
                     .fillMaxSize()
                     .background(pageColor)
-                    .layerBackdrop(backgroundBackdrop)
+                    .glassBackdropProducer(backgroundBackdrop)
             )
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
@@ -184,7 +194,7 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
                         Modifier
                             .fillMaxSize()
                             .padding(horizontal = horizontalContentInset)
-                            .layerBackdrop(contentBackdrop)
+                            .glassBackdropProducer(contentBackdrop)
                     ) {
                         content(backgroundBackdrop)
                     }
@@ -210,8 +220,14 @@ internal fun GlassMiuixDetailActivityScaffold(
 ) {
     val pageConfig = settingsVisualConfig(config)
     val pageColor = settingsPageBackground(pageConfig)
-    val backgroundBackdrop = rememberLayerBackdrop()
-    val contentBackdrop = rememberLayerBackdrop {
+    val backgroundBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Background,
+        providerId = "settings-detail-background"
+    )
+    val contentBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "settings-detail-content"
+    ) {
         drawRect(pageColor)
         drawContent()
     }
@@ -228,7 +244,7 @@ internal fun GlassMiuixDetailActivityScaffold(
                 Modifier
                     .fillMaxSize()
                     .background(settingsPageBackground(pageConfig))
-                    .layerBackdrop(backgroundBackdrop)
+                    .glassBackdropProducer(backgroundBackdrop)
             )
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
@@ -287,7 +303,7 @@ internal fun GlassMiuixDetailActivityScaffold(
                     if (isolateContentFromBackdrop) {
                         Box(contentModifier) { content(null) }
                     } else {
-                        Box(contentModifier.layerBackdrop(contentBackdrop)) {
+                        Box(contentModifier.glassBackdropProducer(contentBackdrop)) {
                             CompositionLocalProvider(
                                 LocalSettingsPopupBackdrop provides contentBackdrop
                             ) {

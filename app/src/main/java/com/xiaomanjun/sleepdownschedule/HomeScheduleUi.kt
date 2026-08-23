@@ -250,10 +250,6 @@ import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.backdrop.catalog.components.LiquidSlider
 import com.kyant.backdrop.catalog.components.LiquidToggle
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
@@ -262,6 +258,10 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
+import com.xiaomanjun.sleepdownschedule.glass.CourseGlassRestorePlan
+import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
+import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassRestorePlan
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -486,40 +486,53 @@ fun HomeDateTitle(
 ) {
     val color = homeForegroundColor(state.config)
     val interactionSource = remember { MutableInteractionSource() }
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .height(42.dp)
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onReturnCurrent),
-        verticalArrangement = Arrangement.Center
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onReturnCurrent)
     ) {
-        HomeReadableText(
-            when {
-                beforeScheduleTerm -> "当前暂未开学"
-                afterScheduleTerm -> "学期已结束"
-                showReturnToCurrentWeekHint -> "点击此处回到本周"
-                else -> "第${displayWeek}周"
-            },
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontSize = 16.sp,
-                lineHeight = 18.sp
-            ),
-            fontWeight = FontWeight.Medium,
-            color = color.copy(alpha = 0.68f),
-            maxLines = 1,
-            softWrap = false
-        )
-        HomeReadableText(
-            "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}",
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = 19.sp,
-                lineHeight = 21.sp
-            ),
-            fontWeight = FontWeight.Bold,
-            color = color,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Clip
-        )
+        val density = LocalDensity.current
+        val requestedLineHeightPx = with(density) { 18.sp.toPx() + 21.sp.toPx() }
+        val availableHeightPx = with(density) { maxHeight.toPx() }
+        // Keep the accepted 16sp/19sp appearance at normal font scale. If accessibility font
+        // scaling would make the two physical line boxes exceed the same 42dp occupied by the
+        // adjacent top-bar buttons, shrink both lines by only the overflow ratio. This avoids
+        // clipping either line without changing the bar height or its alignment.
+        val lineScale = (availableHeightPx / requestedLineHeightPx.coerceAtLeast(1f))
+            .coerceIn(0.1f, 1f)
+        Column(
+            modifier = Modifier.fillMaxHeight(),
+            verticalArrangement = Arrangement.Center
+        ) {
+            HomeReadableText(
+                when {
+                    beforeScheduleTerm -> "当前暂未开学"
+                    afterScheduleTerm -> "学期已结束"
+                    showReturnToCurrentWeekHint -> "点击此处回到本周"
+                    else -> "第${displayWeek}周"
+                },
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = (16f * lineScale).sp,
+                    lineHeight = (18f * lineScale).sp
+                ),
+                fontWeight = FontWeight.Medium,
+                color = color.copy(alpha = 0.68f),
+                maxLines = 1,
+                softWrap = false
+            )
+            HomeReadableText(
+                "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}",
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = (19f * lineScale).sp,
+                    lineHeight = (21f * lineScale).sp
+                ),
+                fontWeight = FontWeight.Bold,
+                color = color,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -655,6 +668,8 @@ internal fun HomeScreen(
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onScheduleLongPress: () -> Unit = {},
     weekEditInteractionEnabled: Boolean = true,
+    courseGlassOcclusionPhase: CourseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live,
+    courseGlassRestoreWave: Int = com.xiaomanjun.sleepdownschedule.glass.CourseGlassRestoreWaveCount,
 ) {
     val homeOverscrollFactory = rememberHapticMiuixOverscrollFactory()
     val cardColor = remember(state.config.cardColorArgb, state.config.cardAlpha) {
@@ -756,9 +771,22 @@ internal fun HomeScreen(
                     )
                 }
                 HomeMode.Week -> key(state.config.id) {
+                    val courseGlassRestorePlan = remember(
+                        courseGlassOcclusionPhase,
+                        displayWeek,
+                        courseGlassRestoreWave
+                    ) {
+                        CourseGlassRestorePlan(
+                            phase = courseGlassOcclusionPhase,
+                            targetWeek = displayWeek,
+                            restoredWave = courseGlassRestoreWave
+                        )
+                    }
                     CompositionLocalProvider(
                         LocalOverscrollFactory provides homeOverscrollFactory,
-                        LocalPersonalizationPreview provides personalizationPreviewState
+                        LocalPersonalizationPreview provides personalizationPreviewState,
+                        LocalCourseGlassOcclusionPhase provides courseGlassOcclusionPhase,
+                        LocalCourseGlassRestorePlan provides courseGlassRestorePlan
                     ) {
                         SinglePillWeekScheduleScreen(
                             state = state,
