@@ -382,13 +382,29 @@ class GlassFrameworkTest {
     }
 
     @Test
-    fun courseGlassOcclusionRequiresExactStableWeekCache() {
+    fun referenceLensSamplingRejectsGenericShapeFallbacks() {
+        assertEquals(
+            0.75f,
+            referenceLensSampleScale(0.75f, hasSupportedSampledShape = true)
+        )
+        assertEquals(
+            1f,
+            referenceLensSampleScale(0.75f, hasSupportedSampledShape = false)
+        )
+        assertEquals(
+            1f,
+            referenceLensSampleScale(1f, hasSupportedSampledShape = false)
+        )
+    }
+
+    @Test
+    fun courseGlassOcclusionRequiresExactSubstantialWeekCache() {
         assertTrue(
             shouldSuspendCourseGlassMaterials(
                 experimentEnabled = true,
                 weekMode = true,
                 exactCacheCoverActive = true,
-                overlayStableOpen = true
+                substantialOverlayActive = true
             )
         )
         assertFalse(
@@ -396,7 +412,7 @@ class GlassFrameworkTest {
                 experimentEnabled = true,
                 weekMode = true,
                 exactCacheCoverActive = false,
-                overlayStableOpen = true
+                substantialOverlayActive = true
             )
         )
         assertFalse(
@@ -404,12 +420,26 @@ class GlassFrameworkTest {
                 experimentEnabled = true,
                 weekMode = true,
                 exactCacheCoverActive = true,
-                overlayStableOpen = false
+                substantialOverlayActive = false
             )
         )
         assertTrue(CourseGlassOcclusionPhase.Live.mountsMaterialNodes)
         assertFalse(CourseGlassOcclusionPhase.Suspended.mountsMaterialNodes)
         assertTrue(CourseGlassOcclusionPhase.Prewarming.mountsMaterialNodes)
+        assertFalse(
+            shouldBeginCourseGlassPrewarm(
+                phase = CourseGlassOcclusionPhase.Suspended,
+                overlayClosing = true,
+                closingProgress = CourseGlassClosingPrewarmProgress + 0.01f
+            )
+        )
+        assertTrue(
+            shouldBeginCourseGlassPrewarm(
+                phase = CourseGlassOcclusionPhase.Suspended,
+                overlayClosing = true,
+                closingProgress = CourseGlassClosingPrewarmProgress
+            )
+        )
     }
 
     @Test

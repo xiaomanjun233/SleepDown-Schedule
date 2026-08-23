@@ -71,6 +71,8 @@
 
 - 只合并同一采样域、同一材质、互不重叠且位于 viewport 内的稳定课程卡；每个紧边界 RenderTarget 最多 8 张，重叠或材质不同会自动拆组。
 - 一组只保留一条昂贵 backdrop → blur → lens 链。官方 2.0.0 单 Shape lens 不能表达多个独立圆角矩形，本地 `glassGroupLens` 因此严格沿用官方 rounded-rect lens 方程，为每个成员计算独立 SDF，并在同一 Shader 中取 union；这不是缩掉 lens。
+- 第一版把多卡 union 作为 `Outline.Generic` 交给 `drawBackdrop`，达到合批条件后会触发 Backdrop 2.0 的 lens shape 校验并抛出 `UnsupportedOperationException`。当前改为官方支持的 `CornerBasedShape` 矩形宿主，再在 `onDrawBackdrop` 按成员圆角 union 裁切；blur 只落在各卡内部，卡间空隙不受影响，真实折射边界继续由同一多 SDF Shader 决定。
+- 第一轮宿主修复后真机仍会在多卡场景抛出同一异常。新包的 R8 mapping 将第二个入口精确定位到逐卡 `sleepDownGlassSurface`：13 张以上启用降采样，但重叠、冲突或单成员组回退逐卡时，旧 `DensityScaledShape : Shape` 包装仍会被官方 lens 拒绝。当前周卡直接提供具体类型不变的 `RoundedRectangle(cardCorner * sampleScale)`；框架通过 `referenceLensSampleScale` 保证没有受支持等价形状的调用一律留在 `1.0x`，不再把通用 Shape 包装送入 lens。
 - 每卡 tint、Screen overlay、高光、外阴影和内阴影仍由全分辨率独立 decoration 节点绘制，避免合批后局部渐变坐标变化或相邻卡阴影串色。文字、点击、长按、语义和布局从未进入合批层。
 - 编辑、拖拽、冲突叠放、出场层、横向运动、启动低质量阶段或拓扑不合格时自动回退逐卡 Kyant。没有 `groupedSceneAllowlist` 时同样回退。
 - 该实现不是 SDF 融合，不产生玻璃颈部或融合/分裂轮廓。
@@ -84,10 +86,10 @@
 
 ### 缓存遮挡生命周期
 
-- Opening/Closing 运动期间原 GPU 中性场景缓存已经阻止课程卡逐帧重放；新路线进一步处理稳定 Open 时仍挂载的昂贵材质节点。
-- 仅周视图、阶段二开关开启、个性化逐帧预览关闭、缓存帧 key 完全匹配、`GraphicsLayer` 已实际切到 Offscreen 且弹层处于稳定 Open 时，课程卡进入 `Suspended`。只卸载材质 surface/decoration；内容、布局、点击、手势、语义和 Composition 状态保留。
-- 协调关闭会先进入 `Prewarming`：在弹层仍保持 Open、缓存仍完全遮挡的情况下重新挂载课程卡材质，强制重录并重放连续两帧，再启动原 Closing。等待上限 500ms；非协调 Closing 也会立即恢复材质，避免可见阶段保持暂停。
-- 不创建 Bitmap/ImageBitmap 截图，不改变背景 blur/zoom、Morph 时间线或终态页面。该路线能否真正释放多少底层 RenderNode/纹理仍需 Perfetto/显存证据确认；当前只宣称减少稳定 Open 的活跃材质节点，不提前宣称量化收益。
+- 只有确实形成大范围遮挡的个性化面板、菜单目的页和课程编辑器进入该路线；194×317dp 的右上角三点菜单不构成实质覆盖，始终保留课程卡材质渲染。
+- 实质遮挡路线从 Opening 开始复用 0.5×、四分之一像素面积的 `HomeBackgroundBlurLayer`。模糊时序与故意滞后的 zoom 解耦，12 个稳定 RenderEffect 档位从首帧逐级增加并在 Opening 前 38% 达到原 12dp 最大值；不再把清晰帧与最大模糊帧按 alpha 叠化。缓存帧 key 完全匹配且 `GraphicsLayer` 已实际切到 Offscreen 后，Opening 的首个有效缓存帧即把课程卡切到 `Suspended`。只卸载材质 surface/decoration；内容、布局、点击、手势、语义和 Composition 状态保留。
+- 关闭请求立即启动原 Closing，不等待两帧预热或 500ms 超时。背景保持最大模糊到 Closing 只剩 24% 才逐档释放；课程卡到剩余 18% 才进入 `Prewarming`，在仍高度模糊的冻结缓存下重新挂载并强制录制一次材质，接近零模糊的最终帧才切回实时课表。`snapshotFlow` 只观察这一阈值，不因每帧 progress 重启协程。
+- 不创建 Bitmap/ImageBitmap 截图，不改变背景 blur/zoom、Morph 时间线或终态页面。用户在旧实现的 6 卡同屏场景中已主观观察到掉帧减少，但尚无 Macrobenchmark/Perfetto 数据；当前仍不宣称量化收益。
 
 ## 同 Activity Morph
 
@@ -136,4 +138,6 @@
 - 随后按用户要求同时传入 `-Psleepdown.enableLargeGlassExperiment=true` 与 `-Psleepdown.enableLiquidMotionExperiment=true`，仍使用 `--no-parallel --max-workers=2` 和跳过资源压缩的签名 GitHub Release 构建。生成的两个 `BuildConfig` 值均已核对为 `true`；APK SHA-256 为 `CB0B395697DE0D714BBCD4A8BF9ED6B5BD53AEEEBE2B31A4F5A1660E099F81ED`，大小 `6,429,734` bytes，已于 2026-08-23 覆盖安装到 PLJ110 `3B15AE023YL00000`，未启动或操作应用。
 - 停止阶段三后的旧恢复包 SHA-256 为 `DB58D5E9ADF55B51E05B2AA4E1779D4BDDBD6A1416E6AD95C83324A250FF8580`，现已被第三批性能包覆盖。
 - 第三批性能提交为 `83384f2`（稳定周课程卡合批）、`044f397`（高负载自适应采样）和 `7187f3a`（缓存遮挡生命周期）。先以同开关完成 `compileGithubReleaseKotlin`，再执行 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLargeGlassExperiment=true --no-parallel --max-workers=2`；Kotlin、R8、lintVital、打包和签名均通过。生成的 Release 已核对 `SLEEPDOWN_LARGE_GLASS_EXPERIMENT=true`、`SLEEPDOWN_LIQUID_MOTION_EXPERIMENT=false`，APK SHA-256 为 `44A9BE692609CF48C563F694C1B6A7534FF2C36FFC35CFA363BD1F6804BA32F4`，已覆盖安装到 PLJ110 `3B15AE023YL00000`，未启动或操作应用。
-- 本轮未执行真机 UI、Macrobenchmark 或 Perfetto 采集，因此不宣称量化性能收益。当前安装包已真实开启稳定 envelope、课程卡合批、分级采样与遮挡生命周期；阶段三 motion 保持关闭。
+- 用户运行第三批首包后确认 6 卡同屏掉帧主观减少，同时报告多卡合批直接闪退、三点菜单不应卸载课程卡材质、首次返回等待预热延迟明显。崩溃堆栈已确认是 Backdrop 2.0 拒绝 `Outline.Generic` lens shape，而非 OOM。
+- 第一轮修复包使用同一 Release 开关构建，APK 大小 `6,446,118` bytes，SHA-256 `572BECCA2D12BCE1BA942AA8ACA03702457DCC9E3D7C3B93380592CD63F95424`；用户真机确认多卡仍闪退，随后才通过新 mapping 找到逐卡 `DensityScaledShape` 漏点。
+- 最终包合并合批/逐卡两条 shape 修复、前置 12 档模糊与 Closing 末段恢复，只构建 `assembleGithubRelease`，使用 `--no-parallel --max-workers=2`、跳过资源压缩但保留 Kotlin、R8、lintVital 与签名。生成值核对为 `SLEEPDOWN_LARGE_GLASS_EXPERIMENT=true`、`SLEEPDOWN_LIQUID_MOTION_EXPERIMENT=false`；APK 大小 `6,446,118` bytes，SHA-256 `3A1D4408F6453F12B30C1956FFE4CF47FE583BE8B9252BC3FF7DB18F6B1FFF26`，已覆盖安装到 PLJ110 `3B15AE023YL00000`，未由 Codex 启动或操作，等待用户实际观察。

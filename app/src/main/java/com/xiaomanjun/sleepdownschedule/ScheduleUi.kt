@@ -282,6 +282,7 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSceneState
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackendPolicy
+import com.xiaomanjun.sleepdownschedule.glass.shouldBeginCourseGlassPrewarm
 import com.xiaomanjun.sleepdownschedule.glass.shouldSuspendCourseGlassMaterials
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
@@ -647,36 +648,6 @@ fun CourseScheduleAppUi(
     }
     var courseGlassPrewarmDrawRequest by remember { mutableIntStateOf(0) }
     val courseGlassPrewarmRecordedRequest = remember { AtomicInteger(0) }
-    var courseGlassPrewarmJob by remember { mutableStateOf<Job?>(null) }
-    fun revealAfterCourseGlassPrewarm(action: () -> Unit) {
-        if (courseGlassOcclusionPhase != CourseGlassOcclusionPhase.Suspended) {
-            action()
-            return
-        }
-        if (courseGlassPrewarmJob?.isActive == true) return
-        courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Prewarming
-        courseGlassPrewarmJob = appScope.launch {
-            val warmed = withTimeoutOrNull(500L) {
-                // First let the expensive material nodes re-enter composition while the exact
-                // frozen home layer still covers them. The next two requested records allocate
-                // and exercise their effect layers before Closing is allowed to reveal the grid.
-                withFrameNanos { }
-                repeat(2) {
-                    val request = courseGlassPrewarmDrawRequest + 1
-                    courseGlassPrewarmDrawRequest = request
-                    while (courseGlassPrewarmRecordedRequest.get() < request) {
-                        withFrameNanos { }
-                    }
-                }
-                true
-            } == true
-            if (warmed) {
-                glassSceneState.recordPrewarmHit(GlassBackdropDomain.Content)
-            }
-            action()
-            courseGlassPrewarmJob = null
-        }
-    }
     var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var pendingCourseGroupEdit by remember { mutableStateOf<PendingCourseGroupEdit?>(null) }
     var pendingCourseGroupDelete by remember { mutableStateOf<List<CourseEntity>>(emptyList()) }
@@ -693,7 +664,7 @@ fun CourseScheduleAppUi(
         )
     }
     fun closeCourseEditor() {
-        revealAfterCourseGlassPrewarm { courseEditorRequest = null }
+        courseEditorRequest = null
     }
     fun dismissHomeDialog() {
         homeDialogVisible = false
@@ -770,7 +741,7 @@ fun CourseScheduleAppUi(
 
     fun toggleHomeAnchoredOverlay(kind: HomeAnchoredOverlayKind, sourcePressedScale: Float = 1f) {
         if (homeAnchoredOverlayRequest?.kind == kind) {
-            revealAfterCourseGlassPrewarm { homeAnchoredOverlayRequest = null }
+            homeAnchoredOverlayRequest = null
         } else {
             openHomeAnchoredOverlay(kind, sourcePressedScale)
         }
@@ -1426,6 +1397,17 @@ fun CourseScheduleAppUi(
             currentFrameKey = homeCaptureFrameKey
         )
     }
+    val substantialHomeAnchoredCoverage =
+        activeHomeAnchoredOverlay == HomeAnchoredOverlayKind.Personalize &&
+            (
+                homeAnchoredOverlayRequest?.kind == HomeAnchoredOverlayKind.Personalize ||
+                    homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle
+                )
+    val substantialMenuDestinationCoverage =
+        homeMenuDestinationRequest != null ||
+            homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle
+    val substantialCourseEditorCoverage =
+        courseEditorRequest != null || courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
     val weekCourseGlassCacheCoverExpected =
         BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT &&
             screen is Screen.Home &&
@@ -1433,31 +1415,72 @@ fun CourseScheduleAppUi(
             personalizationSliderPreviewKey == null &&
             personalizationPreviewProgress <= 0.001f &&
             (
-                homeAnchoredOverlayRequest != null ||
-                    homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ||
-                    homeMenuDestinationRequest != null ||
-                    homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle ||
-                    courseEditorRequest != null ||
-                    courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
+                substantialHomeAnchoredCoverage ||
+                    substantialMenuDestinationCoverage ||
+                    substantialCourseEditorCoverage
                 )
-    val weekCourseGlassOverlayStableOpen =
-        homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Open ||
+    val weekCourseGlassSubstantialOverlayActive =
+        (
+            substantialHomeAnchoredCoverage &&
+                (
+                    homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Opening ||
+                        homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Open
+                    )
+            ) ||
+            homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Opening ||
             homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Open ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Open
     val weekCourseGlassOverlayClosing =
-        homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing ||
+        (substantialHomeAnchoredCoverage &&
+            homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing) ||
             homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
+    val weekCourseGlassClosingProgress: () -> Float? = when {
+        courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing ->
+            ({ courseEditorMotionState.progress.value })
+        homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ->
+            ({ homeMenuDestinationMotionState.progress.value })
+        substantialHomeAnchoredCoverage &&
+            homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing ->
+            ({ homeAnchoredMorphState.progress.value })
+        else -> ({ null })
+    }
+    val homeOverlayBackgroundBlurProgress: () -> Float = {
+        val legacyDepth = homeOverlayDepthProgress(homeOverlayBackgroundZoom())
+        when {
+            substantialCourseEditorCoverage &&
+                courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle ->
+                stagedHomeOverlayBlurProgress(
+                    legacyDepthProgress = legacyDepth,
+                    morphProgress = courseEditorMotionState.progress.value,
+                    closing = courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
+                )
+            substantialMenuDestinationCoverage &&
+                homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle ->
+                stagedHomeOverlayBlurProgress(
+                    legacyDepthProgress = legacyDepth,
+                    morphProgress = homeMenuDestinationMotionState.progress.value,
+                    closing = homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing
+                )
+            substantialHomeAnchoredCoverage &&
+                homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ->
+                stagedHomeOverlayBlurProgress(
+                    legacyDepthProgress = legacyDepth,
+                    morphProgress = homeAnchoredMorphState.progress.value,
+                    closing = homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing
+                )
+            else -> legacyDepth
+        }
+    }
     LaunchedEffect(
         weekCourseGlassCacheCoverExpected,
-        weekCourseGlassOverlayStableOpen,
+        weekCourseGlassSubstantialOverlayActive,
         weekCourseGlassOverlayClosing,
         courseGlassOcclusionPhase,
         homeCaptureFrameKey
     ) {
         if (!weekCourseGlassCacheCoverExpected) {
-            courseGlassPrewarmJob?.cancel()
-            courseGlassPrewarmJob = null
             courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
             return@LaunchedEffect
         }
@@ -1465,30 +1488,41 @@ fun CourseScheduleAppUi(
             weekCourseGlassOverlayClosing &&
             courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Suspended
         ) {
-            // Defensive path for an owner that starts Closing without the coordinated dismiss
-            // callback. Restore immediately under the still-active frozen background.
+            snapshotFlow { weekCourseGlassClosingProgress() }.first { progress ->
+                shouldBeginCourseGlassPrewarm(
+                    phase = CourseGlassOcclusionPhase.Suspended,
+                    overlayClosing = true,
+                    closingProgress = progress
+                )
+            }
+            // Keep the cached, progressively blurred scene throughout most of Closing. Mount and
+            // record the real Kyant card nodes only near the source endpoint, while the delayed
+            // blur still hides the expensive handoff and without blocking the dismiss action.
             courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Prewarming
             courseGlassPrewarmDrawRequest += 1
             return@LaunchedEffect
         }
         if (
             courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Live &&
-            weekCourseGlassOverlayStableOpen
+            weekCourseGlassSubstantialOverlayActive
         ) {
+            // The low-resolution HomeBackgroundBlurLayer starts crossfading as soon as Opening
+            // changes the depth curve. Suspend only after its exact clear cache is active, so the
+            // first motion frame remains pixel-identical while expensive card materials disappear.
             repeat(3) {
-                withFrameNanos { }
                 val exactCacheActive = useCachedWeekHomeSurface() &&
                     weekHomeSurfaceUsesOffscreenCache.get()
                 if (shouldSuspendCourseGlassMaterials(
                         experimentEnabled = BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT,
                         weekMode = homeMode == HomeMode.Week,
                         exactCacheCoverActive = exactCacheActive,
-                        overlayStableOpen = true
+                        substantialOverlayActive = true
                     )
                 ) {
                     courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Suspended
                     return@LaunchedEffect
                 }
+                withFrameNanos { }
             }
         }
     }
@@ -1962,7 +1996,7 @@ fun CourseScheduleAppUi(
                 .background(MaterialTheme.colorScheme.background)
         ) {
         HomeBackgroundBlurLayer(
-            zoom = homeOverlayBackgroundZoom,
+            blurProgress = homeOverlayBackgroundBlurProgress,
             useFrozenHomeScene = useFrozenHomeMorphBlur,
             sceneKey = homeCaptureFrameKey,
             modifier = Modifier.fillMaxSize()
@@ -1985,6 +2019,7 @@ fun CourseScheduleAppUi(
                         recordedHomeGeneration.incrementAndGet()
                         lastRecordedHomeFrameKey.set(homeCaptureFrameKey)
                         courseGlassPrewarmRecordedRequest.set(requestedPrewarm)
+                        glassSceneState.recordPrewarmHit(GlassBackdropDomain.Content)
                         if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
                             screenGraphicsLayer.compositingStrategy =
                                 androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
@@ -2670,11 +2705,11 @@ fun CourseScheduleAppUi(
     }
     val latestOpenJumpWeekDialog = rememberUpdatedState<() -> Unit> {
         pendingJumpWeekDialog = true
-        revealAfterCourseGlassPrewarm { homeAnchoredOverlayRequest = null }
+        homeAnchoredOverlayRequest = null
     }
     val latestOpenScheduleSettings = rememberUpdatedState<() -> Unit> {
         pendingOpenScheduleSettings = true
-        revealAfterCourseGlassPrewarm { homeAnchoredOverlayRequest = null }
+        homeAnchoredOverlayRequest = null
     }
     val homeAddActions = remember {
         listOf(
@@ -2746,12 +2781,10 @@ fun CourseScheduleAppUi(
     fun closeHomeMenuDestination() {
         // The destination owns the legacy liquid return to the real button. Dispose the hidden
         // first-level menu without replaying its independent Closing or button follow-through.
-        revealAfterCourseGlassPrewarm {
-            destinationOwnsButtonReturn = true
-            destinationCollapseHandedOff = false
-            homeAnchoredOverlayRequest = null
-            homeMenuDestinationRequest = null
-        }
+        destinationOwnsButtonReturn = true
+        destinationCollapseHandedOff = false
+        homeAnchoredOverlayRequest = null
+        homeMenuDestinationRequest = null
     }
 
     HomeAnchoredMorphOverlayHost(
@@ -2767,7 +2800,7 @@ fun CourseScheduleAppUi(
             .zIndex(24f)
             .graphicsLayer { alpha = if (homeMenuSourceHidden) 0f else 1f },
         onDismissRequest = {
-            revealAfterCourseGlassPrewarm { homeAnchoredOverlayRequest = null }
+            homeAnchoredOverlayRequest = null
         },
         onAddMenuBoundsChanged = { homeAddMenuBoundsInRoot = it },
         onSourceFollowThrough = { rect -> latestSourceFollowThrough.value(rect) },
@@ -3752,7 +3785,7 @@ internal val HomeInitialTopInset = 122.dp
 
 @Composable
 private fun HomeBackgroundBlurLayer(
-    zoom: () -> Float,
+    blurProgress: () -> Float,
     useFrozenHomeScene: () -> Boolean,
     sceneKey: Any,
     modifier: Modifier = Modifier,
@@ -3764,12 +3797,13 @@ private fun HomeBackgroundBlurLayer(
     val frozenRecordSize = remember { AtomicReference(IntSize.Zero) }
     val sampleScale = HomeFrozenBlurSampleScale
     val maximumBlurPx = with(density) { 12.dp.toPx() }
-    val frozenBlurEffect = remember(maximumBlurPx) {
-        BlurEffect(
-            radiusX = maximumBlurPx * sampleScale,
-            radiusY = maximumBlurPx * sampleScale,
-            edgeTreatment = TileMode.Clamp
-        )
+    val frozenBlurEffects = remember(maximumBlurPx, sampleScale) {
+        List(HomeLiveBlurStepCount + 1) { index ->
+            if (index == 0) null else {
+                val radius = maximumBlurPx * sampleScale * index / HomeLiveBlurStepCount.toFloat()
+                BlurEffect(radius, radius, TileMode.Clamp)
+            }
+        }
     }
     // The live path is kept for day view and per-frame personalization preview. Reuse a small
     // bounded set of RenderEffect instances so those exceptional paths no longer compile a new
@@ -3788,8 +3822,7 @@ private fun HomeBackgroundBlurLayer(
                 if (useFrozenHomeScene()) {
                     renderEffect = null
                 } else {
-                    val depthProgress = homeOverlayDepthProgress(zoom())
-                    val step = (depthProgress * HomeLiveBlurStepCount)
+                    val step = (blurProgress().coerceIn(0f, 1f) * HomeLiveBlurStepCount)
                         .roundToInt()
                         .coerceIn(0, HomeLiveBlurStepCount)
                     renderEffect = liveBlurEffects[step]
@@ -3797,6 +3830,17 @@ private fun HomeBackgroundBlurLayer(
             }
             .drawWithContent {
                 if (!useFrozenHomeScene()) {
+                    drawContent()
+                    return@drawWithContent
+                }
+
+                val step = (blurProgress().coerceIn(0f, 1f) * HomeLiveBlurStepCount)
+                    .roundToInt()
+                    .coerceIn(0, HomeLiveBlurStepCount)
+                if (step == 0) {
+                    // Preserve the exact full-resolution first/last frame. Once blur begins the
+                    // quarter-area frozen layer becomes the sole background, avoiding a clear +
+                    // max-blur crossfade that exposed the material-node handoff.
                     drawContent()
                     return@drawWithContent
                 }
@@ -3824,7 +3868,6 @@ private fun HomeBackgroundBlurLayer(
                             this@drawWithContent.drawContent()
                         }
                     }
-                    frozenBlurLayer.renderEffect = frozenBlurEffect
                     frozenBlurLayer.pivotOffset = Offset.Zero
                     frozenBlurLayer.scaleX = 1f / sampleScale
                     frozenBlurLayer.scaleY = 1f / sampleScale
@@ -3832,12 +3875,9 @@ private fun HomeBackgroundBlurLayer(
                     frozenRecordSize.set(reducedSize)
                 }
 
-                val depthProgress = homeOverlayDepthProgress(zoom())
-                if (depthProgress < 0.999f) drawContent()
-                if (depthProgress > 0.001f) {
-                    frozenBlurLayer.alpha = depthProgress
-                    drawLayer(frozenBlurLayer)
-                }
+                frozenBlurLayer.renderEffect = frozenBlurEffects[step]
+                frozenBlurLayer.alpha = 1f
+                drawLayer(frozenBlurLayer)
             },
         content = content
     )

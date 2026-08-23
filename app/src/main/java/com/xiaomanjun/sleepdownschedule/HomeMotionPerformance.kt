@@ -12,6 +12,12 @@ internal const val HomeFrozenBlurSampleScale = 0.5f
 /** Only used by the live preview fallback; reusing these effects avoids per-frame shader churn. */
 internal const val HomeLiveBlurStepCount = 12
 
+/** Opening reaches the full blur early enough to cover the material-node handoff. */
+internal const val HomeOpeningBlurFullProgress = 0.38f
+
+/** Closing holds the full blur until only the final part of the morph remains. */
+internal const val HomeClosingBlurReleaseProgress = 0.24f
+
 /**
  * The personalization shell and its large-screen aura use the same bounded blur progression as
  * the home scene. This keeps their visual timing continuous while preventing a new backdrop
@@ -23,6 +29,33 @@ internal fun quantizeHomeProgressiveBackdropBlurProgress(progress: Float): Float
     (progress.coerceIn(0f, 1f) * HomeProgressiveBackdropBlurStepCount)
         .roundToInt()
         .toFloat() / HomeProgressiveBackdropBlurStepCount
+
+/**
+ * Decouples background blur timing from the deliberately trailing zoom curve. Opening advances
+ * through the existing bounded blur levels immediately, while Closing keeps the background fully
+ * blurred until the shell is near its source. The legacy zoom-derived depth remains a lower bound,
+ * so no route loses blur that it already had.
+ */
+internal fun stagedHomeOverlayBlurProgress(
+    legacyDepthProgress: Float,
+    morphProgress: Float?,
+    closing: Boolean
+): Float {
+    val legacy = legacyDepthProgress.coerceIn(0f, 1f)
+    val progress = morphProgress?.coerceIn(0f, 1f) ?: return legacy
+    val staged = if (closing) {
+        smoothStep(0f, HomeClosingBlurReleaseProgress, progress)
+    } else {
+        smoothStep(0f, HomeOpeningBlurFullProgress, progress)
+    }
+    return maxOf(legacy, staged).coerceIn(0f, 1f)
+}
+
+private fun smoothStep(edge0: Float, edge1: Float, value: Float): Float {
+    val width = (edge1 - edge0).coerceAtLeast(0.0001f)
+    val t = ((value - edge0) / width).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
 
 /**
  * Decides whether the already-recorded home GPU layer can safely stand in for the live week tree.

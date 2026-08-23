@@ -15,6 +15,8 @@ enum class CourseGlassOcclusionPhase {
         get() = this != Suspended
 }
 
+internal const val CourseGlassClosingPrewarmProgress = 0.18f
+
 val LocalCourseGlassOcclusionPhase = staticCompositionLocalOf {
     CourseGlassOcclusionPhase.Live
 }
@@ -23,5 +25,15 @@ internal fun shouldSuspendCourseGlassMaterials(
     experimentEnabled: Boolean,
     weekMode: Boolean,
     exactCacheCoverActive: Boolean,
-    overlayStableOpen: Boolean
-): Boolean = experimentEnabled && weekMode && exactCacheCoverActive && overlayStableOpen
+    substantialOverlayActive: Boolean
+): Boolean = experimentEnabled && weekMode && exactCacheCoverActive && substantialOverlayActive
+
+internal fun shouldBeginCourseGlassPrewarm(
+    phase: CourseGlassOcclusionPhase,
+    overlayClosing: Boolean,
+    closingProgress: Float?
+): Boolean =
+    phase == CourseGlassOcclusionPhase.Suspended &&
+        overlayClosing &&
+        closingProgress != null &&
+        closingProgress <= CourseGlassClosingPrewarmProgress

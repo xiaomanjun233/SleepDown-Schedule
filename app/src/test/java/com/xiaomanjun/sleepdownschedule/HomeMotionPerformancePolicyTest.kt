@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.glass.CourseGlassClosingPrewarmProgress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -41,6 +42,51 @@ class HomeMotionPerformancePolicyTest {
         assertEquals(0f, homeOverlayDepthProgress(1f), 0.0001f)
         assertEquals(1f, homeOverlayDepthProgress(BackgroundZoomOpenScale), 0.0001f)
         assertEquals(1f, homeOverlayDepthProgress(HomeMenuDestinationEduBackgroundScale), 0.0001f)
+    }
+
+    @Test
+    fun substantialOverlayBlurLeadsOpeningAndLeavesLateOnClosing() {
+        assertTrue(
+            stagedHomeOverlayBlurProgress(
+                legacyDepthProgress = 0f,
+                morphProgress = 0.2f,
+                closing = false
+            ) > 0.5f
+        )
+        assertEquals(
+            1f,
+            stagedHomeOverlayBlurProgress(
+                legacyDepthProgress = 0f,
+                morphProgress = HomeOpeningBlurFullProgress,
+                closing = false
+            ),
+            0.0001f
+        )
+        assertEquals(
+            1f,
+            stagedHomeOverlayBlurProgress(
+                legacyDepthProgress = 0f,
+                morphProgress = HomeClosingBlurReleaseProgress,
+                closing = true
+            ),
+            0.0001f
+        )
+        assertTrue(
+            stagedHomeOverlayBlurProgress(
+                legacyDepthProgress = 0f,
+                morphProgress = CourseGlassClosingPrewarmProgress,
+                closing = true
+            ) > 0.8f
+        )
+        assertEquals(
+            0.4f,
+            stagedHomeOverlayBlurProgress(
+                legacyDepthProgress = 0.4f,
+                morphProgress = null,
+                closing = false
+            ),
+            0.0001f
+        )
     }
 
     @Test
