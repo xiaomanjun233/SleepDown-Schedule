@@ -99,6 +99,8 @@
 - 形变只在 Opening/Closing 存在；端点严格为零，Open 立即回到原 Kyant 30dp 静态 surface 并释放运动 outline；
 - 普通包保持关闭。受控包需显式传入 `-Psleepdown.enableLiquidMotionExperiment=true`，目前只 allowlist `home-three-dot-menu`。
 
+该阶段三路线现已由用户明确停止：第一版源码仅作为关闭状态的历史原型保留；第二版精确复现 Issue #70 的尺寸/圆角弹簧提交 `a0976d5` 已通过 `c958c75`、`69b0e56` 完整撤销。当前文件树恢复到实验前 `1e86605`，后续不再继续液态曲线工作，性能优化优先。
+
 ## 后续启用门槛
 
 阶段二第二批实验包覆盖安装后，用户已肉眼比较并反馈“好像没有什么帧数变化”；没有对应 Macrobenchmark/Perfetto 数据，因此该结论只记为主观无明显改善，不能记成量化无收益或量化回退。阶段二继续默认关闭，不扩大 allowlist。后续经用户明确允许后，按以下顺序做最小充分验收，但不能自动开启实验后端：
@@ -118,4 +120,5 @@
 - 阶段二第二批使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLargeGlassExperiment=true --no-parallel --max-workers=2` 构建通过 Kotlin、R8、lintVital、打包与签名；确认生成的 Release `BuildConfig` 实验值为 `true`。实验 APK SHA-256 为 `D47506F3E42A2177EC0482D6D14CCEA0AFC96D829623670186E9634BE0C12B87`，大小 `6,429,734` bytes，已于 2026-08-23 覆盖安装到 PLJ110 `3B15AE023YL00000`；用户随后肉眼观察未发现明显帧率变化，未采集量化 trace。
 - 阶段三使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLiquidMotionExperiment=true --no-parallel --max-workers=2` 构建通过 Kotlin、R8、lintVital、打包与签名；生成的 Release 已确认 `SLEEPDOWN_LARGE_GLASS_EXPERIMENT=false`、`SLEEPDOWN_LIQUID_MOTION_EXPERIMENT=true`。APK SHA-256 为 `880BD142F469DEB46F2CDD0887FB3BD2350263E9D0821F5AA3F87E00D235070A`，大小 `6,429,734` bytes，未安装、未启动。
 - 随后按用户要求同时传入 `-Psleepdown.enableLargeGlassExperiment=true` 与 `-Psleepdown.enableLiquidMotionExperiment=true`，仍使用 `--no-parallel --max-workers=2` 和跳过资源压缩的签名 GitHub Release 构建。生成的两个 `BuildConfig` 值均已核对为 `true`；APK SHA-256 为 `CB0B395697DE0D714BBCD4A8BF9ED6B5BD53AEEEBE2B31A4F5A1660E099F81ED`，大小 `6,429,734` bytes，已于 2026-08-23 覆盖安装到 PLJ110 `3B15AE023YL00000`，未启动或操作应用。
-- 本轮未执行真机 UI、Macrobenchmark 或 Perfetto 采集，因此不宣称液态自然度或量化性能收益；稳定 envelope、阶段三 motion 与 `GlassGroup` 在普通构建中仍保持关闭。
+- 停止阶段三后重新构建恢复包，确认 `SLEEPDOWN_LARGE_GLASS_EXPERIMENT=true`、`SLEEPDOWN_LIQUID_MOTION_EXPERIMENT=false`；GitHub Release 的 Kotlin、R8、lintVital、打包和签名通过，SHA-256 为 `DB58D5E9ADF55B51E05B2AA4E1779D4BDDBD6A1416E6AD95C83324A250FF8580`，已覆盖安装到同一 PLJ110，未启动或操作应用。
+- 本轮未执行真机 UI、Macrobenchmark 或 Perfetto 采集，因此不宣称量化性能收益；阶段三 motion 已停止，稳定 envelope 与 `GlassGroup` 在普通构建中仍保持关闭。
