@@ -19,6 +19,9 @@ val releaseStorePassword = releaseSecret("sleepdown.releaseStorePassword", "SLEE
 val releaseKeyAlias = releaseSecret("sleepdown.releaseKeyAlias", "SLEEPDOWN_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseSecret("sleepdown.releaseKeyPassword", "SLEEPDOWN_RELEASE_KEY_PASSWORD")
 val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOWN_REMOTE_CONFIG_SECRET").orEmpty()
+val skipReleaseResourceShrink = providers.gradleProperty("sleepdown.skipReleaseResourceShrink")
+    .map(String::toBoolean)
+    .getOrElse(false)
 val hasReleaseSigning = listOf(
     releaseStoreFilePath,
     releaseStorePassword,
@@ -92,7 +95,7 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = true
-            isShrinkResources = true
+            isShrinkResources = !skipReleaseResourceShrink
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
