@@ -3743,6 +3743,31 @@ private fun PeriodSchemeEditor(
     var pendingAutoSwitch by remember { mutableStateOf<PeriodSchemeDraft?>(null) }
     var pendingAutoOverrides by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var timeConflictMessage by remember { mutableStateOf<String?>(null) }
+    var lastSegmentedCounts by remember(config.id) {
+        mutableStateOf(
+            listOf(
+                config.morningPeriodCount,
+                config.noonPeriodCount,
+                config.afternoonPeriodCount,
+                config.eveningPeriodCount
+            )
+        )
+    }
+    LaunchedEffect(
+        config.morningPeriodCount,
+        config.noonPeriodCount,
+        config.afternoonPeriodCount,
+        config.eveningPeriodCount
+    ) {
+        if (config.morningPeriodCount > 0 && config.afternoonPeriodCount > 0) {
+            lastSegmentedCounts = listOf(
+                config.morningPeriodCount,
+                config.noonPeriodCount,
+                config.afternoonPeriodCount,
+                config.eveningPeriodCount
+            )
+        }
+    }
     val specialBreakCandidates = PeriodDayPart.entries.flatMap { part ->
         config.periodRange(part).toList().dropLast(1)
     }
@@ -3899,6 +3924,58 @@ private fun PeriodSchemeEditor(
         )
     }
 
+    fun repartitionExistingPeriods(
+        morning: Int,
+        noon: Int,
+        afternoon: Int,
+        evening: Int
+    ) {
+        val total = config.totalPeriodCount()
+        if (morning + noon + afternoon + evening != total || total <= 0) return
+        val repartitioned = config.copy(
+            morningPeriodCount = morning,
+            noonPeriodCount = noon,
+            afternoonPeriodCount = afternoon,
+            eveningPeriodCount = evening
+        )
+        onCountsChange(morning, noon, afternoon, evening)
+        onDraftChange(
+            draft.copy(
+                schemes = draft.schemes.map { item ->
+                    if (item.scheme.mode == PeriodSchemeMode.AUTO_MATCH) {
+                        item.copy(times = resolveSchemeTimes(repartitioned, item))
+                    } else {
+                        item
+                    }
+                }
+            )
+        )
+    }
+
+    fun enableMorningAfternoonSplit() {
+        val total = config.totalPeriodCount()
+        if (total < 2) {
+            changePartCounts(1, 0, 1, 0)
+            return
+        }
+        val remembered = lastSegmentedCounts.takeIf {
+            it.size == 4 && it.sum() == total && it[0] > 0 && it[2] > 0
+        }
+        if (remembered != null) {
+            repartitionExistingPeriods(remembered[0], remembered[1], remembered[2], remembered[3])
+            return
+        }
+        val firstAfternoonIndex = active.times
+            .sortedBy { it.periodIndex }
+            .indexOfFirst { time ->
+                runCatching { LocalTime.parse(time.startTime).hour >= 12 }.getOrDefault(false)
+            }
+        val morning = firstAfternoonIndex
+            .takeIf { it in 1 until total }
+            ?: ((total + 1) / 2)
+        repartitionExistingPeriods(morning, 0, total - morning, 0)
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
             val selectedIndex = draft.schemes.indexOfFirst { it.scheme.id == draft.activeSchemeId }.coerceAtLeast(0)
@@ -4023,19 +4100,56 @@ private fun PeriodSchemeEditor(
                     value.toIntOrNull()?.let { minutes -> updateActive { it.copy(scheme = it.scheme.copy(breakDurationMinutes = minutes.coerceIn(0, 300))) } }
                 }, KeyboardType.Number)
             }
-            PeriodDayPart.entries.forEach { part ->
-                val title = when (part) { PeriodDayPart.MORNING -> "上午"; PeriodDayPart.NOON -> "中午"; PeriodDayPart.AFTERNOON -> "下午"; PeriodDayPart.EVENING -> "晚上" }
-                val count = config.periodCount(part)
-                val range = config.periodRange(part)
-                SettingsDivider()
-                SettingsToggleRow(
-                    title = "启用$title",
-                    subtitle = if (count == 0) "已关闭" else "${count} 节 · 第 ${range.first}-${range.last} 节",
-                    checked = count > 0,
-                    backdrop = backdrop,
-                    onCheckedChange = { enabled -> changePartCount(part, if (enabled) 1 else 0) }
-                )
-            }
+            val morningAfternoonSplitEnabled =
+                config.morningPeriodCount > 0 && config.afternoonPeriodCount > 0
+            SettingsDivider()
+            SettingsToggleRow(
+                title = "启用上午 / 下午分段",
+                subtitle = if (morningAfternoonSplitEnabled) {
+                    "上午 ${config.morningPeriodCount} 节 · 下午 ${config.afternoonPeriodCount} 节"
+                } else {
+                    "未分段 · 共 ${config.totalPeriodCount()} 节"
+                },
+                checked = morningAfternoonSplitEnabled,
+                backdrop = backdrop,
+                onCheckedChange = { enabled ->
+                    if (enabled) {
+                        enableMorningAfternoonSplit()
+                    } else {
+                        lastSegmentedCounts = listOf(
+                            config.morningPeriodCount,
+                            config.noonPeriodCount,
+                            config.afternoonPeriodCount,
+                            config.eveningPeriodCount
+                        )
+                        // Disabling segmentation only changes boundaries. It never deletes a
+                        // period, remaps a course, or trips the old "last switch" rollback.
+                        repartitionExistingPeriods(config.totalPeriodCount(), 0, 0, 0)
+                    }
+                }
+            )
+            listOf(PeriodDayPart.NOON to "中午", PeriodDayPart.EVENING to "晚上")
+                .forEach { (part, title) ->
+                    val count = config.periodCount(part)
+                    val range = config.periodRange(part)
+                    SettingsDivider()
+                    SettingsToggleRow(
+                        title = "启用$title",
+                        subtitle = if (!morningAfternoonSplitEnabled) {
+                            "请先启用上午 / 下午分段"
+                        } else if (count == 0) {
+                            "已关闭"
+                        } else {
+                            "${count} 节 · 第 ${range.first}-${range.last} 节"
+                        },
+                        checked = count > 0,
+                        backdrop = backdrop,
+                        enabled = morningAfternoonSplitEnabled,
+                        onCheckedChange = { enabled ->
+                            changePartCount(part, if (enabled) 1 else 0)
+                        }
+                    )
+                }
             SettingsDivider()
             SettingsPickerValueRow(
                 title = "节数分配",
