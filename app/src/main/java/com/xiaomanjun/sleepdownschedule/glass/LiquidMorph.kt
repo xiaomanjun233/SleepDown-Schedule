@@ -4,29 +4,16 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.exp
-import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
 enum class LiquidMorphDirection { Opening, Closing }
-
-/** Exact Compose constants used by the community demo in AndroidLiquidGlass Issue #70. */
-const val Issue70SpringDampingRatio = 0.75f
-const val Issue70SpringStiffness = 200f
-
-/**
- * A conservative visual bound for interrupted/reversed springs. The ideal Issue #70 spring only
- * overshoots by about 2.8%, but the wider guard keeps a fixed envelope safe after rapid reversals.
- */
-const val Issue70ShellMinimumProgress = -0.12f
-const val Issue70ShellMaximumProgress = 1.12f
 
 enum class LiquidMorphPhase {
     Idle,
@@ -280,53 +267,6 @@ data class LiquidDeformationFrame(
     }
 }
 
-data class Issue70LiquidShellFrame(
-    val rect: Rect,
-    val cornerRadiusPx: Float,
-    val springProgress: Float
-)
-
-/**
- * Reproduces Issue #70's size/radius coupling without changing child layout size. [center] remains
- * owned by the accepted route, while the spring can overshoot only the glass shell dimensions.
- */
-fun issue70LiquidShellFrame(
-    source: Rect,
-    target: Rect,
-    center: Offset,
-    springProgress: Float,
-    sourcePressedScale: Float,
-    targetCornerRadiusPx: Float
-): Issue70LiquidShellFrame {
-    val progress = springProgress.coerceIn(
-        Issue70ShellMinimumProgress,
-        Issue70ShellMaximumProgress
-    )
-    val pressedScale = sourcePressedScale.coerceIn(1f, 1.16f)
-    val sourceWidth = source.width * pressedScale
-    val sourceHeight = source.height * pressedScale
-    val width = (sourceWidth + (target.width - sourceWidth) * progress).coerceAtLeast(1f)
-    val height = (sourceHeight + (target.height - sourceHeight) * progress).coerceAtLeast(1f)
-    val maximumRadius = min(width, height) * 0.5f
-    val radius = (
-        maximumRadius + (targetCornerRadiusPx - maximumRadius) * progress
-        ).coerceIn(0f, maximumRadius)
-    return Issue70LiquidShellFrame(
-        rect = Rect(
-            left = center.x - width * 0.5f,
-            top = center.y - height * 0.5f,
-            right = center.x + width * 0.5f,
-            bottom = center.y + height * 0.5f
-        ),
-        cornerRadiusPx = radius,
-        springProgress = progress
-    )
-}
-
-/** Issue #70 mounts content after 0.1 and fades it linearly from progress 0.2 to 1.0. */
-fun issue70ContentAlpha(springProgress: Float): Float =
-    ((springProgress.coerceIn(0f, 1f) - 0.2f) / 0.8f).coerceIn(0f, 1f)
-
 data class LiquidMorphFrame(
     val rect: Rect,
     val cornerRadiusPx: Float,
@@ -534,9 +474,9 @@ data class KinematicLiquidDeformationSpec(
 }
 
 /**
- * Archived first-pass velocity-outline prototype. It deliberately used separate trajectory and
- * shape clocks instead of reproducing Issue #70's single 0.75/200 size/radius spring. Keep it as a
- * rollback/reference implementation; the active three-dot experiment uses [issue70LiquidShellFrame].
+ * Issue #70-inspired low-stiffness/low-bounce shape clock. Unlike the sample from that issue,
+ * this never drives Modifier.size: the legacy trajectory owns the real rect and the independent
+ * spring output is consumed only by the moving outline renderer.
  */
 fun issue70InspiredLiquidOutlineMotionSpec(
     durationSeconds: Float
