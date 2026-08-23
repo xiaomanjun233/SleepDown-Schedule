@@ -45,7 +45,7 @@ class HomeMotionPerformancePolicyTest {
     }
 
     @Test
-    fun substantialOverlayBlurLeadsOpeningAndLeavesLateOnClosing() {
+    fun substantialOverlayBlurLeadsOpeningAndReleasesBeforeClosingTail() {
         assertTrue(
             stagedHomeOverlayBlurProgress(
                 legacyDepthProgress = 0f,
@@ -73,13 +73,13 @@ class HomeMotionPerformancePolicyTest {
             closing = true
         )
         assertTrue(earlyClosingBlur > 0.98f)
-        assertTrue(middleClosingBlur in 0.80f..0.86f)
+        assertTrue(middleClosingBlur in 0.67f..0.71f)
         assertTrue(
             stagedHomeOverlayBlurProgress(
                 legacyDepthProgress = 0f,
                 morphProgress = CourseGlassClosingPrewarmProgress,
                 closing = true
-            ) > 0.48f
+            ) > 0.67f
         )
         assertEquals(
             0f,

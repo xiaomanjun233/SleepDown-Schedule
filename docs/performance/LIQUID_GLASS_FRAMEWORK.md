@@ -1,6 +1,6 @@
 # 液态玻璃 2.0 统一框架与同 Activity 动画
 
-更新时间：2026-08-23
+更新时间：2026-08-24
 
 ## 当前结论
 
@@ -84,11 +84,18 @@
 - blur 半径、lens height/amount、绝对 dp 圆角和多 Shape SDF 同步按采样比例缩放；最终放大后几何与视觉参数回到原物理尺寸。文字与 decoration 不参与缩放。
 - 合批不成立时，逐卡 Kyant consumer 仍可使用同一采样比例；因此高负载不会因一张冲突卡导致整页退回 N 条全分辨率效果链。
 
+### 课程卡视口材质生命周期
+
+- 大玻璃性能开关开启时，周视图每张课程卡用真实 `boundsInWindow` 与当前 DecorView 分辨率判断可见性。卡片完全离开窗口后只移除 Backdrop surface 与全分辨率 decoration 材质节点；文字、布局、点击、长按、语义和 Composition 状态继续存在。
+- 预热距离按窗口短边的 12% 计算，并限制在 `72dp–160dp`。离屏卡只有在距离缩小、即将反向进入窗口时才在该带内重建材质；继续远离的卡不会预热，避免左右 Pager 和上下滚动一次性恢复全部消费者。
+- `GlassGroup` 不再让共享效果链包含所有已 Composition 的成员。它用同一窗口判定过滤真实可见/方向性预热成员，只有成员集合跨越窗口或预热边界时才重算计划，普通逐像素滚动不触发 Compose 状态变化。每卡原先逐帧把绝对 bounds 写入 Compose State 的路径也改为非观察型最新锚点引用，仅真实宽度变化才更新 State；点击、长按和余震绘制仍读取最新 bounds。这样相邻 Pager 页和纵向窗口外卡片不会继续扩大共享 RenderTarget，也不会因位置变化触发 N 卡重组。
+- 启动飞入、课程长按编辑/拖拽、冲突交接及活动 overlay 期间关闭该视口门控，避免源卡锚点或编辑态材质被错误回收；全局缓存遮挡生命周期仍由独立 `CourseGlassOcclusionPhase` 控制。
+
 ### 缓存遮挡生命周期
 
 - 只有确实形成大范围遮挡的个性化面板、菜单目的页和课程编辑器进入该路线；194×317dp 的右上角三点菜单不构成实质覆盖，始终保留课程卡材质渲染。
 - 实质遮挡路线从 Opening 开始复用 0.5×、四分之一像素面积的 `HomeBackgroundBlurLayer`。模糊时序与故意滞后的 zoom 解耦，12 个稳定 RenderEffect 档位从首帧逐级增加并在 Opening 前 38% 达到原 12dp 最大值；不再把清晰帧与最大模糊帧按 alpha 叠化。缓存帧 key 完全匹配且 `GraphicsLayer` 已实际切到 Offscreen 后，Opening 的首个有效缓存帧即把课程卡切到 `Suspended`。只卸载材质 surface/decoration；内容、布局、点击、手势、语义和 Composition 状态保留。
-- 关闭请求立即启动原 Closing，不等待两帧预热或 500ms 超时。首版曾保持最大模糊到 Closing 只剩 24% 再集中释放，用户确认会产生明显跳变；Opening 保持不变，Closing 改为端点平滑的 `smootherstep(remainingProgress^0.4)`，前段接近满模糊、中后段持续卸载、终点归零。课程卡仍到剩余 18% 才进入 `Prewarming` 并强制录制一次材质。`snapshotFlow` 只观察这一阈值，不因每帧 progress 重启协程。个性化滑块 preview key/progress 有效时硬绕过 staged blur，只保留原 legacy 景深，避免实时预览被全局模糊污染。
+- 关闭请求立即启动原 Closing，不等待两帧预热或 500ms 超时。首版曾保持最大模糊到 Closing 只剩 24% 再集中释放，第二版 `remainingProgress^0.4` 的材质恢复仍挤在末尾；Opening 保持不变，当前 Closing 使用端点平滑的 `smootherstep(remainingProgress^0.55)`，从中段更早连续卸载并在终点归零。课程卡在剩余 40% 时、背景仍约保留 69% 模糊强度的遮挡下进入 `Prewarming` 并强制录制一次材质，把 shader/layer 分配从最后几帧前移。`snapshotFlow` 只观察这一阈值，不因每帧 progress 重启协程。个性化滑块 preview key/progress 有效时硬绕过 staged blur，只保留原 legacy 景深，避免实时预览被全局模糊污染。
 - 不创建 Bitmap/ImageBitmap 截图，不改变背景 blur/zoom、Morph 时间线或终态页面。用户在旧实现的 6 卡同屏场景中已主观观察到掉帧减少，但尚无 Macrobenchmark/Perfetto 数据；当前仍不宣称量化收益。
 
 ## 同 Activity Morph
@@ -143,3 +150,4 @@
 - 最终包合并合批/逐卡两条 shape 修复、前置 12 档模糊与 Closing 末段恢复，只构建 `assembleGithubRelease`，使用 `--no-parallel --max-workers=2`、跳过资源压缩但保留 Kotlin、R8、lintVital 与签名。生成值核对为 `SLEEPDOWN_LARGE_GLASS_EXPERIMENT=true`、`SLEEPDOWN_LIQUID_MOTION_EXPERIMENT=false`；APK 大小 `6,446,118` bytes，SHA-256 `3A1D4408F6453F12B30C1956FFE4CF47FE583BE8B9252BC3FF7DB18F6B1FFF26`，已覆盖安装到 PLJ110 `3B15AE023YL00000`，未由 Codex 启动或操作，等待用户实际观察。
 - 用户确认该包总体掉帧明显减少，同时指出 Closing 集中卸载模糊不自然、个性化滑块预览被错误垫上全局模糊，并说明 12 卡 Pager 滑动仍掉帧。后续包保持 Opening 不变，修正 Closing 曲线和 preview 隔离，并将采样阈值调整为 8/12。
 - 新包只构建 `assembleGithubRelease`，使用 `--no-parallel --max-workers=2`、跳过资源压缩但保留 Kotlin、R8、lintVital 与签名；双开关核对为大玻璃性能 `true`、液态动效 `false`。APK 大小 `6,446,118` bytes，SHA-256 `2C5DFE997D447C7A857325829497E3B2D4B9B856BA8824BF98B9AFAE2CB6B8E4`，已覆盖安装到 PLJ110 `3B15AE023YL00000`，未由 Codex 启动或操作。
+- 本轮继续前移 Closing 材质恢复/模糊释放，并新增双轴视口材质生命周期、合批成员过滤和滚动 bounds 非观察型锚点。只构建同开关的 `assembleGithubRelease`，`--no-parallel --max-workers=2`、跳过资源压缩，Kotlin、R8、lintVital、打包和签名均通过；实际值仍为大玻璃性能 `true`、液态动效 `false`。最终 APK 大小 `6,446,118` bytes，SHA-256 `EA6C78A588DF912D5E98DCB2F59159E7706619DB777A2CDBDDAF1441F279CC0D`。构建后两次 `adb devices -l` 与 `adb mdns services` 均未发现设备，因此尚未覆盖安装、未启动，不能把安装或真机效果记为已完成。

@@ -16,8 +16,8 @@ internal const val HomeLiveBlurStepCount = 12
 /** Opening reaches the full blur early enough to cover the material-node handoff. */
 internal const val HomeOpeningBlurFullProgress = 0.38f
 
-/** Biases Closing toward retained blur without concentrating the release into a short tail. */
-internal const val HomeClosingBlurProgressExponent = 0.4f
+/** Lets Closing release blur earlier while preserving zero velocity at both endpoints. */
+internal const val HomeClosingBlurProgressExponent = 0.55f
 
 /**
  * The personalization shell and its large-screen aura use the same bounded blur progression as

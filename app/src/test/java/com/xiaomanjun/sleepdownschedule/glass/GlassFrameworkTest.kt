@@ -443,6 +443,57 @@ class GlassFrameworkTest {
     }
 
     @Test
+    fun courseGlassViewportDropsOnlyFullyOutsideCardsAndPrewarmsOnReturn() {
+        val viewport = Rect(0f, 0f, 1_800f, 2_880f)
+        val prewarmDistance = adaptiveCourseGlassPrewarmDistancePx(
+            viewport = viewport,
+            density = 2f
+        )
+        assertEquals(216f, prewarmDistance, 0.001f)
+
+        assertTrue(
+            decideCourseGlassViewportMaterial(
+                enabled = true,
+                currentlyMounted = true,
+                previousDistanceOutsidePx = null,
+                boundsInWindow = Rect(1_700f, 500f, 1_900f, 700f),
+                viewport = viewport,
+                prewarmDistancePx = prewarmDistance
+            ).mountMaterial
+        )
+        assertFalse(
+            decideCourseGlassViewportMaterial(
+                enabled = true,
+                currentlyMounted = true,
+                previousDistanceOutsidePx = null,
+                boundsInWindow = Rect(1_800f, 500f, 2_000f, 700f),
+                viewport = viewport,
+                prewarmDistancePx = prewarmDistance
+            ).mountMaterial
+        )
+        assertTrue(
+            decideCourseGlassViewportMaterial(
+                enabled = true,
+                currentlyMounted = false,
+                previousDistanceOutsidePx = 420f,
+                boundsInWindow = Rect(1_950f, 500f, 2_150f, 700f),
+                viewport = viewport,
+                prewarmDistancePx = prewarmDistance
+            ).mountMaterial
+        )
+        assertFalse(
+            decideCourseGlassViewportMaterial(
+                enabled = true,
+                currentlyMounted = false,
+                previousDistanceOutsidePx = 80f,
+                boundsInWindow = Rect(1_920f, 500f, 2_120f, 700f),
+                viewport = viewport,
+                prewarmDistancePx = prewarmDistance
+            ).mountMaterial
+        )
+    }
+
+    @Test
     fun nonOverlappingCourseCardsCollapseToOneMaterialGroup() {
         val viewport = Rect(0f, 0f, 1_000f, 2_000f)
         val candidates = (0 until 32).map { index ->

@@ -554,12 +554,14 @@ fun CourseGlassCard(
     shape: Shape = RoundedCornerShape(12.dp),
     blurOverride: Float? = null,
     renderSurface: Boolean = true,
+    mountMaterial: Boolean = true,
     backdropSampleScale: Float = 1f,
     sampledShape: Shape? = null,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val mountMaterialNodes = LocalCourseGlassOcclusionPhase.current.mountsMaterialNodes
+    val mountMaterialNodes =
+        mountMaterial && LocalCourseGlassOcclusionPhase.current.mountsMaterialNodes
     val previewState = LocalPersonalizationPreview.current
     val glassBackdrop = if (config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
     val simpleBlurBackdrop = if (!config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null

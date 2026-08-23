@@ -15,7 +15,12 @@ enum class CourseGlassOcclusionPhase {
         get() = this != Suspended
 }
 
-internal const val CourseGlassClosingPrewarmProgress = 0.18f
+/**
+ * Restore course-card material while the closing background still carries enough blur to hide
+ * shader/layer warm-up.  Waiting until the final fifth made the allocation burst visible as a
+ * tail hitch even though the cards themselves had already reached their resting geometry.
+ */
+internal const val CourseGlassClosingPrewarmProgress = 0.40f
 
 val LocalCourseGlassOcclusionPhase = staticCompositionLocalOf {
     CourseGlassOcclusionPhase.Live
