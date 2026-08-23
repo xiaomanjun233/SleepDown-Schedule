@@ -183,8 +183,8 @@ fun buildCourseCardColorAssignments(
             val hsv = courseCardHsv(color)
             courseCardArgb(
                 hsv.copy(
-                    saturation = hsv.saturation.coerceIn(0.38f, 0.82f),
-                    value = hsv.value.coerceIn(0.74f, 0.94f)
+                    saturation = hsv.saturation.coerceIn(0.34f, 0.70f),
+                    value = hsv.value.coerceIn(0.82f, 0.95f)
                 )
             )
         }
@@ -194,31 +194,45 @@ fun buildCourseCardColorAssignments(
     val requiredCandidates = maxOf(36, keys.size * 4)
     val candidates = ArrayList<Long>(requiredCandidates)
     var generation = 0
-    while (candidates.size < requiredCandidates && generation < requiredCandidates * 4) {
+    val hueOffsets = floatArrayOf(0f, -9f, 9f, -18f, 18f, -28f, 28f)
+    val saturationSteps = floatArrayOf(0f, -0.10f, 0.08f, -0.17f, 0.14f)
+    val valueSteps = floatArrayOf(0f, 0.07f, -0.05f, 0.11f, -0.09f)
+    while (candidates.size < requiredCandidates && generation < requiredCandidates * 16) {
         val baseIndex = generation % bases.size
         val cycle = generation / bases.size
         val baseHsv = courseCardHsv(bases[baseIndex])
-        val saturationSteps = floatArrayOf(-0.22f, 0.18f, -0.10f, 0.28f, 0f)
-        val valueSteps = floatArrayOf(0.10f, -0.12f, 0.04f, -0.06f, 0f)
         val candidate = if (cycle == 0) {
             bases[baseIndex]
         } else {
+            val hueIndex = cycle % hueOffsets.size
+            val saturationIndex = (cycle / hueOffsets.size) % saturationSteps.size
+            val valueIndex =
+                (cycle / (hueOffsets.size * saturationSteps.size)) % valueSteps.size
             courseCardArgb(
                 baseHsv.copy(
-                    hue = (baseHsv.hue + cycle * 137.50776f + baseIndex * 11f) % 360f,
-                    saturation = (baseHsv.saturation + saturationSteps[(cycle - 1) % saturationSteps.size]).coerceIn(0.34f, 0.88f),
-                    value = (baseHsv.value + valueSteps[(cycle - 1) % valueSteps.size]).coerceIn(0.68f, 0.96f)
+                    // Keep generated courses recognisably inside the wallpaper's colour family.
+                    // The old golden-angle rotation could turn a blue wallpaper green or purple.
+                    hue = (baseHsv.hue + hueOffsets[hueIndex] + 360f) % 360f,
+                    saturation = (baseHsv.saturation + saturationSteps[saturationIndex])
+                        .coerceIn(0.30f, 0.74f),
+                    value = (baseHsv.value + valueSteps[valueIndex])
+                        .coerceIn(0.80f, 0.97f)
                 )
             )
         }
-        if (candidates.none { courseCardPerceptualDistance(it, candidate) < 0.035 }) {
+        if (candidates.none { courseCardPerceptualDistance(it, candidate) < 0.022 }) {
             candidates += candidate
         }
         generation++
     }
-    DefaultCourseCardPalette.forEach { fallback ->
-        if (candidates.size < requiredCandidates && candidates.none { courseCardPerceptualDistance(it, fallback) < 0.035 }) {
-            candidates += fallback
+    if (representativeColors.isEmpty()) {
+        DefaultCourseCardPalette.forEach { fallback ->
+            if (candidates.size < requiredCandidates && candidates.none {
+                    courseCardPerceptualDistance(it, fallback) < 0.022
+                }
+            ) {
+                candidates += fallback
+            }
         }
     }
 

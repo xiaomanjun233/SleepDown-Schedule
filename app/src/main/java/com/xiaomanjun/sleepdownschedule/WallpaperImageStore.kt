@@ -35,28 +35,72 @@ fun extractRepresentativeWallpaperColors(bitmap: Bitmap?): List<Long> {
             .resizeBitmapArea(96 * 96)
             .generate()
     }.getOrNull() ?: return DefaultCourseCardPalette
-    val candidates = buildList {
-        palette.vibrantSwatch?.rgb?.let(::add)
-        palette.lightVibrantSwatch?.rgb?.let(::add)
-        palette.darkVibrantSwatch?.rgb?.let(::add)
-        palette.mutedSwatch?.rgb?.let(::add)
-        palette.lightMutedSwatch?.rgb?.let(::add)
-        palette.darkMutedSwatch?.rgb?.let(::add)
-        palette.swatches.sortedByDescending { it.population }.forEach { add(it.rgb) }
-    }
-    val distinct = mutableListOf<Int>()
-    candidates.forEach { color ->
-        val sufficientlyDifferent = distinct.all { existing ->
-            val dr = android.graphics.Color.red(color) - android.graphics.Color.red(existing)
-            val dg = android.graphics.Color.green(color) - android.graphics.Color.green(existing)
-            val db = android.graphics.Color.blue(color) - android.graphics.Color.blue(existing)
-            dr * dr + dg * dg + db * db >= 42 * 42
+    return curateWallpaperCoursePalette(
+        palette.swatches.map { swatch ->
+            (swatch.rgb.toLong() and 0xFFFFFFFFL) to swatch.population
         }
-        if (sufficientlyDifferent) distinct += color
+    )
+}
+
+/**
+ * Palette target swatches are useful for accents, but ordering vibrant/dark targets before real
+ * population made a tiny shadow or accessory steer several course cards. Keep populous colours,
+ * reject low-population hue outliers, and let the assignment stage create nearby variations.
+ */
+internal fun curateWallpaperCoursePalette(
+    weightedColors: List<Pair<Long, Int>>
+): List<Long> {
+    if (weightedColors.isEmpty()) return DefaultCourseCardPalette
+    val ordered = weightedColors
+        .filter { it.second > 0 }
+        .sortedByDescending { it.second }
+    if (ordered.isEmpty()) return DefaultCourseCardPalette
+    val maximumPopulation = ordered.first().second.coerceAtLeast(1)
+    fun hsv(color: Long): FloatArray = FloatArray(3).also {
+        android.graphics.Color.colorToHSV(color.toInt(), it)
     }
-    return distinct.take(8).map { it.toLong() and 0xFFFFFFFFL }
-        .takeIf { it.size >= 3 }
-        ?: DefaultCourseCardPalette
+    fun hueDistance(first: Float, second: Float): Float {
+        val raw = kotlin.math.abs(first - second) % 360f
+        return minOf(raw, 360f - raw)
+    }
+    val dominantHsv = hsv(ordered.first().first)
+    val ranked = ordered
+        .asSequence()
+        .map { (color, population) ->
+            val colorHsv = hsv(color)
+            val populationRatio = population.toFloat() / maximumPopulation
+            val distance = hueDistance(dominantHsv[0], colorHsv[0])
+            Triple(color, colorHsv, populationRatio to distance)
+        }
+        .filter { (_, colorHsv, score) ->
+            val (populationRatio, distance) = score
+            colorHsv[2] >= 0.22f &&
+                populationRatio >= 0.035f &&
+                (
+                    dominantHsv[1] < 0.16f ||
+                        colorHsv[1] < 0.14f ||
+                        populationRatio >= 0.18f ||
+                        distance <= 70f
+                    )
+        }
+        .sortedByDescending { (_, colorHsv, score) ->
+            val (populationRatio, distance) = score
+            val familyScore = if (dominantHsv[1] < 0.16f || colorHsv[1] < 0.14f) {
+                0.5f
+            } else {
+                1f - distance / 180f
+            }
+            populationRatio * 0.82f + familyScore * 0.18f
+        }
+        .map { it.first }
+        .toList()
+    val distinct = mutableListOf<Long>()
+    ranked.forEach { color ->
+        if (distinct.all { courseCardPerceptualDistance(it, color) >= 0.045 }) {
+            distinct += color
+        }
+    }
+    return distinct.take(6).ifEmpty { listOf(ordered.first().first) }
 }
 
 data class WallpaperSourceSize(val width: Int, val height: Int)
