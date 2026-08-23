@@ -16,9 +16,12 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import top.yukonga.miuix.kmp.basic.DropdownColors
 import top.yukonga.miuix.kmp.basic.DropdownEntry
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
@@ -83,18 +86,27 @@ private fun Modifier.miuixCascadingPopupSurface(
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
         return background(settingsPageBackground(settingsVisualConfig(config)))
     }
-    return drawBackdrop(
+    val effectiveBlur = blurRadius.coerceAtMost(14.dp)
+    val material = GlassMaterialSpec.popup(effectiveBlur)
+    val descriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "MiuixCascadingPopup",
+        domain = GlassBackdropDomain.DialogBridge,
+        materialRole = GlassMaterialRole.Popup
+    )
+    return sleepDownGlassSurface(
         backdrop = backdrop,
+        descriptor = descriptor,
+        material = material,
         // Backdrop's lens shader requires a CornerBasedShape. A zero-radius rounded rect is
         // pixel-identical to RectangleShape while satisfying that runtime contract; Miuix still
         // owns the animated primary/secondary clip paths outside this material layer.
         shape = { RoundedCornerShape(0.dp) },
-        effects = {
-            blur(blurRadius.coerceAtMost(14.dp).toPx())
-            lens(4.dp.toPx(), 8.dp.toPx(), chromaticAberration = false)
-        },
-        highlight = null,
-        shadow = null,
+        effectFrame = GlassEffectFrame(
+            blur = effectiveBlur,
+            lensHeight = 4.dp,
+            lensAmount = 8.dp,
+            chromaticAberration = false
+        ),
         onDrawSurface = {
             drawRect(
                 if (dark) {

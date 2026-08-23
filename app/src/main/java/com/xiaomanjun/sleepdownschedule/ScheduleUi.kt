@@ -266,14 +266,20 @@ import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.backdrop.catalog.components.LiquidSlider
 import com.kyant.backdrop.catalog.components.LiquidToggle
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
 import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassRenderPhase
+import com.xiaomanjun.sleepdownschedule.glass.GlassSamplingLink
+import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNode
+import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNodeRole
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSceneState
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
 import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
@@ -583,11 +589,17 @@ fun CourseScheduleAppUi(
         ?.takeIf { it.id == baseVisualState.config.id }
         ?.let { baseVisualState.copy(config = it) }
         ?: baseVisualState
+    val glassSceneState = rememberGlassSceneState(sceneId = "home")
     val screenGraphicsLayer = rememberGraphicsLayer()
     // The week grid is already recorded into this layer for Morph motion. Reuse that GPU layer
     // as the personalization backdrop producer so the glass does not traverse every live
     // week-card RenderNode again on each animation frame.
-    val cachedWeekHomeBackdrop = rememberLayerBackdrop(screenGraphicsLayer)
+    val cachedWeekHomeBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "home-cached-week-scene",
+        sceneState = glassSceneState,
+        graphicsLayer = screenGraphicsLayer
+    )
     val detailScreenGraphicsLayer = rememberGraphicsLayer()
     val recordedScheduleId = remember { AtomicInteger(-1) }
     val recordedHomeGeneration = remember { AtomicLong(0L) }
@@ -818,10 +830,46 @@ fun CourseScheduleAppUi(
                 Toast.makeText(context, error.message ?: "ICS 文件读取失败", Toast.LENGTH_SHORT).show()
             }
     }
-    val backgroundBackdrop = rememberLayerBackdrop()
-    val contentBackdrop = rememberLayerBackdrop()
-    val pickerSceneBackdrop = rememberLayerBackdrop()
-    val chromeBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
+    val backgroundBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Background,
+        providerId = "home-background",
+        sceneState = glassSceneState
+    )
+    val contentBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "home-content",
+        sceneState = glassSceneState
+    )
+    val pickerSceneBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.PickerScene,
+        providerId = "home-picker-scene",
+        sceneState = glassSceneState
+    )
+    val chromeBackdrop = rememberGlassCombinedBackdrop(backgroundBackdrop, contentBackdrop)
+    remember(glassSceneState) {
+        glassSceneState.requireValidTopology(
+            nodes = listOf(
+                GlassTopologyNode("home-background", GlassBackdropDomain.Background, GlassTopologyNodeRole.Producer),
+                GlassTopologyNode("home-content", GlassBackdropDomain.Content, GlassTopologyNodeRole.Producer),
+                GlassTopologyNode("home-chrome", GlassBackdropDomain.ChromeCombined, GlassTopologyNodeRole.Consumer),
+                GlassTopologyNode("home-picker", GlassBackdropDomain.PickerScene, GlassTopologyNodeRole.Producer),
+                GlassTopologyNode("home-dialog", GlassBackdropDomain.DialogBridge, GlassTopologyNodeRole.Consumer),
+                GlassTopologyNode("home-cached-week", GlassBackdropDomain.Content, GlassTopologyNodeRole.Producer),
+                GlassTopologyNode(
+                    "home-personalization",
+                    GlassBackdropDomain.ChromeCombined,
+                    GlassTopologyNodeRole.Consumer
+                )
+            ),
+            links = listOf(
+                GlassSamplingLink("home-background", "home-chrome"),
+                GlassSamplingLink("home-content", "home-chrome"),
+                GlassSamplingLink("home-background", "home-dialog"),
+                GlassSamplingLink("home-content", "home-dialog"),
+                GlassSamplingLink("home-cached-week", "home-personalization")
+            )
+        )
+    }
     var homeReadabilityRootSize by remember { mutableStateOf(IntSize.Zero) }
     var homeRootPositionOnScreen by remember { mutableStateOf(Offset.Zero) }
     var homeRootPositionInWindow by remember { mutableStateOf(Offset.Zero) }
@@ -1060,6 +1108,15 @@ fun CourseScheduleAppUi(
         homeDialogVisible -> "DialogOpen"
         else -> "Idle"
     }
+    val glassRenderPhase = when {
+        startupAnimation.contains("Prepare", ignoreCase = true) -> GlassRenderPhase.Preparing
+        startupAnimation.contains("Close", ignoreCase = true) -> GlassRenderPhase.Closing
+        startupAnimation != "Idle" -> GlassRenderPhase.Moving
+        else -> GlassRenderPhase.Live
+    }
+    LaunchedEffect(glassRenderPhase) {
+        glassSceneState.synchronizePhase(glassRenderPhase)
+    }
     val startupEntranceSpec = rememberStartupEntranceSpec(
         phase = startupPhase,
         courseCount = state.courses.size,
@@ -1072,6 +1129,7 @@ fun CourseScheduleAppUi(
             homeDialogVisible
     )
     PerformanceAnimationState(startupAnimation, startupAnimation != "Idle")
+    GlassPerformanceDiagnostics(glassSceneState, startupAnimation)
     StartupJankStats(
         phase = startupPhase,
         screen = if (screen is Screen.Home) "Home" else if (screen is Screen.Config) "Settings" else "Other",
@@ -1143,7 +1201,7 @@ fun CourseScheduleAppUi(
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
     ) ?: contentBackdrop
-    val homeDialogBackdrop = rememberCombinedBackdrop(
+    val homeDialogBackdrop = rememberGlassCombinedBackdrop(
         homeDialogBackgroundBackdrop,
         homeDialogContentBackdrop
     )
@@ -1706,7 +1764,8 @@ fun CourseScheduleAppUi(
         LocalAdaptiveGlass provides adaptiveGlassState,
         LocalHomeReadability provides homeReadabilityContext,
         LocalCourseCardPalette provides wallpaperImages.representativeColors,
-        LocalCourseCardColorAssignments provides homeCourseColorAssignments
+        LocalCourseCardColorAssignments provides homeCourseColorAssignments,
+        LocalGlassSceneState provides glassSceneState
     ) {
     Box(
         modifier = Modifier
@@ -1908,7 +1967,7 @@ fun CourseScheduleAppUi(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .layerBackdrop(backgroundBackdrop)
+                        .glassBackdropProducer(backgroundBackdrop)
                 ) {
                     if (screen is Screen.Home) {
                         if (!visualState.loaded) {
@@ -1952,7 +2011,7 @@ fun CourseScheduleAppUi(
                 }
                 val contentModifier = Modifier
                     .fillMaxSize()
-                    .layerBackdrop(contentBackdrop)
+                    .glassBackdropProducer(contentBackdrop)
                 Column(modifier = contentModifier) {
                     if (screen !is Screen.Home) {
                         message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
@@ -2314,7 +2373,7 @@ fun CourseScheduleAppUi(
             },
             // Capture the complete manager (cards, title, indicators and actions) in a producer
             // that does not contain the later quick-settings sheet consumer.
-            modifier = Modifier.layerBackdrop(pickerSceneBackdrop)
+            modifier = Modifier.glassBackdropProducer(pickerSceneBackdrop)
         )
     }
     } // end cached home content
@@ -7017,7 +7076,10 @@ private fun AboutFeatureCard(
     eyebrow: String,
     title: String
 ) {
-    val imageBackdrop = rememberLayerBackdrop()
+    val imageBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "about-feature-image"
+    )
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val wideCard = maxWidth >= 560.dp
         val cardRatio = if (wideCard) 16f / 8.5f else 1.08f
@@ -7032,7 +7094,7 @@ private fun AboutFeatureCard(
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
-                    .layerBackdrop(imageBackdrop),
+                    .glassBackdropProducer(imageBackdrop),
                 contentScale = ContentScale.Crop
             )
             ProgressiveBackdropBlur(

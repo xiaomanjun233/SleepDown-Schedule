@@ -55,8 +55,9 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.coroutineScope
@@ -226,7 +227,10 @@ internal fun AnchoredDetailActivityMorph(
         usesCourseEditorMotion
     val usesHomeMenuDestinationMotion = motionStyle == AnchoredDetailMotionStyle.HomeMenuDestination
     val usesDestinationFirstOpening = usesHomeMenuDestinationMotion && destinationFirstOpening
-    val snapshotBackdrop = rememberLayerBackdrop()
+    val snapshotBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.ActivityBackground,
+        providerId = "anchored-detail-snapshot"
+    )
     val bypassLegacyOpening = openingMode == AnchoredDetailOpeningMode.ShowDestination
     val renderedProgress = if (bypassLegacyOpening) 1f else progress.value
 
@@ -334,7 +338,7 @@ internal fun AnchoredDetailActivityMorph(
             .onSizeChanged { rootSize = it }
     ) {
         backgroundSnapshot?.takeIf { !bypassLegacyOpening || closing }?.let { bitmap ->
-            Box(Modifier.fillMaxSize().layerBackdrop(snapshotBackdrop)) {
+            Box(Modifier.fillMaxSize().glassBackdropProducer(snapshotBackdrop)) {
                 MorphSnapshotBackground(
                     bitmap = bitmap,
                     backgroundScaleProvider = { backgroundScale.value },

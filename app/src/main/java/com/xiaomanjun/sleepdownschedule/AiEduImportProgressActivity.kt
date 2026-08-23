@@ -112,10 +112,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidPanel
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
@@ -231,9 +232,15 @@ internal fun AiEduImportProgressPage(
     var baselineRootHeightPx by remember { mutableIntStateOf(0) }
     var baselineRootTopOnScreenPx by remember { mutableIntStateOf(0) }
     val previewBackgroundZoom = remember { Animatable(1f) }
-    val previewSceneBackdrop = rememberLayerBackdrop { drawContent() }
+    val previewSceneBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.ActivityBackground,
+        providerId = "ai-import-preview-scene"
+    ) { drawContent() }
     val conversationPageColor = settingsPageBackground(settingsVisualConfig(config))
-    val conversationContentBackdrop = rememberLayerBackdrop {
+    val conversationContentBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "ai-import-conversation-content"
+    ) {
         drawRect(conversationPageColor)
         drawContent()
     }
@@ -319,7 +326,7 @@ internal fun AiEduImportProgressPage(
                     }
                 }
         ) {
-            Box(Modifier.fillMaxSize().layerBackdrop(previewSceneBackdrop)) {
+            Box(Modifier.fillMaxSize().glassBackdropProducer(previewSceneBackdrop)) {
         DetailActivityScaffold(
             title = pageTitle,
             config = config,
@@ -404,7 +411,7 @@ internal fun AiEduImportProgressPage(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .layerBackdrop(conversationContentBackdrop)
+                        .glassBackdropProducer(conversationContentBackdrop)
                 ) {
                     LazyColumn(
                         state = listState,

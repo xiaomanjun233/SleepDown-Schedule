@@ -242,10 +242,6 @@ import com.kyant.backdrop.catalog.components.LiquidSlider
 import com.kyant.backdrop.catalog.components.LiquidToggle
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
@@ -254,6 +250,10 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -473,11 +473,14 @@ internal fun SinglePillWeekScheduleScreen(
         scrollState = scrollState,
         scheduleId = state.config.id
     )
-    val stationaryCoursesBackdrop = rememberLayerBackdrop()
+    val stationaryCoursesBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "week-stationary-courses"
+    )
     val needsStationaryCoursesBackdrop = weekEditMode || weekEditOverlay.request != null
     val floatingSamplingBase = floatingCourseBackdrop ?: backdrop
     val liftedCourseBackdrop = if (floatingSamplingBase != null) {
-        rememberCombinedBackdrop(floatingSamplingBase, stationaryCoursesBackdrop)
+        rememberGlassCombinedBackdrop(floatingSamplingBase, stationaryCoursesBackdrop)
     } else {
         null
     }
@@ -672,7 +675,7 @@ internal fun SinglePillWeekScheduleScreen(
                             .fillMaxSize()
                             .then(
                                 if (needsStationaryCoursesBackdrop) {
-                                    Modifier.layerBackdrop(stationaryCoursesBackdrop)
+                                    Modifier.glassBackdropProducer(stationaryCoursesBackdrop)
                                 } else {
                                     Modifier
                                 }

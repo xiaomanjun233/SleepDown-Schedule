@@ -44,11 +44,7 @@ import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
@@ -56,6 +52,15 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -326,7 +331,10 @@ fun LiquidSlider(
     val isLightTheme = !isSystemInDarkTheme()
     val accentColor = if (isLightTheme) Color(0xFF0088FF) else Color(0xFF0091FF)
     val trackColor = if (isLightTheme) Color(0xFF787878).copy(0.2f) else Color(0xFF787880).copy(0.36f)
-    val trackBackdrop = rememberLayerBackdrop()
+    val trackBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.ChromeCombined,
+        providerId = "liquid-slider-track"
+    )
     val scope = rememberCoroutineScope()
     val currentPreview by rememberUpdatedState(onPreviewValueChange)
     val currentPreviewMode by rememberUpdatedState(onPreviewModeChange)
@@ -336,6 +344,27 @@ fun LiquidSlider(
         LiquidSliderMotionState(currentValue(), valueRange, visibilityThreshold, scope)
     }
     val previewDispatcher = remember(scope) { FramePreviewDispatcher(scope) }
+    val material = remember {
+        GlassMaterialSpec(
+            role = GlassMaterialRole.Control,
+            blur = 8.dp,
+            lensHeight = 10.dp,
+            lensAmount = 14.dp,
+            surfaceAlpha = 1f,
+            borderAlpha = 0f,
+            highlightAlpha = 0.45f,
+            shadowAlpha = 0.05f,
+            innerShadowAlpha = 1f,
+            chromaticAberration = false,
+            depthEffect = false
+        )
+    }
+    val descriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "LiquidSliderThumb",
+        domain = GlassBackdropDomain.ChromeCombined,
+        materialRole = GlassMaterialRole.Control,
+        sceneKey = "liquid-slider-thumb"
+    )
 
     DisposableEffect(motion, previewDispatcher) {
         onDispose {
@@ -472,7 +501,7 @@ fun LiquidSlider(
                 },
             contentAlignment = Alignment.CenterStart
         ) {
-            Box(Modifier.layerBackdrop(trackBackdrop)) {
+            Box(Modifier.glassBackdropProducer(trackBackdrop)) {
                 Box(
                     Modifier
                         .clip(Capsule())
@@ -506,8 +535,8 @@ fun LiquidSlider(
                         )
                         translationX = thumbCenter - size.width / 2f
                     }
-                    .drawBackdrop(
-                        backdrop = rememberCombinedBackdrop(
+                    .sleepDownGlassSurface(
+                        backdrop = rememberGlassCombinedBackdrop(
                             backdrop,
                             rememberBackdrop(trackBackdrop) { drawBackdrop ->
                                 val progress = motion.pressProgress.value
@@ -516,14 +545,17 @@ fun LiquidSlider(
                                 }
                             }
                         ),
+                        descriptor = descriptor,
+                        material = material,
                         shape = { Capsule() },
-                        effects = {
+                        effectFrame = GlassEffectFrame(blur = null),
+                        effectsOverride = {
                             val progress = motion.pressProgress.value
                             vibrancy()
                             blur(8.dp.toPx() * (1f - progress))
                             lens(10.dp.toPx() * progress, 14.dp.toPx() * progress, chromaticAberration = false)
                         },
-                        highlight = {
+                        highlightOverride = {
                             val progress = motion.pressProgress.value
                             Highlight.Ambient.copy(
                                 width = Highlight.Ambient.width / 1.5f,
@@ -531,12 +563,12 @@ fun LiquidSlider(
                                 alpha = progress * 0.45f
                             )
                         },
-                        shadow = { Shadow(radius = 4.dp, color = Color.Black.copy(alpha = 0.05f)) },
-                        innerShadow = {
+                        shadowOverride = { Shadow(radius = 4.dp, color = Color.Black.copy(alpha = 0.05f)) },
+                        innerShadowOverride = {
                             val progress = motion.pressProgress.value
                             InnerShadow(radius = 4.dp * progress, alpha = progress)
                         },
-                        layerBlock = {
+                        additionalLayerBlock = {
                             scaleX = motion.scaleX.value
                             scaleY = motion.scaleY.value
                             val velocity = motion.velocity / 10f

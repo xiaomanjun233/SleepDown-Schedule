@@ -88,9 +88,10 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -174,8 +175,14 @@ fun ScheduleManagerScreen(
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = activeIndex)
     val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     val scope = rememberCoroutineScope()
-    val backgroundBackdrop = rememberLayerBackdrop()
-    val sceneBackdrop = rememberLayerBackdrop()
+    val backgroundBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Background,
+        providerId = "schedule-manager-background"
+    )
+    val sceneBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.PickerScene,
+        providerId = "schedule-manager-scene"
+    )
     val chromeBackdrop = backgroundBackdrop
     var deleteCandidate by remember { mutableStateOf<ScheduleProfileEntity?>(null) }
     var renameCandidate by remember { mutableStateOf<ScheduleProfileEntity?>(null) }
@@ -260,13 +267,13 @@ fun ScheduleManagerScreen(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .layerBackdrop(sceneBackdrop)
+            .glassBackdropProducer(sceneBackdrop)
     ) {
         Box(
             Modifier
                 .fillMaxSize()
                 .background(Color.Black)
-                .layerBackdrop(backgroundBackdrop)
+                .glassBackdropProducer(backgroundBackdrop)
         )
 
         Box(

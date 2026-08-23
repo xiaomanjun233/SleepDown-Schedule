@@ -123,9 +123,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.Lifecycle
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.PopupLayout
 import kotlinx.coroutines.Dispatchers
@@ -1066,9 +1067,12 @@ private fun DayAgentConversationDialog(
     val expansion = remember { Animatable(0f) }
     val conversationListState = rememberLazyListState()
     val foreground = LocalAdaptiveGlass.current.contentColor
-    val agentCardContentBackdrop = rememberLayerBackdrop()
+    val agentCardContentBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "day-agent-card-content"
+    )
     val agentInputBackdrop = if (backdrop != null) {
-        rememberCombinedBackdrop(backdrop, agentCardContentBackdrop)
+        rememberGlassCombinedBackdrop(backdrop, agentCardContentBackdrop)
     } else null
     val density = LocalDensity.current
     val liveAdaptiveMetrics = rememberHomeAdaptiveMetrics()
@@ -1402,7 +1406,7 @@ private fun DayAgentConversationDialog(
                     )
                     // Record only the expanded card. Inputs below sample this plus the base home
                     // layer; they must never fall through to wallpaper-only sampling.
-                    .layerBackdrop(agentCardContentBackdrop)
+                    .glassBackdropProducer(agentCardContentBackdrop)
              ) {
                 GlassSurface(
                     backdrop = backdrop,

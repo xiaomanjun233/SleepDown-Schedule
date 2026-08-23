@@ -32,12 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.utils.DampedDragAnimation
-import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
@@ -45,6 +41,15 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import kotlinx.coroutines.flow.collectLatest
 
 @Composable
@@ -119,7 +124,31 @@ fun LiquidToggle(
             }
     }
 
-    val trackBackdrop = rememberLayerBackdrop()
+    val trackBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.ChromeCombined,
+        providerId = "liquid-toggle-track"
+    )
+    val material = remember {
+        GlassMaterialSpec(
+            role = GlassMaterialRole.Control,
+            blur = 8.dp,
+            lensHeight = 5.dp,
+            lensAmount = 10.dp,
+            surfaceAlpha = 1f,
+            borderAlpha = 0f,
+            highlightAlpha = 0.45f,
+            shadowAlpha = 0.05f,
+            innerShadowAlpha = 1f,
+            chromaticAberration = false,
+            depthEffect = false
+        )
+    }
+    val descriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "LiquidToggleThumb",
+        domain = GlassBackdropDomain.ChromeCombined,
+        materialRole = GlassMaterialRole.Control,
+        sceneKey = "liquid-toggle-thumb"
+    )
 
     Box(
         modifier,
@@ -127,7 +156,7 @@ fun LiquidToggle(
     ) {
         Box(
             Modifier
-                .layerBackdrop(trackBackdrop)
+                .glassBackdropProducer(trackBackdrop)
                 .clip(Capsule())
                 .drawBehind {
                     val fraction = dampedDragAnimation.value
@@ -149,8 +178,8 @@ fun LiquidToggle(
                     role = Role.Switch
                 }
                 .then(dampedDragAnimation.modifier)
-                .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(
+                .sleepDownGlassSurface(
+                    backdrop = rememberGlassCombinedBackdrop(
                         backdrop,
                         rememberBackdrop(trackBackdrop) { drawBackdrop ->
                             val progress = dampedDragAnimation.pressProgress
@@ -161,8 +190,11 @@ fun LiquidToggle(
                             }
                         }
                     ),
+                    descriptor = descriptor,
+                    material = material,
                     shape = { Capsule() },
-                    effects = {
+                    effectFrame = GlassEffectFrame(blur = null),
+                    effectsOverride = {
                         val progress = dampedDragAnimation.pressProgress
                         vibrancy()
                         blur(8f.dp.toPx() * (1f - progress))
@@ -172,7 +204,7 @@ fun LiquidToggle(
                             chromaticAberration = false
                         )
                     },
-                    highlight = {
+                    highlightOverride = {
                         val progress = dampedDragAnimation.pressProgress
                         Highlight.Ambient.copy(
                             width = Highlight.Ambient.width / 1.5f,
@@ -180,20 +212,20 @@ fun LiquidToggle(
                             alpha = progress * 0.45f
                         )
                     },
-                    shadow = {
+                    shadowOverride = {
                         Shadow(
                             radius = 4f.dp,
                             color = Color.Black.copy(alpha = 0.05f)
                         )
                     },
-                    innerShadow = {
+                    innerShadowOverride = {
                         val progress = dampedDragAnimation.pressProgress
                         InnerShadow(
                             radius = 4f.dp * progress,
                             alpha = progress
                         )
                     },
-                    layerBlock = {
+                    additionalLayerBlock = {
                         scaleX = dampedDragAnimation.scaleX
                         scaleY = dampedDragAnimation.scaleY
                         val velocity = dampedDragAnimation.velocity / 50f

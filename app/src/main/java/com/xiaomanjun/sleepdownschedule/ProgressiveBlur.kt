@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -13,9 +14,13 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.drawPlainBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.runtimeShaderEffect
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownPlainGlassSurface
 
 enum class ProgressiveBlurDirection {
     TopToBottom,
@@ -58,6 +63,7 @@ fun ProgressiveBackdropBlur(
     )
 }
 
+@Composable
 fun Modifier.progressiveBackdropBlur(
     backdrop: Backdrop?,
     tintColor: Color,
@@ -71,8 +77,21 @@ fun Modifier.progressiveBackdropBlur(
     fallbackTintStops: List<Pair<Float, Color>>
 ): Modifier {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backdrop != null) {
-        drawPlainBackdrop(
+        val material = remember(blurRadius, tintIntensity) {
+            GlassMaterialSpec.simpleBlur(blurRadius).copy(
+                surfaceAlpha = tintIntensity.coerceIn(0f, 1f)
+            )
+        }
+        val descriptor = rememberGlassSurfaceDescriptor(
+            debugLabel = "ProgressiveBackdropBlur",
+            domain = GlassBackdropDomain.Content,
+            materialRole = GlassMaterialRole.SimpleBlur,
+            sceneKey = "progressive-backdrop-blur"
+        )
+        sleepDownPlainGlassSurface(
             backdrop = backdrop,
+            descriptor = descriptor,
+            material = material,
             shape = { RectangleShape },
             effects = {
                 blur(blurRadius.toPx())
