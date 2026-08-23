@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule
 
 import kotlin.math.abs
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
@@ -15,8 +16,8 @@ internal const val HomeLiveBlurStepCount = 12
 /** Opening reaches the full blur early enough to cover the material-node handoff. */
 internal const val HomeOpeningBlurFullProgress = 0.38f
 
-/** Closing holds the full blur until only the final part of the morph remains. */
-internal const val HomeClosingBlurReleaseProgress = 0.24f
+/** Biases Closing toward retained blur without concentrating the release into a short tail. */
+internal const val HomeClosingBlurProgressExponent = 0.4f
 
 /**
  * The personalization shell and its large-screen aura use the same bounded blur progression as
@@ -32,9 +33,10 @@ internal fun quantizeHomeProgressiveBackdropBlurProgress(progress: Float): Float
 
 /**
  * Decouples background blur timing from the deliberately trailing zoom curve. Opening advances
- * through the existing bounded blur levels immediately, while Closing keeps the background fully
- * blurred until the shell is near its source. The legacy zoom-derived depth remains a lower bound,
- * so no route loses blur that it already had.
+ * through the existing bounded blur levels immediately. Closing uses a reversible, endpoint-smooth
+ * bias: it stays near maximum early, then releases across the rest of the motion instead of
+ * dropping all levels in a short tail. The legacy zoom-derived depth remains a lower bound, so no
+ * route loses blur that it already had.
  */
 internal fun stagedHomeOverlayBlurProgress(
     legacyDepthProgress: Float,
@@ -44,7 +46,12 @@ internal fun stagedHomeOverlayBlurProgress(
     val legacy = legacyDepthProgress.coerceIn(0f, 1f)
     val progress = morphProgress?.coerceIn(0f, 1f) ?: return legacy
     val staged = if (closing) {
-        smoothStep(0f, HomeClosingBlurReleaseProgress, progress)
+        val biasedProgress = if (progress <= 0f) {
+            0f
+        } else {
+            progress.pow(HomeClosingBlurProgressExponent)
+        }
+        smootherStep(biasedProgress)
     } else {
         smoothStep(0f, HomeOpeningBlurFullProgress, progress)
     }
@@ -55,6 +62,11 @@ private fun smoothStep(edge0: Float, edge1: Float, value: Float): Float {
     val width = (edge1 - edge0).coerceAtLeast(0.0001f)
     val t = ((value - edge0) / width).coerceIn(0f, 1f)
     return t * t * (3f - 2f * t)
+}
+
+private fun smootherStep(value: Float): Float {
+    val t = value.coerceIn(0f, 1f)
+    return t * t * t * (t * (t * 6f - 15f) + 10f)
 }
 
 /**
@@ -103,6 +115,12 @@ internal fun shouldUseFrozenHomeMorphBlur(
     previewActive: Boolean,
     overlayActive: Boolean
 ): Boolean = screenIsHome && !previewActive && overlayActive
+
+/** Slider preview must keep its original live backdrop and may never inherit transition blur. */
+internal fun shouldUseStagedHomeOverlayBlur(
+    previewActive: Boolean,
+    substantialOverlayActive: Boolean
+): Boolean = !previewActive && substantialOverlayActive
 
 /** Keeps cached and live background paths on the exact same depth/blur curve. */
 internal fun homeOverlayDepthProgress(zoom: Float): Float {

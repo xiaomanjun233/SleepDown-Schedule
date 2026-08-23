@@ -1448,7 +1448,13 @@ fun CourseScheduleAppUi(
     }
     val homeOverlayBackgroundBlurProgress: () -> Float = {
         val legacyDepth = homeOverlayDepthProgress(homeOverlayBackgroundZoom())
-        when {
+        val previewActive = personalizationSliderPreviewKey != null ||
+            personalizationPreviewProgress > 0.001f
+        val substantialOverlayActive = substantialCourseEditorCoverage ||
+            substantialMenuDestinationCoverage || substantialHomeAnchoredCoverage
+        if (!shouldUseStagedHomeOverlayBlur(previewActive, substantialOverlayActive)) {
+            legacyDepth
+        } else when {
             substantialCourseEditorCoverage &&
                 courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle ->
                 stagedHomeOverlayBlurProgress(

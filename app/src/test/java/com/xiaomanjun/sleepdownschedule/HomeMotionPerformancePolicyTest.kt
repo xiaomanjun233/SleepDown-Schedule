@@ -62,21 +62,33 @@ class HomeMotionPerformancePolicyTest {
             ),
             0.0001f
         )
-        assertEquals(
-            1f,
-            stagedHomeOverlayBlurProgress(
-                legacyDepthProgress = 0f,
-                morphProgress = HomeClosingBlurReleaseProgress,
-                closing = true
-            ),
-            0.0001f
+        val earlyClosingBlur = stagedHomeOverlayBlurProgress(
+            legacyDepthProgress = 0f,
+            morphProgress = 0.8f,
+            closing = true
         )
+        val middleClosingBlur = stagedHomeOverlayBlurProgress(
+            legacyDepthProgress = 0f,
+            morphProgress = 0.4f,
+            closing = true
+        )
+        assertTrue(earlyClosingBlur > 0.98f)
+        assertTrue(middleClosingBlur in 0.80f..0.86f)
         assertTrue(
             stagedHomeOverlayBlurProgress(
                 legacyDepthProgress = 0f,
                 morphProgress = CourseGlassClosingPrewarmProgress,
                 closing = true
-            ) > 0.8f
+            ) > 0.48f
+        )
+        assertEquals(
+            0f,
+            stagedHomeOverlayBlurProgress(
+                legacyDepthProgress = 0f,
+                morphProgress = 0f,
+                closing = true
+            ),
+            0.0001f
         )
         assertEquals(
             0.4f,
@@ -125,6 +137,28 @@ class HomeMotionPerformancePolicyTest {
                 screenIsHome = true,
                 previewActive = false,
                 overlayActive = false
+            )
+        )
+    }
+
+    @Test
+    fun personalizationSliderPreviewNeverUsesTransitionBlur() {
+        assertFalse(
+            shouldUseStagedHomeOverlayBlur(
+                previewActive = true,
+                substantialOverlayActive = true
+            )
+        )
+        assertTrue(
+            shouldUseStagedHomeOverlayBlur(
+                previewActive = false,
+                substantialOverlayActive = true
+            )
+        )
+        assertFalse(
+            shouldUseStagedHomeOverlayBlur(
+                previewActive = false,
+                substantialOverlayActive = false
             )
         )
     }
