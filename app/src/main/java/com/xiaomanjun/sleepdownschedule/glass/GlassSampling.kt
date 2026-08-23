@@ -4,8 +4,8 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntSize
 import kotlin.math.ceil
 
-internal const val CourseGlassThreeQuarterSampleThreshold = 13
-internal const val CourseGlassHalfSampleThreshold = 24
+internal const val CourseGlassThreeQuarterSampleThreshold = 8
+internal const val CourseGlassHalfSampleThreshold = 12
 
 /**
  * Only the sampled backdrop/effect texture changes resolution. Card layout, text, interaction,

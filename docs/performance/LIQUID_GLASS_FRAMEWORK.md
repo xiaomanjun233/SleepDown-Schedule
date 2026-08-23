@@ -80,7 +80,7 @@
 ### 课程卡自适应采样
 
 - Backdrop 2.0 没有 `sampleScale`/降采样质量参数。官方 `drawBackdrop` 的 `layerBlock` 会通过 `LayerBackdrop` 对消费者变换做逆向坐标补偿，因此本地把昂贵 consumer 分配为小尺寸纹理，再按左上原点放大到真实卡片尺寸，采样坐标仍对齐原 Backdrop。
-- 0–12 张课程卡使用 `1.0x`；13–23 张使用 `0.75x`（纹理面积约 56%）；24 张及以上使用 `0.5x`（纹理面积 25%）。阈值只在阶段二开关与周课程卡 allowlist 同时生效时进入。
+- 0–7 张课程卡使用 `1.0x`；8–11 张使用 `0.75x`（纹理面积约 56%）；12 张及以上使用 `0.5x`（纹理面积 25%）。此前用户的 12 卡测试仍落在旧 1× 档，因此看不到降采样收益；新阈值让该页静止与 Pager 滑动期间保持同一 0.5× RenderTarget，避免手势开始时动态换尺寸。
 - blur 半径、lens height/amount、绝对 dp 圆角和多 Shape SDF 同步按采样比例缩放；最终放大后几何与视觉参数回到原物理尺寸。文字与 decoration 不参与缩放。
 - 合批不成立时，逐卡 Kyant consumer 仍可使用同一采样比例；因此高负载不会因一张冲突卡导致整页退回 N 条全分辨率效果链。
 
@@ -88,7 +88,7 @@
 
 - 只有确实形成大范围遮挡的个性化面板、菜单目的页和课程编辑器进入该路线；194×317dp 的右上角三点菜单不构成实质覆盖，始终保留课程卡材质渲染。
 - 实质遮挡路线从 Opening 开始复用 0.5×、四分之一像素面积的 `HomeBackgroundBlurLayer`。模糊时序与故意滞后的 zoom 解耦，12 个稳定 RenderEffect 档位从首帧逐级增加并在 Opening 前 38% 达到原 12dp 最大值；不再把清晰帧与最大模糊帧按 alpha 叠化。缓存帧 key 完全匹配且 `GraphicsLayer` 已实际切到 Offscreen 后，Opening 的首个有效缓存帧即把课程卡切到 `Suspended`。只卸载材质 surface/decoration；内容、布局、点击、手势、语义和 Composition 状态保留。
-- 关闭请求立即启动原 Closing，不等待两帧预热或 500ms 超时。背景保持最大模糊到 Closing 只剩 24% 才逐档释放；课程卡到剩余 18% 才进入 `Prewarming`，在仍高度模糊的冻结缓存下重新挂载并强制录制一次材质，接近零模糊的最终帧才切回实时课表。`snapshotFlow` 只观察这一阈值，不因每帧 progress 重启协程。
+- 关闭请求立即启动原 Closing，不等待两帧预热或 500ms 超时。首版曾保持最大模糊到 Closing 只剩 24% 再集中释放，用户确认会产生明显跳变；Opening 保持不变，Closing 改为端点平滑的 `smootherstep(remainingProgress^0.4)`，前段接近满模糊、中后段持续卸载、终点归零。课程卡仍到剩余 18% 才进入 `Prewarming` 并强制录制一次材质。`snapshotFlow` 只观察这一阈值，不因每帧 progress 重启协程。个性化滑块 preview key/progress 有效时硬绕过 staged blur，只保留原 legacy 景深，避免实时预览被全局模糊污染。
 - 不创建 Bitmap/ImageBitmap 截图，不改变背景 blur/zoom、Morph 时间线或终态页面。用户在旧实现的 6 卡同屏场景中已主观观察到掉帧减少，但尚无 Macrobenchmark/Perfetto 数据；当前仍不宣称量化收益。
 
 ## 同 Activity Morph
@@ -141,3 +141,5 @@
 - 用户运行第三批首包后确认 6 卡同屏掉帧主观减少，同时报告多卡合批直接闪退、三点菜单不应卸载课程卡材质、首次返回等待预热延迟明显。崩溃堆栈已确认是 Backdrop 2.0 拒绝 `Outline.Generic` lens shape，而非 OOM。
 - 第一轮修复包使用同一 Release 开关构建，APK 大小 `6,446,118` bytes，SHA-256 `572BECCA2D12BCE1BA942AA8ACA03702457DCC9E3D7C3B93380592CD63F95424`；用户真机确认多卡仍闪退，随后才通过新 mapping 找到逐卡 `DensityScaledShape` 漏点。
 - 最终包合并合批/逐卡两条 shape 修复、前置 12 档模糊与 Closing 末段恢复，只构建 `assembleGithubRelease`，使用 `--no-parallel --max-workers=2`、跳过资源压缩但保留 Kotlin、R8、lintVital 与签名。生成值核对为 `SLEEPDOWN_LARGE_GLASS_EXPERIMENT=true`、`SLEEPDOWN_LIQUID_MOTION_EXPERIMENT=false`；APK 大小 `6,446,118` bytes，SHA-256 `3A1D4408F6453F12B30C1956FFE4CF47FE583BE8B9252BC3FF7DB18F6B1FFF26`，已覆盖安装到 PLJ110 `3B15AE023YL00000`，未由 Codex 启动或操作，等待用户实际观察。
+- 用户确认该包总体掉帧明显减少，同时指出 Closing 集中卸载模糊不自然、个性化滑块预览被错误垫上全局模糊，并说明 12 卡 Pager 滑动仍掉帧。后续包保持 Opening 不变，修正 Closing 曲线和 preview 隔离，并将采样阈值调整为 8/12。
+- 新包只构建 `assembleGithubRelease`，使用 `--no-parallel --max-workers=2`、跳过资源压缩但保留 Kotlin、R8、lintVital 与签名；双开关核对为大玻璃性能 `true`、液态动效 `false`。APK 大小 `6,446,118` bytes，SHA-256 `2C5DFE997D447C7A857325829497E3B2D4B9B856BA8824BF98B9AFAE2CB6B8E4`，已覆盖安装到 PLJ110 `3B15AE023YL00000`，未由 Codex 启动或操作。

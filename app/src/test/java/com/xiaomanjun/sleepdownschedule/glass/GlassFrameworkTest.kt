@@ -359,10 +359,10 @@ class GlassFrameworkTest {
 
     @Test
     fun courseGlassSamplingOnlyDropsResolutionAtHighComposedCounts() {
-        assertEquals(1f, adaptiveCourseGlassSampleScale(12, enabled = true))
-        assertEquals(0.75f, adaptiveCourseGlassSampleScale(13, enabled = true))
-        assertEquals(0.75f, adaptiveCourseGlassSampleScale(23, enabled = true))
-        assertEquals(0.5f, adaptiveCourseGlassSampleScale(24, enabled = true))
+        assertEquals(1f, adaptiveCourseGlassSampleScale(7, enabled = true))
+        assertEquals(0.75f, adaptiveCourseGlassSampleScale(8, enabled = true))
+        assertEquals(0.75f, adaptiveCourseGlassSampleScale(11, enabled = true))
+        assertEquals(0.5f, adaptiveCourseGlassSampleScale(12, enabled = true))
         assertEquals(1f, adaptiveCourseGlassSampleScale(32, enabled = false))
 
         val sampled = GlassEffectFrame(
