@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -99,27 +100,30 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionEnvelope
 import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionGeometry
 import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionLayer
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.Issue70CenteredLiquidShellShape
+import com.xiaomanjun.sleepdownschedule.glass.Issue70LiquidShellOutlineShape
+import com.xiaomanjun.sleepdownschedule.glass.Issue70ShellMaximumProgress
+import com.xiaomanjun.sleepdownschedule.glass.Issue70SpringDampingRatio
+import com.xiaomanjun.sleepdownschedule.glass.Issue70SpringStiffness
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphController
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphControllerBridge
-import com.xiaomanjun.sleepdownschedule.glass.LiquidDeformationFrame
-import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphDirection
-import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphInput
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphPhase
-import com.xiaomanjun.sleepdownschedule.glass.LiquidMotionOutlineShape
 import com.xiaomanjun.sleepdownschedule.glass.insetRoundedRectLens
 import com.xiaomanjun.sleepdownschedule.glass.insetShapeFor
 import com.xiaomanjun.sleepdownschedule.glass.isAllocationEfficientFor
-import com.xiaomanjun.sleepdownschedule.glass.issue70InspiredLiquidOutlineMotionSpec
+import com.xiaomanjun.sleepdownschedule.glass.issue70ContentAlpha
+import com.xiaomanjun.sleepdownschedule.glass.issue70LiquidShellFrame
 import com.xiaomanjun.sleepdownschedule.glass.pixelAligned
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownPlainGlassSurface
+import com.xiaomanjun.sleepdownschedule.glass.stableContentOffsetInEnvelope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.atan2
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -163,7 +167,6 @@ internal object ThreeDotMenuMotion {
 
 internal const val HomeAddMenuMorphOpenDurationMillis = ThreeDotMenuMotion.OpenDurationMillis
 internal const val HomeAddMenuMorphCloseDurationMillis = ThreeDotMenuMotion.CloseDurationMillis
-private const val HomeAddMenuLiquidMotionPaddingDp = 28f
 
 internal const val HomeAddMenuTargetCornerDp = 30f
 internal const val HomeAddMenuSelectionCornerDp = 19f
@@ -247,6 +250,7 @@ internal data class HomeAnchoredOverlayRequest(
 @Stable
 internal class HomeAnchoredMorphState {
     val progress = Animatable(0f)
+    val shellProgress = Animatable(0f)
     val backgroundZoom = Animatable(1f)
     var renderedKind by mutableStateOf<HomeAnchoredOverlayKind?>(null)
         internal set
@@ -1067,8 +1071,11 @@ internal fun HomeAnchoredMorphOverlayHost(
     val latestOnAddMenuBoundsChanged by rememberUpdatedState(onAddMenuBoundsChanged)
     val latestOnSourceFollowThrough by rememberUpdatedState(onSourceFollowThrough)
     val latestOnSilentDisposed by rememberUpdatedState(onSilentDisposed)
+    val glassSceneState = LocalGlassSceneState.current
+    val useIssue70SpringShell =
+        glassSceneState?.backendPolicy?.usesNewMotion(GlassSceneKeys.HomeThreeDotMenuMotion) == true
 
-    LaunchedEffect(request, adaptiveMetrics.profile) {
+    LaunchedEffect(request, adaptiveMetrics.profile, useIssue70SpringShell) {
         if (request != null) {
             renderedRequest = request
             panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize
@@ -1076,6 +1083,7 @@ internal fun HomeAnchoredMorphOverlayHost(
             motionState.renderedKind = request.kind
             motionState.phase = HomeAnchoredOverlayPhase.Preparing
             motionState.progress.snapTo(0f)
+            motionState.shellProgress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
             var waitedFrames = 0
             while (waitedFrames < 12 && (rootSize.width <= 0 || rootSize.height <= 0)) {
@@ -1117,6 +1125,17 @@ internal fun HomeAnchoredMorphOverlayHost(
                         )
                     )
                 }
+                if (request.kind == HomeAnchoredOverlayKind.Add && useIssue70SpringShell) {
+                    launch {
+                        motionState.shellProgress.animateTo(
+                            targetValue = 1f,
+                            animationSpec = spring(
+                                dampingRatio = Issue70SpringDampingRatio,
+                                stiffness = Issue70SpringStiffness
+                            )
+                        )
+                    }
+                }
                 if (request.kind == HomeAnchoredOverlayKind.Personalize && !adaptiveMetrics.isLargeScreen) {
                     launch {
                         motionState.backgroundZoom.animateTo(
@@ -1136,6 +1155,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                 // Silent cleanup: the destination owns the button return. Dispose this hidden
                 // first-level menu without playing a second visible Close or follow-through.
                 motionState.progress.snapTo(0f)
+                motionState.shellProgress.snapTo(0f)
                 motionState.backgroundZoom.snapTo(1f)
                 motionState.phase = HomeAnchoredOverlayPhase.Disposing
                 panelContentPrepared = false
@@ -1161,6 +1181,19 @@ internal fun HomeAnchoredMorphOverlayHost(
                             )
                         )
                     }
+                    if (renderedRequest?.kind == HomeAnchoredOverlayKind.Add &&
+                        useIssue70SpringShell
+                    ) {
+                        launch {
+                            motionState.shellProgress.animateTo(
+                                targetValue = 0f,
+                                animationSpec = spring(
+                                    dampingRatio = Issue70SpringDampingRatio,
+                                    stiffness = Issue70SpringStiffness
+                                )
+                            )
+                        }
+                    }
                     if (motionState.backgroundZoom.value > 1.0001f) {
                         launch {
                             motionState.backgroundZoom.animateTo(
@@ -1183,6 +1216,7 @@ internal fun HomeAnchoredMorphOverlayHost(
         } else {
             panelContentPrepared = false
             motionState.progress.snapTo(0f)
+            motionState.shellProgress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
             motionState.renderedKind = null
             motionState.phase = HomeAnchoredOverlayPhase.Idle
@@ -1291,13 +1325,113 @@ internal fun HomeAnchoredMorphOverlayHost(
                 }
             )
         }
-        val geometry = remember(morphSpec, motionState) {
+        val sourcePressedScale = shown.sourcePressedScale.coerceIn(1f, 1.16f)
+        val targetCornerRadiusPx = with(density) { HomeAddMenuTargetCornerDp.dp.toPx() }
+        val legacyGeometry = remember(morphSpec, motionState) {
             derivedStateOf {
                 morphSpec.homeGeometry(
                     source = shown.sourceBoundsInRoot,
                     target = targetRect,
                     rawProgress = motionState.progress.value,
                     closing = motionState.phase == HomeAnchoredOverlayPhase.Closing
+                )
+            }
+        }
+        val geometry = remember(
+            legacyGeometry,
+            useIssue70SpringShell,
+            motionState,
+            shown.sourceBoundsInRoot,
+            targetRect,
+            sourcePressedScale,
+            targetCornerRadiusPx
+        ) {
+            derivedStateOf {
+                val legacy = legacyGeometry.value
+                if (!useIssue70SpringShell) {
+                    legacy
+                } else {
+                    val shell = issue70LiquidShellFrame(
+                        source = shown.sourceBoundsInRoot,
+                        target = targetRect,
+                        center = legacy.rect.center,
+                        springProgress = motionState.shellProgress.value,
+                        sourcePressedScale = sourcePressedScale,
+                        targetCornerRadiusPx = targetCornerRadiusPx
+                    )
+                    legacy.copy(
+                        rect = shell.rect,
+                        cornerRadiusPx = shell.cornerRadiusPx
+                    )
+                }
+            }
+        }
+        val issue70EffectPaddingPx = with(density) { 2.dp.toPx() }
+        val issue70RenderSize = remember(
+            useIssue70SpringShell,
+            shown.sourceBoundsInRoot,
+            targetRect,
+            sourcePressedScale,
+            targetCornerRadiusPx,
+            issue70EffectPaddingPx
+        ) {
+            if (!useIssue70SpringShell) {
+                null
+            } else {
+                val maximumShell = issue70LiquidShellFrame(
+                    source = shown.sourceBoundsInRoot,
+                    target = targetRect,
+                    center = Offset.Zero,
+                    springProgress = Issue70ShellMaximumProgress,
+                    sourcePressedScale = sourcePressedScale,
+                    targetCornerRadiusPx = targetCornerRadiusPx
+                )
+                IntSize(
+                    width = ceil(maximumShell.rect.width + issue70EffectPaddingPx * 2f)
+                        .toInt()
+                        .coerceAtLeast(1),
+                    height = ceil(maximumShell.rect.height + issue70EffectPaddingPx * 2f)
+                        .toInt()
+                        .coerceAtLeast(1)
+                )
+            }
+        }
+        val issue70Envelope = remember(
+            useIssue70SpringShell,
+            morphSpec,
+            shown.sourceBoundsInRoot,
+            targetRect,
+            sourcePressedScale,
+            targetCornerRadiusPx,
+            density.density
+        ) {
+            if (!useIssue70SpringShell) {
+                null
+            } else {
+                fun maximumShellAt(progress: Float, closing: Boolean): GlassTransitionGeometry {
+                    val legacy = morphSpec.homeGeometry(
+                        source = shown.sourceBoundsInRoot,
+                        target = targetRect,
+                        rawProgress = progress,
+                        closing = closing
+                    )
+                    val shell = issue70LiquidShellFrame(
+                        source = shown.sourceBoundsInRoot,
+                        target = targetRect,
+                        center = legacy.rect.center,
+                        springProgress = Issue70ShellMaximumProgress,
+                        sourcePressedScale = sourcePressedScale,
+                        targetCornerRadiusPx = targetCornerRadiusPx
+                    )
+                    return GlassTransitionGeometry(shell.rect, shell.cornerRadiusPx)
+                }
+                sampleGlassTransitionEnvelope(
+                    tracks = listOf(
+                        { progress -> maximumShellAt(progress, false) },
+                        { progress -> maximumShellAt(progress, true) }
+                    ),
+                    steps = 256,
+                    effectPaddingPx = issue70EffectPaddingPx
                 )
             }
         }
@@ -1308,7 +1442,16 @@ internal fun HomeAnchoredMorphOverlayHost(
             if (motionState.phase != HomeAnchoredOverlayPhase.Closing) return@LaunchedEffect
             // Hand the collapsing shell over to the follow-through button while the droplet is
             // still at the source anchor, so the real button never pops in at rest.
-            snapshotFlow { motionState.progress.value }.first { it <= 0.02f }
+            snapshotFlow {
+                if (useIssue70SpringShell) {
+                    max(
+                        motionState.progress.value.coerceAtLeast(0f),
+                        motionState.shellProgress.value.coerceAtLeast(0f)
+                    )
+                } else {
+                    motionState.progress.value
+                }
+            }.first { it <= 0.02f }
             if (motionState.phase != HomeAnchoredOverlayPhase.Closing) return@LaunchedEffect
             sourceHandedOff = true
             latestOnSourceFollowThrough(geometry.value.rect)
@@ -1316,93 +1459,24 @@ internal fun HomeAnchoredMorphOverlayHost(
         val shape = remember(geometry, density) {
             DeferredHomeMorphShape(geometry, continuous = false, density = density)
         }
-        val glassSceneState = LocalGlassSceneState.current
-        val useDecoupledLiquidMotion =
-            glassSceneState?.backendPolicy?.usesNewMotion(morphSpec.routeKey) == true
-        val openingOutlineMotionSpec = remember {
-            issue70InspiredLiquidOutlineMotionSpec(
-                durationSeconds = HomeAddMenuMorphOpenDurationMillis / 1_000f
-            )
-        }
-        val closingOutlineMotionSpec = remember {
-            issue70InspiredLiquidOutlineMotionSpec(
-                durationSeconds = HomeAddMenuMorphCloseDurationMillis / 1_000f
-            )
-        }
-        val liquidMotionDeformation = remember(
-            useDecoupledLiquidMotion,
-            motionState,
-            shown.sourceBoundsInRoot,
-            targetRect,
-            openingOutlineMotionSpec,
-            closingOutlineMotionSpec
-        ) {
-            derivedStateOf {
-                val phase = motionState.phase
-                if (!useDecoupledLiquidMotion ||
-                    (phase != HomeAnchoredOverlayPhase.Opening &&
-                        phase != HomeAnchoredOverlayPhase.Closing)
-                ) {
-                    LiquidDeformationFrame.None
-                } else {
-                    val closing = phase == HomeAnchoredOverlayPhase.Closing
-                    val progress = motionState.progress.value
-                    val tangentStep = 0.0025f
-                    val tangentStartProgress = (progress - tangentStep).coerceAtLeast(0f)
-                    val tangentEndProgress = (progress + tangentStep).coerceAtMost(1f)
-                    val tangentStart = morphSpec.homeGeometry(
-                        source = shown.sourceBoundsInRoot,
-                        target = targetRect,
-                        rawProgress = tangentStartProgress,
-                        closing = closing
-                    ).rect.center
-                    val tangentEnd = morphSpec.homeGeometry(
-                        source = shown.sourceBoundsInRoot,
-                        target = targetRect,
-                        rawProgress = tangentEndProgress,
-                        closing = closing
-                    ).rect.center
-                    val tangentDelta = tangentEnd - tangentStart
-                    val tangentAngle = if (
-                        abs(tangentDelta.x) + abs(tangentDelta.y) > 0.001f
-                    ) {
-                        atan2(tangentDelta.y, tangentDelta.x)
-                    } else {
-                        null
-                    }
-                    val input = LiquidMorphInput(
-                        source = shown.sourceBoundsInRoot,
-                        target = targetRect,
-                        rawProgress = progress,
-                        direction = if (closing) {
-                            LiquidMorphDirection.Closing
-                        } else {
-                            LiquidMorphDirection.Opening
-                        },
-                        trajectoryTangentAngleRadians = tangentAngle
-                    )
-                    if (closing) closingOutlineMotionSpec.sample(input)
-                    else openingOutlineMotionSpec.sample(input)
-                }
-            }
-        }
-        val liquidMotionPaddingPx = with(density) {
-            HomeAddMenuLiquidMotionPaddingDp.dp.roundToPx()
-        }
-        val liquidMotionShape = remember(geometry, liquidMotionDeformation, liquidMotionPaddingPx) {
-            LiquidMotionOutlineShape(
-                contentInsetPx = liquidMotionPaddingPx.toFloat(),
-                cornerRadiusPx = { geometry.value.cornerRadiusPx },
-                deformation = { liquidMotionDeformation.value }
-            )
-        }
-        val liquidMotionActive = useDecoupledLiquidMotion &&
-            (motionState.phase == HomeAnchoredOverlayPhase.Opening ||
-                motionState.phase == HomeAnchoredOverlayPhase.Closing)
+        val issue70EnvelopeActive = useIssue70SpringShell &&
+            issue70Envelope != null &&
+            homeAddMenuShellClipEnabled(motionState.phase)
         val settledSurfaceShape = remember {
             RoundedCornerShape(HomeAddMenuTargetCornerDp.dp)
         }
-        val sourcePressedScale = shown.sourcePressedScale.coerceIn(1f, 1.16f)
+        val issue70SurfaceShape = remember(geometry) {
+            Issue70CenteredLiquidShellShape(
+                shellSize = {
+                    val aligned = geometry.value.asGlassTransitionGeometry().pixelAligned()
+                    Size(
+                        width = aligned.rectInRoot.width,
+                        height = aligned.rectInRoot.height
+                    )
+                },
+                cornerRadiusPx = { geometry.value.cornerRadiusPx }
+            )
+        }
         val maxContentBlurPx = with(density) { 5.dp.toPx() }
         var outsideDragHighlightedIndex by remember(shown.kind) { mutableIntStateOf(-1) }
         val outsideDragHaptic = LocalHapticFeedback.current
@@ -1501,6 +1575,8 @@ internal fun HomeAnchoredMorphOverlayHost(
             }
         }
 
+        val shellInteractionSource = remember { MutableInteractionSource() }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1511,41 +1587,84 @@ internal fun HomeAnchoredMorphOverlayHost(
             modifier = Modifier
                 .offset {
                     val current = geometry.value.rect
-                    val outlinePadding = if (liquidMotionActive) liquidMotionPaddingPx else 0
-                    IntOffset(
-                        current.left.roundToInt() - outlinePadding,
-                        current.top.roundToInt() - outlinePadding
-                    )
+                    val envelope = issue70Envelope
+                    if (issue70EnvelopeActive) {
+                        val activeEnvelope = requireNotNull(envelope)
+                        IntOffset(
+                            activeEnvelope.boundsInRoot.left.roundToInt(),
+                            activeEnvelope.boundsInRoot.top.roundToInt()
+                        )
+                    } else {
+                        IntOffset(current.left.roundToInt(), current.top.roundToInt())
+                    }
                 }
                 .graphicsLayer {
                     // The moving shell owns clipping only while geometry is changing. At Open the
-                    // static Kyant surface below owns its real 34dp outline, so highlight and shadow
+                    // static Kyant surface below owns its real 30dp outline, so highlight and shadow
                     // remain free to render outside the fill without exposing a stale dynamic shape.
                     clip = homeAddMenuShellClipEnabled(motionState.phase)
-                    this.shape = if (liquidMotionActive) liquidMotionShape else shape
+                    val envelope = issue70Envelope
+                    this.shape = if (issue70EnvelopeActive) {
+                        val activeEnvelope = requireNotNull(envelope)
+                        val current = geometry.value.asGlassTransitionGeometry().pixelAligned()
+                        require(activeEnvelope.contains(current)) {
+                            "Issue #70 shell escaped its fixed transition envelope."
+                        }
+                        Issue70LiquidShellOutlineShape(
+                            bounds = activeEnvelope.toLocal(current.rectInRoot),
+                            cornerRadiusPx = current.cornerRadiusPx
+                        )
+                    } else {
+                        shape
+                    }
                 }
                 .layout { measurable, _ ->
                     // Measure the heavy glass subtree once at its final target size. The animated
-                    // shell changes its reported size and clips the child around the shell center.
+                    // Issue #70 moves only the shell rect inside a fixed envelope; the child stays
+                    // measured at one maximum spring size and is only translated to the legacy
+                    // center. MenuContent remains independently measured at its real final size.
                     val targetWidth = targetRect.width.roundToInt().coerceAtLeast(1)
                     val targetHeight = targetRect.height.roundToInt().coerceAtLeast(1)
-                    val placeable = measurable.measure(Constraints.fixed(targetWidth, targetHeight))
+                    val stableRenderSize = if (issue70EnvelopeActive) {
+                        requireNotNull(issue70RenderSize)
+                    } else {
+                        IntSize(targetWidth, targetHeight)
+                    }
+                    val placeable = measurable.measure(
+                        Constraints.fixed(stableRenderSize.width, stableRenderSize.height)
+                    )
                     val current = geometry.value.rect
-                    val outlinePadding = if (liquidMotionActive) liquidMotionPaddingPx else 0
-                    val contentWidth = current.width.roundToInt().coerceAtLeast(1)
-                    val contentHeight = current.height.roundToInt().coerceAtLeast(1)
-                    val width = contentWidth + outlinePadding * 2
-                    val height = contentHeight + outlinePadding * 2
-                    layout(width, height) {
-                        placeable.place((width - targetWidth) / 2, (height - targetHeight) / 2)
+                    val envelope = issue70Envelope
+                    if (issue70EnvelopeActive) {
+                        val activeEnvelope = requireNotNull(envelope)
+                        val contentOffset = stableContentOffsetInEnvelope(
+                            envelope = activeEnvelope,
+                            geometry = geometry.value.asGlassTransitionGeometry(),
+                            stableContentSize = stableRenderSize
+                        )
+                        val width = activeEnvelope.boundsInRoot.width.roundToInt().coerceAtLeast(1)
+                        val height = activeEnvelope.boundsInRoot.height.roundToInt().coerceAtLeast(1)
+                        layout(width, height) {
+                            placeable.place(contentOffset.x, contentOffset.y)
+                        }
+                    } else {
+                        val width = current.width.roundToInt().coerceAtLeast(1)
+                        val height = current.height.roundToInt().coerceAtLeast(1)
+                        layout(width, height) {
+                            placeable.place((width - targetWidth) / 2, (height - targetHeight) / 2)
+                        }
                     }
                 }
-                .clickable(
-                    interactionSource = remember {
-                        androidx.compose.foundation.interaction.MutableInteractionSource()
-                    },
-                    indication = null,
-                    onClick = {}
+                .then(
+                    if (issue70EnvelopeActive) {
+                        Modifier
+                    } else {
+                        Modifier.clickable(
+                            interactionSource = shellInteractionSource,
+                            indication = null,
+                            onClick = {}
+                        )
+                    }
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -1558,17 +1677,30 @@ internal fun HomeAnchoredMorphOverlayHost(
                 targetSizeProvider = {
                     IntSize(targetRect.width.roundToInt(), targetRect.height.roundToInt())
                 },
-                surfaceAlphaProvider = { geometry.value.surfaceAlpha },
-                contentAlphaProvider = { geometry.value.contentAlpha },
+                surfaceAlphaProvider = {
+                    if (useIssue70SpringShell) 1f else geometry.value.surfaceAlpha
+                },
+                contentAlphaProvider = {
+                    if (useIssue70SpringShell) {
+                        issue70ContentAlpha(motionState.shellProgress.value)
+                    } else {
+                        geometry.value.contentAlpha
+                    }
+                },
                 contentBlurRadiusPxProvider = {
                     maxContentBlurPx * (
                         1f - homeMorphSmoothStep(0.42f, 0.98f, geometry.value.expansionProgress)
                         )
                 },
                 externalHighlightedIndex = outsideDragHighlightedIndex,
-                interactive = motionState.phase == HomeAnchoredOverlayPhase.Opening ||
-                    motionState.phase == HomeAnchoredOverlayPhase.Open,
-                shape = settledSurfaceShape,
+                interactive = motionState.phase == HomeAnchoredOverlayPhase.Open ||
+                    (!useIssue70SpringShell &&
+                        motionState.phase == HomeAnchoredOverlayPhase.Opening),
+                shape = if (issue70EnvelopeActive) {
+                    issue70SurfaceShape
+                } else {
+                    settledSurfaceShape
+                },
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -1585,14 +1717,26 @@ internal fun HomeAnchoredMorphOverlayHost(
                     )
                     .graphicsLayer {
                         val current = geometry.value
-                        alpha = if (sourceHandedOff) 0f else current.sourceAlpha
-                        scaleX = current.sourceScale
-                        scaleY = current.sourceScale
+                        val springProgress = motionState.shellProgress.value.coerceIn(0f, 1f)
+                        val issue70SourceAlpha = 1f - homeMorphSmoothStep(
+                            0f,
+                            0.22f,
+                            springProgress
+                        )
+                        alpha = if (sourceHandedOff) {
+                            0f
+                        } else if (useIssue70SpringShell) {
+                            issue70SourceAlpha
+                        } else {
+                            current.sourceAlpha
+                        }
+                        scaleX = if (useIssue70SpringShell) 1f else current.sourceScale
+                        scaleY = if (useIssue70SpringShell) 1f else current.sourceScale
                         compositingStrategy = CompositingStrategy.Offscreen
                         val sourceContentBlurPx = maxContentBlurPx * homeMorphSmoothStep(
                             0f,
                             0.34f,
-                            current.pathProgress
+                            if (useIssue70SpringShell) springProgress else current.pathProgress
                         )
                         renderEffect = if (sourceContentBlurPx > 0.01f) {
                             BlurEffect(sourceContentBlurPx, sourceContentBlurPx, TileMode.Clamp)

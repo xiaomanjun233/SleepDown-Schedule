@@ -89,14 +89,14 @@
 
 三点菜单、个性化、菜单目的页和课程编辑器首先使用 `Legacy` spec。它们继续委托给已验收的原几何/时序；课程编辑器已直接消费 spec 的几何、圆角、内容交接和 blur 字段。测试在 Opening/Closing 多个关键进度点锁定原输出。
 
-`IndependentSpringMotionSpec` 与 `KinematicLiquidDeformationSpec` 参考 [Issue #70](https://github.com/Kyant0/AndroidLiquidGlass/issues/70) 的低刚度、低阻尼弹簧语言建立。上游示例由同一个进度逐帧改变 `.size()`、圆角和内容 alpha；本地不复制动态 `.size()`，也不让弹簧进度改写已验收的 Legacy 路径与内容交接。
+`IndependentSpringMotionSpec` 与 `KinematicLiquidDeformationSpec` 是阶段三第一版的速度/加速度轮廓原型；它已完整保存在本地分支 `codex/archive/three-dot-outline-motion-wip-20260823`（`1e86605`），没有从当前源码删除。该原型只产生轻微切向形变，并没有复现 [Issue #70](https://github.com/Kyant0/AndroidLiquidGlass/issues/70) 的主要观感，因此不再作为当前三点菜单实验的渲染入口。
 
-阶段三第一条实验路线是首页三点菜单：
+阶段三第二版仍只改首页三点菜单：
 
-- Legacy 通道继续独占真实 rect、Quadratic Bézier 轨迹、440/285ms 时间线、源/目标 alpha、blur、点击映射和返回锚点；
-- 独立 outline 通道使用 `stiffness=200`、shape `dampingRatio=0.5` 的 Issue #70 风格弹簧，速度/加速度只生成切向拉伸、横向挤压、尾部滞后和回弹；
-- 外壳使用独立 Bézier 轮廓和固定 28dp 形变余量，内部 `HomeAddMenuMorphPanel` 仍按最终 194×317dp 真实尺寸测量与居中放置，不缩放文字、按钮、圆角布局或交互坐标；
-- 形变只在 Opening/Closing 存在；端点严格为零，Open 立即回到原 Kyant 30dp 静态 surface 并释放运动 outline；
+- 菜单中心继续完全跟随已验收的 Legacy Quadratic Bézier 轨迹，打开方向、关闭方向、真实三点按钮返回锚点和最终 194×317dp 菜单位置不变；Legacy 的 440/285ms 路径时间线也不变；
+- 玻璃外壳的宽、高和圆角改由 Compose 实际 `spring(dampingRatio=0.75, stiffness=200)` 驱动，从按压后的按钮 footprint 生长到目标菜单，并允许与上游示例相同语言的轻微越界回弹；内容 alpha 也按上游 `progress 0.2→1.0` 的交接区间驱动；
+- 不复制上游逐帧 `.size()`。外层在 Opening/Closing 使用覆盖 Legacy 全路径及弹簧安全越界范围的固定 RenderTarget，动态 rect/radius 只写入 envelope 内的 outline；内部 `HomeAddMenuMorphPanel` 始终按最终 194×317dp 真实尺寸测量并居中，不非等比缩放文字、按钮或交互坐标；
+- Open 终态回到原 Kyant 30dp 静态 surface 并释放固定转场 envelope；旧 Legacy 与第一版轻微轮廓形变均可分别通过关闭开关或归档分支回退；
 - 普通包保持关闭。受控包需显式传入 `-Psleepdown.enableLiquidMotionExperiment=true`，目前只 allowlist `home-three-dot-menu`。
 
 ## 后续启用门槛
@@ -112,10 +112,11 @@
 ## 本轮验证状态
 
 - 独立的 Backdrop `2.0.0` 迁移提交在框架改造前已通过既有 378/378 JVM 单测及 GitHub/Store Debug、benchmark、Release/R8 本地构建。
-- 阶段一基线的完整 `testGithubDebugUnitTest` 为 397/397；当时 `GlassFrameworkTest` 共 19 项。阶段二累计新增 4 项包络像素定位、路线门控、面积上限和 aura 几何测试，阶段三新增 2 项独立门控、弹簧端点与轮廓坐标测试；项目没有生成 Release unit-test task，且按用户约束没有改跑 Debug，因此这 6 项尚未执行，不能计入已通过数量。
+- 阶段一基线的完整 `testGithubDebugUnitTest` 为 397/397；当时 `GlassFrameworkTest` 共 19 项。阶段二累计新增 4 项包络像素定位、路线门控、面积上限和 aura 几何测试，阶段三累计新增 3 项门控、旧轮廓端点和 Issue #70 精确弹簧/Legacy 路径中心不变测试；项目没有生成 Release unit-test task，且按用户约束没有改跑 Debug，因此这 7 项尚未执行，不能计入已通过数量。
 - 按用户的长期构建约束，最终只构建 GitHub Release；使用 `-Psleepdown.skipReleaseResourceShrink=true` 跳过测试阶段的资源裁剪，Kotlin、R8、lintVital、打包和签名均通过。正式发布前仍应在用户要求时补一次默认开启资源压缩的 Release。
 - 新 APK 的 SHA-256 为 `C5E4F2487D2CFB1746868B55BAB92E1D554076CC986D091D5329E652581F535E`，签名校验通过，并成功覆盖安装到 PLJ110 `3B15AE023YL00000`；没有启动或操作应用。
 - 阶段二第二批使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLargeGlassExperiment=true --no-parallel --max-workers=2` 构建通过 Kotlin、R8、lintVital、打包与签名；确认生成的 Release `BuildConfig` 实验值为 `true`。实验 APK SHA-256 为 `D47506F3E42A2177EC0482D6D14CCEA0AFC96D829623670186E9634BE0C12B87`，大小 `6,429,734` bytes，已于 2026-08-23 覆盖安装到 PLJ110 `3B15AE023YL00000`；用户随后肉眼观察未发现明显帧率变化，未采集量化 trace。
 - 阶段三使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLiquidMotionExperiment=true --no-parallel --max-workers=2` 构建通过 Kotlin、R8、lintVital、打包与签名；生成的 Release 已确认 `SLEEPDOWN_LARGE_GLASS_EXPERIMENT=false`、`SLEEPDOWN_LIQUID_MOTION_EXPERIMENT=true`。APK SHA-256 为 `880BD142F469DEB46F2CDD0887FB3BD2350263E9D0821F5AA3F87E00D235070A`，大小 `6,429,734` bytes，未安装、未启动。
 - 随后按用户要求同时传入 `-Psleepdown.enableLargeGlassExperiment=true` 与 `-Psleepdown.enableLiquidMotionExperiment=true`，仍使用 `--no-parallel --max-workers=2` 和跳过资源压缩的签名 GitHub Release 构建。生成的两个 `BuildConfig` 值均已核对为 `true`；APK SHA-256 为 `CB0B395697DE0D714BBCD4A8BF9ED6B5BD53AEEEBE2B31A4F5A1660E099F81ED`，大小 `6,429,734` bytes，已于 2026-08-23 覆盖安装到 PLJ110 `3B15AE023YL00000`，未启动或操作应用。
+- 当前精确 Issue #70 三点菜单版本继续只开启 `SLEEPDOWN_LIQUID_MOTION_EXPERIMENT`，明确保持 `SLEEPDOWN_LARGE_GLASS_EXPERIMENT=false`；低并发、跳过资源压缩但保留 R8/lintVital/签名的 GitHub Release 构建通过。APK SHA-256 为 `5995D781E910B007BF1E2AF821C9EBAA289BAA3EFBCD818EDE717AE01ABA68FA`，大小 `6,429,734` bytes，未安装、未启动。
 - 本轮未执行真机 UI、Macrobenchmark 或 Perfetto 采集，因此不宣称液态自然度或量化性能收益；稳定 envelope、阶段三 motion 与 `GlassGroup` 在普通构建中仍保持关闭。

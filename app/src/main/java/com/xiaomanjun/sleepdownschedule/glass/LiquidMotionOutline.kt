@@ -15,6 +15,56 @@ import kotlin.math.sin
 
 private const val CircleBezierKappa = 0.5522848f
 
+/** Immutable per-frame outline used inside a fixed transition envelope. */
+data class Issue70LiquidShellOutlineShape(
+    val bounds: Rect,
+    val cornerRadiusPx: Float
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline = Outline.Generic(
+        liquidMotionOutlinePath(
+            bounds = bounds,
+            cornerRadiusPx = cornerRadiusPx,
+            deformation = LiquidDeformationFrame.None
+        )
+    )
+}
+
+/**
+ * Stable-identity Kyant surface shape. The backing effect layer keeps one maximum size while this
+ * outline grows from the source footprint and overshoots around its center.
+ */
+class Issue70CenteredLiquidShellShape(
+    private val shellSize: () -> Size,
+    private val cornerRadiusPx: () -> Float
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val current = shellSize()
+        val width = current.width.coerceIn(1f, size.width.coerceAtLeast(1f))
+        val height = current.height.coerceIn(1f, size.height.coerceAtLeast(1f))
+        val bounds = Rect(
+            left = (size.width - width) * 0.5f,
+            top = (size.height - height) * 0.5f,
+            right = (size.width + width) * 0.5f,
+            bottom = (size.height + height) * 0.5f
+        )
+        return Outline.Generic(
+            liquidMotionOutlinePath(
+                bounds = bounds,
+                cornerRadiusPx = cornerRadiusPx(),
+                deformation = LiquidDeformationFrame.None
+            )
+        )
+    }
+}
+
 /**
  * Clips only the transient glass shell. The child remains measured and placed at its true target
  * size, so tangent stretch, squeeze and tail lag cannot distort text or interactive content.

@@ -732,6 +732,69 @@ class GlassFrameworkTest {
     }
 
     @Test
+    fun issue70ExactSpringChangesShellButKeepsLegacyRouteCenterAndFinalRect() {
+        assertEquals(0.75f, Issue70SpringDampingRatio, 0f)
+        assertEquals(200f, Issue70SpringStiffness, 0f)
+
+        val source = Rect(920f, 80f, 962f, 122f)
+        val target = Rect(720f, 180f, 914f, 497f)
+        val spec = legacyThreeDotMenuMorphSpec(
+            source = source,
+            target = target,
+            sourceCornerRadiusPx = 21f,
+            targetCornerRadiusPx = 30f,
+            sourcePressedScale = 1.08f,
+            openingPinchDiameterPx = 18f,
+            openingMinimumDropPx = 36f,
+            openingMaximumDropPx = 72f,
+            openingMaximumArcPx = 120f,
+            verticalReboundAmplitudePx = 12f,
+            closingSinkOffsetPx = 8f,
+            closingControlDropPx = 24f
+        )
+
+        listOf(false, true).forEach { closing ->
+            listOf(0f, 0.2f, 0.5f, 0.8f, 1f).forEach { progress ->
+                val legacy = spec.homeGeometry(source, target, progress, closing)
+                val shell = issue70LiquidShellFrame(
+                    source = source,
+                    target = target,
+                    center = legacy.rect.center,
+                    springProgress = progress,
+                    sourcePressedScale = 1.08f,
+                    targetCornerRadiusPx = 30f
+                )
+                assertEquals(legacy.rect.center, shell.rect.center)
+            }
+        }
+
+        val finalLegacy = spec.homeGeometry(source, target, 1f, closing = false)
+        val finalShell = issue70LiquidShellFrame(
+            source = source,
+            target = target,
+            center = finalLegacy.rect.center,
+            springProgress = 1f,
+            sourcePressedScale = 1.08f,
+            targetCornerRadiusPx = 30f
+        )
+        assertEquals(target, finalShell.rect)
+        assertEquals(30f, finalShell.cornerRadiusPx, 0f)
+
+        val overshoot = issue70LiquidShellFrame(
+            source = source,
+            target = target,
+            center = target.center,
+            springProgress = 1.03f,
+            sourcePressedScale = 1.08f,
+            targetCornerRadiusPx = 30f
+        )
+        assertTrue(overshoot.rect.width > target.width)
+        assertTrue(overshoot.rect.height > target.height)
+        assertEquals(0f, issue70ContentAlpha(0.2f), 0f)
+        assertEquals(1f, issue70ContentAlpha(1f), 0f)
+    }
+
+    @Test
     fun courseEditorLegacySpecKeepsGeometryContentAndBlurSnapshots() {
         val source = Rect(80f, 160f, 320f, 420f)
         val target = Rect(40f, 90f, 960f, 1_500f)
