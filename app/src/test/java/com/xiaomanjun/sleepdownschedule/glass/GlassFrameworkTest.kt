@@ -382,6 +382,37 @@ class GlassFrameworkTest {
     }
 
     @Test
+    fun courseGlassOcclusionRequiresExactStableWeekCache() {
+        assertTrue(
+            shouldSuspendCourseGlassMaterials(
+                experimentEnabled = true,
+                weekMode = true,
+                exactCacheCoverActive = true,
+                overlayStableOpen = true
+            )
+        )
+        assertFalse(
+            shouldSuspendCourseGlassMaterials(
+                experimentEnabled = true,
+                weekMode = true,
+                exactCacheCoverActive = false,
+                overlayStableOpen = true
+            )
+        )
+        assertFalse(
+            shouldSuspendCourseGlassMaterials(
+                experimentEnabled = true,
+                weekMode = true,
+                exactCacheCoverActive = true,
+                overlayStableOpen = false
+            )
+        )
+        assertTrue(CourseGlassOcclusionPhase.Live.mountsMaterialNodes)
+        assertFalse(CourseGlassOcclusionPhase.Suspended.mountsMaterialNodes)
+        assertTrue(CourseGlassOcclusionPhase.Prewarming.mountsMaterialNodes)
+    }
+
+    @Test
     fun nonOverlappingCourseCardsCollapseToOneMaterialGroup() {
         val viewport = Rect(0f, 0f, 1_000f, 2_000f)
         val candidates = (0 until 32).map { index ->

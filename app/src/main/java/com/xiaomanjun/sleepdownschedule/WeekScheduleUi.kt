@@ -257,6 +257,7 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassGroupPlanner
 import com.xiaomanjun.sleepdownschedule.glass.GlassGroupRenderEligibility
 import com.xiaomanjun.sleepdownschedule.glass.GlassSceneKeys
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
 import com.xiaomanjun.sleepdownschedule.glass.adaptiveCourseGlassSampleScale
 import com.xiaomanjun.sleepdownschedule.glass.glassGroupEligibility
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -1524,6 +1525,7 @@ fun WeekDayColumn(
         )
     }
     val glassSceneState = LocalGlassSceneState.current
+    val courseGlassOcclusionPhase = LocalCourseGlassOcclusionPhase.current
     val quality = LocalGlassQuality.current
     val previewState = LocalPersonalizationPreview.current
     val startupPhase = LocalStartupPhase.current
@@ -1543,6 +1545,7 @@ fun WeekDayColumn(
     )
     val windowSize = currentWindowSizeDp()
     val mayGroupCourseCards = glassSceneState != null &&
+        courseGlassOcclusionPhase.mountsMaterialNodes &&
         backdrop != null &&
         config.courseCardGlassEnabled &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&

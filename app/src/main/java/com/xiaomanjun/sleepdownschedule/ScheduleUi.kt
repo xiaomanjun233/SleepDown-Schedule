@@ -271,6 +271,7 @@ import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
 import com.xiaomanjun.sleepdownschedule.glass.GlassRenderPhase
 import com.xiaomanjun.sleepdownschedule.glass.GlassSamplingLink
 import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNode
@@ -281,6 +282,7 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSceneState
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackendPolicy
+import com.xiaomanjun.sleepdownschedule.glass.shouldSuspendCourseGlassMaterials
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
 import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
@@ -639,6 +641,42 @@ fun CourseScheduleAppUi(
     }
     var renderedHomeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     var homeDialogVisible by remember { mutableStateOf(false) }
+    val appScope = rememberCoroutineScope()
+    var courseGlassOcclusionPhase by remember {
+        mutableStateOf(CourseGlassOcclusionPhase.Live)
+    }
+    var courseGlassPrewarmDrawRequest by remember { mutableIntStateOf(0) }
+    val courseGlassPrewarmRecordedRequest = remember { AtomicInteger(0) }
+    var courseGlassPrewarmJob by remember { mutableStateOf<Job?>(null) }
+    fun revealAfterCourseGlassPrewarm(action: () -> Unit) {
+        if (courseGlassOcclusionPhase != CourseGlassOcclusionPhase.Suspended) {
+            action()
+            return
+        }
+        if (courseGlassPrewarmJob?.isActive == true) return
+        courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Prewarming
+        courseGlassPrewarmJob = appScope.launch {
+            val warmed = withTimeoutOrNull(500L) {
+                // First let the expensive material nodes re-enter composition while the exact
+                // frozen home layer still covers them. The next two requested records allocate
+                // and exercise their effect layers before Closing is allowed to reveal the grid.
+                withFrameNanos { }
+                repeat(2) {
+                    val request = courseGlassPrewarmDrawRequest + 1
+                    courseGlassPrewarmDrawRequest = request
+                    while (courseGlassPrewarmRecordedRequest.get() < request) {
+                        withFrameNanos { }
+                    }
+                }
+                true
+            } == true
+            if (warmed) {
+                glassSceneState.recordPrewarmHit(GlassBackdropDomain.Content)
+            }
+            action()
+            courseGlassPrewarmJob = null
+        }
+    }
     var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var pendingCourseGroupEdit by remember { mutableStateOf<PendingCourseGroupEdit?>(null) }
     var pendingCourseGroupDelete by remember { mutableStateOf<List<CourseEntity>>(emptyList()) }
@@ -655,7 +693,7 @@ fun CourseScheduleAppUi(
         )
     }
     fun closeCourseEditor() {
-        courseEditorRequest = null
+        revealAfterCourseGlassPrewarm { courseEditorRequest = null }
     }
     fun dismissHomeDialog() {
         homeDialogVisible = false
@@ -732,7 +770,7 @@ fun CourseScheduleAppUi(
 
     fun toggleHomeAnchoredOverlay(kind: HomeAnchoredOverlayKind, sourcePressedScale: Float = 1f) {
         if (homeAnchoredOverlayRequest?.kind == kind) {
-            homeAnchoredOverlayRequest = null
+            revealAfterCourseGlassPrewarm { homeAnchoredOverlayRequest = null }
         } else {
             openHomeAnchoredOverlay(kind, sourcePressedScale)
         }
@@ -813,7 +851,6 @@ fun CourseScheduleAppUi(
             AiEduImportProgressSession.consumeFinalImportRequest()
         }
     }
-    val appScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(externalIcsUri, state.loaded) {
         val uri = externalIcsUri ?: return@LaunchedEffect
@@ -1389,6 +1426,77 @@ fun CourseScheduleAppUi(
             currentFrameKey = homeCaptureFrameKey
         )
     }
+    val weekCourseGlassCacheCoverExpected =
+        BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT &&
+            screen is Screen.Home &&
+            homeMode == HomeMode.Week &&
+            personalizationSliderPreviewKey == null &&
+            personalizationPreviewProgress <= 0.001f &&
+            (
+                homeAnchoredOverlayRequest != null ||
+                    homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ||
+                    homeMenuDestinationRequest != null ||
+                    homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle ||
+                    courseEditorRequest != null ||
+                    courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
+                )
+    val weekCourseGlassOverlayStableOpen =
+        homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Open ||
+            homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Open ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Open
+    val weekCourseGlassOverlayClosing =
+        homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing ||
+            homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ||
+            courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
+    LaunchedEffect(
+        weekCourseGlassCacheCoverExpected,
+        weekCourseGlassOverlayStableOpen,
+        weekCourseGlassOverlayClosing,
+        courseGlassOcclusionPhase,
+        homeCaptureFrameKey
+    ) {
+        if (!weekCourseGlassCacheCoverExpected) {
+            courseGlassPrewarmJob?.cancel()
+            courseGlassPrewarmJob = null
+            courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
+            return@LaunchedEffect
+        }
+        if (
+            weekCourseGlassOverlayClosing &&
+            courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Suspended
+        ) {
+            // Defensive path for an owner that starts Closing without the coordinated dismiss
+            // callback. Restore immediately under the still-active frozen background.
+            courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Prewarming
+            courseGlassPrewarmDrawRequest += 1
+            return@LaunchedEffect
+        }
+        if (
+            courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Live &&
+            weekCourseGlassOverlayStableOpen
+        ) {
+            repeat(3) {
+                withFrameNanos { }
+                val exactCacheActive = useCachedWeekHomeSurface() &&
+                    weekHomeSurfaceUsesOffscreenCache.get()
+                if (shouldSuspendCourseGlassMaterials(
+                        experimentEnabled = BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT,
+                        weekMode = homeMode == HomeMode.Week,
+                        exactCacheCoverActive = exactCacheActive,
+                        overlayStableOpen = true
+                    )
+                ) {
+                    courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Suspended
+                    return@LaunchedEffect
+                }
+            }
+        }
+    }
+    val effectiveCourseGlassOcclusionPhase = if (weekCourseGlassCacheCoverExpected) {
+        courseGlassOcclusionPhase
+    } else {
+        CourseGlassOcclusionPhase.Live
+    }
 
     suspend fun awaitRenderedSchedule(scheduleId: Int): Boolean {
         val generationBeforeSwitch = recordedHomeGeneration.get()
@@ -1863,7 +1971,26 @@ fun CourseScheduleAppUi(
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithContent {
-                    if (useCachedWeekHomeSurface()) {
+                    val requestedPrewarm = courseGlassPrewarmDrawRequest
+                    val shouldRecordPrewarm =
+                        courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Prewarming &&
+                            requestedPrewarm > courseGlassPrewarmRecordedRequest.get() &&
+                            useCachedWeekHomeSurface()
+                    if (shouldRecordPrewarm) {
+                        // Re-record the exact live home underneath the still-visible overlay.
+                        // This both refreshes the cached frame and forces the newly mounted Kyant
+                        // layers through allocation/effect setup before any Closing pixel reveals.
+                        screenGraphicsLayer.record { this@drawWithContent.drawContent() }
+                        recordedScheduleId.set(visualState.config.id)
+                        recordedHomeGeneration.incrementAndGet()
+                        lastRecordedHomeFrameKey.set(homeCaptureFrameKey)
+                        courseGlassPrewarmRecordedRequest.set(requestedPrewarm)
+                        if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
+                            screenGraphicsLayer.compositingStrategy =
+                                androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
+                        }
+                        drawLayer(screenGraphicsLayer)
+                    } else if (useCachedWeekHomeSurface()) {
                         if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
                             // The recorded display list contains every week-course Kyant node.
                             // Flatten it only for popup motion so those child RenderNodes stop
@@ -2178,9 +2305,10 @@ fun CourseScheduleAppUi(
                                             pendingConflictWeeks = emptyList()
                                         }
                                     },
-                                    onDeleteCourseSingleWeek = viewModel::deleteCourseSingleWeek,
-                                    weekEditInteractionEnabled = pickerState.phase is CustomizeUiState.Home,
-                                    onScheduleLongPress = {
+                                     onDeleteCourseSingleWeek = viewModel::deleteCourseSingleWeek,
+                                     weekEditInteractionEnabled = pickerState.phase is CustomizeUiState.Home,
+                                     courseGlassOcclusionPhase = effectiveCourseGlassOcclusionPhase,
+                                     onScheduleLongPress = {
                                         if (pickerState.phase is CustomizeUiState.Home) {
                                             pendingHomeAnchoredOverlay = null
                                             homeAnchoredOverlayRequest = null
@@ -2541,12 +2669,12 @@ fun CourseScheduleAppUi(
         )
     }
     val latestOpenJumpWeekDialog = rememberUpdatedState<() -> Unit> {
-        homeAnchoredOverlayRequest = null
         pendingJumpWeekDialog = true
+        revealAfterCourseGlassPrewarm { homeAnchoredOverlayRequest = null }
     }
     val latestOpenScheduleSettings = rememberUpdatedState<() -> Unit> {
         pendingOpenScheduleSettings = true
-        homeAnchoredOverlayRequest = null
+        revealAfterCourseGlassPrewarm { homeAnchoredOverlayRequest = null }
     }
     val homeAddActions = remember {
         listOf(
@@ -2618,10 +2746,12 @@ fun CourseScheduleAppUi(
     fun closeHomeMenuDestination() {
         // The destination owns the legacy liquid return to the real button. Dispose the hidden
         // first-level menu without replaying its independent Closing or button follow-through.
-        destinationOwnsButtonReturn = true
-        destinationCollapseHandedOff = false
-        homeAnchoredOverlayRequest = null
-        homeMenuDestinationRequest = null
+        revealAfterCourseGlassPrewarm {
+            destinationOwnsButtonReturn = true
+            destinationCollapseHandedOff = false
+            homeAnchoredOverlayRequest = null
+            homeMenuDestinationRequest = null
+        }
     }
 
     HomeAnchoredMorphOverlayHost(
@@ -2636,7 +2766,9 @@ fun CourseScheduleAppUi(
         modifier = Modifier
             .zIndex(24f)
             .graphicsLayer { alpha = if (homeMenuSourceHidden) 0f else 1f },
-        onDismissRequest = { homeAnchoredOverlayRequest = null },
+        onDismissRequest = {
+            revealAfterCourseGlassPrewarm { homeAnchoredOverlayRequest = null }
+        },
         onAddMenuBoundsChanged = { homeAddMenuBoundsInRoot = it },
         onSourceFollowThrough = { rect -> latestSourceFollowThrough.value(rect) },
         suppressClose = destinationOwnsButtonReturn,

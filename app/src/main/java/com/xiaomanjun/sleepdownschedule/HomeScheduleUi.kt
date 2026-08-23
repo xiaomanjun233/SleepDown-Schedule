@@ -258,6 +258,8 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
+import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -664,6 +666,7 @@ internal fun HomeScreen(
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onScheduleLongPress: () -> Unit = {},
     weekEditInteractionEnabled: Boolean = true,
+    courseGlassOcclusionPhase: CourseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live,
 ) {
     val homeOverscrollFactory = rememberHapticMiuixOverscrollFactory()
     val cardColor = remember(state.config.cardColorArgb, state.config.cardAlpha) {
@@ -767,7 +770,8 @@ internal fun HomeScreen(
                 HomeMode.Week -> key(state.config.id) {
                     CompositionLocalProvider(
                         LocalOverscrollFactory provides homeOverscrollFactory,
-                        LocalPersonalizationPreview provides personalizationPreviewState
+                        LocalPersonalizationPreview provides personalizationPreviewState,
+                        LocalCourseGlassOcclusionPhase provides courseGlassOcclusionPhase
                     ) {
                         SinglePillWeekScheduleScreen(
                             state = state,

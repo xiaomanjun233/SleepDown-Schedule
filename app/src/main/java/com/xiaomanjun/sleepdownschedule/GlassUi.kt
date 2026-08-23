@@ -42,6 +42,7 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassHighlightStyle
 import com.xiaomanjun.sleepdownschedule.glass.GlassInnerShadowFrame
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
 import com.xiaomanjun.sleepdownschedule.glass.DensityScaledShape
 import com.xiaomanjun.sleepdownschedule.glass.decorationOnly
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
@@ -557,6 +558,7 @@ fun CourseGlassCard(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
+    val mountMaterialNodes = LocalCourseGlassOcclusionPhase.current.mountsMaterialNodes
     val previewState = LocalPersonalizationPreview.current
     val glassBackdrop = if (config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
     val simpleBlurBackdrop = if (!config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
@@ -635,8 +637,8 @@ fun CourseGlassCard(
                 )
         )
     Box(modifier = cardModifier) {
-        val separateDecoration = useGlass && (!renderSurface || usesSampledBackdrop)
-        val surfaceModifier = if (!renderSurface) {
+        val separateDecoration = mountMaterialNodes && useGlass && (!renderSurface || usesSampledBackdrop)
+        val surfaceModifier = if (!mountMaterialNodes || !renderSurface) {
             Modifier
         } else if (usesSampledBackdrop) {
             Modifier
