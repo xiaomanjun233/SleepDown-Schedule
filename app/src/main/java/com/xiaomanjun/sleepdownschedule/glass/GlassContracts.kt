@@ -71,11 +71,15 @@ object GlassSceneKeys {
     const val HomeMenuDestinationAddCourse = "home-menu-destination:add-course"
     const val HomeMenuDestinationManualImport = "home-menu-destination:manual-import"
     const val HomeMenuDestinationEduImport = "home-menu-destination:edu-import"
+    const val HomePersonalizationProgressiveSurface = "home-personalization:progressive-surface"
+    const val HomePersonalizationBackdropAura = "home-personalization:backdrop-aura"
 
     val Phase2LargeSurfaceEnvelopeRoutes: Set<String> = setOf(
         HomeMenuDestinationAddCourse,
         HomeMenuDestinationManualImport,
-        HomeMenuDestinationEduImport
+        HomeMenuDestinationEduImport,
+        HomePersonalizationProgressiveSurface,
+        HomePersonalizationBackdropAura
     )
 }
 

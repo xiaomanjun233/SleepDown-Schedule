@@ -8,7 +8,7 @@
 - 默认渲染后端仍是 `KyantReference`。现有 blur、lens、色散、tint、highlight、shadow、inner shadow、Shape、内容绘制顺序和交互参数未删减；阶段二实验只能通过显式 Gradle 属性进入受控 Release。
 - 全项目不再由业务代码直接创建、组合或挂载 `LayerBackdrop`，也不再散落调用 `drawBackdrop` / `drawPlainBackdrop`；这些调用集中在 `glass/SleepDownGlassSurface.kt`。`ScaledBackdrop` 仍是 Backdrop 坐标转换接口实现，不是额外消费者。
 - 首页仍保留 `Background`、`Content`、`PickerScene` 三个真实采样域；`ChromeCombined` 只组合前两个，Android Dialog 通过 `DialogBridge` 和既有屏幕坐标补偿采样，未合成错误的全局 Backdrop。
-- 普通构建仍使用空 allowlist。阶段二新增的稳定 envelope 策略只列出三个首页菜单目的页，并由默认 `false` 的 `sleepdown.enableLargeGlassExperiment` 再做总门控；课程卡 `GlassGroup`、独立弹簧与速度形变仍无启用路线。
+- 普通构建仍使用空 allowlist。阶段二稳定 envelope 策略显式列出三个首页菜单目的页，以及大屏个性化的渐进模糊、Backdrop aura 两条独立效果通道，并由默认 `false` 的 `sleepdown.enableLargeGlassExperiment` 再做总门控；课程卡 `GlassGroup`、独立弹簧与速度形变仍无启用路线。
 - 本轮没有修改 Oplus callback、Bundle、系统 leash、返回时序、能力开关或逐路线 allowlist。
 
 ## 上游约束与本地决策
@@ -59,9 +59,12 @@
 - 以 256 段采样覆盖 Legacy Opening/Closing 完整运动轨迹，按旧实现的 `offset(round) + size(round)` 对齐像素，得到一次分配的固定 envelope。
 - GraphicsLayer 目标尺寸在整个动画中不变；玻璃 rect、圆角和采样坐标在 envelope 内移动。
 - 内容保持真实测量尺寸，不用非等比缩放终态页面或圆角。
-- 第一批只接入首页三点菜单进入“添加课程 / 手动导入 / 教务导入”的大面板：这些路线的内部 Kyant `LiquidPanel` 原本就始终按终态尺寸预热和绘制，因此只替换外层动态尺寸 clip，不改变官方 lens 的 SDF 尺寸、效果参数或内容坐标。
+- 第一批接入首页三点菜单进入“添加课程 / 手动导入 / 教务导入”的大面板：这些路线的内部 Kyant `LiquidPanel` 原本就始终按终态尺寸预热和绘制，因此只替换外层动态尺寸 clip，不改变官方 lens 的 SDF 尺寸、效果参数或内容坐标。
 - 非全屏面板到达 Open 后移除运动 envelope，仅保留与旧实现等价的目标尺寸圆角 clip；教务导入全屏终态不保留任何转场 clip/GraphicsLayer。Closing 再登记临时资源，结束或移除时 exactly-once 释放。
-- Backdrop 2.0 的 [rounded-rect lens 实现](https://github.com/Kyant0/AndroidLiquidGlass/blob/2.0.0/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/Lens.kt)仍按完整 Modifier 尺寸计算，不能直接表达 envelope 内移动的 inset rect；所以个性化与课程编辑器这类“Kyant surface 本身逐帧变尺寸”的路线仍保持 Reference，不套用此后端。
+- 第二批从 Backdrop 2.0 正式版的 [rounded-rect lens](https://github.com/Kyant0/AndroidLiquidGlass/blob/2.0.0/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/Lens.kt) 与对应 Shader 原式派生 `insetRoundedRectLens`：保持官方 padding、折射方向、amount 符号、depth 与色散语义，只把 `size` 改为固定 envelope 内逐帧更新的真实 rect/radius uniform。它不再靠 Modifier `.size()` 驱动折射 SDF。
+- Backdrop 2.0 的 `ShapeProvider` 会在 Modifier size 与 Shape 相等时复用 outline；固定 host 因此返回按 rect/radius 取值相等的不可变几何快照 Shape，保证 inset outline 随帧更新，同时不改变 GraphicsLayer/RenderTarget 尺寸。第一批菜单 envelope 也统一使用该规则。
+- 该动态 rect 后端目前只用于大屏个性化的两个高负载通道：主面板渐进 blur，以及矩形 aura 的 vibrancy + blur + 16dp/24dp lens。旧有动态 shape 渐变、边框、表单内容、alpha、feather mask、采样域和时序仍在原坐标层绘制；手机 `LiquidPanel` 和课程编辑器继续使用 `KyantReference`。
+- envelope 必须覆盖 Opening/Closing 全轨迹，且相对最终主面板/aura 的面积比分别不超过 `1.65x` / `1.45x`；任一条件不满足即逐通道回退 Reference，避免以超大稳定纹理换取表面上的尺寸稳定。
 - 普通构建不会启用该策略。受控包需显式传入 `-Psleepdown.enableLargeGlassExperiment=true`；只有像素一致与 Perfetto RenderTarget 证据同时通过后，才能考虑调整默认策略。
 
 ### `GlassGroup`
@@ -101,8 +104,8 @@
 ## 本轮验证状态
 
 - 独立的 Backdrop `2.0.0` 迁移提交在框架改造前已通过既有 378/378 JVM 单测及 GitHub/Store Debug、benchmark、Release/R8 本地构建。
-- 阶段一基线的完整 `testGithubDebugUnitTest` 为 397/397；当时 `GlassFrameworkTest` 共 19 项。阶段二新增 2 项包络像素定位与路线门控测试；项目没有生成 Release unit-test task，且按用户约束没有改跑 Debug，因此这 2 项尚未执行，不能计入已通过数量。
+- 阶段一基线的完整 `testGithubDebugUnitTest` 为 397/397；当时 `GlassFrameworkTest` 共 19 项。阶段二累计新增 4 项包络像素定位、路线门控、面积上限和 aura 几何测试；项目没有生成 Release unit-test task，且按用户约束没有改跑 Debug，因此这 4 项尚未执行，不能计入已通过数量。
 - 按用户的长期构建约束，最终只构建 GitHub Release；使用 `-Psleepdown.skipReleaseResourceShrink=true` 跳过测试阶段的资源裁剪，Kotlin、R8、lintVital、打包和签名均通过。正式发布前仍应在用户要求时补一次默认开启资源压缩的 Release。
 - 新 APK 的 SHA-256 为 `C5E4F2487D2CFB1746868B55BAB92E1D554076CC986D091D5329E652581F535E`，签名校验通过，并成功覆盖安装到 PLJ110 `3B15AE023YL00000`；没有启动或操作应用。
-- 阶段二使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLargeGlassExperiment=true` 低并发构建通过 Kotlin、R8、lintVital、打包与签名；实验 APK SHA-256 为 `4C46BC5E45027CA7B69C6AD13E86DD75EA3FC45C6DC5AA1921437E6D495BF1FA`，按用户最新要求未安装。
+- 阶段二第二批使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLargeGlassExperiment=true --no-parallel --max-workers=2` 构建通过 Kotlin、R8、lintVital、打包与签名；确认生成的 Release `BuildConfig` 实验值为 `true`。实验 APK SHA-256 为 `D47506F3E42A2177EC0482D6D14CCEA0AFC96D829623670186E9634BE0C12B87`，大小 `6,429,734` bytes，按用户要求未安装。
 - 本轮未执行真机 UI、Macrobenchmark 或 Perfetto 采集，因此不宣称量化性能收益；稳定 envelope 只存在于显式实验包，默认构建、`GlassGroup` 和新 motion spec 仍保持关闭。

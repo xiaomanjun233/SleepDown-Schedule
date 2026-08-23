@@ -115,6 +115,22 @@ data class GlassTransitionEnvelope(val boundsInRoot: Rect) {
     }
 }
 
+fun GlassTransitionEnvelope.areaRatioComparedTo(geometry: GlassTransitionGeometry): Float {
+    val targetArea = geometry.rectInRoot.width * geometry.rectInRoot.height
+    return (boundsInRoot.width * boundsInRoot.height) / targetArea.coerceAtLeast(1f)
+}
+
+fun GlassTransitionEnvelope.isAllocationEfficientFor(
+    geometry: GlassTransitionGeometry,
+    maximumAreaRatio: Float
+): Boolean {
+    require(maximumAreaRatio >= 1f && maximumAreaRatio.isFinite()) {
+        "Maximum envelope area ratio must be finite and at least one."
+    }
+    return contains(geometry.pixelAligned()) &&
+        areaRatioComparedTo(geometry) <= maximumAreaRatio
+}
+
 /**
  * Samples deterministic legacy geometry once and allocates one integer-aligned layer that covers
  * the complete opening and closing paths. A small caller-provided padding absorbs the gap between
@@ -203,21 +219,16 @@ fun rememberGlassTransitionLayerState(
     GlassTransitionLayerState(envelope, initialGeometry)
 }
 
-/**
- * Stable clip-only Shape whose outline moves inside the fixed host.
- *
- * Do not pass this shape to Kyant's rounded-rectangle lens. Backdrop 2.0 derives the lens SDF
- * from the full modifier size and only accepts a single [androidx.compose.foundation.shape.CornerBasedShape]
- * (or Kyant rounded rectangle), so it cannot represent an inset moving rectangle yet.
- */
-class GlassEnvelopeClipShape(private val state: GlassTransitionLayerState) : Shape {
+private data class GlassEnvelopeSnapshotShape(
+    val rect: Rect,
+    val cornerRadiusPx: Float
+) : Shape {
     override fun createOutline(
         size: androidx.compose.ui.geometry.Size,
         layoutDirection: LayoutDirection,
         density: Density
     ): Outline {
-        val rect = state.localRect
-        val radius = state.geometry.cornerRadiusPx.coerceIn(
+        val radius = cornerRadiusPx.coerceIn(
             minimumValue = 0f,
             maximumValue = minOf(rect.width, rect.height) / 2f
         )
@@ -230,31 +241,22 @@ class GlassEnvelopeClipShape(private val state: GlassTransitionLayerState) : Sha
     }
 }
 
-private class DeferredGlassEnvelopeClipShape(
-    private val envelope: GlassTransitionEnvelope,
-    private val geometry: () -> GlassTransitionGeometry
-) : Shape {
-    override fun createOutline(
-        size: androidx.compose.ui.geometry.Size,
-        layoutDirection: LayoutDirection,
-        density: Density
-    ): Outline {
-        val current = geometry().pixelAligned()
-        require(envelope.contains(current)) {
-            "Animated glass geometry escaped its stable envelope."
-        }
-        val rect = envelope.toLocal(current.rectInRoot)
-        val radius = current.cornerRadiusPx.coerceIn(
-            minimumValue = 0f,
-            maximumValue = minOf(rect.width, rect.height) / 2f
-        )
-        return Outline.Rounded(
-            RoundRect(
-                rect = rect,
-                cornerRadius = CornerRadius(radius, radius)
-            )
-        )
+/**
+ * Returns a value Shape whose equality follows the current inset geometry. Backdrop 2.0 caches
+ * an outline while both modifier size and returned Shape stay equal; returning the same mutable
+ * Shape object would therefore freeze a moving rect at its first fixed-envelope frame.
+ */
+internal fun GlassTransitionEnvelope.insetShapeFor(
+    geometry: GlassTransitionGeometry
+): Shape {
+    val current = geometry.pixelAligned()
+    require(contains(current)) {
+        "Animated glass geometry escaped its stable envelope."
     }
+    return GlassEnvelopeSnapshotShape(
+        rect = toLocal(current.rectInRoot),
+        cornerRadiusPx = current.cornerRadiusPx
+    )
 }
 
 /**
@@ -308,9 +310,6 @@ fun GlassTransitionLayer(
     val density = LocalDensity.current
     val geometryState = rememberUpdatedState(geometry)
     val alphaState = rememberUpdatedState(motionAlpha)
-    val clipShape = remember(envelope) {
-        DeferredGlassEnvelopeClipShape(envelope) { geometryState.value.invoke() }
-    }
     val bounds = envelope.boundsInRoot
     val layerModifier = if (temporaryClipActive) {
         Modifier.graphicsLayer {
@@ -322,7 +321,7 @@ fun GlassTransitionLayer(
             }
             alpha = alphaState.value.invoke().coerceIn(0f, 1f)
             clip = true
-            shape = clipShape
+            shape = envelope.insetShapeFor(current)
         }
     } else {
         Modifier

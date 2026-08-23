@@ -93,10 +93,21 @@ import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.GlassRendererKind
+import com.xiaomanjun.sleepdownschedule.glass.GlassSceneKeys
+import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionEnvelope
+import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionGeometry
+import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionLayer
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphController
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphControllerBridge
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphPhase
+import com.xiaomanjun.sleepdownschedule.glass.insetRoundedRectLens
+import com.xiaomanjun.sleepdownschedule.glass.insetShapeFor
+import com.xiaomanjun.sleepdownschedule.glass.isAllocationEfficientFor
+import com.xiaomanjun.sleepdownschedule.glass.pixelAligned
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownPlainGlassSurface
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
@@ -977,6 +988,27 @@ internal fun homePersonalizeTargetRect(
     return clampHomeMorphTarget(proposed, rootSize, 12f * density)
 }
 
+internal fun homePersonalizationAuraGeometry(
+    geometry: HomeAnchoredMorphGeometry,
+    leftFeatherMaximumPx: Float,
+    rightFeatherPx: Float,
+    verticalFeatherPx: Float
+): GlassTransitionGeometry {
+    val leftFeather = leftFeatherMaximumPx.coerceAtLeast(0f) *
+        geometry.expansionProgress.coerceIn(0f, 1f)
+    val left = (geometry.rect.left - leftFeather).coerceAtLeast(0f)
+    val top = (geometry.rect.top - verticalFeatherPx.coerceAtLeast(0f)).coerceAtLeast(0f)
+    val width = geometry.rect.width + leftFeather + rightFeatherPx.coerceAtLeast(0f)
+    val height = geometry.rect.height + verticalFeatherPx.coerceAtLeast(0f) * 2f
+    return GlassTransitionGeometry(
+        rectInRoot = Rect(left, top, left + width, top + height),
+        cornerRadiusPx = 0f
+    )
+}
+
+private fun HomeAnchoredMorphGeometry.asGlassTransitionGeometry(): GlassTransitionGeometry =
+    GlassTransitionGeometry(rectInRoot = rect, cornerRadiusPx = cornerRadiusPx)
+
 internal fun clampHomeMorphTarget(
     target: Rect,
     rootSize: IntSize,
@@ -1593,6 +1625,133 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
             )
         }
     }
+    val glassSceneState = LocalGlassSceneState.current
+    val progressiveEnvelopeDescriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "StableProgressivePersonalizeSurface",
+        domain = GlassBackdropDomain.ChromeCombined,
+        materialRole = GlassMaterialRole.MorphShell,
+        requestedRenderer = GlassRendererKind.StableEnvelopeExperimental,
+        sceneKey = GlassSceneKeys.HomePersonalizationProgressiveSurface
+    )
+    val auraEnvelopeDescriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "StablePersonalizeBackdropAura",
+        domain = GlassBackdropDomain.ChromeCombined,
+        materialRole = GlassMaterialRole.MorphShell,
+        requestedRenderer = GlassRendererKind.StableEnvelopeExperimental,
+        sceneKey = GlassSceneKeys.HomePersonalizationBackdropAura
+    )
+    val stableInsetEligible = backdrop != null &&
+        adaptiveMetrics.isLargeScreen &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    val progressiveEnvelopeRequested = stableInsetEligible &&
+        glassSceneState?.rendererFor(progressiveEnvelopeDescriptor) ==
+        GlassRendererKind.StableEnvelopeExperimental
+    val auraEnvelopeRequested = stableInsetEligible &&
+        glassSceneState?.rendererFor(auraEnvelopeDescriptor) ==
+        GlassRendererKind.StableEnvelopeExperimental
+    val auraLeftFeatherMaximumPx = with(density) { 104.dp.toPx() }
+    val auraRightFeatherPx = with(density) { 56.dp.toPx() }
+    val auraVerticalFeatherPx = with(density) { 56.dp.toPx() }
+    val stableProgressiveGeometry = remember(geometry) {
+        { geometry.value.asGlassTransitionGeometry() }
+    }
+    val stableAuraGeometry = remember(
+        geometry,
+        auraLeftFeatherMaximumPx,
+        auraRightFeatherPx,
+        auraVerticalFeatherPx
+    ) {
+        {
+            homePersonalizationAuraGeometry(
+                geometry = geometry.value,
+                leftFeatherMaximumPx = auraLeftFeatherMaximumPx,
+                rightFeatherPx = auraRightFeatherPx,
+                verticalFeatherPx = auraVerticalFeatherPx
+            )
+        }
+    }
+    val stableProgressiveEnvelope = remember(
+        progressiveEnvelopeRequested,
+        morphSpec,
+        sourceBounds,
+        targetRect
+    ) {
+        if (!progressiveEnvelopeRequested) {
+            null
+        } else {
+            sampleGlassTransitionEnvelope(
+                tracks = listOf(
+                    { progress ->
+                        morphSpec.homeGeometry(sourceBounds, targetRect, progress, false)
+                            .asGlassTransitionGeometry()
+                    },
+                    { progress ->
+                        morphSpec.homeGeometry(sourceBounds, targetRect, progress, true)
+                            .asGlassTransitionGeometry()
+                    }
+                ),
+                steps = 256,
+                effectPaddingPx = 2f
+            )
+        }
+    }
+    val stableAuraEnvelope = remember(
+        auraEnvelopeRequested,
+        morphSpec,
+        sourceBounds,
+        targetRect,
+        auraLeftFeatherMaximumPx,
+        auraRightFeatherPx,
+        auraVerticalFeatherPx
+    ) {
+        if (!auraEnvelopeRequested) {
+            null
+        } else {
+            sampleGlassTransitionEnvelope(
+                tracks = listOf(
+                    { progress ->
+                        homePersonalizationAuraGeometry(
+                            morphSpec.homeGeometry(sourceBounds, targetRect, progress, false),
+                            auraLeftFeatherMaximumPx,
+                            auraRightFeatherPx,
+                            auraVerticalFeatherPx
+                        )
+                    },
+                    { progress ->
+                        homePersonalizationAuraGeometry(
+                            morphSpec.homeGeometry(sourceBounds, targetRect, progress, true),
+                            auraLeftFeatherMaximumPx,
+                            auraRightFeatherPx,
+                            auraVerticalFeatherPx
+                        )
+                    }
+                ),
+                steps = 256,
+                effectPaddingPx = 2f
+            )
+        }
+    }
+    val finalHomeGeometry = remember(morphSpec, sourceBounds, targetRect) {
+        morphSpec.homeGeometry(sourceBounds, targetRect, 1f, false)
+            .asGlassTransitionGeometry()
+    }
+    val finalAuraGeometry = remember(
+        finalHomeGeometry,
+        auraLeftFeatherMaximumPx,
+        auraRightFeatherPx,
+        auraVerticalFeatherPx
+    ) {
+        homePersonalizationAuraGeometry(
+            morphSpec.homeGeometry(sourceBounds, targetRect, 1f, false),
+            auraLeftFeatherMaximumPx,
+            auraRightFeatherPx,
+            auraVerticalFeatherPx
+        )
+    }
+    val useStableProgressiveSurface = stableProgressiveEnvelope
+        ?.isAllocationEfficientFor(finalHomeGeometry, maximumAreaRatio = 1.65f) == true
+    val useStableAura = stableAuraEnvelope
+        ?.isAllocationEfficientFor(finalAuraGeometry, maximumAreaRatio = 1.45f) == true
     val blurProgress = remember(geometry, latestPreviewProgress) {
         derivedStateOf {
             personalizeBackdropBlurLayerProgress(
@@ -1628,6 +1787,9 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
                 (warmupBackdropEffects || progressiveBackdropBlurProgress > 0.005f)
         }
     }
+    val showStableProgressiveBackdrop = useStableProgressiveSurface &&
+        (warmupBackdropEffects || geometry.value.surfaceAlpha > 0.005f) &&
+        (warmupBackdropEffects || progressiveBackdropBlurProgress > 0.005f)
     val shape = remember(geometry, density) {
         DeferredHomeMorphShape(geometry, continuous = true, density = density)
     }
@@ -1659,39 +1821,71 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
     )
 
     if (showAura && backdrop != null) {
-        DeferredPersonalizeBackdropAura(
+        val auraAlphaProvider = {
+            val visibleAlpha = geometry.value.surfaceAlpha * blurProgress.value
+            if (warmupBackdropEffects) max(visibleAlpha, 0.001f) else visibleAlpha
+        }
+        if (useStableAura) {
+            StableDeferredPersonalizeBackdropAura(
+                backdrop = backdrop,
+                descriptor = auraEnvelopeDescriptor,
+                envelope = checkNotNull(stableAuraEnvelope),
+                geometry = stableAuraGeometry,
+                leftFeatherPxProvider = {
+                    auraLeftFeatherMaximumPx *
+                        geometry.value.expansionProgress.coerceIn(0f, 1f)
+                },
+                blurProgressProvider = { progressiveBackdropBlurProgress },
+                alphaProvider = auraAlphaProvider
+            )
+        } else {
+            DeferredPersonalizeBackdropAura(
+                backdrop = backdrop,
+                leftFeatherPxProvider = {
+                    auraLeftFeatherMaximumPx *
+                        geometry.value.expansionProgress.coerceIn(0f, 1f)
+                },
+                blurProgressProvider = { progressiveBackdropBlurProgress },
+                alphaProvider = auraAlphaProvider,
+                modifier = Modifier
+                    .offset {
+                        val leftFeatherPx = auraLeftFeatherMaximumPx *
+                            geometry.value.expansionProgress.coerceIn(0f, 1f)
+                        IntOffset(
+                            (geometry.value.rect.left - leftFeatherPx)
+                                .coerceAtLeast(0f).roundToInt(),
+                            (geometry.value.rect.top - auraVerticalFeatherPx)
+                                .coerceAtLeast(0f).roundToInt()
+                        )
+                    }
+                    .layout { measurable, _ ->
+                        val leftFeatherPx = auraLeftFeatherMaximumPx *
+                            geometry.value.expansionProgress.coerceIn(0f, 1f)
+                        val width = (
+                            geometry.value.rect.width + leftFeatherPx + auraRightFeatherPx
+                            ).roundToInt().coerceAtLeast(1)
+                        val height = (
+                            geometry.value.rect.height + auraVerticalFeatherPx * 2f
+                            ).roundToInt().coerceAtLeast(1)
+                        val placeable = measurable.measure(Constraints.fixed(width, height))
+                        layout(width, height) { placeable.place(0, 0) }
+                    }
+            )
+        }
+    }
+
+    if (showStableProgressiveBackdrop && backdrop != null) {
+        StableDeferredProgressivePersonalizeBackdrop(
             backdrop = backdrop,
-            leftFeatherPxProvider = {
-                with(density) { 104.dp.toPx() } * geometry.value.expansionProgress.coerceIn(0f, 1f)
-            },
-            blurProgressProvider = { progressiveBackdropBlurProgress },
-            alphaProvider = {
-                val visibleAlpha = geometry.value.surfaceAlpha * blurProgress.value
+            descriptor = progressiveEnvelopeDescriptor,
+            envelope = checkNotNull(stableProgressiveEnvelope),
+            geometry = stableProgressiveGeometry,
+            surfaceAlphaProvider = {
+                val visibleAlpha = geometry.value.surfaceAlpha
                 if (warmupBackdropEffects) max(visibleAlpha, 0.001f) else visibleAlpha
             },
-            modifier = Modifier
-                .offset {
-                    val leftFeatherPx = with(density) { 104.dp.toPx() } *
-                        geometry.value.expansionProgress.coerceIn(0f, 1f)
-                    IntOffset(
-                        (geometry.value.rect.left - leftFeatherPx).coerceAtLeast(0f).roundToInt(),
-                        (geometry.value.rect.top - with(density) { 56.dp.toPx() })
-                            .coerceAtLeast(0f).roundToInt()
-                    )
-                }
-                .layout { measurable, _ ->
-                    val leftFeatherPx = with(density) { 104.dp.toPx() } *
-                        geometry.value.expansionProgress.coerceIn(0f, 1f)
-                    val left = (geometry.value.rect.left - leftFeatherPx).coerceAtLeast(0f)
-                    val rightFeatherPx = with(density) { 56.dp.toPx() }
-                    val verticalFeatherPx = with(density) { 56.dp.toPx() }
-                    val width = (geometry.value.rect.width + leftFeatherPx + rightFeatherPx)
-                        .roundToInt().coerceAtLeast(1)
-                    val height = (geometry.value.rect.height + verticalFeatherPx * 2f)
-                        .roundToInt().coerceAtLeast(1)
-                    val placeable = measurable.measure(Constraints.fixed(width, height))
-                    layout(width, height) { placeable.place(0, 0) }
-                }
+            blurProgressProvider = { progressiveBackdropBlurProgress },
+            warmupBackdropEffects = warmupBackdropEffects
         )
     }
 
@@ -1738,6 +1932,7 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
             targetHeight = targetHeight,
             shape = shape,
             progressiveBlur = adaptiveMetrics.isLargeScreen,
+            renderProgressiveBackdropPass = !useStableProgressiveSurface,
             warmupBackdropEffects = warmupBackdropEffects,
             surfaceAlphaProvider = {
                 geometry.value.surfaceAlpha * if (adaptiveMetrics.isLargeScreen) {
@@ -1870,6 +2065,7 @@ private fun DeferredHomePersonalizeMorphPanel(
     targetHeight: androidx.compose.ui.unit.Dp,
     shape: Shape,
     progressiveBlur: Boolean,
+    renderProgressiveBackdropPass: Boolean,
     warmupBackdropEffects: Boolean,
     surfaceAlphaProvider: () -> Float,
     contentAlphaProvider: () -> Float,
@@ -1909,6 +2105,7 @@ private fun DeferredHomePersonalizeMorphPanel(
                         shape = shape,
                         surfaceColor = surfaceColor,
                         blurProgressProvider = backdropBlurProgressProvider,
+                        renderBackdropPass = renderProgressiveBackdropPass,
                         warmupBackdropEffects = warmupBackdropEffects,
                         modifier = Modifier
                             .fillMaxSize()
@@ -1982,6 +2179,7 @@ private fun DeferredProgressivePersonalizeSurface(
     shape: Shape,
     surfaceColor: Color,
     blurProgressProvider: () -> Float,
+    renderBackdropPass: Boolean,
     warmupBackdropEffects: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -2017,7 +2215,7 @@ private fun DeferredProgressivePersonalizeSurface(
             clip = true
         }
     ) {
-        if (showBackdropPass) {
+        if (renderBackdropPass && showBackdropPass) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2063,6 +2261,155 @@ private fun DeferredProgressivePersonalizeSurface(
                         )
                     ),
                     shape = shape
+                )
+        )
+    }
+}
+
+@Composable
+private fun StableDeferredProgressivePersonalizeBackdrop(
+    backdrop: Backdrop,
+    descriptor: com.xiaomanjun.sleepdownschedule.glass.GlassSurfaceDescriptor,
+    envelope: GlassTransitionEnvelope,
+    geometry: () -> GlassTransitionGeometry,
+    surfaceAlphaProvider: () -> Float,
+    blurProgressProvider: () -> Float,
+    warmupBackdropEffects: Boolean
+) {
+    val material = remember {
+        GlassMaterialSpec(
+            role = GlassMaterialRole.MorphShell,
+            blur = 7.dp,
+            lensHeight = 0.dp,
+            lensAmount = 0.dp,
+            surfaceAlpha = 0f,
+            borderAlpha = 0f,
+            highlightAlpha = 0f,
+            shadowAlpha = 0f,
+            innerShadowAlpha = 0f,
+            depthEffect = false,
+            useVibrancy = false
+        )
+    }
+    val currentGeometry = rememberUpdatedState(geometry)
+    val stableGeometry = remember { { currentGeometry.value.invoke() } }
+    GlassTransitionLayer(
+        envelope = envelope,
+        geometry = stableGeometry,
+        temporaryClipActive = false
+    ) { _, _ ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    shape = envelope.insetShapeFor(stableGeometry())
+                    clip = true
+                    compositingStrategy = CompositingStrategy.Offscreen
+                    alpha = surfaceAlphaProvider().coerceIn(0f, 1f)
+                }
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val progress = blurProgressProvider().coerceIn(0f, 1f)
+                        alpha = if (warmupBackdropEffects) 0.001f else progress
+                    }
+                    .sleepDownPlainGlassSurface(
+                        backdrop = backdrop,
+                        descriptor = descriptor,
+                        material = material,
+                        shape = { envelope.insetShapeFor(stableGeometry()) },
+                        effects = {
+                            blur((7.dp * blurProgressProvider().coerceIn(0f, 1f)).toPx())
+                        }
+                    )
+            )
+        }
+    }
+}
+
+@Composable
+private fun StableDeferredPersonalizeBackdropAura(
+    backdrop: Backdrop,
+    descriptor: com.xiaomanjun.sleepdownschedule.glass.GlassSurfaceDescriptor,
+    envelope: GlassTransitionEnvelope,
+    geometry: () -> GlassTransitionGeometry,
+    leftFeatherPxProvider: () -> Float,
+    blurProgressProvider: () -> Float,
+    alphaProvider: () -> Float
+) {
+    val material = remember {
+        GlassMaterialSpec(
+            role = GlassMaterialRole.MorphShell,
+            blur = 5.dp,
+            lensHeight = 16.dp,
+            lensAmount = 24.dp,
+            surfaceAlpha = 0f,
+            borderAlpha = 0f,
+            highlightAlpha = 0f,
+            shadowAlpha = 0f,
+            innerShadowAlpha = 0f,
+            chromaticAberration = false,
+            depthEffect = false
+        )
+    }
+    val currentGeometry = rememberUpdatedState(geometry)
+    val stableGeometry = remember { { currentGeometry.value.invoke() } }
+    GlassTransitionLayer(
+        envelope = envelope,
+        geometry = stableGeometry,
+        temporaryClipActive = false
+    ) { stableEnvelope, currentGeometryProvider ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    compositingStrategy = CompositingStrategy.Offscreen
+                    alpha = alphaProvider().coerceIn(0f, 1f)
+                }
+                .drawWithContent {
+                    drawContent()
+                    val current = currentGeometryProvider().pixelAligned()
+                    require(stableEnvelope.contains(current)) {
+                        "Personalization aura escaped its stable envelope."
+                    }
+                    val localRect = stableEnvelope.toLocal(current.rectInRoot)
+                    val leftStop = (
+                        leftFeatherPxProvider() / localRect.width.coerceAtLeast(1f)
+                        ).coerceIn(0f, 0.48f)
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            colorStops = arrayOf(
+                                0f to Color.Transparent,
+                                leftStop to Color.White,
+                                1f to Color.White
+                            ),
+                            startX = localRect.left,
+                            endX = localRect.right
+                        ),
+                        topLeft = Offset(localRect.left, localRect.top),
+                        size = Size(localRect.width, localRect.height),
+                        blendMode = BlendMode.DstIn
+                    )
+                }
+                .sleepDownPlainGlassSurface(
+                    backdrop = backdrop,
+                    descriptor = descriptor,
+                    material = material,
+                    shape = { envelope.insetShapeFor(stableGeometry()) },
+                    effects = {
+                        val progress = blurProgressProvider().coerceIn(0f, 1f)
+                        vibrancy()
+                        blur((5.dp * progress).toPx())
+                        insetRoundedRectLens(
+                            envelope = envelope,
+                            geometry = stableGeometry,
+                            refractionHeight = 16.dp.toPx(),
+                            refractionAmount = 24.dp.toPx(),
+                            chromaticAberration = false
+                        )
+                    }
                 )
         )
     }

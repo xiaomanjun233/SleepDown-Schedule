@@ -215,6 +215,8 @@ class GlassFrameworkTest {
         assertEquals(186, state.stableTargetWidthPx)
         assertEquals(196, state.stableTargetHeightPx)
         assertEquals(Rect(8f, 8f, 38f, 48f), state.localRect)
+        assertEquals(envelope.insetShapeFor(start), envelope.insetShapeFor(start))
+        assertFalse(envelope.insetShapeFor(start) == envelope.insetShapeFor(end))
 
         state.updateGeometry(end)
         assertEquals(186, state.stableTargetWidthPx)
@@ -286,6 +288,20 @@ class GlassFrameworkTest {
             expectedGlobalY,
             envelope.boundsInRoot.top.roundToInt() + localOffset.y
         )
+    }
+
+    @Test
+    fun stableEnvelopeAreaGuardRejectsOversizedRenderTargets() {
+        val target = GlassTransitionGeometry(
+            rectInRoot = Rect(10f, 10f, 110f, 110f),
+            cornerRadiusPx = 24f
+        )
+        val bounded = GlassTransitionEnvelope(Rect(0f, 0f, 120f, 120f))
+        val oversized = GlassTransitionEnvelope(Rect(0f, 0f, 300f, 300f))
+
+        assertEquals(1.44f, bounded.areaRatioComparedTo(target), 0.0001f)
+        assertTrue(bounded.isAllocationEfficientFor(target, maximumAreaRatio = 1.5f))
+        assertFalse(oversized.isAllocationEfficientFor(target, maximumAreaRatio = 1.5f))
     }
 
     @Test
