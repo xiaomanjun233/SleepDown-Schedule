@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -25,6 +26,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -39,7 +42,10 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassHighlightStyle
 import com.xiaomanjun.sleepdownschedule.glass.GlassInnerShadowFrame
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.DensityScaledShape
+import com.xiaomanjun.sleepdownschedule.glass.decorationOnly
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.sampledBackdropOnly
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import kotlin.math.roundToInt
 
@@ -547,6 +553,7 @@ fun CourseGlassCard(
     shape: Shape = RoundedCornerShape(12.dp),
     blurOverride: Float? = null,
     renderSurface: Boolean = true,
+    backdropSampleScale: Float = 1f,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
@@ -583,6 +590,26 @@ fun CourseGlassCard(
         materialRole = GlassMaterialRole.SimpleBlur,
         sceneKey = "course-card-simple-blur"
     )
+    val activeBackdropSampleScale = backdropSampleScale.coerceIn(0.5f, 1f)
+    val usesSampledBackdrop = renderSurface && useGlass && activeBackdropSampleScale < 0.999f
+    val sampledShape = remember(shape, activeBackdropSampleScale) {
+        DensityScaledShape(shape, activeBackdropSampleScale)
+    }
+    val sampledEffectFrame = liquidEffectFrame.sampledBackdropOnly(activeBackdropSampleScale)
+    val decorationEffectFrame = liquidEffectFrame.decorationOnly()
+    val liquidSurfaceDraw: DrawScope.() -> Unit = {
+        val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
+        drawRect(
+            baseColor.copy(
+                alpha = courseGlassTintAlpha(liveAlpha, quality, hasWallpaper)
+            )
+        )
+        drawRect(
+            Color.White.copy(alpha = if (lightGlass) 0.012f else 0.008f),
+            blendMode = BlendMode.Screen
+        )
+        drawRect(Color.Black.copy(alpha = if (lightGlass) 0.004f else 0.014f))
+    }
     val cardModifier = modifier
         .then(
             if (onClick == null) Modifier else Modifier
@@ -608,29 +635,24 @@ fun CourseGlassCard(
                 )
         )
     Box(modifier = cardModifier) {
-        val surfaceModifier = if (!renderSurface && useGlass) {
-            // The grouped backend owns only backdrop effects and tint. Keep Kyant's exact
-            // per-card highlight/shadow/inner-shadow nodes so a shared multi-shape layer cannot
-            // change their local gradient coordinates or cross-bleed between adjacent cards.
+        val separateDecoration = useGlass && (!renderSurface || usesSampledBackdrop)
+        val surfaceModifier = if (!renderSurface) {
             Modifier
-                .matchParentSize()
+        } else if (usesSampledBackdrop) {
+            Modifier
+                .fillMaxSize(activeBackdropSampleScale)
                 .sleepDownGlassSurface(
                     backdrop = glassBackdrop,
                     descriptor = liquidDescriptor,
                     material = tokens,
-                    shape = { shape },
-                    effectFrame = liquidEffectFrame.copy(
-                        blur = null,
-                        lensHeight = null,
-                        lensAmount = null,
-                        useVibrancy = false
-                    ),
-                    sceneState = null,
-                    effectsOverride = {},
-                    onDrawBackdrop = { _ -> }
+                    shape = { sampledShape },
+                    effectFrame = sampledEffectFrame,
+                    additionalLayerBlock = {
+                        transformOrigin = TransformOrigin(0f, 0f)
+                        scaleX = 1f / activeBackdropSampleScale
+                        scaleY = 1f / activeBackdropSampleScale
+                    }
                 )
-        } else if (!renderSurface) {
-            Modifier
         } else if (useGlass) {
             Modifier
                 .matchParentSize()
@@ -640,19 +662,7 @@ fun CourseGlassCard(
                         material = tokens,
                         shape = { shape },
                         effectFrame = liquidEffectFrame,
-                        onDrawSurface = {
-                            val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
-                            drawRect(
-                                baseColor.copy(
-                                    alpha = courseGlassTintAlpha(liveAlpha, quality, hasWallpaper)
-                                )
-                            )
-                            drawRect(
-                                Color.White.copy(alpha = if (lightGlass) 0.012f else 0.008f),
-                                blendMode = BlendMode.Screen
-                            )
-                            drawRect(Color.Black.copy(alpha = if (lightGlass) 0.004f else 0.014f))
-                        }
+                        onDrawSurface = liquidSurfaceDraw
                 )
         } else if (simpleBlurBackdrop != null) {
             // Non-liquid mode still samples the content behind the course card, but
@@ -696,6 +706,25 @@ fun CourseGlassCard(
                 }
         }
         Box(surfaceModifier)
+        if (separateDecoration) {
+            // Shared/downsampled consumers own only the expensive sampled backdrop. Keep tint,
+            // highlight, outer shadow and inner shadow at full resolution and per-card geometry.
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .sleepDownGlassSurface(
+                        backdrop = glassBackdrop,
+                        descriptor = liquidDescriptor,
+                        material = tokens,
+                        shape = { shape },
+                        effectFrame = decorationEffectFrame,
+                        sceneState = null,
+                        effectsOverride = {},
+                        onDrawBackdrop = { _ -> },
+                        onDrawSurface = liquidSurfaceDraw
+                    )
+            )
+        }
         content()
         if (pressed) {
             Box(

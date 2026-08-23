@@ -257,12 +257,15 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassGroupPlanner
 import com.xiaomanjun.sleepdownschedule.glass.GlassGroupRenderEligibility
 import com.xiaomanjun.sleepdownschedule.glass.GlassSceneKeys
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.adaptiveCourseGlassSampleScale
 import com.xiaomanjun.sleepdownschedule.glass.glassGroupEligibility
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.sampled
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassGroupSurface
 import com.xiaomanjun.sleepdownschedule.glass.toTightLayerPlan
+import com.xiaomanjun.sleepdownschedule.glass.isGlassGroupEnabled
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -1493,6 +1496,7 @@ fun WeekDayColumn(
     onDeleteSingleWeekCourse: (CourseEntity) -> Unit = {},
     onCourseClick: (CourseEntity, Rect?) -> Unit,
     onDragStateChanged: (dayIndex: Int?, courseId: Long?) -> Unit = { _, _ -> },
+    composedCourseCardCount: Int = courses.size,
     draggingCourseId: Long? = null,
     activeOverlayCourseId: Long? = null,
     activeOverlayTargetKey: String? = null,
@@ -1524,18 +1528,18 @@ fun WeekDayColumn(
     val previewState = LocalPersonalizationPreview.current
     val startupPhase = LocalStartupPhase.current
     val hasWallpaper = config.hasAnyWallpaper()
-    val lightGlass = glassUsesLightStyle(config)
     val tokens = GlassTokens.courseCard(config.courseCardBlur)
     val liveBlur = previewState?.cardBlur ?: config.courseCardBlur
-    val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
-    val renderedSegmentBaseColors = renderedSegments.map { rendered ->
-        courseCardBaseColor(config, rendered.segment.course)
-    }
     val effectFrame = courseCardGlassEffectFrame(
         tokens = tokens,
         liveBlur = liveBlur,
         quality = quality,
         hasWallpaper = hasWallpaper
+    )
+    val courseBackdropSampleScale = adaptiveCourseGlassSampleScale(
+        composedCardCount = composedCourseCardCount,
+        enabled = !editMode &&
+            glassSceneState?.isGlassGroupEnabled(GlassSceneKeys.WeekCourseCards) == true
     )
     val windowSize = currentWindowSizeDp()
     val mayGroupCourseCards = glassSceneState != null &&
@@ -1562,23 +1566,17 @@ fun WeekDayColumn(
         val groupedCandidates = remember(
             mayGroupCourseCards,
             renderedSegments,
-            renderedSegmentBaseColors,
             periods,
             cardHeight,
             maxWidth,
             gridColumnWidth,
             windowSize,
-            config,
-            liveAlpha,
-            quality,
-            hasWallpaper,
-            lightGlass,
             density.density
         ) {
             if (!mayGroupCourseCards) {
                 emptyList()
             } else {
-                renderedSegments.mapIndexed { index, rendered ->
+                renderedSegments.map { rendered ->
                     val segment = rendered.segment
                     val exactPlacement = exactTimeWeekPlacement(segment.course, periods)
                     val segmentTopRows = exactPlacement?.topRows ?: segment.startPosition.toFloat()
@@ -1613,12 +1611,7 @@ fun WeekDayColumn(
                                 .coerceAtLeast(horizontalInsetPx + 1f),
                             bottom = topPx + heightPx
                         ),
-                        cornerRadiusPx = with(density) { cardCorner.toPx() },
-                        surfaceColor = renderedSegmentBaseColors[index].copy(
-                            alpha = courseGlassTintAlpha(liveAlpha, quality, hasWallpaper)
-                        ),
-                        screenOverlayAlpha = if (lightGlass) 0.012f else 0.008f,
-                        darkOverlayAlpha = if (lightGlass) 0.004f else 0.014f
+                        cornerRadiusPx = with(density) { cardCorner.toPx() }
                     )
                 }
             }
@@ -1636,10 +1629,13 @@ fun WeekDayColumn(
         val groupLayerPlans = remember(groupPlans) {
             groupPlans.map { it.toTightLayerPlan() }
         }
+        val sampledGroupLayerPlans = remember(groupLayerPlans, courseBackdropSampleScale) {
+            groupLayerPlans.map { it.sampled(courseBackdropSampleScale) }
+        }
         val groupedSurfaceEnabled = mayGroupCourseCards &&
-            groupedCandidates.size > groupLayerPlans.size &&
-            groupLayerPlans.isNotEmpty() &&
-            groupLayerPlans.all { layerPlan ->
+            groupedCandidates.size > sampledGroupLayerPlans.size &&
+            sampledGroupLayerPlans.isNotEmpty() &&
+            sampledGroupLayerPlans.all { layerPlan ->
                 requireNotNull(glassSceneState).glassGroupEligibility(
                     sceneKey = GlassSceneKeys.WeekCourseCards,
                     plan = layerPlan.localPlan,
@@ -1650,7 +1646,7 @@ fun WeekDayColumn(
         if (groupedSurfaceEnabled) {
             val activeSceneState = requireNotNull(glassSceneState)
             val activeBackdrop = requireNotNull(backdrop)
-            groupLayerPlans.forEachIndexed { index, layerPlan ->
+            sampledGroupLayerPlans.forEachIndexed { index, layerPlan ->
                 val plan = layerPlan.localPlan
                 val layerWidth = with(density) { layerPlan.size.width.toDp() }
                 val layerHeight = with(density) { layerPlan.size.height.toDp() }
@@ -1665,7 +1661,8 @@ fun WeekDayColumn(
                                 material = tokens,
                                 effectFrame = effectFrame,
                                 sceneState = activeSceneState,
-                                sceneKey = GlassSceneKeys.WeekCourseCards
+                                sceneKey = GlassSceneKeys.WeekCourseCards,
+                                sampleScale = courseBackdropSampleScale
                             )
                     )
                 }
@@ -1751,7 +1748,8 @@ fun WeekDayColumn(
                     onFinishMoveOverlay = onFinishMoveOverlay,
                     onFinishResizeOverlay = onFinishResizeOverlay,
                     onCancelWeekEditOverlay = onCancelWeekEditOverlay,
-                    renderCardSurface = !groupedSurfaceEnabled
+                    renderCardSurface = !groupedSurfaceEnabled,
+                    backdropSampleScale = courseBackdropSampleScale
                 )
                 exactPlacement?.let {
                     val labelColor = glassForegroundColor(config)
@@ -1870,6 +1868,7 @@ fun WeekCourseColumnsLayer(
                             draggingDayIndex = dayIndex
                             draggingCourseId = courseId
                         },
+                        composedCourseCardCount = courses.size,
                         draggingCourseId = draggingCourseId,
                         activeOverlayCourseId = activeOverlayCourseId,
                         activeOverlayTargetKey = activeOverlayTargetKey,
@@ -2746,7 +2745,8 @@ fun WeekCourseBlock(
     onFinishMoveOverlay: (Velocity) -> Unit = {},
     onFinishResizeOverlay: (Velocity) -> Unit = {},
     onCancelWeekEditOverlay: () -> Unit = {},
-    renderCardSurface: Boolean = true
+    renderCardSurface: Boolean = true,
+    backdropSampleScale: Float = 1f
 ) {
     val locationText = course.location.orEmpty()
     val hasLocation = locationText.isNotBlank()
@@ -3144,6 +3144,7 @@ fun WeekCourseBlock(
                     .height(displayedHeight),
                 shape = cardShape,
                 renderSurface = renderCardSurface,
+                backdropSampleScale = backdropSampleScale,
                 onClick = null
             ) {}
             BoxWithConstraints(Modifier.fillMaxWidth().height(displayedHeight).clipToBounds()) {

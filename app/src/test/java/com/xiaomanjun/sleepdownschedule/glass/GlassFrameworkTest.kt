@@ -4,7 +4,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.LiquidCourseCardBlurMax
 import com.xiaomanjun.sleepdownschedule.homeMenuDestinationTrajectoryGeometry
@@ -359,6 +358,30 @@ class GlassFrameworkTest {
     }
 
     @Test
+    fun courseGlassSamplingOnlyDropsResolutionAtHighComposedCounts() {
+        assertEquals(1f, adaptiveCourseGlassSampleScale(12, enabled = true))
+        assertEquals(0.75f, adaptiveCourseGlassSampleScale(13, enabled = true))
+        assertEquals(0.75f, adaptiveCourseGlassSampleScale(23, enabled = true))
+        assertEquals(0.5f, adaptiveCourseGlassSampleScale(24, enabled = true))
+        assertEquals(1f, adaptiveCourseGlassSampleScale(32, enabled = false))
+
+        val sampled = GlassEffectFrame(
+            blur = 4.dp,
+            lensHeight = 12.dp,
+            lensAmount = 24.dp,
+            highlight = GlassHighlightFrame(GlassHighlightStyle.Default, 0.1f),
+            shadowAlpha = 0.2f,
+            innerShadow = GlassInnerShadowFrame(5.dp, 0.1f)
+        ).sampledBackdropOnly(0.5f)
+        assertEquals(2.dp, sampled.blur)
+        assertEquals(6.dp, sampled.lensHeight)
+        assertEquals(12.dp, sampled.lensAmount)
+        assertEquals(null, sampled.highlight)
+        assertEquals(null, sampled.shadowAlpha)
+        assertEquals(null, sampled.innerShadow)
+    }
+
+    @Test
     fun nonOverlappingCourseCardsCollapseToOneMaterialGroup() {
         val viewport = Rect(0f, 0f, 1_000f, 2_000f)
         val candidates = (0 until 32).map { index ->
@@ -374,8 +397,7 @@ class GlassFrameworkTest {
                     right = column * 110f + 100f,
                     bottom = row * 160f + 150f
                 ),
-                cornerRadiusPx = 24f,
-                surfaceColor = Color.White
+                cornerRadiusPx = 24f
             )
         }
 
@@ -406,6 +428,12 @@ class GlassFrameworkTest {
                 )
             }
         )
+
+        val halfResolution = tightLayer.sampled(0.5f)
+        assertEquals(tightLayer.offsetInViewport, halfResolution.offsetInViewport)
+        assertEquals(IntSize(435, 75), halfResolution.size)
+        assertEquals(Rect(0f, 0f, 435f, 75f), halfResolution.localPlan.viewport)
+        assertEquals(12f, halfResolution.localPlan.members.first().cornerRadiusPx)
     }
 
     @Test
@@ -416,8 +444,7 @@ class GlassFrameworkTest {
             domain = GlassBackdropDomain.Content,
             materialKey = material,
             boundsInViewport = rect,
-            cornerRadiusPx = 20f,
-            surfaceColor = Color.White
+            cornerRadiusPx = 20f
         )
         val groups = GlassGroupPlanner.plan(
             viewport,
@@ -450,8 +477,7 @@ class GlassFrameworkTest {
                     domain = GlassBackdropDomain.Content,
                     materialKey = "course-default",
                     boundsInViewport = Rect(0f, 0f, 100f, 100f),
-                    cornerRadiusPx = 20f,
-                    surfaceColor = Color.White
+                    cornerRadiusPx = 20f
                 )
             )
         )

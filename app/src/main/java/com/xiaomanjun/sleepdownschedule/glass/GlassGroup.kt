@@ -6,15 +6,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -36,10 +34,7 @@ data class GlassGroupCandidate(
     val domain: GlassBackdropDomain,
     val materialKey: String,
     val boundsInViewport: Rect,
-    val cornerRadiusPx: Float,
-    val surfaceColor: Color,
-    val screenOverlayAlpha: Float = 0f,
-    val darkOverlayAlpha: Float = 0f
+    val cornerRadiusPx: Float
 )
 
 @Immutable
@@ -357,7 +352,8 @@ fun Modifier.sleepDownGlassGroupSurface(
     material: GlassMaterialSpec,
     effectFrame: GlassEffectFrame,
     sceneState: GlassSceneState,
-    sceneKey: String
+    sceneKey: String,
+    sampleScale: Float = 1f
 ): Modifier {
     val eligibility = sceneState.glassGroupEligibility(sceneKey, plan, effectFrame)
     check(eligibility == GlassGroupRenderEligibility.Eligible) {
@@ -376,11 +372,8 @@ fun Modifier.sleepDownGlassGroupSurface(
         requestedRenderer = GlassRendererKind.GroupedExperimental,
         sceneKey = sceneKey
     )
-    val backdropOnlyFrame = effectFrame.copy(
-        highlight = null,
-        shadowAlpha = null,
-        innerShadow = null
-    )
+    val activeSampleScale = sampleScale.coerceIn(0.5f, 1f)
+    val backdropOnlyFrame = effectFrame.sampledBackdropOnly(activeSampleScale)
     return sleepDownGlassSurface(
         backdrop = backdrop,
         descriptor = descriptor,
@@ -389,10 +382,10 @@ fun Modifier.sleepDownGlassGroupSurface(
         effectFrame = backdropOnlyFrame,
         sceneState = sceneState,
         effectsOverride = {
-            if (effectFrame.useVibrancy) vibrancy()
-            effectFrame.blur?.let { blur(it.toPx()) }
-            val lensHeight = effectFrame.lensHeight
-            val lensAmount = effectFrame.lensAmount
+            if (backdropOnlyFrame.useVibrancy) vibrancy()
+            backdropOnlyFrame.blur?.let { blur(it.toPx()) }
+            val lensHeight = backdropOnlyFrame.lensHeight
+            val lensAmount = backdropOnlyFrame.lensAmount
             if (lensHeight != null && lensAmount != null) {
                 glassGroupLens(
                     members = currentMembers.value,
@@ -404,34 +397,14 @@ fun Modifier.sleepDownGlassGroupSurface(
                 )
             }
         },
-        onDrawSurface = {
-            currentMembers.value.forEach { member ->
-                val rect = member.boundsInViewport
-                val radius = member.cornerRadiusPx.coerceIn(0f, minOf(rect.width, rect.height) / 2f)
-                drawRoundRect(
-                    color = member.surfaceColor,
-                    topLeft = Offset(rect.left, rect.top),
-                    size = Size(rect.width, rect.height),
-                    cornerRadius = CornerRadius(radius, radius)
-                )
-                if (member.screenOverlayAlpha > 0f) {
-                    drawRoundRect(
-                        color = Color.White.copy(alpha = member.screenOverlayAlpha),
-                        topLeft = Offset(rect.left, rect.top),
-                        size = Size(rect.width, rect.height),
-                        cornerRadius = CornerRadius(radius, radius),
-                        blendMode = BlendMode.Screen
-                    )
-                }
-                if (member.darkOverlayAlpha > 0f) {
-                    drawRoundRect(
-                        color = Color.Black.copy(alpha = member.darkOverlayAlpha),
-                        topLeft = Offset(rect.left, rect.top),
-                        size = Size(rect.width, rect.height),
-                        cornerRadius = CornerRadius(radius, radius)
-                    )
-                }
-            }
+        additionalLayerBlock = if (activeSampleScale < 0.999f) {
+            ({
+                transformOrigin = TransformOrigin(0f, 0f)
+                scaleX = 1f / activeSampleScale
+                scaleY = 1f / activeSampleScale
+            })
+        } else {
+            null
         }
     )
 }
