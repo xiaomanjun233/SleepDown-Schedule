@@ -5,17 +5,17 @@
 ## 当前结论
 
 - Backdrop 已在独立提交 `eab3059` 从 `2.0.0-alpha03` 升级到正式版 `2.0.0`，`shapes` 保持 `1.2.0`。Kotlin、Compose 和 Serialization 插件无需联动升级。
-- 默认渲染后端仍是 `KyantReference`。现有 blur、lens、色散、tint、highlight、shadow、inner shadow、Shape、内容绘制顺序和交互参数未删减；阶段二实验只能通过显式 Gradle 属性进入受控 Release。
+- 源码默认渲染后端仍可回退到 `KyantReference`。现有 blur、lens、色散、tint、highlight、shadow、inner shadow、Shape、内容绘制顺序和交互参数未删减；当前性能验收包按用户要求显式开启阶段二真实开关，不再只保留默认关闭代码。
 - 全项目不再由业务代码直接创建、组合或挂载 `LayerBackdrop`，也不再散落调用 `drawBackdrop` / `drawPlainBackdrop`；这些调用集中在 `glass/SleepDownGlassSurface.kt`。`ScaledBackdrop` 仍是 Backdrop 坐标转换接口实现，不是额外消费者。
 - 首页仍保留 `Background`、`Content`、`PickerScene` 三个真实采样域；`ChromeCombined` 只组合前两个，Android Dialog 通过 `DialogBridge` 和既有屏幕坐标补偿采样，未合成错误的全局 Backdrop。
-- 普通构建仍使用空 allowlist。阶段二稳定 envelope 策略显式列出三个首页菜单目的页，以及大屏个性化的渐进模糊、Backdrop aura 两条独立效果通道，并由默认 `false` 的 `sleepdown.enableLargeGlassExperiment` 再做总门控。阶段三为首页三点菜单单独增加 `sleepdown.enableLiquidMotionExperiment` 与 motion allowlist；两批实验互不隐式开启。课程卡 `GlassGroup` 仍无启用路线。
+- 阶段二 allowlist 已包含三个首页菜单目的页、大屏个性化渐进模糊/Backdrop aura，以及稳定周视图课程卡。总门控仍是 Gradle 属性 `sleepdown.enableLargeGlassExperiment`；自 2026-08-23 起，每批性能改动必须用该真实开关开启的签名 Release 覆盖安装。阶段三 `sleepdown.enableLiquidMotionExperiment` 已被用户停止，当前包保持 `false`。
 - 本轮没有修改 Oplus callback、Bundle、系统 leash、返回时序、能力开关或逐路线 allowlist。
 
 ## 上游约束与本地决策
 
 - 官方 [`DrawBackdropModifier`](https://github.com/Kyant0/AndroidLiquidGlass/blob/2.0.0/backdrop/src/commonMain/kotlin/com/kyant/backdrop/DrawBackdropModifier.kt)会为每个 `drawBackdrop` consumer 建立自己的效果/GraphicsLayer 路径；共享 provider 不等于合并 consumer。大量同时可见玻璃的退化与 [Issue #41](https://github.com/Kyant0/AndroidLiquidGlass/issues/41) 的 32 个对象案例一致，因此本地先统计 consumer layer 和 offscreen pixels，而不是误把 provider 复用当成全部优化。
 - 独立 Popup Window 的采样坐标问题仍按 [Issue #91](https://github.com/Kyant0/AndroidLiquidGlass/issues/91) 处理：业务 Popup 保持 Activity 根 overlay/既有屏幕坐标补偿，不新建无法对齐的窗口级 provider。
-- 多 shape lens 与稳定 envelope 的限制见下方实验后端；在官方 API 无法表达等价 SDF 时，宁可保持 `KyantReference`，不通过关闭 lens、降低分辨率或改变视觉参数伪装成优化。
+- 多 shape lens 与稳定 envelope 的限制见下方实验后端。课程卡高负载降采样已获用户明确允许，但只降低 backdrop/blur/lens 纹理；卡片布局、文字、点击、tint、高光、阴影和边缘继续全分辨率。其它玻璃不得顺带降低质量。
 
 ## 结构
 
@@ -52,7 +52,7 @@
 
 这些改动减少的是无意义的对象/节点/效果链失效风险；在完成同设备、同场景 Perfetto 对照前，不把它们描述为已经量化的帧率提升。
 
-## 实验后端（默认关闭）
+## 实验后端（源码可回退；当前性能包已开启阶段二）
 
 ### `GlassTransitionLayer`
 
@@ -69,11 +69,25 @@
 
 ### `GlassGroup`
 
-- 只合并同一采样域、同一材质、互不重叠且位于 viewport 内的可见卡片。
-- 合批层只绘制共享材质；每张课程卡的内容、点击、手势和语义仍由独立兄弟节点持有。
-- 重叠或材质不同的卡片自动拆组；没有 `groupedSceneAllowlist` 时强制回退逐卡 Kyant 后端。
-- 官方 2.0.0 `lens` 只支持单个 `RoundedRectangularShape` / `CornerBasedShape`；多卡 union 是 `Outline.Generic`，无法在一条官方 lens 链中保留每卡独立 SDF。当前实现会把带 lens 的课程卡判定为 `LensRequiresPerShapeSdf`，即使误加 allowlist 也不会作为等价后端接入；后续等待 [Issue #104](https://github.com/Kyant0/AndroidLiquidGlass/issues/104) 所讨论的多玻璃容器能力，或另行批准真正的多 shape SDF 后端。
+- 只合并同一采样域、同一材质、互不重叠且位于 viewport 内的稳定课程卡；每个紧边界 RenderTarget 最多 8 张，重叠或材质不同会自动拆组。
+- 一组只保留一条昂贵 backdrop → blur → lens 链。官方 2.0.0 单 Shape lens 不能表达多个独立圆角矩形，本地 `glassGroupLens` 因此严格沿用官方 rounded-rect lens 方程，为每个成员计算独立 SDF，并在同一 Shader 中取 union；这不是缩掉 lens。
+- 每卡 tint、Screen overlay、高光、外阴影和内阴影仍由全分辨率独立 decoration 节点绘制，避免合批后局部渐变坐标变化或相邻卡阴影串色。文字、点击、长按、语义和布局从未进入合批层。
+- 编辑、拖拽、冲突叠放、出场层、横向运动、启动低质量阶段或拓扑不合格时自动回退逐卡 Kyant。没有 `groupedSceneAllowlist` 时同样回退。
 - 该实现不是 SDF 融合，不产生玻璃颈部或融合/分裂轮廓。
+
+### 课程卡自适应采样
+
+- Backdrop 2.0 没有 `sampleScale`/降采样质量参数。官方 `drawBackdrop` 的 `layerBlock` 会通过 `LayerBackdrop` 对消费者变换做逆向坐标补偿，因此本地把昂贵 consumer 分配为小尺寸纹理，再按左上原点放大到真实卡片尺寸，采样坐标仍对齐原 Backdrop。
+- 0–12 张课程卡使用 `1.0x`；13–23 张使用 `0.75x`（纹理面积约 56%）；24 张及以上使用 `0.5x`（纹理面积 25%）。阈值只在阶段二开关与周课程卡 allowlist 同时生效时进入。
+- blur 半径、lens height/amount、绝对 dp 圆角和多 Shape SDF 同步按采样比例缩放；最终放大后几何与视觉参数回到原物理尺寸。文字与 decoration 不参与缩放。
+- 合批不成立时，逐卡 Kyant consumer 仍可使用同一采样比例；因此高负载不会因一张冲突卡导致整页退回 N 条全分辨率效果链。
+
+### 缓存遮挡生命周期
+
+- Opening/Closing 运动期间原 GPU 中性场景缓存已经阻止课程卡逐帧重放；新路线进一步处理稳定 Open 时仍挂载的昂贵材质节点。
+- 仅周视图、阶段二开关开启、个性化逐帧预览关闭、缓存帧 key 完全匹配、`GraphicsLayer` 已实际切到 Offscreen 且弹层处于稳定 Open 时，课程卡进入 `Suspended`。只卸载材质 surface/decoration；内容、布局、点击、手势、语义和 Composition 状态保留。
+- 协调关闭会先进入 `Prewarming`：在弹层仍保持 Open、缓存仍完全遮挡的情况下重新挂载课程卡材质，强制重录并重放连续两帧，再启动原 Closing。等待上限 500ms；非协调 Closing 也会立即恢复材质，避免可见阶段保持暂停。
+- 不创建 Bitmap/ImageBitmap 截图，不改变背景 blur/zoom、Morph 时间线或终态页面。该路线能否真正释放多少底层 RenderNode/纹理仍需 Perfetto/显存证据确认；当前只宣称减少稳定 Open 的活跃材质节点，不提前宣称量化收益。
 
 ## 同 Activity Morph
 
@@ -103,7 +117,7 @@
 
 ## 后续启用门槛
 
-阶段二第二批实验包覆盖安装后，用户已肉眼比较并反馈“好像没有什么帧数变化”；没有对应 Macrobenchmark/Perfetto 数据，因此该结论只记为主观无明显改善，不能记成量化无收益或量化回退。阶段二继续默认关闭，不扩大 allowlist。后续经用户明确允许后，按以下顺序做最小充分验收，但不能自动开启实验后端：
+阶段二第二批旧实验包覆盖安装后，用户曾肉眼比较并反馈“好像没有什么帧数变化”；该包尚不包含课程卡合批、自适应采样或缓存遮挡生命周期，也没有对应 Macrobenchmark/Perfetto 数据，因此不能外推到当前第三批。当前按用户新约束实际开启阶段二并覆盖安装；后续按以下顺序做最小充分验收：
 
 1. 小米平板固定 120Hz、壁纸与配置，执行两组五轮基线/改后测试；
 2. 三点菜单、中心弹窗、个性化、课程编辑器和 1/8/16/32 卡片场景分别抓取 JankStats 与 Perfetto；
@@ -114,11 +128,12 @@
 ## 本轮验证状态
 
 - 独立的 Backdrop `2.0.0` 迁移提交在框架改造前已通过既有 378/378 JVM 单测及 GitHub/Store Debug、benchmark、Release/R8 本地构建。
-- 阶段一基线的完整 `testGithubDebugUnitTest` 为 397/397；当时 `GlassFrameworkTest` 共 19 项。阶段二累计新增 4 项包络像素定位、路线门控、面积上限和 aura 几何测试，阶段三新增 2 项独立门控、弹簧端点与轮廓坐标测试；项目没有生成 Release unit-test task，且按用户约束没有改跑 Debug，因此这 6 项尚未执行，不能计入已通过数量。
+- 阶段一基线的完整 `testGithubDebugUnitTest` 为 397/397；其后新增包络、合批、紧边界、多 SDF、采样阈值/几何、遮挡门控及已停止 motion 的源码级测试。项目没有生成 Release unit-test task，且按用户约束没有改跑 Debug，因此这些新增测试尚未执行，不能计入 397/397 基线。
 - 按用户的长期构建约束，最终只构建 GitHub Release；使用 `-Psleepdown.skipReleaseResourceShrink=true` 跳过测试阶段的资源裁剪，Kotlin、R8、lintVital、打包和签名均通过。正式发布前仍应在用户要求时补一次默认开启资源压缩的 Release。
 - 新 APK 的 SHA-256 为 `C5E4F2487D2CFB1746868B55BAB92E1D554076CC986D091D5329E652581F535E`，签名校验通过，并成功覆盖安装到 PLJ110 `3B15AE023YL00000`；没有启动或操作应用。
 - 阶段二第二批使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLargeGlassExperiment=true --no-parallel --max-workers=2` 构建通过 Kotlin、R8、lintVital、打包与签名；确认生成的 Release `BuildConfig` 实验值为 `true`。实验 APK SHA-256 为 `D47506F3E42A2177EC0482D6D14CCEA0AFC96D829623670186E9634BE0C12B87`，大小 `6,429,734` bytes，已于 2026-08-23 覆盖安装到 PLJ110 `3B15AE023YL00000`；用户随后肉眼观察未发现明显帧率变化，未采集量化 trace。
 - 阶段三使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLiquidMotionExperiment=true --no-parallel --max-workers=2` 构建通过 Kotlin、R8、lintVital、打包与签名；生成的 Release 已确认 `SLEEPDOWN_LARGE_GLASS_EXPERIMENT=false`、`SLEEPDOWN_LIQUID_MOTION_EXPERIMENT=true`。APK SHA-256 为 `880BD142F469DEB46F2CDD0887FB3BD2350263E9D0821F5AA3F87E00D235070A`，大小 `6,429,734` bytes，未安装、未启动。
 - 随后按用户要求同时传入 `-Psleepdown.enableLargeGlassExperiment=true` 与 `-Psleepdown.enableLiquidMotionExperiment=true`，仍使用 `--no-parallel --max-workers=2` 和跳过资源压缩的签名 GitHub Release 构建。生成的两个 `BuildConfig` 值均已核对为 `true`；APK SHA-256 为 `CB0B395697DE0D714BBCD4A8BF9ED6B5BD53AEEEBE2B31A4F5A1660E099F81ED`，大小 `6,429,734` bytes，已于 2026-08-23 覆盖安装到 PLJ110 `3B15AE023YL00000`，未启动或操作应用。
-- 停止阶段三后重新构建恢复包，确认 `SLEEPDOWN_LARGE_GLASS_EXPERIMENT=true`、`SLEEPDOWN_LIQUID_MOTION_EXPERIMENT=false`；GitHub Release 的 Kotlin、R8、lintVital、打包和签名通过，SHA-256 为 `DB58D5E9ADF55B51E05B2AA4E1779D4BDDBD6A1416E6AD95C83324A250FF8580`，已覆盖安装到同一 PLJ110，未启动或操作应用。
-- 本轮未执行真机 UI、Macrobenchmark 或 Perfetto 采集，因此不宣称量化性能收益；阶段三 motion 已停止，稳定 envelope 与 `GlassGroup` 在普通构建中仍保持关闭。
+- 停止阶段三后的旧恢复包 SHA-256 为 `DB58D5E9ADF55B51E05B2AA4E1779D4BDDBD6A1416E6AD95C83324A250FF8580`，现已被第三批性能包覆盖。
+- 第三批性能提交为 `83384f2`（稳定周课程卡合批）、`044f397`（高负载自适应采样）和 `7187f3a`（缓存遮挡生命周期）。先以同开关完成 `compileGithubReleaseKotlin`，再执行 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLargeGlassExperiment=true --no-parallel --max-workers=2`；Kotlin、R8、lintVital、打包和签名均通过。生成的 Release 已核对 `SLEEPDOWN_LARGE_GLASS_EXPERIMENT=true`、`SLEEPDOWN_LIQUID_MOTION_EXPERIMENT=false`，APK SHA-256 为 `44A9BE692609CF48C563F694C1B6A7534FF2C36FFC35CFA363BD1F6804BA32F4`，已覆盖安装到 PLJ110 `3B15AE023YL00000`，未启动或操作应用。
+- 本轮未执行真机 UI、Macrobenchmark 或 Perfetto 采集，因此不宣称量化性能收益。当前安装包已真实开启稳定 envelope、课程卡合批、分级采样与遮挡生命周期；阶段三 motion 保持关闭。
