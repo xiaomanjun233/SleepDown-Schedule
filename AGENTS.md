@@ -8,6 +8,9 @@
 - UI 按窗口和安全区自适应，不为单一 DPI、分辨率或设备写死特例。
 - 工作树可能包含用户素材和临时证据；不要使用 `git reset --hard`、`git checkout --`，不要删除或顺手整理不在任务范围内的文件。
 - 未经明确同意，不推送、不打标签、不发布 Release。
+- 验证必须按改动风险选择最小充分集合；不得进行大量耗时、无意义或与已通过检查重复的防御性测试。只有相关源码、构建配置或验收条件发生变化，或用户明确要求时，才重跑对应完整测试矩阵。
+- 用户未明确要求构建变体时，只构建 Release；不要默认附带构建 Debug、benchmark 或其他渠道/变体。
+- 开发与测试阶段构建 Release 时，为节省时间和资源可以跳过资源压缩；只有发布前最终验收、用户明确要求，或改动本身涉及资源压缩/R8 时，才执行带资源压缩的完整 Release 构建。
 
 ## 必须持续遵守的视觉与交互验收规则
 
@@ -35,6 +38,8 @@
   .\gradlew.bat assembleRelease --console=plain
   ```
 
+- 开发/测试阶段需要跳过 Release 资源压缩时，使用 `-Psleepdown.skipReleaseResourceShrink=true`；该开关不关闭 R8 代码压缩，且未显式传入时仍保持正式 Release 的完整资源压缩。
+
 - GitHub Release APK：`app\build\outputs\apk\github\release\app-github-release.apk`
 - 设备验证只安装签名 Release，不安装 Debug。安装前运行 `adb devices -l`；无线地址会变化。
 - 可以代为覆盖安装 Release；在用户明确要求时可以启动应用、操作界面并执行真机 UI 自动化。
@@ -61,6 +66,16 @@
 - 手机周视图节次栏为 56dp，课程主体保留 8dp 右余量；相邻页滑动内容可延伸进该区域。大屏保留原 tablet 布局。
 - 官网源码位于 `sleepdown-site/`，线上仍由已预付杭州 ECS 直出；不要在未授权时创建 OSS Bucket、CDN 域名或其他按量资源。
 - `SleepDown-Server/` 是私有后端源码，不属于公开 Android 仓库或任何 GitHub Release 的发布范围；不得暂存、提交、推送或上传其中的源码、构建产物、数据库、环境文件、管理配置、API Key、加密密钥或其他服务端凭据。
+
+## 液态玻璃 2.0 统一框架（2026-08-23）
+
+- 当前开发分支为 `codex/liquid-glass-framework`；Oplus 半成品已在本地分支 `codex/archive/oplus-transition-wip-20260823`、提交 `70c2d51` 封存，开发分支通过 `3e56624` 对齐 `origin/main` 历史。所有提交仅在本地，未推送、未打标签、未发布。
+- Backdrop 已在独立提交 `eab3059` 升级到正式版 `2.0.0`，`shapes=1.2.0` 不变；Kotlin/Compose 无需联动升级。依赖升级与框架改造保持可独立回退。
+- `app/src/main/java/com/xiaomanjun/sleepdownschedule/glass/` 统一管理采样域、材质 token、场景阶段、provider/consumer、诊断、稳定 envelope、课程卡合批原型和 `LiquidMorphController/Spec`。业务代码不再直接创建/组合/挂载 `LayerBackdrop` 或调用 `drawBackdrop`/`drawPlainBackdrop`；`ScaledBackdrop` 只保留必要的坐标变换接口实现。
+- 首页 `Background`、`Content`、`PickerScene` 三个域继续独立；`ChromeCombined` 只组合前两者，Dialog 继续使用屏幕坐标补偿。Debug/benchmark 首页拓扑会拒绝自采样、域错配和循环。
+- 三点菜单、个性化、菜单目的页和课程编辑器已接入 Legacy Morph spec/controller；原轨迹、时序、圆角和内容交接保持不变。稳定 envelope、`GlassGroup`、独立弹簧和速度/加速度形变均为空 allowlist、默认关闭，未获真机像素与 Perfetto 双重证据前不得开启。
+- 诊断 counter、实验边界、测试与后续启用门槛见 `docs/performance/LIQUID_GLASS_FRAMEWORK.md`。用户随后只授权构建与覆盖安装；当前液态玻璃包已安装，但未启动、未操作，也未执行真机 UI、Macrobenchmark 或 Perfetto。后续真机性能/视觉测试仍需用户明确要求。
+- 本轮不修改或恢复 Oplus 调查；`TODO(OPLUS_DEFERRED_20260823)`、callback、Bundle、leash、fallback 和远程 allowlist 继续保持暂停状态。
 
 ## 跨 Activity Transition 统一框架（2026-08-22 重建）
 
@@ -135,9 +150,10 @@
 ## 已验证与待验收
 
 - 最新独立 Morph、缓存、课程管理、自定义时间与周视图长按编辑策略继续通过原 344 项测试；统一 Transition 框架新增 20 项路线、状态机、并发 fallback、callback generation、嵌套 session、payload 清理、进程重建、能力 gate 和 kill switch 测试，完整 `testGithubDebugUnitTest` 为 364/364。GitHub/Store Debug、签名 Release（Kotlin、R8、资源优化、lintVital）和两渠道 benchmark app、benchmark 测试 APK 均构建通过。
+- 液态玻璃 2.0 统一框架完成后，完整 `testGithubDebugUnitTest` 为 397/397，其中新增框架测试 19 项；GitHub 签名 Release 使用 `-Psleepdown.skipReleaseResourceShrink=true` 通过 Kotlin、R8、lintVital、打包与签名构建，并于 2026-08-23 覆盖安装到 `3B15AE023YL00000`。该包未启动或执行真机验收，不能据此宣称量化性能改善。
 - 正式 Oplus 全局开关及逐路线 allowlist 当前默认关闭；Release manifest 不含 debug Probe，R8 mapping 保留厂商 callback 隔离层。未完成下述 PLJ110 正式页面验收前不得远程开启。
 - PLJ110 已确认完整课程详情的独立 opaque 宿主可由 ColorOS 正常接管；第一批扩展路线同时包含 AI 进度页→AI 历史（Legacy Liquid）和手动导入弹窗→AI 历史（Legacy Parabolic），共用同一个正式 AI 历史页面与独立 opaque 宿主。
-- 2026-08-23 最后安装到 `3B15AE023YL00000` 的包是临时强制 Oplus 的签名 GitHub Release 验收包；构建后仓库源码已经恢复远程配置 gate。该包真机确认：首页两条路线 CLOSE 仍中心淡出，课程详情 CLOSE 仍闪空帧，AI 历史 OPEN/CLOSE 仍闪空帧。本轮结论是“未修复并暂缓”，不是待用户重复验收。
+- 此前安装到 `3B15AE023YL00000` 的临时强制 Oplus 验收包曾真机确认：首页两条路线 CLOSE 仍中心淡出，课程详情 CLOSE 仍闪空帧，AI 历史 OPEN/CLOSE 仍闪空帧；源码随后恢复远程配置 gate。本轮液态玻璃 Release 已覆盖该临时包，但没有恢复 Oplus 调查或重新验收，因此结论仍是“未修复并暂缓”，不是待用户重复验收。
 - 既有其他真机视觉与交互验收项（周视图长按编辑、课程管理、三点菜单 11dp 同心间距、个性化/二级页无缝动画等）不因本轮失败结论而自动失效；后续按具体任务分别验收。
 - 完整 backup、四变体、benchmark compile、真实 v1.1.5 恢复、Store 权限与新包 Widget 首装仍待发布前补跑。
 - 性能 benchmark 路线按当前任务需要启用；已有诊断代码、trace 结论和失败方案记录在 `docs/performance/UI_PERFORMANCE_BENCHMARK_HANDOFF.md`。
@@ -147,12 +163,12 @@
 1. **暂停 Oplus 空帧与首页 CLOSE fallback 调查**；用户未明确恢复前，不再调整 callback 时序、overlay、registration View、Morph 几何或 vendor Bundle，也不要求用户重复测试。
 2. 若用户以后恢复调查，先固定一个最后已知“不闪空帧”的可复现版本/录像作为对照，同时抓取 WM Shell transition、ActivityTaskManager、ViewSeamless callback 与 SurfaceFlinger/帧提交证据，确定系统 leash、opaque destination 和 source buffer 的真实交接顺序；禁止继续凭视觉猜测叠加延时或快照层。
 3. 只有首页 Legacy CLOSE 真正回到三点按钮且所有正式详情/AI 历史 OPEN/CLOSE 无空帧后，才重新做立即返回、长停留、20 次往返、源移动/消失与 fallback 零变化验收；此前全局开关及逐路线远程 allowlist 保持关闭。
-4. 发布前补齐迁移、备份、真实 v1.1.5 恢复、Store 权限与新包 Widget 首装；确认 Draft PR、应用商店身份和升级说明后，由用户决定是否推送、合并远端或发布；当前不要发布、不要 commit。
+4. 发布前补齐迁移、备份、真实 v1.1.5 恢复、Store 权限与新包 Widget 首装；确认 Draft PR、应用商店身份和升级说明后，由用户决定是否推送、合并远端或发布。Oplus 调查分支保持封存；当前液态玻璃任务只允许按既定计划创建本地提交，不得推送、打标签或发布。
 
 ## 工作方式
 
 - 默认使用 PowerShell 7；搜索优先 `rg` / `rg --files`，源码修改使用 `apply_patch`。
 - 先诊断并保留证据，再修复；崩溃优先读取实际堆栈。
-- GitHub 仓库、PR、Issue、Review、CI 和 Release 优先使用已连接的 GitHub 能力；本地 `git` 用于工作树、分支、暂存和提交。
+- GitHub 仓库、PR、Issue、Review、CI 和 Release 优先使用已连接的 GitHub 插件；本地 `git` 用于工作树、分支、暂存和提交。
 - 更新日志与 Release Notes 必须面向最终用户书写，以用户能直接感知的功能、体验、交互和升级注意事项为中心，避免 Morph、GraphicsLayer、Backdrop、Room、applicationId、RenderNode 等实现细节和内部术语。Release Notes 的安装或迁移注意必须写在开头，主体更新内容必须与应用内更新日志一致；应用内日志不写只对开发者有意义的内部说明。
 - `.gradle-user-home/`、`tmp/`、`sleepdown-promo/`、`ui.xml`、根目录设备截图和临时验收图片不属于源码提交范围，除非用户单独指定。
