@@ -280,6 +280,7 @@ import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackendPolicy
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
 import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
@@ -589,7 +590,17 @@ fun CourseScheduleAppUi(
         ?.takeIf { it.id == baseVisualState.config.id }
         ?.let { baseVisualState.copy(config = it) }
         ?: baseVisualState
-    val glassSceneState = rememberGlassSceneState(sceneId = "home")
+    val glassBackendPolicy = remember {
+        if (BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT) {
+            GlassBackendPolicy.Phase2LargeSurfaceExperiment
+        } else {
+            GlassBackendPolicy.ReferenceOnly
+        }
+    }
+    val glassSceneState = rememberGlassSceneState(
+        sceneId = "home",
+        backendPolicy = glassBackendPolicy
+    )
     val screenGraphicsLayer = rememberGraphicsLayer()
     // The week grid is already recorded into this layer for Morph motion. Reuse that GPU layer
     // as the personalization backdrop producer so the glass does not traverse every live

@@ -9,6 +9,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -16,11 +17,14 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.roundToInt
 
 data class GlassTransitionGeometry(
@@ -42,6 +46,15 @@ data class GlassTransitionGeometry(
             "Glass transition geometry requires finite coordinates and a non-negative radius."
         }
     }
+}
+
+/** Matches the legacy `offset(round) + layout(size.round)` pixel grid exactly. */
+fun GlassTransitionGeometry.pixelAligned(): GlassTransitionGeometry {
+    val left = rectInRoot.left.roundToInt().toFloat()
+    val top = rectInRoot.top.roundToInt().toFloat()
+    val width = rectInRoot.width.roundToInt().coerceAtLeast(1).toFloat()
+    val height = rectInRoot.height.roundToInt().coerceAtLeast(1).toFloat()
+    return copy(rectInRoot = Rect(left, top, left + width, top + height))
 }
 
 data class GlassTransitionEnvelope(val boundsInRoot: Rect) {
@@ -100,6 +113,60 @@ data class GlassTransitionEnvelope(val boundsInRoot: Rect) {
             )
         }
     }
+}
+
+/**
+ * Samples deterministic legacy geometry once and allocates one integer-aligned layer that covers
+ * the complete opening and closing paths. A small caller-provided padding absorbs the gap between
+ * samples; it does not alter the animated clip or the glass material.
+ */
+fun sampleGlassTransitionEnvelope(
+    tracks: List<(Float) -> GlassTransitionGeometry>,
+    steps: Int = 96,
+    effectPaddingPx: Float = 0f
+): GlassTransitionEnvelope {
+    require(tracks.isNotEmpty()) { "At least one transition track is required." }
+    require(steps > 0) { "Transition envelope sampling requires at least one step." }
+    val samples = buildList(tracks.size * (steps + 1)) {
+        tracks.forEach { geometryAt ->
+            for (step in 0..steps) {
+                add(geometryAt(step.toFloat() / steps.toFloat()).pixelAligned())
+            }
+        }
+    }
+    val sampled = GlassTransitionEnvelope.covering(samples, effectPaddingPx)
+    val bounds = sampled.boundsInRoot
+    return GlassTransitionEnvelope(
+        Rect(
+            left = floor(bounds.left),
+            top = floor(bounds.top),
+            right = ceil(bounds.right),
+            bottom = ceil(bounds.bottom)
+        )
+    )
+}
+
+/**
+ * Places the already-measured target subtree exactly where the legacy dynamic shell centered it.
+ * Neither content nor corner radii are scaled.
+ */
+fun stableContentOffsetInEnvelope(
+    envelope: GlassTransitionEnvelope,
+    geometry: GlassTransitionGeometry,
+    stableContentSize: IntSize
+): IntOffset {
+    require(stableContentSize.width > 0 && stableContentSize.height > 0) {
+        "Stable transition content must have a positive size."
+    }
+    val aligned = geometry.pixelAligned()
+    require(envelope.contains(aligned)) { "Animated geometry escaped its stable envelope." }
+    val local = envelope.toLocal(aligned.rectInRoot)
+    val shellWidth = aligned.rectInRoot.width.roundToInt().coerceAtLeast(1)
+    val shellHeight = aligned.rectInRoot.height.roundToInt().coerceAtLeast(1)
+    return IntOffset(
+        x = local.left.roundToInt() + (shellWidth - stableContentSize.width) / 2,
+        y = local.top.roundToInt() + (shellHeight - stableContentSize.height) / 2
+    )
 }
 
 @Stable
@@ -163,6 +230,33 @@ class GlassEnvelopeClipShape(private val state: GlassTransitionLayerState) : Sha
     }
 }
 
+private class DeferredGlassEnvelopeClipShape(
+    private val envelope: GlassTransitionEnvelope,
+    private val geometry: () -> GlassTransitionGeometry
+) : Shape {
+    override fun createOutline(
+        size: androidx.compose.ui.geometry.Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val current = geometry().pixelAligned()
+        require(envelope.contains(current)) {
+            "Animated glass geometry escaped its stable envelope."
+        }
+        val rect = envelope.toLocal(current.rectInRoot)
+        val radius = current.cornerRadiusPx.coerceIn(
+            minimumValue = 0f,
+            maximumValue = minOf(rect.width, rect.height) / 2f
+        )
+        return Outline.Rounded(
+            RoundRect(
+                rect = rect,
+                cornerRadius = CornerRadius(radius, radius)
+            )
+        )
+    }
+}
+
 /**
  * Fixed-size host for the experimental transition renderer. [content] must position source and
  * destination content at real measured sizes; this host never scales either page to fill the
@@ -190,5 +284,63 @@ fun GlassTransitionLayer(
             )
     ) {
         content(state)
+    }
+}
+
+
+/**
+ * Draw-time geometry variant used by production experiments. The host allocation stays fixed;
+ * only its inset outline and child placement move. When [temporaryClipActive] is false no
+ * GraphicsLayer is installed, so the stable Open endpoint remains live and un-clipped.
+ */
+@Composable
+fun GlassTransitionLayer(
+    envelope: GlassTransitionEnvelope,
+    geometry: () -> GlassTransitionGeometry,
+    temporaryClipActive: Boolean,
+    motionAlpha: () -> Float = { 1f },
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.(
+        envelope: GlassTransitionEnvelope,
+        geometry: () -> GlassTransitionGeometry
+    ) -> Unit
+) {
+    val density = LocalDensity.current
+    val geometryState = rememberUpdatedState(geometry)
+    val alphaState = rememberUpdatedState(motionAlpha)
+    val clipShape = remember(envelope) {
+        DeferredGlassEnvelopeClipShape(envelope) { geometryState.value.invoke() }
+    }
+    val bounds = envelope.boundsInRoot
+    val layerModifier = if (temporaryClipActive) {
+        Modifier.graphicsLayer {
+            // Reading the actual animation state here invalidates only placement/layer drawing,
+            // not the fixed host measurement or the precomposed destination subtree.
+            val current = geometryState.value.invoke().pixelAligned()
+            require(envelope.contains(current)) {
+                "Animated glass geometry escaped its stable envelope."
+            }
+            alpha = alphaState.value.invoke().coerceIn(0f, 1f)
+            clip = true
+            shape = clipShape
+        }
+    } else {
+        Modifier
+    }
+    Box(
+        modifier = modifier
+            .offset {
+                IntOffset(
+                    x = bounds.left.roundToInt(),
+                    y = bounds.top.roundToInt()
+                )
+            }
+            .requiredSize(
+                width = with(density) { ceil(bounds.width).toInt().toDp() },
+                height = with(density) { ceil(bounds.height).toInt().toDp() }
+            )
+            .then(layerModifier)
+    ) {
+        content(envelope) { geometryState.value.invoke() }
     }
 }

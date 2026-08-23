@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.Stable
@@ -47,6 +48,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
@@ -58,6 +60,17 @@ import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphController
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphControllerBridge
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphPhase
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
+import com.xiaomanjun.sleepdownschedule.glass.GlassRendererKind
+import com.xiaomanjun.sleepdownschedule.glass.GlassSceneKeys
+import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionEnvelope
+import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionGeometry
+import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionLayer
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
+import com.xiaomanjun.sleepdownschedule.glass.stableContentOffsetInEnvelope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
@@ -152,6 +165,87 @@ private class DeferredDestinationShape(
         bottomEnd = bottomEnd,
         bottomStart = bottomStart
     )
+}
+
+@Composable
+private fun HomeMenuDestinationTransitionShell(
+    useStableEnvelope: Boolean,
+    envelope: GlassTransitionEnvelope,
+    geometry: () -> GlassTransitionGeometry,
+    referenceRect: () -> Rect,
+    targetSizePx: IntSize,
+    targetWidth: Dp,
+    targetHeight: Dp,
+    temporaryClipActive: Boolean,
+    clipStableEndpoint: Boolean,
+    collapseHandedOff: Boolean,
+    destinationShape: CornerBasedShape,
+    destinationTestTag: String,
+    content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit
+) {
+    if (!useStableEnvelope) {
+        Box(
+            modifier = Modifier
+                .offset {
+                    val rect = referenceRect()
+                    IntOffset(rect.left.roundToInt(), rect.top.roundToInt())
+                }
+                .graphicsLayer {
+                    alpha = if (collapseHandedOff) 0f else 1f
+                    clip = temporaryClipActive || clipStableEndpoint
+                    shape = destinationShape
+                }
+                .layout { measurable, _ ->
+                    val placeable = measurable.measure(
+                        Constraints.fixed(targetSizePx.width, targetSizePx.height)
+                    )
+                    val rect = referenceRect()
+                    val width = rect.width.roundToInt().coerceAtLeast(1)
+                    val height = rect.height.roundToInt().coerceAtLeast(1)
+                    layout(width, height) {
+                        placeable.place(
+                            (width - targetSizePx.width) / 2,
+                            (height - targetSizePx.height) / 2
+                        )
+                    }
+                }
+                .semantics { testTag = destinationTestTag },
+            contentAlignment = Alignment.Center,
+            content = content
+        )
+        return
+    }
+
+    GlassTransitionLayer(
+        envelope = envelope,
+        geometry = geometry,
+        temporaryClipActive = temporaryClipActive,
+        motionAlpha = { if (collapseHandedOff) 0f else 1f },
+        modifier = Modifier.semantics { testTag = destinationTestTag }
+    ) { stableEnvelope, currentGeometry ->
+        val endpointClip = if (!temporaryClipActive && clipStableEndpoint) {
+            Modifier.graphicsLayer {
+                clip = true
+                shape = destinationShape
+            }
+        } else {
+            Modifier
+        }
+        Box(
+            modifier = Modifier
+                .offset {
+                    stableContentOffsetInEnvelope(
+                        envelope = stableEnvelope,
+                        geometry = currentGeometry(),
+                        stableContentSize = targetSizePx
+                    )
+                }
+                .requiredSize(targetWidth, targetHeight)
+                .then(endpointClip),
+            contentAlignment = Alignment.Center,
+            content = content
+        )
+    }
 }
 
 private fun destinationSmoothStep(edge0: Float, edge1: Float, value: Float): Float {
@@ -589,6 +683,104 @@ internal fun HomeMenuDestinationOverlayHost(
             HomeMenuDestinationKind.ManualImport -> "benchmark_home_destination_manual_import"
             HomeMenuDestinationKind.EduImport -> "benchmark_home_destination_edu_import"
         }
+        val glassSceneKey = when (shown.kind) {
+            HomeMenuDestinationKind.AddCourse -> GlassSceneKeys.HomeMenuDestinationAddCourse
+            HomeMenuDestinationKind.ManualImport -> GlassSceneKeys.HomeMenuDestinationManualImport
+            HomeMenuDestinationKind.EduImport -> GlassSceneKeys.HomeMenuDestinationEduImport
+        }
+        val envelopeDescriptor = rememberGlassSurfaceDescriptor(
+            debugLabel = "home-menu-destination-envelope",
+            domain = GlassBackdropDomain.ChromeCombined,
+            materialRole = GlassMaterialRole.MorphShell,
+            requestedRenderer = GlassRendererKind.StableEnvelopeExperimental,
+            sceneKey = glassSceneKey
+        )
+        val glassSceneState = LocalGlassSceneState.current
+        val useStableEnvelope = glassSceneState?.rendererFor(envelopeDescriptor) ==
+            GlassRendererKind.StableEnvelopeExperimental
+        val targetSizePx = remember(target) {
+            IntSize(
+                target.width.roundToInt().coerceAtLeast(1),
+                target.height.roundToInt().coerceAtLeast(1)
+            )
+        }
+        val transitionEnvelope = remember(
+            useStableEnvelope,
+            morphSpec,
+            shown,
+            target,
+            density.density
+        ) {
+            if (useStableEnvelope) {
+                sampleGlassTransitionEnvelope(
+                    tracks = listOf(
+                        { progress ->
+                            GlassTransitionGeometry(
+                                rectInRoot = morphSpec.homeGeometry(
+                                    source = shown.sourceBoundsInRoot,
+                                    target = target,
+                                    rawProgress = progress,
+                                    closing = false
+                                ).rect,
+                                cornerRadiusPx = 0f
+                            )
+                        },
+                        { progress ->
+                            GlassTransitionGeometry(
+                                rectInRoot = morphSpec.homeGeometry(
+                                    source = shown.sourceBoundsInRoot,
+                                    target = target,
+                                    rawProgress = progress,
+                                    closing = true
+                                ).rect,
+                                cornerRadiusPx = 0f
+                            )
+                        }
+                    ),
+                    steps = 256,
+                    // The full-screen target already bounds every legacy path sample. Keeping it
+                    // exactly root-sized avoids requiredSize coercion and a larger-than-window
+                    // RenderTarget; centered dialogs retain a two-pixel sampling guard.
+                    effectPaddingPx = if (isFullScreen) 0f else 2f
+                )
+            } else {
+                GlassTransitionEnvelope.covering(
+                    listOf(GlassTransitionGeometry(target, 0f))
+                )
+            }
+        }
+        val transitionGeometry = remember(frame) {
+            {
+                val current = frame.value
+                GlassTransitionGeometry(
+                    rectInRoot = current.geometry.rect,
+                    cornerRadiusPx = current.renderedCornerRadiusPx
+                )
+            }
+        }
+        val temporaryClipActive by remember(frame, isFullScreen) {
+            derivedStateOf {
+                if (isFullScreen) {
+                    !frame.value.fullScreenOpenEndpoint
+                } else {
+                    motionState.phase != HomeAnchoredOverlayPhase.Open
+                }
+            }
+        }
+        val transitionResourceId = remember(glassSceneKey) { "stable-envelope:$glassSceneKey" }
+        if (useStableEnvelope) {
+            val activeGlassSceneState = checkNotNull(glassSceneState)
+            DisposableEffect(activeGlassSceneState, temporaryClipActive, transitionResourceId) {
+                if (temporaryClipActive) {
+                    activeGlassSceneState.acquireTemporaryResource(transitionResourceId)
+                }
+                onDispose {
+                    if (temporaryClipActive) {
+                        activeGlassSceneState.releaseTemporaryResource(transitionResourceId)
+                    }
+                }
+            }
+        }
 
         val showSourceClone by remember(frame) {
             derivedStateOf { frame.value.sourceCloneAlpha > 0.005f }
@@ -610,36 +802,19 @@ internal fun HomeMenuDestinationOverlayHost(
                     onClick = { latestDismiss() }
                 )
         )
-        Box(
-            modifier = Modifier
-                .offset {
-                    val rect = frame.value.geometry.rect
-                    IntOffset(rect.left.roundToInt(), rect.top.roundToInt())
-                }
-                .graphicsLayer {
-                    val current = frame.value
-                    // The real button resumes ownership at the legacy pinch boundary.
-                    alpha = if (collapseHandedOff) 0f else 1f
-                    // Clip is OUTER to the animated layout, so its layer size is the animated
-                    // shell size instead of the stable target size of the inner content.
-                    clip = !current.fullScreenOpenEndpoint
-                    shape = destinationShape
-                }
-                .layout { measurable, _ ->
-                    // Keep the heavy destination subtree at its stable final size; the animated
-                    // shell only changes its reported size and clips the centered child.
-                    val stableWidth = target.width.roundToInt().coerceAtLeast(1)
-                    val stableHeight = target.height.roundToInt().coerceAtLeast(1)
-                    val placeable = measurable.measure(Constraints.fixed(stableWidth, stableHeight))
-                    val rect = frame.value.geometry.rect
-                    val width = rect.width.roundToInt().coerceAtLeast(1)
-                    val height = rect.height.roundToInt().coerceAtLeast(1)
-                    layout(width, height) {
-                        placeable.place((width - stableWidth) / 2, (height - stableHeight) / 2)
-                    }
-                }
-                .semantics { testTag = destinationTestTag },
-            contentAlignment = Alignment.Center
+        HomeMenuDestinationTransitionShell(
+            useStableEnvelope = useStableEnvelope,
+            envelope = transitionEnvelope,
+            geometry = transitionGeometry,
+            referenceRect = { frame.value.geometry.rect },
+            targetSizePx = targetSizePx,
+            targetWidth = targetWidth,
+            targetHeight = targetHeight,
+            temporaryClipActive = temporaryClipActive,
+            clipStableEndpoint = !isFullScreen,
+            collapseHandedOff = collapseHandedOff,
+            destinationShape = destinationShape,
+            destinationTestTag = destinationTestTag
         ) {
             val lightGlass = glassUsesLightStyle(state.config)
             // Keep the material composed throughout Preparing and Opening. Mounting drawBackdrop

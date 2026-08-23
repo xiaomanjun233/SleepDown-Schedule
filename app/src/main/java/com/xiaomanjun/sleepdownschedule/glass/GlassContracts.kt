@@ -66,6 +66,19 @@ enum class GlassRendererKind {
     StableEnvelopeExperimental
 }
 
+/** Stable identifiers shared by renderer policy, diagnostics and business-route adapters. */
+object GlassSceneKeys {
+    const val HomeMenuDestinationAddCourse = "home-menu-destination:add-course"
+    const val HomeMenuDestinationManualImport = "home-menu-destination:manual-import"
+    const val HomeMenuDestinationEduImport = "home-menu-destination:edu-import"
+
+    val Phase2LargeSurfaceEnvelopeRoutes: Set<String> = setOf(
+        HomeMenuDestinationAddCourse,
+        HomeMenuDestinationManualImport,
+        HomeMenuDestinationEduImport
+    )
+}
+
 /**
  * Feature switches are deliberately allow-list based. The reference renderer is always the
  * fallback, so adding framework plumbing cannot silently change an existing surface.
@@ -96,6 +109,14 @@ data class GlassBackendPolicy(
 
     companion object {
         val ReferenceOnly = GlassBackendPolicy()
+
+        /**
+         * First phase-2 experiment. It is selected only when the build-time experiment switch is
+         * explicitly enabled; normal builds continue to use [ReferenceOnly].
+         */
+        val Phase2LargeSurfaceExperiment = GlassBackendPolicy(
+            stableEnvelopeRouteAllowlist = GlassSceneKeys.Phase2LargeSurfaceEnvelopeRoutes
+        )
     }
 }
 

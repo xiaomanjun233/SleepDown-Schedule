@@ -5,10 +5,10 @@
 ## 当前结论
 
 - Backdrop 已在独立提交 `eab3059` 从 `2.0.0-alpha03` 升级到正式版 `2.0.0`，`shapes` 保持 `1.2.0`。Kotlin、Compose 和 Serialization 插件无需联动升级。
-- 正式渲染后端仍是 `KyantReference`。现有 blur、lens、色散、tint、highlight、shadow、inner shadow、Shape、内容绘制顺序和交互参数未删减。
+- 默认渲染后端仍是 `KyantReference`。现有 blur、lens、色散、tint、highlight、shadow、inner shadow、Shape、内容绘制顺序和交互参数未删减；阶段二实验只能通过显式 Gradle 属性进入受控 Release。
 - 全项目不再由业务代码直接创建、组合或挂载 `LayerBackdrop`，也不再散落调用 `drawBackdrop` / `drawPlainBackdrop`；这些调用集中在 `glass/SleepDownGlassSurface.kt`。`ScaledBackdrop` 仍是 Backdrop 坐标转换接口实现，不是额外消费者。
 - 首页仍保留 `Background`、`Content`、`PickerScene` 三个真实采样域；`ChromeCombined` 只组合前两个，Android Dialog 通过 `DialogBridge` 和既有屏幕坐标补偿采样，未合成错误的全局 Backdrop。
-- 尚未得到真机视觉与 Perfetto 证据的后端全部保持空 allowlist：稳定 envelope、课程卡 `GlassGroup`、独立弹簧与速度形变均不会改变生产画面。
+- 普通构建仍使用空 allowlist。阶段二新增的稳定 envelope 策略只列出三个首页菜单目的页，并由默认 `false` 的 `sleepdown.enableLargeGlassExperiment` 再做总门控；课程卡 `GlassGroup`、独立弹簧与速度形变仍无启用路线。
 - 本轮没有修改 Oplus callback、Bundle、系统 leash、返回时序、能力开关或逐路线 allowlist。
 
 ## 上游约束与本地决策
@@ -56,11 +56,13 @@
 
 ### `GlassTransitionLayer`
 
-- 先计算覆盖完整运动轨迹与效果边距的固定 envelope。
+- 以 256 段采样覆盖 Legacy Opening/Closing 完整运动轨迹，按旧实现的 `offset(round) + size(round)` 对齐像素，得到一次分配的固定 envelope。
 - GraphicsLayer 目标尺寸在整个动画中不变；玻璃 rect、圆角和采样坐标在 envelope 内移动。
 - 内容保持真实测量尺寸，不用非等比缩放终态页面或圆角。
-- Backdrop 2.0 的 [rounded-rect lens 实现](https://github.com/Kyant0/AndroidLiquidGlass/blob/2.0.0/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/Lens.kt)仍按完整 Modifier 尺寸计算，不能直接表达 envelope 内移动的 inset rect；因此当前只交付固定尺寸 host 与 clip 几何，尚未把它误接成生产 lens renderer。
-- 只有路线同时通过像素一致性和 RenderTarget 尺寸稳定性检查后，才能加入 `stableEnvelopeRouteAllowlist`。
+- 第一批只接入首页三点菜单进入“添加课程 / 手动导入 / 教务导入”的大面板：这些路线的内部 Kyant `LiquidPanel` 原本就始终按终态尺寸预热和绘制，因此只替换外层动态尺寸 clip，不改变官方 lens 的 SDF 尺寸、效果参数或内容坐标。
+- 非全屏面板到达 Open 后移除运动 envelope，仅保留与旧实现等价的目标尺寸圆角 clip；教务导入全屏终态不保留任何转场 clip/GraphicsLayer。Closing 再登记临时资源，结束或移除时 exactly-once 释放。
+- Backdrop 2.0 的 [rounded-rect lens 实现](https://github.com/Kyant0/AndroidLiquidGlass/blob/2.0.0/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/Lens.kt)仍按完整 Modifier 尺寸计算，不能直接表达 envelope 内移动的 inset rect；所以个性化与课程编辑器这类“Kyant surface 本身逐帧变尺寸”的路线仍保持 Reference，不套用此后端。
+- 普通构建不会启用该策略。受控包需显式传入 `-Psleepdown.enableLargeGlassExperiment=true`；只有像素一致与 Perfetto RenderTarget 证据同时通过后，才能考虑调整默认策略。
 
 ### `GlassGroup`
 
@@ -88,7 +90,7 @@
 
 ## 后续启用门槛
 
-用户先要求不执行真机测试，随后只授权构建并覆盖安装；本轮仍未启动应用或执行真机性能/视觉测试。后续经用户明确允许后，按以下顺序做最小充分验收，但不能自动开启实验后端：
+用户当前要求后续先不安装；本轮阶段二包没有安装、启动或执行真机性能/视觉测试。后续经用户明确允许后，按以下顺序做最小充分验收，但不能自动开启实验后端：
 
 1. 小米平板固定 120Hz、壁纸与配置，执行两组五轮基线/改后测试；
 2. 三点菜单、中心弹窗、个性化、课程编辑器和 1/8/16/32 卡片场景分别抓取 JankStats 与 Perfetto；
@@ -99,7 +101,8 @@
 ## 本轮验证状态
 
 - 独立的 Backdrop `2.0.0` 迁移提交在框架改造前已通过既有 378/378 JVM 单测及 GitHub/Store Debug、benchmark、Release/R8 本地构建。
-- 最终工作树的完整 `testGithubDebugUnitTest` 为 397/397；`GlassFrameworkTest` 共 19 项，覆盖材质/域拓扑、循环采样、阶段释放、旧 Morph 几何、取消/立即返回/配置替换、合批 lens 门禁和资源清理失败隔离。
+- 阶段一基线的完整 `testGithubDebugUnitTest` 为 397/397；当时 `GlassFrameworkTest` 共 19 项。阶段二新增 2 项包络像素定位与路线门控测试；项目没有生成 Release unit-test task，且按用户约束没有改跑 Debug，因此这 2 项尚未执行，不能计入已通过数量。
 - 按用户的长期构建约束，最终只构建 GitHub Release；使用 `-Psleepdown.skipReleaseResourceShrink=true` 跳过测试阶段的资源裁剪，Kotlin、R8、lintVital、打包和签名均通过。正式发布前仍应在用户要求时补一次默认开启资源压缩的 Release。
 - 新 APK 的 SHA-256 为 `C5E4F2487D2CFB1746868B55BAB92E1D554076CC986D091D5329E652581F535E`，签名校验通过，并成功覆盖安装到 PLJ110 `3B15AE023YL00000`；没有启动或操作应用。
-- 本轮未执行真机 UI、Macrobenchmark 或 Perfetto 采集，因此没有宣称新的量化性能收益，也没有开启稳定 envelope、`GlassGroup` 或新 motion spec。
+- 阶段二使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLargeGlassExperiment=true` 低并发构建通过 Kotlin、R8、lintVital、打包与签名；实验 APK SHA-256 为 `4C46BC5E45027CA7B69C6AD13E86DD75EA3FC45C6DC5AA1921437E6D495BF1FA`，按用户最新要求未安装。
+- 本轮未执行真机 UI、Macrobenchmark 或 Perfetto 采集，因此不宣称量化性能收益；稳定 envelope 只存在于显式实验包，默认构建、`GlassGroup` 和新 motion spec 仍保持关闭。

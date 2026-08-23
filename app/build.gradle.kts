@@ -22,6 +22,9 @@ val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOW
 val skipReleaseResourceShrink = providers.gradleProperty("sleepdown.skipReleaseResourceShrink")
     .map(String::toBoolean)
     .getOrElse(false)
+val enableLargeGlassExperiment = providers.gradleProperty("sleepdown.enableLargeGlassExperiment")
+    .map(String::toBoolean)
+    .getOrElse(false)
 val hasReleaseSigning = listOf(
     releaseStoreFilePath,
     releaseStorePassword,
@@ -69,6 +72,11 @@ android {
         versionName = "1.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SLEEPDOWN_API_BASE_URL", "\"https://api.sleepdownschedule.cn\"")
+        buildConfigField(
+            "boolean",
+            "SLEEPDOWN_LARGE_GLASS_EXPERIMENT",
+            enableLargeGlassExperiment.toString()
+        )
     }
 
     sourceSets {

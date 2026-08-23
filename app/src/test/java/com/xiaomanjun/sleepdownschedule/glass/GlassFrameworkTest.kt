@@ -16,6 +16,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.roundToInt
 
 class GlassFrameworkTest {
     @Test
@@ -219,6 +220,72 @@ class GlassFrameworkTest {
         assertEquals(186, state.stableTargetWidthPx)
         assertEquals(196, state.stableTargetHeightPx)
         assertEquals(Rect(98f, 68f, 178f, 188f), state.localRect)
+    }
+
+    @Test
+    fun phase2LargeSurfacePolicyIsExplicitlyRouteAllowlisted() {
+        val state = GlassSceneState(
+            sceneId = "home",
+            diagnosticsEnabled = true,
+            backendPolicy = GlassBackendPolicy.Phase2LargeSurfaceExperiment
+        )
+        fun descriptor(sceneKey: String) = GlassSurfaceDescriptor(
+            id = sceneKey,
+            domain = GlassBackdropDomain.ChromeCombined,
+            materialRole = GlassMaterialRole.MorphShell,
+            requestedRenderer = GlassRendererKind.StableEnvelopeExperimental,
+            sceneKey = sceneKey
+        )
+
+        GlassSceneKeys.Phase2LargeSurfaceEnvelopeRoutes.forEach { sceneKey ->
+            assertEquals(
+                GlassRendererKind.StableEnvelopeExperimental,
+                state.rendererFor(descriptor(sceneKey))
+            )
+        }
+        assertEquals(
+            GlassRendererKind.KyantReference,
+            state.rendererFor(descriptor("home-personalization"))
+        )
+    }
+
+    @Test
+    fun sampledEnvelopePreservesLegacyCenteredContentPixelPosition() {
+        fun geometry(progress: Float): GlassTransitionGeometry {
+            val arc = 120f * progress * (1f - progress)
+            val width = 80f + 720f * progress
+            val height = 120f + 980f * progress
+            val left = 900f - 640f * progress + arc
+            val top = 100f + 180f * progress - arc
+            return GlassTransitionGeometry(
+                Rect(left, top, left + width, top + height),
+                cornerRadiusPx = 30f
+            )
+        }
+        val envelope = sampleGlassTransitionEnvelope(
+            tracks = listOf(::geometry),
+            steps = 64,
+            effectPaddingPx = 2f
+        )
+        for (index in 0..1_024) {
+            assertTrue(envelope.contains(geometry(index / 1_024f).pixelAligned()))
+        }
+
+        val current = geometry(0.37f).pixelAligned()
+        val targetSize = IntSize(800, 1_100)
+        val localOffset = stableContentOffsetInEnvelope(envelope, current, targetSize)
+        val expectedGlobalX = current.rectInRoot.left.roundToInt() +
+            (current.rectInRoot.width.roundToInt() - targetSize.width) / 2
+        val expectedGlobalY = current.rectInRoot.top.roundToInt() +
+            (current.rectInRoot.height.roundToInt() - targetSize.height) / 2
+        assertEquals(
+            expectedGlobalX,
+            envelope.boundsInRoot.left.roundToInt() + localOffset.x
+        )
+        assertEquals(
+            expectedGlobalY,
+            envelope.boundsInRoot.top.roundToInt() + localOffset.y
+        )
     }
 
     @Test
