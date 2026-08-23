@@ -93,7 +93,7 @@
 
 ## 后续启用门槛
 
-用户当前要求后续先不安装；本轮阶段二包没有安装、启动或执行真机性能/视觉测试。后续经用户明确允许后，按以下顺序做最小充分验收，但不能自动开启实验后端：
+用户随后明确要求安装；阶段二第二批实验包已覆盖安装，但没有启动或执行真机性能/视觉测试。后续经用户明确允许后，按以下顺序做最小充分验收，但不能自动开启实验后端：
 
 1. 小米平板固定 120Hz、壁纸与配置，执行两组五轮基线/改后测试；
 2. 三点菜单、中心弹窗、个性化、课程编辑器和 1/8/16/32 卡片场景分别抓取 JankStats 与 Perfetto；
@@ -107,5 +107,5 @@
 - 阶段一基线的完整 `testGithubDebugUnitTest` 为 397/397；当时 `GlassFrameworkTest` 共 19 项。阶段二累计新增 4 项包络像素定位、路线门控、面积上限和 aura 几何测试；项目没有生成 Release unit-test task，且按用户约束没有改跑 Debug，因此这 4 项尚未执行，不能计入已通过数量。
 - 按用户的长期构建约束，最终只构建 GitHub Release；使用 `-Psleepdown.skipReleaseResourceShrink=true` 跳过测试阶段的资源裁剪，Kotlin、R8、lintVital、打包和签名均通过。正式发布前仍应在用户要求时补一次默认开启资源压缩的 Release。
 - 新 APK 的 SHA-256 为 `C5E4F2487D2CFB1746868B55BAB92E1D554076CC986D091D5329E652581F535E`，签名校验通过，并成功覆盖安装到 PLJ110 `3B15AE023YL00000`；没有启动或操作应用。
-- 阶段二第二批使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLargeGlassExperiment=true --no-parallel --max-workers=2` 构建通过 Kotlin、R8、lintVital、打包与签名；确认生成的 Release `BuildConfig` 实验值为 `true`。实验 APK SHA-256 为 `D47506F3E42A2177EC0482D6D14CCEA0AFC96D829623670186E9634BE0C12B87`，大小 `6,429,734` bytes，按用户要求未安装。
+- 阶段二第二批使用 `assembleGithubRelease -Psleepdown.skipReleaseResourceShrink=true -Psleepdown.enableLargeGlassExperiment=true --no-parallel --max-workers=2` 构建通过 Kotlin、R8、lintVital、打包与签名；确认生成的 Release `BuildConfig` 实验值为 `true`。实验 APK SHA-256 为 `D47506F3E42A2177EC0482D6D14CCEA0AFC96D829623670186E9634BE0C12B87`，大小 `6,429,734` bytes，已于 2026-08-23 覆盖安装到 PLJ110 `3B15AE023YL00000`，未启动或操作应用。
 - 本轮未执行真机 UI、Macrobenchmark 或 Perfetto 采集，因此不宣称量化性能收益；稳定 envelope 只存在于显式实验包，默认构建、`GlassGroup` 和新 motion spec 仍保持关闭。
