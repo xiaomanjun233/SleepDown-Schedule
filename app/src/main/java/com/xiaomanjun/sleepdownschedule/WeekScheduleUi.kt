@@ -251,9 +251,18 @@ import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassGroupCandidate
+import com.xiaomanjun.sleepdownschedule.glass.GlassGroupMaximumMembers
+import com.xiaomanjun.sleepdownschedule.glass.GlassGroupPlanner
+import com.xiaomanjun.sleepdownschedule.glass.GlassGroupRenderEligibility
+import com.xiaomanjun.sleepdownschedule.glass.GlassSceneKeys
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.glassGroupEligibility
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassGroupSurface
+import com.xiaomanjun.sleepdownschedule.glass.toTightLayerPlan
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -1424,6 +1433,36 @@ fun WeekHeaderPill(backdrop: Backdrop?, config: ScheduleConfigEntity, selected: 
     )
 }
 
+private data class WeekRenderedSegment(
+    val groupIndex: Int,
+    val group: WeekConflictGroup,
+    val segment: WeekCourseSegment
+)
+
+private fun renderedWeekSegments(
+    conflictGroups: List<WeekConflictGroup>,
+    conflictFocusCourseId: Long?,
+    conflictFocusCourseKey: String?
+): List<WeekRenderedSegment> = buildList {
+    conflictGroups.forEachIndexed { groupIndex, group ->
+        val visibleCourse = group.courses.firstOrNull { it.id == conflictFocusCourseId }
+            ?: group.courses.firstOrNull {
+                conflictFocusCourseKey != null &&
+                    it.occurrenceOverrideKey() == conflictFocusCourseKey
+            }
+            ?: group.courses.first()
+        val visibleSegments = group.segments.filter { it.course.id == visibleCourse.id }
+        val segments = if (visibleCourse.hasCustomTime()) {
+            visibleSegments.minByOrNull { it.startPosition }?.let(::listOf).orEmpty()
+        } else {
+            visibleSegments
+        }
+        segments.forEach { segment ->
+            add(WeekRenderedSegment(groupIndex, group, segment))
+        }
+    }
+}
+
 @Composable
 fun WeekDayColumn(
     courses: List<CourseEntity>,
@@ -1464,46 +1503,83 @@ fun WeekDayColumn(
     onFinishResizeOverlay: (Velocity) -> Unit = {},
     onCancelWeekEditOverlay: () -> Unit = {}
 ) {
+    val density = LocalDensity.current
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
     val conflictGroups = remember(courses, periodIndexes, periods) {
         buildWeekConflictGroups(courses, periodIndexes, periods)
     }
-    Box(
+    val renderedSegments = remember(
+        conflictGroups,
+        conflictFocusCourseId,
+        conflictFocusCourseKey
+    ) {
+        renderedWeekSegments(
+            conflictGroups = conflictGroups,
+            conflictFocusCourseId = conflictFocusCourseId,
+            conflictFocusCourseKey = conflictFocusCourseKey
+        )
+    }
+    val glassSceneState = LocalGlassSceneState.current
+    val quality = LocalGlassQuality.current
+    val previewState = LocalPersonalizationPreview.current
+    val startupPhase = LocalStartupPhase.current
+    val hasWallpaper = config.hasAnyWallpaper()
+    val lightGlass = glassUsesLightStyle(config)
+    val tokens = GlassTokens.courseCard(config.courseCardBlur)
+    val liveBlur = previewState?.cardBlur ?: config.courseCardBlur
+    val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
+    val renderedSegmentBaseColors = renderedSegments.map { rendered ->
+        courseCardBaseColor(config, rendered.segment.course)
+    }
+    val effectFrame = courseCardGlassEffectFrame(
+        tokens = tokens,
+        liveBlur = liveBlur,
+        quality = quality,
+        hasWallpaper = hasWallpaper
+    )
+    val windowSize = currentWindowSizeDp()
+    val mayGroupCourseCards = glassSceneState != null &&
+        backdrop != null &&
+        config.courseCardGlassEnabled &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        startupPhase == StartupPhase.FullQuality &&
+        !editMode &&
+        draggingCourseId == null &&
+        !weekMotionOutgoing &&
+        layerOffset?.isRunning != true &&
+        abs(layerOffset?.value ?: 0f) < 0.5f &&
+        activeOverlayCourseId == null &&
+        activeOverlayTargetKey == null
+
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .height(cardHeight * periods.size.toFloat())
     ) {
-        Column(Modifier.fillMaxSize()) {
-            periods.forEach { EmptyWeekCell(cardHeight, emptyBackground) }
-        }
-        conflictGroups.forEachIndexed { groupIndex, group ->
-            val visibleCourse = group.courses.firstOrNull { it.id == conflictFocusCourseId }
-                ?: group.courses.firstOrNull {
-                    conflictFocusCourseKey != null &&
-                        it.occurrenceOverrideKey() == conflictFocusCourseKey
-                }
-                ?: group.courses.first()
-            val visibleSegments = group.segments
-                .filter { it.course.id == visibleCourse.id }
-            val renderedSegments = if (visibleCourse.hasCustomTime()) {
-                visibleSegments.minByOrNull { it.startPosition }?.let(::listOf).orEmpty()
+        val viewportWidthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
+        val viewportHeightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
+        val horizontalInsetPx = with(density) { 2.dp.roundToPx().toFloat() }
+        val groupedCandidates = remember(
+            mayGroupCourseCards,
+            renderedSegments,
+            renderedSegmentBaseColors,
+            periods,
+            cardHeight,
+            maxWidth,
+            gridColumnWidth,
+            windowSize,
+            config,
+            liveAlpha,
+            quality,
+            hasWallpaper,
+            lightGlass,
+            density.density
+        ) {
+            if (!mayGroupCourseCards) {
+                emptyList()
             } else {
-                visibleSegments
-            }
-            renderedSegments.forEach { segment ->
-                    val underlyingSegment = group.segments
-                        .asSequence()
-                        .filter { it.course.id != visibleCourse.id }
-                        .filter {
-                            it.startPosition <= segment.endPosition &&
-                                it.endPosition >= segment.startPosition
-                        }
-                        .sortedWith(
-                            compareBy<WeekCourseSegment> { it.startPosition }
-                                .thenBy { it.endPosition }
-                                .thenBy { it.course.id }
-                        )
-                        .firstOrNull()
+                renderedSegments.mapIndexed { index, rendered ->
+                    val segment = rendered.segment
                     val exactPlacement = exactTimeWeekPlacement(segment.course, periods)
                     val segmentTopRows = exactPlacement?.topRows ?: segment.startPosition.toFloat()
                     val segmentHeightRows = exactPlacement?.heightRows ?: segment.span.toFloat()
@@ -1513,61 +1589,173 @@ fun WeekDayColumn(
                         (cardHeight * segmentHeightRows - 4.dp).coerceAtLeast(18.dp)
                     }
                     val segmentTopInset = if (exactPlacement != null) 0.dp else 2.dp
+                    val topPx = with(density) {
+                        (cardHeight * segmentTopRows + segmentTopInset).roundToPx().toFloat()
+                    }
+                    val heightPx = with(density) {
+                        segmentHeight.roundToPx().toFloat()
+                    }.coerceAtLeast(1f)
+                    val cardWidthForCorner = gridColumnWidth.takeIf { it > 0.dp } ?: maxWidth
+                    val cardCorner = adaptiveWeekCardCornerRadius(
+                        cardWidth = (cardWidthForCorner - 4.dp).coerceAtLeast(1.dp),
+                        cardHeight = segmentHeight,
+                        windowWidth = windowSize.width,
+                        windowHeight = windowSize.height
+                    )
+                    GlassGroupCandidate(
+                        id = "${segment.course.id}:${segment.startPosition}:${segment.endPosition}:${rendered.groupIndex}",
+                        domain = GlassBackdropDomain.Content,
+                        materialKey = "week-course-card-liquid",
+                        boundsInViewport = Rect(
+                            left = horizontalInsetPx,
+                            top = topPx,
+                            right = (viewportWidthPx - horizontalInsetPx)
+                                .coerceAtLeast(horizontalInsetPx + 1f),
+                            bottom = topPx + heightPx
+                        ),
+                        cornerRadiusPx = with(density) { cardCorner.toPx() },
+                        surfaceColor = renderedSegmentBaseColors[index].copy(
+                            alpha = courseGlassTintAlpha(liveAlpha, quality, hasWallpaper)
+                        ),
+                        screenOverlayAlpha = if (lightGlass) 0.012f else 0.008f,
+                        darkOverlayAlpha = if (lightGlass) 0.004f else 0.014f
+                    )
+                }
+            }
+        }
+        val groupViewport = remember(viewportWidthPx, viewportHeightPx) {
+            Rect(0f, 0f, viewportWidthPx, viewportHeightPx)
+        }
+        val groupPlans = remember(groupViewport, groupedCandidates) {
+            GlassGroupPlanner.plan(
+                viewport = groupViewport,
+                candidates = groupedCandidates,
+                maxMembersPerPlan = GlassGroupMaximumMembers
+            )
+        }
+        val groupLayerPlans = remember(groupPlans) {
+            groupPlans.map { it.toTightLayerPlan() }
+        }
+        val groupedSurfaceEnabled = mayGroupCourseCards &&
+            groupedCandidates.size > groupLayerPlans.size &&
+            groupLayerPlans.isNotEmpty() &&
+            groupLayerPlans.all { layerPlan ->
+                requireNotNull(glassSceneState).glassGroupEligibility(
+                    sceneKey = GlassSceneKeys.WeekCourseCards,
+                    plan = layerPlan.localPlan,
+                    effectFrame = effectFrame
+                ) == GlassGroupRenderEligibility.Eligible
+            }
+
+        if (groupedSurfaceEnabled) {
+            val activeSceneState = requireNotNull(glassSceneState)
+            val activeBackdrop = requireNotNull(backdrop)
+            groupLayerPlans.forEachIndexed { index, layerPlan ->
+                val plan = layerPlan.localPlan
+                val layerWidth = with(density) { layerPlan.size.width.toDp() }
+                val layerHeight = with(density) { layerPlan.size.height.toDp() }
+                key("week-course-glass-group", index, plan.members.first().id) {
                     Box(
                         modifier = Modifier
-                            .offset(y = cardHeight * segmentTopRows + segmentTopInset)
-                            .fillMaxWidth()
-                            .padding(horizontal = 2.dp)
-                            .height(segmentHeight)
-                            .zIndex(groupIndex.toFloat())
-                    ) {
-                        WeekCourseBlock(
-                            course = segment.course,
-                            periods = periods,
-                            height = segmentHeight,
-                            cardColor = cardColor,
-                            backdrop = backdrop,
-                            floatingBackdrop = floatingBackdrop,
-                            config = config,
-                            weekMotionDirection = weekMotionDirection,
-                            weekMotionOutgoing = weekMotionOutgoing,
-                            dayIndex = dayIndex,
-                            periodIndex = periodIndexes[segment.startPosition],
-                            gridColumnWidth = gridColumnWidth,
-                            periodRowHeight = periodRowHeight,
-                            layerOffset = layerOffset,
-                            layerTravel = layerTravel,
-                            stackIndex = groupIndex,
-                            conflictWarning = group.hasConflict,
-                            conflictUnderlyingCourse = underlyingSegment?.course,
-                            conflictUnderlyingPeriodIndex = underlyingSegment
-                                ?.let { periodIndexes[it.startPosition] },
-                            conflictUnderlyingSpan = underlyingSegment?.span ?: 0,
-                            onResolveConflict = { moved ->
-                                onResolveCourseConflict(segment.course, moved)
-                            },
-                            editMode = editMode,
-                            editWeek = editWeek,
-                            allWeekCourses = allWeekCourses,
-                            weekdayCount = weekdayCount,
-                            editScrollState = editScrollState,
-                            onEnterEditMode = onEnterEditMode,
-                            onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
-                            onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
-                            onCourseClick = onCourseClick,
-                            onDragStateChanged = onDragStateChanged,
-                            activeOverlayCourseId = activeOverlayCourseId,
-                            activeOverlayTargetKey = activeOverlayTargetKey,
-                            activeOverlayTargetWeek = activeOverlayTargetWeek,
-                            onStartWeekEditOverlay = onStartWeekEditOverlay,
-                            onDragWeekEditOverlay = onDragWeekEditOverlay,
-                            onFinishMoveOverlay = onFinishMoveOverlay,
-                            onFinishResizeOverlay = onFinishResizeOverlay,
-                            onCancelWeekEditOverlay = onCancelWeekEditOverlay
-                        )
-                        exactPlacement?.let {
-                            val labelColor = glassForegroundColor(config)
-                            Text(
+                            .offset { layerPlan.offsetInViewport }
+                            .size(layerWidth, layerHeight)
+                            .sleepDownGlassGroupSurface(
+                                backdrop = activeBackdrop,
+                                plan = plan,
+                                material = tokens,
+                                effectFrame = effectFrame,
+                                sceneState = activeSceneState,
+                                sceneKey = GlassSceneKeys.WeekCourseCards
+                            )
+                    )
+                }
+            }
+        }
+        Column(Modifier.fillMaxSize()) {
+            periods.forEach { EmptyWeekCell(cardHeight, emptyBackground) }
+        }
+        renderedSegments.forEach { rendered ->
+            val groupIndex = rendered.groupIndex
+            val group = rendered.group
+            val segment = rendered.segment
+            val underlyingSegment = group.segments
+                .asSequence()
+                .filter { it.course.id != segment.course.id }
+                .filter {
+                    it.startPosition <= segment.endPosition &&
+                        it.endPosition >= segment.startPosition
+                }
+                .sortedWith(
+                    compareBy<WeekCourseSegment> { it.startPosition }
+                        .thenBy { it.endPosition }
+                        .thenBy { it.course.id }
+                )
+                .firstOrNull()
+            val exactPlacement = exactTimeWeekPlacement(segment.course, periods)
+            val segmentTopRows = exactPlacement?.topRows ?: segment.startPosition.toFloat()
+            val segmentHeightRows = exactPlacement?.heightRows ?: segment.span.toFloat()
+            val segmentHeight = if (exactPlacement != null) {
+                (cardHeight * segmentHeightRows).coerceAtLeast(1.dp)
+            } else {
+                (cardHeight * segmentHeightRows - 4.dp).coerceAtLeast(18.dp)
+            }
+            val segmentTopInset = if (exactPlacement != null) 0.dp else 2.dp
+            Box(
+                modifier = Modifier
+                    .offset(y = cardHeight * segmentTopRows + segmentTopInset)
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp)
+                    .height(segmentHeight)
+                    .zIndex(groupIndex.toFloat())
+            ) {
+                WeekCourseBlock(
+                    course = segment.course,
+                    periods = periods,
+                    height = segmentHeight,
+                    cardColor = cardColor,
+                    backdrop = backdrop,
+                    floatingBackdrop = floatingBackdrop,
+                    config = config,
+                    weekMotionDirection = weekMotionDirection,
+                    weekMotionOutgoing = weekMotionOutgoing,
+                    dayIndex = dayIndex,
+                    periodIndex = periodIndexes[segment.startPosition],
+                    gridColumnWidth = gridColumnWidth,
+                    periodRowHeight = periodRowHeight,
+                    layerOffset = layerOffset,
+                    layerTravel = layerTravel,
+                    stackIndex = groupIndex,
+                    conflictWarning = group.hasConflict,
+                    conflictUnderlyingCourse = underlyingSegment?.course,
+                    conflictUnderlyingPeriodIndex = underlyingSegment
+                        ?.let { periodIndexes[it.startPosition] },
+                    conflictUnderlyingSpan = underlyingSegment?.span ?: 0,
+                    onResolveConflict = { moved ->
+                        onResolveCourseConflict(segment.course, moved)
+                    },
+                    editMode = editMode,
+                    editWeek = editWeek,
+                    allWeekCourses = allWeekCourses,
+                    weekdayCount = weekdayCount,
+                    editScrollState = editScrollState,
+                    onEnterEditMode = onEnterEditMode,
+                    onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
+                    onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
+                    onCourseClick = onCourseClick,
+                    onDragStateChanged = onDragStateChanged,
+                    activeOverlayCourseId = activeOverlayCourseId,
+                    activeOverlayTargetKey = activeOverlayTargetKey,
+                    activeOverlayTargetWeek = activeOverlayTargetWeek,
+                    onStartWeekEditOverlay = onStartWeekEditOverlay,
+                    onDragWeekEditOverlay = onDragWeekEditOverlay,
+                    onFinishMoveOverlay = onFinishMoveOverlay,
+                    onFinishResizeOverlay = onFinishResizeOverlay,
+                    onCancelWeekEditOverlay = onCancelWeekEditOverlay,
+                    renderCardSurface = !groupedSurfaceEnabled
+                )
+                exactPlacement?.let {
+                    val labelColor = glassForegroundColor(config)
+                    Text(
                                 text = segment.course.customStartTime.orEmpty(),
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
@@ -1578,8 +1766,8 @@ fun WeekDayColumn(
                                 lineHeight = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1
-                            )
-                            Text(
+                    )
+                    Text(
                                 text = segment.course.customEndTime.orEmpty(),
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
@@ -1590,10 +1778,9 @@ fun WeekDayColumn(
                                 lineHeight = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1
-                            )
-                        }
-                    }
+                    )
                 }
+            }
         }
     }
 }
@@ -2558,7 +2745,8 @@ fun WeekCourseBlock(
     onDragWeekEditOverlay: (Offset) -> Unit = {},
     onFinishMoveOverlay: (Velocity) -> Unit = {},
     onFinishResizeOverlay: (Velocity) -> Unit = {},
-    onCancelWeekEditOverlay: () -> Unit = {}
+    onCancelWeekEditOverlay: () -> Unit = {},
+    renderCardSurface: Boolean = true
 ) {
     val locationText = course.location.orEmpty()
     val hasLocation = locationText.isNotBlank()
@@ -2955,6 +3143,7 @@ fun WeekCourseBlock(
                     .fillMaxWidth()
                     .height(displayedHeight),
                 shape = cardShape,
+                renderSurface = renderCardSurface,
                 onClick = null
             ) {}
             BoxWithConstraints(Modifier.fillMaxWidth().height(displayedHeight).clipToBounds()) {

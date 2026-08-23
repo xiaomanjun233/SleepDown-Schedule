@@ -511,6 +511,33 @@ fun GlassDialogSurface(
     )
 }
 
+internal fun courseCardGlassEffectFrame(
+    tokens: GlassMaterialSpec,
+    liveBlur: Float,
+    quality: Float,
+    hasWallpaper: Boolean
+): GlassEffectFrame = GlassEffectFrame(
+    blur = liveBlur.coerceIn(0f, LiquidCourseCardBlurMax).dp * quality,
+    lensHeight = tokens.lensHeight * quality * (if (hasWallpaper) 1f else 0.78f),
+    lensAmount = tokens.lensAmount * quality * (if (hasWallpaper) 1f else 1.35f),
+    useVibrancy = tokens.useVibrancy,
+    depthEffect = tokens.depthEffect,
+    chromaticAberration = tokens.chromaticAberration,
+    highlight = GlassHighlightFrame(
+        style = GlassHighlightStyle.Default,
+        alpha = if (hasWallpaper) {
+            tokens.highlightAlpha
+        } else {
+            maxOf(tokens.highlightAlpha, 0.10f)
+        }
+    ),
+    shadowAlpha = tokens.shadowAlpha,
+    innerShadow = GlassInnerShadowFrame(
+        radius = 5.dp,
+        alpha = tokens.innerShadowAlpha
+    )
+)
+
 @Composable
 fun CourseGlassCard(
     backdrop: Backdrop?,
@@ -519,6 +546,7 @@ fun CourseGlassCard(
     course: CourseEntity? = null,
     shape: Shape = RoundedCornerShape(12.dp),
     blurOverride: Float? = null,
+    renderSurface: Boolean = true,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
@@ -533,6 +561,13 @@ fun CourseGlassCard(
     val hasWallpaper = config.hasAnyWallpaper()
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
+    val liveLiquidBlur = blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur
+    val liquidEffectFrame = courseCardGlassEffectFrame(
+        tokens = tokens,
+        liveBlur = liveLiquidBlur,
+        quality = quality,
+        hasWallpaper = hasWallpaper
+    )
     val liquidDescriptor = rememberGlassSurfaceDescriptor(
         debugLabel = "CourseGlassCard",
         domain = GlassBackdropDomain.Content,
@@ -573,8 +608,30 @@ fun CourseGlassCard(
                 )
         )
     Box(modifier = cardModifier) {
-        val surfaceModifier = if (useGlass) {
-            val liveBlur = blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur
+        val surfaceModifier = if (!renderSurface && useGlass) {
+            // The grouped backend owns only backdrop effects and tint. Keep Kyant's exact
+            // per-card highlight/shadow/inner-shadow nodes so a shared multi-shape layer cannot
+            // change their local gradient coordinates or cross-bleed between adjacent cards.
+            Modifier
+                .matchParentSize()
+                .sleepDownGlassSurface(
+                    backdrop = glassBackdrop,
+                    descriptor = liquidDescriptor,
+                    material = tokens,
+                    shape = { shape },
+                    effectFrame = liquidEffectFrame.copy(
+                        blur = null,
+                        lensHeight = null,
+                        lensAmount = null,
+                        useVibrancy = false
+                    ),
+                    sceneState = null,
+                    effectsOverride = {},
+                    onDrawBackdrop = { _ -> }
+                )
+        } else if (!renderSurface) {
+            Modifier
+        } else if (useGlass) {
             Modifier
                 .matchParentSize()
                 .sleepDownGlassSurface(
@@ -582,27 +639,7 @@ fun CourseGlassCard(
                         descriptor = liquidDescriptor,
                         material = tokens,
                         shape = { shape },
-                        effectFrame = GlassEffectFrame(
-                            blur = liveBlur.coerceIn(0f, LiquidCourseCardBlurMax).dp * quality,
-                            lensHeight = tokens.lensHeight * quality * (if (hasWallpaper) 1f else 0.78f),
-                            lensAmount = tokens.lensAmount * quality * (if (hasWallpaper) 1f else 1.35f),
-                            useVibrancy = tokens.useVibrancy,
-                            depthEffect = tokens.depthEffect,
-                            chromaticAberration = tokens.chromaticAberration,
-                            highlight = GlassHighlightFrame(
-                                style = GlassHighlightStyle.Default,
-                                alpha = if (hasWallpaper) {
-                                    tokens.highlightAlpha
-                                } else {
-                                    maxOf(tokens.highlightAlpha, 0.10f)
-                                }
-                            ),
-                            shadowAlpha = tokens.shadowAlpha,
-                            innerShadow = GlassInnerShadowFrame(
-                                radius = 5.dp,
-                                alpha = tokens.innerShadowAlpha
-                            )
-                        ),
+                        effectFrame = liquidEffectFrame,
                         onDrawSurface = {
                             val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
                             drawRect(

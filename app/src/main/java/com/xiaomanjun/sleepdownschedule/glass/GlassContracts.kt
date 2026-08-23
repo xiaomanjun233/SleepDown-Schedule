@@ -74,6 +74,7 @@ object GlassSceneKeys {
     const val HomeMenuDestinationEduImport = "home-menu-destination:edu-import"
     const val HomePersonalizationProgressiveSurface = "home-personalization:progressive-surface"
     const val HomePersonalizationBackdropAura = "home-personalization:backdrop-aura"
+    const val WeekCourseCards = "week-course-cards"
 
     val Phase2LargeSurfaceEnvelopeRoutes: Set<String> = setOf(
         HomeMenuDestinationAddCourse,
@@ -82,6 +83,8 @@ object GlassSceneKeys {
         HomePersonalizationProgressiveSurface,
         HomePersonalizationBackdropAura
     )
+
+    val Phase2GroupedRoutes: Set<String> = setOf(WeekCourseCards)
 
     val Phase3LiquidMotionRoutes: Set<String> = setOf(HomeThreeDotMenuMotion)
 }
@@ -122,6 +125,7 @@ data class GlassBackendPolicy(
          * explicitly enabled; normal builds continue to use [ReferenceOnly].
          */
         val Phase2LargeSurfaceExperiment = GlassBackendPolicy(
+            groupedSceneAllowlist = GlassSceneKeys.Phase2GroupedRoutes,
             stableEnvelopeRouteAllowlist = GlassSceneKeys.Phase2LargeSurfaceEnvelopeRoutes
         )
 
@@ -137,6 +141,11 @@ data class GlassBackendPolicy(
             largeSurfaceEnabled: Boolean,
             liquidMotionEnabled: Boolean
         ): GlassBackendPolicy = GlassBackendPolicy(
+            groupedSceneAllowlist = if (largeSurfaceEnabled) {
+                GlassSceneKeys.Phase2GroupedRoutes
+            } else {
+                emptySet()
+            },
             stableEnvelopeRouteAllowlist = if (largeSurfaceEnabled) {
                 GlassSceneKeys.Phase2LargeSurfaceEnvelopeRoutes
             } else {

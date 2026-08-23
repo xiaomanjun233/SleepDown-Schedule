@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -250,6 +251,18 @@ class GlassFrameworkTest {
             GlassRendererKind.KyantReference,
             state.rendererFor(descriptor("home-personalization"))
         )
+        assertEquals(
+            GlassRendererKind.GroupedExperimental,
+            state.rendererFor(
+                GlassSurfaceDescriptor(
+                    id = GlassSceneKeys.WeekCourseCards,
+                    domain = GlassBackdropDomain.Content,
+                    materialRole = GlassMaterialRole.CourseCard,
+                    requestedRenderer = GlassRendererKind.GroupedExperimental,
+                    sceneKey = GlassSceneKeys.WeekCourseCards
+                )
+            )
+        )
     }
 
     @Test
@@ -369,6 +382,30 @@ class GlassFrameworkTest {
         val groups = GlassGroupPlanner.plan(viewport, candidates)
         assertEquals(1, groups.size)
         assertEquals(32, groups.single().members.size)
+
+        val boundedGroups = GlassGroupPlanner.plan(
+            viewport = viewport,
+            candidates = candidates,
+            maxMembersPerPlan = GlassGroupMaximumMembers
+        )
+        assertEquals(4, boundedGroups.size)
+        assertTrue(boundedGroups.all { it.members.size <= GlassGroupMaximumMembers })
+
+        val tightLayer = boundedGroups[1].toTightLayerPlan()
+        assertEquals(IntOffset(0, 160), tightLayer.offsetInViewport)
+        assertEquals(IntSize(870, 150), tightLayer.size)
+        assertEquals(Rect(0f, 0f, 870f, 150f), tightLayer.localPlan.viewport)
+        assertEquals(
+            boundedGroups[1].members.map { it.boundsInViewport },
+            tightLayer.localPlan.members.map { member ->
+                member.boundsInViewport.translate(
+                    Offset(
+                        tightLayer.offsetInViewport.x.toFloat(),
+                        tightLayer.offsetInViewport.y.toFloat()
+                    )
+                )
+            }
+        )
     }
 
     @Test
@@ -396,7 +433,7 @@ class GlassFrameworkTest {
     }
 
     @Test
-    fun groupedCourseCardLensStaysOnReferenceBackendUntilMultiShapeSdfExists() {
+    fun groupedCourseCardLensIsEligibleWithBoundedMultiShapeSdf() {
         val sceneKey = "week-course-cards"
         val state = GlassSceneState(
             sceneId = "home",
@@ -420,7 +457,7 @@ class GlassFrameworkTest {
         )
 
         assertEquals(
-            GlassGroupRenderEligibility.LensRequiresPerShapeSdf,
+            GlassGroupRenderEligibility.Eligible,
             state.glassGroupEligibility(
                 sceneKey = sceneKey,
                 plan = plan,
