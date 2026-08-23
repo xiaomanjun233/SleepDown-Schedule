@@ -43,8 +43,8 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassInnerShadowFrame
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
-import com.xiaomanjun.sleepdownschedule.glass.DensityScaledShape
 import com.xiaomanjun.sleepdownschedule.glass.decorationOnly
+import com.xiaomanjun.sleepdownschedule.glass.referenceLensSampleScale
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sampledBackdropOnly
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
@@ -555,6 +555,7 @@ fun CourseGlassCard(
     blurOverride: Float? = null,
     renderSurface: Boolean = true,
     backdropSampleScale: Float = 1f,
+    sampledShape: Shape? = null,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
@@ -592,11 +593,12 @@ fun CourseGlassCard(
         materialRole = GlassMaterialRole.SimpleBlur,
         sceneKey = "course-card-simple-blur"
     )
-    val activeBackdropSampleScale = backdropSampleScale.coerceIn(0.5f, 1f)
+    val activeBackdropSampleScale = referenceLensSampleScale(
+        requestedScale = backdropSampleScale,
+        hasSupportedSampledShape = sampledShape != null
+    )
     val usesSampledBackdrop = renderSurface && useGlass && activeBackdropSampleScale < 0.999f
-    val sampledShape = remember(shape, activeBackdropSampleScale) {
-        DensityScaledShape(shape, activeBackdropSampleScale)
-    }
+    val activeSampledShape = sampledShape ?: shape
     val sampledEffectFrame = liquidEffectFrame.sampledBackdropOnly(activeBackdropSampleScale)
     val decorationEffectFrame = liquidEffectFrame.decorationOnly()
     val liquidSurfaceDraw: DrawScope.() -> Unit = {
@@ -647,7 +649,7 @@ fun CourseGlassCard(
                     backdrop = glassBackdrop,
                     descriptor = liquidDescriptor,
                     material = tokens,
-                    shape = { sampledShape },
+                    shape = { activeSampledShape },
                     effectFrame = sampledEffectFrame,
                     additionalLayerBlock = {
                         transformOrigin = TransformOrigin(0f, 0f)

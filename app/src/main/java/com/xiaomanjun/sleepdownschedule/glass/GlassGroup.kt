@@ -4,19 +4,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.unit.Density
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.BackdropEffectScope
 import com.kyant.backdrop.effects.blur
@@ -117,26 +115,21 @@ object GlassGroupPlanner {
         }
 }
 
-private class GlassGroupShape(
-    private val members: () -> List<GlassGroupCandidate>
-) : Shape {
-    override fun createOutline(
-        size: Size,
-        layoutDirection: LayoutDirection,
-        density: Density
-    ): Outline {
-        val path = Path()
-        members().forEach { member ->
-            val rect = member.boundsInViewport
-            val radius = member.cornerRadiusPx.coerceIn(0f, minOf(rect.width, rect.height) / 2f)
-            path.addRoundRect(
-                RoundRect(
-                    rect = rect,
-                    cornerRadius = CornerRadius(radius, radius)
-                )
+// Backdrop 2.0 validates the host shape before evaluating a lens chain and deliberately rejects
+// Outline.Generic. Keep the host on its supported CornerBasedShape path; the real disjoint card
+// geometry is still enforced by both the shared SDF and the union clip below.
+private val GlassGroupHostShape = RoundedCornerShape(0.dp)
+
+private fun glassGroupClipPath(members: List<GlassGroupCandidate>): Path = Path().apply {
+    members.forEach { member ->
+        val rect = member.boundsInViewport
+        val radius = member.cornerRadiusPx.coerceIn(0f, minOf(rect.width, rect.height) / 2f)
+        addRoundRect(
+            RoundRect(
+                rect = rect,
+                cornerRadius = CornerRadius(radius, radius)
             )
-        }
-        return Outline.Generic(path)
+        )
     }
 }
 
@@ -361,7 +354,7 @@ fun Modifier.sleepDownGlassGroupSurface(
             "keep the per-card KyantReference backend."
     }
     val currentMembers = rememberUpdatedState(plan.members)
-    val shape = remember { GlassGroupShape { currentMembers.value } }
+    val memberClipPath = remember(plan.members) { glassGroupClipPath(plan.members) }
     val lensShader = remember(plan.members.size, effectFrame.chromaticAberration) {
         glassGroupLensShader(plan.members.size, effectFrame.chromaticAberration)
     }
@@ -378,7 +371,7 @@ fun Modifier.sleepDownGlassGroupSurface(
         backdrop = backdrop,
         descriptor = descriptor,
         material = material,
-        shape = { shape },
+        shape = { GlassGroupHostShape },
         effectFrame = backdropOnlyFrame,
         sceneState = sceneState,
         effectsOverride = {
@@ -396,6 +389,11 @@ fun Modifier.sleepDownGlassGroupSurface(
                     chromaticAberration = effectFrame.chromaticAberration
                 )
             }
+        },
+        onDrawBackdrop = { drawBackdrop ->
+            // A rectangular host is required by Backdrop's lens validator. Clip the resulting
+            // blur/refraction back to the exact union so gaps between cards remain untouched.
+            clipPath(memberClipPath) { drawBackdrop() }
         },
         additionalLayerBlock = if (activeSampleScale < 0.999f) {
             ({

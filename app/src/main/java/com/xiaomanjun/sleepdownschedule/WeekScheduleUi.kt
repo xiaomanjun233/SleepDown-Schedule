@@ -2847,6 +2847,9 @@ fun WeekCourseBlock(
         windowHeight = windowSize.height
     )
     val cardShape = remember(cardCorner) { RoundedRectangle(cardCorner) }
+    val sampledCardShape = remember(cardCorner, backdropSampleScale) {
+        RoundedRectangle(cardCorner * backdropSampleScale.coerceIn(0.5f, 1f))
+    }
     val resizeStartIndex = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
     val resizeMaxSpan = (periodIndexes.size - resizeStartIndex).coerceAtLeast(1)
     val baseHeightPx = with(density) { height.toPx() }
@@ -3148,6 +3151,7 @@ fun WeekCourseBlock(
                 shape = cardShape,
                 renderSurface = renderCardSurface,
                 backdropSampleScale = backdropSampleScale,
+                sampledShape = sampledCardShape,
                 onClick = null
             ) {}
             BoxWithConstraints(Modifier.fillMaxWidth().height(displayedHeight).clipToBounds()) {

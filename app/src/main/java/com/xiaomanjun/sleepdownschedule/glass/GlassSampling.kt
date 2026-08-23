@@ -1,13 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
-import androidx.compose.runtime.Immutable
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import kotlin.math.ceil
 
 internal const val CourseGlassThreeQuarterSampleThreshold = 13
@@ -27,24 +21,18 @@ internal fun adaptiveCourseGlassSampleScale(
     else -> 1f
 }
 
-/** Scales absolute-Dp corners with the low-resolution target; percent corners remain relative. */
-@Immutable
-internal data class DensityScaledShape(
-    val delegate: Shape,
-    val sampleScale: Float
-) : Shape {
-    override fun createOutline(
-        size: Size,
-        layoutDirection: LayoutDirection,
-        density: Density
-    ): Outline = delegate.createOutline(
-        size = size,
-        layoutDirection = layoutDirection,
-        density = Density(
-            density = density.density * sampleScale.coerceIn(0.5f, 1f),
-            fontScale = density.fontScale
-        )
-    )
+/**
+ * Backdrop 2.0 validates the concrete shape type before constructing its lens SDF. A generic
+ * [androidx.compose.ui.graphics.Shape] wrapper is therefore unsafe even when it returns a rounded
+ * outline. Callers may downsample only when they can provide an equivalent supported shape at the
+ * sampled scale; every other shape stays on the reference-resolution path.
+ */
+internal fun referenceLensSampleScale(
+    requestedScale: Float,
+    hasSupportedSampledShape: Boolean
+): Float {
+    val scale = requestedScale.coerceIn(0.5f, 1f)
+    return if (scale < 0.999f && !hasSupportedSampledShape) 1f else scale
 }
 
 internal fun GlassEffectFrame.sampledBackdropOnly(sampleScale: Float): GlassEffectFrame {
