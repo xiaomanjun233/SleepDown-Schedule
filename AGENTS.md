@@ -70,7 +70,7 @@
 
 ## 液态玻璃 2.0 统一框架（2026-08-23）
 
-- 当前开发分支为 `codex/liquid-glass-framework`；Oplus 半成品已在本地分支 `codex/archive/oplus-transition-wip-20260823`、提交 `70c2d51` 封存，开发分支通过 `3e56624` 对齐 `origin/main` 历史。所有提交仅在本地，未推送、未打标签、未发布。
+- 液态玻璃 2.0 统一框架与性能改动已于 2026-08-24 通过本地合并提交 `d88ced5` 合入 `main`；原开发分支 `codex/liquid-glass-framework` 保留在 `dcce5ee` 作为合并前可回退指针。Oplus 半成品仍由本地分支 `codex/archive/oplus-transition-wip-20260823`、提交 `70c2d51` 封存；玻璃分支此前通过 `3e56624` 对齐 `origin/main` 历史。所有提交仍仅在本地，未推送、未打标签、未发布。
 - Backdrop 已在独立提交 `eab3059` 升级到正式版 `2.0.0`，`shapes=1.2.0` 不变；Kotlin/Compose 无需联动升级。依赖升级与框架改造保持可独立回退。
 - `app/src/main/java/com/xiaomanjun/sleepdownschedule/glass/` 统一管理采样域、材质 token、场景阶段、provider/consumer、诊断、稳定 envelope、课程卡合批原型和 `LiquidMorphController/Spec`。业务代码不再直接创建/组合/挂载 `LayerBackdrop` 或调用 `drawBackdrop`/`drawPlainBackdrop`；`ScaledBackdrop` 只保留必要的坐标变换接口实现。
 - 首页 `Background`、`Content`、`PickerScene` 三个域继续独立；`ChromeCombined` 只组合前两者，Dialog 继续使用屏幕坐标补偿。Debug/benchmark 首页拓扑会拒绝自采样、域错配和循环。
