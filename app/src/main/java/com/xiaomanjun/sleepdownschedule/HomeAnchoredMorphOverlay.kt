@@ -86,12 +86,18 @@ import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.backdrop.catalog.components.LiquidButton
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.drawPlainBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
+import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphController
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphControllerBridge
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphPhase
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownPlainGlassSurface
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -224,10 +230,33 @@ internal data class HomeAnchoredOverlayRequest(
 internal class HomeAnchoredMorphState {
     val progress = Animatable(0f)
     val backgroundZoom = Animatable(1f)
-    var phase by mutableStateOf(HomeAnchoredOverlayPhase.Idle)
-        internal set
     var renderedKind by mutableStateOf<HomeAnchoredOverlayKind?>(null)
         internal set
+    private val controllerBridge = LiquidMorphControllerBridge {
+        when (renderedKind) {
+            HomeAnchoredOverlayKind.Add -> "home-three-dot-menu"
+            HomeAnchoredOverlayKind.Personalize -> "home-personalization"
+            null -> "home-anchored"
+        }
+    }
+    val liquidMorphController: LiquidMorphController get() = controllerBridge.controller
+    private var currentPhase by mutableStateOf(HomeAnchoredOverlayPhase.Idle)
+    var phase: HomeAnchoredOverlayPhase
+        get() = currentPhase
+        internal set(value) {
+            if (currentPhase == value) return
+            currentPhase = value
+            controllerBridge.synchronize(
+                when (value) {
+                    HomeAnchoredOverlayPhase.Idle -> LiquidMorphPhase.Idle
+                    HomeAnchoredOverlayPhase.Preparing -> LiquidMorphPhase.Preparing
+                    HomeAnchoredOverlayPhase.Opening -> LiquidMorphPhase.Opening
+                    HomeAnchoredOverlayPhase.Open -> LiquidMorphPhase.Open
+                    HomeAnchoredOverlayPhase.Closing -> LiquidMorphPhase.Closing
+                    HomeAnchoredOverlayPhase.Disposing -> LiquidMorphPhase.Released
+                }
+            )
+        }
 }
 
 @Composable
@@ -1002,11 +1031,11 @@ internal fun HomeAnchoredMorphOverlayHost(
 
     LaunchedEffect(request, adaptiveMetrics.profile) {
         if (request != null) {
-            motionState.phase = HomeAnchoredOverlayPhase.Preparing
             renderedRequest = request
             panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize
             personalizeContentRecorded.set(false)
             motionState.renderedKind = request.kind
+            motionState.phase = HomeAnchoredOverlayPhase.Preparing
             motionState.progress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
             var waitedFrames = 0
@@ -1187,44 +1216,49 @@ internal fun HomeAnchoredMorphOverlayHost(
         }
         // Personalize is handled above, so this branch is the Add menu. Keep all animation-tick
         // reads inside derived state and deferred modifier lambdas instead of recomposing the host.
-        val geometry = remember(
+        val morphSpec = remember(
             shown.sourceBoundsInRoot,
             shown.sourcePressedScale,
             targetRect,
             adaptiveMetrics,
-            density.density,
-            motionState
+            density.density
         ) {
+            legacyThreeDotMenuMorphSpec(
+                source = shown.sourceBoundsInRoot,
+                target = targetRect,
+                sourceCornerRadiusPx = with(density) { 21.dp.toPx() },
+                targetCornerRadiusPx = with(density) { HomeAddMenuTargetCornerDp.dp.toPx() },
+                sourcePressedScale = shown.sourcePressedScale,
+                openingPinchDiameterPx = with(density) {
+                    ThreeDotMenuMotion.OpenPinchDiameterDp.dp.toPx()
+                },
+                openingMinimumDropPx = with(density) {
+                    ThreeDotMenuMotion.OpenMinimumDropDp.dp.toPx()
+                },
+                openingMaximumDropPx = with(density) {
+                    ThreeDotMenuMotion.OpenMaximumDropDp.dp.toPx()
+                },
+                openingMaximumArcPx = with(density) {
+                    adaptiveMetrics.animationArc.toPx()
+                },
+                verticalReboundAmplitudePx = with(density) {
+                    ThreeDotMenuMotion.OpenReboundAmplitudeDp.dp.toPx()
+                },
+                closingSinkOffsetPx = with(density) {
+                    ThreeDotMenuMotion.CloseSinkOffsetDp.dp.toPx()
+                },
+                closingControlDropPx = with(density) {
+                    ThreeDotMenuMotion.CloseControlDropDp.dp.toPx()
+                }
+            )
+        }
+        val geometry = remember(morphSpec, motionState) {
             derivedStateOf {
-                homeThreeDotMenuTrajectoryGeometry(
+                morphSpec.homeGeometry(
                     source = shown.sourceBoundsInRoot,
                     target = targetRect,
                     rawProgress = motionState.progress.value,
-                    closing = motionState.phase == HomeAnchoredOverlayPhase.Closing,
-                    sourceCornerRadiusPx = with(density) { 21.dp.toPx() },
-                    targetCornerRadiusPx = with(density) { HomeAddMenuTargetCornerDp.dp.toPx() },
-                    sourcePressedScale = shown.sourcePressedScale,
-                    openingPinchDiameterPx = with(density) {
-                        ThreeDotMenuMotion.OpenPinchDiameterDp.dp.toPx()
-                    },
-                    openingMinimumDropPx = with(density) {
-                        ThreeDotMenuMotion.OpenMinimumDropDp.dp.toPx()
-                    },
-                    openingMaximumDropPx = with(density) {
-                        ThreeDotMenuMotion.OpenMaximumDropDp.dp.toPx()
-                    },
-                    openingMaximumArcPx = with(density) {
-                        adaptiveMetrics.animationArc.toPx()
-                    },
-                    verticalReboundAmplitudePx = with(density) {
-                        ThreeDotMenuMotion.OpenReboundAmplitudeDp.dp.toPx()
-                    },
-                    closingSinkOffsetPx = with(density) {
-                        ThreeDotMenuMotion.CloseSinkOffsetDp.dp.toPx()
-                    },
-                    closingControlDropPx = with(density) {
-                        ThreeDotMenuMotion.CloseControlDropDp.dp.toPx()
-                    }
+                    closing = motionState.phase == HomeAnchoredOverlayPhase.Closing
                 )
             }
         }
@@ -1520,37 +1554,42 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
 ) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val latestPreviewProgress = rememberUpdatedState(previewProgress)
-    val geometry = remember(
+    val morphSpec = remember(
         sourceBounds,
         sourcePressedScale,
         targetRect,
         adaptiveMetrics,
-        density.density,
-        motionState
+        density.density
     ) {
+        legacyPersonalizationMorphSpec(
+            source = sourceBounds,
+            target = targetRect,
+            pinchDiameterPx = with(density) { 18.dp.toPx() },
+            minimumDropPx = with(density) { 36.dp.toPx() },
+            maximumDropPx = with(density) { 72.dp.toPx() },
+            maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() },
+            targetCornerRadiusPx = with(density) { 28.dp.toPx() },
+            sourcePressedScale = sourcePressedScale,
+            verticalReboundAmplitudePx = with(density) {
+                ThreeDotMenuMotion.OpenReboundAmplitudeDp.dp.toPx()
+            },
+            closingSinkOffsetPx = with(density) {
+                ThreeDotMenuMotion.CloseSinkOffsetDp.dp.toPx()
+            },
+            closingControlDropPx = with(density) {
+                ThreeDotMenuMotion.CloseControlDropDp.dp.toPx()
+            }
+        )
+    }
+    val geometry = remember(morphSpec, motionState) {
         derivedStateOf {
             // Personalization and the three-dot menu are one liquid object choreography. The
             // performance work below only changes recording and backdrop sampling.
-            homePersonalizationTrajectoryGeometry(
+            morphSpec.homeGeometry(
                 source = sourceBounds,
                 target = targetRect,
                 rawProgress = motionState.progress.value,
-                pinchDiameterPx = with(density) { 18.dp.toPx() },
-                minimumDropPx = with(density) { 36.dp.toPx() },
-                maximumDropPx = with(density) { 72.dp.toPx() },
-                maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() },
-                targetCornerRadiusPx = with(density) { 28.dp.toPx() },
-                sourcePressedScale = sourcePressedScale,
-                closing = motionState.phase == HomeAnchoredOverlayPhase.Closing,
-                verticalReboundAmplitudePx = with(density) {
-                    ThreeDotMenuMotion.OpenReboundAmplitudeDp.dp.toPx()
-                },
-                closingSinkOffsetPx = with(density) {
-                    ThreeDotMenuMotion.CloseSinkOffsetDp.dp.toPx()
-                },
-                closingControlDropPx = with(density) {
-                    ThreeDotMenuMotion.CloseControlDropDp.dp.toPx()
-                }
+                closing = motionState.phase == HomeAnchoredOverlayPhase.Closing
             )
         }
     }
@@ -1946,6 +1985,27 @@ private fun DeferredProgressivePersonalizeSurface(
     warmupBackdropEffects: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val material = remember(surfaceColor) {
+        GlassMaterialSpec(
+            role = GlassMaterialRole.MorphShell,
+            blur = 7.dp,
+            lensHeight = 0.dp,
+            lensAmount = 0.dp,
+            surfaceAlpha = surfaceColor.alpha,
+            borderAlpha = 0.28f,
+            highlightAlpha = 0f,
+            shadowAlpha = 0f,
+            innerShadowAlpha = 0f,
+            depthEffect = false,
+            useVibrancy = false
+        )
+    }
+    val descriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "DeferredProgressivePersonalizeSurface",
+        domain = GlassBackdropDomain.ChromeCombined,
+        materialRole = GlassMaterialRole.MorphShell,
+        sceneKey = "home-personalization-progressive-surface"
+    )
     val showBackdropPass by remember(blurProgressProvider, warmupBackdropEffects) {
         derivedStateOf {
             warmupBackdropEffects || blurProgressProvider().coerceIn(0f, 1f) > 0.005f
@@ -1967,8 +2027,10 @@ private fun DeferredProgressivePersonalizeSurface(
                         // pre-flash. The normal Opening alpha begins on the next frame.
                         alpha = if (warmupBackdropEffects) 0.001f else progress
                     }
-                    .drawPlainBackdrop(
+                    .sleepDownPlainGlassSurface(
                         backdrop = backdrop,
+                        descriptor = descriptor,
+                        material = material,
                         shape = { shape },
                         effects = {
                             blur((7.dp * blurProgressProvider().coerceIn(0f, 1f)).toPx())
@@ -2014,6 +2076,27 @@ private fun DeferredPersonalizeBackdropAura(
     alphaProvider: () -> Float,
     modifier: Modifier = Modifier
 ) {
+    val material = remember {
+        GlassMaterialSpec(
+            role = GlassMaterialRole.MorphShell,
+            blur = 5.dp,
+            lensHeight = 16.dp,
+            lensAmount = 24.dp,
+            surfaceAlpha = 0f,
+            borderAlpha = 0f,
+            highlightAlpha = 0f,
+            shadowAlpha = 0f,
+            innerShadowAlpha = 0f,
+            chromaticAberration = false,
+            depthEffect = false
+        )
+    }
+    val descriptor = rememberGlassSurfaceDescriptor(
+        debugLabel = "DeferredPersonalizeBackdropAura",
+        domain = GlassBackdropDomain.ChromeCombined,
+        materialRole = GlassMaterialRole.MorphShell,
+        sceneKey = "home-personalization-backdrop-aura"
+    )
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -2034,8 +2117,10 @@ private fun DeferredPersonalizeBackdropAura(
                     blendMode = BlendMode.DstIn
                 )
             }
-            .drawPlainBackdrop(
+            .sleepDownPlainGlassSurface(
                 backdrop = backdrop,
+                descriptor = descriptor,
+                material = material,
                 shape = { RoundedRectangle(0.dp) },
                 effects = {
                     val progress = blurProgressProvider().coerceIn(0f, 1f)

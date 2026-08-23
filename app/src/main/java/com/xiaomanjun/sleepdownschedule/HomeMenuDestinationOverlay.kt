@@ -55,6 +55,9 @@ import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphController
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphControllerBridge
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphPhase
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
@@ -72,10 +75,29 @@ internal data class HomeMenuDestinationRequest(
 internal class HomeMenuDestinationMotionState {
     val progress = Animatable(0f)
     val backgroundZoom = Animatable(1f)
-    var phase by mutableStateOf(HomeAnchoredOverlayPhase.Idle)
-        internal set
     var kind by mutableStateOf<HomeMenuDestinationKind?>(null)
         internal set
+    private val controllerBridge = LiquidMorphControllerBridge {
+        "home-menu-destination:${kind?.name ?: "unknown"}"
+    }
+    val liquidMorphController: LiquidMorphController get() = controllerBridge.controller
+    private var currentPhase by mutableStateOf(HomeAnchoredOverlayPhase.Idle)
+    var phase: HomeAnchoredOverlayPhase
+        get() = currentPhase
+        internal set(value) {
+            if (currentPhase == value) return
+            currentPhase = value
+            controllerBridge.synchronize(
+                when (value) {
+                    HomeAnchoredOverlayPhase.Idle -> LiquidMorphPhase.Idle
+                    HomeAnchoredOverlayPhase.Preparing -> LiquidMorphPhase.Preparing
+                    HomeAnchoredOverlayPhase.Opening -> LiquidMorphPhase.Opening
+                    HomeAnchoredOverlayPhase.Open -> LiquidMorphPhase.Open
+                    HomeAnchoredOverlayPhase.Closing -> LiquidMorphPhase.Closing
+                    HomeAnchoredOverlayPhase.Disposing -> LiquidMorphPhase.Released
+                }
+            )
+        }
 }
 
 @Composable
@@ -445,12 +467,34 @@ internal fun HomeMenuDestinationOverlayHost(
             )
         }
         val maxContentBlurPx = with(density) { 5.dp.toPx() }
-        val frame = remember(
+        val morphSpec = remember(
             shown,
             target,
             isFullScreen,
             density.density,
-            adaptiveMetrics,
+            adaptiveMetrics
+        ) {
+            legacyHomeMenuDestinationMorphSpec(
+                sourceBoundsInRoot = shown.sourceBoundsInRoot,
+                collapseBoundsInRoot = shown.collapseBoundsInRoot,
+                target = target,
+                menuCornerRadiusPx = with(density) { HomeAddMenuTargetCornerDp.dp.toPx() },
+                buttonCornerRadiusPx = with(density) { 21.dp.toPx() },
+                pinchDiameterPx = with(density) { 18.dp.toPx() },
+                minimumDropPx = with(density) { 12.dp.toPx() },
+                maximumDropPx = with(density) { adaptiveMetrics.animationArc.toPx() },
+                maximumArcPx = with(density) {
+                    adaptiveMetrics.animationArc.toPx() + 16.dp.toPx()
+                },
+                targetCornerRadiusPx = with(density) {
+                    if (isFullScreen) 0.dp.toPx() else 32.dp.toPx()
+                }
+            )
+        }
+        val frame = remember(
+            morphSpec,
+            isFullScreen,
+            density.density,
             motionState
         ) {
             derivedStateOf {
@@ -458,23 +502,11 @@ internal fun HomeMenuDestinationOverlayHost(
                     motionState.phase == HomeAnchoredOverlayPhase.Closing ||
                         motionState.phase == HomeAnchoredOverlayPhase.Disposing
                 val rawProgress = motionState.progress.value
-                val geometry = homeMenuDestinationTrajectoryGeometry(
-                    sourceBoundsInRoot = shown.sourceBoundsInRoot,
-                    collapseBoundsInRoot = shown.collapseBoundsInRoot,
+                val geometry = morphSpec.homeGeometry(
+                    source = shown.sourceBoundsInRoot,
                     target = target,
                     rawProgress = rawProgress,
-                    closing = destinationClosing,
-                    menuCornerRadiusPx = with(density) { HomeAddMenuTargetCornerDp.dp.toPx() },
-                    buttonCornerRadiusPx = with(density) { 21.dp.toPx() },
-                    pinchDiameterPx = with(density) { 18.dp.toPx() },
-                    minimumDropPx = with(density) { 12.dp.toPx() },
-                    maximumDropPx = with(density) { adaptiveMetrics.animationArc.toPx() },
-                    maximumArcPx = with(density) {
-                        adaptiveMetrics.animationArc.toPx() + 16.dp.toPx()
-                    },
-                    targetCornerRadiusPx = with(density) {
-                        if (isFullScreen) 0.dp.toPx() else 32.dp.toPx()
-                    }
+                    closing = destinationClosing
                 )
                 val fullScreenOpenEndpoint = isFullScreen &&
                     !destinationClosing && rawProgress >= 0.999f
