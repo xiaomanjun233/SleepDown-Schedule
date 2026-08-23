@@ -259,7 +259,9 @@ import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
+import com.xiaomanjun.sleepdownschedule.glass.CourseGlassRestorePlan
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
+import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassRestorePlan
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -667,6 +669,7 @@ internal fun HomeScreen(
     onScheduleLongPress: () -> Unit = {},
     weekEditInteractionEnabled: Boolean = true,
     courseGlassOcclusionPhase: CourseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live,
+    courseGlassRestoreWave: Int = com.xiaomanjun.sleepdownschedule.glass.CourseGlassRestoreWaveCount,
 ) {
     val homeOverscrollFactory = rememberHapticMiuixOverscrollFactory()
     val cardColor = remember(state.config.cardColorArgb, state.config.cardAlpha) {
@@ -768,10 +771,22 @@ internal fun HomeScreen(
                     )
                 }
                 HomeMode.Week -> key(state.config.id) {
+                    val courseGlassRestorePlan = remember(
+                        courseGlassOcclusionPhase,
+                        displayWeek,
+                        courseGlassRestoreWave
+                    ) {
+                        CourseGlassRestorePlan(
+                            phase = courseGlassOcclusionPhase,
+                            targetWeek = displayWeek,
+                            restoredWave = courseGlassRestoreWave
+                        )
+                    }
                     CompositionLocalProvider(
                         LocalOverscrollFactory provides homeOverscrollFactory,
                         LocalPersonalizationPreview provides personalizationPreviewState,
-                        LocalCourseGlassOcclusionPhase provides courseGlassOcclusionPhase
+                        LocalCourseGlassOcclusionPhase provides courseGlassOcclusionPhase,
+                        LocalCourseGlassRestorePlan provides courseGlassRestorePlan
                     ) {
                         SinglePillWeekScheduleScreen(
                             state = state,

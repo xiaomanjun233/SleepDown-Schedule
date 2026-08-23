@@ -282,7 +282,8 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSceneState
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackendPolicy
-import com.xiaomanjun.sleepdownschedule.glass.shouldBeginCourseGlassPrewarm
+import com.xiaomanjun.sleepdownschedule.glass.CourseGlassRestoreWaveCount
+import com.xiaomanjun.sleepdownschedule.glass.courseGlassRestoreWave as resolveCourseGlassRestoreWave
 import com.xiaomanjun.sleepdownschedule.glass.shouldSuspendCourseGlassMaterials
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
@@ -604,6 +605,7 @@ fun CourseScheduleAppUi(
         backendPolicy = glassBackendPolicy
     )
     val screenGraphicsLayer = rememberGraphicsLayer()
+    val courseGlassWarmupGraphicsLayer = rememberGraphicsLayer()
     // The week grid is already recorded into this layer for Morph motion. Reuse that GPU layer
     // as the personalization backdrop producer so the glass does not traverse every live
     // week-card RenderNode again on each animation frame.
@@ -645,6 +647,9 @@ fun CourseScheduleAppUi(
     val appScope = rememberCoroutineScope()
     var courseGlassOcclusionPhase by remember {
         mutableStateOf(CourseGlassOcclusionPhase.Live)
+    }
+    var courseGlassRestoreWave by remember {
+        mutableIntStateOf(CourseGlassRestoreWaveCount)
     }
     var courseGlassPrewarmDrawRequest by remember { mutableIntStateOf(0) }
     val courseGlassPrewarmRecordedRequest = remember { AtomicInteger(0) }
@@ -1487,29 +1492,25 @@ fun CourseScheduleAppUi(
         weekCourseGlassCacheCoverExpected,
         weekCourseGlassSubstantialOverlayActive,
         weekCourseGlassOverlayClosing,
-        courseGlassOcclusionPhase,
         homeCaptureFrameKey
     ) {
         if (!weekCourseGlassCacheCoverExpected) {
+            courseGlassRestoreWave = CourseGlassRestoreWaveCount
             courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
             return@LaunchedEffect
         }
-        if (
-            weekCourseGlassOverlayClosing &&
-            courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Suspended
-        ) {
-            snapshotFlow { weekCourseGlassClosingProgress() }.first { progress ->
-                shouldBeginCourseGlassPrewarm(
-                    phase = CourseGlassOcclusionPhase.Suspended,
-                    overlayClosing = true,
-                    closingProgress = progress
-                )
+        if (weekCourseGlassOverlayClosing && courseGlassOcclusionPhase != CourseGlassOcclusionPhase.Live) {
+            // Restore one spatial group per rendered frame. The current page is rebuilt
+            // centre-out during waves 1-4; retained Pager neighbours follow during waves 5-8.
+            // All eight waves finish while the cached home is still strongly blurred.
+            for (wave in (courseGlassRestoreWave + 1)..CourseGlassRestoreWaveCount) {
+                snapshotFlow { resolveCourseGlassRestoreWave(weekCourseGlassClosingProgress()) }
+                    .first { it >= wave }
+                courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Prewarming
+                courseGlassRestoreWave = wave
+                courseGlassPrewarmDrawRequest += 1
+                withFrameNanos { }
             }
-            // Keep the cached, progressively blurred scene throughout most of Closing. Mount and
-            // record the real Kyant card nodes only near the source endpoint, while the delayed
-            // blur still hides the expensive handoff and without blocking the dismiss action.
-            courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Prewarming
-            courseGlassPrewarmDrawRequest += 1
             return@LaunchedEffect
         }
         if (
@@ -1529,6 +1530,7 @@ fun CourseScheduleAppUi(
                         substantialOverlayActive = true
                     )
                 ) {
+                    courseGlassRestoreWave = 0
                     courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Suspended
                     return@LaunchedEffect
                 }
@@ -2017,18 +2019,31 @@ fun CourseScheduleAppUi(
                 .fillMaxSize()
                 .drawWithContent {
                     val requestedPrewarm = courseGlassPrewarmDrawRequest
+                    val keepCachedDuringRestore =
+                        courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Prewarming &&
+                            weekCourseGlassOverlayClosing &&
+                            weekHomeSurfaceUsesOffscreenCache.get()
+                    val cachedHomeActive = useCachedWeekHomeSurface() || keepCachedDuringRestore
                     val shouldRecordPrewarm =
                         courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Prewarming &&
                             requestedPrewarm > courseGlassPrewarmRecordedRequest.get() &&
-                            useCachedWeekHomeSurface()
+                            cachedHomeActive
                     if (shouldRecordPrewarm) {
-                        // Re-record the exact live home underneath the still-visible overlay.
-                        // This both refreshes the cached frame and forces the newly mounted Kyant
-                        // layers through allocation/effect setup before any Closing pixel reveals.
-                        screenGraphicsLayer.record { this@drawWithContent.drawContent() }
-                        recordedScheduleId.set(visualState.config.id)
-                        recordedHomeGeneration.incrementAndGet()
-                        lastRecordedHomeFrameKey.set(homeCaptureFrameKey)
+                        // Warm only the newly admitted spatial group in a hidden display list. Keep
+                        // replaying the original exact cache so partially restored cards never
+                        // become visible through the fading blur. The last wave nests the complete
+                        // warm layer into the normal cache with a single cheap drawLayer command.
+                        courseGlassWarmupGraphicsLayer.record {
+                            this@drawWithContent.drawContent()
+                        }
+                        if (courseGlassRestoreWave >= CourseGlassRestoreWaveCount) {
+                            screenGraphicsLayer.record {
+                                drawLayer(courseGlassWarmupGraphicsLayer)
+                            }
+                            recordedScheduleId.set(visualState.config.id)
+                            recordedHomeGeneration.incrementAndGet()
+                            lastRecordedHomeFrameKey.set(homeCaptureFrameKey)
+                        }
                         courseGlassPrewarmRecordedRequest.set(requestedPrewarm)
                         glassSceneState.recordPrewarmHit(GlassBackdropDomain.Content)
                         if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
@@ -2036,7 +2051,7 @@ fun CourseScheduleAppUi(
                                 androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
                         }
                         drawLayer(screenGraphicsLayer)
-                    } else if (useCachedWeekHomeSurface()) {
+                    } else if (cachedHomeActive) {
                         if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
                             // The recorded display list contains every week-course Kyant node.
                             // Flatten it only for popup motion so those child RenderNodes stop
@@ -2352,9 +2367,10 @@ fun CourseScheduleAppUi(
                                         }
                                     },
                                      onDeleteCourseSingleWeek = viewModel::deleteCourseSingleWeek,
-                                     weekEditInteractionEnabled = pickerState.phase is CustomizeUiState.Home,
-                                     courseGlassOcclusionPhase = effectiveCourseGlassOcclusionPhase,
-                                     onScheduleLongPress = {
+                                      weekEditInteractionEnabled = pickerState.phase is CustomizeUiState.Home,
+                                      courseGlassOcclusionPhase = effectiveCourseGlassOcclusionPhase,
+                                      courseGlassRestoreWave = courseGlassRestoreWave,
+                                      onScheduleLongPress = {
                                         if (pickerState.phase is CustomizeUiState.Home) {
                                             pendingHomeAnchoredOverlay = null
                                             homeAnchoredOverlayRequest = null

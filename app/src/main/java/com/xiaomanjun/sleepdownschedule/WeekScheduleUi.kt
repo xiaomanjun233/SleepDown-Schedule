@@ -259,6 +259,7 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassGroupRenderEligibility
 import com.xiaomanjun.sleepdownschedule.glass.GlassSceneKeys
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
+import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassRestorePlan
 import com.xiaomanjun.sleepdownschedule.glass.adaptiveCourseGlassPrewarmDistancePx
 import com.xiaomanjun.sleepdownschedule.glass.adaptiveCourseGlassSampleScale
 import com.xiaomanjun.sleepdownschedule.glass.decideCourseGlassViewportMaterial
@@ -1501,6 +1502,7 @@ fun WeekDayColumn(
     onCourseClick: (CourseEntity, Rect?) -> Unit,
     onDragStateChanged: (dayIndex: Int?, courseId: Long?) -> Unit = { _, _ -> },
     composedCourseCardCount: Int = courses.size,
+    occlusionMaterialMounted: Boolean = true,
     draggingCourseId: Long? = null,
     activeOverlayCourseId: Long? = null,
     activeOverlayTargetKey: String? = null,
@@ -1556,6 +1558,7 @@ fun WeekDayColumn(
         activeOverlayTargetKey == null
     val mayGroupCourseCards = glassSceneState != null &&
         courseGlassOcclusionPhase.mountsMaterialNodes &&
+        occlusionMaterialMounted &&
         backdrop != null &&
         config.courseCardGlassEnabled &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
@@ -1831,6 +1834,7 @@ fun WeekDayColumn(
                     onFinishResizeOverlay = onFinishResizeOverlay,
                     onCancelWeekEditOverlay = onCancelWeekEditOverlay,
                     renderCardSurface = !groupedSurfaceEnabled,
+                    occlusionMaterialMounted = occlusionMaterialMounted,
                     backdropSampleScale = courseBackdropSampleScale
                 )
                 exactPlacement?.let {
@@ -1902,6 +1906,7 @@ fun WeekCourseColumnsLayer(
 ) {
     val density = LocalDensity.current
     val coursesByWeekday = remember(courses) { courses.groupBy { it.weekday } }
+    val courseGlassRestorePlan = LocalCourseGlassRestorePlan.current
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -1912,7 +1917,7 @@ fun WeekCourseColumnsLayer(
         var draggingDayIndex by remember { mutableStateOf<Int?>(null) }
         var draggingCourseId by remember { mutableStateOf<Long?>(null) }
         Row(modifier = Modifier.fillMaxWidth()) {
-            weekdays.forEach { day ->
+            weekdays.forEachIndexed { columnIndex, day ->
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -1951,6 +1956,11 @@ fun WeekCourseColumnsLayer(
                             draggingCourseId = courseId
                         },
                         composedCourseCardCount = courses.size,
+                        occlusionMaterialMounted = courseGlassRestorePlan.mountsColumn(
+                            pageWeek = editWeek,
+                            columnIndex = columnIndex,
+                            columnCount = weekdays.size
+                        ),
                         draggingCourseId = draggingCourseId,
                         activeOverlayCourseId = activeOverlayCourseId,
                         activeOverlayTargetKey = activeOverlayTargetKey,
@@ -2828,6 +2838,7 @@ fun WeekCourseBlock(
     onFinishResizeOverlay: (Velocity) -> Unit = {},
     onCancelWeekEditOverlay: () -> Unit = {},
     renderCardSurface: Boolean = true,
+    occlusionMaterialMounted: Boolean = true,
     backdropSampleScale: Float = 1f
 ) {
     val locationText = course.location.orEmpty()
@@ -3278,7 +3289,8 @@ fun WeekCourseBlock(
                     .height(displayedHeight),
                 shape = cardShape,
                 renderSurface = renderCardSurface,
-                mountMaterial = !viewportCullingEnabled || viewportMaterialMounted,
+                mountMaterial = occlusionMaterialMounted &&
+                    (!viewportCullingEnabled || viewportMaterialMounted),
                 backdropSampleScale = backdropSampleScale,
                 sampledShape = sampledCardShape,
                 onClick = null
