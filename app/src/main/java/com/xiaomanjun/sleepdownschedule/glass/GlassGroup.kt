@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
@@ -82,6 +84,20 @@ fun GlassGroupPlan.toTightLayerPlan(): GlassGroupLayerPlan {
 
 /** Greedy interval coloring: overlapping cards never share one effect layer. */
 object GlassGroupPlanner {
+    private data class SpatialGroup(
+        val members: MutableList<GlassGroupCandidate>,
+        var bounds: Rect,
+        var coveredArea: Float
+    )
+
+    private data class SpatialJoin(
+        val groupIndex: Int,
+        val bounds: Rect,
+        val coveredArea: Float,
+        val fillRatio: Float,
+        val incrementalArea: Float
+    )
+
     fun plan(
         viewport: Rect,
         candidates: List<GlassGroupCandidate>,
@@ -113,7 +129,108 @@ object GlassGroupPlanner {
                 }
             }
         }
+
+    /**
+     * Builds tight, spatially dense chunks across the whole viewport. Unlike [plan], this avoids
+     * putting distant cards into one mostly-empty RenderTarget merely because they do not overlap.
+     * Single-member fallbacks are retained so callers can make one all-or-nothing renderer choice.
+     */
+    fun planSpatialChunks(
+        viewport: Rect,
+        candidates: List<GlassGroupCandidate>,
+        maxMembersPerPlan: Int = GlassGroupMaximumMembers,
+        minimumFillRatio: Float = 0.34f,
+        maximumLayerAreaFraction: Float = 0.58f
+    ): List<GlassGroupPlan> {
+        require(maxMembersPerPlan > 0) { "GlassGroup plan size must be positive." }
+        require(minimumFillRatio in 0f..1f) { "Spatial fill ratio must be between 0 and 1." }
+        require(maximumLayerAreaFraction > 0f) {
+            "Spatial layer-area fraction must be positive."
+        }
+        val viewportArea = viewport.area()
+        if (viewportArea <= 0f) return emptyList()
+
+        return candidates
+            .asSequence()
+            .filter { it.boundsInViewport.overlaps(viewport) }
+            .groupBy { it.domain to it.materialKey }
+            .flatMap { (key, sameMaterial) ->
+                val groups = mutableListOf<SpatialGroup>()
+                sameMaterial.sortedWith(
+                    compareBy<GlassGroupCandidate> { it.boundsInViewport.top }
+                        .thenBy { it.boundsInViewport.left }
+                        .thenBy { it.id }
+                ).forEach { candidate ->
+                    val candidateArea = candidate.boundsInViewport.area()
+                    val target = groups.mapIndexedNotNull { index, group ->
+                        if (
+                            group.members.size >= maxMembersPerPlan ||
+                            group.members.any { existing ->
+                                existing.boundsInViewport.overlaps(candidate.boundsInViewport)
+                            }
+                        ) {
+                            null
+                        } else {
+                            val joinedBounds = group.bounds.union(candidate.boundsInViewport)
+                            val joinedArea = joinedBounds.area()
+                            val coveredArea = group.coveredArea + candidateArea
+                            val fillRatio = if (joinedArea > 0f) coveredArea / joinedArea else 0f
+                            val layerAreaFraction = joinedArea / viewportArea
+                            if (
+                                fillRatio + 0.0001f < minimumFillRatio ||
+                                layerAreaFraction - 0.0001f > maximumLayerAreaFraction
+                            ) {
+                                null
+                            } else {
+                                SpatialJoin(
+                                    groupIndex = index,
+                                    bounds = joinedBounds,
+                                    coveredArea = coveredArea,
+                                    fillRatio = fillRatio,
+                                    incrementalArea = joinedArea - group.bounds.area()
+                                )
+                            }
+                        }
+                    }.minWithOrNull(
+                        compareBy<SpatialJoin> { -it.fillRatio }
+                            .thenBy { it.incrementalArea }
+                            .thenBy { it.groupIndex }
+                    )
+
+                    if (target == null) {
+                        groups += SpatialGroup(
+                            members = mutableListOf(candidate),
+                            bounds = candidate.boundsInViewport,
+                            coveredArea = candidateArea
+                        )
+                    } else {
+                        groups[target.groupIndex].apply {
+                            members += candidate
+                            bounds = target.bounds
+                            coveredArea = target.coveredArea
+                        }
+                    }
+                }
+                groups.map { group ->
+                    GlassGroupPlan(
+                        domain = key.first,
+                        materialKey = key.second,
+                        viewport = viewport,
+                        members = group.members.toList()
+                    )
+                }
+            }
+    }
 }
+
+private fun Rect.area(): Float = width.coerceAtLeast(0f) * height.coerceAtLeast(0f)
+
+private fun Rect.union(other: Rect): Rect = Rect(
+    left = minOf(left, other.left),
+    top = minOf(top, other.top),
+    right = maxOf(right, other.right),
+    bottom = maxOf(bottom, other.bottom)
+)
 
 // Backdrop 2.0 validates the host shape before evaluating a lens chain and deliberately rejects
 // Outline.Generic. Keep the host on its supported CornerBasedShape path; the real disjoint card

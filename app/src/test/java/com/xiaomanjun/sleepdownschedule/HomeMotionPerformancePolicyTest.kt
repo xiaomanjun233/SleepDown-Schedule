@@ -1,6 +1,5 @@
 package com.xiaomanjun.sleepdownschedule
 
-import com.xiaomanjun.sleepdownschedule.glass.CourseGlassClosingPrewarmProgress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -77,7 +76,7 @@ class HomeMotionPerformancePolicyTest {
         assertTrue(
             stagedHomeOverlayBlurProgress(
                 legacyDepthProgress = 0f,
-                morphProgress = CourseGlassClosingPrewarmProgress,
+                morphProgress = 0.88f,
                 closing = true
             ) > 0.67f
         )

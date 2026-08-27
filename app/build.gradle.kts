@@ -22,12 +22,6 @@ val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOW
 val skipReleaseResourceShrink = providers.gradleProperty("sleepdown.skipReleaseResourceShrink")
     .map(String::toBoolean)
     .getOrElse(false)
-val enableLargeGlassExperiment = providers.gradleProperty("sleepdown.enableLargeGlassExperiment")
-    .map(String::toBoolean)
-    .getOrElse(false)
-val enableLiquidMotionExperiment = providers.gradleProperty("sleepdown.enableLiquidMotionExperiment")
-    .map(String::toBoolean)
-    .getOrElse(false)
 val hasReleaseSigning = listOf(
     releaseStoreFilePath,
     releaseStorePassword,
@@ -71,19 +65,14 @@ android {
         applicationId = "com.xiaomanjun.sleepdownschedule"
         minSdk = 26
         targetSdk = 36
-        versionCode = 26
-        versionName = "1.2.0"
+        versionCode = 27
+        versionName = "1.2.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SLEEPDOWN_API_BASE_URL", "\"https://api.sleepdownschedule.cn\"")
         buildConfigField(
             "boolean",
             "SLEEPDOWN_LARGE_GLASS_EXPERIMENT",
-            enableLargeGlassExperiment.toString()
-        )
-        buildConfigField(
-            "boolean",
-            "SLEEPDOWN_LIQUID_MOTION_EXPERIMENT",
-            enableLiquidMotionExperiment.toString()
+            "true"
         )
     }
 
@@ -187,6 +176,7 @@ dependencies {
 
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.runtime:runtime-tracing")
     implementation("androidx.compose.ui:ui-tooling-preview")

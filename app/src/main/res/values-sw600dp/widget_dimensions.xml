@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tablet launchers commonly derive span from minWidth instead of targetCellWidth. -->
+    <dimen name="widget_4x2_min_width">460dp</dimen>
+    <dimen name="widget_4x2_min_height">140dp</dimen>
+</resources>

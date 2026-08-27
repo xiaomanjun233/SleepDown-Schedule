@@ -1,0 +1,5 @@
+package com.xiaomanjun.sleepdownschedule
+
+import com.xiaomanjun.sleepdownschedule.feature.widget.providers.TodayCoursesSquareWidgetProviderHost
+
+class TodayCoursesSquareWidgetProvider : TodayCoursesSquareWidgetProviderHost()

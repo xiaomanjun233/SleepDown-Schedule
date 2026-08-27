@@ -1,5 +1,10 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.app.startup.*
+import com.xiaomanjun.sleepdownschedule.app.state.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
@@ -27,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : ComponentActivity() {

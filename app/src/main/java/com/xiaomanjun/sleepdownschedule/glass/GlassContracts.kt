@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
+
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -85,8 +88,6 @@ object GlassSceneKeys {
     )
 
     val Phase2GroupedRoutes: Set<String> = setOf(WeekCourseCards)
-
-    val Phase3LiquidMotionRoutes: Set<String> = setOf(HomeThreeDotMenuMotion)
 }
 
 /**
@@ -96,8 +97,7 @@ object GlassSceneKeys {
 @Immutable
 data class GlassBackendPolicy(
     val groupedSceneAllowlist: Set<String> = emptySet(),
-    val stableEnvelopeRouteAllowlist: Set<String> = emptySet(),
-    val newMotionRouteAllowlist: Set<String> = emptySet()
+    val stableEnvelopeRouteAllowlist: Set<String> = emptySet()
 ) {
     fun rendererFor(sceneKey: String, requested: GlassRendererKind): GlassRendererKind = when (requested) {
         GlassRendererKind.GroupedExperimental -> if (sceneKey in groupedSceneAllowlist) {
@@ -115,47 +115,13 @@ data class GlassBackendPolicy(
         GlassRendererKind.KyantReference -> GlassRendererKind.KyantReference
     }
 
-    fun usesNewMotion(routeKey: String): Boolean = routeKey in newMotionRouteAllowlist
-
     companion object {
         val ReferenceOnly = GlassBackendPolicy()
 
-        /**
-         * First phase-2 experiment. It is selected only when the build-time experiment switch is
-         * explicitly enabled; normal builds continue to use [ReferenceOnly].
-         */
-        val Phase2LargeSurfaceExperiment = GlassBackendPolicy(
+        /** Production policy for large glass surfaces and grouped week-course rendering. */
+        val LargeGlass = GlassBackendPolicy(
             groupedSceneAllowlist = GlassSceneKeys.Phase2GroupedRoutes,
             stableEnvelopeRouteAllowlist = GlassSceneKeys.Phase2LargeSurfaceEnvelopeRoutes
-        )
-
-        /**
-         * First phase-3 experiment. The accepted route geometry and content handoff remain on the
-         * legacy channel; only the moving glass outline consumes the independent spring channel.
-         */
-        val Phase3LiquidMotionExperiment = GlassBackendPolicy(
-            newMotionRouteAllowlist = GlassSceneKeys.Phase3LiquidMotionRoutes
-        )
-
-        fun experiments(
-            largeSurfaceEnabled: Boolean,
-            liquidMotionEnabled: Boolean
-        ): GlassBackendPolicy = GlassBackendPolicy(
-            groupedSceneAllowlist = if (largeSurfaceEnabled) {
-                GlassSceneKeys.Phase2GroupedRoutes
-            } else {
-                emptySet()
-            },
-            stableEnvelopeRouteAllowlist = if (largeSurfaceEnabled) {
-                GlassSceneKeys.Phase2LargeSurfaceEnvelopeRoutes
-            } else {
-                emptySet()
-            },
-            newMotionRouteAllowlist = if (liquidMotionEnabled) {
-                GlassSceneKeys.Phase3LiquidMotionRoutes
-            } else {
-                emptySet()
-            }
         )
     }
 }
@@ -229,15 +195,15 @@ data class GlassMaterialSpec(
         fun popup(blur: Dp) = GlassMaterialSpec(
             role = GlassMaterialRole.Popup,
             blur = blur,
-            lensHeight = 4.dp,
-            lensAmount = 8.dp,
-            surfaceAlpha = 0.74f,
-            borderAlpha = 0f,
-            highlightAlpha = 0f,
-            shadowAlpha = 0f,
-            innerShadowAlpha = 0f,
-            depthEffect = false,
-            useVibrancy = false
+            lensHeight = 12.dp,
+            lensAmount = 24.dp,
+            surfaceAlpha = 0.34f,
+            borderAlpha = 0.24f,
+            highlightAlpha = 0.06f,
+            shadowAlpha = 0.16f,
+            innerShadowAlpha = 0.10f,
+            depthEffect = true,
+            useVibrancy = true
         )
 
         fun simpleBlur(blur: Dp) = GlassMaterialSpec(

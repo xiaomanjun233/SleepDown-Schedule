@@ -1,81 +1,103 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
+import android.os.Build
+import android.os.Trace
 import androidx.compose.runtime.staticCompositionLocalOf
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
 
 /**
- * Lifecycle of expensive course-card material nodes while an exact cached home frame covers them.
- * Card content, layout, input and semantics stay composed in every phase.
+ * Lifecycle of expensive course-card material nodes while an exact cached Home frame covers them.
+ * Suspended removes only sampled glass/decoration nodes. The real card layout, flat translucent
+ * fallback, text, input and semantics stay composed. Revealing crossfades the restored glass over
+ * that flat fallback after Closing.
  */
 enum class CourseGlassOcclusionPhase {
     Live,
+    Preparing,
     Suspended,
-    Prewarming;
+    PostCloseRestore,
+    Revealing;
 
     val mountsMaterialNodes: Boolean
         get() = this != Suspended
+
+    /** A complete page plan is frozen before Opening and kept through the final cached handoff. */
+    val usesFrozenGroupPlan: Boolean
+        get() = this != Live
 }
 
 /**
- * Eight spatial restore waves leave enough Closing frames to warm the current week first and the
- * two retained Pager neighbours afterwards.  The overlay is still substantially blurred when the
- * final wave is reached, so the live handoff no longer owns any Kyant node allocation work.
+ * Post-close work is paced against an equivalent 60 Hz cadence. At 120 Hz this naturally advances
+ * at most every second display frame instead of doubling material initialization throughput.
  */
-internal const val CourseGlassRestoreWaveCount = 8
-internal const val CourseGlassClosingPrewarmProgress = 0.88f
+internal const val CourseGlassRestoreCadenceNanos = 16_666_667L
+internal const val CourseGlassMaterialRevealDurationMillis = 200
 
-private val CourseGlassRestoreThresholds = floatArrayOf(
-    0.88f,
-    0.78f,
-    0.68f,
-    0.58f,
-    0.48f,
-    0.40f,
-    0.34f,
-    0.28f
+internal fun courseGlassFlatFallbackAlpha(baseAlpha: Float, materialProgress: Float): Float =
+    baseAlpha.coerceIn(0f, 1f) * (1f - materialProgress.coerceIn(0f, 1f))
+
+/** One stable group from the complete pre-occlusion page plan. */
+data class CourseGlassRestoreGroup(
+    val key: String,
+    val pageWeek: Int,
+    val normalizedCenterX: Float
 )
 
-internal fun courseGlassRestoreWave(closingProgress: Float?): Int {
-    val progress = closingProgress ?: return 0
-    return CourseGlassRestoreThresholds.count { progress <= it }
-        .coerceIn(0, CourseGlassRestoreWaveCount)
-}
-
 /**
- * Centre-out within a page, then the same centre-out order for the retained adjacent pages.
- * This keeps the page currently revealed by Closing complete before warming invisible neighbours.
+ * Week pages publish their complete group plans here while remaining fully composed. The
+ * coordinator takes one immutable, centre-out snapshot before suspending course materials.
  */
-internal fun courseGlassColumnRestoreWave(
-    targetWeek: Int,
-    pageWeek: Int,
-    columnIndex: Int,
-    columnCount: Int
-): Int {
-    val count = columnCount.coerceAtLeast(1)
-    val index = columnIndex.coerceIn(0, count - 1)
-    val centre = (count - 1) / 2f
-    val nearestDistance = if (count % 2 == 0) 0.5f else 0f
-    val centreOutWave = 1 + kotlin.math.round(
-        (kotlin.math.abs(index - centre) - nearestDistance).coerceAtLeast(0f)
-    ).toInt()
-    return if (pageWeek == targetWeek) {
-        centreOutWave.coerceIn(1, CourseGlassRestoreWaveCount / 2)
-    } else {
-        (centreOutWave + CourseGlassRestoreWaveCount / 2)
-            .coerceIn(1, CourseGlassRestoreWaveCount)
+class CourseGlassRestoreRegistry {
+    private val pageGroups = linkedMapOf<Int, List<CourseGlassRestoreGroup>>()
+
+    @Synchronized
+    fun replacePage(
+        pageWeek: Int,
+        groups: List<CourseGlassRestoreGroup>,
+        topologyFrozen: Boolean
+    ) {
+        val normalized = groups.distinctBy { it.key }
+        val previous = pageGroups[pageWeek]
+        if (previous?.map { it.key } == normalized.map { it.key }) return
+        pageGroups[pageWeek] = normalized
+        if (topologyFrozen && previous != null) {
+            CourseGlassOcclusionTrace.recordGroupTopologyChange()
+        }
     }
+
+    @Synchronized
+    fun removePage(pageWeek: Int) {
+        pageGroups.remove(pageWeek)
+    }
+
+    @Synchronized
+    fun orderedGroupKeys(targetWeek: Int): List<String> = pageGroups.values
+        .flatten()
+        .distinctBy { it.key }
+        .sortedWith(
+            compareBy<CourseGlassRestoreGroup> {
+                if (it.pageWeek == targetWeek) 0 else 1
+            }.thenBy { abs(it.pageWeek - targetWeek) }
+                .thenBy { if (it.pageWeek < targetWeek) 0 else 1 }
+                .thenBy { abs(it.normalizedCenterX - 0.5f) }
+                .thenBy { it.normalizedCenterX }
+                .thenBy { it.key }
+        )
+        .map { it.key }
 }
 
 data class CourseGlassRestorePlan(
     val phase: CourseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live,
-    val targetWeek: Int = 1,
-    val restoredWave: Int = CourseGlassRestoreWaveCount
+    val restoredGroupKeys: Set<String> = emptySet()
 ) {
-    fun mountsColumn(pageWeek: Int, columnIndex: Int, columnCount: Int): Boolean = when (phase) {
-        CourseGlassOcclusionPhase.Live -> true
+    fun mountsGroup(groupKey: String?): Boolean = when (phase) {
+        CourseGlassOcclusionPhase.Live,
+        CourseGlassOcclusionPhase.Preparing,
+        CourseGlassOcclusionPhase.Revealing -> true
         CourseGlassOcclusionPhase.Suspended -> false
-        CourseGlassOcclusionPhase.Prewarming ->
-            courseGlassColumnRestoreWave(targetWeek, pageWeek, columnIndex, columnCount) <=
-                restoredWave
+        CourseGlassOcclusionPhase.PostCloseRestore ->
+            groupKey != null && groupKey in restoredGroupKeys
     }
 }
 
@@ -87,6 +109,15 @@ val LocalCourseGlassRestorePlan = staticCompositionLocalOf {
     CourseGlassRestorePlan()
 }
 
+val LocalCourseGlassRestoreRegistry = staticCompositionLocalOf<CourseGlassRestoreRegistry?> {
+    null
+}
+
+/** Read from draw/layer blocks so the reveal updates pixels, not card composition. */
+val LocalCourseGlassMaterialRevealProgress = staticCompositionLocalOf<() -> Float> {
+    { 1f }
+}
+
 internal fun shouldSuspendCourseGlassMaterials(
     experimentEnabled: Boolean,
     weekMode: Boolean,
@@ -94,12 +125,65 @@ internal fun shouldSuspendCourseGlassMaterials(
     substantialOverlayActive: Boolean
 ): Boolean = experimentEnabled && weekMode && exactCacheCoverActive && substantialOverlayActive
 
-internal fun shouldBeginCourseGlassPrewarm(
-    phase: CourseGlassOcclusionPhase,
-    overlayClosing: Boolean,
-    closingProgress: Float?
-): Boolean =
-    phase == CourseGlassOcclusionPhase.Suspended &&
-        overlayClosing &&
-        closingProgress != null &&
-        closingProgress <= CourseGlassClosingPrewarmProgress
+/** Stable key: restore progress never changes planner membership or positional Compose keys. */
+internal fun courseGlassRestoreGroupKey(
+    pageWeek: Int,
+    memberIds: List<String>
+): String = buildString {
+    append("week:").append(pageWeek).append('|')
+    memberIds.sorted().forEach { id -> append(id.length).append(':').append(id).append('|') }
+}
+
+/** Trace counters used by Perfetto structural acceptance, also present in signed Release builds. */
+internal object CourseGlassOcclusionTrace {
+    private val liveDrawsDuringMorph = AtomicLong(0L)
+    private val fullTreeRecordsDuringMorph = AtomicLong(0L)
+    private val topologyChanges = AtomicLong(0L)
+    private val postCloseRestoreFrames = AtomicLong(0L)
+
+    fun beginMorph(generation: Int) {
+        liveDrawsDuringMorph.set(0L)
+        fullTreeRecordsDuringMorph.set(0L)
+        topologyChanges.set(0L)
+        postCloseRestoreFrames.set(0L)
+        setCounter("CourseGlass.LiveDrawsDuringMorph", 0L)
+        setCounter("CourseGlass.FullTreeRecordsDuringMorph", 0L)
+        setCounter("CourseGlass.GroupTopologyChanges", 0L)
+        setCounter("CourseGlass.PostCloseRestoreFrames", 0L)
+        setCounter("CourseGlass.OcclusionGeneration", generation.toLong())
+    }
+
+    fun recordLiveDrawDuringMorph() {
+        setCounter(
+            "CourseGlass.LiveDrawsDuringMorph",
+            liveDrawsDuringMorph.incrementAndGet()
+        )
+    }
+
+    fun recordFullTreeRecordDuringMorph() {
+        setCounter(
+            "CourseGlass.FullTreeRecordsDuringMorph",
+            fullTreeRecordsDuringMorph.incrementAndGet()
+        )
+    }
+
+    fun recordGroupTopologyChange() {
+        setCounter(
+            "CourseGlass.GroupTopologyChanges",
+            topologyChanges.incrementAndGet()
+        )
+    }
+
+    fun recordPostCloseRestoreFrame() {
+        setCounter(
+            "CourseGlass.PostCloseRestoreFrames",
+            postCloseRestoreFrames.incrementAndGet()
+        )
+    }
+
+    private fun setCounter(name: String, value: Long) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            Trace.setCounter(name, value)
+        }
+    }
+}

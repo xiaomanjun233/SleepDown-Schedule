@@ -5,13 +5,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Rect
-import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.exp
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 enum class LiquidMorphDirection { Opening, Closing }
 
@@ -319,21 +312,6 @@ fun interface LiquidDeformationSpec {
 
 val NoLiquidDeformationSpec = LiquidDeformationSpec { _, _ -> LiquidDeformationFrame.None }
 
-/**
- * A motion-only channel. It deliberately has no content/layout callback: the accepted route
- * geometry and content handoff keep using their existing spec while this channel deforms only the
- * transient glass outline.
- */
-data class DecoupledLiquidOutlineMotionSpec(
-    val motion: LiquidMotionSpec,
-    val deformation: LiquidDeformationSpec
-) {
-    fun sample(input: LiquidMorphInput): LiquidDeformationFrame {
-        val motionFrame = motion.sample(input)
-        return deformation.sample(input, motionFrame)
-    }
-}
-
 data class SegmentedLiquidMorphSpec(
     override val routeKey: String,
     val motion: LiquidMotionSpec,
@@ -360,148 +338,6 @@ data class SegmentedLiquidMorphSpec(
         )
     }
 }
-
-/** Closed-form spring clock used only by allow-listed future specs. */
-data class SpringProgressClock(
-    val stiffness: Float,
-    val dampingRatio: Float,
-    val durationSeconds: Float
-) {
-    init {
-        require(stiffness > 0f)
-        require(dampingRatio > 0f && dampingRatio <= 1f) {
-            "SpringProgressClock currently supports underdamped and critically damped motion."
-        }
-        require(durationSeconds > 0f)
-    }
-
-    fun sample(rawProgress: Float): LiquidProgressKinematics {
-        val raw = rawProgress.coerceIn(0f, 1f)
-        if (raw <= 0f) return LiquidProgressKinematics(0f, 0f, stiffness)
-        if (raw >= 1f) return LiquidProgressKinematics(1f, 0f, 0f)
-        val omega = sqrt(stiffness.toDouble()).toFloat()
-        val time = raw * durationSeconds
-        val (position, velocity) = if (dampingRatio < 1f) {
-            val dampedOmega = omega * sqrt(1f - dampingRatio * dampingRatio)
-            val decay = exp((-dampingRatio * omega * time).toDouble()).toFloat()
-            val ratio = dampingRatio * omega / dampedOmega
-            val angle = dampedOmega * time
-            val remaining = decay * (cos(angle) + ratio * sin(angle))
-            val derivativeRemaining = decay * (
-                -dampingRatio * omega * (cos(angle) + ratio * sin(angle)) +
-                    -dampedOmega * sin(angle) + ratio * dampedOmega * cos(angle)
-                )
-            (1f - remaining) to -derivativeRemaining
-        } else {
-            val decay = exp((-omega * time).toDouble()).toFloat()
-            (1f - (1f + omega * time) * decay) to (omega * omega * time * decay)
-        }
-        val acceleration = stiffness * (1f - position) -
-            2f * dampingRatio * omega * velocity
-        return LiquidProgressKinematics(
-            progress = position,
-            velocity = velocity,
-            acceleration = acceleration
-        )
-    }
-}
-
-data class IndependentSpringMotionSpec(
-    val trajectoryClock: SpringProgressClock,
-    val shapeClock: SpringProgressClock
-) : LiquidMotionSpec {
-    override fun sample(input: LiquidMorphInput): LiquidMotionSample {
-        val raw = if (input.direction == LiquidMorphDirection.Opening) {
-            input.rawProgress
-        } else {
-            1f - input.rawProgress
-        }
-        return LiquidMotionSample(
-            trajectory = trajectoryClock.sample(raw),
-            shape = shapeClock.sample(raw)
-        )
-    }
-}
-
-/**
- * Issue-70-style kinematics without changing layout size. A future renderer applies this only to
- * the moving glass outline; the source/destination content remains unscaled and interactive only
- * after the controller reaches Open.
- */
-data class KinematicLiquidDeformationSpec(
-    val maximumTangentStretch: Float = 0.12f,
-    val maximumCrossAxisSqueeze: Float = 0.07f,
-    val maximumTailLag: Float = 0.09f,
-    val maximumRebound: Float = 0.05f,
-    val velocityForMaximum: Float = 7f,
-    val accelerationForMaximum: Float = 500f
-) : LiquidDeformationSpec {
-    init {
-        require(maximumTangentStretch >= 0f)
-        require(maximumCrossAxisSqueeze >= 0f)
-        require(maximumTailLag >= 0f)
-        require(maximumRebound >= 0f)
-        require(velocityForMaximum > 0f)
-        require(accelerationForMaximum > 0f)
-    }
-
-    override fun sample(
-        input: LiquidMorphInput,
-        motion: LiquidMotionSample
-    ): LiquidDeformationFrame {
-        val raw = input.rawProgress.coerceIn(0f, 1f)
-        val motionEnvelope = 4f * raw * (1f - raw)
-        if (motionEnvelope <= 0f) return LiquidDeformationFrame.None
-
-        val delta = input.target.center - input.source.center
-        val directionOffset = if (input.direction == LiquidMorphDirection.Closing) PI.toFloat() else 0f
-        val tangentAngle = (
-            input.trajectoryTangentAngleRadians ?: atan2(delta.y, delta.x)
-            ) + directionOffset
-        val speed = abs(motion.trajectory.velocity)
-        val acceleration = motion.shape.acceleration
-        val speedFraction = (speed / velocityForMaximum).coerceIn(0f, 1f)
-        val accelerationFraction = (acceleration / accelerationForMaximum).coerceIn(-1f, 1f)
-        val tangentStretch = maximumTangentStretch * speedFraction * motionEnvelope
-        return LiquidDeformationFrame(
-            tangentAngleRadians = tangentAngle,
-            tangentStretch = tangentStretch,
-            crossAxisSqueeze = maximumCrossAxisSqueeze * speedFraction * motionEnvelope,
-            tailLag = maximumTailLag * (-accelerationFraction).coerceAtLeast(0f) * motionEnvelope,
-            rebound = maximumRebound * accelerationFraction.coerceAtLeast(0f) * motionEnvelope
-        )
-    }
-}
-
-/**
- * Issue #70-inspired low-stiffness/low-bounce shape clock. Unlike the sample from that issue,
- * this never drives Modifier.size: the legacy trajectory owns the real rect and the independent
- * spring output is consumed only by the moving outline renderer.
- */
-fun issue70InspiredLiquidOutlineMotionSpec(
-    durationSeconds: Float
-): DecoupledLiquidOutlineMotionSpec = DecoupledLiquidOutlineMotionSpec(
-    motion = IndependentSpringMotionSpec(
-        trajectoryClock = SpringProgressClock(
-            stiffness = 200f,
-            dampingRatio = 0.72f,
-            durationSeconds = durationSeconds
-        ),
-        shapeClock = SpringProgressClock(
-            stiffness = 200f,
-            dampingRatio = 0.5f,
-            durationSeconds = durationSeconds
-        )
-    ),
-    deformation = KinematicLiquidDeformationSpec(
-        maximumTangentStretch = 0.07f,
-        maximumCrossAxisSqueeze = 0.04f,
-        maximumTailLag = 0.05f,
-        maximumRebound = 0.03f,
-        velocityForMaximum = 6f,
-        accelerationForMaximum = 240f
-    )
-)
 
 val LinearLiquidMotionSpec = LiquidMotionSpec { input ->
     val progress = input.rawProgress.coerceIn(0f, 1f)

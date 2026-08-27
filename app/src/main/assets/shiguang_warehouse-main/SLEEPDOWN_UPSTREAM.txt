@@ -1,0 +1,7 @@
+Repository: https://github.com/xingheyuzhuan/shiguang_warehouse
+Resources commit: 745a86d774a662b85dfb4adbe486fa601ea9876f
+Index branch commit: e9ef5ea9a7d89015912915966d128961f6e7e356
+Index protocol: v2
+Synced: 2026-08-25
+
+SleepDown reads school_index.pb first and keeps the bundled YAML files as a compatibility fallback.

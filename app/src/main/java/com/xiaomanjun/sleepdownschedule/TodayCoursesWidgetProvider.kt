@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.feature.widget.*
+import com.xiaomanjun.sleepdownschedule.feature.widget.providers.*
+
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context

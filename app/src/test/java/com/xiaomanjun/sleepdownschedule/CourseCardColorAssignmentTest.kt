@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -69,6 +70,63 @@ class CourseCardColorAssignmentTest {
             "adjacent cards need visible hue, saturation, or brightness contrast",
             courseCardAppearanceDistance(first, second) >= 0.20
         )
+    }
+
+    @Test
+    fun fourSampledWallpaperColorsStillFlowThroughTheStableAssignmentAlgorithm() {
+        val courses = (1L..12L).map { course(it, "课程$it") }
+        val sampled = listOf(0xFF77BDF2L, 0xFFF09AB6L, 0xFF8DD3A8L, 0xFFFFD166L)
+
+        val assignments = buildCourseCardColorAssignments(courses, sampled)
+
+        assertEquals(courses.size, assignments.size)
+        assertEquals(assignments, buildCourseCardColorAssignments(courses.reversed(), sampled))
+        assertTrue(assignments.values.distinct().size > sampled.size)
+    }
+
+    @Test
+    fun tonalFamilyUsesAnObviousLightToDarkRange() {
+        val courses = (1L..10L).map { course(it, "课程$it") }
+        val assignments = buildCourseCardColorAssignments(
+            courses = courses,
+            representativeColors = listOf(0xFF86B7E8L),
+            tonalFamily = true
+        )
+        val values = assignments.values.map { color ->
+            maxOf(
+                (color shr 16) and 0xFF,
+                (color shr 8) and 0xFF,
+                color and 0xFF
+            ) / 255f
+        }
+
+        assertTrue(
+            "tonal cards should include visibly light and dark members",
+            values.maxOrNull()!! - values.minOrNull()!! >= 0.28f
+        )
+    }
+
+    @Test
+    fun gradientFamilyAlwaysAssignsEveryCourseInATwelveCardSchedule() {
+        val courses = listOf(
+            "时间管理与拖延症", "高等数学", "大学英语", "大学物理", "数据结构", "线性代数",
+            "马克思主义原理", "体育", "软件工程", "数据库", "计算机网络", "操作系统"
+        ).mapIndexed { index, name -> course(index.toLong() + 1L, name) }
+
+        val assignments = buildCourseCardColorAssignments(
+            courses = courses,
+            representativeColors = listOf(0xFF86B7E8L),
+            tonalFamily = true
+        )
+
+        assertEquals(courses.map(::courseCardColorKey).toSet(), assignments.keys)
+        assertEquals(assignments, buildCourseCardColorAssignments(courses.reversed(), listOf(0xFF86B7E8L), true))
+    }
+
+    @Test
+    fun encodedCustomPaletteIsBoundedAndRoundTrips() {
+        val colors = listOf(0xFF112233L, 0xFF445566L, 0xFF112233L, 0xFF778899L)
+        assertEquals(colors.distinct(), decodeCourseCardPalette(encodeCourseCardPalette(colors)))
     }
 
 }

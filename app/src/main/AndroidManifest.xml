@@ -39,9 +39,15 @@
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="android.app.action.AUTOMATIC_ZEN_RULE" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <meta-data
+                android:name="android.service.zen.automatic.ruleType"
+                android:value="SleepDown 课程勿扰" />
+            <meta-data
+                android:name="android.service.zen.automatic.ruleInstanceLimit"
+                android:value="1" />
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -81,7 +87,7 @@
         </activity>
         <activity-alias
             android:name=".LauncherFollow"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:label="@string/app_name"
@@ -140,6 +146,11 @@
                 <data android:pathPattern=".*\.SLEEPDOWN" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".QuickSheetSettingsDetailActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".MainActivity" />
         <activity
             android:name=".ScheduleManagerActivity"
             android:exported="false"

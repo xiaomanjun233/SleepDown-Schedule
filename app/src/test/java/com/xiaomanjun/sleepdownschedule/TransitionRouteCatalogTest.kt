@@ -128,5 +128,9 @@ class TransitionRouteCatalogTest {
             AnchoredLegacyProfileId.Liquid,
             profile(TransitionRouteId.AiProgressToHistory)
         )
+        assertEquals(
+            AnchoredLegacyProfileId.DetailSettings,
+            profile(TransitionRouteId.AiHistoryToDetail)
+        )
     }
 }

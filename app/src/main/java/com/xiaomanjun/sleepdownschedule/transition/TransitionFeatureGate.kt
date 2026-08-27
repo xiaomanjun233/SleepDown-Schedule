@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.transition
 
-import com.xiaomanjun.sleepdownschedule.SleepDownRemoteConfig
+import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 
 internal object TransitionFeatureGate {
     fun allowsOplus(route: TransitionRouteSpec): Boolean {
@@ -12,7 +13,7 @@ internal object TransitionFeatureGate {
 internal object TransitionFeaturePolicy {
     fun allowsOplus(
         route: TransitionRouteSpec,
-        config: com.xiaomanjun.sleepdownschedule.RemoteTransitionConfig?
+        config: RemoteTransitionConfig?
     ): Boolean = route.nativePolicy == TransitionNativePolicy.OplusAllowlisted &&
         config?.oplusViewSeamlessEnabled == true &&
         route.id.wireName in config.oplusRouteAllowlist

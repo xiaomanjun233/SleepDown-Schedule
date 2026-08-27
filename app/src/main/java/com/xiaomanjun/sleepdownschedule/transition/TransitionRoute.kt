@@ -8,7 +8,9 @@ enum class TransitionRouteId(val wireName: String) {
     CourseManagementToDetail("course_management_to_detail"),
     ManualImportToHistory("manual_import_to_history"),
     AiProgressToHistory("ai_progress_to_history"),
+    AiHistoryToDetail("ai_history_to_detail"),
     HomeToSettingsDetail("home_to_settings_detail"),
+    QuickSheetToSettingsDetail("quick_sheet_to_settings_detail"),
     SettingsToSettingsDetail("settings_to_settings_detail"),
     ScheduleManagerToSettingsDetail("schedule_manager_to_settings_detail"),
     HomeToEduImport("home_to_edu_import"),
@@ -25,6 +27,7 @@ enum class TransitionRouteId(val wireName: String) {
 enum class AnchoredLegacyProfileId {
     HomeMenuDestination,
     CourseManagementDetail,
+    DetailSettings,
     Liquid,
     Parabolic
 }
@@ -138,9 +141,33 @@ object TransitionRouteCatalog {
             requiresReturnAnchor = true
         ),
         TransitionRouteSpec(
+            id = TransitionRouteId.AiHistoryToDetail,
+            destinationClassName = "$PackageName.AiImportHistoryDetailActivity",
+            legacyProfile = LegacyTransitionProfile.Anchored(
+                profileId = AnchoredLegacyProfileId.DetailSettings,
+                sourceCornerRadiusDp = 18f
+            ),
+            nativePolicy = TransitionNativePolicy.Never,
+            requiresOpeningAnchor = true,
+            requiresReturnAnchor = true
+        ),
+        TransitionRouteSpec(
             TransitionRouteId.HomeToSettingsDetail,
             "$PackageName.SettingsDetailActivity",
             LegacyTransitionProfile.PlatformDefault
+        ),
+        // 多课表快速设置的"详细设置"按钮：走非 Oplus 锚定 Morph 链路。
+        // 使用 Manifest 原生透明的真实 Activity 保留首页 Surface；页面仍复用同一个
+        // SettingsDetailActivityHost，不能用运行时 setTheme 或 Activity alias 代替。
+        TransitionRouteSpec(
+            id = TransitionRouteId.QuickSheetToSettingsDetail,
+            destinationClassName = "$PackageName.QuickSheetSettingsDetailActivity",
+            legacyProfile = LegacyTransitionProfile.Anchored(
+                profileId = AnchoredLegacyProfileId.DetailSettings,
+                sourceCornerRadiusDp = 18f
+            ),
+            requiresOpeningAnchor = true,
+            requiresReturnAnchor = true
         ),
         TransitionRouteSpec(
             TransitionRouteId.SettingsToSettingsDetail,

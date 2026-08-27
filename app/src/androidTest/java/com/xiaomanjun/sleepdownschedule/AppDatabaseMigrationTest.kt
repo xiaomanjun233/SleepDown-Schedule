@@ -56,6 +56,74 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
+    fun migrate37To38ConvertsLegacyMulticolorAndAbsoluteWeekHeight() {
+        helper.createDatabase(TEST_DATABASE, 37).use { database ->
+            database.execSQL(
+                """
+                INSERT INTO schedule_config (
+                    id, totalWeeks, currentWeek, notificationLeadMinutes,
+                    autoCurrentWeek, notificationsEnabled, notificationMode,
+                    wallpaperBlur, wallpaperBrightness, cardColorArgb, cardAlpha,
+                    courseCardBlur, courseCardGlassEnabled, courseCardFontScale,
+                    alternateCardColorArgb, weekCardHeightDp, homeTextLight,
+                    followSystemDarkMode, darkMode, defaultWallpaperStyle,
+                    hideEmptyWeekends, dockAlignment, defaultHomeMode,
+                    liveUpdateActionsEnabled, liveUpdateChipTextMode,
+                    classDurationMinutes, breakDurationMinutes,
+                    morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount,
+                    hideFromRecents, autoCheckUpdates
+                ) VALUES (
+                    7, 20, 6, 15,
+                    0, 1, 'STANDARD',
+                    0, 1, 0, 1,
+                    10, 1, 1,
+                    0, 54, 0,
+                    1, 0, 'NONE',
+                    0, 'CENTER', 'WEEK',
+                    1, 'LOCATION',
+                    45, 10,
+                    4, 0, 4, 4,
+                    0, 1
+                )
+                """.trimIndent()
+            )
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            APP_DATABASE_VERSION,
+            true,
+            *APP_DATABASE_MIGRATIONS.toTypedArray()
+        ).use { database ->
+            assertSingleText(
+                database,
+                "SELECT courseCardColorMode FROM schedule_config WHERE id = 7",
+                "COLORFUL"
+            )
+            assertSingleText(
+                database,
+                "SELECT alternateCourseCardColorMode FROM schedule_config WHERE id = 7",
+                "COLORFUL"
+            )
+            assertSingleValue(
+                database,
+                "SELECT cardColorArgb FROM schedule_config WHERE id = 7",
+                0xFFD6E9FF.toInt()
+            )
+            assertSingleFloat(
+                database,
+                "SELECT weekCardHeightScale FROM schedule_config WHERE id = 7",
+                0.75f
+            )
+            assertSingleFloat(
+                database,
+                "SELECT weekCardCornerProgress FROM schedule_config WHERE id = 7",
+                0.5f
+            )
+        }
+    }
+
+    @Test
     fun migrate32To34PreservesUserScheduleData() {
         helper.createDatabase(TEST_DATABASE, 32).use { database ->
             database.execSQL(
@@ -345,6 +413,13 @@ class AppDatabaseMigrationTest {
         database.query(sql).use { cursor ->
             check(cursor.moveToFirst())
             assertEquals(expected, cursor.getString(0))
+        }
+    }
+
+    private fun assertSingleFloat(database: SupportSQLiteDatabase, sql: String, expected: Float) {
+        database.query(sql).use { cursor ->
+            check(cursor.moveToFirst())
+            assertEquals(expected, cursor.getFloat(0), 0.0001f)
         }
     }
 

@@ -75,6 +75,8 @@ private fun TransitionOpenRequest.attachAnchoredSourcePlaceholder(): LegacySourc
             HomeMenuDestinationSourcePlaceholderMillis
         AnchoredLegacyProfileId.CourseManagementDetail ->
             CourseManagementDetailSourcePlaceholderMillis
+        AnchoredLegacyProfileId.DetailSettings ->
+            CourseManagementDetailSourcePlaceholderMillis
         AnchoredLegacyProfileId.Liquid -> return null
     }
     val anchor = payload?.openingAnchor?.takeIf(TransitionAnchorFrame::isValid) ?: return null

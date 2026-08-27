@@ -2,9 +2,14 @@
 // Modified for SleepDown-Schedule.
 package com.kyant.backdrop.catalog.components
 
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -100,12 +105,26 @@ fun LiquidBottomTabs(
     content: @Composable RowScope.() -> Unit
 ) {
     val isLightTheme = isLightThemeOverride ?: !isSystemInDarkTheme()
-    val accentColor =
-        if (isLightTheme) lightAccentColor
-        else Color(0xFF0091FF)
-    val containerColor =
-        if (isLightTheme) lightContainerColor.copy(containerAlpha)
-        else Color(0xFF121212).copy(containerAlpha)
+    // Theme ownership can change when a dock moves between wallpaper-adaptive Home and the app
+    // themed settings page. Keep one Kyant surface alive and crossfade its material after the tab
+    // settles; recreating light/dark surfaces at release produces a visible one-frame flash.
+    val themeBlend by animateFloatAsState(
+        targetValue = if (isLightTheme) 1f else 0f,
+        animationSpec = tween(220),
+        label = "LiquidBottomTabsThemeBlend"
+    )
+    val animatedContainerAlpha by animateFloatAsState(
+        targetValue = containerAlpha,
+        animationSpec = tween(220),
+        label = "LiquidBottomTabsContainerAlpha"
+    )
+    val accentColor by animateColorAsState(
+        targetValue = if (isLightTheme) lightAccentColor else Color(0xFF0091FF),
+        animationSpec = tween(220),
+        label = "LiquidBottomTabsAccentColor"
+    )
+    val lightContainerSurface = lightContainerColor.copy(alpha = animatedContainerAlpha)
+    val darkContainerSurface = Color(0xFF121212).copy(alpha = animatedContainerAlpha)
 
     val tabsBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.ChromeCombined,
@@ -115,7 +134,6 @@ fun LiquidBottomTabs(
         blurRadius,
         lensHeight,
         lensAmount,
-        containerColor,
         chromaticAberrationEnabled,
         containerShadowEnabled
     ) {
@@ -124,7 +142,7 @@ fun LiquidBottomTabs(
             blur = blurRadius,
             lensHeight = lensHeight,
             lensAmount = lensAmount,
-            surfaceAlpha = containerColor.alpha,
+            surfaceAlpha = 1f,
             borderAlpha = 0f,
             highlightAlpha = 1f,
             shadowAlpha = if (containerShadowEnabled) 1f else 0f,
@@ -307,7 +325,10 @@ fun LiquidBottomTabs(
                         scaleY = scale
                     },
                     shadowOverride = if (containerShadowEnabled) ({ Shadow.Default }) else null,
-                    onDrawSurface = { drawRect(containerColor) }
+                    onDrawSurface = {
+                        drawRect(darkContainerSurface, alpha = 1f - themeBlend)
+                        drawRect(lightContainerSurface, alpha = themeBlend)
+                    }
                 )
                 .then(interactiveHighlight.modifier)
                 .height(containerHeight)
@@ -352,7 +373,10 @@ fun LiquidBottomTabs(
                                 Highlight.Default.copy(alpha = progress * if (useOfficialGlassParameters) officialHighlightAlpha else 0.45f)
                             },
                             shadowOverride = if (containerShadowEnabled) ({ Shadow.Default }) else null,
-                            onDrawSurface = { drawRect(containerColor) }
+                            onDrawSurface = {
+                                drawRect(darkContainerSurface, alpha = 1f - themeBlend)
+                                drawRect(lightContainerSurface, alpha = themeBlend)
+                            }
                         )
                         .then(interactiveHighlight.modifier)
                         .height(indicatorHeight)
@@ -419,10 +443,14 @@ fun LiquidBottomTabs(
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
+                        val neutralAlpha = if (useOfficialGlassParameters) 0.1f else 0.07f
                         drawRect(
-                            if (isLightTheme) Color.Black.copy(if (useOfficialGlassParameters) 0.1f else 0.07f)
-                            else Color.White.copy(if (useOfficialGlassParameters) 0.1f else 0.07f),
-                            alpha = 1f - progress
+                            Color.White.copy(alpha = neutralAlpha),
+                            alpha = (1f - themeBlend) * (1f - progress)
+                        )
+                        drawRect(
+                            Color.Black.copy(alpha = neutralAlpha),
+                            alpha = themeBlend * (1f - progress)
                         )
                         drawRect(Color.Black.copy(alpha = 0.03f * progress))
                     }

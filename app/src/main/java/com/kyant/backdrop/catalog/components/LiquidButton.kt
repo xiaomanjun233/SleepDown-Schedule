@@ -2,8 +2,12 @@
 // Modified for SleepDown-Schedule.
 package com.kyant.backdrop.catalog.components
 
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,6 +15,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -21,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.semantics.Role
@@ -69,15 +75,20 @@ fun LiquidButton(
     lensAmount: Dp = 24f.dp,
     chromaticAberration: Boolean = false,
     shadowEnabled: Boolean = true,
+    highlightEnabled: Boolean = true,
     clickTargetEnabled: Boolean = true,
     pressExpansion: Dp = 4f.dp,
     highlightRadiusMultiplier: Float = 1.5f,
+    staticPressDimAlpha: Float = 0f,
     shape: Shape = Capsule(),
+    clipToBounds: Boolean = false,
     pressSnapshot: LiquidButtonPressSnapshot? = null,
     interactionEnabledAt: (size: Size, offset: Offset) -> Boolean = { _, _ -> true },
     content: @Composable RowScope.() -> Unit
 ) {
     val animationScope = rememberCoroutineScope()
+    val clickInteractionSource = remember { MutableInteractionSource() }
+    val pressed by clickInteractionSource.collectIsPressedAsState()
     val latestInteractionEnabledAt = rememberUpdatedState(interactionEnabledAt)
 
     val interactiveHighlight = remember(animationScope, highlightRadiusMultiplier) {
@@ -96,7 +107,8 @@ fun LiquidButton(
         chromaticAberration,
         tint,
         surfaceColor,
-        shadowEnabled
+        shadowEnabled,
+        highlightEnabled
     ) {
         GlassMaterialSpec(
             role = GlassMaterialRole.Control,
@@ -109,7 +121,7 @@ fun LiquidButton(
                 else -> 0f
             },
             borderAlpha = 0f,
-            highlightAlpha = 1f,
+            highlightAlpha = if (highlightEnabled) 1f else 0f,
             shadowAlpha = if (shadowEnabled) 1f else 0f,
             innerShadowAlpha = 0f,
             chromaticAberration = chromaticAberration,
@@ -136,7 +148,7 @@ fun LiquidButton(
                     blur(blurRadius.toPx())
                     lens(lensHeight.toPx(), lensAmount.toPx(), chromaticAberration = chromaticAberration)
                 },
-                highlightOverride = { Highlight.Default },
+                highlightOverride = if (highlightEnabled) ({ Highlight.Default }) else null,
                 shadowOverride = if (shadowEnabled) ({ Shadow.Default }) else null,
                 additionalLayerBlock = if (isInteractive) {
                     {
@@ -176,13 +188,30 @@ fun LiquidButton(
                     if (surfaceColor.isSpecified) {
                         drawRect(surfaceColor)
                     }
+                },
+                clipToBounds = clipToBounds
+            )
+            .then(
+                if (!isInteractive && staticPressDimAlpha > 0f) {
+                    Modifier.drawWithContent {
+                        drawContent()
+                        if (pressed) {
+                            drawRect(Color.Black.copy(alpha = staticPressDimAlpha.coerceIn(0f, 1f)))
+                        }
+                    }
+                } else {
+                    Modifier
                 }
             )
             .then(
                 if (clickTargetEnabled) {
                     Modifier.clickable(
-                        interactionSource = null,
-                        indication = if (isInteractive) null else LocalIndication.current,
+                        interactionSource = clickInteractionSource,
+                        indication = when {
+                            isInteractive -> null
+                            staticPressDimAlpha > 0f -> null
+                            else -> LocalIndication.current
+                        },
                         role = Role.Button,
                         onClick = onClick
                     )

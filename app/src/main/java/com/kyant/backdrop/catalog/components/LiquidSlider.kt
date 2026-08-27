@@ -2,6 +2,8 @@
 // Modified for SleepDown-Schedule.
 package com.kyant.backdrop.catalog.components
 
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background

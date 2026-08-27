@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -134,7 +136,8 @@ fun Modifier.sleepDownGlassSurface(
     onDrawBehind: (DrawScope.() -> Unit)? = null,
     onDrawBackdrop: (DrawScope.(DrawScope.() -> Unit) -> Unit)? = null,
     onDrawSurface: (DrawScope.() -> Unit)? = null,
-    onDrawFront: (DrawScope.() -> Unit)? = null
+    onDrawFront: (DrawScope.() -> Unit)? = null,
+    clipToBounds: Boolean = false
 ): Modifier {
     if (sceneState?.diagnosticsEnabled == true) {
         check(descriptor.materialRole == material.role) {
@@ -153,6 +156,7 @@ fun Modifier.sleepDownGlassSurface(
     val currentOnDrawBackdrop = rememberUpdatedState(onDrawBackdrop)
     val currentOnDrawSurface = rememberUpdatedState(onDrawSurface)
     val currentOnDrawFront = rememberUpdatedState(onDrawFront)
+    val currentClipToBounds = rememberUpdatedState(clipToBounds)
     val diagnosticSceneState = sceneState?.takeIf { it.diagnosticsEnabled }
 
     val stableShape: () -> Shape = remember { { currentShape.value.invoke() } }
@@ -235,12 +239,15 @@ fun Modifier.sleepDownGlassSurface(
             }
         }
     }
-    val hasLayerBlock = effectFrame.layerScale != null || additionalLayerBlock != null
+    val hasLayerBlock = effectFrame.layerScale != null ||
+        additionalLayerBlock != null ||
+        clipToBounds
     val stableLayerBlock: (GraphicsLayerScope.() -> Unit)? = remember(hasLayerBlock) {
         if (!hasLayerBlock) {
             null
         } else {
             {
+                clip = currentClipToBounds.value
                 currentFrame.value.layerScale?.let { scale ->
                     scaleX = scale
                     scaleY = scale

@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
+
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.geometry.Offset
@@ -199,7 +201,6 @@ class GlassFrameworkTest {
             backendPolicy = GlassBackendPolicy.ReferenceOnly
         )
         assertEquals(GlassRendererKind.KyantReference, state.rendererFor(descriptor))
-        assertFalse(state.backendPolicy.usesNewMotion("three-dot-menu"))
     }
 
     @Test
@@ -230,7 +231,7 @@ class GlassFrameworkTest {
         val state = GlassSceneState(
             sceneId = "home",
             diagnosticsEnabled = true,
-            backendPolicy = GlassBackendPolicy.Phase2LargeSurfaceExperiment
+            backendPolicy = GlassBackendPolicy.LargeGlass
         )
         fun descriptor(sceneKey: String) = GlassSurfaceDescriptor(
             id = sceneKey,
@@ -259,46 +260,6 @@ class GlassFrameworkTest {
                     materialRole = GlassMaterialRole.CourseCard,
                     requestedRenderer = GlassRendererKind.GroupedExperimental,
                     sceneKey = GlassSceneKeys.WeekCourseCards
-                )
-            )
-        )
-    }
-
-    @Test
-    fun phase3LiquidMotionPolicyIsIndependentFromPhase2RendererPolicy() {
-        val phase3Only = GlassBackendPolicy.experiments(
-            largeSurfaceEnabled = false,
-            liquidMotionEnabled = true
-        )
-        assertTrue(phase3Only.usesNewMotion(GlassSceneKeys.HomeThreeDotMenuMotion))
-        assertFalse(phase3Only.usesNewMotion("home-personalization"))
-        assertEquals(
-            GlassRendererKind.KyantReference,
-            phase3Only.rendererFor(
-                GlassSurfaceDescriptor(
-                    id = "phase2-disabled",
-                    domain = GlassBackdropDomain.ChromeCombined,
-                    materialRole = GlassMaterialRole.MorphShell,
-                    requestedRenderer = GlassRendererKind.StableEnvelopeExperimental,
-                    sceneKey = GlassSceneKeys.HomeMenuDestinationAddCourse
-                )
-            )
-        )
-
-        val combined = GlassBackendPolicy.experiments(
-            largeSurfaceEnabled = true,
-            liquidMotionEnabled = true
-        )
-        assertTrue(combined.usesNewMotion(GlassSceneKeys.HomeThreeDotMenuMotion))
-        assertEquals(
-            GlassRendererKind.StableEnvelopeExperimental,
-            combined.rendererFor(
-                GlassSurfaceDescriptor(
-                    id = "phase2-enabled",
-                    domain = GlassBackdropDomain.ChromeCombined,
-                    materialRole = GlassMaterialRole.MorphShell,
-                    requestedRenderer = GlassRendererKind.StableEnvelopeExperimental,
-                    sceneKey = GlassSceneKeys.HomeMenuDestinationAddCourse
                 )
             )
         )
@@ -424,21 +385,60 @@ class GlassFrameworkTest {
             )
         )
         assertTrue(CourseGlassOcclusionPhase.Live.mountsMaterialNodes)
+        assertTrue(CourseGlassOcclusionPhase.Preparing.mountsMaterialNodes)
         assertFalse(CourseGlassOcclusionPhase.Suspended.mountsMaterialNodes)
-        assertTrue(CourseGlassOcclusionPhase.Prewarming.mountsMaterialNodes)
+        assertTrue(CourseGlassOcclusionPhase.PostCloseRestore.mountsMaterialNodes)
+        assertTrue(CourseGlassOcclusionPhase.Revealing.mountsMaterialNodes)
+
+        val restoring = CourseGlassRestorePlan(
+            phase = CourseGlassOcclusionPhase.PostCloseRestore,
+            restoredGroupKeys = setOf("current-centre")
+        )
+        assertTrue(restoring.mountsGroup("current-centre"))
+        assertFalse(restoring.mountsGroup("current-edge"))
         assertFalse(
-            shouldBeginCourseGlassPrewarm(
-                phase = CourseGlassOcclusionPhase.Suspended,
-                overlayClosing = true,
-                closingProgress = CourseGlassClosingPrewarmProgress + 0.01f
-            )
+            CourseGlassRestorePlan(CourseGlassOcclusionPhase.Suspended)
+                .mountsGroup("current-centre")
         )
         assertTrue(
-            shouldBeginCourseGlassPrewarm(
-                phase = CourseGlassOcclusionPhase.Suspended,
-                overlayClosing = true,
-                closingProgress = CourseGlassClosingPrewarmProgress
-            )
+            CourseGlassRestorePlan(CourseGlassOcclusionPhase.Revealing)
+                .mountsGroup("current-centre")
+        )
+        assertEquals(200, CourseGlassMaterialRevealDurationMillis)
+        assertEquals(0.72f, courseGlassFlatFallbackAlpha(0.72f, 0f), 0.0001f)
+        assertEquals(0.36f, courseGlassFlatFallbackAlpha(0.72f, 0.5f), 0.0001f)
+        assertEquals(0f, courseGlassFlatFallbackAlpha(0.72f, 1f), 0.0001f)
+    }
+
+    @Test
+    fun courseGlassRestoreRegistryFreezesCurrentWeekCentreOutThenNeighbours() {
+        val registry = CourseGlassRestoreRegistry()
+        registry.replacePage(
+            pageWeek = 7,
+            groups = listOf(
+                CourseGlassRestoreGroup("current-edge", 7, 0.05f),
+                CourseGlassRestoreGroup("current-centre", 7, 0.52f)
+            ),
+            topologyFrozen = false
+        )
+        registry.replacePage(
+            pageWeek = 6,
+            groups = listOf(CourseGlassRestoreGroup("previous-centre", 6, 0.48f)),
+            topologyFrozen = false
+        )
+        registry.replacePage(
+            pageWeek = 8,
+            groups = listOf(CourseGlassRestoreGroup("next-centre", 8, 0.51f)),
+            topologyFrozen = false
+        )
+
+        assertEquals(
+            listOf("current-centre", "current-edge", "previous-centre", "next-centre"),
+            registry.orderedGroupKeys(targetWeek = 7)
+        )
+        assertEquals(
+            courseGlassRestoreGroupKey(7, listOf("b", "a")),
+            courseGlassRestoreGroupKey(7, listOf("a", "b"))
         )
     }
 
@@ -591,6 +591,87 @@ class GlassFrameworkTest {
 
         assertEquals(3, groups.size)
         assertTrue(groups.all { it.members.size == 1 })
+    }
+
+    @Test
+    fun spatialPlannerBatchesDenseWholePageRowsWithoutCreatingHugeTargets() {
+        val viewport = Rect(0f, 0f, 700f, 1_000f)
+        val candidates = (0 until 7).map { column ->
+            GlassGroupCandidate(
+                id = "day-$column",
+                domain = GlassBackdropDomain.Content,
+                materialKey = "week-course-card-liquid",
+                boundsInViewport = Rect(
+                    left = column * 100f + 5f,
+                    top = 120f,
+                    right = column * 100f + 95f,
+                    bottom = 270f
+                ),
+                cornerRadiusPx = 20f
+            )
+        }
+
+        val plans = GlassGroupPlanner.planSpatialChunks(
+            viewport = viewport,
+            candidates = candidates,
+            maxMembersPerPlan = GlassGroupMaximumMembers,
+            minimumFillRatio = 0.34f,
+            maximumLayerAreaFraction = 0.58f
+        )
+
+        assertEquals(1, plans.size)
+        assertEquals(candidates.map { it.id }.toSet(), plans.single().members.map { it.id }.toSet())
+        val tightLayer = plans.single().toTightLayerPlan()
+        val layerAreaFraction =
+            (tightLayer.size.width * tightLayer.size.height).toFloat() /
+                (viewport.width * viewport.height)
+        assertTrue(layerAreaFraction <= 0.58f)
+    }
+
+    @Test
+    fun spatialPlannerSeparatesSparseOrOverlappingCardsAndKeepsTheMemberCap() {
+        val viewport = Rect(0f, 0f, 1_400f, 1_000f)
+        fun candidate(id: String, rect: Rect) = GlassGroupCandidate(
+            id = id,
+            domain = GlassBackdropDomain.Content,
+            materialKey = "week-course-card-liquid",
+            boundsInViewport = rect,
+            cornerRadiusPx = 20f
+        )
+        val sparse = GlassGroupPlanner.planSpatialChunks(
+            viewport = viewport,
+            candidates = listOf(
+                candidate("top-left", Rect(0f, 0f, 90f, 90f)),
+                candidate("bottom-right", Rect(1_310f, 900f, 1_400f, 990f)),
+                candidate("overlap", Rect(20f, 20f, 110f, 110f))
+            ),
+            maxMembersPerPlan = GlassGroupMaximumMembers,
+            minimumFillRatio = 0.34f,
+            maximumLayerAreaFraction = 0.58f
+        )
+        assertEquals(3, sparse.size)
+
+        val denseRow = (0 until 14).map { column ->
+            candidate(
+                id = "dense-$column",
+                rect = Rect(
+                    left = column * 100f + 5f,
+                    top = 200f,
+                    right = column * 100f + 95f,
+                    bottom = 300f
+                )
+            )
+        }
+        val bounded = GlassGroupPlanner.planSpatialChunks(
+            viewport = viewport,
+            candidates = denseRow,
+            maxMembersPerPlan = GlassGroupMaximumMembers,
+            minimumFillRatio = 0.34f,
+            maximumLayerAreaFraction = 0.58f
+        )
+        assertEquals(2, bounded.size)
+        assertTrue(bounded.all { it.members.size <= GlassGroupMaximumMembers })
+        assertEquals(14, bounded.sumOf { it.members.size })
     }
 
     @Test
@@ -821,111 +902,6 @@ class GlassFrameworkTest {
                 )
             }
         }
-    }
-
-    @Test
-    fun independentSpringMotionSeparatesTrajectoryAndShapeKinematics() {
-        val motion = IndependentSpringMotionSpec(
-            trajectoryClock = SpringProgressClock(
-                stiffness = 180f,
-                dampingRatio = 0.72f,
-                durationSeconds = 0.44f
-            ),
-            shapeClock = SpringProgressClock(
-                stiffness = 260f,
-                dampingRatio = 0.58f,
-                durationSeconds = 0.44f
-            )
-        )
-        val sample = motion.sample(
-            LiquidMorphInput(
-                source = Rect.Zero,
-                target = Rect(0f, 0f, 100f, 100f),
-                rawProgress = 0.4f,
-                direction = LiquidMorphDirection.Opening
-            )
-        )
-
-        assertFalse(sample.trajectory.progress == sample.shape.progress)
-        assertFalse(sample.trajectory.velocity == sample.shape.velocity)
-        assertFalse(sample.trajectory.acceleration == sample.shape.acceleration)
-    }
-
-    @Test
-    fun kinematicDeformationIsMotionOnlyAndLeavesEndpointsUndeformed() {
-        val motion = IndependentSpringMotionSpec(
-            trajectoryClock = SpringProgressClock(180f, 0.72f, 0.44f),
-            shapeClock = SpringProgressClock(260f, 0.58f, 0.44f)
-        )
-        val deformation = KinematicLiquidDeformationSpec()
-        fun frame(progress: Float): LiquidDeformationFrame {
-            val input = LiquidMorphInput(
-                source = Rect(0f, 0f, 40f, 40f),
-                target = Rect(200f, 120f, 500f, 620f),
-                rawProgress = progress,
-                direction = LiquidMorphDirection.Opening
-            )
-            return deformation.sample(input, motion.sample(input))
-        }
-
-        assertEquals(LiquidDeformationFrame.None, frame(0f))
-        assertEquals(LiquidDeformationFrame.None, frame(1f))
-        val moving = frame(0.4f)
-        assertTrue(moving.tangentStretch > 0f)
-        assertTrue(moving.crossAxisSqueeze > 0f)
-        assertTrue(moving.tailLag > 0f || moving.rebound > 0f)
-    }
-
-    @Test
-    fun issue70OutlineSpringLeavesLegacyEndpointsAndContentCoordinatesUntouched() {
-        val source = Rect(80f, 120f, 122f, 162f)
-        val target = Rect(430f, 280f, 624f, 597f)
-        val spec = issue70InspiredLiquidOutlineMotionSpec(durationSeconds = 0.44f)
-
-        fun deformation(progress: Float, direction: LiquidMorphDirection) = spec.sample(
-            LiquidMorphInput(
-                source = source,
-                target = target,
-                rawProgress = progress,
-                direction = direction
-            )
-        )
-
-        assertEquals(LiquidDeformationFrame.None, deformation(0f, LiquidMorphDirection.Opening))
-        assertEquals(LiquidDeformationFrame.None, deformation(1f, LiquidMorphDirection.Opening))
-        assertEquals(LiquidDeformationFrame.None, deformation(1f, LiquidMorphDirection.Closing))
-        assertEquals(LiquidDeformationFrame.None, deformation(0f, LiquidMorphDirection.Closing))
-        assertTrue(deformation(0.42f, LiquidMorphDirection.Opening).tangentStretch > 0f)
-        val routeTangentFrame = spec.sample(
-            LiquidMorphInput(
-                source = source,
-                target = target,
-                rawProgress = 0.42f,
-                direction = LiquidMorphDirection.Opening,
-                trajectoryTangentAngleRadians = 0.25f
-            )
-        )
-        assertEquals(0.25f, routeTangentFrame.tangentAngleRadians, 0.0001f)
-
-        val bounds = Rect(28f, 28f, 222f, 345f)
-        val contentPoint = Offset(91f, 173f)
-        assertEquals(
-            contentPoint,
-            liquidMotionTransformPoint(
-                point = contentPoint,
-                bounds = bounds,
-                deformation = LiquidDeformationFrame.None
-            )
-        )
-        // The outline moves independently, while the accepted content point remains available to
-        // the legacy target-sized layout channel above.
-        assertFalse(
-            contentPoint == liquidMotionTransformPoint(
-                point = contentPoint,
-                bounds = bounds,
-                deformation = deformation(0.42f, LiquidMorphDirection.Opening)
-            )
-        )
     }
 
     @Test

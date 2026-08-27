@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Four launcher cells on compact handsets; launchers may ignore targetCellWidth. -->
+    <dimen name="widget_4x2_min_width">250dp</dimen>
+    <dimen name="widget_4x2_min_height">110dp</dimen>
+</resources>

@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
+
 import com.xiaomanjun.sleepdownschedule.transition.TransitionFeaturePolicy
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteCatalog
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId

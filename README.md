@@ -9,7 +9,7 @@ SleepDown 围绕课表的导入、维护、提醒与日常查看进行设计，�
 
 应用使用 Jetpack Compose 构建，界面以 Miuix 与液态玻璃效果为基础，并针对壁纸背景下的可读性、动画连续性以及手机和平板布局进行了专门适配。视觉效果之外，项目同样重视数据迁移安全、长期存储占用和复杂课表场景下的稳定性。
 
-当前版本为 **1.2.0**，最低支持 Android 8.0（API 26）。正式身份已迁移到 `com.xiaomanjun.sleepdownschedule`；GitHub 与应用商店发行版共用这一 applicationId。安装包可以在 [GitHub Releases](https://github.com/xiaomanjun233/SleepDown-Schedule/releases) 或 [Gitee 发行版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases) 下载。
+当前版本为 **1.2.1**，最低支持 Android 8.0（API 26）。正式身份已迁移到 `com.xiaomanjun.sleepdownschedule`；GitHub 与应用商店发行版共用这一 applicationId。安装包可以在 [GitHub Releases](https://github.com/xiaomanjun233/SleepDown-Schedule/releases) 或 [Gitee 发行版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases) 下载。
 
 ### 从 1.1.5 迁移
 
@@ -110,17 +110,16 @@ git clone https://gitee.com/xiaomanjun233/SleepDown-Schedule.git
 ```text
 CourseSchedule/
 ├── app/
-│   ├── src/main/java/com/example/courseschedule/
-│   │   ├── MainActivity.kt                  # Activity 入口与主题容器
-│   │   ├── CourseScheduleApp.kt             # 进程级依赖与生命周期
-│   │   ├── Data.kt                          # Room 实体、DAO、迁移和 Repository
-│   │   ├── Schedule*.kt                     # 课表状态、逻辑、选择器与刷新协调
-│   │   ├── *ScheduleUi.kt                   # 首页、周视图、编辑与设置界面
-│   │   ├── AiImport.kt / ImportUi.kt        # AI、文件与手动导入
-│   │   ├── EduImport.kt / EduPageCapture.kt # 教务网页导入和页面抓取
-│   │   ├── DayAgent*.kt / Agent*.kt         # 今日助手、工具和服务端传输
-│   │   ├── *Widget*.kt                      # 桌面组件及其个性化
-│   │   └── GlassUi.kt / *Morph*.kt          # 玻璃材质与转场
+│   ├── src/main/java/com/xiaomanjun/sleepdownschedule/
+│   │   ├── app/                             # 应用装配、启动、顶层状态与页面宿主
+│   │   ├── model/                           # 跨功能共享模型
+│   │   ├── data/{local,repository}/         # Room、迁移、DAO 与 Repository
+│   │   ├── domain/{course,schedule}/        # 无 UI 副作用的课程与课表规则
+│   │   ├── core/                            # 身份、配置、性能、壁纸与通用 UI
+│   │   ├── feature/                         # Home、导入、设置、组件等纵向功能
+│   │   ├── glass/                           # 液态玻璃框架及 UI 适配
+│   │   ├── transition/{legacy,...}/         # 统一转场与既有 Legacy renderer
+│   │   └── *.kt                             # 稳定 Android 入口与兼容门面
 │   ├── src/main/assets/shiguang_warehouse-main/
 │   │                                        # 教务系统适配资源
 │   └── src/test/ / src/androidTest/          # 单元测试、迁移和仪器测试
@@ -132,6 +131,8 @@ CourseSchedule/
 ├── THIRD_PARTY_NOTICES.md                    # 第三方代码与许可声明
 └── gradlew / gradlew.bat                     # Gradle Wrapper
 ```
+
+完整的包边界、入口映射与安全拆分规则见 [`docs/architecture/PROJECT_STRUCTURE.md`](docs/architecture/PROJECT_STRUCTURE.md)；通用界面复用约束见 [`SLEEPDOWN_DESIGN_SYSTEM.md`](docs/architecture/SLEEPDOWN_DESIGN_SYSTEM.md)，今日助手工具与提示词链路见 [`DAY_AGENT_RUNTIME.md`](docs/architecture/DAY_AGENT_RUNTIME.md)。
 
 ## 技术栈
 

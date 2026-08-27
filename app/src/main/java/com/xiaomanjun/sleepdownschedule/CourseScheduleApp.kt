@@ -1,5 +1,14 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.feature.schedule.*
+
+import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
+import com.xiaomanjun.sleepdownschedule.core.performance.*
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
+import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+
 import android.app.ActivityManager
 import android.app.Application
 import android.content.Context
@@ -15,6 +24,10 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import java.io.File
 import java.time.LocalDate
+import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
+import com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestoreService
+import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentRepository
+import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetAppearanceRepository
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 
 /**

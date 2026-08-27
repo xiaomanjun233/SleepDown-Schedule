@@ -5,9 +5,11 @@ import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.util.Log
 import com.xiaomanjun.sleepdownschedule.BuildConfig
+import com.xiaomanjun.sleepdownschedule.R
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -198,6 +200,18 @@ object ActivityTransitionCoordinator {
         val session = TransitionPayloadStore.session(activity.intent.transitionSessionIdOrNull())
             ?: return false
         val route = TransitionRouteCatalog.get(session.routeId)
+        val payload = TransitionPayloadStore.payload(session.id)
+        // Snapshot-free anchored Morphs intentionally keep the source Activity as the live
+        // underlay. Select the translucent window before super.onCreate so Android never inserts
+        // an opaque preview frame between the two Activities. Bitmap-backed and native-candidate
+        // routes retain their existing window policy.
+        if (route.legacyProfile is LegacyTransitionProfile.Anchored &&
+            route.nativePolicy == TransitionNativePolicy.Never &&
+            payload?.openingAnchor != null &&
+            payload.backgroundBitmap == null
+        ) {
+            activity.setTheme(R.style.AppTheme_TranslucentMorph)
+        }
         val candidate = route.destinationWindowPolicy ==
             TransitionDestinationWindowPolicy.OpaqueNativeCandidate &&
             session.currentState in setOf(
@@ -207,7 +221,14 @@ object ActivityTransitionCoordinator {
         return candidate
     }
 
-    /** Installs the captured page background before Compose draws the first native-candidate frame. */
+    /**
+     * Installs the destination underlay before Compose draws its first frame.
+     *
+     * Bitmap-backed routes keep their captured frame. Snapshot-free anchored routes keep the
+     * source Activity as the transparent lower window. A Compose Backdrop cannot sample across
+     * two Android windows, and OEM blur-behind implementations can return a black buffer, so real
+     * depth blur is owned by the captured-frame renderer when a route supplies one.
+     */
     fun installDestinationWindowBackground(activity: Activity) {
         val id = activity.intent.transitionSessionIdOrNull()
         val session = TransitionPayloadStore.session(id) ?: return
@@ -219,8 +240,19 @@ object ActivityTransitionCoordinator {
             )
         ) return
         val payload = TransitionPayloadStore.payload(id) ?: return
-        val background = payload.backgroundBitmap ?: return
-        activity.window.setBackgroundDrawable(BitmapDrawable(activity.resources, background))
+        val background = payload.backgroundBitmap
+        if (background != null) {
+            activity.window.setBackgroundDrawable(BitmapDrawable(activity.resources, background))
+            return
+        }
+
+        val route = TransitionRouteCatalog.get(session.routeId)
+        if (route.legacyProfile !is LegacyTransitionProfile.Anchored || payload.openingAnchor == null) {
+            return
+        }
+
+        activity.window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+        activity.window.decorView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
     }
 
     private suspend fun launchLegacy(request: TransitionOpenRequest): TransitionLaunchResult {
