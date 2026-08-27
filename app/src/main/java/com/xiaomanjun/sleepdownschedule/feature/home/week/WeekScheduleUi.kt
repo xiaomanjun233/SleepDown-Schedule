@@ -1434,16 +1434,23 @@ private fun WeekdayHeaderLabels(
                             .drawWithContent {
                                 val horizontalInset = 1.dp.toPx()
                                 val verticalInset = 2.dp.toPx()
-                                val trailingExtension = if (extendsToHeaderEnd) {
+                                // The last visible day has a small trailing gutter so its pill can
+                                // reach the outer header edge. Keep that extra width centered on
+                                // the day cell; extending only to the right makes Friday/Sunday
+                                // look visibly off-center when weekends are hidden or shown.
+                                val edgeExtension = if (extendsToHeaderEnd) {
                                     endPadding.toPx() + horizontalInset
                                 } else {
                                     0f
                                 }
                                 drawRoundRect(
                                     color = indicatorColor,
-                                    topLeft = Offset(horizontalInset, verticalInset),
+                                    topLeft = Offset(
+                                        horizontalInset - edgeExtension,
+                                        verticalInset
+                                    ),
                                     size = Size(
-                                        width = (size.width - horizontalInset * 2f + trailingExtension)
+                                        width = (size.width - horizontalInset * 2f + edgeExtension * 2f)
                                             .coerceAtLeast(0f),
                                         height = (size.height - verticalInset * 2f).coerceAtLeast(0f)
                                     ),
