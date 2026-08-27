@@ -1,5 +1,7 @@
 # SleepDown 课程表
 
+> 项目交流群：1108032519
+
 > 一款基于 Jetpack Compose 与 Miuix 构建，融合液态玻璃视觉效果和 AI 能力的 Android 课程表。
 
 > [!IMPORTANT]
