@@ -4,7 +4,7 @@
 
     <application>
         <service
-            android:name=".UpdateDownloadForegroundService"
+            android:name=".feature.update.UpdateDownloadForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
     </application>
