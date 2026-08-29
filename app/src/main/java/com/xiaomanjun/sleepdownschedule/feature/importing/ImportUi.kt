@@ -1491,8 +1491,6 @@ fun DonateSettingsScreen(
 fun EduSchoolPickerScreen(
     state: AppState,
     backdrop: Backdrop? = null,
-    selectedSchool: EduSchool?,
-    onSchoolSelect: (EduSchool) -> Unit,
     onSelect: (EduAdapter) -> Unit
 ) {
     val context = LocalContext.current
@@ -1501,16 +1499,7 @@ fun EduSchoolPickerScreen(
             .getOrDefault(emptyList())
             .filterNot { it.isWakeUpImportTool() || it.isStarLinkImportTool() }
     }
-    if (selectedSchool != null) {
-        EduAdapterSelectionScreen(
-            state = state,
-            backdrop = backdrop,
-            school = selectedSchool,
-            adapters = adapters.filter { it.school.id == selectedSchool.id },
-            onSelect = onSelect
-        )
-        return
-    }
+    var adapterChoices by remember { mutableStateOf<List<EduAdapter>?>(null) }
     var query by remember { mutableStateOf("") }
     val filtered = remember(query, adapters) {
         val keyword = query.trim()
@@ -1535,8 +1524,46 @@ fun EduSchoolPickerScreen(
         adapters = filtered,
         query = query,
         onQueryChange = { query = it },
-        onSelect = onSchoolSelect
+        onSelect = { school ->
+            val matches = adapters.filter { it.school.id == school.id }
+            if (matches.size == 1) {
+                onSelect(matches.single())
+            } else if (matches.isNotEmpty()) {
+                adapterChoices = matches
+            }
+        }
     )
+    adapterChoices?.let { choices ->
+        LiquidAlertDialog(
+            title = choices.first().school.name,
+            message = choices.joinToString("\n\n") { adapter ->
+                buildString {
+                    append(adapter.adapterName)
+                    append(" · ")
+                    append(eduAdapterCategoryLabel(adapter.category))
+                    append('\n')
+                    append(adapter.description.ifBlank { "适配作者暂未提供额外说明。" })
+                    if (adapter.maintainer.isNotBlank()) {
+                        append("\n维护者：")
+                        append(adapter.maintainer)
+                    }
+                }
+            },
+            actions = choices.map { adapter ->
+                LiquidAlertAction(
+                    label = adapter.adapterName,
+                    style = LiquidAlertActionStyle.Secondary,
+                    onClick = {
+                        adapterChoices = null
+                        onSelect(adapter)
+                    }
+                )
+            },
+            backdrop = backdrop,
+            config = state.config,
+            onDismissRequest = { adapterChoices = null }
+        )
+    }
 }
 
 private data class EduSchoolAdapterGroup(
@@ -2020,11 +2047,7 @@ private fun EduSchoolGroupCard(
         schools.forEach { group ->
             SettingsNavigationRow(
                 title = group.school.name,
-                subtitle = if (group.adapters.size == 1) {
-                    "1 个可用适配器"
-                } else {
-                    "${group.adapters.size} 个可用适配器"
-                },
+                subtitle = group.adapters.joinToString(" / ") { it.adapterName },
                 onClick = { onSelect(group.school) }
             )
         }
@@ -2036,62 +2059,6 @@ private fun eduAdapterCategoryLabel(category: String): String = when (category.u
     "POSTGRADUATE" -> "研究生教务"
     "GENERAL_TOOL" -> "通用工具"
     else -> category.ifBlank { "未注明" }
-}
-
-@Composable
-private fun EduAdapterSelectionScreen(
-    state: AppState,
-    backdrop: Backdrop?,
-    school: EduSchool,
-    adapters: List<EduAdapter>,
-    onSelect: (EduAdapter) -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
-            top = detailContentTopPadding() + 12.dp,
-            bottom = 28.dp
-        ),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item(key = "adapter-title-${school.id}") {
-            GlassPreferenceCategory("可用适配器")
-        }
-        if (adapters.isEmpty()) {
-            item(key = "adapter-empty-${school.id}") {
-                Text(
-                    "该学校当前没有可用适配器",
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-        } else {
-            items(adapters, key = EduAdapter::adapterId) { adapter ->
-                SettingsGroup(
-                    backdrop = backdrop,
-                    config = state.config,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    SettingsInfoRow("适配方式", adapter.adapterName)
-                    SettingsInfoRow("类型", eduAdapterCategoryLabel(adapter.category))
-                    SettingsInfoRow(
-                        "作者说明",
-                        adapter.description.ifBlank { "适配作者暂未提供额外说明。" }
-                    )
-                    SettingsInfoRow(
-                        "维护者",
-                        adapter.maintainer.ifBlank { "未注明" }
-                    )
-                    SettingsNavigationRow(
-                        title = "使用此适配器",
-                        subtitle = "进入教务系统并继续导入",
-                        onClick = { onSelect(adapter) }
-                    )
-                }
-            }
-        }
-    }
 }
 
 private val EduSearchVerticalOverscan = 12.dp
@@ -3569,7 +3536,9 @@ fun EduImportBrowserScreen(
             }
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 AndroidView(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = 0.999f },
                     factory = {
                         FrameLayout(it).apply {
                             layoutParams = ViewGroup.LayoutParams(

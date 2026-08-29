@@ -6823,20 +6823,14 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                         )
                     }
                 ) { requestClose ->
-                    var selectedSchool by remember { mutableStateOf<EduSchool?>(null) }
-                    BackHandler(enabled = selectedSchool != null) { selectedSchool = null }
                     DetailActivityScaffold(
-                        title = selectedSchool?.name ?: "选择学校",
+                        title = "选择学校",
                         config = state.config,
-                        onBack = {
-                            if (selectedSchool != null) selectedSchool = null else requestClose()
-                        }
+                        onBack = requestClose
                     ) { backdrop ->
                         EduSchoolPickerScreen(
                             state = state,
                             backdrop = backdrop,
-                            selectedSchool = selectedSchool,
-                            onSchoolSelect = { selectedSchool = it },
                             onSelect = { adapter ->
                                 ActivityTransitionCoordinator.openImmediate(
                                     this@EduSchoolSelectActivityHost,
@@ -6873,6 +6867,7 @@ open class EduImportActivityHost : ComponentActivity() {
                         title = adapter?.school?.name ?: "教务导入",
                         config = state.config,
                         onBack = { finish() },
+                        isolateContentFromBackdrop = true,
                         compactTopBar = true
                     ) { backdrop ->
                         if (adapter == null) {
