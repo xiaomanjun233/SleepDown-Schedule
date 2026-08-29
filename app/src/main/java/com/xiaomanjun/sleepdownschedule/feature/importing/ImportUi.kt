@@ -1534,35 +1534,126 @@ fun EduSchoolPickerScreen(
         }
     )
     adapterChoices?.let { choices ->
+        var selectedAdapterId by remember(choices) { mutableStateOf<String?>(null) }
+        val selectedAdapter = choices.firstOrNull { it.adapterId == selectedAdapterId }
         LiquidAlertDialog(
             title = choices.first().school.name,
-            message = choices.joinToString("\n\n") { adapter ->
-                buildString {
-                    append(adapter.adapterName)
-                    append(" · ")
-                    append(eduAdapterCategoryLabel(adapter.category))
-                    append('\n')
-                    append(adapter.description.ifBlank { "适配作者暂未提供额外说明。" })
-                    if (adapter.maintainer.isNotBlank()) {
-                        append("\n维护者：")
-                        append(adapter.maintainer)
-                    }
-                }
-            },
-            actions = choices.map { adapter ->
+            message = "",
+            actions = listOf(
                 LiquidAlertAction(
-                    label = adapter.adapterName,
+                    label = "取消",
                     style = LiquidAlertActionStyle.Secondary,
+                    onClick = { adapterChoices = null }
+                ),
+                LiquidAlertAction(
+                    label = "确认",
+                    style = LiquidAlertActionStyle.Primary,
+                    enabled = selectedAdapter != null,
                     onClick = {
-                        adapterChoices = null
-                        onSelect(adapter)
+                        selectedAdapter?.let { adapter ->
+                            adapterChoices = null
+                            onSelect(adapter)
+                        }
                     }
                 )
-            },
+            ),
             backdrop = backdrop,
             config = state.config,
-            onDismissRequest = { adapterChoices = null }
+            onDismissRequest = { adapterChoices = null },
+            messageContent = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    choices.forEach { adapter ->
+                        EduAdapterChoiceCapsule(
+                            adapter = adapter,
+                            selected = adapter.adapterId == selectedAdapterId,
+                            config = state.config,
+                            onClick = { selectedAdapterId = adapter.adapterId }
+                        )
+                    }
+                }
+            }
         )
+    }
+}
+
+@Composable
+private fun EduAdapterChoiceCapsule(
+    adapter: EduAdapter,
+    selected: Boolean,
+    config: ScheduleConfigEntity,
+    onClick: () -> Unit
+) {
+    val foreground = sleepDownPanelForegroundColor(config)
+    val dark = appUsesDarkTheme(config)
+    val accent = ComposeColor(0xFF0A84FF)
+    val details = buildList {
+        add(eduAdapterCategoryLabel(adapter.category))
+        adapter.maintainer.takeIf(String::isNotBlank)?.let { add(it) }
+        adapter.description.takeIf(String::isNotBlank)?.let { add(it) }
+    }.joinToString(" · ")
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 68.dp),
+        shape = Capsule(),
+        color = if (selected) {
+            accent.copy(alpha = if (dark) 0.24f else 0.13f)
+        } else {
+            foreground.copy(alpha = if (dark) 0.09f else 0.055f)
+        },
+        border = BorderStroke(
+            width = if (selected) 1.5.dp else 1.dp,
+            color = if (selected) accent.copy(alpha = 0.88f) else foreground.copy(alpha = 0.14f)
+        ),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = adapter.adapterName,
+                    color = foreground,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (details.isNotBlank()) {
+                    Text(
+                        text = details,
+                        color = foreground.copy(alpha = 0.62f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(Capsule())
+                    .background(
+                        if (selected) accent else foreground.copy(alpha = 0.10f)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (selected) {
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .clip(Capsule())
+                            .background(ComposeColor.White)
+                    )
+                }
+            }
+        }
     }
 }
 
