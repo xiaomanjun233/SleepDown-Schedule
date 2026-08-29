@@ -20,6 +20,7 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.net.Uri
@@ -27,6 +28,7 @@ import android.os.Bundle
 import android.os.Build
 import android.util.SizeF
 import java.util.LinkedHashMap
+import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
@@ -46,7 +48,8 @@ data class WidgetBackgroundResult(
     val content: List<Int>,
     val contentSecondary: List<Int>,
     val accent: Int,
-    val darkBackground: Boolean
+    val darkBackground: Boolean,
+    val cardBackgrounds: List<Bitmap> = emptyList()
 )
 
 internal data class TodayTomorrowWidgetLayoutMetrics(
@@ -144,7 +147,7 @@ internal fun widgetRenderSizes(manager: AppWidgetManager, id: Int, type: WidgetA
     return sizes.ifEmpty { listOf(fallback) }
 }
 
-object WidgetBackgroundRenderer {
+internal object WidgetBackgroundRenderer {
     private const val MaxCacheEntries = 12
     // RemoteViews transports bitmaps through Binder. Keep a single background comfortably
     // below the transaction ceiling even on high-density launchers.
@@ -161,6 +164,8 @@ object WidgetBackgroundRenderer {
         courseCount: Int = 0,
         darkMode: Boolean = false,
         dayCourseCounts: List<Int> = emptyList(),
+        coursesMetrics: CoursesWidgetLayoutMetrics? = null,
+        todayTomorrowMetrics: TodayTomorrowWidgetLayoutMetrics? = null,
         drawContentSurfaces: Boolean = true,
         pixelLimit: Float = MaxBackgroundPixels
     ): WidgetBackgroundResult? {
@@ -168,7 +173,8 @@ object WidgetBackgroundRenderer {
         val cacheKey = listOf(
             uri, appearance.updatedAt, appearance.centerX, appearance.centerY, appearance.scale,
             appearance.blurDp, appearance.brightness, appearance.variant, size.widthDp, size.heightDp,
-            courseCount, darkMode, dayCourseCounts.joinToString(","), drawContentSurfaces, pixelLimit
+            courseCount, darkMode, dayCourseCounts.joinToString(","), coursesMetrics,
+            todayTomorrowMetrics, drawContentSurfaces, pixelLimit
         ).joinToString("|")
         synchronized(cache) { cache[cacheKey]?.let { return it } }
         val source = loadSampledBitmap(context, uri.toUri(), 1800) ?: return null
@@ -188,8 +194,26 @@ object WidgetBackgroundRenderer {
         } else {
             when (appearance.type) {
                 WidgetAppearanceVariant.COURSES_LARGE,
-                WidgetAppearanceVariant.COURSES_SQUARE -> renderCourses(base, appearance.type, size, courseCount)
-                WidgetAppearanceVariant.TODAY_TOMORROW -> renderTodayTomorrow(base, size, dayCourseCounts)
+                WidgetAppearanceVariant.COURSES_SQUARE -> renderCourses(
+                    base,
+                    size,
+                    courseCount,
+                    coursesMetrics ?: coursesWidgetLayoutMetrics(
+                        size,
+                        if (appearance.type == WidgetAppearanceVariant.COURSES_SQUARE) {
+                            TodayWidgetVariant.SQUARE
+                        } else {
+                            TodayWidgetVariant.LARGE
+                        },
+                        courseCount
+                    )
+                )
+                WidgetAppearanceVariant.TODAY_TOMORROW -> renderTodayTomorrow(
+                    base,
+                    size,
+                    dayCourseCounts,
+                    todayTomorrowMetrics ?: todayTomorrowWidgetLayoutMetrics(size)
+                )
                 WidgetAppearanceVariant.WEEK_SCHEDULE,
                 WidgetAppearanceVariant.TODAY_ASSISTANT -> renderPlain(base)
             }
@@ -227,18 +251,15 @@ object WidgetBackgroundRenderer {
         return output
     }
 
-    private fun renderCourses(base: Bitmap, type: WidgetAppearanceVariant, size: WidgetRenderSize, count: Int): WidgetBackgroundResult {
-        val output = base.copy(Bitmap.Config.ARGB_8888, true)
-        val extraBlur = createBlurredWallpaperBitmap(base, 10) ?: base
-        val sx = output.width / size.widthDp.toFloat()
-        val sy = output.height / size.heightDp.toFloat()
+    private fun renderCourses(
+        base: Bitmap,
+        size: WidgetRenderSize,
+        count: Int,
+        metrics: CoursesWidgetLayoutMetrics
+    ): WidgetBackgroundResult {
+        val sx = base.width / size.widthDp.toFloat()
+        val sy = base.height / size.heightDp.toFloat()
         fun rect(l: Float, t: Float, r: Float, b: Float) = RectF(l * sx, t * sy, r * sx, b * sy)
-        val variant = if (type == WidgetAppearanceVariant.COURSES_SQUARE) {
-            TodayWidgetVariant.SQUARE
-        } else {
-            TodayWidgetVariant.LARGE
-        }
-        val metrics = coursesWidgetLayoutMetrics(size, variant, count)
         val left = metrics.horizontalPaddingDp.toFloat()
         val right = size.widthDp - metrics.horizontalPaddingDp.toFloat()
         val top = (
@@ -262,61 +283,24 @@ object WidgetBackgroundRenderer {
                 rect(left, rowTop, right, rowTop + metrics.groupHeightDp)
             }
         }
-        val primary = mutableListOf<Int>()
-        val secondary = mutableListOf<Int>()
-        val canvas = Canvas(output)
-        val darkBackground = luminance(
-            base,
-            RectF(0f, 0f, base.width.toFloat(), base.height.toFloat())
-        ) < 0.48
-        regions.forEach { region ->
-            val path = Path().apply {
-                addRoundRect(
-                    region,
-                    metrics.groupCornerRadiusDp * sx,
-                    metrics.groupCornerRadiusDp * sy,
-                    Path.Direction.CW
-                )
-            }
-            canvas.withClip(path) {
-                drawBitmap(extraBlur, 0f, 0f, null)
-                drawColor(
-                    if (darkBackground) {
-                        Color.argb(66, 0, 0, 0)
-                    } else {
-                        Color.argb(78, 255, 255, 255)
-                    }
-                )
-            }
-            drawPresetGlassHighlight(canvas, path, region, sx, sy, darkBackground)
-            primary += if (darkBackground) Color.WHITE else Color.rgb(17, 17, 17)
-            secondary += if (darkBackground) {
-                Color.argb(190, 255, 255, 255)
-            } else {
-                Color.argb(170, 0, 0, 0)
-            }
-        }
-        if (extraBlur !== base) extraBlur.recycle()
-        return WidgetBackgroundResult(
-            output,
-            if (darkBackground) Color.WHITE else Color.rgb(17, 17, 17),
-            if (darkBackground) Color.argb(200, 255, 255, 255) else Color.argb(170, 0, 0, 0),
-            primary, secondary,
-            if (darkBackground) Color.rgb(98, 181, 255) else Color.rgb(0, 110, 220),
-            darkBackground
+        return renderCardSurfaces(
+            base = base,
+            regions = regions,
+            cornerRadiusX = metrics.groupCornerRadiusDp * sx,
+            cornerRadiusY = metrics.groupCornerRadiusDp * sy,
+            sx = sx,
+            sy = sy
         )
     }
 
     private fun renderTodayTomorrow(
         base: Bitmap,
         size: WidgetRenderSize,
-        dayCourseCounts: List<Int>
+        dayCourseCounts: List<Int>,
+        metrics: TodayTomorrowWidgetLayoutMetrics
     ): WidgetBackgroundResult {
-        val output = base.copy(Bitmap.Config.ARGB_8888, true)
-        val extraBlur = createBlurredWallpaperBitmap(base, 10) ?: base
-        val sx = output.width / size.widthDp.toFloat()
-        val sy = output.height / size.heightDp.toFloat()
-        val metrics = todayTomorrowWidgetLayoutMetrics(size)
+        val sx = base.width / size.widthDp.toFloat()
+        val sy = base.height / size.heightDp.toFloat()
         val contentTopDp = (
             metrics.verticalPaddingDp + metrics.headerHeightDp + metrics.headerGapDp +
                 metrics.dayHeaderHeightDp + metrics.headerGapDp
@@ -342,52 +326,115 @@ object WidgetBackgroundRenderer {
                 }
             }
         }
+        return renderCardSurfaces(
+            base = base,
+            regions = regions,
+            cornerRadiusX = metrics.rowCornerRadiusDp * sx,
+            cornerRadiusY = metrics.rowCornerRadiusDp * sy,
+            sx = sx,
+            sy = sy
+        )
+    }
+
+    private fun renderCardSurfaces(
+        base: Bitmap,
+        regions: List<RectF>,
+        cornerRadiusX: Float,
+        cornerRadiusY: Float,
+        sx: Float,
+        sy: Float
+    ): WidgetBackgroundResult {
+        val output = base.copy(Bitmap.Config.ARGB_8888, true)
         val darkBackground = luminance(
             base,
             RectF(0f, 0f, base.width.toFloat(), base.height.toFloat())
         ) < 0.48
-        val primaryColor = if (darkBackground) Color.WHITE else Color.rgb(17, 17, 17)
-        val secondaryColor = if (darkBackground) {
+        val primary = if (darkBackground) Color.WHITE else Color.rgb(17, 17, 17)
+        val secondary = if (darkBackground) {
             Color.argb(190, 255, 255, 255)
         } else {
             Color.argb(170, 0, 0, 0)
         }
-        val canvas = Canvas(output)
-        regions.forEach { region ->
-            val path = Path().apply {
-                addRoundRect(
-                    region,
-                    metrics.rowCornerRadiusDp * sx,
-                    metrics.rowCornerRadiusDp * sy,
-                    Path.Direction.CW
+        val cardBackgrounds = if (regions.isEmpty()) {
+            emptyList()
+        } else {
+            val extraBlur = createBlurredWallpaperBitmap(base, 10) ?: base
+            val cards = regions.map { region ->
+                createCardBackground(
+                    extraBlur = extraBlur,
+                    sourceRegion = region,
+                    cornerRadiusX = cornerRadiusX,
+                    cornerRadiusY = cornerRadiusY,
+                    sx = sx,
+                    sy = sy,
+                    darkBackground = darkBackground
                 )
             }
-            canvas.withClip(path) {
-                drawBitmap(extraBlur, 0f, 0f, null)
-                drawColor(
-                    if (darkBackground) {
-                        Color.argb(66, 0, 0, 0)
-                    } else {
-                        Color.argb(78, 255, 255, 255)
-                    }
-                )
-            }
-            drawPresetGlassHighlight(canvas, path, region, sx, sy, darkBackground)
+            if (extraBlur !== base) extraBlur.recycle()
+            cards
         }
-        if (extraBlur !== base) extraBlur.recycle()
         return WidgetBackgroundResult(
             bitmap = output,
-            header = primaryColor,
+            header = primary,
             headerSecondary = if (darkBackground) {
                 Color.argb(200, 255, 255, 255)
             } else {
                 Color.argb(170, 0, 0, 0)
             },
-            content = List(regions.size) { primaryColor },
-            contentSecondary = List(regions.size) { secondaryColor },
+            content = List(regions.size) { primary },
+            contentSecondary = List(regions.size) { secondary },
             accent = if (darkBackground) Color.rgb(98, 181, 255) else Color.rgb(0, 110, 220),
-            darkBackground = darkBackground
+            darkBackground = darkBackground,
+            cardBackgrounds = cardBackgrounds
         )
+    }
+
+    private fun createCardBackground(
+        extraBlur: Bitmap,
+        sourceRegion: RectF,
+        cornerRadiusX: Float,
+        cornerRadiusY: Float,
+        sx: Float,
+        sy: Float,
+        darkBackground: Boolean
+    ): Bitmap {
+        val source = Rect(
+            floor(sourceRegion.left).toInt().coerceIn(0, extraBlur.width - 1),
+            floor(sourceRegion.top).toInt().coerceIn(0, extraBlur.height - 1),
+            ceil(sourceRegion.right).toInt().coerceIn(1, extraBlur.width),
+            ceil(sourceRegion.bottom).toInt().coerceIn(1, extraBlur.height)
+        )
+        val output = createBitmap(
+            source.width().coerceAtLeast(1),
+            source.height().coerceAtLeast(1)
+        )
+        val target = RectF(0f, 0f, output.width.toFloat(), output.height.toFloat())
+        val fillPath = Path().apply {
+            addRoundRect(target, cornerRadiusX, cornerRadiusY, Path.Direction.CW)
+        }
+        val canvas = Canvas(output)
+        canvas.withClip(fillPath) {
+            drawBitmap(extraBlur, source, target, filteredPaint())
+            drawColor(
+                if (darkBackground) {
+                    Color.argb(66, 0, 0, 0)
+                } else {
+                    Color.argb(78, 255, 255, 255)
+                }
+            )
+        }
+        val outlineInset = (0.55f * minOf(sx, sy)).coerceAtLeast(0.5f)
+        val outlineRegion = RectF(target).apply { inset(outlineInset, outlineInset) }
+        val outlinePath = Path().apply {
+            addRoundRect(
+                outlineRegion,
+                (cornerRadiusX - outlineInset).coerceAtLeast(0f),
+                (cornerRadiusY - outlineInset).coerceAtLeast(0f),
+                Path.Direction.CW
+            )
+        }
+        drawPresetGlassHighlight(canvas, outlinePath, outlineRegion, sx, sy, darkBackground)
+        return output
     }
 
     private fun Int?.orZero(): Int = this ?: 0

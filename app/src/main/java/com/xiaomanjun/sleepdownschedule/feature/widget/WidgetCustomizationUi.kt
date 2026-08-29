@@ -625,9 +625,8 @@ private fun WidgetRemoteViewsPreview(
                     views.setInt(root, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
                     views.setViewVisibility(background, android.view.View.GONE)
                 }
-                // Keep the wallpaper, its pre-rendered glass frames and all text inside the same
-                // RemoteViews hierarchy. Splitting the bitmap into a separately scaled Compose
-                // Image let tablet density rounding move the frames away from their text.
+                // Keep the wallpaper and foreground in the same RemoteViews hierarchy. Course
+                // surfaces belong to the real rows/cells, while the bitmap owns only the wallpaper.
                 views to null
             }
         }

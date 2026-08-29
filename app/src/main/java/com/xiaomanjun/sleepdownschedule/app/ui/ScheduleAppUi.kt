@@ -4560,6 +4560,70 @@ internal fun AppTopBar(
 ) {
     val adaptiveTopBarColor = LocalAdaptiveGlass.current.contentColor
     val homeTextColor = adaptiveTopBarColor
+    if (screen is Screen.Home) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .height(66.dp)
+                .graphicsLayer { clip = false }
+        ) {
+            // Material's app-bar layout owns the stable title geometry. Keep the animated liquid
+            // controls in a later sibling so their press/morph envelope is not clipped to that
+            // layout's bounds.
+            TopAppBar(
+                modifier = Modifier.fillMaxSize(),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = ComposeColor.Transparent,
+                    scrolledContainerColor = ComposeColor.Transparent,
+                    titleContentColor = homeTextColor,
+                    actionIconContentColor = homeTextColor,
+                    navigationIconContentColor = homeTextColor
+                ),
+                title = {
+                    HomeDateTitle(
+                        state = state,
+                        displayDate = homeDisplayDate,
+                        displayWeek = homeDisplayWeek,
+                        beforeScheduleTerm = beforeScheduleTerm,
+                        afterScheduleTerm = afterScheduleTerm,
+                        showReturnToCurrentWeekHint = homeShowingAnotherWeek,
+                        onReturnCurrent = onReturnHomeToCurrentWeek
+                    )
+                }
+            )
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    // Match Material TopAppBar's 4dp action inset plus the existing row inset.
+                    .padding(top = 2.dp, end = 8.dp)
+                    .graphicsLayer { clip = false },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HomeIconButton(
+                    backdrop = backdrop,
+                    config = state.config,
+                    iconRes = R.drawable.ic_edit,
+                    contentDescription = "benchmark_personalize_button",
+                    selected = false,
+                    visible = activeHomeOverlay != HomeAnchoredOverlayKind.Personalize,
+                    onClick = onTogglePersonalize,
+                    onButtonPositioned = onPersonalizeButtonPositioned
+                )
+                HomeIconButton(
+                    backdrop = backdrop,
+                    config = state.config,
+                    iconRes = R.drawable.ic_more_horizontal,
+                    contentDescription = "添加菜单",
+                    selected = false,
+                    visible = !addButtonHidden,
+                    onClick = onToggleAddMenu,
+                    onButtonPositioned = onAddButtonPositioned
+                )
+            }
+        }
+        return
+    }
     TopAppBar(
         modifier = Modifier.statusBarsPadding().height(66.dp),
         colors = TopAppBarDefaults.topAppBarColors(
@@ -4570,49 +4634,34 @@ internal fun AppTopBar(
             navigationIconContentColor = if (screen is Screen.Home) homeTextColor else MaterialTheme.colorScheme.onBackground
         ),
         title = {
-            if (screen is Screen.Home) {
-                HomeDateTitle(
-                    state = state,
-                    displayDate = homeDisplayDate,
-                    displayWeek = homeDisplayWeek,
-                    beforeScheduleTerm = beforeScheduleTerm,
-                    afterScheduleTerm = afterScheduleTerm,
-                    showReturnToCurrentWeekHint = homeShowingAnotherWeek,
-                    onReturnCurrent = onReturnHomeToCurrentWeek
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    when (settingsPage) {
+                        SettingsPage.Root -> "设置"
+                        SettingsPage.General -> "通用设置"
+                        SettingsPage.LiquidGlass -> "液态玻璃"
+                        SettingsPage.Widgets -> "小组件设置"
+                        SettingsPage.AiImport -> "AI 设置"
+                        SettingsPage.DayAgent -> "今日助手"
+                        SettingsPage.Schedule -> "课表详细设置"
+                        SettingsPage.Notifications -> "通知设置"
+                        SettingsPage.ScheduleManager -> "课表设置"
+                        SettingsPage.BackupRestore -> "备份与恢复"
+                        SettingsPage.BackupPreview -> "恢复预览"
+                        SettingsPage.About -> "关于应用"
+                        SettingsPage.Changelog -> "关于应用"
+                        SettingsPage.Donate -> "捐赠支持"
+						SettingsPage.PrivacyPolicy -> "隐私政策"
+                    },
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 28.sp
                 )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(42.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Text(
-                        when (screen) {
-                            Screen.Home -> ""
-                            Screen.Config -> when (settingsPage) {
-                                SettingsPage.Root -> "设置"
-                                SettingsPage.General -> "通用设置"
-                                SettingsPage.LiquidGlass -> "液态玻璃"
-                                SettingsPage.Widgets -> "小组件设置"
-                                SettingsPage.AiImport -> "AI 设置"
-                                SettingsPage.DayAgent -> "今日助手"
-                                SettingsPage.Schedule -> "课表详细设置"
-                                SettingsPage.Notifications -> "通知设置"
-                                SettingsPage.ScheduleManager -> "课表设置"
-                                SettingsPage.BackupRestore -> "备份与恢复"
-                                SettingsPage.BackupPreview -> "恢复预览"
-                                SettingsPage.About -> "关于应用"
-                                SettingsPage.Changelog -> "关于应用"
-                                SettingsPage.Donate -> "捐赠支持"
-								SettingsPage.PrivacyPolicy -> "隐私政策"
-                            }
-                        },
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        lineHeight = 28.sp
-                    )
-                }
             }
         },
         navigationIcon = {
@@ -4625,35 +4674,7 @@ internal fun AppTopBar(
                 )
             }
         },
-        actions = {
-            if (screen is Screen.Home) {
-                Row(
-                    modifier = Modifier.padding(top = 2.dp, end = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    HomeIconButton(
-                        backdrop = backdrop,
-                        config = state.config,
-                        iconRes = R.drawable.ic_edit,
-                        contentDescription = "benchmark_personalize_button",
-                        selected = false,
-                        visible = activeHomeOverlay != HomeAnchoredOverlayKind.Personalize,
-                        onClick = onTogglePersonalize,
-                        onButtonPositioned = onPersonalizeButtonPositioned
-                    )
-                    HomeIconButton(
-                        backdrop = backdrop,
-                        config = state.config,
-                        iconRes = R.drawable.ic_more_horizontal,
-                        contentDescription = "添加菜单",
-                        selected = false,
-                        visible = !addButtonHidden,
-                        onClick = onToggleAddMenu,
-                        onButtonPositioned = onAddButtonPositioned
-                    )
-                }
-            }
-        }
+        actions = {}
     )
 }
 
@@ -6846,6 +6867,7 @@ open class EduImportActivityHost : ComponentActivity() {
                         title = adapter?.school?.name ?: "教务导入",
                         config = state.config,
                         onBack = { finish() },
+                        isolateContentFromBackdrop = true,
                         compactTopBar = true
                     ) { backdrop ->
                         if (adapter == null) {

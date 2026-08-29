@@ -80,6 +80,7 @@ enum class LiquidAlertActionStyle {
 data class LiquidAlertAction(
     val label: String,
     val style: LiquidAlertActionStyle,
+    val enabled: Boolean = true,
     val dismissOnClick: Boolean = true,
     val onClick: () -> Unit
 )
@@ -293,6 +294,7 @@ private fun LiquidAlertContent(
     actions: List<LiquidAlertAction>,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
+    messageContent: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // Alerts own their material tint, so their foreground must follow that stable surface rather
@@ -338,21 +340,34 @@ private fun LiquidAlertContent(
                 }
             )
         )
-        Text(
-            text = message,
-            modifier = Modifier
-                .fillMaxWidth()
-                .offset(y = copyLift)
-                .padding(
-                    horizontal = SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset
-                )
-                .heightIn(max = 240.dp)
-                .verticalScroll(rememberScrollState()),
-            style = MaterialTheme.typography.bodyMedium,
-            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
-            color = foreground.copy(alpha = 0.68f),
-            onTextLayout = { result -> messageLineCount = result.lineCount }
-        )
+        if (messageContent != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset
+                    )
+                    .heightIn(max = 240.dp)
+            ) {
+                messageContent()
+            }
+        } else {
+            Text(
+                text = message,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset(y = copyLift)
+                    .padding(
+                        horizontal = SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset
+                    )
+                    .heightIn(max = 240.dp)
+                    .verticalScroll(rememberScrollState()),
+                style = MaterialTheme.typography.bodyMedium,
+                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
+                color = foreground.copy(alpha = 0.68f),
+                onTextLayout = { result -> messageLineCount = result.lineCount }
+            )
+        }
         Spacer(
             Modifier.height(
                 if (messageSingleLine) {
@@ -418,7 +433,8 @@ fun LiquidAlertDialog(
     actions: List<LiquidAlertAction>,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
-    onDismissRequest: () -> Unit
+    onDismissRequest: () -> Unit,
+    messageContent: (@Composable () -> Unit)? = null
 ) {
     val completeUnderlayBackdrop = LocalCenteredDialogSceneBackdrop.current ?: backdrop
     var visible by remember { mutableStateOf(true) }
@@ -475,7 +491,8 @@ fun LiquidAlertDialog(
             message = message,
             actions = animatedActions,
             backdrop = completeUnderlayBackdrop,
-            config = config
+            config = config,
+            messageContent = messageContent
         )
     }
 }
@@ -489,13 +506,14 @@ private fun LiquidAlertActionButton(
 ) {
     val fallbackInteractionSource = remember { MutableInteractionSource() }
     val fallbackPressed by fallbackInteractionSource.collectIsPressedAsState()
-    val contentColor = when (action.style) {
+    val baseContentColor = when (action.style) {
         LiquidAlertActionStyle.Primary -> Color.White
         LiquidAlertActionStyle.Secondary -> sleepDownPanelForegroundColor(config)
         LiquidAlertActionStyle.Destructive -> Color(0xFFFF453A)
     }
+    val contentColor = baseContentColor.copy(alpha = if (action.enabled) 1f else 0.38f)
     val dark = appUsesDarkTheme(config)
-    val surfaceColor = when (action.style) {
+    val baseSurfaceColor = when (action.style) {
         LiquidAlertActionStyle.Primary -> if (dark) Color(0xFF099AFF) else {
             Color(0xFF0A84FF).copy(alpha = 0.90f)
         }
@@ -512,10 +530,15 @@ private fun LiquidAlertActionButton(
             Color(0xFFD6D9DF).copy(alpha = 0.80f)
         }
     }
+    val surfaceColor = if (action.enabled) {
+        baseSurfaceColor
+    } else {
+        baseSurfaceColor.copy(alpha = (baseSurfaceColor.alpha * 0.45f).coerceAtLeast(0.12f))
+    }
     val shape = Capsule()
     if (backdrop != null) {
         LiquidButton(
-            onClick = action.onClick,
+            onClick = if (action.enabled) action.onClick else ({ }),
             backdrop = backdrop,
             modifier = modifier,
             isInteractive = false,
@@ -552,6 +575,7 @@ private fun LiquidAlertActionButton(
                 .clickable(
                     interactionSource = fallbackInteractionSource,
                     indication = null,
+                    enabled = action.enabled,
                     onClick = action.onClick
                 ),
             contentAlignment = Alignment.Center

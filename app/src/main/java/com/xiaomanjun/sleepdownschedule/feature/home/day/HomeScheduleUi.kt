@@ -510,11 +510,15 @@ fun HomeDateTitle(
         val density = LocalDensity.current
         val requestedLineHeightPx = with(density) { 18.sp.toPx() + 21.sp.toPx() }
         val availableHeightPx = with(density) { maxHeight.toPx() }
+        val lineHeightSafetyPx = with(density) { 2.dp.toPx() }
         // Keep the accepted 16sp/19sp appearance at normal font scale. If accessibility font
         // scaling would make the two physical line boxes exceed the same 42dp occupied by the
-        // adjacent top-bar buttons, shrink both lines by only the overflow ratio. This avoids
-        // clipping either line without changing the bar height or its alignment.
-        val lineScale = (availableHeightPx / requestedLineHeightPx.coerceAtLeast(1f))
+        // adjacent top-bar buttons, shrink both lines by only the overflow ratio. Reserve a small
+        // descent/rounding allowance so the second line is not clipped at unusual density scales.
+        val lineScale = (
+            (availableHeightPx - lineHeightSafetyPx).coerceAtLeast(1f) /
+                requestedLineHeightPx.coerceAtLeast(1f)
+            )
             .coerceIn(0.1f, 1f)
         Column(
             modifier = Modifier.fillMaxHeight(),

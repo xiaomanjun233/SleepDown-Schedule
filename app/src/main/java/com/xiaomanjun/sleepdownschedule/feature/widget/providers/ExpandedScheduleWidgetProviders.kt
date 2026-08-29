@@ -522,7 +522,8 @@ internal object TodayTomorrowWidgetRenderer {
             size = size,
             courseCount = shownCourses.sumOf(List<CourseEntity>::size),
             darkMode = dark,
-            dayCourseCounts = shownCourses.map(List<CourseEntity>::size)
+            dayCourseCounts = shownCourses.map(List<CourseEntity>::size),
+            todayTomorrowMetrics = metrics
         )
         val globallyDark = custom?.darkBackground ?: dark
         val primary = custom?.header ?: if (globallyDark) Color.WHITE else Color.rgb(17, 17, 17)
@@ -594,7 +595,6 @@ internal object TodayTomorrowWidgetRenderer {
                 metrics = metrics,
                 dark = globallyDark,
                 custom = custom,
-                transparentBackground = transparentBackground,
                 courseColors = courseColors
             )
             fillStaticDay(
@@ -607,7 +607,6 @@ internal object TodayTomorrowWidgetRenderer {
                 metrics = metrics,
                 dark = globallyDark,
                 custom = custom,
-                transparentBackground = transparentBackground,
                 courseColors = courseColors
             )
             setOnClickPendingIntent(R.id.widget_tt_root, openAppPendingIntent(context))
@@ -624,9 +623,9 @@ internal object TodayTomorrowWidgetRenderer {
         metrics: TodayTomorrowWidgetLayoutMetrics,
         dark: Boolean,
         custom: WidgetBackgroundResult?,
-        transparentBackground: Boolean,
         courseColors: Map<String, Int>
     ) {
+        val courseBackground = if (dark) R.drawable.widget_course_background_compact_dark else R.drawable.widget_course_background_compact
         setViewVisibility(emptyId, if (courses.isEmpty()) View.VISIBLE else View.GONE)
         repeat(6) { index ->
             fun id(suffix: String): Int = context.resources.getIdentifier(
@@ -635,6 +634,7 @@ internal object TodayTomorrowWidgetRenderer {
                 context.packageName
             )
             val rowId = id("row")
+            val backgroundId = id("background")
             val timeColumnId = id("time_column")
             val startId = id("start")
             val endId = id("end")
@@ -647,16 +647,12 @@ internal object TodayTomorrowWidgetRenderer {
             setWidgetHeight(rowId, metrics.rowHeightDp)
             setWidgetCornerRadius(rowId, metrics.rowCornerRadiusDp)
             setWidgetWidth(timeColumnId, metrics.timeColumnWidthDp)
-            setInt(
-                rowId,
-                "setBackgroundResource",
-                if (custom != null || transparentBackground) {
-                    android.R.color.transparent
-                } else if (dark) {
-                    R.drawable.widget_course_background_compact_dark
-                } else {
-                    R.drawable.widget_course_background_compact
-                }
+            applyWidgetCourseCardBackground(
+                rowId = rowId,
+                backgroundId = backgroundId,
+                custom = custom,
+                cardIndex = contentOffset + index,
+                defaultBackground = courseBackground
             )
             setWidgetIndicatorHeight(
                 indicatorId,
@@ -681,9 +677,9 @@ internal object TodayTomorrowWidgetRenderer {
             setWidgetTextSize(endId, (9.8f * metrics.textScale).coerceAtLeast(8f))
             setWidgetTextSize(nameId, (12.4f * metrics.textScale).coerceAtLeast(9.5f))
             setWidgetTextSize(detailId, (9.4f * metrics.textScale).coerceAtLeast(7.5f))
-            val primary = custom?.content?.getOrNull(contentOffset + index)
+            val primary = custom?.content?.getOrNull(contentOffset + index) ?: custom?.header
                 ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17)
-            val secondary = custom?.contentSecondary?.getOrNull(contentOffset + index)
+            val secondary = custom?.contentSecondary?.getOrNull(contentOffset + index) ?: custom?.headerSecondary
                 ?: if (dark) Color.argb(156, 255, 255, 255) else Color.argb(112, 17, 17, 17)
             setTextColor(startId, primary)
             setTextColor(endId, secondary)

@@ -79,64 +79,108 @@
             android:layout_marginTop="4dp"
             android:orientation="vertical">
 
-            <LinearLayout
+            <FrameLayout
                 android:id="@+id/widget_course_row_1"
-                style="@style/WidgetCourseRow">
-                <LinearLayout style="@style/WidgetCourseTimeColumn">
-                    <TextView android:id="@+id/widget_course_time_1" style="@style/WidgetCourseTimePrimary" />
-                    <TextView android:id="@+id/widget_course_end_1" style="@style/WidgetCourseTimeSecondary" />
+                style="@style/WidgetCourseRowFrame">
+                <ImageView
+                    android:id="@+id/widget_course_background_1"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:scaleType="fitXY"
+                    android:visibility="gone" />
+                <LinearLayout
+                    android:id="@+id/widget_course_content_1"
+                    style="@style/WidgetCourseRowContent">
+                    <LinearLayout style="@style/WidgetCourseTimeColumn">
+                        <TextView android:id="@+id/widget_course_time_1" style="@style/WidgetCourseTimePrimary" />
+                        <TextView android:id="@+id/widget_course_end_1" style="@style/WidgetCourseTimeSecondary" />
+                    </LinearLayout>
+                    <ImageView android:id="@+id/widget_course_indicator_1" style="@style/WidgetCourseIndicator" android:contentDescription="@null" />
+                    <LinearLayout style="@style/WidgetCourseInfoColumn">
+                        <TextView android:id="@+id/widget_course_name_1" style="@style/WidgetCourseName" />
+                        <TextView android:id="@+id/widget_course_detail_1" style="@style/WidgetCourseDetail" />
+                    </LinearLayout>
                 </LinearLayout>
-                <ImageView android:id="@+id/widget_course_indicator_1" style="@style/WidgetCourseIndicator" android:contentDescription="@null" />
-                <LinearLayout style="@style/WidgetCourseInfoColumn">
-                    <TextView android:id="@+id/widget_course_name_1" style="@style/WidgetCourseName" />
-                    <TextView android:id="@+id/widget_course_detail_1" style="@style/WidgetCourseDetail" />
-                </LinearLayout>
-            </LinearLayout>
+            </FrameLayout>
 
-            <LinearLayout
+            <FrameLayout
                 android:id="@+id/widget_course_row_2"
-                style="@style/WidgetCourseRow"
+                style="@style/WidgetCourseRowFrame"
                 android:layout_marginTop="4dp">
-                <LinearLayout style="@style/WidgetCourseTimeColumn">
-                    <TextView android:id="@+id/widget_course_time_2" style="@style/WidgetCourseTimePrimary" />
-                    <TextView android:id="@+id/widget_course_end_2" style="@style/WidgetCourseTimeSecondary" />
+                <ImageView
+                    android:id="@+id/widget_course_background_2"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:scaleType="fitXY"
+                    android:visibility="gone" />
+                <LinearLayout
+                    android:id="@+id/widget_course_content_2"
+                    style="@style/WidgetCourseRowContent">
+                    <LinearLayout style="@style/WidgetCourseTimeColumn">
+                        <TextView android:id="@+id/widget_course_time_2" style="@style/WidgetCourseTimePrimary" />
+                        <TextView android:id="@+id/widget_course_end_2" style="@style/WidgetCourseTimeSecondary" />
+                    </LinearLayout>
+                    <ImageView android:id="@+id/widget_course_indicator_2" style="@style/WidgetCourseIndicator" android:contentDescription="@null" />
+                    <LinearLayout style="@style/WidgetCourseInfoColumn">
+                        <TextView android:id="@+id/widget_course_name_2" style="@style/WidgetCourseName" />
+                        <TextView android:id="@+id/widget_course_detail_2" style="@style/WidgetCourseDetail" />
+                    </LinearLayout>
                 </LinearLayout>
-                <ImageView android:id="@+id/widget_course_indicator_2" style="@style/WidgetCourseIndicator" android:contentDescription="@null" />
-                <LinearLayout style="@style/WidgetCourseInfoColumn">
-                    <TextView android:id="@+id/widget_course_name_2" style="@style/WidgetCourseName" />
-                    <TextView android:id="@+id/widget_course_detail_2" style="@style/WidgetCourseDetail" />
-                </LinearLayout>
-            </LinearLayout>
+            </FrameLayout>
 
-            <LinearLayout
+            <FrameLayout
                 android:id="@+id/widget_course_row_3"
-                style="@style/WidgetCourseRow"
+                style="@style/WidgetCourseRowFrame"
                 android:layout_marginTop="4dp">
-                <LinearLayout style="@style/WidgetCourseTimeColumn">
-                    <TextView android:id="@+id/widget_course_time_3" style="@style/WidgetCourseTimePrimary" />
-                    <TextView android:id="@+id/widget_course_end_3" style="@style/WidgetCourseTimeSecondary" />
+                <ImageView
+                    android:id="@+id/widget_course_background_3"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:scaleType="fitXY"
+                    android:visibility="gone" />
+                <LinearLayout
+                    android:id="@+id/widget_course_content_3"
+                    style="@style/WidgetCourseRowContent">
+                    <LinearLayout style="@style/WidgetCourseTimeColumn">
+                        <TextView android:id="@+id/widget_course_time_3" style="@style/WidgetCourseTimePrimary" />
+                        <TextView android:id="@+id/widget_course_end_3" style="@style/WidgetCourseTimeSecondary" />
+                    </LinearLayout>
+                    <ImageView android:id="@+id/widget_course_indicator_3" style="@style/WidgetCourseIndicator" android:contentDescription="@null" />
+                    <LinearLayout style="@style/WidgetCourseInfoColumn">
+                        <TextView android:id="@+id/widget_course_name_3" style="@style/WidgetCourseName" />
+                        <TextView android:id="@+id/widget_course_detail_3" style="@style/WidgetCourseDetail" />
+                    </LinearLayout>
                 </LinearLayout>
-                <ImageView android:id="@+id/widget_course_indicator_3" style="@style/WidgetCourseIndicator" android:contentDescription="@null" />
-                <LinearLayout style="@style/WidgetCourseInfoColumn">
-                    <TextView android:id="@+id/widget_course_name_3" style="@style/WidgetCourseName" />
-                    <TextView android:id="@+id/widget_course_detail_3" style="@style/WidgetCourseDetail" />
-                </LinearLayout>
-            </LinearLayout>
+            </FrameLayout>
 
-            <LinearLayout
+            <FrameLayout
                 android:id="@+id/widget_course_row_4"
-                style="@style/WidgetCourseRow"
+                style="@style/WidgetCourseRowFrame"
                 android:layout_marginTop="4dp">
-                <LinearLayout style="@style/WidgetCourseTimeColumn">
-                    <TextView android:id="@+id/widget_course_time_4" style="@style/WidgetCourseTimePrimary" />
-                    <TextView android:id="@+id/widget_course_end_4" style="@style/WidgetCourseTimeSecondary" />
+                <ImageView
+                    android:id="@+id/widget_course_background_4"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:scaleType="fitXY"
+                    android:visibility="gone" />
+                <LinearLayout
+                    android:id="@+id/widget_course_content_4"
+                    style="@style/WidgetCourseRowContent">
+                    <LinearLayout style="@style/WidgetCourseTimeColumn">
+                        <TextView android:id="@+id/widget_course_time_4" style="@style/WidgetCourseTimePrimary" />
+                        <TextView android:id="@+id/widget_course_end_4" style="@style/WidgetCourseTimeSecondary" />
+                    </LinearLayout>
+                    <ImageView android:id="@+id/widget_course_indicator_4" style="@style/WidgetCourseIndicator" android:contentDescription="@null" />
+                    <LinearLayout style="@style/WidgetCourseInfoColumn">
+                        <TextView android:id="@+id/widget_course_name_4" style="@style/WidgetCourseName" />
+                        <TextView android:id="@+id/widget_course_detail_4" style="@style/WidgetCourseDetail" />
+                    </LinearLayout>
                 </LinearLayout>
-                <ImageView android:id="@+id/widget_course_indicator_4" style="@style/WidgetCourseIndicator" android:contentDescription="@null" />
-                <LinearLayout style="@style/WidgetCourseInfoColumn">
-                    <TextView android:id="@+id/widget_course_name_4" style="@style/WidgetCourseName" />
-                    <TextView android:id="@+id/widget_course_detail_4" style="@style/WidgetCourseDetail" />
-                </LinearLayout>
-            </LinearLayout>
+            </FrameLayout>
         </LinearLayout>
 
         <LinearLayout
@@ -152,14 +196,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="54dp"
                 android:orientation="horizontal">
-                <LinearLayout android:id="@+id/widget_grid_cell_1" style="@style/WidgetCourseGridCell" android:layout_marginEnd="2dp">
-                    <ImageView android:id="@+id/widget_grid_indicator_1" style="@style/WidgetCompactIndicator" android:contentDescription="@null" />
-                    <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_1" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_1" style="@style/WidgetCompactCourseDetail" /></LinearLayout>
-                </LinearLayout>
-                <LinearLayout android:id="@+id/widget_grid_cell_2" style="@style/WidgetCourseGridCell" android:layout_marginStart="2dp">
-                    <ImageView android:id="@+id/widget_grid_indicator_2" style="@style/WidgetCompactIndicator" android:contentDescription="@null" />
-                    <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_2" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_2" style="@style/WidgetCompactCourseDetail" /></LinearLayout>
-                </LinearLayout>
+                <FrameLayout android:id="@+id/widget_grid_cell_1" style="@style/WidgetCourseGridCellFrame" android:layout_marginEnd="2dp"><ImageView android:id="@+id/widget_grid_background_1" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@null" android:scaleType="fitXY" android:visibility="gone" /><LinearLayout android:id="@+id/widget_grid_content_1" style="@style/WidgetCourseGridCellContent"><ImageView android:id="@+id/widget_grid_indicator_1" style="@style/WidgetCompactIndicator" android:contentDescription="@null" /><LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_1" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_1" style="@style/WidgetCompactCourseDetail" /></LinearLayout></LinearLayout></FrameLayout>
+                <FrameLayout android:id="@+id/widget_grid_cell_2" style="@style/WidgetCourseGridCellFrame" android:layout_marginStart="2dp"><ImageView android:id="@+id/widget_grid_background_2" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@null" android:scaleType="fitXY" android:visibility="gone" /><LinearLayout android:id="@+id/widget_grid_content_2" style="@style/WidgetCourseGridCellContent"><ImageView android:id="@+id/widget_grid_indicator_2" style="@style/WidgetCompactIndicator" android:contentDescription="@null" /><LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_2" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_2" style="@style/WidgetCompactCourseDetail" /></LinearLayout></LinearLayout></FrameLayout>
             </LinearLayout>
 
             <LinearLayout
@@ -168,14 +206,8 @@
                 android:layout_height="54dp"
                 android:layout_marginTop="4dp"
                 android:orientation="horizontal">
-                <LinearLayout android:id="@+id/widget_grid_cell_3" style="@style/WidgetCourseGridCell" android:layout_marginEnd="2dp">
-                    <ImageView android:id="@+id/widget_grid_indicator_3" style="@style/WidgetCompactIndicator" android:contentDescription="@null" />
-                    <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_3" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_3" style="@style/WidgetCompactCourseDetail" /></LinearLayout>
-                </LinearLayout>
-                <LinearLayout android:id="@+id/widget_grid_cell_4" style="@style/WidgetCourseGridCell" android:layout_marginStart="2dp">
-                    <ImageView android:id="@+id/widget_grid_indicator_4" style="@style/WidgetCompactIndicator" android:contentDescription="@null" />
-                    <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_4" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_4" style="@style/WidgetCompactCourseDetail" /></LinearLayout>
-                </LinearLayout>
+                <FrameLayout android:id="@+id/widget_grid_cell_3" style="@style/WidgetCourseGridCellFrame" android:layout_marginEnd="2dp"><ImageView android:id="@+id/widget_grid_background_3" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@null" android:scaleType="fitXY" android:visibility="gone" /><LinearLayout android:id="@+id/widget_grid_content_3" style="@style/WidgetCourseGridCellContent"><ImageView android:id="@+id/widget_grid_indicator_3" style="@style/WidgetCompactIndicator" android:contentDescription="@null" /><LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_3" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_3" style="@style/WidgetCompactCourseDetail" /></LinearLayout></LinearLayout></FrameLayout>
+                <FrameLayout android:id="@+id/widget_grid_cell_4" style="@style/WidgetCourseGridCellFrame" android:layout_marginStart="2dp"><ImageView android:id="@+id/widget_grid_background_4" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@null" android:scaleType="fitXY" android:visibility="gone" /><LinearLayout android:id="@+id/widget_grid_content_4" style="@style/WidgetCourseGridCellContent"><ImageView android:id="@+id/widget_grid_indicator_4" style="@style/WidgetCompactIndicator" android:contentDescription="@null" /><LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_4" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_4" style="@style/WidgetCompactCourseDetail" /></LinearLayout></LinearLayout></FrameLayout>
             </LinearLayout>
 
             <LinearLayout
@@ -184,14 +216,8 @@
                 android:layout_height="54dp"
                 android:layout_marginTop="4dp"
                 android:orientation="horizontal">
-                <LinearLayout android:id="@+id/widget_grid_cell_5" style="@style/WidgetCourseGridCell" android:layout_marginEnd="2dp">
-                    <ImageView android:id="@+id/widget_grid_indicator_5" style="@style/WidgetCompactIndicator" android:contentDescription="@null" />
-                    <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_5" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_5" style="@style/WidgetCompactCourseDetail" /></LinearLayout>
-                </LinearLayout>
-                <LinearLayout android:id="@+id/widget_grid_cell_6" style="@style/WidgetCourseGridCell" android:layout_marginStart="2dp">
-                    <ImageView android:id="@+id/widget_grid_indicator_6" style="@style/WidgetCompactIndicator" android:contentDescription="@null" />
-                    <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_6" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_6" style="@style/WidgetCompactCourseDetail" /></LinearLayout>
-                </LinearLayout>
+                <FrameLayout android:id="@+id/widget_grid_cell_5" style="@style/WidgetCourseGridCellFrame" android:layout_marginEnd="2dp"><ImageView android:id="@+id/widget_grid_background_5" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@null" android:scaleType="fitXY" android:visibility="gone" /><LinearLayout android:id="@+id/widget_grid_content_5" style="@style/WidgetCourseGridCellContent"><ImageView android:id="@+id/widget_grid_indicator_5" style="@style/WidgetCompactIndicator" android:contentDescription="@null" /><LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_5" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_5" style="@style/WidgetCompactCourseDetail" /></LinearLayout></LinearLayout></FrameLayout>
+                <FrameLayout android:id="@+id/widget_grid_cell_6" style="@style/WidgetCourseGridCellFrame" android:layout_marginStart="2dp"><ImageView android:id="@+id/widget_grid_background_6" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@null" android:scaleType="fitXY" android:visibility="gone" /><LinearLayout android:id="@+id/widget_grid_content_6" style="@style/WidgetCourseGridCellContent"><ImageView android:id="@+id/widget_grid_indicator_6" style="@style/WidgetCompactIndicator" android:contentDescription="@null" /><LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_6" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_6" style="@style/WidgetCompactCourseDetail" /></LinearLayout></LinearLayout></FrameLayout>
             </LinearLayout>
 
             <LinearLayout
@@ -200,14 +226,8 @@
                 android:layout_height="54dp"
                 android:layout_marginTop="4dp"
                 android:orientation="horizontal">
-                <LinearLayout android:id="@+id/widget_grid_cell_7" style="@style/WidgetCourseGridCell" android:layout_marginEnd="2dp">
-                    <ImageView android:id="@+id/widget_grid_indicator_7" style="@style/WidgetCompactIndicator" android:contentDescription="@null" />
-                    <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_7" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_7" style="@style/WidgetCompactCourseDetail" /></LinearLayout>
-                </LinearLayout>
-                <LinearLayout android:id="@+id/widget_grid_cell_8" style="@style/WidgetCourseGridCell" android:layout_marginStart="2dp">
-                    <ImageView android:id="@+id/widget_grid_indicator_8" style="@style/WidgetCompactIndicator" android:contentDescription="@null" />
-                    <LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_8" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_8" style="@style/WidgetCompactCourseDetail" /></LinearLayout>
-                </LinearLayout>
+                <FrameLayout android:id="@+id/widget_grid_cell_7" style="@style/WidgetCourseGridCellFrame" android:layout_marginEnd="2dp"><ImageView android:id="@+id/widget_grid_background_7" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@null" android:scaleType="fitXY" android:visibility="gone" /><LinearLayout android:id="@+id/widget_grid_content_7" style="@style/WidgetCourseGridCellContent"><ImageView android:id="@+id/widget_grid_indicator_7" style="@style/WidgetCompactIndicator" android:contentDescription="@null" /><LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_7" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_7" style="@style/WidgetCompactCourseDetail" /></LinearLayout></LinearLayout></FrameLayout>
+                <FrameLayout android:id="@+id/widget_grid_cell_8" style="@style/WidgetCourseGridCellFrame" android:layout_marginStart="2dp"><ImageView android:id="@+id/widget_grid_background_8" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@null" android:scaleType="fitXY" android:visibility="gone" /><LinearLayout android:id="@+id/widget_grid_content_8" style="@style/WidgetCourseGridCellContent"><ImageView android:id="@+id/widget_grid_indicator_8" style="@style/WidgetCompactIndicator" android:contentDescription="@null" /><LinearLayout style="@style/WidgetCourseInfoColumn"><TextView android:id="@+id/widget_grid_name_8" style="@style/WidgetCompactCourseName" /><TextView android:id="@+id/widget_grid_detail_8" style="@style/WidgetCompactCourseDetail" /></LinearLayout></LinearLayout></FrameLayout>
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

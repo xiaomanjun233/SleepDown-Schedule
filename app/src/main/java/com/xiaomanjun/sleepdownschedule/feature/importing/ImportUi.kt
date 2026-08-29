@@ -44,8 +44,6 @@ import android.util.Log
 import android.widget.Toast
 import android.view.HapticFeedbackConstants
 import android.view.WindowInsetsController
-import android.view.ViewGroup
-import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
 import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
@@ -280,6 +278,7 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
+import com.kyant.shapes.RoundedCornerStyle
 import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.Capsule
 import androidx.lifecycle.AndroidViewModel
@@ -547,7 +546,9 @@ fun NormalizedAiManualImportScreen(
                     super.onPageFinished(view, url)
                     if (scriptStarted) return
                     scriptStarted = true
-                    view.evaluateJavascript(buildWakeUpInlineImportScript(source, input), null)
+                    view.evaluateJavascript(EDU_BRIDGE_PROMISE_BOOTSTRAP) {
+                        view.evaluateJavascript(buildWakeUpInlineImportScript(source, input), null)
+                    }
                 }
             }
         }
@@ -634,7 +635,9 @@ fun NormalizedAiManualImportScreen(
                     super.onPageFinished(view, url)
                     if (scriptStarted) return
                     scriptStarted = true
-                    view.evaluateJavascript(buildStarLinkInlineImportScript(source, input), null)
+                    view.evaluateJavascript(EDU_BRIDGE_PROMISE_BOOTSTRAP) {
+                        view.evaluateJavascript(buildStarLinkInlineImportScript(source, input), null)
+                    }
                 }
             }
         }
@@ -1495,6 +1498,7 @@ fun EduSchoolPickerScreen(
             .getOrDefault(emptyList())
             .filterNot { it.isWakeUpImportTool() || it.isStarLinkImportTool() }
     }
+    var adapterChoices by remember { mutableStateOf<List<EduAdapter>?>(null) }
     var query by remember { mutableStateOf("") }
     val filtered = remember(query, adapters) {
         val keyword = query.trim()
@@ -1508,7 +1512,9 @@ fun EduSchoolPickerScreen(
                     it.school.id.contains(keyword, ignoreCase = true) ||
                     it.adapterId.contains(keyword, ignoreCase = true) ||
                     it.school.name.contains(keyword, ignoreCase = true) ||
-                    it.adapterName.contains(keyword, ignoreCase = true)
+                    it.adapterName.contains(keyword, ignoreCase = true) ||
+                    it.description.contains(keyword, ignoreCase = true) ||
+                    it.maintainer.contains(keyword, ignoreCase = true)
         }
     }
     EduSchoolIndexedSelectScreen(
@@ -1517,9 +1523,144 @@ fun EduSchoolPickerScreen(
         adapters = filtered,
         query = query,
         onQueryChange = { query = it },
-        onSelect = onSelect
+        onSelect = { school ->
+            val matches = adapters.filter { it.school.id == school.id }
+            if (matches.size == 1) {
+                onSelect(matches.single())
+            } else if (matches.isNotEmpty()) {
+                adapterChoices = matches
+            }
+        }
     )
+    adapterChoices?.let { choices ->
+        var selectedAdapterId by remember(choices) { mutableStateOf<String?>(null) }
+        val selectedAdapter = choices.firstOrNull { it.adapterId == selectedAdapterId }
+        LiquidAlertDialog(
+            title = choices.first().school.name,
+            message = "",
+            actions = listOf(
+                LiquidAlertAction(
+                    label = "取消",
+                    style = LiquidAlertActionStyle.Secondary,
+                    onClick = { adapterChoices = null }
+                ),
+                LiquidAlertAction(
+                    label = "确认",
+                    style = LiquidAlertActionStyle.Primary,
+                    enabled = selectedAdapter != null,
+                    onClick = {
+                        selectedAdapter?.let { adapter ->
+                            adapterChoices = null
+                            onSelect(adapter)
+                        }
+                    }
+                )
+            ),
+            backdrop = backdrop,
+            config = state.config,
+            onDismissRequest = { adapterChoices = null },
+            messageContent = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    choices.forEach { adapter ->
+                        EduAdapterChoiceCard(
+                            adapter = adapter,
+                            selected = adapter.adapterId == selectedAdapterId,
+                            config = state.config,
+                            onClick = { selectedAdapterId = adapter.adapterId }
+                        )
+                    }
+                }
+            }
+        )
+    }
 }
+
+@Composable
+private fun EduAdapterChoiceCard(
+    adapter: EduAdapter,
+    selected: Boolean,
+    config: ScheduleConfigEntity,
+    onClick: () -> Unit
+) {
+    val foreground = sleepDownPanelForegroundColor(config)
+    val dark = appUsesDarkTheme(config)
+    val accent = ComposeColor(0xFF0A84FF)
+    val details = buildList {
+        add(eduAdapterCategoryLabel(adapter.category))
+        adapter.maintainer.takeIf(String::isNotBlank)?.let { add(it) }
+        adapter.description.takeIf(String::isNotBlank)?.let { add(it) }
+    }.joinToString(" · ")
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 68.dp),
+        shape = RoundedRectangle(
+            cornerRadius = SleepDownDesignTokens.CenteredDialog.Corner -
+                SleepDownDesignTokens.CenteredDialog.ContentPadding -
+                SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset,
+            style = RoundedCornerStyle.Continuous
+        ),
+        color = if (selected) {
+            accent.copy(alpha = if (dark) 0.24f else 0.13f)
+        } else {
+            foreground.copy(alpha = if (dark) 0.09f else 0.055f)
+        },
+        border = BorderStroke(
+            width = if (selected) 1.5.dp else 1.dp,
+            color = if (selected) accent.copy(alpha = 0.88f) else foreground.copy(alpha = 0.14f)
+        ),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = adapter.adapterName,
+                    color = foreground,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (details.isNotBlank()) {
+                    Text(
+                        text = details,
+                        color = foreground.copy(alpha = 0.62f),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(Capsule())
+                    .background(
+                        if (selected) accent else foreground.copy(alpha = 0.10f)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (selected) {
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .clip(Capsule())
+                            .background(ComposeColor.White)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private data class EduSchoolAdapterGroup(
+    val school: EduSchool,
+    val adapters: List<EduAdapter>
+)
 
 @Composable
 fun EduSchoolIndexedSelectScreen(
@@ -1528,35 +1669,48 @@ fun EduSchoolIndexedSelectScreen(
     adapters: List<EduAdapter>,
     query: String,
     onQueryChange: (String) -> Unit,
-    onSelect: (EduAdapter) -> Unit
+    onSelect: (EduSchool) -> Unit
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val topPadding = detailContentTopPadding()
-    val aiEduAdapters = remember(adapters) {
-        adapters.filter { it.isAiEduImportTool() }
-    }
-    val pinnedAdapters = remember(adapters) {
-        adapters.filter {
-            !it.isAiEduImportTool() && (
-                it.isGeneralEduTool() ||
-                    it.isEduTestTool() ||
-                    it.category.equals("GENERAL_TOOL", ignoreCase = true)
+    val schoolGroups = remember(adapters) {
+        adapters
+            .groupBy { it.school.id }
+            .values
+            .map { schoolAdapters ->
+                EduSchoolAdapterGroup(
+                    school = schoolAdapters.first().school,
+                    adapters = schoolAdapters.sortedBy(EduAdapter::adapterName)
                 )
+            }
+    }
+    val aiEduSchools = remember(schoolGroups) {
+        schoolGroups.filter { group -> group.adapters.any(EduAdapter::isAiEduImportTool) }
+    }
+    val pinnedSchools = remember(schoolGroups) {
+        schoolGroups.filter { group ->
+            group !in aiEduSchools && group.adapters.any {
+                it.isGeneralEduTool() ||
+                        it.isEduTestTool() ||
+                        it.category.equals("GENERAL_TOOL", ignoreCase = true)
+            }
         }
-            .sortedWith(compareBy<EduAdapter> { it.school.id }.thenBy { it.adapterName })
+            .sortedBy { it.school.id }
     }
-    val indexedAdapters = remember(adapters) {
-        adapters.filterNot { it in aiEduAdapters || it in pinnedAdapters }
+    val indexedSchools = remember(schoolGroups) {
+        schoolGroups.filterNot { it in aiEduSchools || it in pinnedSchools }
     }
-    val grouped = remember(indexedAdapters) {
-        indexedAdapters.groupBy { it.school.initial.ifBlank { "#" }.uppercase() }.toSortedMap()
+    val grouped = remember(indexedSchools) {
+        indexedSchools
+            .groupBy { it.school.initial.ifBlank { "#" }.uppercase() }
+            .toSortedMap()
     }
     val letters = remember(grouped) { grouped.keys.toList() }
-    val sectionPositions = remember(grouped, aiEduAdapters, pinnedAdapters) {
-        val aiSectionSize = if (aiEduAdapters.isEmpty()) 0 else 2
-        val pinnedSectionSize = if (pinnedAdapters.isEmpty()) 0 else 2
+    val sectionPositions = remember(grouped, aiEduSchools, pinnedSchools) {
+        val aiSectionSize = if (aiEduSchools.isEmpty()) 0 else 2
+        val pinnedSectionSize = if (pinnedSchools.isEmpty()) 0 else 2
         var index = aiSectionSize + pinnedSectionSize
         buildMap {
             grouped.forEach { (letter, _) ->
@@ -1744,22 +1898,22 @@ fun EduSchoolIndexedSelectScreen(
                 if (adapters.isEmpty()) {
                     item { Text("没有找到学校适配资源", color = MaterialTheme.colorScheme.error) }
                 } else {
-                    if (aiEduAdapters.isNotEmpty()) {
+                    if (aiEduSchools.isNotEmpty()) {
                         item(key = "ai-edu-title") { GlassPreferenceCategory("AI教务导入") }
                         item(key = "ai-edu-card") {
-                            EduAdapterGroupCard(
-                                adapters = aiEduAdapters,
+                            EduSchoolGroupCard(
+                                schools = aiEduSchools,
                                 state = state,
                                 backdrop = backdrop,
                                 onSelect = onSelect
                             )
                         }
                     }
-                    if (pinnedAdapters.isNotEmpty()) {
+                    if (pinnedSchools.isNotEmpty()) {
                         item(key = "general-edu-title") { GlassPreferenceCategory("导入工具") }
                         item(key = "general-edu-card") {
-                            EduAdapterGroupCard(
-                                adapters = pinnedAdapters,
+                            EduSchoolGroupCard(
+                                schools = pinnedSchools,
                                 state = state,
                                 backdrop = backdrop,
                                 onSelect = onSelect
@@ -1769,8 +1923,8 @@ fun EduSchoolIndexedSelectScreen(
                     grouped.forEach { (letter, list) ->
                         item(key = "section-$letter") { GlassPreferenceCategory(letter) }
                         item(key = "section-card-$letter") {
-                            EduAdapterGroupCard(
-                                adapters = list,
+                            EduSchoolGroupCard(
+                                schools = list,
                                 state = state,
                                 backdrop = backdrop,
                                 onSelect = onSelect
@@ -1970,25 +2124,32 @@ fun EduSchoolIndexedSelectScreen(
 }
 
 @Composable
-private fun EduAdapterGroupCard(
-    adapters: List<EduAdapter>,
+private fun EduSchoolGroupCard(
+    schools: List<EduSchoolAdapterGroup>,
     state: AppState,
     backdrop: Backdrop?,
-    onSelect: (EduAdapter) -> Unit
+    onSelect: (EduSchool) -> Unit
 ) {
     SettingsGroup(
         backdrop = backdrop,
         config = state.config,
         modifier = Modifier.fillMaxWidth()
     ) {
-        adapters.forEach { adapter ->
+        schools.forEach { group ->
             SettingsNavigationRow(
-                title = adapter.school.name,
-                subtitle = adapter.adapterName,
-                onClick = { onSelect(adapter) }
+                title = group.school.name,
+                subtitle = group.adapters.joinToString(" / ") { it.adapterName },
+                onClick = { onSelect(group.school) }
             )
         }
     }
+}
+
+private fun eduAdapterCategoryLabel(category: String): String = when (category.uppercase()) {
+    "BACHELOR_AND_ASSOCIATE" -> "本科 / 专科教务"
+    "POSTGRADUATE" -> "研究生教务"
+    "GENERAL_TOOL" -> "通用工具"
+    else -> category.ifBlank { "未注明" }
 }
 
 private val EduSearchVerticalOverscan = 12.dp
@@ -2333,6 +2494,235 @@ fun SchoolSearchField(
     }
 }
 
+private fun WebView.resolveEduBridgeInteraction(requestId: String, valueExpression: String) {
+    evaluateJavascript(
+        "window.__sleepDownBridgeResolve && window.__sleepDownBridgeResolve(" +
+            JSONObject.quote(requestId) + ", " + valueExpression + ");",
+        null
+    )
+}
+
+private fun decodeEduBridgeValidationResult(encoded: String?): String? {
+    if (encoded.isNullOrBlank() || encoded == "null") return null
+    return runCatching {
+        val value = JSONArray("[$encoded]").opt(0)
+        when (value) {
+            null, JSONObject.NULL -> null
+            else -> value.toString().takeIf { it.isNotBlank() }
+        }
+    }.getOrElse { "输入校验失败，请重试" }
+}
+
+private fun validateEduBridgePrompt(
+    webView: WebView,
+    request: EduBridgeInteractionRequest.Prompt,
+    value: String,
+    onResult: (String?) -> Unit
+) {
+    val validator = request.validator
+    if (validator.isNullOrBlank()) {
+        onResult(null)
+        return
+    }
+    val script = """
+        (function (name, value) {
+            var validator = window[name];
+            if (typeof validator !== "function") {
+                return "输入校验函数不可用，请返回后重试";
+            }
+            try {
+                var result = validator(value);
+                if (result === false || result == null || result === "") return null;
+                return String(result);
+            } catch (error) {
+                return error && error.message ? error.message : String(error);
+            }
+        })(${JSONObject.quote(validator)}, ${JSONObject.quote(value)});
+    """.trimIndent()
+    webView.evaluateJavascript(script) { onResult(decodeEduBridgeValidationResult(it)) }
+}
+
+@Composable
+private fun EduBridgeInteractionDialog(
+    request: EduBridgeInteractionRequest?,
+    webView: WebView?,
+    state: AppState,
+    backdrop: Backdrop?,
+    onFinished: () -> Unit
+) {
+    when (request) {
+        null -> Unit
+        is EduBridgeInteractionRequest.Alert -> {
+            LiquidAlertDialog(
+                title = request.title,
+                message = request.message,
+                actions = listOf(
+                    LiquidAlertAction(
+                        label = request.confirmText,
+                        style = LiquidAlertActionStyle.Primary
+                    ) {
+                        webView?.resolveEduBridgeInteraction(request.requestId, "true")
+                        onFinished()
+                    }
+                ),
+                backdrop = backdrop,
+                config = state.config,
+                onDismissRequest = {
+                    webView?.resolveEduBridgeInteraction(request.requestId, "false")
+                    onFinished()
+                }
+            )
+        }
+        is EduBridgeInteractionRequest.Prompt -> {
+            var value by remember(request.requestId) { mutableStateOf(request.defaultValue) }
+            var validationError by remember(request.requestId) { mutableStateOf<String?>(null) }
+            fun cancel() {
+                webView?.resolveEduBridgeInteraction(request.requestId, "null")
+                onFinished()
+            }
+            fun submit() {
+                val target = webView
+                if (target == null) {
+                    validationError = "网页已关闭，请返回后重试"
+                    return
+                }
+                validateEduBridgePrompt(target, request, value) { error ->
+                    validationError = error
+                    if (error == null) {
+                        target.resolveEduBridgeInteraction(request.requestId, JSONObject.quote(value))
+                        onFinished()
+                    }
+                }
+            }
+            Dialog(
+                onDismissRequest = ::cancel,
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                CenterLiquidDialog(
+                    backdrop = backdrop,
+                    config = state.config,
+                    size = LiquidDialogSize.Compact
+                ) {
+                    LiquidDialogHeader(
+                        title = request.title,
+                        onDismiss = ::cancel,
+                        backdrop = backdrop,
+                        config = state.config,
+                        onConfirm = ::submit
+                    )
+                    if (request.message.isNotBlank()) {
+                        Text(
+                            request.message,
+                            modifier = Modifier.padding(horizontal = 18.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = LocalContentColor.current.copy(alpha = 0.72f)
+                        )
+                    }
+                    DialogCapsuleField(
+                        value = value,
+                        onValueChange = {
+                            value = it
+                            validationError = null
+                        },
+                        placeholder = request.message.ifBlank { "请输入" },
+                        config = state.config,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    )
+                    validationError?.let {
+                        Text(
+                            it,
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
+        }
+        is EduBridgeInteractionRequest.SingleSelection -> {
+            var selectedIndex by remember(request.requestId) {
+                mutableIntStateOf(request.defaultIndex)
+            }
+            fun cancel() {
+                webView?.resolveEduBridgeInteraction(request.requestId, "null")
+                onFinished()
+            }
+            fun submit() {
+                if (selectedIndex !in request.options.indices) return
+                webView?.resolveEduBridgeInteraction(request.requestId, selectedIndex.toString())
+                onFinished()
+            }
+            Dialog(
+                onDismissRequest = ::cancel,
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                CenterLiquidDialog(
+                    backdrop = backdrop,
+                    config = state.config,
+                    size = LiquidDialogSize.Compact
+                ) {
+                    LiquidDialogHeader(
+                        title = request.title,
+                        onDismiss = ::cancel,
+                        backdrop = backdrop,
+                        config = state.config,
+                        onConfirm = if (selectedIndex in request.options.indices) ::submit else null
+                    )
+                    if (request.options.isEmpty()) {
+                        Text(
+                            "没有可选项",
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 20.dp),
+                            textAlign = TextAlign.Center,
+                            color = LocalContentColor.current.copy(alpha = 0.64f)
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 360.dp)
+                                .padding(horizontal = 14.dp, vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            itemsIndexed(request.options) { index, option ->
+                                val selected = index == selectedIndex
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(
+                                            MaterialTheme.colorScheme.primary.copy(
+                                                alpha = if (selected) 0.14f else 0f
+                                            )
+                                        )
+                                        .clickable { selectedIndex = index }
+                                        .padding(horizontal = 16.dp, vertical = 13.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        option,
+                                        modifier = Modifier.weight(1f),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = LocalContentColor.current
+                                    )
+                                    if (selected) {
+                                        Text(
+                                            "✓",
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun EduImportActivityScreen(
     state: AppState,
@@ -2344,6 +2734,7 @@ fun EduImportActivityScreen(
     val context = LocalContext.current
     var message by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    var bridgeInteraction by remember { mutableStateOf<EduBridgeInteractionRequest?>(null) }
     var currentUrl by remember(adapter) {
         mutableStateOf(
             if (adapter.requiresManualEduUrl()) "" else adapter.importUrl.ifBlank { "https://" }
@@ -2358,9 +2749,20 @@ fun EduImportActivityScreen(
             basePeriods = { state.periods },
             onDraft = onParsed,
             onMessage = { message = it },
-            onTaskCompleted = { webView?.detachEduImportBridge() }
+            onInteractionRequest = { bridgeInteraction = it },
+            onTaskCompleted = {
+                bridgeInteraction = null
+                webView?.detachEduImportBridge()
+            }
         )
     }
+    EduBridgeInteractionDialog(
+        request = bridgeInteraction,
+        webView = webView,
+        state = state,
+        backdrop = backdrop,
+        onFinished = { bridgeInteraction = null }
+    )
     if (showGeneralUrlDialog) {
         Dialog(onDismissRequest = { showGeneralUrlDialog = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             CenterLiquidDialog(backdrop = backdrop, config = state.config) {
@@ -2388,7 +2790,6 @@ fun EduImportActivityScreen(
     EduImportBrowserScreen(
         state = state,
         adapter = adapter,
-        backdrop = backdrop,
         message = message,
         webView = webView,
         onWebView = { webView = it },
@@ -2715,7 +3116,6 @@ private fun aiEduRequestPreview(settings: AiImportSettings, pageTextLength: Int)
 fun EduImportBrowserScreen(
     state: AppState,
     adapter: EduAdapter,
-    backdrop: Backdrop?,
     message: String?,
     webView: WebView?,
     onWebView: (WebView) -> Unit,
@@ -2731,22 +3131,16 @@ fun EduImportBrowserScreen(
         domain = GlassBackdropDomain.Content,
         providerId = "edu-import-web-content"
     )
-    val buttonBackdrop = if (backdrop != null) {
-        rememberGlassCombinedBackdrop(backdrop, webContentBackdrop)
-    } else {
-        webContentBackdrop
-    }
+    val buttonBackdrop = webContentBackdrop
     var addressText by remember(currentUrl) { mutableStateOf(currentUrl) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
-    var lastRequestedUrl by remember { mutableStateOf<String?>(null) }
     var desktopMode by remember { mutableStateOf(false) }
     var aiParsing by remember { mutableStateOf(false) }
     var aiProgress by remember { mutableStateOf<AiEduImportProgress?>(null) }
     var isScreenCapturing by remember { mutableStateOf(false) }
     var screenCaptureStatus by remember { mutableStateOf<String?>(null) }
     var pendingOriginalImportScript by remember(adapter) { mutableStateOf<String?>(null) }
-    var pendingImportCompletionCount by remember(adapter) { mutableIntStateOf(0) }
     var pendingImportGeneration by remember(adapter) { mutableIntStateOf(0) }
     var importGeneration by remember(adapter) { mutableIntStateOf(0) }
     val topPadding = if (useDetailTopPadding) detailContentTopPadding() else 0.dp
@@ -3053,23 +3447,16 @@ fun EduImportBrowserScreen(
 
     fun executePendingOriginalImportScript(target: WebView) {
         val script = pendingOriginalImportScript ?: return
-        val completionCountAtStart = pendingImportCompletionCount
-        val generation = pendingImportGeneration
         pendingOriginalImportScript = null
         onMessage("已安全启用导入桥接，正在执行拾光适配器")
-        target.evaluateJavascript(
-            """
-            console.log('SleepDown bridge check', !!window.AndroidBridgePromise, typeof window.AndroidBridgePromise?.showAlert, typeof window.AndroidBridge?.notifyTaskCompletion);
-            try { $script } catch (e) { console.error('SleepDown import script error', e && (e.stack || e.message || e)); throw e; }
-            """.trimIndent(),
-            null
-        )
-        scope.launch {
-            delay(10_000)
-            if (importGeneration == generation && bridge.taskCompletionCount() == completionCountAtStart) {
-                target.detachEduImportBridge()
-                onMessage("拾光适配器暂未返回课程数据，可以点击 AI 兜底扒页，强制读取当前页面文字后交给 AI 解析。")
-            }
+        target.evaluateJavascript(EDU_BRIDGE_PROMISE_BOOTSTRAP) {
+            target.evaluateJavascript(
+                """
+                console.log('SleepDown bridge check', !!window.AndroidBridgePromise, typeof window.AndroidBridgePromise?.showAlert, typeof window.AndroidBridge?.notifyTaskCompletion);
+                try { $script } catch (e) { console.error('SleepDown import script error', e && (e.stack || e.message || e)); throw e; }
+                """.trimIndent(),
+                null
+            )
         }
     }
 
@@ -3088,7 +3475,6 @@ fun EduImportBrowserScreen(
             .onSuccess { script ->
                 importGeneration += 1
                 pendingImportGeneration = importGeneration
-                pendingImportCompletionCount = bridge.taskCompletionCount()
                 pendingOriginalImportScript = script
                 bridge.beginTask()
                 target.attachEduImportBridge(bridge)
@@ -3126,11 +3512,12 @@ fun EduImportBrowserScreen(
             loadWithOverviewMode = true
             textZoom = 100
         }
-        if (desktop) target.setInitialScale(80)
+        target.setInitialScale(if (desktop) 80 else 0)
     }
 
     fun createEduWebView(context: Context): WebView {
         return WebView(context).apply {
+            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             configureEduImportSecurity(adapter)
@@ -3143,10 +3530,6 @@ fun EduImportBrowserScreen(
             isHorizontalScrollBarEnabled = true
             isVerticalScrollBarEnabled = true
             overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
             applyEduWebMode(this, desktopMode)
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -3178,18 +3561,15 @@ fun EduImportBrowserScreen(
             onWebView(this)
             updateNavigationState(this)
             if (normalizedUrl.isNotBlank()) loadUrl(normalizedUrl)
-            if (normalizedUrl.isNotBlank()) lastRequestedUrl = normalizedUrl
         }
     }
 
-    // Record the complete browser underlay (address row, WebView and low-level messages) as one
-    // producer. Floating glass controls are later siblings, so they can sample every visible layer
-    // without ever entering their own RenderNode recording tree.
+    // Only the native WebView is recorded into this dedicated backdrop. The address row, messages
+    // and floating controls remain siblings outside its RenderNode capture chain.
     Box(modifier = Modifier.fillMaxSize().padding(top = topPadding)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .glassBackdropProducer(webContentBackdrop)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -3235,30 +3615,25 @@ fun EduImportBrowserScreen(
                 }
             }
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = {
-                        FrameLayout(it).apply {
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            addView(createEduWebView(it))
-                        }
-                    },
-                    update = { container ->
-                        val target = container.getChildAt(0) as? WebView ?: return@AndroidView
-                        applyEduWebMode(target, desktopMode)
-                        if (normalizedUrl.isNotBlank() && lastRequestedUrl != normalizedUrl) {
-                            lastRequestedUrl = normalizedUrl
-                            target.loadUrl(normalizedUrl)
-                        }
-                    },
-                    onRelease = { container ->
-                        (container.getChildAt(0) as? WebView)?.releaseSleepDownWebView()
-                        container.removeAllViews()
-                    }
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .glassBackdropProducer(webContentBackdrop)
+                ) {
+                    AndroidView(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                compositingStrategy = CompositingStrategy.Offscreen
+                            },
+                        factory = { createEduWebView(it) },
+                        // Navigation is event-driven (initial creation, address confirmation or an
+                        // explicit browser action). Observed page URLs must never feed back into
+                        // loadUrl from recomposition.
+                        update = {},
+                        onRelease = { it.releaseSleepDownWebView() }
+                    )
+                }
                 if (!isScreenCapturing) message?.let {
                     Text(
                         it,
