@@ -8699,6 +8699,14 @@ fun ChangelogSettingsScreen(
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
                 SettingsInfoRow(
+                    "1.2.2",
+                    "优化教务系统导入页，修复网页重复加载、页面跳转闪烁等问题，并优化教务适配器选择，同一学校存在多个导入工具时可以查看并选择对应适配\n" +
+                        "修复平板小组件排版异常的问题\n" +
+                        "重构自定义背景小组件的课程卡绘制方式，修复模糊卡片背景与课程文字错位的问题\n" +
+                        "修复部分设备上首页左上角日期标题和右上角按钮拖拽放大后被裁切的问题"
+                )
+                SettingsDivider()
+                SettingsInfoRow(
                     "1.2.1",
                     "建立统一的液态玻璃渲染框架。首页、二级页面、课程卡片、中心弹窗和悬浮菜单现在使用一致的背景采样与材质链路，复杂壁纸下的模糊、折射和前景色表现更加统一，也减少了弹窗背景变黑、退化为纯色或局部失去玻璃效果的情况。\n" +
                         "建立统一的无缝动画框架。多课表快速设置进入详细设置，以及首页前往课程管理、教务导入、手动导入和设置详情等页面时，会从实际点击位置自然展开，并完整衔接背景与页面内容；打开和返回时的跳帧、闪黑、内容重叠与动画偶尔被跳过的问题得到改善。\n" +

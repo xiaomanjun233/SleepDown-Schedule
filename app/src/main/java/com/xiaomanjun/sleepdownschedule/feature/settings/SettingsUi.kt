@@ -2303,6 +2303,7 @@ fun SettingsInfoRow(title: String, body: String) {
 internal val LocalCollapsibleSettingsInfoRows = compositionLocalOf { false }
 
 private val changelogReleaseDates = mapOf(
+    "1.2.2" to "2026-08-29",
     "1.2.1" to "2026-08-28",
     "1.2.0" to "2026-08-19",
     "1.1.5" to "2026-08-11",
@@ -2330,7 +2331,12 @@ private fun CollapsibleChangelogRow(version: String, body: String) {
     val isCurrentVersion = version == BuildConfig.VERSION_NAME || version == "下一版本（开发中）"
     val releaseDate = changelogReleaseDates[version]
     val entries = remember(body) {
-        body.split('；')
+        val rawEntries = if ('\n' in body) {
+            body.lineSequence()
+        } else {
+            body.splitToSequence('；')
+        }
+        rawEntries
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .map { entry ->

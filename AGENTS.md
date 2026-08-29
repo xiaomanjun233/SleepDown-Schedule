@@ -17,7 +17,7 @@
 - 工作目录：`D:\Android studio\CourseSchedule`；集成分支：`main`；远端：`origin` / `gitee`。
 - Java：`D:\Android studio\JDK`；Gradle 用户目录：`C:\Users\23085\.gradle`。
 - 已发布冻结版：`v1.1.5`，旧包名 `com.example.courseschedule`，`versionCode=25`，Room 36。
-- 当前开发版：`1.2.1` / `versionCode=27`，正式包名 `com.xiaomanjun.sleepdownschedule`，Room 38，含 `github/store` 渠道和 `.debug` 隔离。1.2.0 保持已发布冻结状态。
+- 当前开发版：`1.2.2` / `versionCode=28`，正式包名 `com.xiaomanjun.sleepdownschedule`，Room 38，含 `github/store` 渠道和 `.debug` 隔离。1.2.1 保持已发布冻结状态。
 - 旧包升级通过 v1.1.5 导出 `.sleepdown` 后由新包恢复；`BackupFormatV1` 必须继续兼容。迁移审计见 `docs/migration/`。
 - Release 签名位于仓库外的长期 keystore；禁止将路径、密码或服务端凭据写入仓库。
 - 构建命令：
@@ -106,7 +106,7 @@
 6. 教务页搜索胶囊和字母栏与返回键消费同一层 backdrop，降低模糊、提高折射。搜索框保持底部单手区，IME 顶起和动作胶囊分裂必须连续动画，不能点击瞬移。字母栏显示蓝色当前位置/滑动进度，每次滚动出现，停止后先收缩再淡出，交互与隐藏均有过渡。
 7. 教务 Web/适配器详情页建立完整 producer/consumer 层级，修复所有玻璃降级为半透明；快捷历史网页入口的文字反色改为跟随其真实玻璃材质。
 8. AI 手动导入原口令输入框同时接受 SleepDown、WakeUp 与星链课表口令。先走 SleepDown，本地失败后按特征选择 `wake_up.js` 或 `starlink.js` 的拾光流程，解析结果直接进入同一预览/确认链路；不得新增独立页面或课程编辑器入口。
-9. 代码合入 `main` 后等待用户确认；确认后才构建签名 `assembleGithubRelease`，必须开启资源压缩。核对版本 `1.2.1 (27)`、大玻璃常开配置和签名后覆盖安装到 PLJ110 `3B15AE023YL00000`，不自动启动应用。
+9. 代码合入 `main` 后等待用户确认；确认后才构建签名 `assembleGithubRelease`，必须开启资源压缩。核对版本 `1.2.2 (28)`、大玻璃常开配置和签名后覆盖安装到 PLJ110 `3B15AE023YL00000`，不自动启动应用。
 
 本轮已完成的层级修复（2026-08-27）：多课表 QuickSheet 的详细设置 Morph 按钮改用窗口坐标并按首页根坐标归一后再从“首页 underlay + 半屏 Popup”合成帧裁剪；截帧只在捕获阶段冻结首页 Popup host，交接后立即恢复实时绘制。详细设置内的 Miuix Dropdown/Cascading Popup 跟随当前 Scaffold 的 `renderInRootScaffold`，不再落到首页冻结 host 后方。教务搜索胶囊提升为整页根级悬浮 Overlay，底部位置通过内部偏移保持不变，扩大渲染包络并在稳定态卸载零半径 Offscreen RenderEffect，避免父级 padding、44dp 容器或矩形离屏边界裁切玻璃阴影和按压扩展。
 
