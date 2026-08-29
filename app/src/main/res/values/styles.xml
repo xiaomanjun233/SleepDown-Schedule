@@ -30,10 +30,15 @@
         <item name="android:windowNoTitle">true</item>
     </style>
 
-    <style name="WidgetCourseRow">
+    <style name="WidgetCourseRowFrame">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">54dp</item>
         <item name="android:background">@drawable/widget_course_background</item>
+    </style>
+
+    <style name="WidgetCourseRowContent">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:orientation">horizontal</item>
         <item name="android:paddingLeft">10dp</item>
@@ -105,10 +110,15 @@
         <item name="android:textSize">11sp</item>
     </style>
 
-    <style name="WidgetCompactCourseRow">
+    <style name="WidgetCompactCourseRowFrame">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">50dp</item>
         <item name="android:background">@drawable/widget_course_background_compact</item>
+    </style>
+
+    <style name="WidgetCompactCourseRowContent">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:orientation">horizontal</item>
         <item name="android:paddingLeft">7dp</item>
@@ -124,17 +134,39 @@
         <item name="android:src">@drawable/widget_course_indicator</item>
     </style>
 
-    <style name="WidgetCourseGridCell">
+    <style name="WidgetCourseGridCellFrame">
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">match_parent</item>
         <item name="android:layout_weight">1</item>
         <item name="android:background">@drawable/widget_course_background_compact</item>
+    </style>
+
+    <style name="WidgetCourseGridCellContent">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:orientation">horizontal</item>
         <item name="android:paddingLeft">7dp</item>
         <item name="android:paddingTop">4dp</item>
         <item name="android:paddingRight">7dp</item>
         <item name="android:paddingBottom">4dp</item>
+    </style>
+
+    <style name="WidgetTodayTomorrowCourseRowFrame">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">43dp</item>
+        <item name="android:background">@drawable/widget_course_background_compact</item>
+    </style>
+
+    <style name="WidgetTodayTomorrowCourseRowContent">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:paddingLeft">7dp</item>
+        <item name="android:paddingTop">3dp</item>
+        <item name="android:paddingRight">7dp</item>
+        <item name="android:paddingBottom">3dp</item>
     </style>
 
     <style name="WidgetCompactCourseName" parent="WidgetCourseName">

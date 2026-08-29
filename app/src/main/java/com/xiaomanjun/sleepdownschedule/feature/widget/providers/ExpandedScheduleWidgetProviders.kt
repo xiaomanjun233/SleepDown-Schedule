@@ -625,12 +625,7 @@ internal object TodayTomorrowWidgetRenderer {
         custom: WidgetBackgroundResult?,
         courseColors: Map<String, Int>
     ) {
-        val courseBackground = when {
-            custom?.darkBackground == true -> R.drawable.widget_course_background_compact_custom_dark
-            custom != null -> R.drawable.widget_course_background_compact_custom
-            dark -> R.drawable.widget_course_background_compact_dark
-            else -> R.drawable.widget_course_background_compact
-        }
+        val courseBackground = if (dark) R.drawable.widget_course_background_compact_dark else R.drawable.widget_course_background_compact
         setViewVisibility(emptyId, if (courses.isEmpty()) View.VISIBLE else View.GONE)
         repeat(6) { index ->
             fun id(suffix: String): Int = context.resources.getIdentifier(
@@ -639,6 +634,7 @@ internal object TodayTomorrowWidgetRenderer {
                 context.packageName
             )
             val rowId = id("row")
+            val backgroundId = id("background")
             val timeColumnId = id("time_column")
             val startId = id("start")
             val endId = id("end")
@@ -651,10 +647,12 @@ internal object TodayTomorrowWidgetRenderer {
             setWidgetHeight(rowId, metrics.rowHeightDp)
             setWidgetCornerRadius(rowId, metrics.rowCornerRadiusDp)
             setWidgetWidth(timeColumnId, metrics.timeColumnWidthDp)
-            setInt(
-                rowId,
-                "setBackgroundResource",
-                courseBackground
+            applyWidgetCourseCardBackground(
+                rowId = rowId,
+                backgroundId = backgroundId,
+                custom = custom,
+                cardIndex = contentOffset + index,
+                defaultBackground = courseBackground
             )
             setWidgetIndicatorHeight(
                 indicatorId,

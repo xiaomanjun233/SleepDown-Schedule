@@ -278,6 +278,7 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
+import com.kyant.shapes.RoundedCornerStyle
 import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.Capsule
 import androidx.lifecycle.AndroidViewModel
@@ -1561,7 +1562,7 @@ fun EduSchoolPickerScreen(
             messageContent = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     choices.forEach { adapter ->
-                        EduAdapterChoiceCapsule(
+                        EduAdapterChoiceCard(
                             adapter = adapter,
                             selected = adapter.adapterId == selectedAdapterId,
                             config = state.config,
@@ -1575,7 +1576,7 @@ fun EduSchoolPickerScreen(
 }
 
 @Composable
-private fun EduAdapterChoiceCapsule(
+private fun EduAdapterChoiceCard(
     adapter: EduAdapter,
     selected: Boolean,
     config: ScheduleConfigEntity,
@@ -1594,7 +1595,12 @@ private fun EduAdapterChoiceCapsule(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 68.dp),
-        shape = Capsule(),
+        shape = RoundedRectangle(
+            cornerRadius = SleepDownDesignTokens.CenteredDialog.Corner -
+                SleepDownDesignTokens.CenteredDialog.ContentPadding -
+                SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset,
+            style = RoundedCornerStyle.Continuous
+        ),
         color = if (selected) {
             accent.copy(alpha = if (dark) 0.24f else 0.13f)
         } else {
@@ -1619,17 +1625,13 @@ private fun EduAdapterChoiceCapsule(
                     text = adapter.adapterName,
                     color = foreground,
                     style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    fontWeight = FontWeight.SemiBold
                 )
                 if (details.isNotBlank()) {
                     Text(
                         text = details,
                         color = foreground.copy(alpha = 0.62f),
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }

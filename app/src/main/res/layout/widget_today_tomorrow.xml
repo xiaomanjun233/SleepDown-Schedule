@@ -96,17 +96,19 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical">
-                    <LinearLayout
+                    <FrameLayout
                         android:id="@+id/widget_tt_today_row_1"
-                        android:layout_width="match_parent"
-                        android:layout_height="43dp"
-                        android:background="@drawable/widget_course_background_compact"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="7dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="7dp"
-                        android:paddingBottom="3dp">
+                        style="@style/WidgetTodayTomorrowCourseRowFrame">
+
+                        <ImageView
+                            android:id="@+id/widget_tt_today_background_1"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@null"
+                            android:scaleType="fitXY"
+                            android:visibility="gone" />
+
+                        <LinearLayout style="@style/WidgetTodayTomorrowCourseRowContent">
 
                         <LinearLayout
                             android:id="@+id/widget_tt_today_time_column_1"
@@ -154,18 +156,21 @@
                                 android:textSize="8.8sp" />
                         </LinearLayout>
                     </LinearLayout>
-                    <LinearLayout
+                    </FrameLayout>
+                    <FrameLayout
                         android:id="@+id/widget_tt_today_row_2"
-                        android:layout_width="match_parent"
-                        android:layout_height="43dp"
-                        android:layout_marginTop="4dp"
-                        android:background="@drawable/widget_course_background_compact"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="7dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="7dp"
-                        android:paddingBottom="3dp">
+                        style="@style/WidgetTodayTomorrowCourseRowFrame"
+                        android:layout_marginTop="4dp">
+
+                        <ImageView
+                            android:id="@+id/widget_tt_today_background_2"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@null"
+                            android:scaleType="fitXY"
+                            android:visibility="gone" />
+
+                        <LinearLayout style="@style/WidgetTodayTomorrowCourseRowContent">
 
                         <LinearLayout
                             android:id="@+id/widget_tt_today_time_column_2"
@@ -213,18 +218,21 @@
                                 android:textSize="8.8sp" />
                         </LinearLayout>
                     </LinearLayout>
-                    <LinearLayout
+                    </FrameLayout>
+                    <FrameLayout
                         android:id="@+id/widget_tt_today_row_3"
-                        android:layout_width="match_parent"
-                        android:layout_height="43dp"
-                        android:layout_marginTop="4dp"
-                        android:background="@drawable/widget_course_background_compact"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="7dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="7dp"
-                        android:paddingBottom="3dp">
+                        style="@style/WidgetTodayTomorrowCourseRowFrame"
+                        android:layout_marginTop="4dp">
+
+                        <ImageView
+                            android:id="@+id/widget_tt_today_background_3"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@null"
+                            android:scaleType="fitXY"
+                            android:visibility="gone" />
+
+                        <LinearLayout style="@style/WidgetTodayTomorrowCourseRowContent">
 
                         <LinearLayout
                             android:id="@+id/widget_tt_today_time_column_3"
@@ -272,18 +280,21 @@
                                 android:textSize="8.8sp" />
                         </LinearLayout>
                     </LinearLayout>
-                    <LinearLayout
+                    </FrameLayout>
+                    <FrameLayout
                         android:id="@+id/widget_tt_today_row_4"
-                        android:layout_width="match_parent"
-                        android:layout_height="43dp"
-                        android:layout_marginTop="4dp"
-                        android:background="@drawable/widget_course_background_compact"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="7dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="7dp"
-                        android:paddingBottom="3dp">
+                        style="@style/WidgetTodayTomorrowCourseRowFrame"
+                        android:layout_marginTop="4dp">
+
+                        <ImageView
+                            android:id="@+id/widget_tt_today_background_4"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@null"
+                            android:scaleType="fitXY"
+                            android:visibility="gone" />
+
+                        <LinearLayout style="@style/WidgetTodayTomorrowCourseRowContent">
 
                         <LinearLayout
                             android:id="@+id/widget_tt_today_time_column_4"
@@ -331,18 +342,21 @@
                                 android:textSize="8.8sp" />
                         </LinearLayout>
                     </LinearLayout>
-                    <LinearLayout
+                    </FrameLayout>
+                    <FrameLayout
                         android:id="@+id/widget_tt_today_row_5"
-                        android:layout_width="match_parent"
-                        android:layout_height="43dp"
-                        android:layout_marginTop="4dp"
-                        android:background="@drawable/widget_course_background_compact"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="7dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="7dp"
-                        android:paddingBottom="3dp">
+                        style="@style/WidgetTodayTomorrowCourseRowFrame"
+                        android:layout_marginTop="4dp">
+
+                        <ImageView
+                            android:id="@+id/widget_tt_today_background_5"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@null"
+                            android:scaleType="fitXY"
+                            android:visibility="gone" />
+
+                        <LinearLayout style="@style/WidgetTodayTomorrowCourseRowContent">
 
                         <LinearLayout
                             android:id="@+id/widget_tt_today_time_column_5"
@@ -390,18 +404,21 @@
                                 android:textSize="8.8sp" />
                         </LinearLayout>
                     </LinearLayout>
-                    <LinearLayout
+                    </FrameLayout>
+                    <FrameLayout
                         android:id="@+id/widget_tt_today_row_6"
-                        android:layout_width="match_parent"
-                        android:layout_height="43dp"
-                        android:layout_marginTop="4dp"
-                        android:background="@drawable/widget_course_background_compact"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="7dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="7dp"
-                        android:paddingBottom="3dp">
+                        style="@style/WidgetTodayTomorrowCourseRowFrame"
+                        android:layout_marginTop="4dp">
+
+                        <ImageView
+                            android:id="@+id/widget_tt_today_background_6"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@null"
+                            android:scaleType="fitXY"
+                            android:visibility="gone" />
+
+                        <LinearLayout style="@style/WidgetTodayTomorrowCourseRowContent">
 
                         <LinearLayout
                             android:id="@+id/widget_tt_today_time_column_6"
@@ -449,6 +466,7 @@
                                 android:textSize="8.8sp" />
                         </LinearLayout>
                     </LinearLayout>
+                    </FrameLayout>
                     </LinearLayout>
 
                     <TextView
@@ -500,17 +518,19 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical">
-                    <LinearLayout
+                    <FrameLayout
                         android:id="@+id/widget_tt_tomorrow_row_1"
-                        android:layout_width="match_parent"
-                        android:layout_height="43dp"
-                        android:background="@drawable/widget_course_background_compact"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="7dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="7dp"
-                        android:paddingBottom="3dp">
+                        style="@style/WidgetTodayTomorrowCourseRowFrame">
+
+                        <ImageView
+                            android:id="@+id/widget_tt_tomorrow_background_1"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@null"
+                            android:scaleType="fitXY"
+                            android:visibility="gone" />
+
+                        <LinearLayout style="@style/WidgetTodayTomorrowCourseRowContent">
 
                         <LinearLayout
                             android:id="@+id/widget_tt_tomorrow_time_column_1"
@@ -558,18 +578,21 @@
                                 android:textSize="8.8sp" />
                         </LinearLayout>
                     </LinearLayout>
-                    <LinearLayout
+                    </FrameLayout>
+                    <FrameLayout
                         android:id="@+id/widget_tt_tomorrow_row_2"
-                        android:layout_width="match_parent"
-                        android:layout_height="43dp"
-                        android:layout_marginTop="4dp"
-                        android:background="@drawable/widget_course_background_compact"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="7dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="7dp"
-                        android:paddingBottom="3dp">
+                        style="@style/WidgetTodayTomorrowCourseRowFrame"
+                        android:layout_marginTop="4dp">
+
+                        <ImageView
+                            android:id="@+id/widget_tt_tomorrow_background_2"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@null"
+                            android:scaleType="fitXY"
+                            android:visibility="gone" />
+
+                        <LinearLayout style="@style/WidgetTodayTomorrowCourseRowContent">
 
                         <LinearLayout
                             android:id="@+id/widget_tt_tomorrow_time_column_2"
@@ -617,18 +640,21 @@
                                 android:textSize="8.8sp" />
                         </LinearLayout>
                     </LinearLayout>
-                    <LinearLayout
+                    </FrameLayout>
+                    <FrameLayout
                         android:id="@+id/widget_tt_tomorrow_row_3"
-                        android:layout_width="match_parent"
-                        android:layout_height="43dp"
-                        android:layout_marginTop="4dp"
-                        android:background="@drawable/widget_course_background_compact"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="7dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="7dp"
-                        android:paddingBottom="3dp">
+                        style="@style/WidgetTodayTomorrowCourseRowFrame"
+                        android:layout_marginTop="4dp">
+
+                        <ImageView
+                            android:id="@+id/widget_tt_tomorrow_background_3"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@null"
+                            android:scaleType="fitXY"
+                            android:visibility="gone" />
+
+                        <LinearLayout style="@style/WidgetTodayTomorrowCourseRowContent">
 
                         <LinearLayout
                             android:id="@+id/widget_tt_tomorrow_time_column_3"
@@ -676,18 +702,21 @@
                                 android:textSize="8.8sp" />
                         </LinearLayout>
                     </LinearLayout>
-                    <LinearLayout
+                    </FrameLayout>
+                    <FrameLayout
                         android:id="@+id/widget_tt_tomorrow_row_4"
-                        android:layout_width="match_parent"
-                        android:layout_height="43dp"
-                        android:layout_marginTop="4dp"
-                        android:background="@drawable/widget_course_background_compact"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="7dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="7dp"
-                        android:paddingBottom="3dp">
+                        style="@style/WidgetTodayTomorrowCourseRowFrame"
+                        android:layout_marginTop="4dp">
+
+                        <ImageView
+                            android:id="@+id/widget_tt_tomorrow_background_4"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@null"
+                            android:scaleType="fitXY"
+                            android:visibility="gone" />
+
+                        <LinearLayout style="@style/WidgetTodayTomorrowCourseRowContent">
 
                         <LinearLayout
                             android:id="@+id/widget_tt_tomorrow_time_column_4"
@@ -735,18 +764,21 @@
                                 android:textSize="8.8sp" />
                         </LinearLayout>
                     </LinearLayout>
-                    <LinearLayout
+                    </FrameLayout>
+                    <FrameLayout
                         android:id="@+id/widget_tt_tomorrow_row_5"
-                        android:layout_width="match_parent"
-                        android:layout_height="43dp"
-                        android:layout_marginTop="4dp"
-                        android:background="@drawable/widget_course_background_compact"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="7dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="7dp"
-                        android:paddingBottom="3dp">
+                        style="@style/WidgetTodayTomorrowCourseRowFrame"
+                        android:layout_marginTop="4dp">
+
+                        <ImageView
+                            android:id="@+id/widget_tt_tomorrow_background_5"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@null"
+                            android:scaleType="fitXY"
+                            android:visibility="gone" />
+
+                        <LinearLayout style="@style/WidgetTodayTomorrowCourseRowContent">
 
                         <LinearLayout
                             android:id="@+id/widget_tt_tomorrow_time_column_5"
@@ -794,18 +826,21 @@
                                 android:textSize="8.8sp" />
                         </LinearLayout>
                     </LinearLayout>
-                    <LinearLayout
+                    </FrameLayout>
+                    <FrameLayout
                         android:id="@+id/widget_tt_tomorrow_row_6"
-                        android:layout_width="match_parent"
-                        android:layout_height="43dp"
-                        android:layout_marginTop="4dp"
-                        android:background="@drawable/widget_course_background_compact"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="7dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="7dp"
-                        android:paddingBottom="3dp">
+                        style="@style/WidgetTodayTomorrowCourseRowFrame"
+                        android:layout_marginTop="4dp">
+
+                        <ImageView
+                            android:id="@+id/widget_tt_tomorrow_background_6"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@null"
+                            android:scaleType="fitXY"
+                            android:visibility="gone" />
+
+                        <LinearLayout style="@style/WidgetTodayTomorrowCourseRowContent">
 
                         <LinearLayout
                             android:id="@+id/widget_tt_tomorrow_time_column_6"
@@ -853,6 +888,7 @@
                                 android:textSize="8.8sp" />
                         </LinearLayout>
                     </LinearLayout>
+                    </FrameLayout>
                     </LinearLayout>
 
                     <TextView
