@@ -549,7 +549,14 @@ internal object MiuixTodayWidgetRenderer {
             TodayWidgetVariant.SQUARE -> R.layout.widget_today_courses_square_adaptive_v2
         }
         val dark = usesDarkTheme(context, state.config)
-        val custom = WidgetBackgroundRenderer.render(context, appearance, size, courses.size, dark)
+        val custom = WidgetBackgroundRenderer.render(
+            context = context,
+            appearance = appearance,
+            size = size,
+            courseCount = courses.size,
+            darkMode = dark,
+            coursesMetrics = metrics
+        )
         val courseColorAssignments = WidgetCourseColors.assignments(context, state, dark)
         val typography = coursesWidgetTypography(variant, metrics)
         return RemoteViews(context.packageName, layout).apply {

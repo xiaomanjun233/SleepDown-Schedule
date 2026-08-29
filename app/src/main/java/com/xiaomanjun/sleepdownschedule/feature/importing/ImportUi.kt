@@ -547,7 +547,9 @@ fun NormalizedAiManualImportScreen(
                     super.onPageFinished(view, url)
                     if (scriptStarted) return
                     scriptStarted = true
-                    view.evaluateJavascript(buildWakeUpInlineImportScript(source, input), null)
+                    view.evaluateJavascript(EDU_BRIDGE_PROMISE_BOOTSTRAP) {
+                        view.evaluateJavascript(buildWakeUpInlineImportScript(source, input), null)
+                    }
                 }
             }
         }
@@ -634,7 +636,9 @@ fun NormalizedAiManualImportScreen(
                     super.onPageFinished(view, url)
                     if (scriptStarted) return
                     scriptStarted = true
-                    view.evaluateJavascript(buildStarLinkInlineImportScript(source, input), null)
+                    view.evaluateJavascript(EDU_BRIDGE_PROMISE_BOOTSTRAP) {
+                        view.evaluateJavascript(buildStarLinkInlineImportScript(source, input), null)
+                    }
                 }
             }
         }
@@ -1487,6 +1491,8 @@ fun DonateSettingsScreen(
 fun EduSchoolPickerScreen(
     state: AppState,
     backdrop: Backdrop? = null,
+    selectedSchool: EduSchool?,
+    onSchoolSelect: (EduSchool) -> Unit,
     onSelect: (EduAdapter) -> Unit
 ) {
     val context = LocalContext.current
@@ -1494,6 +1500,16 @@ fun EduSchoolPickerScreen(
         runCatching { ShiguangWarehouse.loadAdapters(context) }
             .getOrDefault(emptyList())
             .filterNot { it.isWakeUpImportTool() || it.isStarLinkImportTool() }
+    }
+    if (selectedSchool != null) {
+        EduAdapterSelectionScreen(
+            state = state,
+            backdrop = backdrop,
+            school = selectedSchool,
+            adapters = adapters.filter { it.school.id == selectedSchool.id },
+            onSelect = onSelect
+        )
+        return
     }
     var query by remember { mutableStateOf("") }
     val filtered = remember(query, adapters) {
@@ -1508,7 +1524,9 @@ fun EduSchoolPickerScreen(
                     it.school.id.contains(keyword, ignoreCase = true) ||
                     it.adapterId.contains(keyword, ignoreCase = true) ||
                     it.school.name.contains(keyword, ignoreCase = true) ||
-                    it.adapterName.contains(keyword, ignoreCase = true)
+                    it.adapterName.contains(keyword, ignoreCase = true) ||
+                    it.description.contains(keyword, ignoreCase = true) ||
+                    it.maintainer.contains(keyword, ignoreCase = true)
         }
     }
     EduSchoolIndexedSelectScreen(
@@ -1517,9 +1535,14 @@ fun EduSchoolPickerScreen(
         adapters = filtered,
         query = query,
         onQueryChange = { query = it },
-        onSelect = onSelect
+        onSelect = onSchoolSelect
     )
 }
+
+private data class EduSchoolAdapterGroup(
+    val school: EduSchool,
+    val adapters: List<EduAdapter>
+)
 
 @Composable
 fun EduSchoolIndexedSelectScreen(
@@ -1528,35 +1551,48 @@ fun EduSchoolIndexedSelectScreen(
     adapters: List<EduAdapter>,
     query: String,
     onQueryChange: (String) -> Unit,
-    onSelect: (EduAdapter) -> Unit
+    onSelect: (EduSchool) -> Unit
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val topPadding = detailContentTopPadding()
-    val aiEduAdapters = remember(adapters) {
-        adapters.filter { it.isAiEduImportTool() }
-    }
-    val pinnedAdapters = remember(adapters) {
-        adapters.filter {
-            !it.isAiEduImportTool() && (
-                it.isGeneralEduTool() ||
-                    it.isEduTestTool() ||
-                    it.category.equals("GENERAL_TOOL", ignoreCase = true)
+    val schoolGroups = remember(adapters) {
+        adapters
+            .groupBy { it.school.id }
+            .values
+            .map { schoolAdapters ->
+                EduSchoolAdapterGroup(
+                    school = schoolAdapters.first().school,
+                    adapters = schoolAdapters.sortedBy(EduAdapter::adapterName)
                 )
+            }
+    }
+    val aiEduSchools = remember(schoolGroups) {
+        schoolGroups.filter { group -> group.adapters.any(EduAdapter::isAiEduImportTool) }
+    }
+    val pinnedSchools = remember(schoolGroups) {
+        schoolGroups.filter { group ->
+            group !in aiEduSchools && group.adapters.any {
+                it.isGeneralEduTool() ||
+                        it.isEduTestTool() ||
+                        it.category.equals("GENERAL_TOOL", ignoreCase = true)
+            }
         }
-            .sortedWith(compareBy<EduAdapter> { it.school.id }.thenBy { it.adapterName })
+            .sortedBy { it.school.id }
     }
-    val indexedAdapters = remember(adapters) {
-        adapters.filterNot { it in aiEduAdapters || it in pinnedAdapters }
+    val indexedSchools = remember(schoolGroups) {
+        schoolGroups.filterNot { it in aiEduSchools || it in pinnedSchools }
     }
-    val grouped = remember(indexedAdapters) {
-        indexedAdapters.groupBy { it.school.initial.ifBlank { "#" }.uppercase() }.toSortedMap()
+    val grouped = remember(indexedSchools) {
+        indexedSchools
+            .groupBy { it.school.initial.ifBlank { "#" }.uppercase() }
+            .toSortedMap()
     }
     val letters = remember(grouped) { grouped.keys.toList() }
-    val sectionPositions = remember(grouped, aiEduAdapters, pinnedAdapters) {
-        val aiSectionSize = if (aiEduAdapters.isEmpty()) 0 else 2
-        val pinnedSectionSize = if (pinnedAdapters.isEmpty()) 0 else 2
+    val sectionPositions = remember(grouped, aiEduSchools, pinnedSchools) {
+        val aiSectionSize = if (aiEduSchools.isEmpty()) 0 else 2
+        val pinnedSectionSize = if (pinnedSchools.isEmpty()) 0 else 2
         var index = aiSectionSize + pinnedSectionSize
         buildMap {
             grouped.forEach { (letter, _) ->
@@ -1744,22 +1780,22 @@ fun EduSchoolIndexedSelectScreen(
                 if (adapters.isEmpty()) {
                     item { Text("没有找到学校适配资源", color = MaterialTheme.colorScheme.error) }
                 } else {
-                    if (aiEduAdapters.isNotEmpty()) {
+                    if (aiEduSchools.isNotEmpty()) {
                         item(key = "ai-edu-title") { GlassPreferenceCategory("AI教务导入") }
                         item(key = "ai-edu-card") {
-                            EduAdapterGroupCard(
-                                adapters = aiEduAdapters,
+                            EduSchoolGroupCard(
+                                schools = aiEduSchools,
                                 state = state,
                                 backdrop = backdrop,
                                 onSelect = onSelect
                             )
                         }
                     }
-                    if (pinnedAdapters.isNotEmpty()) {
+                    if (pinnedSchools.isNotEmpty()) {
                         item(key = "general-edu-title") { GlassPreferenceCategory("导入工具") }
                         item(key = "general-edu-card") {
-                            EduAdapterGroupCard(
-                                adapters = pinnedAdapters,
+                            EduSchoolGroupCard(
+                                schools = pinnedSchools,
                                 state = state,
                                 backdrop = backdrop,
                                 onSelect = onSelect
@@ -1769,8 +1805,8 @@ fun EduSchoolIndexedSelectScreen(
                     grouped.forEach { (letter, list) ->
                         item(key = "section-$letter") { GlassPreferenceCategory(letter) }
                         item(key = "section-card-$letter") {
-                            EduAdapterGroupCard(
-                                adapters = list,
+                            EduSchoolGroupCard(
+                                schools = list,
                                 state = state,
                                 backdrop = backdrop,
                                 onSelect = onSelect
@@ -1970,23 +2006,90 @@ fun EduSchoolIndexedSelectScreen(
 }
 
 @Composable
-private fun EduAdapterGroupCard(
-    adapters: List<EduAdapter>,
+private fun EduSchoolGroupCard(
+    schools: List<EduSchoolAdapterGroup>,
     state: AppState,
     backdrop: Backdrop?,
-    onSelect: (EduAdapter) -> Unit
+    onSelect: (EduSchool) -> Unit
 ) {
     SettingsGroup(
         backdrop = backdrop,
         config = state.config,
         modifier = Modifier.fillMaxWidth()
     ) {
-        adapters.forEach { adapter ->
+        schools.forEach { group ->
             SettingsNavigationRow(
-                title = adapter.school.name,
-                subtitle = adapter.adapterName,
-                onClick = { onSelect(adapter) }
+                title = group.school.name,
+                subtitle = if (group.adapters.size == 1) {
+                    "1 个可用适配器"
+                } else {
+                    "${group.adapters.size} 个可用适配器"
+                },
+                onClick = { onSelect(group.school) }
             )
+        }
+    }
+}
+
+private fun eduAdapterCategoryLabel(category: String): String = when (category.uppercase()) {
+    "BACHELOR_AND_ASSOCIATE" -> "本科 / 专科教务"
+    "POSTGRADUATE" -> "研究生教务"
+    "GENERAL_TOOL" -> "通用工具"
+    else -> category.ifBlank { "未注明" }
+}
+
+@Composable
+private fun EduAdapterSelectionScreen(
+    state: AppState,
+    backdrop: Backdrop?,
+    school: EduSchool,
+    adapters: List<EduAdapter>,
+    onSelect: (EduAdapter) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = detailContentTopPadding() + 12.dp,
+            bottom = 28.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item(key = "adapter-title-${school.id}") {
+            GlassPreferenceCategory("可用适配器")
+        }
+        if (adapters.isEmpty()) {
+            item(key = "adapter-empty-${school.id}") {
+                Text(
+                    "该学校当前没有可用适配器",
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        } else {
+            items(adapters, key = EduAdapter::adapterId) { adapter ->
+                SettingsGroup(
+                    backdrop = backdrop,
+                    config = state.config,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    SettingsInfoRow("适配方式", adapter.adapterName)
+                    SettingsInfoRow("类型", eduAdapterCategoryLabel(adapter.category))
+                    SettingsInfoRow(
+                        "作者说明",
+                        adapter.description.ifBlank { "适配作者暂未提供额外说明。" }
+                    )
+                    SettingsInfoRow(
+                        "维护者",
+                        adapter.maintainer.ifBlank { "未注明" }
+                    )
+                    SettingsNavigationRow(
+                        title = "使用此适配器",
+                        subtitle = "进入教务系统并继续导入",
+                        onClick = { onSelect(adapter) }
+                    )
+                }
+            }
         }
     }
 }
@@ -2333,6 +2436,235 @@ fun SchoolSearchField(
     }
 }
 
+private fun WebView.resolveEduBridgeInteraction(requestId: String, valueExpression: String) {
+    evaluateJavascript(
+        "window.__sleepDownBridgeResolve && window.__sleepDownBridgeResolve(" +
+            JSONObject.quote(requestId) + ", " + valueExpression + ");",
+        null
+    )
+}
+
+private fun decodeEduBridgeValidationResult(encoded: String?): String? {
+    if (encoded.isNullOrBlank() || encoded == "null") return null
+    return runCatching {
+        val value = JSONArray("[$encoded]").opt(0)
+        when (value) {
+            null, JSONObject.NULL -> null
+            else -> value.toString().takeIf { it.isNotBlank() }
+        }
+    }.getOrElse { "输入校验失败，请重试" }
+}
+
+private fun validateEduBridgePrompt(
+    webView: WebView,
+    request: EduBridgeInteractionRequest.Prompt,
+    value: String,
+    onResult: (String?) -> Unit
+) {
+    val validator = request.validator
+    if (validator.isNullOrBlank()) {
+        onResult(null)
+        return
+    }
+    val script = """
+        (function (name, value) {
+            var validator = window[name];
+            if (typeof validator !== "function") {
+                return "输入校验函数不可用，请返回后重试";
+            }
+            try {
+                var result = validator(value);
+                if (result === false || result == null || result === "") return null;
+                return String(result);
+            } catch (error) {
+                return error && error.message ? error.message : String(error);
+            }
+        })(${JSONObject.quote(validator)}, ${JSONObject.quote(value)});
+    """.trimIndent()
+    webView.evaluateJavascript(script) { onResult(decodeEduBridgeValidationResult(it)) }
+}
+
+@Composable
+private fun EduBridgeInteractionDialog(
+    request: EduBridgeInteractionRequest?,
+    webView: WebView?,
+    state: AppState,
+    backdrop: Backdrop?,
+    onFinished: () -> Unit
+) {
+    when (request) {
+        null -> Unit
+        is EduBridgeInteractionRequest.Alert -> {
+            LiquidAlertDialog(
+                title = request.title,
+                message = request.message,
+                actions = listOf(
+                    LiquidAlertAction(
+                        label = request.confirmText,
+                        style = LiquidAlertActionStyle.Primary
+                    ) {
+                        webView?.resolveEduBridgeInteraction(request.requestId, "true")
+                        onFinished()
+                    }
+                ),
+                backdrop = backdrop,
+                config = state.config,
+                onDismissRequest = {
+                    webView?.resolveEduBridgeInteraction(request.requestId, "false")
+                    onFinished()
+                }
+            )
+        }
+        is EduBridgeInteractionRequest.Prompt -> {
+            var value by remember(request.requestId) { mutableStateOf(request.defaultValue) }
+            var validationError by remember(request.requestId) { mutableStateOf<String?>(null) }
+            fun cancel() {
+                webView?.resolveEduBridgeInteraction(request.requestId, "null")
+                onFinished()
+            }
+            fun submit() {
+                val target = webView
+                if (target == null) {
+                    validationError = "网页已关闭，请返回后重试"
+                    return
+                }
+                validateEduBridgePrompt(target, request, value) { error ->
+                    validationError = error
+                    if (error == null) {
+                        target.resolveEduBridgeInteraction(request.requestId, JSONObject.quote(value))
+                        onFinished()
+                    }
+                }
+            }
+            Dialog(
+                onDismissRequest = ::cancel,
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                CenterLiquidDialog(
+                    backdrop = backdrop,
+                    config = state.config,
+                    size = LiquidDialogSize.Compact
+                ) {
+                    LiquidDialogHeader(
+                        title = request.title,
+                        onDismiss = ::cancel,
+                        backdrop = backdrop,
+                        config = state.config,
+                        onConfirm = ::submit
+                    )
+                    if (request.message.isNotBlank()) {
+                        Text(
+                            request.message,
+                            modifier = Modifier.padding(horizontal = 18.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = LocalContentColor.current.copy(alpha = 0.72f)
+                        )
+                    }
+                    DialogCapsuleField(
+                        value = value,
+                        onValueChange = {
+                            value = it
+                            validationError = null
+                        },
+                        placeholder = request.message.ifBlank { "请输入" },
+                        config = state.config,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    )
+                    validationError?.let {
+                        Text(
+                            it,
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
+        }
+        is EduBridgeInteractionRequest.SingleSelection -> {
+            var selectedIndex by remember(request.requestId) {
+                mutableIntStateOf(request.defaultIndex)
+            }
+            fun cancel() {
+                webView?.resolveEduBridgeInteraction(request.requestId, "null")
+                onFinished()
+            }
+            fun submit() {
+                if (selectedIndex !in request.options.indices) return
+                webView?.resolveEduBridgeInteraction(request.requestId, selectedIndex.toString())
+                onFinished()
+            }
+            Dialog(
+                onDismissRequest = ::cancel,
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                CenterLiquidDialog(
+                    backdrop = backdrop,
+                    config = state.config,
+                    size = LiquidDialogSize.Compact
+                ) {
+                    LiquidDialogHeader(
+                        title = request.title,
+                        onDismiss = ::cancel,
+                        backdrop = backdrop,
+                        config = state.config,
+                        onConfirm = if (selectedIndex in request.options.indices) ::submit else null
+                    )
+                    if (request.options.isEmpty()) {
+                        Text(
+                            "没有可选项",
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 20.dp),
+                            textAlign = TextAlign.Center,
+                            color = LocalContentColor.current.copy(alpha = 0.64f)
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 360.dp)
+                                .padding(horizontal = 14.dp, vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            itemsIndexed(request.options) { index, option ->
+                                val selected = index == selectedIndex
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(
+                                            MaterialTheme.colorScheme.primary.copy(
+                                                alpha = if (selected) 0.14f else 0f
+                                            )
+                                        )
+                                        .clickable { selectedIndex = index }
+                                        .padding(horizontal = 16.dp, vertical = 13.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        option,
+                                        modifier = Modifier.weight(1f),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = LocalContentColor.current
+                                    )
+                                    if (selected) {
+                                        Text(
+                                            "✓",
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun EduImportActivityScreen(
     state: AppState,
@@ -2344,6 +2676,7 @@ fun EduImportActivityScreen(
     val context = LocalContext.current
     var message by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    var bridgeInteraction by remember { mutableStateOf<EduBridgeInteractionRequest?>(null) }
     var currentUrl by remember(adapter) {
         mutableStateOf(
             if (adapter.requiresManualEduUrl()) "" else adapter.importUrl.ifBlank { "https://" }
@@ -2358,9 +2691,20 @@ fun EduImportActivityScreen(
             basePeriods = { state.periods },
             onDraft = onParsed,
             onMessage = { message = it },
-            onTaskCompleted = { webView?.detachEduImportBridge() }
+            onInteractionRequest = { bridgeInteraction = it },
+            onTaskCompleted = {
+                bridgeInteraction = null
+                webView?.detachEduImportBridge()
+            }
         )
     }
+    EduBridgeInteractionDialog(
+        request = bridgeInteraction,
+        webView = webView,
+        state = state,
+        backdrop = backdrop,
+        onFinished = { bridgeInteraction = null }
+    )
     if (showGeneralUrlDialog) {
         Dialog(onDismissRequest = { showGeneralUrlDialog = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             CenterLiquidDialog(backdrop = backdrop, config = state.config) {
@@ -2739,14 +3083,12 @@ fun EduImportBrowserScreen(
     var addressText by remember(currentUrl) { mutableStateOf(currentUrl) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
-    var lastRequestedUrl by remember { mutableStateOf<String?>(null) }
     var desktopMode by remember { mutableStateOf(false) }
     var aiParsing by remember { mutableStateOf(false) }
     var aiProgress by remember { mutableStateOf<AiEduImportProgress?>(null) }
     var isScreenCapturing by remember { mutableStateOf(false) }
     var screenCaptureStatus by remember { mutableStateOf<String?>(null) }
     var pendingOriginalImportScript by remember(adapter) { mutableStateOf<String?>(null) }
-    var pendingImportCompletionCount by remember(adapter) { mutableIntStateOf(0) }
     var pendingImportGeneration by remember(adapter) { mutableIntStateOf(0) }
     var importGeneration by remember(adapter) { mutableIntStateOf(0) }
     val topPadding = if (useDetailTopPadding) detailContentTopPadding() else 0.dp
@@ -3053,23 +3395,16 @@ fun EduImportBrowserScreen(
 
     fun executePendingOriginalImportScript(target: WebView) {
         val script = pendingOriginalImportScript ?: return
-        val completionCountAtStart = pendingImportCompletionCount
-        val generation = pendingImportGeneration
         pendingOriginalImportScript = null
         onMessage("已安全启用导入桥接，正在执行拾光适配器")
-        target.evaluateJavascript(
-            """
-            console.log('SleepDown bridge check', !!window.AndroidBridgePromise, typeof window.AndroidBridgePromise?.showAlert, typeof window.AndroidBridge?.notifyTaskCompletion);
-            try { $script } catch (e) { console.error('SleepDown import script error', e && (e.stack || e.message || e)); throw e; }
-            """.trimIndent(),
-            null
-        )
-        scope.launch {
-            delay(10_000)
-            if (importGeneration == generation && bridge.taskCompletionCount() == completionCountAtStart) {
-                target.detachEduImportBridge()
-                onMessage("拾光适配器暂未返回课程数据，可以点击 AI 兜底扒页，强制读取当前页面文字后交给 AI 解析。")
-            }
+        target.evaluateJavascript(EDU_BRIDGE_PROMISE_BOOTSTRAP) {
+            target.evaluateJavascript(
+                """
+                console.log('SleepDown bridge check', !!window.AndroidBridgePromise, typeof window.AndroidBridgePromise?.showAlert, typeof window.AndroidBridge?.notifyTaskCompletion);
+                try { $script } catch (e) { console.error('SleepDown import script error', e && (e.stack || e.message || e)); throw e; }
+                """.trimIndent(),
+                null
+            )
         }
     }
 
@@ -3088,7 +3423,6 @@ fun EduImportBrowserScreen(
             .onSuccess { script ->
                 importGeneration += 1
                 pendingImportGeneration = importGeneration
-                pendingImportCompletionCount = bridge.taskCompletionCount()
                 pendingOriginalImportScript = script
                 bridge.beginTask()
                 target.attachEduImportBridge(bridge)
@@ -3126,7 +3460,7 @@ fun EduImportBrowserScreen(
             loadWithOverviewMode = true
             textZoom = 100
         }
-        if (desktop) target.setInitialScale(80)
+        target.setInitialScale(if (desktop) 80 else 0)
     }
 
     fun createEduWebView(context: Context): WebView {
@@ -3178,7 +3512,6 @@ fun EduImportBrowserScreen(
             onWebView(this)
             updateNavigationState(this)
             if (normalizedUrl.isNotBlank()) loadUrl(normalizedUrl)
-            if (normalizedUrl.isNotBlank()) lastRequestedUrl = normalizedUrl
         }
     }
 
@@ -3246,14 +3579,10 @@ fun EduImportBrowserScreen(
                             addView(createEduWebView(it))
                         }
                     },
-                    update = { container ->
-                        val target = container.getChildAt(0) as? WebView ?: return@AndroidView
-                        applyEduWebMode(target, desktopMode)
-                        if (normalizedUrl.isNotBlank() && lastRequestedUrl != normalizedUrl) {
-                            lastRequestedUrl = normalizedUrl
-                            target.loadUrl(normalizedUrl)
-                        }
-                    },
+                    // Navigation is event-driven (initial creation, address confirmation or an
+                    // explicit browser action). Observed page URLs must never feed back into
+                    // loadUrl from recomposition.
+                    update = {},
                     onRelease = { container ->
                         (container.getChildAt(0) as? WebView)?.releaseSleepDownWebView()
                         container.removeAllViews()

@@ -36,6 +36,32 @@ data class EduAdapter(
     val displayName: String = "${school.name} · $adapterName"
 }
 
+sealed interface EduBridgeInteractionRequest {
+    val requestId: String
+
+    data class Alert(
+        override val requestId: String,
+        val title: String,
+        val message: String,
+        val confirmText: String
+    ) : EduBridgeInteractionRequest
+
+    data class Prompt(
+        override val requestId: String,
+        val title: String,
+        val message: String,
+        val defaultValue: String,
+        val validator: String?
+    ) : EduBridgeInteractionRequest
+
+    data class SingleSelection(
+        override val requestId: String,
+        val title: String,
+        val options: List<String>,
+        val defaultIndex: Int
+    ) : EduBridgeInteractionRequest
+}
+
 fun EduAdapter.toIntentKey(): String = listOf(
     school.id,
     school.name,
@@ -403,6 +429,7 @@ class EduImportBridge(
     private val basePeriods: () -> List<PeriodEntity> = { defaultPeriods() },
     private val onDraft: (ImportDraft) -> Unit,
     private val onMessage: (String) -> Unit,
+    private val onInteractionRequest: (EduBridgeInteractionRequest) -> Unit = {},
     private val onTaskCompleted: () -> Unit = {}
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -410,10 +437,7 @@ class EduImportBridge(
     private var configJson: String? = null
     private var coursesJson: String? = null
     private var timeSlotsJson: String? = null
-    private var taskCompletionCount: Int = 0
     private var completionDelivered: Boolean = false
-
-    fun taskCompletionCount(): Int = synchronized(taskLock) { taskCompletionCount }
 
     fun beginTask() {
         synchronized(taskLock) {
@@ -445,7 +469,6 @@ class EduImportBridge(
     @JavascriptInterface
     fun notifyTaskCompletion() {
         val payload = synchronized(taskLock) {
-            taskCompletionCount += 1
             if (completionDelivered) return
             completionDelivered = true
             Triple(configJson, coursesJson, timeSlotsJson ?: "[]")
@@ -486,7 +509,6 @@ class EduImportBridge(
     @JavascriptInterface
     fun reportTaskFailure(message: String?) {
         synchronized(taskLock) {
-            taskCompletionCount += 1
             if (completionDelivered) return
             completionDelivered = true
         }
@@ -508,36 +530,61 @@ class EduImportBridge(
     }
 
     @JavascriptInterface
-    fun showAlert(title: String?, message: String?, confirmText: String?): Boolean {
-        val text = listOfNotNull(title, message).joinToString("：").ifBlank { confirmText ?: "确定" }
+    fun requestAlert(requestId: String, title: String?, message: String?, confirmText: String?) {
         mainHandler.post {
-            Toast.makeText(context, text, Toast.LENGTH_LONG).show()
-            onMessage(text)
+            onInteractionRequest(
+                EduBridgeInteractionRequest.Alert(
+                    requestId = requestId,
+                    title = title.orEmpty().ifBlank { "提示" },
+                    message = message.orEmpty(),
+                    confirmText = confirmText.orEmpty().ifBlank { "确定" }
+                )
+            )
         }
-        return true
     }
 
     @JavascriptInterface
-    fun showPrompt(title: String?, message: String?, defaultValue: String?, validator: String?): String {
-        val text = listOfNotNull(title, message).joinToString("：")
-        if (text.isNotBlank()) {
-            mainHandler.post { onMessage(text) }
+    fun requestPrompt(
+        requestId: String,
+        title: String?,
+        message: String?,
+        defaultValue: String?,
+        validator: String?
+    ) {
+        mainHandler.post {
+            onInteractionRequest(
+                EduBridgeInteractionRequest.Prompt(
+                    requestId = requestId,
+                    title = title.orEmpty().ifBlank { "请输入" },
+                    message = message.orEmpty(),
+                    defaultValue = defaultValue.orEmpty(),
+                    validator = validator?.takeIf { it.isNotBlank() }
+                )
+            )
         }
-        return defaultValue.orEmpty()
     }
 
     @JavascriptInterface
-    fun showSingleSelection(title: String?, optionsJson: String?, defaultIndex: Int): Int {
-        val size = runCatching { JSONArray(optionsJson ?: "[]").length() }.getOrDefault(0)
-        val selected = when {
-            size <= 0 -> -1
-            defaultIndex in 0 until size -> defaultIndex
-            else -> 0
+    fun requestSingleSelection(
+        requestId: String,
+        title: String?,
+        optionsJson: String?,
+        defaultIndex: Int
+    ) {
+        val options = runCatching {
+            val array = JSONArray(optionsJson ?: "[]")
+            List(array.length()) { index -> array.optString(index) }
+        }.getOrDefault(emptyList())
+        mainHandler.post {
+            onInteractionRequest(
+                EduBridgeInteractionRequest.SingleSelection(
+                    requestId = requestId,
+                    title = title.orEmpty().ifBlank { "请选择" },
+                    options = options,
+                    defaultIndex = defaultIndex.takeIf { it in options.indices } ?: -1
+                )
+            )
         }
-        if (!title.isNullOrBlank()) {
-            mainHandler.post { onMessage("$title：已自动选择第 ${selected + 1} 项") }
-        }
-        return selected
     }
 }
 

@@ -456,6 +456,7 @@ internal fun HomeMenuDestinationOverlayHost(
     var renderedRequest by remember { mutableStateOf<HomeMenuDestinationRequest?>(null) }
     var destinationContentPrepared by remember { mutableStateOf(false) }
     var collapseHandedOff by remember { mutableStateOf(false) }
+    var selectedEduSchool by remember { mutableStateOf<EduSchool?>(null) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val destinationContentLayer = rememberGraphicsLayer()
     val destinationContentRecorded = remember { AtomicBoolean(false) }
@@ -468,6 +469,7 @@ internal fun HomeMenuDestinationOverlayHost(
 
     LaunchedEffect(request) {
         if (request != null) {
+            selectedEduSchool = null
             motionState.kind = request.kind
             renderedRequest = request
             collapseHandedOff = false
@@ -550,6 +552,7 @@ internal fun HomeMenuDestinationOverlayHost(
             destinationContentRecorded.set(false)
             destinationClosingRecorded.set(false)
             renderedRequest = null
+            selectedEduSchool = null
             motionState.phase = HomeAnchoredOverlayPhase.Idle
             motionState.kind = null
             latestClosed()
@@ -557,7 +560,13 @@ internal fun HomeMenuDestinationOverlayHost(
     }
 
     val shown = request ?: renderedRequest
-    BackHandler(enabled = shown != null) { latestDismiss() }
+    BackHandler(enabled = shown != null) {
+        if (shown?.kind == HomeMenuDestinationKind.EduImport && selectedEduSchool != null) {
+            selectedEduSchool = null
+        } else {
+            latestDismiss()
+        }
+    }
 
     Box(
         modifier = modifier
@@ -970,13 +979,21 @@ internal fun HomeMenuDestinationOverlayHost(
                             onParsed = onManualImportParsed
                         )
                         HomeMenuDestinationKind.EduImport -> DetailActivityScaffold(
-                            title = "选择学校",
+                            title = selectedEduSchool?.name ?: "选择学校",
                             config = state.config,
-                            onBack = { latestDismiss() }
+                            onBack = {
+                                if (selectedEduSchool != null) {
+                                    selectedEduSchool = null
+                                } else {
+                                    latestDismiss()
+                                }
+                            }
                         ) { schoolBackdrop ->
                             EduSchoolPickerScreen(
                                 state = state,
                                 backdrop = schoolBackdrop,
+                                selectedSchool = selectedEduSchool,
+                                onSchoolSelect = { selectedEduSchool = it },
                                 onSelect = onEduAdapterSelected
                             )
                         }

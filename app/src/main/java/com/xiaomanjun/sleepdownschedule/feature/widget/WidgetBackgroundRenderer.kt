@@ -144,7 +144,7 @@ internal fun widgetRenderSizes(manager: AppWidgetManager, id: Int, type: WidgetA
     return sizes.ifEmpty { listOf(fallback) }
 }
 
-object WidgetBackgroundRenderer {
+internal object WidgetBackgroundRenderer {
     private const val MaxCacheEntries = 12
     // RemoteViews transports bitmaps through Binder. Keep a single background comfortably
     // below the transaction ceiling even on high-density launchers.
@@ -161,6 +161,8 @@ object WidgetBackgroundRenderer {
         courseCount: Int = 0,
         darkMode: Boolean = false,
         dayCourseCounts: List<Int> = emptyList(),
+        coursesMetrics: CoursesWidgetLayoutMetrics? = null,
+        todayTomorrowMetrics: TodayTomorrowWidgetLayoutMetrics? = null,
         drawContentSurfaces: Boolean = true,
         pixelLimit: Float = MaxBackgroundPixels
     ): WidgetBackgroundResult? {
@@ -168,7 +170,8 @@ object WidgetBackgroundRenderer {
         val cacheKey = listOf(
             uri, appearance.updatedAt, appearance.centerX, appearance.centerY, appearance.scale,
             appearance.blurDp, appearance.brightness, appearance.variant, size.widthDp, size.heightDp,
-            courseCount, darkMode, dayCourseCounts.joinToString(","), drawContentSurfaces, pixelLimit
+            courseCount, darkMode, dayCourseCounts.joinToString(","), coursesMetrics,
+            todayTomorrowMetrics, drawContentSurfaces, pixelLimit
         ).joinToString("|")
         synchronized(cache) { cache[cacheKey]?.let { return it } }
         val source = loadSampledBitmap(context, uri.toUri(), 1800) ?: return null
@@ -188,8 +191,26 @@ object WidgetBackgroundRenderer {
         } else {
             when (appearance.type) {
                 WidgetAppearanceVariant.COURSES_LARGE,
-                WidgetAppearanceVariant.COURSES_SQUARE -> renderCourses(base, appearance.type, size, courseCount)
-                WidgetAppearanceVariant.TODAY_TOMORROW -> renderTodayTomorrow(base, size, dayCourseCounts)
+                WidgetAppearanceVariant.COURSES_SQUARE -> renderCourses(
+                    base,
+                    size,
+                    courseCount,
+                    coursesMetrics ?: coursesWidgetLayoutMetrics(
+                        size,
+                        if (appearance.type == WidgetAppearanceVariant.COURSES_SQUARE) {
+                            TodayWidgetVariant.SQUARE
+                        } else {
+                            TodayWidgetVariant.LARGE
+                        },
+                        courseCount
+                    )
+                )
+                WidgetAppearanceVariant.TODAY_TOMORROW -> renderTodayTomorrow(
+                    base,
+                    size,
+                    dayCourseCounts,
+                    todayTomorrowMetrics ?: todayTomorrowWidgetLayoutMetrics(size)
+                )
                 WidgetAppearanceVariant.WEEK_SCHEDULE,
                 WidgetAppearanceVariant.TODAY_ASSISTANT -> renderPlain(base)
             }
@@ -227,18 +248,17 @@ object WidgetBackgroundRenderer {
         return output
     }
 
-    private fun renderCourses(base: Bitmap, type: WidgetAppearanceVariant, size: WidgetRenderSize, count: Int): WidgetBackgroundResult {
+    private fun renderCourses(
+        base: Bitmap,
+        size: WidgetRenderSize,
+        count: Int,
+        metrics: CoursesWidgetLayoutMetrics
+    ): WidgetBackgroundResult {
         val output = base.copy(Bitmap.Config.ARGB_8888, true)
         val extraBlur = createBlurredWallpaperBitmap(base, 10) ?: base
         val sx = output.width / size.widthDp.toFloat()
         val sy = output.height / size.heightDp.toFloat()
         fun rect(l: Float, t: Float, r: Float, b: Float) = RectF(l * sx, t * sy, r * sx, b * sy)
-        val variant = if (type == WidgetAppearanceVariant.COURSES_SQUARE) {
-            TodayWidgetVariant.SQUARE
-        } else {
-            TodayWidgetVariant.LARGE
-        }
-        val metrics = coursesWidgetLayoutMetrics(size, variant, count)
         val left = metrics.horizontalPaddingDp.toFloat()
         val right = size.widthDp - metrics.horizontalPaddingDp.toFloat()
         val top = (
@@ -310,13 +330,13 @@ object WidgetBackgroundRenderer {
     private fun renderTodayTomorrow(
         base: Bitmap,
         size: WidgetRenderSize,
-        dayCourseCounts: List<Int>
+        dayCourseCounts: List<Int>,
+        metrics: TodayTomorrowWidgetLayoutMetrics
     ): WidgetBackgroundResult {
         val output = base.copy(Bitmap.Config.ARGB_8888, true)
         val extraBlur = createBlurredWallpaperBitmap(base, 10) ?: base
         val sx = output.width / size.widthDp.toFloat()
         val sy = output.height / size.heightDp.toFloat()
-        val metrics = todayTomorrowWidgetLayoutMetrics(size)
         val contentTopDp = (
             metrics.verticalPaddingDp + metrics.headerHeightDp + metrics.headerGapDp +
                 metrics.dayHeaderHeightDp + metrics.headerGapDp

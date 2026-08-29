@@ -522,7 +522,8 @@ internal object TodayTomorrowWidgetRenderer {
             size = size,
             courseCount = shownCourses.sumOf(List<CourseEntity>::size),
             darkMode = dark,
-            dayCourseCounts = shownCourses.map(List<CourseEntity>::size)
+            dayCourseCounts = shownCourses.map(List<CourseEntity>::size),
+            todayTomorrowMetrics = metrics
         )
         val globallyDark = custom?.darkBackground ?: dark
         val primary = custom?.header ?: if (globallyDark) Color.WHITE else Color.rgb(17, 17, 17)
