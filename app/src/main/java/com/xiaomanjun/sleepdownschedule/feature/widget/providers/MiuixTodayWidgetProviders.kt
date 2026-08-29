@@ -674,6 +674,12 @@ internal object MiuixTodayWidgetRenderer {
             R.id.widget_course_detail_1, R.id.widget_course_detail_2,
             R.id.widget_course_detail_3, R.id.widget_course_detail_4
         )
+        val courseBackground = when {
+            custom?.darkBackground == true -> R.drawable.widget_course_background_custom_dark
+            custom != null -> R.drawable.widget_course_background_custom
+            dark -> R.drawable.widget_course_background_dark
+            else -> R.drawable.widget_course_background
+        }
         rows.indices.forEach { index ->
             val course = courses.getOrNull(index)
             setViewVisibility(
@@ -688,8 +694,7 @@ internal object MiuixTodayWidgetRenderer {
                 setInt(
                     rows[index],
                     "setBackgroundResource",
-                    if (custom != null) android.R.color.transparent
-                    else if (dark) R.drawable.widget_course_background_dark else R.drawable.widget_course_background
+                    courseBackground
                 )
                 setTextViewText(starts[index], courseStartTime(course, state.periods)?.format(timeFormatter).orEmpty())
                 setTextViewText(ends[index], courseEndTime(course, state.periods)?.format(timeFormatter).orEmpty())
@@ -705,8 +710,8 @@ internal object MiuixTodayWidgetRenderer {
                     "setColorFilter",
                     WidgetCourseColors.color(state.config, course, courseColorAssignments)
                 )
-                val primary = custom?.content?.getOrNull(index)
-                val secondary = custom?.contentSecondary?.getOrNull(index)
+                val primary = custom?.content?.getOrNull(index) ?: custom?.header
+                val secondary = custom?.contentSecondary?.getOrNull(index) ?: custom?.headerSecondary
                 setTextColor(starts[index], primary ?: if (dark) Color.argb(210, 255, 255, 255) else Color.argb(180, 17, 17, 17))
                 setTextColor(ends[index], secondary ?: if (dark) Color.argb(140, 255, 255, 255) else Color.argb(105, 17, 17, 17))
                 setTextColor(names[index], primary ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17))
@@ -754,6 +759,12 @@ internal object MiuixTodayWidgetRenderer {
             R.id.widget_grid_detail_5, R.id.widget_grid_detail_6,
             R.id.widget_grid_detail_7, R.id.widget_grid_detail_8
         )
+        val courseBackground = when {
+            custom?.darkBackground == true -> R.drawable.widget_course_background_compact_custom_dark
+            custom != null -> R.drawable.widget_course_background_compact_custom
+            dark -> R.drawable.widget_course_background_compact_dark
+            else -> R.drawable.widget_course_background_compact
+        }
         val usedRows = ceil(courses.size / 2f).toInt()
         rows.indices.forEach { index ->
             setViewVisibility(rows[index], if (index < usedRows) View.VISIBLE else View.GONE)
@@ -765,8 +776,7 @@ internal object MiuixTodayWidgetRenderer {
                 setInt(
                     cells[index],
                     "setBackgroundResource",
-                    if (custom != null) android.R.color.transparent
-                    else if (dark) R.drawable.widget_course_background_compact_dark else R.drawable.widget_course_background_compact
+                    courseBackground
                 )
                 setTextViewText(names[index], course.name)
                 val time = courseStartTime(course, state.periods)?.format(timeFormatter).orEmpty()
@@ -780,8 +790,8 @@ internal object MiuixTodayWidgetRenderer {
                     "setColorFilter",
                     WidgetCourseColors.color(state.config, course, courseColorAssignments)
                 )
-                setTextColor(names[index], custom?.content?.getOrNull(index) ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17))
-                setTextColor(details[index], custom?.contentSecondary?.getOrNull(index) ?: if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
+                setTextColor(names[index], custom?.content?.getOrNull(index) ?: custom?.header ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17))
+                setTextColor(details[index], custom?.contentSecondary?.getOrNull(index) ?: custom?.headerSecondary ?: if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
             }
         }
     }
@@ -800,6 +810,12 @@ internal object MiuixTodayWidgetRenderer {
         val indicators = intArrayOf(R.id.widget_compact_indicator_1, R.id.widget_compact_indicator_2, R.id.widget_compact_indicator_3)
         val names = intArrayOf(R.id.widget_compact_name_1, R.id.widget_compact_name_2, R.id.widget_compact_name_3)
         val details = intArrayOf(R.id.widget_compact_detail_1, R.id.widget_compact_detail_2, R.id.widget_compact_detail_3)
+        val courseBackground = when {
+            custom?.darkBackground == true -> R.drawable.widget_course_background_compact_custom_dark
+            custom != null -> R.drawable.widget_course_background_compact_custom
+            dark -> R.drawable.widget_course_background_compact_dark
+            else -> R.drawable.widget_course_background_compact
+        }
         repeat(count) { index ->
             val course = courses.getOrNull(index)
             setViewVisibility(
@@ -815,8 +831,7 @@ internal object MiuixTodayWidgetRenderer {
                     setInt(
                         rows[index],
                         "setBackgroundResource",
-                        if (custom != null) android.R.color.transparent
-                        else if (dark) R.drawable.widget_course_background_compact_dark else R.drawable.widget_course_background_compact
+                        courseBackground
                     )
                 }
                 setTextViewText(names[index], course.name)
@@ -831,8 +846,8 @@ internal object MiuixTodayWidgetRenderer {
                     "setColorFilter",
                     WidgetCourseColors.color(state.config, course, courseColorAssignments)
                 )
-                setTextColor(names[index], custom?.content?.getOrNull(index) ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17))
-                setTextColor(details[index], custom?.contentSecondary?.getOrNull(index) ?: if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
+                setTextColor(names[index], custom?.content?.getOrNull(index) ?: custom?.header ?: if (dark) Color.WHITE else Color.rgb(17, 17, 17))
+                setTextColor(details[index], custom?.contentSecondary?.getOrNull(index) ?: custom?.headerSecondary ?: if (dark) Color.argb(150, 255, 255, 255) else Color.argb(105, 17, 17, 17))
             }
         }
     }

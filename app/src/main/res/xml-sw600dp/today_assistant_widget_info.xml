@@ -9,7 +9,7 @@
     android:previewLayout="@layout/widget_preview_today_assistant"
     android:resizeMode="horizontal|vertical"
     android:targetCellWidth="2"
-    android:targetCellHeight="2"
+    android:targetCellHeight="1"
     android:updatePeriodMillis="1800000"
     android:widgetCategory="home_screen"
     tools:targetApi="s" />

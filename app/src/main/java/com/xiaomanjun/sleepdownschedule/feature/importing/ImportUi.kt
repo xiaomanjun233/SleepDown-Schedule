@@ -44,8 +44,6 @@ import android.util.Log
 import android.widget.Toast
 import android.view.HapticFeedbackConstants
 import android.view.WindowInsetsController
-import android.view.ViewGroup
-import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
 import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
@@ -2790,7 +2788,6 @@ fun EduImportActivityScreen(
     EduImportBrowserScreen(
         state = state,
         adapter = adapter,
-        backdrop = backdrop,
         message = message,
         webView = webView,
         onWebView = { webView = it },
@@ -3117,7 +3114,6 @@ private fun aiEduRequestPreview(settings: AiImportSettings, pageTextLength: Int)
 fun EduImportBrowserScreen(
     state: AppState,
     adapter: EduAdapter,
-    backdrop: Backdrop?,
     message: String?,
     webView: WebView?,
     onWebView: (WebView) -> Unit,
@@ -3133,11 +3129,7 @@ fun EduImportBrowserScreen(
         domain = GlassBackdropDomain.Content,
         providerId = "edu-import-web-content"
     )
-    val buttonBackdrop = if (backdrop != null) {
-        rememberGlassCombinedBackdrop(backdrop, webContentBackdrop)
-    } else {
-        webContentBackdrop
-    }
+    val buttonBackdrop = webContentBackdrop
     var addressText by remember(currentUrl) { mutableStateOf(currentUrl) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
@@ -3523,6 +3515,7 @@ fun EduImportBrowserScreen(
 
     fun createEduWebView(context: Context): WebView {
         return WebView(context).apply {
+            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             configureEduImportSecurity(adapter)
@@ -3535,10 +3528,6 @@ fun EduImportBrowserScreen(
             isHorizontalScrollBarEnabled = true
             isVerticalScrollBarEnabled = true
             overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
             applyEduWebMode(this, desktopMode)
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -3573,14 +3562,12 @@ fun EduImportBrowserScreen(
         }
     }
 
-    // Record the complete browser underlay (address row, WebView and low-level messages) as one
-    // producer. Floating glass controls are later siblings, so they can sample every visible layer
-    // without ever entering their own RenderNode recording tree.
+    // Only the native WebView is recorded into this dedicated backdrop. The address row, messages
+    // and floating controls remain siblings outside its RenderNode capture chain.
     Box(modifier = Modifier.fillMaxSize().padding(top = topPadding)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .glassBackdropProducer(webContentBackdrop)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -3626,28 +3613,25 @@ fun EduImportBrowserScreen(
                 }
             }
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                AndroidView(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = 0.999f },
-                    factory = {
-                        FrameLayout(it).apply {
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            addView(createEduWebView(it))
-                        }
-                    },
-                    // Navigation is event-driven (initial creation, address confirmation or an
-                    // explicit browser action). Observed page URLs must never feed back into
-                    // loadUrl from recomposition.
-                    update = {},
-                    onRelease = { container ->
-                        (container.getChildAt(0) as? WebView)?.releaseSleepDownWebView()
-                        container.removeAllViews()
-                    }
-                )
+                        .glassBackdropProducer(webContentBackdrop)
+                ) {
+                    AndroidView(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                compositingStrategy = CompositingStrategy.Offscreen
+                            },
+                        factory = { createEduWebView(it) },
+                        // Navigation is event-driven (initial creation, address confirmation or an
+                        // explicit browser action). Observed page URLs must never feed back into
+                        // loadUrl from recomposition.
+                        update = {},
+                        onRelease = { it.releaseSleepDownWebView() }
+                    )
+                }
                 if (!isScreenCapturing) message?.let {
                     Text(
                         it,

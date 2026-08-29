@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Tablet defaults are 2x2 for wide widgets and 1x1 for the square widget. -->
+    <!-- Tablet defaults are 2x1 for wide widgets and 1x1 for the square widget. -->
     <dimen name="widget_4x2_min_width">110dp</dimen>
-    <dimen name="widget_4x2_min_height">110dp</dimen>
+    <dimen name="widget_4x2_min_height">40dp</dimen>
     <dimen name="widget_square_min_width">40dp</dimen>
     <dimen name="widget_square_min_height">40dp</dimen>
 </resources>
