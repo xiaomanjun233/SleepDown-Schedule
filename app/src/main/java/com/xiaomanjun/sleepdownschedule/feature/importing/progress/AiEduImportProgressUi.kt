@@ -139,7 +139,6 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
@@ -227,23 +226,30 @@ internal fun AiEduImportProgressPage(
 ) {
     val observedSessionProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     val sessionPreviewDraft by AiEduImportProgressSession.previewDraft.collectAsStateWithLifecycle()
-    val sessionProgress = observedSessionProgress?.takeIf {
-        taskId.isNullOrBlank() || it.taskId == taskId
-    }
     val historicalMode = historicalProgress != null && historicalDraft != null
     var localProgress by remember(historicalProgress) { mutableStateOf(historicalProgress) }
     var localPreviewDraft by remember(historicalDraft) { mutableStateOf(historicalDraft) }
-    val current = if (historicalMode) {
+    var ownedRevisionTaskId by remember(historicalProgress) { mutableStateOf<String?>(null) }
+    val sessionProgress = observedSessionProgress?.takeIf {
+        taskId.isNullOrBlank() || it.taskId == taskId
+    }
+    val ownedRevisionProgress = observedSessionProgress?.takeIf {
+        ownedRevisionTaskId != null && it.taskId == ownedRevisionTaskId
+    }
+    val current = ownedRevisionProgress ?: if (historicalMode) {
         checkNotNull(localProgress ?: historicalProgress)
     } else {
         sessionProgress ?: AiEduImportProgress(steps = listOf("等待 AI 教务导入任务"))
     }
-    val previewDraft = if (historicalMode) localPreviewDraft else sessionPreviewDraft
+    val previewDraft = if (ownedRevisionProgress != null) {
+        sessionPreviewDraft
+    } else if (historicalMode) {
+        localPreviewDraft
+    } else {
+        sessionPreviewDraft
+    }
     fun updateProgress(next: AiEduImportProgress) {
         if (historicalMode) localProgress = next else AiEduImportProgressSession.update(next)
-    }
-    fun updatePreviewDraft(next: ImportDraft) {
-        if (historicalMode) localPreviewDraft = next else AiEduImportProgressSession.setPreviewDraft(next)
     }
     fun requestImport(draft: ImportDraft, createNewSchedule: Boolean) {
         onImportRequested?.invoke(draft, createNewSchedule)
@@ -321,8 +327,24 @@ internal fun AiEduImportProgressPage(
         hostConsumesImeResize = hostConsumesImeResize
     )
     val conversationScope = rememberCoroutineScope()
+    LaunchedEffect(
+        historicalMode,
+        ownedRevisionTaskId,
+        ownedRevisionProgress?.finished,
+        sessionPreviewDraft
+    ) {
+        val completed = ownedRevisionProgress
+        if (historicalMode && completed?.finished == true) {
+            localProgress = completed
+            sessionPreviewDraft?.let { localPreviewDraft = it }
+            ownedRevisionTaskId = null
+        }
+    }
     LaunchedEffect(current.finished) {
-        if (current.finished) executionExpanded = false
+        if (current.finished) {
+            executionExpanded = false
+            conversationSending = false
+        }
     }
     BackHandler(enabled = current.awaitingConfirmation) {
         AiEduImportProgressSession.cancel()
@@ -548,93 +570,16 @@ internal fun AiEduImportProgressPage(
                         } else {
                             val baseDraft = previewDraft ?: return@send
                             conversationSending = true
-                            conversationScope.launch {
-                                val settings = AiImportSettingsStore.loadForRuntime(context)
-                                    ?: AiImportSettingsStore.load(context)
-                                var workingProgress = current.copy(
-                                    steps = current.steps + listOf(
-                                        "正在理解你的新要求",
-                                        "模型正在分析课程、周次和节次"
-                                    ),
-                                    userPrompt = prompt,
-                                    liveSummary = "我正在理解你的修改要求，并核对现有课程、周次和节次信息。",
-                                    finished = false,
-                                    error = null
-                                )
-                                updateProgress(workingProgress)
-                                val progressTicker = launch {
-                                    listOf(
-                                        "模型正在核对现有课表结构",
-                                        "模型正在生成修改方案",
-                                        "仍在等待模型完成，请保留此页面"
-                                    ).forEach { summary ->
-                                        delay(2_400)
-                                        if (!workingProgress.finished) {
-                                            workingProgress = workingProgress.copy(
-                                                steps = workingProgress.steps + summary,
-                                                liveSummary = summary
-                                            )
-                                            updateProgress(workingProgress)
-                                        }
-                                    }
-                                }
-                                AiScheduleImportService(context)
-                                    .reviseSchedule(baseDraft, prompt, current, settings)
-                                    .mapCatching { result ->
-                                        val revised = ScheduleImportParser.parse(
-                                            result.output.ifBlank { result.rawOutput },
-                                            baseDraft.config
-                                        ).getOrThrow().copy(source = ImportDraftSource.AI_EDU)
-                                        revised to result
-                                    }
-                                    .onSuccess { (revised, result) ->
-                                        progressTicker.cancel()
-                                        val previousTurns = current.conversationTurns.ifEmpty {
-                                            listOf(
-                                                AiEduImportConversationTurn(
-                                                    userPrompt = current.userPrompt,
-                                                    reasoningOutput = current.reasoningOutput,
-                                                    aiOutput = current.aiOutput
-                                                )
-                                            )
-                                        }
-                                        val nextProgress = workingProgress.copy(
-                                            steps = workingProgress.steps + listOf("模型已给出修改摘要", "修改结果通过本地校验"),
-                                            userPrompt = prompt,
-                                            requestSent = true,
-                                            reasoningOutput = result.reasoningOutput,
-                                            aiOutput = result.rawOutput,
-                                            liveSummary = result.reasoningOutput.ifBlank {
-                                                "本轮已按你的要求更新课表，并通过本地校验。"
-                                            },
-                                            finished = true,
-                                            error = null,
-                                            conversationTurns = previousTurns + AiEduImportConversationTurn(
-                                                userPrompt = prompt,
-                                                reasoningOutput = result.reasoningOutput,
-                                                aiOutput = result.rawOutput
-                                            )
-                                        )
-                                        updatePreviewDraft(revised)
-                                        updateProgress(nextProgress)
-                                        if (historicalEntryId != null) {
-                                            AiImportHistoryStore.update(context, historicalEntryId, revised, nextProgress)
-                                        } else {
-                                            AiImportHistoryStore.updateMatching(context, baseDraft, revised, nextProgress)
-                                        }
-                                    }
-                                    .onFailure { error ->
-                                        progressTicker.cancel()
-                                        updateProgress(
-                                            workingProgress.copy(
-                                                steps = workingProgress.steps + "本次修改未完成",
-                                                finished = true,
-                                                error = error.message ?: "AI 没有完成这次修改"
-                                            )
-                                        )
-                                    }
-                                conversationSending = false
-                            }
+                            val settings = AiImportSettingsStore.loadForRuntime(context)
+                                ?: AiImportSettingsStore.load(context)
+                            ownedRevisionTaskId = AiImportTaskManager.startRevision(
+                                context = context,
+                                baseDraft = baseDraft,
+                                instruction = prompt,
+                                baseProgress = current,
+                                settings = settings,
+                                historicalEntryId = historicalEntryId
+                            )
                         }
                     }
                 )

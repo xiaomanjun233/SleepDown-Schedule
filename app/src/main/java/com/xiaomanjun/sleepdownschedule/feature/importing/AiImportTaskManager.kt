@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import com.xiaomanjun.sleepdownschedule.AiImportForegroundService
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.model.ImportDraft
 import com.xiaomanjun.sleepdownschedule.model.ImportDraftSource
 
 import android.content.Context
@@ -71,6 +72,50 @@ object AiImportTaskManager {
             settings = settings,
             onRequestStarted = onRequestStarted
         )
+    }
+
+    fun startRevision(
+        context: Context,
+        baseDraft: ImportDraft,
+        instruction: String,
+        baseProgress: AiEduImportProgress,
+        settings: AiImportSettings,
+        historicalEntryId: String?
+    ): String {
+        val appContext = context.applicationContext
+        val taskId = baseProgress.taskId.ifBlank { UUID.randomUUID().toString() }
+        activeJob?.cancel()
+        AiEduImportProgressSession.setPreviewDraft(baseDraft)
+        AiEduImportProgressSession.update(
+            baseProgress.copy(
+                taskId = taskId,
+                steps = baseProgress.steps + "正在理解你的修改要求",
+                userPrompt = instruction,
+                liveSummary = "正在理解你的修改要求，并核对现有课程、周次和节次。",
+                requestSent = true,
+                finished = false,
+                error = null
+            )
+        )
+        AiImportForegroundService.start(appContext, taskId, "正在理解修改要求")
+        activeJob = taskScope.launch {
+            try {
+                runRevision(
+                    context = appContext,
+                    taskId = taskId,
+                    baseDraft = baseDraft,
+                    instruction = instruction,
+                    baseProgress = baseProgress,
+                    settings = settings,
+                    historicalEntryId = historicalEntryId
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                finishFailure(appContext, taskId, error, "AI 修改任务未完成")
+            }
+        }
+        return taskId
     }
 
     private fun startTask(
@@ -165,6 +210,85 @@ object AiImportTaskManager {
         }
         AiImportHistoryStore.record(context, preview, completed)
         AiImportForegroundService.complete(context, taskId, preview.courses.size)
+    }
+
+    private suspend fun runRevision(
+        context: Context,
+        taskId: String,
+        baseDraft: ImportDraft,
+        instruction: String,
+        baseProgress: AiEduImportProgress,
+        settings: AiImportSettings,
+        historicalEntryId: String?
+    ) = coroutineScope {
+        appendMainStep(taskId, context, "AI 正在修改课程", "正在核对现有课表结构并生成修改方案。")
+        val summaryTicker = launch {
+            listOf(
+                "正在核对课程、周次和节次",
+                "正在生成课程修改方案",
+                "正在等待模型返回完整结果"
+            ).forEach { summary ->
+                delay(2_600)
+                if (isActive) updateMicroStatus(taskId, summary)
+            }
+        }
+        val result = AiScheduleImportService(context)
+            .reviseSchedule(baseDraft, instruction, baseProgress, settings)
+            .getOrElse { error ->
+                summaryTicker.cancel()
+                finishFailure(context, taskId, error, "AI 修改请求失败")
+                return@coroutineScope
+            }
+        summaryTicker.cancel()
+        update(taskId) {
+            it.copy(reasoningOutput = result.reasoningOutput, aiOutput = result.rawOutput)
+        }
+        appendMainStep(taskId, context, "正在校验课程数据", "正在检查修改后的星期、节次和周次。")
+        val revised = ScheduleImportParser.parse(
+            result.output.ifBlank { result.rawOutput },
+            baseDraft.config
+        ).getOrElse { error ->
+            finishFailure(context, taskId, error, "修改结果校验失败")
+            return@coroutineScope
+        }.copy(source = ImportDraftSource.AI_EDU)
+        appendMainStep(taskId, context, "正在生成导入预览", "修改结果已通过校验，正在更新导入预览。")
+        AiEduImportProgressSession.setPreviewDraft(revised)
+        val previousTurns = baseProgress.conversationTurns.ifEmpty {
+            listOf(
+                AiEduImportConversationTurn(
+                    userPrompt = baseProgress.userPrompt,
+                    reasoningOutput = baseProgress.reasoningOutput,
+                    aiOutput = baseProgress.aiOutput
+                )
+            )
+        }
+        val completed = update(taskId) {
+            it.copy(
+                steps = it.steps + "完成",
+                userPrompt = instruction,
+                requestSent = true,
+                reasoningOutput = result.reasoningOutput,
+                aiOutput = result.rawOutput,
+                liveSummary = result.reasoningOutput.ifBlank {
+                    "本轮已按你的要求更新课表，并通过本地校验。"
+                },
+                finished = true,
+                error = null,
+                conversationTurns = previousTurns + AiEduImportConversationTurn(
+                    userPrompt = instruction,
+                    reasoningOutput = result.reasoningOutput,
+                    aiOutput = result.rawOutput
+                )
+            )
+        }
+        if (completed != null) {
+            if (historicalEntryId != null) {
+                AiImportHistoryStore.update(context, historicalEntryId, revised, completed)
+            } else {
+                AiImportHistoryStore.updateMatching(context, baseDraft, revised, completed)
+            }
+        }
+        AiImportForegroundService.complete(context, taskId, revised.courses.size)
     }
 
     private fun appendMainStep(
