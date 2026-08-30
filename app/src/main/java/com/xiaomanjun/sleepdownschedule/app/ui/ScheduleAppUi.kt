@@ -89,7 +89,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.ui.platform.LocalView
@@ -5534,12 +5533,33 @@ private fun CourseColorModeRow(
         ) {
             if (mode == CourseCardColorMode.COLORFUL) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Filled.ColorLens,
-                        contentDescription = "自动彩色课程卡",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(19.dp)
-                    )
+                    // A four-color dot cluster reads instantly as "colorful"; a themed glyph
+                    // cannot express the multi-palette idea on its own.
+                    Canvas(
+                        Modifier
+                            .size(19.dp)
+                            .semantics { contentDescription = "自动彩色课程卡" }
+                    ) {
+                        val dotRadius = size.minDimension * 0.165f
+                        val gap = size.minDimension * 0.235f
+                        val centerX = size.width / 2f
+                        val centerY = size.height / 2f
+                        val dotColors = listOf(
+                            ComposeColor(0xFFFF5A52),
+                            ComposeColor(0xFFFFB300),
+                            ComposeColor(0xFF30C851),
+                            ComposeColor(0xFF0A84FF)
+                        )
+                        val dotCenters = listOf(
+                            Offset(centerX - gap, centerY - gap),
+                            Offset(centerX + gap, centerY - gap),
+                            Offset(centerX - gap, centerY + gap),
+                            Offset(centerX + gap, centerY + gap)
+                        )
+                        dotCenters.forEachIndexed { index, center ->
+                            drawCircle(color = dotColors[index], radius = dotRadius, center = center)
+                        }
+                    }
                 }
             } else {
                 Box(

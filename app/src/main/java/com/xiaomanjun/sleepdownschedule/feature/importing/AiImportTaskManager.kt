@@ -6,8 +6,11 @@ import com.xiaomanjun.sleepdownschedule.model.ImportDraft
 import com.xiaomanjun.sleepdownschedule.model.ImportDraftSource
 
 import android.content.Context
+import android.os.PowerManager
+import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -152,8 +155,39 @@ object AiImportTaskManager {
         return taskId
     }
 
-    internal fun launchPending(taskId: String, scope: CoroutineScope): Job? =
-        pendingTasks.remove(taskId)?.let { task -> scope.launch { task() } }
+    @Volatile
+    private var activeJob: Job? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    // The workflow runs on the process application scope, not on the foreground service:
+    // OEM battery guards may stop the service at any moment while the app is backgrounded,
+    // and the in-flight AI request must survive that instead of dying with the service scope.
+    internal fun launchPending(context: Context, taskId: String): Job? {
+        val task = pendingTasks.remove(taskId) ?: return null
+        activeJob?.cancel()
+        val appContext = context.applicationContext
+        acquireWakeLock(appContext)
+        val scope = (appContext as CourseScheduleApp).applicationScope
+        return scope.launch(Dispatchers.IO) {
+            try {
+                task()
+            } finally {
+                releaseWakeLock()
+            }
+        }.also { activeJob = it }
+    }
+
+    private fun acquireWakeLock(context: Context) {
+        if (wakeLock?.isHeld == true) return
+        wakeLock = context.getSystemService(PowerManager::class.java)
+            ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SleepDown:ai_import")
+            ?.apply { acquire(AI_IMPORT_WAKE_LOCK_TIMEOUT_MILLIS) }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.takeIf { it.isHeld }?.release()
+        wakeLock = null
+    }
 
     private suspend fun runTask(
         context: Context,
@@ -342,4 +376,6 @@ object AiImportTaskManager {
             ?: return null
         return transform(current).copy(taskId = taskId).also(AiEduImportProgressSession::update)
     }
+
+    private const val AI_IMPORT_WAKE_LOCK_TIMEOUT_MILLIS = 30L * 60L * 1_000L
 }

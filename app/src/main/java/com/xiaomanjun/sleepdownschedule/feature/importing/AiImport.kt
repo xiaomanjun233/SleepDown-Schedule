@@ -2727,6 +2727,12 @@ private fun postJson(
     authType: AiAuthType = AiAuthType.ApiKeyBearer,
     providerId: String? = null
 ): String {
+    // Chat-completions requests stream instead of waiting for one silent blob: a steady
+    // byte flow keeps the connection alive while the app sits in the background, matching
+    // the Day Agent transport that already survives OEM background guards.
+    if (url.contains("/chat/completions")) {
+        return postChatCompletionStreaming(url, apiKey, body, authType, providerId)
+    }
     return safeRequest(
         url,
         apiKey,
@@ -2736,6 +2742,108 @@ private fun postJson(
         authType,
         providerId
     )
+}
+
+private fun postChatCompletionStreaming(
+    url: String,
+    apiKey: String,
+    body: String,
+    authType: AiAuthType = AiAuthType.ApiKeyBearer,
+    providerId: String? = null
+): String {
+    val streamedBody = runCatching {
+        val jsonObject = Json.parseToJsonElement(body).jsonObject
+        val mutable = jsonObject.toMutableMap()
+        mutable["stream"] = JsonPrimitive(true)
+        JsonObject(mutable).toString()
+    }.getOrDefault(body)
+    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+        requestMethod = "POST"
+        connectTimeout = 30_000
+        readTimeout = 600_000
+        doOutput = true
+        setAiAuthHeader(apiKey, authType)
+        setRequestProperty("Content-Type", "application/json")
+        setRequestProperty("Accept", "text/event-stream")
+    }
+    return try {
+        connection.outputStream.use { it.write(streamedBody.toByteArray(Charsets.UTF_8)) }
+        val status = connection.responseCode
+        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+        val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        if (status !in 200..299) {
+            Log.d(
+                AiImportLogTag,
+                "AI HTTP $status url=${redactAiUrl(url)} response=${sanitizeAiOutputForDisplay(text).replace(Regex("\\s+"), " ").take(500)}"
+            )
+            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text)
+        }
+        assembleChatCompletionFromSse(text)
+    } catch (throwable: Throwable) {
+        if (throwable is AiServiceResponseException) {
+            throw throwable
+        }
+        Log.d(AiImportLogTag, "AI network failure (stream) url=${redactAiUrl(url)} message=${throwable.message}", throwable)
+        throw IllegalStateException(formatAiNetworkError(url, throwable), throwable)
+    } finally {
+        connection.disconnect()
+    }
+}
+
+/**
+ * Aggregates an OpenAI-compatible `chat/completions` SSE stream back into the plain
+ * completion JSON the non-streaming parser expects, so every caller keeps working.
+ */
+private fun assembleChatCompletionFromSse(raw: String): String {
+    val content = StringBuilder()
+    val reasoning = StringBuilder()
+    var finishReason = ""
+    var sawChunk = false
+    raw.lineSequence().forEach { line ->
+        val trimmed = line.trim()
+        if (!trimmed.startsWith("data:")) return@forEach
+        val payload = trimmed.removePrefix("data:").trim()
+        if (payload.isEmpty() || payload == "[DONE]") return@forEach
+        val chunk = runCatching { Json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return@forEach
+        sawChunk = true
+        val choice = chunk["choices"]?.jsonArray?.firstOrNull()?.jsonObject ?: return@forEach
+        val delta = choice["delta"]?.jsonObject
+        if (delta != null) {
+            delta["content"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() }?.let { content.append(it) }
+            listOf("reasoning_content", "reasoning").forEach { key ->
+                delta[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() }?.let { reasoning.append(it) }
+            }
+        } else {
+            // Some providers end the stream with a full message instead of a delta.
+            choice["message"]?.jsonObject?.let { message ->
+                message["content"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let {
+                    content.clear()
+                    content.append(it)
+                }
+            }
+        }
+        choice["finish_reason"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let { finishReason = it }
+    }
+    if (!sawChunk) {
+        if (raw.trimStart().startsWith("{")) {
+            // The provider ignored stream=true and answered with a plain completion.
+            return raw
+        }
+        throw AiServiceResponseException("AI 流式响应里没有收到任何内容。", raw)
+    }
+    return buildJsonObject {
+        put("choices", buildJsonArray {
+            add(buildJsonObject {
+                put("message", buildJsonObject {
+                    put("content", JsonPrimitive(content.toString()))
+                    if (reasoning.isNotBlank()) {
+                        put("reasoning_content", JsonPrimitive(reasoning.toString()))
+                    }
+                })
+                put("finish_reason", JsonPrimitive(finishReason.ifBlank { "stop" }))
+            })
+        })
+    }.toString()
 }
 
 private fun parseChatCompletionTextResult(response: String, requireContent: Boolean = true): AiProviderTextResult {

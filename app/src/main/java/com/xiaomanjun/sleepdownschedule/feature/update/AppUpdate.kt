@@ -11,7 +11,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
@@ -447,7 +446,7 @@ class UpdateDownloadForegroundService : Service() {
             )
             .setProgress(progress ?: 0)
             .setProgressIndeterminate(progress == null)
-            .setProgressTrackerIcon(Icon.createWithResource(this, R.drawable.ic_download))
+            .setProgressTrackerIcon(whiteDotProgressTrackerIcon(this))
 
     private fun completedNotification(name: String, apk: File): Notification {
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
@@ -465,10 +464,19 @@ class UpdateDownloadForegroundService : Service() {
             .setContentTitle("更新下载完成")
             .setContentText("点击安装 $name")
             .setContentIntent(install)
-            .setAutoCancel(true)
+            .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setShowWhen(false)
             .setCategory(Notification.CATEGORY_STATUS)
             .setColor(0xFF0A84FF.toInt())
+            .requestPromotedOngoing("待安装")
+            .let { builder ->
+                if (Build.VERSION.SDK_INT >= 36) {
+                    builder.setStyle(downloadProgressStyle(100))
+                } else {
+                    builder.setProgress(100, 100, false)
+                }
+            }
             .build()
     }
 
