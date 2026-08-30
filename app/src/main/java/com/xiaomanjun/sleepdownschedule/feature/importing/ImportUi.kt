@@ -469,6 +469,13 @@ fun NormalizedAiManualImportScreen(
     var aiSettings by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
     var historySourceHidden by remember { mutableStateOf(false) }
     var historyEntries by remember { mutableStateOf(AiImportHistoryStore.load(context)) }
+    val taskProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
+    LaunchedEffect(taskProgress?.taskId, taskProgress?.finished) {
+        val completed = taskProgress?.takeIf { it.taskId.isNotBlank() && it.finished } ?: return@LaunchedEffect
+        aiParsing = false
+        routeMessage = completed.liveSummary.ifBlank { completed.steps.lastOrNull().orEmpty() }
+        error = completed.error
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -752,100 +759,19 @@ fun NormalizedAiManualImportScreen(
                     )
                     AiEduImportProgressSession.setActions(
                         onConfirm = {
-                            scope.launch {
-                                aiParsing = true
-                                routeMessage = "正在使用 ${settings.profile.displayName} 解析 ${file.displayName}..."
-                                AiEduImportProgressSession.update(
-                                    AiEduImportProgressSession.progress.value?.copy(
-                                        steps = listOf("已读取文件", "已确认发送", "正在调用模型解析"),
-                                        requestSent = true,
-                                        awaitingConfirmation = false,
-                                        confirmActionLabel = "",
-                                        cancelActionLabel = ""
-                                    )
-                                )
-                                AiScheduleImportService(context).parseScheduleFile(file, settings)
-                        .onSuccess { aiResult ->
-                            routeMessage = aiResult.routeMessage
-                            val output = aiResult.output.ifBlank { aiResult.rawOutput }
-                            AiEduImportProgressSession.update(
-                                AiEduImportProgress(
-                                    routeLabel = "AI 手动导入",
-                                    steps = listOf("准备读取文件", "已读取文件", "已发送给 AI", "AI 已返回可见文本，开始本地校验"),
-                                    requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}\n处理路线：${aiResult.routeMessage}",
-                                    pageText = fileSummary,
-                                    attachmentTitle = file.displayName,
-                                    screenshotPreviews = previewImages,
-                                    requestSent = true,
-                                    reasoningOutput = aiResult.reasoningOutput,
-                                    aiOutput = aiResult.rawOutput
-                                )
+                            aiParsing = true
+                            routeMessage = "正在使用 ${settings.profile.displayName} 解析 ${file.displayName}..."
+                            val initial = checkNotNull(AiEduImportProgressSession.progress.value).copy(
+                                steps = listOf("已读取文件", "已确认发送"),
+                                requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}"
                             )
-                            ScheduleImportParser.parse(output, state.config)
-                                .onSuccess { draft ->
-                                    error = null
-                                    AiEduImportProgressSession.update(
-                                        AiEduImportProgress(
-                                            routeLabel = "AI 手动导入",
-                                            steps = listOf("准备读取文件", "已读取文件", "已发送给 AI", "AI 已返回可见文本", "本地校验通过，进入导入预览"),
-                                            requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}\n处理路线：${aiResult.routeMessage}",
-                                            pageText = fileSummary,
-                                            attachmentTitle = file.displayName,
-                                            screenshotPreviews = previewImages,
-                                            requestSent = true,
-                                            reasoningOutput = aiResult.reasoningOutput,
-                                            aiOutput = aiResult.rawOutput,
-                                            finished = true
-                                        )
-                                    )
-                                    val preview = draft.copy(source = ImportDraftSource.AI_EDU)
-                                    AiImportHistoryStore.record(
-                                        context,
-                                        preview,
-                                        AiEduImportProgressSession.progress.value
-                                    )
-                                    AiEduImportProgressSession.setPreviewDraft(preview)
-                                }
-                                .onFailure {
-                                    error = "AI 已返回内容，但本地解析失败：${it.message ?: "未知错误"}"
-                                    AiEduImportProgressSession.update(
-                                        AiEduImportProgress(
-                                            routeLabel = "AI 手动导入",
-                                            steps = listOf("准备读取文件", "已读取文件", "已发送给 AI", "AI 已返回可见文本", "本地校验失败"),
-                                            requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}\n处理路线：${aiResult.routeMessage}",
-                                            pageText = fileSummary,
-                                            attachmentTitle = file.displayName,
-                                            screenshotPreviews = previewImages,
-                                            requestSent = true,
-                                            reasoningOutput = aiResult.reasoningOutput,
-                                            aiOutput = aiResult.rawOutput,
-                                            error = it.message ?: "AI 返回内容无法解析",
-                                            finished = true
-                                        )
-                                    )
-                                }
-                        }
-                        .onFailure {
-                            error = it.message ?: "AI 文件解析失败"
-                            val rawBody = it.aiRawResponseBody().orEmpty()
-                            AiEduImportProgressSession.update(
-                                AiEduImportProgress(
-                                    routeLabel = "AI 手动导入",
-                                    steps = listOf("准备读取文件", "已读取文件", "AI 请求失败"),
-                                    requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n文件：${file.displayName}",
-                                    pageText = fileSummary,
-                                    attachmentTitle = file.displayName,
-                                    screenshotPreviews = previewImages,
-                                    requestSent = true,
-                                    reasoningOutput = extractAiReasoningForDisplay(rawBody),
-                                    aiOutput = sanitizeAiOutputForDisplay(rawBody),
-                                    error = it.message ?: "AI 文件解析失败",
-                                    finished = true
-                                )
+                            AiImportTaskManager.startFileImport(
+                                context = context,
+                                file = file,
+                                settings = settings,
+                                scheduleConfig = state.config,
+                                initialProgress = initial
                             )
-                        }
-                                aiParsing = false
-                            }
                         },
                         onCancel = {
                             aiParsing = false
@@ -926,90 +852,25 @@ fun NormalizedAiManualImportScreen(
         )
         AiEduImportProgressSession.setActions(
             onConfirm = {
-                scope.launch {
-                    routeMessage = "正在使用 ${settings.profile.displayName} 整理课表口令..."
-                    AiEduImportProgressSession.update(
-                        AiEduImportProgressSession.progress.value?.copy(
-                            steps = listOf("本地口令校验未通过", "已确认发送", "正在调用模型整理"),
-                            requestSent = true,
-                            awaitingConfirmation = false,
-                            confirmActionLabel = "",
-                            cancelActionLabel = ""
-                        )
-                    )
-            val repairInput = buildString {
-                appendLine("下面是一个格式不完整或不规范的 SleepDown 课程表口令。")
-                appendLine("请理解其中的课程信息，严格按照 SleepDown 课表导入协议整理并只返回可导入结果。")
-                appendLine()
-                append(jsonText)
-            }
-            AiScheduleImportService(context)
-                .parseScheduleText(repairInput, "手动粘贴的非标准课表口令", settings)
-                .onSuccess { aiResult ->
-                    val output = aiResult.output.ifBlank { aiResult.rawOutput }
-                    ScheduleImportParser.parse(output, state.config)
-                        .onSuccess { draft ->
-                            error = null
-                            routeMessage = "AI 已完成口令整理。"
-                            AiEduImportProgressSession.update(
-                                AiEduImportProgress(
-                                    routeLabel = "AI 手动导入",
-                                    steps = listOf("本地口令校验未通过", "AI 已完成整理", "本地校验通过，进入导入预览"),
-                                    requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n输入：用户粘贴的非标准课表口令",
-                                    userPrompt = "帮我按规则整理并导入这份课表",
-                                    attachmentTitle = "课表口令文本",
-                                    pageText = jsonText.take(40_000),
-                                    requestSent = true,
-                                    reasoningOutput = aiResult.reasoningOutput,
-                                    aiOutput = aiResult.rawOutput,
-                                    finished = true
-                                )
-                            )
-                            val preview = draft.copy(source = ImportDraftSource.AI_EDU)
-                            AiImportHistoryStore.record(
-                                context,
-                                preview,
-                                AiEduImportProgressSession.progress.value
-                            )
-                            AiEduImportProgressSession.setPreviewDraft(preview)
-                        }
-                        .onFailure {
-                            error = "AI 已整理口令，但仍无法导入：${it.message ?: "未知错误"}"
-                            AiEduImportProgressSession.update(
-                                AiEduImportProgress(
-                                    routeLabel = "AI 手动导入",
-                                    steps = listOf("本地口令校验未通过", "AI 已完成整理", "本地校验仍未通过"),
-                                    requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}",
-                                    userPrompt = "帮我按规则整理并导入这份课表",
-                                    attachmentTitle = "课表口令文本",
-                                    pageText = jsonText.take(40_000),
-                                    requestSent = true,
-                                    reasoningOutput = aiResult.reasoningOutput,
-                                    aiOutput = aiResult.rawOutput,
-                                    error = it.message ?: "AI 返回内容无法解析",
-                                    finished = true
-                                )
-                            )
-                        }
+                routeMessage = "正在使用 ${settings.profile.displayName} 整理课表口令..."
+                val repairInput = buildString {
+                    appendLine("下面是一个格式不完整或不规范的 SleepDown 课程表口令。")
+                    appendLine("请理解其中的课程信息，严格按照 SleepDown 课表导入协议整理并只返回可导入结果。")
+                    appendLine()
+                    append(jsonText)
                 }
-                .onFailure {
-                    error = it.message ?: "AI 口令整理失败"
-                    AiEduImportProgressSession.update(
-                        AiEduImportProgress(
-                            routeLabel = "AI 手动导入",
-                            steps = listOf("本地口令校验未通过", "AI 整理请求失败"),
-                            requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}",
-                            userPrompt = "帮我按规则整理并导入这份课表",
-                            attachmentTitle = "课表口令文本",
-                            pageText = jsonText.take(40_000),
-                            requestSent = true,
-                            error = it.message ?: "AI 口令整理失败",
-                            finished = true
-                        )
-                    )
-                }
-            aiParsing = false
-                }
+                val initial = checkNotNull(AiEduImportProgressSession.progress.value).copy(
+                    steps = listOf("本地口令校验未通过", "已确认发送"),
+                    requestPreview = "服务商：${settings.profile.displayName}\n模型：${settings.profile.defaultModel}\n输入：用户粘贴的非标准课表口令"
+                )
+                AiImportTaskManager.startTextImport(
+                    context = context,
+                    text = repairInput,
+                    sourceName = "手动粘贴的非标准课表口令",
+                    settings = settings,
+                    scheduleConfig = state.config,
+                    initialProgress = initial
+                )
             },
             onCancel = {
                 aiParsing = false
@@ -3143,6 +3004,15 @@ fun EduImportBrowserScreen(
     var pendingOriginalImportScript by remember(adapter) { mutableStateOf<String?>(null) }
     var pendingImportGeneration by remember(adapter) { mutableIntStateOf(0) }
     var importGeneration by remember(adapter) { mutableIntStateOf(0) }
+    val taskProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
+    LaunchedEffect(taskProgress?.taskId, taskProgress?.finished) {
+        val completed = taskProgress?.takeIf {
+            it.taskId.isNotBlank() && it.routeLabel == "AI教务导入" && it.finished
+        } ?: return@LaunchedEffect
+        aiProgress = completed
+        aiParsing = false
+        onMessage(completed.error ?: completed.liveSummary.ifBlank { completed.steps.lastOrNull().orEmpty() })
+    }
     val topPadding = if (useDetailTopPadding) detailContentTopPadding() else 0.dp
     val normalizedUrl = remember(addressText) {
         normalizeEduUrl(addressText)
@@ -3204,7 +3074,7 @@ fun EduImportBrowserScreen(
             AiEduImportProgressSession.clearActions()
             setAiProgress(aiProgress?.copy(
                 awaitingConfirmation = false,
-                requestSent = true,
+                requestSent = false,
                 confirmActionLabel = "",
                 secondaryConfirmActionLabel = "",
                 screenModeActionLabel = "",
@@ -3214,66 +3084,20 @@ fun EduImportBrowserScreen(
                     "用户确认只发送截图给 AI"
                 })
             ))
-            scope.launch {
-                if (settings.apiKey.isBlank()) {
-                    setAiProgress(aiProgress?.copy(
-                        steps = aiProgress?.steps.orEmpty() + "缺少 AI API Key",
-                        error = "请先在设置中配置 AI API Key",
-                        finished = true
-                    ))
-                    onMessage("请先在设置中配置 AI API Key")
-                    aiParsing = false
-                    return@launch
-                }
-                appendAiStep("已读取 AI 配置：${settings.profile.displayName} / ${settings.profile.defaultModel}")
-                appendAiStep("正在发送给 AI 解析")
-                onMessage("AI 正在解析当前教务页面...")
-                AiScheduleImportService(context)
-                    .parseScheduleCapturedPage(
-                        text = aiPageText,
-                        screenshots = capture.screenshots,
-                        sourceName = routeLabel,
-                        warnings = capture.warnings,
-                        settings = settings
-                    )
-                    .onSuccess { result ->
-                        setAiProgress(aiProgress?.copy(
-                            steps = aiProgress?.steps.orEmpty() + "AI 已返回可见文本，开始本地校验",
-                            reasoningOutput = result.reasoningOutput,
-                            aiOutput = result.rawOutput
-                        ))
-                        ScheduleImportParser.parse(result.output, state.config)
-                            .onSuccess {
-                                setAiProgress(aiProgress?.copy(
-                                    steps = aiProgress?.steps.orEmpty() + "本地校验通过，即将进入导入预览",
-                                    finished = true
-                                ))
-                                onMessage(result.routeMessage)
-                                val preview = it.copy(source = ImportDraftSource.AI_EDU)
-                                AiEduImportProgressSession.setPreviewDraft(preview)
-                            }
-                            .onFailure {
-                                setAiProgress(aiProgress?.copy(
-                                    steps = aiProgress?.steps.orEmpty() + "本地校验失败",
-                                    error = it.message ?: "AI 返回内容无法解析",
-                                    finished = true
-                                ))
-                                onMessage(it.message ?: "AI 返回内容无法解析")
-                            }
-                    }
-                    .onFailure {
-                        val rawBody = it.aiRawResponseBody().orEmpty()
-                        setAiProgress(aiProgress?.copy(
-                            steps = aiProgress?.steps.orEmpty() + "AI 请求失败",
-                            reasoningOutput = extractAiReasoningForDisplay(rawBody),
-                            aiOutput = sanitizeAiOutputForDisplay(rawBody),
-                            error = it.message ?: "AI 解析失败",
-                            finished = true
-                        ))
-                        onMessage(it.message ?: "AI 解析失败")
-                    }
-                aiParsing = false
-            }
+            val initial = checkNotNull(aiProgress).copy(
+                requestPreview = aiEduRequestPreview(settings, aiPageText.length)
+            )
+            onMessage("AI 正在解析当前教务页面...")
+            AiImportTaskManager.startCapturedPageImport(
+                context = context,
+                text = aiPageText,
+                screenshots = capture.screenshots,
+                sourceName = routeLabel,
+                warnings = capture.warnings,
+                settings = settings,
+                scheduleConfig = state.config,
+                initialProgress = initial
+            )
         }
 
         fun prepareCapturePreview(capture: EduPageCaptureResult, settings: AiImportSettings, screenMode: Boolean) {

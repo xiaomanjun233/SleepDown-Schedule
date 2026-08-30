@@ -160,6 +160,7 @@ open class AiEduImportProgressActivityHost : ComponentActivity() {
             CourseScheduleTheme(config = state.config) {
                 AiEduImportProgressPage(
                     config = state.config,
+                    taskId = intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID),
                     onImportSubmitted = { returnToScheduleHome() },
                     onScreenModeRequested = {
                         finish()
@@ -214,6 +215,7 @@ internal fun aiComposerBottomInsetPx(
 internal fun AiEduImportProgressPage(
     config: ScheduleConfigEntity,
     onClose: () -> Unit,
+    taskId: String? = null,
     onImportSubmitted: () -> Unit = onClose,
     onScreenModeRequested: () -> Unit = AiEduImportProgressSession::useScreenMode,
     historicalProgress: AiEduImportProgress? = null,
@@ -223,8 +225,11 @@ internal fun AiEduImportProgressPage(
     hostConsumesImeResize: Boolean = false,
     onImportRequested: ((ImportDraft, Boolean) -> Unit)? = null
 ) {
-    val sessionProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
+    val observedSessionProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     val sessionPreviewDraft by AiEduImportProgressSession.previewDraft.collectAsStateWithLifecycle()
+    val sessionProgress = observedSessionProgress?.takeIf {
+        taskId.isNullOrBlank() || it.taskId == taskId
+    }
     val historicalMode = historicalProgress != null && historicalDraft != null
     var localProgress by remember(historicalProgress) { mutableStateOf(historicalProgress) }
     var localPreviewDraft by remember(historicalDraft) { mutableStateOf(historicalDraft) }

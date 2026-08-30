@@ -1515,7 +1515,11 @@ fun normalizeAiBaseUrlForProvider(providerId: String, value: String): String {
 }
 
 class AiScheduleImportService(private val context: Context) {
-    suspend fun parseScheduleFile(file: AiImportFile, settings: AiImportSettings): Result<AiScheduleImportResult> {
+    suspend fun parseScheduleFile(
+        file: AiImportFile,
+        settings: AiImportSettings,
+        onRequestStarted: () -> Unit
+    ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
                 require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
@@ -1525,6 +1529,7 @@ class AiScheduleImportService(private val context: Context) {
                 val config = settings.toProviderConfig().normalizedForRequest()
                 val preprocess = DefaultScheduleFilePreprocessor(context).preprocess(file, config)
                 val input = preprocess.toScheduleInput(file)
+                onRequestStarted()
                 val result = when {
                     config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input)
                     else -> OpenAiCompatibleChatProvider().parseSchedule(config, input)
@@ -1539,7 +1544,12 @@ class AiScheduleImportService(private val context: Context) {
         }
     }
 
-    suspend fun parseScheduleText(text: String, sourceName: String, settings: AiImportSettings): Result<AiScheduleImportResult> {
+    suspend fun parseScheduleText(
+        text: String,
+        sourceName: String,
+        settings: AiImportSettings,
+        onRequestStarted: () -> Unit
+    ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
                 require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
@@ -1549,6 +1559,7 @@ class AiScheduleImportService(private val context: Context) {
                 require(cleaned.count { !it.isWhitespace() } >= 40) { "当前页面可提取文本太少，请确认已经进入课表页面" }
                 val config = settings.toProviderConfig().normalizedForRequest()
                 val input = AiScheduleInput.ExtractedText(cleaned, sourceName)
+                onRequestStarted()
                 val result = when {
                     config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input)
                     else -> OpenAiCompatibleChatProvider().parseSchedule(config, input)
@@ -1568,7 +1579,8 @@ class AiScheduleImportService(private val context: Context) {
         screenshots: List<RenderedPageImage>,
         sourceName: String,
         warnings: List<String>,
-        settings: AiImportSettings
+        settings: AiImportSettings,
+        onRequestStarted: () -> Unit
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
@@ -1589,6 +1601,7 @@ class AiScheduleImportService(private val context: Context) {
                 } else {
                     AiScheduleInput.CapturedPage(cleaned, screenshots, sourceName, warnings)
                 }
+                onRequestStarted()
                 val result = when {
                     config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input)
                     else -> OpenAiCompatibleChatProvider().parseSchedule(config, input)
