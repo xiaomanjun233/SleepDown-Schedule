@@ -2847,7 +2847,9 @@ fun CourseScheduleAppUi(
             if (screen is Screen.Home || screen is Screen.Config) {
                 DockEntranceContainer(
                     phase = startupPhase,
-                    modifier = Modifier.align(Alignment.BottomStart)
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .zIndex(100f)
                 ) {
                     FloatingDock(
                         selected = screen,
