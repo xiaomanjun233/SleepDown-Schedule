@@ -209,6 +209,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.toArgb
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
@@ -1024,6 +1025,10 @@ private fun CourseEditorFormPage(
             item(key = "course-color", contentType = "picker") {
                 CourseEditorColorValue(
                     colorArgb = draft.customColorArgb,
+                    automaticColorArgb = courseCardBaseColor(
+                        config,
+                        course?.copy(customColorArgb = null)
+                    ).toArgb().toLong() and 0xFFFFFFFFL,
                     onClick = onOpenColorPicker
                 )
             }
@@ -1339,11 +1344,11 @@ private fun CourseEditorPickerValue(
 @Composable
 private fun CourseEditorColorValue(
     colorArgb: Long?,
+    automaticColorArgb: Long,
     onClick: () -> Unit
 ) {
     val contentColor = LocalContentColor.current
-    val palette = LocalCourseCardPalette.current.ifEmpty { DefaultCourseCardPalette }
-    val previewColor = colorArgb ?: palette.first()
+    val previewColor = colorArgb ?: automaticColorArgb
     Box(
         Modifier
             .fillMaxWidth()

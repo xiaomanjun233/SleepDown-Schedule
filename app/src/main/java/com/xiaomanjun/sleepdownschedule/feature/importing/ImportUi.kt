@@ -1723,7 +1723,7 @@ fun EduSchoolIndexedSelectScreen(
     }
     val activeAlphabetIndex = railPointerIndex.takeIf { it >= 0 } ?: visibleSectionIndex
     val alphabetRailWidth by animateDpAsState(
-        targetValue = if (alphabetRailExpanded) 34.dp else 10.dp,
+        targetValue = if (alphabetRailExpanded) 58.dp else 10.dp,
         animationSpec = tween(180),
         label = "edu-alphabet-width"
     )
@@ -1811,7 +1811,6 @@ fun EduSchoolIndexedSelectScreen(
             )
         }
         if (letters.isNotEmpty()) {
-            var railContentSize by remember(letters) { mutableStateOf(IntSize.Zero) }
             val railModifier = Modifier
                     .pointerInput(letters, sectionPositions, haptic) {
                         awaitPointerEventScope {
@@ -1839,52 +1838,9 @@ fun EduSchoolIndexedSelectScreen(
                         }
                     }
             val railContent: @Composable () -> Unit = {
-                val density = LocalDensity.current
-                val verticalPaddingPx = with(density) { 16.dp.toPx() }
-                val itemSpacingPx = with(density) { 1.dp.toPx() }
-                val letterTrackHeightPx = (
-                    railContentSize.height.toFloat() - verticalPaddingPx
-                    ).coerceAtLeast(0f)
-                // The marker and labels share the same row grid. Include the Column's
-                // inter-item spacing in that grid, otherwise the marker drifts farther from the
-                // labels on every row and the rail looks vertically skewed.
-                val letterSlotHeightPx = (
-                    letterTrackHeightPx - itemSpacingPx * (letters.size - 1).coerceAtLeast(0)
-                ).coerceAtLeast(0f) / letters.size.toFloat()
-                val letterStepPx = letterSlotHeightPx + itemSpacingPx
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onSizeChanged { railContentSize = it }
+                    modifier = Modifier.width(34.dp)
                 ) {
-                    if (letterSlotHeightPx > 0f) {
-                        // The rail shell owns the sampled material. Keep the current-position
-                        // marker as a flat accent so it cannot cover or compete with that glass.
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(horizontal = 5.dp)
-                                .fillMaxWidth()
-                                .height(with(density) { letterSlotHeightPx.toDp() })
-                                .offset {
-                                    IntOffset(
-                                        x = 0,
-                                        y = with(density) { 8.dp.roundToPx() } +
-                                            (letterStepPx * alphabetIndicatorProgress).roundToInt()
-                                    )
-                                }
-                                .graphicsLayer { alpha = alphabetContentAlpha },
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        ComposeColor(0xFF0A84FF).copy(alpha = 0.82f),
-                                        Capsule()
-                                    )
-                            )
-                        }
-                    }
                     Column(
                         modifier = Modifier
                             .graphicsLayer { alpha = alphabetContentAlpha }
@@ -1909,7 +1865,7 @@ fun EduSchoolIndexedSelectScreen(
                                     }
                                     .padding(horizontal = 4.dp, vertical = 1.dp),
                                 color = if (active) {
-                                    ComposeColor.White
+                                    ComposeColor(0xFF0A84FF)
                                 } else {
                                     sleepDownPanelForegroundColor(state.config).copy(
                                         alpha = if (appUsesDarkTheme(state.config)) 0.52f else 0.68f
@@ -1948,38 +1904,38 @@ fun EduSchoolIndexedSelectScreen(
                     ) { state ->
                         if (state == EnterExitState.Visible) 1f else 0f
                     }
-                    GlassSurface(
-                        backdrop = overlayBackdrop,
-                        config = state.config,
+                    val railTint = if (appUsesDarkTheme(state.config)) {
+                        ComposeColor(0xFF111318)
+                    } else {
+                        ComposeColor.White
+                    }
+                    Box(
                         modifier = railModifier
                             .width(alphabetRailWidth)
+                            .progressiveBackdropBlur(
+                                backdrop = overlayBackdrop,
+                                tintColor = railTint,
+                                blurRadius = 10.dp,
+                                tintIntensity = if (appUsesDarkTheme(state.config)) 0.10f else 0.22f,
+                                domain = GlassBackdropDomain.ChromeCombined,
+                                direction = ProgressiveBlurDirection.LeftToRight,
+                                topMaskFadeStart = 0.08f,
+                                topMaskFadeEnd = 1f,
+                                topTintFadeStart = 0.18f,
+                                topTintFadeEnd = 1f,
+                                fallbackTintStops = listOf(
+                                    0f to ComposeColor.Transparent,
+                                    0.42f to railTint.copy(alpha = 0.10f),
+                                    1f to railTint.copy(alpha = 0.44f)
+                                )
+                            )
                             .graphicsLayer {
                                 compositingStrategy = CompositingStrategy.Offscreen
                                 renderEffect = platformBlurRenderEffect(
                                     detailMotionBlurRadiusDp(railMotionProgress) * density.density
                                 )
                             },
-                        shape = Capsule(),
-                        tokens = GlassTokens.pill(intensity = 1f).copy(
-                            // The shell is the glass consumer; the blue position marker below is
-                            // deliberately plain and does not create a second sampled surface.
-                            blur = 12.dp,
-                            lensHeight = 20.dp,
-                            lensAmount = 34.dp,
-                            surfaceAlpha = if (appUsesDarkTheme(state.config)) 0.035f else 0.22f,
-                            borderAlpha = if (appUsesDarkTheme(state.config)) 0.08f else 0.18f,
-                            highlightAlpha = if (appUsesDarkTheme(state.config)) 0.04f else 0.10f,
-                            shadowAlpha = if (appUsesDarkTheme(state.config)) 0.07f else 0.16f,
-                            innerShadowAlpha = if (appUsesDarkTheme(state.config)) 0.045f else 0.10f
-                        ),
-                        onClick = {},
-                        baseSurfaceColorOverride = if (appUsesDarkTheme(state.config)) {
-                            ComposeColor(0xFF111318)
-                        } else {
-                            ComposeColor.White
-                        },
-                        domain = GlassBackdropDomain.ChromeCombined,
-                        debugLabel = "EduAlphabetRail"
+                        contentAlignment = Alignment.CenterEnd
                     ) {
                         railContent()
                     }

@@ -10,13 +10,22 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
+import android.os.Build
 import android.os.PowerManager
 import android.os.IBinder
 import android.util.Log
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 
 class AiImportForegroundService : Service() {
     private lateinit var notificationManager: NotificationManager
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var activeJob: Job? = null
     private var activeTaskId: String? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -32,6 +41,7 @@ class AiImportForegroundService : Service() {
         val taskId = intent?.getStringExtra(EXTRA_TASK_ID).orEmpty()
         when (intent?.action) {
             ACTION_START -> {
+                activeJob?.cancel()
                 activeTaskId = taskId
                 val notification = runningNotification(
                     taskId,
@@ -42,7 +52,15 @@ class AiImportForegroundService : Service() {
                     notification
                 )
                 acquireWakeLock()
-                Log.d(TAG, "AI import foreground service started task=$taskId")
+                activeJob = AiImportTaskManager.launchPending(taskId, serviceScope)
+                if (activeJob == null) {
+                    Log.e(TAG, "No pending AI import workflow for task=$taskId")
+                    releaseWakeLock()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf(startId)
+                } else {
+                    Log.d(TAG, "AI import workflow owned by foreground service task=$taskId")
+                }
             }
             ACTION_UPDATE -> if (taskId == activeTaskId) {
                 notificationManager.notify(
@@ -57,9 +75,10 @@ class AiImportForegroundService : Service() {
                 if (NotificationScheduler.canPostNotifications(this)) {
                     notificationManager.notify(
                         RESULT_NOTIFICATION_ID,
-                        completedNotification(count)
+                        completedNotification(taskId, count)
                     )
                 }
+                activeTaskId = null
                 stopSelf()
             }
             ACTION_FAILED -> if (taskId == activeTaskId) {
@@ -71,6 +90,7 @@ class AiImportForegroundService : Service() {
                         failedNotification(taskId, intent.getStringExtra(EXTRA_MESSAGE).orEmpty())
                     )
                 }
+                activeTaskId = null
                 stopSelf()
             }
         }
@@ -78,12 +98,15 @@ class AiImportForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        activeJob?.cancel()
+        serviceScope.cancel()
         releaseWakeLock()
         super.onDestroy()
     }
 
-    private fun runningNotification(taskId: String, status: String): Notification =
-        Notification.Builder(this, RUNNING_CHANNEL_ID)
+    private fun runningNotification(taskId: String, status: String): Notification {
+        val stage = stageFor(status)
+        val builder = Notification.Builder(this, RUNNING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_agent_thinking)
             .setContentTitle("SleepDown · AI 导入")
             .setContentText(status.ifBlank { "正在整理输入" })
@@ -94,7 +117,12 @@ class AiImportForegroundService : Service() {
             .setCategory(Notification.CATEGORY_EVENT)
             .setColor(0xFF0A84FF.toInt())
             .requestPromotedOngoing("AI导入中")
-            .build()
+        if (Build.VERSION.SDK_INT >= 36) {
+            builder.setStyle(aiProgressStyle(stage))
+        } else {
+            builder.setProgress(AI_STAGE_COUNT, stage, false)
+        }
+        return builder.build()
             .also { notification ->
                 val promotable = runCatching {
                     notification.javaClass
@@ -107,17 +135,49 @@ class AiImportForegroundService : Service() {
                         "requested=${notification.extras.getBoolean("android.requestPromotedOngoing", false)}"
                 )
             }
+    }
 
-    private fun completedNotification(courseCount: Int): Notification =
-        Notification.Builder(this, RESULT_CHANNEL_ID)
+    private fun completedNotification(taskId: String, courseCount: Int): Notification {
+        val builder = Notification.Builder(this, RESULT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_agent_thinking)
             .setContentTitle("课表解析完成 · 发现 ${courseCount} 门课程")
             .setContentText("点击查看导入预览")
-            .setContentIntent(progressPendingIntent(activeTaskId.orEmpty(), 8402))
-            .setAutoCancel(true)
+            .setContentIntent(progressPendingIntent(taskId, 8402))
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
             .setCategory(Notification.CATEGORY_STATUS)
             .setColor(0xFF0A84FF.toInt())
-            .build()
+            .requestPromotedOngoing("待查看")
+        if (Build.VERSION.SDK_INT >= 36) {
+            builder.setStyle(aiProgressStyle(AI_STAGE_COUNT))
+        } else {
+            builder.setProgress(AI_STAGE_COUNT, AI_STAGE_COUNT, false)
+        }
+        return builder.build()
+    }
+
+    private fun stageFor(status: String): Int = when {
+        "生成导入预览" in status -> 5
+        "校验" in status -> 4
+        "解析" in status -> 3
+        "已发送" in status -> 2
+        else -> 1
+    }
+
+    @Suppress("NewApi")
+    private fun aiProgressStyle(progress: Int): Notification.ProgressStyle =
+        Notification.ProgressStyle()
+            .setStyledByProgress(true)
+            .setProgressSegments(
+                listOf(
+                    Notification.ProgressStyle.Segment(AI_STAGE_COUNT)
+                        .setColor(0xFF0A84FF.toInt())
+                )
+            )
+            .setProgress(progress)
+            .setProgressTrackerIcon(Icon.createWithResource(this, R.drawable.ic_agent_thinking))
 
     private fun failedNotification(taskId: String, message: String): Notification =
         Notification.Builder(this, RESULT_CHANNEL_ID)
@@ -197,6 +257,7 @@ class AiImportForegroundService : Service() {
         private const val RESULT_CHANNEL_ID = "ai_import_result"
         private const val RUNNING_NOTIFICATION_ID = 20260830
         private const val RESULT_NOTIFICATION_ID = 20260831
+        private const val AI_STAGE_COUNT = 6
         private const val AI_IMPORT_WAKE_LOCK_TIMEOUT_MILLIS = 30L * 60L * 1_000L
         private const val TAG = "SleepDownAiImport"
 
@@ -227,6 +288,12 @@ class AiImportForegroundService : Service() {
                 context,
                 serviceIntent(context, ACTION_FAILED, taskId).putExtra(EXTRA_MESSAGE, message)
             )
+        }
+
+        fun clearCompletion(context: Context, taskId: String?) {
+            if (taskId.isNullOrBlank()) return
+            context.getSystemService(NotificationManager::class.java)
+                .cancel(RESULT_NOTIFICATION_ID)
         }
 
         private fun dispatchToRunningService(context: Context, intent: Intent) {

@@ -71,6 +71,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -535,6 +538,7 @@ internal fun CourseManagementDetailPage(
     }
     var pickerRequest by remember { mutableStateOf<CourseEditorPickerRequest?>(null) }
     var pickerVisible by remember { mutableStateOf(false) }
+    var colorPickerVisible by remember { mutableStateOf(false) }
     var showSaveChangesDialog by remember(group.key) { mutableStateOf(false) }
     var validationMessage by remember(group.key) { mutableStateOf<String?>(null) }
     var pendingDelete by remember(group.key) { mutableStateOf<PendingArrangementDelete?>(null) }
@@ -675,6 +679,7 @@ internal fun CourseManagementDetailPage(
                     onNameChange = { name = it },
                     selectedColor = selectedColor,
                     onColorSelected = { selectedColor = it },
+                    onOpenColorPicker = { colorPickerVisible = true },
                     config = state.config
                 )
             }
@@ -741,6 +746,16 @@ internal fun CourseManagementDetailPage(
                 }
             )
         }
+        CourseColorPicker(
+            show = colorPickerVisible,
+            selectedColorArgb = selectedColor,
+            backdrop = pickerBackdrop,
+            config = state.config,
+            renderInRootScaffold = true,
+            onDismissRequest = { colorPickerVisible = false },
+            onDismissFinished = {},
+            onColorSelected = { selectedColor = it }
+        )
         if (showSaveChangesDialog) {
             val canSave = arrangements.isEmpty() || name.trim().isNotBlank()
             LiquidAlertDialog(
@@ -857,6 +872,7 @@ private fun CourseIdentityCard(
     onNameChange: (String) -> Unit,
     selectedColor: Long?,
     onColorSelected: (Long?) -> Unit,
+    onOpenColorPicker: () -> Unit,
     config: ScheduleConfigEntity
 ) {
     CourseManagementSettingsSection(title = "课程信息") {
@@ -901,7 +917,7 @@ private fun CourseIdentityCard(
                         )
                     }
                     Icon(
-                        painter = painterResource(R.drawable.ic_course_color_auto),
+                        imageVector = Icons.Filled.AutoAwesome,
                         contentDescription = "自动课程颜色",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(19.dp)
@@ -940,6 +956,31 @@ private fun CourseIdentityCard(
                             )
                         }
                     }
+                }
+                val customSelected = selectedColor != null && selectedColor !in palette.take(6)
+                Box(
+                    Modifier.size(34.dp).clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .then(
+                            if (customSelected) {
+                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .clickable(onClick = onOpenColorPicker),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Palette,
+                        contentDescription = "打开调色盘",
+                        tint = if (customSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(19.dp)
+                    )
                 }
             }
         }

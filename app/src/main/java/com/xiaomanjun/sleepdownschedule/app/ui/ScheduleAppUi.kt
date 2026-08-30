@@ -89,6 +89,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.ui.platform.LocalView
@@ -5506,10 +5507,103 @@ private fun CourseColorModeRow(
     selectedMode: CourseCardColorMode,
     presets: List<List<Long>>,
     selectedPreset: (List<Long>) -> Boolean,
+    customSelected: Boolean,
+    backdrop: Backdrop?,
     onPresetSelected: (List<Long>) -> Unit,
     onOpenPalette: () -> Unit
 ) {
     val foreground = LocalContentColor.current
+    @Composable
+    fun PresetButton(colors: List<Long>) {
+        val selected = selectedMode == mode && selectedPreset(colors)
+        val previewColors = when (mode) {
+            CourseCardColorMode.SOLID -> colors.map { ComposeColor(it.toInt()) }
+            CourseCardColorMode.GRADIENT -> tonalPreviewColors(colors.first())
+            CourseCardColorMode.COLORFUL -> colors.map { vividPreviewColor(it) }
+        }
+        Surface(
+            modifier = Modifier.size(32.dp),
+            shape = RoundedCornerShape(50),
+            color = if (mode == CourseCardColorMode.COLORFUL) {
+                ComposeColor.White.copy(alpha = 0.88f)
+            } else {
+                ComposeColor.Transparent
+            },
+            border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+            onClick = { onPresetSelected(colors) }
+        ) {
+            if (mode == CourseCardColorMode.COLORFUL) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.ColorLens,
+                        contentDescription = "自动彩色课程卡",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+            } else {
+                Box(
+                    Modifier.background(
+                        if (previewColors.size == 1) {
+                            Brush.linearGradient(listOf(previewColors.first(), previewColors.first()))
+                        } else {
+                            Brush.linearGradient(previewColors)
+                        }
+                    )
+                )
+            }
+        }
+    }
+
+    @Composable
+    fun PaletteButton() {
+        val buttonColor = if (customSelected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            ComposeColor.White.copy(alpha = 0.90f)
+        }
+        val iconColor = if (customSelected) ComposeColor.White else ComposeColor(0xFF1A1A1A)
+        if (backdrop != null) {
+            LiquidButton(
+                onClick = onOpenPalette,
+                backdrop = backdrop,
+                modifier = Modifier.size(32.dp),
+                height = 32.dp,
+                contentPadding = PaddingValues(0.dp),
+                surfaceColor = buttonColor,
+                blurRadius = 8.dp,
+                lensHeight = 18.dp,
+                lensAmount = 22.dp,
+                chromaticAberration = false
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.Palette,
+                        contentDescription = "自定义课程卡颜色",
+                        tint = iconColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        } else {
+            Surface(
+                modifier = Modifier.size(32.dp),
+                shape = RoundedCornerShape(50),
+                color = buttonColor,
+                onClick = onOpenPalette
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.Palette,
+                        contentDescription = "自定义课程卡颜色",
+                        tint = iconColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -5526,75 +5620,26 @@ private fun CourseColorModeRow(
         )
         Row(
             modifier = Modifier.weight(1f),
-            horizontalArrangement = if (mode == CourseCardColorMode.COLORFUL) {
-                Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally)
-            } else {
-                Arrangement.SpaceEvenly
-            },
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            presets.forEach { colors ->
-                val selected = selectedMode == mode && selectedPreset(colors)
-                val previewColors = when (mode) {
-                    CourseCardColorMode.SOLID -> colors.map { ComposeColor(it.toInt()) }
-                    CourseCardColorMode.GRADIENT -> tonalPreviewColors(colors.first())
-                    CourseCardColorMode.COLORFUL -> colors.map { vividPreviewColor(it) }
+            if (mode == CourseCardColorMode.COLORFUL) {
+                repeat(5) { index ->
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        when (index) {
+                            1 -> PresetButton(presets.first())
+                            3 -> PaletteButton()
+                        }
+                    }
                 }
-                val shape = RoundedCornerShape(50)
-                Surface(
-                    modifier = Modifier.size(32.dp),
-                    shape = shape,
-                    color = ComposeColor.Transparent,
-                    border = if (selected) {
-                        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                    } else {
-                        null
-                    },
-                    onClick = { onPresetSelected(colors) }
-                ) {
-                    Box(
-                        Modifier.background(
-                            when {
-                                previewColors.size == 1 -> Brush.linearGradient(
-                                    listOf(
-                                        previewColors.first(),
-                                        previewColors.first()
-                                    )
-                                )
-                                mode == CourseCardColorMode.COLORFUL -> Brush.sweepGradient(
-                                    previewColors
-                                )
-                                else -> Brush.linearGradient(
-                                    previewColors
-                                )
-                            }
-                        )
-                    )
+            } else {
+                presets.forEach { colors ->
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        PresetButton(colors)
+                    }
                 }
-            }
-            Surface(
-                modifier = Modifier.size(32.dp),
-                shape = RoundedCornerShape(50),
-                color = ComposeColor.Transparent,
-                border = null,
-                onClick = onOpenPalette
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.sweepGradient(
-                                AutomaticColorfulCoursePreview.map { vividPreviewColor(it) }
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Palette,
-                        contentDescription = "自定义课程卡颜色",
-                        tint = if (foreground.luminance() > 0.5f) ComposeColor.White else ComposeColor.Black,
-                        modifier = Modifier.size(19.dp)
-                    )
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    PaletteButton()
                 }
             }
         }
@@ -6201,6 +6246,9 @@ fun PersonalizePanel(
                     selectedMode = state.config.courseCardColorMode,
                     presets = SolidCourseColorPresets.map { listOf(it) },
                     selectedPreset = { it.firstOrNull() == state.config.cardColorArgb },
+                    customSelected = state.config.courseCardColorMode == CourseCardColorMode.SOLID &&
+                        SolidCourseColorPresets.none { it == state.config.cardColorArgb },
+                    backdrop = backdrop,
                     onPresetSelected = { colors ->
                         onUpdateConfig(
                             PersonalizeCardColorChange,
@@ -6218,6 +6266,9 @@ fun PersonalizePanel(
                     selectedMode = state.config.courseCardColorMode,
                     presets = GradientCourseColorPresets.map { listOf(it) },
                     selectedPreset = { it.firstOrNull() == state.config.cardColorArgb },
+                    customSelected = state.config.courseCardColorMode == CourseCardColorMode.GRADIENT &&
+                        GradientCourseColorPresets.none { it == state.config.cardColorArgb },
+                    backdrop = backdrop,
                     onPresetSelected = { colors ->
                         onUpdateConfig(
                             PersonalizeCardColorChange,
@@ -6235,6 +6286,9 @@ fun PersonalizePanel(
                     selectedMode = state.config.courseCardColorMode,
                     presets = listOf(AutomaticColorfulCoursePreview),
                     selectedPreset = { state.config.courseCardPalette.isBlank() },
+                    customSelected = state.config.courseCardColorMode == CourseCardColorMode.COLORFUL &&
+                        state.config.courseCardPalette.isNotBlank(),
+                    backdrop = backdrop,
                     onPresetSelected = {
                         onUpdateConfig(
                             PersonalizeCardColorChange,

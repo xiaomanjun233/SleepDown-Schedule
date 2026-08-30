@@ -154,12 +154,14 @@ open class AiEduImportProgressActivityHost : ComponentActivity() {
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         val app = application as CourseScheduleApp
+        val taskId = intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID)
+        AiImportForegroundService.clearCompletion(this, taskId)
         setContent {
             val state by app.repository.state.collectAsStateWithLifecycle(AppState())
             CourseScheduleTheme(config = state.config) {
                 AiEduImportProgressPage(
                     config = state.config,
-                    taskId = intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID),
+                    taskId = taskId,
                     onImportSubmitted = { returnToScheduleHome() },
                     onScreenModeRequested = {
                         finish()
@@ -174,6 +176,15 @@ open class AiEduImportProgressActivityHost : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        AiImportForegroundService.clearCompletion(
+            this,
+            intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID)
+        )
     }
 }
 
@@ -1287,6 +1298,7 @@ private fun AiEduAttachmentMorphOverlay(
             }
         }
     }
+
 }
 
 private const val AiAttachmentPreviewOpenDurationMillis = 430

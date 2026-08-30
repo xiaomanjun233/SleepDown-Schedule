@@ -37,6 +37,7 @@ fun ProgressiveBackdropBlur(
     height: Dp,
     blurRadius: Dp = 12.dp,
     tintIntensity: Float = 0.18f,
+    domain: GlassBackdropDomain = GlassBackdropDomain.Content,
     direction: ProgressiveBlurDirection = ProgressiveBlurDirection.TopToBottom,
     topMaskFadeStart: Float = 0.45f,
     topMaskFadeEnd: Float = 1f,
@@ -53,6 +54,7 @@ fun ProgressiveBackdropBlur(
                 tintColor = tintColor,
                 blurRadius = blurRadius,
                 tintIntensity = tintIntensity,
+                domain = domain,
                 direction = direction,
                 topMaskFadeStart = topMaskFadeStart,
                 topMaskFadeEnd = topMaskFadeEnd,
@@ -69,6 +71,7 @@ fun Modifier.progressiveBackdropBlur(
     tintColor: Color,
     blurRadius: Dp = 12.dp,
     tintIntensity: Float = 0.18f,
+    domain: GlassBackdropDomain = GlassBackdropDomain.Content,
     direction: ProgressiveBlurDirection = ProgressiveBlurDirection.TopToBottom,
     topMaskFadeStart: Float = 0.45f,
     topMaskFadeEnd: Float = 1f,
@@ -84,7 +87,7 @@ fun Modifier.progressiveBackdropBlur(
         }
         val descriptor = rememberGlassSurfaceDescriptor(
             debugLabel = "ProgressiveBackdropBlur",
-            domain = GlassBackdropDomain.Content,
+            domain = domain,
             materialRole = GlassMaterialRole.SimpleBlur,
             sceneKey = "progressive-backdrop-blur"
         )

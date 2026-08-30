@@ -8,21 +8,19 @@ import com.xiaomanjun.sleepdownschedule.model.ImportDraftSource
 import android.content.Context
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /** Owns the single active AI import after the user has confirmed sending its input. */
 object AiImportTaskManager {
     const val EXTRA_TASK_ID = "ai_import_task_id"
 
-    private val taskScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var activeJob: Job? = null
+    private val pendingTasks = ConcurrentHashMap<String, suspend () -> Unit>()
 
     fun startFileImport(
         context: Context,
@@ -84,7 +82,6 @@ object AiImportTaskManager {
     ): String {
         val appContext = context.applicationContext
         val taskId = baseProgress.taskId.ifBlank { UUID.randomUUID().toString() }
-        activeJob?.cancel()
         AiEduImportProgressSession.setPreviewDraft(baseDraft)
         AiEduImportProgressSession.update(
             baseProgress.copy(
@@ -97,8 +94,8 @@ object AiImportTaskManager {
                 error = null
             )
         )
-        AiImportForegroundService.start(appContext, taskId, "正在理解修改要求")
-        activeJob = taskScope.launch {
+        pendingTasks.clear()
+        pendingTasks[taskId] = {
             try {
                 runRevision(
                     context = appContext,
@@ -115,6 +112,7 @@ object AiImportTaskManager {
                 finishFailure(appContext, taskId, error, "AI 修改任务未完成")
             }
         }
+        AiImportForegroundService.start(appContext, taskId, "正在理解修改要求")
         return taskId
     }
 
@@ -126,7 +124,6 @@ object AiImportTaskManager {
     ): String {
         val appContext = context.applicationContext
         val taskId = UUID.randomUUID().toString()
-        activeJob?.cancel()
         AiEduImportProgressSession.setPreviewDraft(null)
         AiEduImportProgressSession.update(
             initialProgress.copy(
@@ -141,8 +138,8 @@ object AiImportTaskManager {
                 error = null
             )
         )
-        AiImportForegroundService.start(appContext, taskId, "正在整理输入")
-        activeJob = taskScope.launch {
+        pendingTasks.clear()
+        pendingTasks[taskId] = {
             try {
                 runTask(appContext, taskId, scheduleConfig, request)
             } catch (cancelled: CancellationException) {
@@ -151,8 +148,12 @@ object AiImportTaskManager {
                 finishFailure(appContext, taskId, error, "AI 导入任务未完成")
             }
         }
+        AiImportForegroundService.start(appContext, taskId, "正在整理输入")
         return taskId
     }
+
+    internal fun launchPending(taskId: String, scope: CoroutineScope): Job? =
+        pendingTasks.remove(taskId)?.let { task -> scope.launch { task() } }
 
     private suspend fun runTask(
         context: Context,
