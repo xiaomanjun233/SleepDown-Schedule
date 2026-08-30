@@ -999,7 +999,7 @@ fun AiImportSettingsSection(
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
             SettingsInfoRow(
                 "每日免费 AI",
-                "每天由 SleepDown 提供共享免费额度，不保存明文 Key。${SleepDownRemoteConfig.managedFreeStatusMessage(context)}"
+                SleepDownRemoteConfig.managedFreeStatusMessage(context)
             )
 			SettingsActionRow(
 				title = "远程配置",
