@@ -370,15 +370,11 @@ private fun LiquidAlertContent(
         }
         Spacer(
             Modifier.height(
-                if (messageSingleLine) {
-                    if (compact) {
-                        SleepDownDesignTokens.CenteredDialog.CompactSingleLineActionSpacing
-                    } else {
-                        SleepDownDesignTokens.CenteredDialog.AlertSingleLineActionSpacing
-                    }
+                if (compact) {
+                    SleepDownDesignTokens.CenteredDialog.CompactActionSpacing
                 } else {
-                    if (compact) {
-                        SleepDownDesignTokens.CenteredDialog.CompactMessageActionSpacing
+                    if (messageSingleLine) {
+                        SleepDownDesignTokens.CenteredDialog.AlertSingleLineActionSpacing
                     } else {
                         SleepDownDesignTokens.CenteredDialog.MessageActionSpacing
                     }
