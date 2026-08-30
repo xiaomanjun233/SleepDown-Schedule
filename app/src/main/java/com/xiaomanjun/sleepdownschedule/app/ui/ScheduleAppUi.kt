@@ -88,9 +88,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Colorize
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
@@ -5504,6 +5501,7 @@ private fun tonalPreviewColors(seed: Long): List<ComposeColor> {
 @Composable
 private fun CourseColorModeRow(
     title: String,
+    iconRes: Int,
     mode: CourseCardColorMode,
     selectedMode: CourseCardColorMode,
     presets: List<List<Long>>,
@@ -5512,6 +5510,7 @@ private fun CourseColorModeRow(
     onOpenPalette: () -> Unit
 ) {
     val foreground = LocalContentColor.current
+    val labelColor = if (selectedMode == mode) MaterialTheme.colorScheme.primary else foreground
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -5519,13 +5518,26 @@ private fun CourseColorModeRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = title,
+        Row(
             modifier = Modifier.width(42.dp),
-            color = if (selectedMode == mode) MaterialTheme.colorScheme.primary else foreground,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (selectedMode == mode) FontWeight.Bold else FontWeight.Medium
-        )
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                tint = labelColor,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = title,
+                color = labelColor,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (selectedMode == mode) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
         Row(
             modifier = Modifier.weight(1f),
             horizontalArrangement = if (mode == CourseCardColorMode.COLORFUL) {
@@ -5577,24 +5589,18 @@ private fun CourseColorModeRow(
             Surface(
                 modifier = Modifier.size(32.dp),
                 shape = RoundedCornerShape(50),
-                color = ComposeColor.Transparent,
+                color = foreground.copy(alpha = 0.10f),
                 border = null,
                 onClick = onOpenPalette
             ) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.sweepGradient(
-                                AutomaticColorfulCoursePreview.map { vividPreviewColor(it) }
-                            )
-                        ),
+                    modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Palette,
+                        painter = painterResource(R.drawable.ic_color_palette_ring),
                         contentDescription = "自定义课程卡颜色",
-                        tint = if (foreground.luminance() > 0.5f) ComposeColor.White else ComposeColor.Black,
+                        tint = foreground,
                         modifier = Modifier.size(19.dp)
                     )
                 }
@@ -5636,7 +5642,7 @@ private fun CourseColorEditorDialog(
                     modifier = Modifier.size(38.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Colorize,
+                        painter = painterResource(R.drawable.ic_color_eyedropper),
                         contentDescription = "从壁纸吸色",
                         tint = foreground,
                         modifier = Modifier.size(21.dp)
@@ -6199,6 +6205,7 @@ fun PersonalizePanel(
                 Spacer(Modifier.height(8.dp))
                 CourseColorModeRow(
                     title = "纯色",
+                    iconRes = R.drawable.ic_color_solid,
                     mode = CourseCardColorMode.SOLID,
                     selectedMode = state.config.courseCardColorMode,
                     presets = SolidCourseColorPresets.map { listOf(it) },
@@ -6216,6 +6223,7 @@ fun PersonalizePanel(
                 )
                 CourseColorModeRow(
                     title = "渐变",
+                    iconRes = R.drawable.ic_color_gradient,
                     mode = CourseCardColorMode.GRADIENT,
                     selectedMode = state.config.courseCardColorMode,
                     presets = GradientCourseColorPresets.map { listOf(it) },
@@ -6233,6 +6241,7 @@ fun PersonalizePanel(
                 )
                 CourseColorModeRow(
                     title = "彩色",
+                    iconRes = R.drawable.ic_color_colorful,
                     mode = CourseCardColorMode.COLORFUL,
                     selectedMode = state.config.courseCardColorMode,
                     presets = listOf(AutomaticColorfulCoursePreview),

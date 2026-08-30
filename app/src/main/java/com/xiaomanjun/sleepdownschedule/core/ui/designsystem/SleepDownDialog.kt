@@ -300,11 +300,12 @@ private fun LiquidAlertContent(
     // Alerts own their material tint, so their foreground must follow that stable surface rather
     // than the wallpaper behind the dim layer.
     val foreground = sleepDownPanelForegroundColor(config)
-    // One- and two-action alerts share the accepted single-row action layout. Tighten that whole
-    // family through the copy band only; action geometry and bottom/side insets stay unchanged.
+    // One- and two-action alerts share the accepted single-row action layout. Only their
+    // single-line copy path tightens; action geometry and bottom/side insets stay unchanged.
     var messageLineCount by remember(message) { mutableStateOf(0) }
     val messageSingleLine = messageLineCount == 1
     val compact = actions.size <= 2
+    val compactSingleLine = compact && messageSingleLine
     val copyLift = if (messageLineCount == 2) {
         -SleepDownDesignTokens.CenteredDialog.ThreeLineAlertTextLift
     } else {
@@ -312,8 +313,10 @@ private fun LiquidAlertContent(
     }
     Column(
         modifier = modifier.padding(
-            top = (if (compact) {
+            top = (if (compactSingleLine) {
                 SleepDownDesignTokens.CenteredDialog.CompactAlertTopInset
+            } else if (compact) {
+                SleepDownDesignTokens.CenteredDialog.CompactMultilineAlertTopInset
             } else {
                 SleepDownDesignTokens.CenteredDialog.AlertTopInset
             }) -
@@ -333,8 +336,10 @@ private fun LiquidAlertContent(
         )
         Spacer(
             Modifier.height(
-                if (compact) {
+                if (compactSingleLine) {
                     SleepDownDesignTokens.CenteredDialog.CompactTitleContentSpacing
+                } else if (compact) {
+                    SleepDownDesignTokens.CenteredDialog.CompactMultilineTitleContentSpacing
                 } else {
                     SleepDownDesignTokens.CenteredDialog.TitleContentSpacing
                 }
