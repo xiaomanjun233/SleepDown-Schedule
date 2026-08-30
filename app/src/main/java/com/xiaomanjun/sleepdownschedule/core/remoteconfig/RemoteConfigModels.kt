@@ -101,7 +101,8 @@ data class InstallationPayload(
     val versionCode: Long,
     val versionName: String,
     val androidApi: Int,
-    val deviceModel: String
+    val deviceModel: String,
+    val deviceBrand: String = ""
 )
 
 data class RemoteExperienceState(

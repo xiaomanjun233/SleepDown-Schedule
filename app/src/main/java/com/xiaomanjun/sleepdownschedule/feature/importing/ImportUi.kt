@@ -1711,10 +1711,14 @@ fun EduSchoolIndexedSelectScreen(
     }
     val visibleSectionIndex by remember(letters, sectionPositions) {
         derivedStateOf {
-            val firstVisible = listState.firstVisibleItemIndex
-            letters.indexOfLast { letter ->
-                (sectionPositions[letter] ?: Int.MAX_VALUE) <= firstVisible
-            }.coerceAtLeast(0)
+            if (!listState.canScrollForward) {
+                letters.lastIndex.coerceAtLeast(0)
+            } else {
+                val firstVisible = listState.firstVisibleItemIndex
+                letters.indexOfLast { letter ->
+                    (sectionPositions[letter] ?: Int.MAX_VALUE) <= firstVisible
+                }.coerceAtLeast(0)
+            }
         }
     }
     val activeAlphabetIndex = railPointerIndex.takeIf { it >= 0 } ?: visibleSectionIndex
@@ -1928,6 +1932,7 @@ fun EduSchoolIndexedSelectScreen(
                         top = topPadding,
                         bottom = alphabetRailBottomExclusion
                     )
+                    .clipToBounds()
             ) {
                 AnimatedVisibility(
                     visible = showAlphabetRail,

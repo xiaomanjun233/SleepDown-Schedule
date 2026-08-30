@@ -10,12 +10,15 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import android.os.IBinder
+import android.util.Log
 import androidx.core.content.ContextCompat
 
 class AiImportForegroundService : Service() {
     private lateinit var notificationManager: NotificationManager
     private var activeTaskId: String? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -30,10 +33,16 @@ class AiImportForegroundService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 activeTaskId = taskId
+                val notification = runningNotification(
+                    taskId,
+                    intent.getStringExtra(EXTRA_STATUS).orEmpty()
+                )
                 startForeground(
                     RUNNING_NOTIFICATION_ID,
-                    runningNotification(taskId, intent.getStringExtra(EXTRA_STATUS).orEmpty())
+                    notification
                 )
+                acquireWakeLock()
+                Log.d(TAG, "AI import foreground service started task=$taskId")
             }
             ACTION_UPDATE -> if (taskId == activeTaskId) {
                 notificationManager.notify(
@@ -43,6 +52,7 @@ class AiImportForegroundService : Service() {
             }
             ACTION_COMPLETE -> if (taskId == activeTaskId) {
                 val count = intent.getIntExtra(EXTRA_COURSE_COUNT, 0)
+                releaseWakeLock()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 if (NotificationScheduler.canPostNotifications(this)) {
                     notificationManager.notify(
@@ -53,6 +63,7 @@ class AiImportForegroundService : Service() {
                 stopSelf()
             }
             ACTION_FAILED -> if (taskId == activeTaskId) {
+                releaseWakeLock()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 if (NotificationScheduler.canPostNotifications(this)) {
                     notificationManager.notify(
@@ -66,6 +77,11 @@ class AiImportForegroundService : Service() {
         return START_NOT_STICKY
     }
 
+    override fun onDestroy() {
+        releaseWakeLock()
+        super.onDestroy()
+    }
+
     private fun runningNotification(taskId: String, status: String): Notification =
         Notification.Builder(this, RUNNING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_agent_thinking)
@@ -75,11 +91,22 @@ class AiImportForegroundService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
-            .setCategory(Notification.CATEGORY_PROGRESS)
+            .setCategory(Notification.CATEGORY_EVENT)
             .setColor(0xFF0A84FF.toInt())
-            .setProgress(0, 0, true)
             .requestPromotedOngoing("AI导入中")
             .build()
+            .also { notification ->
+                val promotable = runCatching {
+                    notification.javaClass
+                        .getMethod("hasPromotableCharacteristics")
+                        .invoke(notification) as? Boolean
+                }.getOrNull()
+                Log.d(
+                    TAG,
+                    "AI import live update built: promotable=$promotable, " +
+                        "requested=${notification.extras.getBoolean("android.requestPromotedOngoing", false)}"
+                )
+            }
 
     private fun completedNotification(courseCount: Int): Notification =
         Notification.Builder(this, RESULT_CHANNEL_ID)
@@ -118,7 +145,7 @@ class AiImportForegroundService : Service() {
                 NotificationChannel(
                     RUNNING_CHANNEL_ID,
                     "AI 导入运行状态",
-                    NotificationManager.IMPORTANCE_LOW
+                    NotificationManager.IMPORTANCE_DEFAULT
                 ).apply { setShowBadge(false) },
                 NotificationChannel(
                     RESULT_CHANNEL_ID,
@@ -132,10 +159,26 @@ class AiImportForegroundService : Service() {
     private fun Notification.Builder.requestPromotedOngoing(shortText: String): Notification.Builder = apply {
         runCatching {
             javaClass.getMethod("setRequestPromotedOngoing", java.lang.Boolean.TYPE).invoke(this, true)
-            extras.putBoolean("android.requestPromotedOngoing", true)
-            javaClass.getMethod("setShortCriticalText", String::class.java).invoke(this, shortText)
-            extras.putString("android.shortCriticalText", shortText)
         }
+        extras.putBoolean("android.requestPromotedOngoing", true)
+        runCatching {
+            javaClass.getMethod("setShortCriticalText", CharSequence::class.java).invoke(this, shortText)
+        }.recoverCatching {
+            javaClass.getMethod("setShortCriticalText", String::class.java).invoke(this, shortText)
+        }
+        extras.putCharSequence("android.shortCriticalText", shortText)
+    }
+
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        wakeLock = getSystemService(PowerManager::class.java)
+            ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SleepDown:ai_import")
+            ?.apply { acquire(AI_IMPORT_WAKE_LOCK_TIMEOUT_MILLIS) }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.takeIf { it.isHeld }?.release()
+        wakeLock = null
     }
 
     companion object {
@@ -147,10 +190,15 @@ class AiImportForegroundService : Service() {
         private const val EXTRA_STATUS = "ai_import_status"
         private const val EXTRA_COURSE_COUNT = "ai_import_course_count"
         private const val EXTRA_MESSAGE = "ai_import_message"
-        private const val RUNNING_CHANNEL_ID = "ai_import_running"
+        // The old channel was created at LOW importance and Android does not allow apps to raise
+        // an existing channel. A new ID lets AI import use the same promotable importance as the
+        // mature course live-update path.
+        private const val RUNNING_CHANNEL_ID = "ai_import_live_update"
         private const val RESULT_CHANNEL_ID = "ai_import_result"
         private const val RUNNING_NOTIFICATION_ID = 20260830
         private const val RESULT_NOTIFICATION_ID = 20260831
+        private const val AI_IMPORT_WAKE_LOCK_TIMEOUT_MILLIS = 30L * 60L * 1_000L
+        private const val TAG = "SleepDownAiImport"
 
         fun start(context: Context, taskId: String, status: String) {
             ContextCompat.startForegroundService(
@@ -160,22 +208,36 @@ class AiImportForegroundService : Service() {
         }
 
         fun update(context: Context, taskId: String, status: String) {
-            context.startService(
+            dispatchToRunningService(
+                context,
                 serviceIntent(context, ACTION_UPDATE, taskId).putExtra(EXTRA_STATUS, status)
             )
         }
 
         fun complete(context: Context, taskId: String, courseCount: Int) {
-            context.startService(
+            dispatchToRunningService(
+                context,
                 serviceIntent(context, ACTION_COMPLETE, taskId)
                     .putExtra(EXTRA_COURSE_COUNT, courseCount)
             )
         }
 
         fun fail(context: Context, taskId: String, message: String) {
-            context.startService(
+            dispatchToRunningService(
+                context,
                 serviceIntent(context, ACTION_FAILED, taskId).putExtra(EXTRA_MESSAGE, message)
             )
+        }
+
+        private fun dispatchToRunningService(context: Context, intent: Intent) {
+            try {
+                context.startService(intent)
+            } catch (error: IllegalStateException) {
+                // A vendor background-service gate must not turn a notification refresh into a
+                // cancelled provider request. The active foreground service keeps the task alive;
+                // the next meaningful state can still be observed when the UI returns.
+                Log.w(TAG, "Unable to update AI import foreground notification", error)
+            }
         }
 
         private fun serviceIntent(context: Context, action: String, taskId: String): Intent =

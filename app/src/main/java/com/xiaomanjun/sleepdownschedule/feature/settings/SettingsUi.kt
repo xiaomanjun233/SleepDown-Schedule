@@ -812,6 +812,7 @@ fun AiImportSettingsSection(
         apiKey = apiKey
     )
     fun reload() {
+        message = null
         saved = AiImportSettingsStore.load(context)
         selectedProviderId = saved.profile.id
         customProviderName = saved.profile.displayName
@@ -839,11 +840,14 @@ fun AiImportSettingsSection(
 	}
     LaunchedEffect(
         remoteConfigState.bootstrap?.ai?.configVersion,
-        remoteConfigState.bootstrap?.ai?.enabled
+        remoteConfigState.bootstrap?.ai?.enabled,
+        remoteConfigState.bootstrap?.ai?.keyId,
+        remoteConfigState.bootstrap?.ai?.message
     ) {
         if (isManagedFreeProvider) reload()
     }
     fun selectProvider(providerId: String) {
+        message = null
         // Preserve the current provider draft before switching. In particular, the
         // custom compatible endpoint must not fall back to its empty preset whenever
         // the user temporarily selects another provider.
