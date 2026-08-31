@@ -194,6 +194,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -6860,9 +6861,11 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
             val refreshScope = rememberCoroutineScope()
             var warehouseGeneration by remember { mutableIntStateOf(0) }
             var warehouseRefreshing by remember { mutableStateOf(false) }
+            var warehouseManualRefreshing by remember { mutableStateOf(false) }
             fun refreshWarehouse(manual: Boolean) {
                 if (warehouseRefreshing) return
                 warehouseRefreshing = true
+                warehouseManualRefreshing = manual
                 refreshScope.launch {
                     runCatching {
                         ShiguangWarehouseUpdater.refresh(this@EduSchoolSelectActivityHost)
@@ -6891,6 +6894,7 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                         }
                     }
                     warehouseRefreshing = false
+                    warehouseManualRefreshing = false
                 }
             }
             LaunchedEffect(Unit) {
@@ -6937,6 +6941,29 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                 )
                             }
                         )
+                        SleepDownPickerDialog(
+                            show = warehouseManualRefreshing,
+                            title = "更新适配器",
+                            onDismissRequest = {},
+                            backdrop = backdrop,
+                            config = state.config,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.5.dp
+                                )
+                                Text(
+                                    text = "正在获取最新适配列表",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
                     }
                 }
             }
