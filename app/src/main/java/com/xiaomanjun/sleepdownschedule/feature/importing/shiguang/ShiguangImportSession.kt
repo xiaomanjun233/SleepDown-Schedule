@@ -5,7 +5,6 @@ import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.WeekParity
-import com.xiaomanjun.sleepdownschedule.courseAnchorPeriodsForTimeRange
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import java.time.LocalTime
@@ -172,7 +171,9 @@ internal class ShiguangImportSession {
                 } else {
                     course.sectionRangeOrNull()?.toList().orEmpty()
                 }
-                require(periods.isNotEmpty()) { "第 ${index + 1} 门课程无法映射到 SleepDown 节次" }
+                if (!course.isCustomTime) {
+                    require(periods.isNotEmpty()) { "第 ${index + 1} 门课程缺少节次范围" }
+                }
                 require(periods.all { it in periodIndexSet }) {
                     "第 ${index + 1} 门课程引用了不存在的节次"
                 }
@@ -220,7 +221,11 @@ private fun ShiguangCoursePayload.customTimePeriodIndexes(periods: List<PeriodEn
     if (!isCustomTime) return emptyList()
     val start = parseTime(customStartTime, "customStartTime")
     val end = parseTime(customEndTime, "customEndTime")
-    return courseAnchorPeriodsForTimeRange(start, end, periods)
+    return periods.filter { period ->
+        val periodStart = parseTime(period.startTime, "节次 ${period.periodIndex} startTime")
+        val periodEnd = parseTime(period.endTime, "节次 ${period.periodIndex} endTime")
+        periodStart < end && periodEnd > start
+    }.map(PeriodEntity::periodIndex)
 }
 
 private fun parseTime(value: String?, label: String): LocalTime {

@@ -348,6 +348,40 @@ data class AiImportHistoryBackgroundCapture(
     val rootTopInWindow: Float
 )
 
+private val WakeUpLabelledKey = Regex(
+    "分享口令(?:为)?\\s*[「“\\\"]?\\s*([A-Za-z0-9_-]{8,200})\\s*[」”\\\"]?",
+    setOf(RegexOption.IGNORE_CASE)
+)
+private val WakeUpBareKey = Regex("^[A-Za-z0-9_-]{8,200}$")
+private val StarLinkStructuredCode = Regex(
+    "(?:星链|StarLink|输入[:：])[^A-Za-z0-9-]*([A-Za-z0-9-]{5,20})",
+    setOf(RegexOption.IGNORE_CASE)
+)
+private val StarLinkBareCode = Regex("^[A-Za-z0-9-]{5,20}$")
+
+private data class ManualShiguangToolRequest(
+    val adapterId: String,
+    val label: String,
+    val input: String
+)
+
+private fun extractWakeUpShareKey(value: String): String? {
+    val text = value.trim()
+    if (text.isBlank()) return null
+    WakeUpLabelledKey.find(text)?.groupValues?.getOrNull(1)?.let { return it }
+    if (text.contains("wakeup", ignoreCase = true)) {
+        Regex("[A-Za-z0-9_-]{8,200}").findAll(text).lastOrNull()?.value?.let { return it }
+    }
+    return text.takeIf(WakeUpBareKey::matches)
+}
+
+private fun extractStarLinkShareCode(value: String): String? {
+    val text = value.trim()
+    if (text.isBlank()) return null
+    return StarLinkStructuredCode.find(text)?.groupValues?.getOrNull(1)
+        ?: text.takeIf(StarLinkBareCode::matches)
+}
+
 @Composable
 fun NormalizedAiManualImportScreen(
     state: AppState,
@@ -366,6 +400,10 @@ fun NormalizedAiManualImportScreen(
     var routeMessage by remember { mutableStateOf<String?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var aiParsing by remember { mutableStateOf(false) }
+    var manualToolRequest by remember { mutableStateOf<ManualShiguangToolRequest?>(null) }
+    var manualToolWebView by remember { mutableStateOf<WebView?>(null) }
+    var manualToolBridge by remember { mutableStateOf<ShiguangBridgeHost?>(null) }
+    var manualBridgeInteraction by remember { mutableStateOf<EduBridgeInteractionRequest?>(null) }
     var showAiTokenRepairPrompt by remember { mutableStateOf(false) }
     var selectedMode by remember { mutableIntStateOf(0) }
     var aiSettings by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
@@ -387,6 +425,99 @@ fun NormalizedAiManualImportScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    fun releaseManualToolWebView() {
+        manualToolBridge?.bindWebView(null)
+        manualToolWebView?.let { released ->
+            released.uninstallShiguangRuntime()
+            released.releaseSleepDownWebView(clearResourceCache = false)
+        }
+        manualToolWebView = null
+        manualToolBridge = null
+        manualBridgeInteraction = null
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            manualToolBridge?.bindWebView(null)
+            manualToolWebView?.let { released ->
+                released.uninstallShiguangRuntime()
+                released.releaseSleepDownWebView(clearResourceCache = false)
+            }
+        }
+    }
+    LaunchedEffect(manualToolRequest) {
+        val request = manualToolRequest ?: return@LaunchedEffect
+        releaseManualToolWebView()
+        val adapter = ShiguangWarehouse.loadAdapters(context).firstOrNull {
+            it.school.id == "GLOBAL_TOOLS" && it.adapterId.equals(request.adapterId, ignoreCase = true)
+        }
+        if (adapter == null) {
+            aiParsing = false
+            manualToolRequest = null
+            error = "未找到拾光 ${request.label} 官方适配器"
+            return@LaunchedEffect
+        }
+        val source = runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
+            .getOrElse {
+                aiParsing = false
+                manualToolRequest = null
+                error = "拾光 ${request.label} 官方脚本读取失败：${it.message ?: "未知错误"}"
+                return@LaunchedEffect
+            }
+        lateinit var target: WebView
+        val bridge = ShiguangBridgeHost(
+            context = context,
+            onDraft = { draft ->
+                if (manualToolWebView === target) releaseManualToolWebView()
+                manualToolRequest = null
+                aiParsing = false
+                error = null
+                routeMessage = "${request.label} 口令已解析，正在进入导入预览。"
+                onParsed(draft)
+            },
+            onMessage = { message ->
+                routeMessage = message
+                if (message.contains("失败") || message.contains("无效")) {
+                    error = message
+                    aiParsing = false
+                    manualToolRequest = null
+                    if (manualToolWebView === target) releaseManualToolWebView()
+                }
+            },
+            onInteractionRequest = { manualBridgeInteraction = it }
+        )
+        manualToolBridge = bridge
+        bridge.beginTask(state.config, state.periods, initialPromptAnswer = request.input)
+        var scriptStarted = false
+        target = WebView(context).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.cacheMode = WebSettings.LOAD_DEFAULT
+            configureEduImportSecurity()
+            CookieManager.getInstance().setAcceptCookie(true)
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            installShiguangRuntime(bridge)
+            bridge.bindWebView(this)
+            webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                    super.onPageStarted(view, url, favicon)
+                    view.injectShiguangRuntime(desktopMode = false)
+                }
+
+                override fun onPageFinished(view: WebView, url: String?) {
+                    super.onPageFinished(view, url)
+                    view.injectShiguangRuntime(desktopMode = false)
+                    if (!scriptStarted) {
+                        scriptStarted = true
+                        view.evaluateJavascript(source, null)
+                    }
+                }
+            }
+        }
+        manualToolWebView = target
+        routeMessage = "正在使用拾光 ${request.label} 官方适配器读取口令…"
+        target.loadUrl(adapter.importUrl.ifBlank { "about:blank" })
     }
     val icsFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) launcher@{ uri ->
         if (uri == null) return@launcher
@@ -534,6 +665,28 @@ fun NormalizedAiManualImportScreen(
             error = null
             onParsed(it)
         }.onFailure {
+            val starLinkCode = extractStarLinkShareCode(jsonText)
+            if (starLinkCode != null) {
+                error = null
+                aiParsing = true
+                manualToolRequest = ManualShiguangToolRequest(
+                    adapterId = "StarLink",
+                    label = "星链",
+                    input = jsonText
+                )
+                return@onFailure
+            }
+            val wakeUpKey = extractWakeUpShareKey(jsonText)
+            if (wakeUpKey != null) {
+                error = null
+                aiParsing = true
+                manualToolRequest = ManualShiguangToolRequest(
+                    adapterId = "WakeUp",
+                    label = "WakeUp",
+                    input = jsonText
+                )
+                return@onFailure
+            }
             val latestSettings = AiImportSettingsStore.load(context)
             aiSettings = latestSettings
             if (latestSettings.apiKey.isNotBlank() && jsonText.isNotBlank()) {
@@ -712,6 +865,25 @@ fun NormalizedAiManualImportScreen(
             }
         }
     )
+    manualToolBridge?.let { bridge ->
+        EduBridgeInteractionDialog(
+            request = manualBridgeInteraction,
+            bridge = bridge,
+            state = state,
+            backdrop = backdrop,
+            onFinished = {
+                val completed = manualBridgeInteraction
+                manualBridgeInteraction = null
+                if (completed is EduBridgeInteractionRequest.Alert &&
+                    completed.title.contains("失败")) {
+                    error = completed.message
+                    aiParsing = false
+                    manualToolRequest = null
+                    releaseManualToolWebView()
+                }
+            }
+        )
+    }
     if (showAiTokenRepairPrompt) {
         LiquidAlertDialog(
             title = "口令格式不完整",
@@ -875,7 +1047,7 @@ private fun AiManualImportDialogContent(
                     DialogCapsuleField(
                         value = jsonText,
                         onValueChange = onJsonTextChange,
-                        placeholder = "粘贴 SleepDown 口令或 AI 返回内容",
+                        placeholder = "粘贴 SleepDown / WakeUp / 星链口令或 AI 返回内容",
                         config = state.config,
                         minLines = 5,
                         cornerRadius = 16.dp,
@@ -2138,7 +2310,9 @@ private fun validateEduBridgePrompt(
             }
         })();
     """.trimIndent()
-    bridge.evaluateJavascript(script) { onResult(decodeEduBridgeValidationResult(it)) }
+    if (!bridge.evaluateJavascript(script) { onResult(decodeEduBridgeValidationResult(it)) }) {
+        onResult("网页已关闭，请返回后重试")
+    }
 }
 
 @Composable

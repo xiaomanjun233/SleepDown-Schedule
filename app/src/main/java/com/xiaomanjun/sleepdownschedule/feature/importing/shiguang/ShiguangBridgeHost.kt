@@ -24,17 +24,25 @@ internal class ShiguangBridgeHost(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val session = ShiguangImportSession()
     private var activeWebView: WebView? = null
+    private var initialPromptAnswer: String? = null
 
     fun bindWebView(webView: WebView?) {
         activeWebView = webView
     }
 
-    fun evaluateJavascript(script: String, callback: ValueCallback<String?>? = null) {
-        activeWebView?.evaluateJavascript(script, callback)
+    fun evaluateJavascript(script: String, callback: ValueCallback<String?>? = null): Boolean {
+        val target = activeWebView ?: return false
+        target.evaluateJavascript(script, callback)
+        return true
     }
 
-    fun beginTask(config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
+    fun beginTask(
+        config: ScheduleConfigEntity,
+        periods: List<PeriodEntity>,
+        initialPromptAnswer: String? = null
+    ) {
         session.begin(config, periods)
+        this.initialPromptAnswer = initialPromptAnswer
     }
 
     fun onMessageReceived(jsonString: String) {
@@ -69,6 +77,14 @@ internal class ShiguangBridgeHost(
 
                 "showPrompt" -> parsePayload<ShiguangShowPromptPayload>(message).let { payload ->
                     val callbackId = requireCallbackId(message)
+                    initialPromptAnswer?.let { answer ->
+                        initialPromptAnswer = null
+                        resolve(
+                            callbackId,
+                            ShiguangBridgeJson.encodeToString(String.serializer(), answer)
+                        )
+                        return@let
+                    }
                     mainHandler.post {
                         onInteractionRequest(
                             EduBridgeInteractionRequest.Prompt(
