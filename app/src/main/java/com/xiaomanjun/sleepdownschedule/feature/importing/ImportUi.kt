@@ -3242,11 +3242,14 @@ private fun EduImportBrowserScreen(
                 null
             }
             useWideViewPort = true
-            loadWithOverviewMode = !desktop
+            // Keep Chromium's overview layout in both modes. Desktop identity still comes from the
+            // current system WebView UA, while the initial page is allowed to fit the real host
+            // width instead of exposing only the upper-left part of fixed-width teaching sites.
+            loadWithOverviewMode = true
             layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
             textZoom = 100
         }
-        target.setInitialScale(if (desktop) 100 else 0)
+        target.setInitialScale(0)
     }
 
     fun closePopupWebView() {
@@ -3289,6 +3292,11 @@ private fun EduImportBrowserScreen(
 
     fun configureEduWebView(target: WebView, isPopup: Boolean) {
         target.apply webView@ {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
             setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
             setOnScrollChangeListener { _, _, _, _, _ ->
                 scheduleWebTopEdgeSample(this)

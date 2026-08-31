@@ -190,6 +190,7 @@
             android:name=".EduImportActivity"
             android:exported="false"
             android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
             android:parentActivityName=".EduSchoolSelectActivity" />
         <activity
             android:name=".AiEduImportProgressActivity"
