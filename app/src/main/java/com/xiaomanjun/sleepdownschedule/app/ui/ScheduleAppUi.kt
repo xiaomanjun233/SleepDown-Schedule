@@ -4568,9 +4568,8 @@ internal fun AppTopBar(
                 .height(66.dp)
                 .graphicsLayer { clip = false }
         ) {
-            // Material's app-bar layout owns the stable title geometry. Keep the animated liquid
-            // controls in a later sibling so their press/morph envelope is not clipped to that
-            // layout's bounds.
+            // Keep Material's bar shell, but render both the title and animated liquid controls as
+            // siblings so neither is clipped by TopAppBar's internal single-line title layout.
             TopAppBar(
                 modifier = Modifier.fillMaxSize(),
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -4580,18 +4579,25 @@ internal fun AppTopBar(
                     actionIconContentColor = homeTextColor,
                     navigationIconContentColor = homeTextColor
                 ),
-                title = {
-                    HomeDateTitle(
-                        state = state,
-                        displayDate = homeDisplayDate,
-                        displayWeek = homeDisplayWeek,
-                        beforeScheduleTerm = beforeScheduleTerm,
-                        afterScheduleTerm = afterScheduleTerm,
-                        showReturnToCurrentWeekHint = homeShowingAnotherWeek,
-                        onReturnCurrent = onReturnHomeToCurrentWeek
-                    )
-                }
+                title = {}
             )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 120.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                HomeDateTitle(
+                    state = state,
+                    displayDate = homeDisplayDate,
+                    displayWeek = homeDisplayWeek,
+                    beforeScheduleTerm = beforeScheduleTerm,
+                    afterScheduleTerm = afterScheduleTerm,
+                    showReturnToCurrentWeekHint = homeShowingAnotherWeek,
+                    onReturnCurrent = onReturnHomeToCurrentWeek
+                )
+            }
             Row(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
