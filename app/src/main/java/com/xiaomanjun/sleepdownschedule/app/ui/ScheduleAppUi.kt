@@ -25,6 +25,7 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.domain.course.*
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
 
 import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
 import com.xiaomanjun.sleepdownschedule.feature.backup.*
@@ -6893,6 +6894,47 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                 factory = ScheduleViewModelFactory(app, app.repository)
             )
             val state by viewModel.state.collectAsStateWithLifecycle()
+            val refreshScope = rememberCoroutineScope()
+            var warehouseGeneration by remember { mutableIntStateOf(0) }
+            var warehouseRefreshing by remember { mutableStateOf(false) }
+            fun refreshWarehouse(manual: Boolean) {
+                if (warehouseRefreshing) return
+                warehouseRefreshing = true
+                refreshScope.launch {
+                    runCatching {
+                        ShiguangWarehouseUpdater.refresh(this@EduSchoolSelectActivityHost)
+                    }.onSuccess { result ->
+                        if (result.changed) warehouseGeneration += 1
+                        if (manual) {
+                            Toast.makeText(
+                                this@EduSchoolSelectActivityHost,
+                                if (result.changed) "已更新适配列表" else "已是最新适配列表",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else if (result.changed) {
+                            Toast.makeText(
+                                this@EduSchoolSelectActivityHost,
+                                "适配列表已更新",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }.onFailure { error ->
+                        if (manual) {
+                            Toast.makeText(
+                                this@EduSchoolSelectActivityHost,
+                                "更新失败，继续使用当前适配列表：${error.message ?: "网络请求失败"}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                    warehouseRefreshing = false
+                }
+            }
+            LaunchedEffect(Unit) {
+                if (ShiguangWarehouseUpdater.isRefreshStale(this@EduSchoolSelectActivityHost)) {
+                    refreshWarehouse(manual = false)
+                }
+            }
             CourseScheduleTheme(config = state.config) {
                 CrossActivityTransitionHost(
                     activity = this@EduSchoolSelectActivityHost,
@@ -6906,11 +6948,24 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                     DetailActivityScaffold(
                         title = "选择学校",
                         config = state.config,
-                        onBack = requestClose
+                        onBack = requestClose,
+                        topBarActions = { topBackdrop ->
+                            TopGlassIconButton(
+                                backdrop = topBackdrop,
+                                config = state.config,
+                                iconRes = R.drawable.ic_refresh,
+                                contentDescription = if (warehouseRefreshing) "正在更新适配器" else "更新适配器",
+                                onClick = { refreshWarehouse(manual = true) },
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .graphicsLayer { alpha = if (warehouseRefreshing) 0.46f else 1f }
+                            )
+                        }
                     ) { backdrop ->
                         EduSchoolPickerScreen(
                             state = state,
                             backdrop = backdrop,
+                            warehouseGeneration = warehouseGeneration,
                             onSelect = { adapter ->
                                 ActivityTransitionCoordinator.openImmediate(
                                     this@EduSchoolSelectActivityHost,

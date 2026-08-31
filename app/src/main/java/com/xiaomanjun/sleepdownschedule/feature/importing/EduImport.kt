@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
 
 import android.content.Context
 import android.os.Handler
@@ -8,11 +9,14 @@ import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.widget.Toast
 import org.json.JSONArray
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.EOFException
+import java.io.IOException
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -137,24 +141,31 @@ object ShiguangWarehouse {
     private val quotedValue = Regex("""^\s*([A-Za-z_]+):\s*"?(.*?)"?\s*(?:#.*)?$""")
 
     fun loadAdapters(context: Context): List<EduAdapter> {
-        val warehouseAdapters = runCatching {
-            val pbAdapters = context.assets.open("$Root/school_index.pb").use { input ->
-                parseProtocolV2Index(input.readBytes())
-            }
-            // The official v2 protobuf index is synced from upstream and does not carry private
-            // SleepDown adaptations (e.g. 西南大学/武汉科技大学). Merge bundled YAML entries for
-            // schools missing from the protobuf so private forks keep their adapters.
-            val pbSchoolIds = pbAdapters.map { it.school.id }.toSet()
-            pbAdapters + loadLegacyYamlAdapters(context).filter { it.school.id !in pbSchoolIds }
-        }.getOrElse {
-            // Keep the source YAML path as a compatibility fallback for development snapshots and
-            // private warehouse forks that have not published the v2 protobuf artifact yet.
-            loadLegacyYamlAdapters(context)
-        }.map { adapter ->
+        val protocolAdapters = runCatching {
+            ShiguangWarehouseUpdater.cachedIndexFile(context)
+                .takeIf { it.isFile }
+                ?.readBytes()
+                ?.let(::parseProtocolV2Index)
+                ?.takeIf { it.isNotEmpty() }
+        }.getOrNull() ?: loadBundledAdapters(context)
+        // Preserve bundled private adaptations that are not published by the official index.
+        val protocolSchoolIds = protocolAdapters.map { it.school.id }.toSet()
+        val warehouseAdapters = (
+            protocolAdapters + loadLegacyYamlAdapters(context).filter { it.school.id !in protocolSchoolIds }
+            ).map { adapter ->
             if (adapter.isEduTestTool()) adapter.copy(importUrl = EDU_BRIDGE_TEST_PAGE_URL) else adapter
         }.filter { it.assetJsPath.isNotBlank() && (it.importUrl.isNotBlank() || it.isGeneralEduTool()) }
             .sortedWith(compareBy<EduAdapter> { it.school.initial }.thenBy { it.school.name }.thenBy { it.adapterName })
         return listOf(aiEduImportAdapter()) + warehouseAdapters
+    }
+
+    private fun loadBundledAdapters(context: Context): List<EduAdapter> = runCatching {
+        context.assets.open("$Root/school_index.pb").use { input ->
+            parseProtocolV2Index(input.readBytes())
+        }
+    }.getOrElse {
+        // YAML remains the bundled compatibility fallback for snapshots without a valid v2 index.
+        loadLegacyYamlAdapters(context)
     }
 
     private fun loadLegacyYamlAdapters(context: Context): List<EduAdapter> {
@@ -173,13 +184,30 @@ object ShiguangWarehouse {
         }
     }
 
-    fun loadScript(context: Context, adapter: EduAdapter): String {
-        val path = if (adapter.assetJsPath.contains("/")) {
-            "$Root/resources/${adapter.assetJsPath}"
-        } else {
-            "$Root/resources/${adapter.school.folder}/${adapter.assetJsPath}"
+    suspend fun resolveScript(context: Context, adapter: EduAdapter): String = withContext(Dispatchers.IO) {
+        val relativePath = ShiguangWarehouseUpdater.resourceRelativePath(adapter)
+        ShiguangWarehouseUpdater.cachedScriptFile(context, adapter)
+            .takeIf { it.isFile }
+            ?.readText()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return@withContext it }
+
+        var remoteFailure: Exception? = null
+        if (ShiguangWarehouseUpdater.hasValidRemoteIndex(context)) {
+            try {
+                return@withContext ShiguangWarehouseUpdater.resolveRemoteScript(context, adapter)
+            } catch (error: Exception) {
+                remoteFailure = error
+            }
         }
-        return context.assets.open(path).bufferedReader().readText()
+        try {
+            context.assets.open("$Root/resources/$relativePath").bufferedReader().use { it.readText() }
+        } catch (bundledFailure: Exception) {
+            throw IOException(
+                "无法获取拾光脚本 $relativePath：${remoteFailure?.message ?: bundledFailure.message}",
+                remoteFailure ?: bundledFailure
+            )
+        }
     }
 
     private fun parseSchools(text: String): List<EduSchool> {

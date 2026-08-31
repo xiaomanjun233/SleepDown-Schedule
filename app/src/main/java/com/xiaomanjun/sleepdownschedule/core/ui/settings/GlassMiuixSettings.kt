@@ -361,6 +361,7 @@ internal fun GlassMiuixDetailActivityScaffold(
                                         color = Color.Transparent,
                                         scrollBehavior = scrollBehavior,
                                         navigationIconPadding = 16.dp,
+                                        actions = { topBarActions(contentBackdrop) },
                                         navigationIcon = {
                                             TopBackButton(
                                                 backdrop = contentBackdrop,

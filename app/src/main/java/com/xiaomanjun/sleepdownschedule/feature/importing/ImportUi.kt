@@ -518,7 +518,7 @@ fun NormalizedAiManualImportScreen(
             error = "未找到拾光 WakeUp 解析器"
             return@LaunchedEffect
         }
-        val source = runCatching { ShiguangWarehouse.loadScript(context, adapter) }
+        val source = runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
             .getOrElse {
                 aiParsing = false
                 wakeUpImportInput = null
@@ -593,7 +593,7 @@ fun NormalizedAiManualImportScreen(
             error = "未找到拾光星链解析器"
             return@LaunchedEffect
         }
-        val source = runCatching { ShiguangWarehouse.loadScript(context, adapter) }
+        val source = runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
             .getOrElse {
                 aiParsing = false
                 starLinkImportInput = null
@@ -1362,10 +1362,11 @@ fun DonateSettingsScreen(
 fun EduSchoolPickerScreen(
     state: AppState,
     backdrop: Backdrop? = null,
+    warehouseGeneration: Int = 0,
     onSelect: (EduAdapter) -> Unit
 ) {
     val context = LocalContext.current
-    val adapters = remember {
+    val adapters = remember(warehouseGeneration) {
         runCatching { ShiguangWarehouse.loadAdapters(context) }
             .getOrDefault(emptyList())
             .filterNot { it.isWakeUpImportTool() || it.isStarLinkImportTool() }
@@ -3354,29 +3355,31 @@ fun EduImportBrowserScreen(
                 .getOrNull()
                 ?.let { onMessage("${it.message}；仍将尝试执行原有拾光导入脚本。") }
         }
-        runCatching { ShiguangWarehouse.loadScript(context, adapter) }
-            .onSuccess { script ->
-                importGeneration += 1
-                pendingImportGeneration = importGeneration
-                pendingOriginalImportScript = script
-                bridge.beginTask()
-                target.attachEduImportBridge(bridge)
-                // addJavascriptInterface becomes visible to page JavaScript only after a navigation.
-                // Reload the current page while the narrowly-scoped bridge is attached, run the
-                // adapter from onPageFinished, then detach on completion or timeout.
-                onMessage("已加载拾光仓库脚本，正在安全重载当前页面")
-                target.reload()
-                val generation = pendingImportGeneration
-                scope.launch {
-                    delay(15_000)
-                    if (importGeneration == generation && pendingOriginalImportScript != null) {
-                        pendingOriginalImportScript = null
-                        target.detachEduImportBridge()
-                        onMessage("当前页面重载超时，导入桥接已关闭，请检查网络后重试。")
+        scope.launch {
+            runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
+                .onSuccess { script ->
+                    importGeneration += 1
+                    pendingImportGeneration = importGeneration
+                    pendingOriginalImportScript = script
+                    bridge.beginTask()
+                    target.attachEduImportBridge(bridge)
+                    // addJavascriptInterface becomes visible to page JavaScript only after a navigation.
+                    // Reload the current page while the narrowly-scoped bridge is attached, run the
+                    // adapter from onPageFinished, then detach on completion or timeout.
+                    onMessage("已加载拾光仓库脚本，正在安全重载当前页面")
+                    target.reload()
+                    val generation = pendingImportGeneration
+                    launch {
+                        delay(15_000)
+                        if (importGeneration == generation && pendingOriginalImportScript != null) {
+                            pendingOriginalImportScript = null
+                            target.detachEduImportBridge()
+                            onMessage("当前页面重载超时，导入桥接已关闭，请检查网络后重试。")
+                        }
                     }
                 }
-            }
-            .onFailure { onMessage("拾光仓库脚本加载失败：${it.message ?: "找不到该学校的导入脚本"}") }
+                .onFailure { onMessage("拾光仓库脚本加载失败：${it.message ?: "找不到该学校的导入脚本"}") }
+        }
     }
 
     fun updateNavigationState(target: WebView?) {
