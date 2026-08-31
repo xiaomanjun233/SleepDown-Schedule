@@ -3,6 +3,8 @@ package com.xiaomanjun.sleepdownschedule
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportTaskManager
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 
+import android.Manifest
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,10 +12,15 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 
 class AiImportForegroundService : Service() {
@@ -37,12 +44,15 @@ class AiImportForegroundService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 activeTaskId = taskId
-                startForeground(
+                val foregroundServiceType = requestedForegroundServiceType()
+                ServiceCompat.startForeground(
+                    this,
                     RUNNING_NOTIFICATION_ID,
                     runningNotification(
                         taskId,
                         intent.getStringExtra(EXTRA_STATUS).orEmpty()
-                    )
+                    ),
+                    foregroundServiceType
                 )
                 // The workflow itself runs on the process application scope (same as the Day
                 // Agent), so an OEM stopping this service cannot cancel the in-flight request.
@@ -83,6 +93,44 @@ class AiImportForegroundService : Service() {
         )
         // Deliberately no cancellation here: the workflow intentionally outlives this service.
         super.onDestroy()
+    }
+
+    /**
+     * Decides and logs the foreground service type for the systemExempted A/B experiment.
+     *
+     * Only [ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED] eligibility (API 34+ and
+     * exact-alarm scheduling capability) switches the experiment on; otherwise it stays a
+     * plain [ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC] so the two runs stay comparable.
+     * This is an A/B observation, not a claimed fix for the ColorOS freezer.
+     */
+    private fun requestedForegroundServiceType(): Int {
+        val sdk = Build.VERSION.SDK_INT
+        val alarmManager = getSystemService(AlarmManager::class.java)
+        val canScheduleExactAlarms = sdk >= Build.VERSION_CODES.S &&
+            runCatching { alarmManager.canScheduleExactAlarms() }.getOrDefault(false)
+        val hasScheduleExactAlarmPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.SCHEDULE_EXACT_ALARM
+        ) == PackageManager.PERMISSION_GRANTED
+        val batteryOptimizationIgnored = runCatching {
+            getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+        }.getOrDefault(false)
+        val systemExemptedEligible = sdk >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && canScheduleExactAlarms
+        val type = if (systemExemptedEligible) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+        } else {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        }
+        Log.d(
+            TAG,
+            "FGS_START sdk=$sdk" +
+                " exactAlarmAllowed=$canScheduleExactAlarms" +
+                " hasScheduleExactAlarmPermission=$hasScheduleExactAlarmPermission" +
+                " batteryOptimizationIgnored=$batteryOptimizationIgnored" +
+                " requestedTypes=${if (systemExemptedEligible) "DATA_SYNC|SYSTEM_EXEMPTED" else "DATA_SYNC"}" +
+                " typeMask=$type"
+        )
+        return type
     }
 
     private fun runningNotification(taskId: String, status: String): Notification =
@@ -193,6 +241,12 @@ class AiImportForegroundService : Service() {
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setColor(0xFF0A84FF.toInt())
                 .requestPromotedOngoing("AI导入中")
+            // Explicitly require the FGS notification to be posted immediately instead of being
+            // deferred. Not a freeze-prevention API; just removes the notification deferral
+            // variable from this A/B.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
+            }
             return builder.build()
                 .also { notification ->
                     val promotable = runCatching {
