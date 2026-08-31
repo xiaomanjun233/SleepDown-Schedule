@@ -4,6 +4,7 @@ import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
 import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
@@ -347,113 +348,6 @@ data class AiImportHistoryBackgroundCapture(
     val rootTopInWindow: Float
 )
 
-private val WakeUpLabelledKey = Regex(
-    "分享口令(?:为)?\\s*[「“\\\"]?\\s*([A-Za-z0-9_-]{8,200})\\s*[」”\\\"]?",
-    setOf(RegexOption.IGNORE_CASE)
-)
-private val WakeUpBareKey = Regex("^[A-Za-z0-9_-]{8,200}$")
-private val StarLinkStructuredCode = Regex(
-    "(?:星链|StarLink|输入[:：])[^A-Za-z0-9-]*([A-Za-z0-9-]{5,20})",
-    setOf(RegexOption.IGNORE_CASE)
-)
-private val StarLinkBareCode = Regex("^[A-Za-z0-9-]{5,20}$")
-
-private fun extractWakeUpShareKey(value: String): String? {
-    val text = value.trim()
-    if (text.isBlank()) return null
-    WakeUpLabelledKey.find(text)?.groupValues?.getOrNull(1)?.let { return it }
-    if (text.contains("wakeup", ignoreCase = true)) {
-        Regex("[A-Za-z0-9_-]{8,200}").findAll(text).lastOrNull()?.value?.let { return it }
-    }
-    return text.takeIf(WakeUpBareKey::matches)
-}
-
-private fun extractStarLinkShareCode(value: String): String? {
-    val text = value.trim()
-    if (text.isBlank()) return null
-    return StarLinkStructuredCode.find(text)?.groupValues?.getOrNull(1)
-        ?: text.takeIf(StarLinkBareCode::matches)
-}
-
-private fun buildWakeUpInlineImportScript(source: String, input: String): String {
-    val libraryOnly = source.replace(
-        Regex("(?m)^\\s*runImportFlow\\(\\);\\s*$"),
-        ""
-    )
-    val inputLiteral = JSONObject.quote(input)
-    return """
-        window.shiguangBridge = window.AndroidBridge;
-        window.shiguangBridgePromise = window.AndroidBridgePromise;
-        $libraryOnly
-        (async function sleepDownWakeUpInlineImport() {
-            try {
-                const rawInput = $inputLiteral;
-                const shareKey = extractKeyFromText(rawInput);
-                const validationError = validateKey(shareKey);
-                if (validationError) throw new Error(validationError);
-                const parsed = await fetchAndParseData(shareKey);
-                if (!parsed) throw new Error("WakeUP 没有返回可导入的课表数据。");
-                if (!await saveTimeSlots(parsed.timeSlots)) throw new Error("WakeUP 节次保存失败。");
-                if (!await saveConfig(parsed.courseConfig)) throw new Error("WakeUP 配置保存失败。");
-                if (!await saveCourses(parsed.courses)) throw new Error("WakeUP 课程保存失败。");
-                window.AndroidBridge.notifyTaskCompletion();
-            } catch (error) {
-                const message = error && error.message ? error.message : String(error);
-                window.AndroidBridge.reportTaskFailure("WakeUp 口令解析失败：" + message);
-            }
-        })();
-    """.trimIndent()
-}
-
-private fun buildStarLinkInlineImportScript(source: String, input: String): String {
-    val libraryOnly = source.replace(
-        Regex("(?m)^\\s*runStarlinkImport\\(\\);\\s*$"),
-        ""
-    )
-    val inputLiteral = JSONObject.quote(input)
-    return """
-        window.shiguangBridge = window.AndroidBridge;
-        window.shiguangBridgePromise = window.AndroidBridgePromise;
-        $libraryOnly
-        (async function sleepDownStarLinkInlineImport() {
-            try {
-                const rawInput = $inputLiteral;
-                const validationError = validateInput(rawInput);
-                if (validationError) throw new Error(validationError);
-                const shareCode = extractShareCode(rawInput);
-                const response = await fetch(`https://api.starlinkkb.cn/share/curriculum/${'$'}{shareCode}`);
-                if (!response.ok) throw new Error("分享码已失效或网络异常");
-                const resJson = await response.json();
-                const data = resJson && resJson.data;
-                if (!data || !Array.isArray(data.courses)) throw new Error("星链没有返回课程数据");
-                const rawCourses = data.courses.map(c => ({
-                    name: c.name,
-                    teacher: (c.teacher && c.teacher !== "无") ? c.teacher : "未知",
-                    position: (c.location && c.location.replace(/^@/, '').trim() !== "")
-                        ? c.location.replace(/^@/, '').trim()
-                        : "未排地点",
-                    day: c.weekday,
-                    startSection: c.startSection,
-                    endSection: c.endSection,
-                    weeks: c.weeks
-                }));
-                const finalCourses = processAndMergeCourses(rawCourses);
-                const config = {
-                    semesterStartDate: data.startDate ? data.startDate.substring(0, 10) : null,
-                    semesterTotalWeeks: data.totalWeeks || 20
-                };
-                await window.AndroidBridgePromise.saveCourseConfig(JSON.stringify(config));
-                const success = await window.AndroidBridgePromise.saveImportedCourses(JSON.stringify(finalCourses));
-                if (!success) throw new Error("星链课程保存失败");
-                window.AndroidBridge.notifyTaskCompletion();
-            } catch (error) {
-                const message = error && error.message ? error.message : String(error);
-                window.AndroidBridge.reportTaskFailure("星链口令解析失败：" + message);
-            }
-        })();
-    """.trimIndent()
-}
-
 @Composable
 fun NormalizedAiManualImportScreen(
     state: AppState,
@@ -472,10 +366,6 @@ fun NormalizedAiManualImportScreen(
     var routeMessage by remember { mutableStateOf<String?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var aiParsing by remember { mutableStateOf(false) }
-    var wakeUpImportInput by remember { mutableStateOf<String?>(null) }
-    var wakeUpWebView by remember { mutableStateOf<WebView?>(null) }
-    var starLinkImportInput by remember { mutableStateOf<String?>(null) }
-    var starLinkWebView by remember { mutableStateOf<WebView?>(null) }
     var showAiTokenRepairPrompt by remember { mutableStateOf(false) }
     var selectedMode by remember { mutableIntStateOf(0) }
     var aiSettings by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
@@ -497,178 +387,6 @@ fun NormalizedAiManualImportScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            wakeUpWebView?.releaseSleepDownWebView(clearResourceCache = false)
-            wakeUpWebView = null
-            starLinkWebView?.releaseSleepDownWebView(clearResourceCache = false)
-            starLinkWebView = null
-        }
-    }
-    LaunchedEffect(wakeUpImportInput) {
-        val input = wakeUpImportInput ?: return@LaunchedEffect
-        wakeUpWebView?.releaseSleepDownWebView(clearResourceCache = false)
-        wakeUpWebView = null
-        val adapter = runCatching { ShiguangWarehouse.loadAdapters(context) }
-            .getOrDefault(emptyList())
-            .firstOrNull { it.isWakeUpImportTool() }
-        if (adapter == null) {
-            aiParsing = false
-            wakeUpImportInput = null
-            error = "未找到拾光 WakeUp 解析器"
-            return@LaunchedEffect
-        }
-        val source = runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
-            .getOrElse {
-                aiParsing = false
-                wakeUpImportInput = null
-                error = "拾光 WakeUp 解析器读取失败：${it.message ?: "未知错误"}"
-                return@LaunchedEffect
-            }
-        lateinit var target: WebView
-        val bridge = EduImportBridge(
-            context = context,
-            adapter = adapter,
-            baseConfig = { state.config },
-            basePeriods = { state.periods },
-            onDraft = { draft ->
-                error = null
-                routeMessage = "WakeUp 口令已解析，正在进入导入预览。"
-                wakeUpImportInput = null
-                aiParsing = false
-                onParsed(draft)
-            },
-            onMessage = { message ->
-                routeMessage = message
-                if (message.contains("失败") || message.contains("无效")) error = message
-            },
-            onTaskCompleted = {
-                if (wakeUpWebView === target) {
-                    target.releaseSleepDownWebView(clearResourceCache = false)
-                    wakeUpWebView = null
-                }
-                wakeUpImportInput = null
-                aiParsing = false
-            }
-        )
-        bridge.beginTask()
-        var scriptStarted = false
-        target = WebView(context).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = false
-            settings.allowContentAccess = false
-            settings.allowFileAccess = false
-            attachEduImportBridge(bridge)
-            webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView, url: String?) {
-                    super.onPageFinished(view, url)
-                    if (scriptStarted) return
-                    scriptStarted = true
-                    view.evaluateJavascript(EDU_BRIDGE_PROMISE_BOOTSTRAP) {
-                        view.evaluateJavascript(buildWakeUpInlineImportScript(source, input), null)
-                    }
-                }
-            }
-        }
-        wakeUpWebView = target
-        routeMessage = "正在使用拾光 WakeUp 解析器读取口令…"
-        target.loadDataWithBaseURL(
-            "https://api.wakeup.fun/",
-            "<!doctype html><html><head><meta charset=\"utf-8\"></head><body></body></html>",
-            "text/html",
-            "UTF-8",
-            null
-        )
-    }
-    LaunchedEffect(starLinkImportInput) {
-        val input = starLinkImportInput ?: return@LaunchedEffect
-        starLinkWebView?.releaseSleepDownWebView(clearResourceCache = false)
-        starLinkWebView = null
-        val adapter = runCatching { ShiguangWarehouse.loadAdapters(context) }
-            .getOrDefault(emptyList())
-            .firstOrNull { it.isStarLinkImportTool() }
-        if (adapter == null) {
-            aiParsing = false
-            starLinkImportInput = null
-            error = "未找到拾光星链解析器"
-            return@LaunchedEffect
-        }
-        val source = runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
-            .getOrElse {
-                aiParsing = false
-                starLinkImportInput = null
-                error = "拾光星链解析器读取失败：${it.message ?: "未知错误"}"
-                return@LaunchedEffect
-            }
-        lateinit var target: WebView
-        var fallbackToWakeUp = false
-        val bridge = EduImportBridge(
-            context = context,
-            adapter = adapter,
-            baseConfig = { state.config },
-            basePeriods = { state.periods },
-            onDraft = { draft ->
-                error = null
-                routeMessage = "星链口令已解析，正在进入导入预览。"
-                starLinkImportInput = null
-                aiParsing = false
-                onParsed(draft)
-            },
-            onMessage = { message ->
-                routeMessage = message
-                if (message.contains("失败") || message.contains("无效")) {
-                    fallbackToWakeUp = extractWakeUpShareKey(input) != null
-                    if (fallbackToWakeUp) {
-                        routeMessage = "星链未识别该分享码，正在自动尝试 WakeUp…"
-                    } else {
-                        error = message
-                    }
-                }
-            },
-            onTaskCompleted = {
-                if (starLinkWebView === target) {
-                    target.releaseSleepDownWebView(clearResourceCache = false)
-                    starLinkWebView = null
-                }
-                starLinkImportInput = null
-                if (fallbackToWakeUp) {
-                    error = null
-                    aiParsing = true
-                    wakeUpImportInput = input
-                } else {
-                    aiParsing = false
-                }
-            }
-        )
-        bridge.beginTask()
-        var scriptStarted = false
-        target = WebView(context).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = false
-            settings.allowContentAccess = false
-            settings.allowFileAccess = false
-            attachEduImportBridge(bridge)
-            webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView, url: String?) {
-                    super.onPageFinished(view, url)
-                    if (scriptStarted) return
-                    scriptStarted = true
-                    view.evaluateJavascript(EDU_BRIDGE_PROMISE_BOOTSTRAP) {
-                        view.evaluateJavascript(buildStarLinkInlineImportScript(source, input), null)
-                    }
-                }
-            }
-        }
-        starLinkWebView = target
-        routeMessage = "正在使用拾光星链解析器读取口令…"
-        target.loadDataWithBaseURL(
-            "https://api.starlinkkb.cn/",
-            "<!doctype html><html><head><meta charset=\"utf-8\"></head><body></body></html>",
-            "text/html",
-            "UTF-8",
-            null
-        )
     }
     val icsFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) launcher@{ uri ->
         if (uri == null) return@launcher
@@ -816,22 +534,6 @@ fun NormalizedAiManualImportScreen(
             error = null
             onParsed(it)
         }.onFailure {
-            val starLinkCode = extractStarLinkShareCode(jsonText)
-            if (starLinkCode != null) {
-                error = null
-                aiParsing = true
-                routeMessage = "正在使用拾光星链解析器读取口令…"
-                starLinkImportInput = jsonText
-                return@onFailure
-            }
-            val wakeUpKey = extractWakeUpShareKey(jsonText)
-            if (wakeUpKey != null) {
-                error = null
-                aiParsing = true
-                routeMessage = "正在使用拾光 WakeUp 解析器读取口令…"
-                wakeUpImportInput = jsonText
-                return@onFailure
-            }
             val latestSettings = AiImportSettingsStore.load(context)
             aiSettings = latestSettings
             if (latestSettings.apiKey.isNotBlank() && jsonText.isNotBlank()) {
@@ -1173,7 +875,7 @@ private fun AiManualImportDialogContent(
                     DialogCapsuleField(
                         value = jsonText,
                         onValueChange = onJsonTextChange,
-                        placeholder = "粘贴 SleepDown / WakeUp / 星链口令或 AI 返回内容",
+                        placeholder = "粘贴 SleepDown 口令或 AI 返回内容",
                         config = state.config,
                         minLines = 5,
                         cornerRadius = 16.dp,
@@ -1370,7 +1072,6 @@ fun EduSchoolPickerScreen(
     val adapters = remember(warehouseGeneration) {
         runCatching { ShiguangWarehouse.loadAdapters(context) }
             .getOrDefault(emptyList())
-            .filterNot { it.isWakeUpImportTool() || it.isStarLinkImportTool() }
     }
     var adapterChoices by remember { mutableStateOf<List<EduAdapter>?>(null) }
     var query by remember { mutableStateOf("") }
@@ -1566,9 +1267,7 @@ fun EduSchoolIndexedSelectScreen(
     val pinnedSchools = remember(schoolGroups) {
         schoolGroups.filter { group ->
             group !in aiEduSchools && group.adapters.any {
-                it.isGeneralEduTool() ||
-                        it.isEduTestTool() ||
-                        it.category.equals("GENERAL_TOOL", ignoreCase = true)
+                it.isGeneralEduTool()
             }
         }
             .sortedBy { it.school.id }
@@ -2399,11 +2098,10 @@ fun SchoolSearchField(
     }
 }
 
-private fun WebView.resolveEduBridgeInteraction(requestId: String, valueExpression: String) {
+private fun ShiguangBridgeHost.resolveEduBridgeInteraction(requestId: String, valueExpression: String) {
     evaluateJavascript(
-        "window.__sleepDownBridgeResolve && window.__sleepDownBridgeResolve(" +
-            JSONObject.quote(requestId) + ", " + valueExpression + ");",
-        null
+        "window._shiguangNativeCallback && window._shiguangNativeCallback(" +
+            JSONObject.quote(requestId) + ", true, " + valueExpression + ");"
     )
 }
 
@@ -2419,7 +2117,7 @@ private fun decodeEduBridgeValidationResult(encoded: String?): String? {
 }
 
 private fun validateEduBridgePrompt(
-    webView: WebView,
+    bridge: ShiguangBridgeHost,
     request: EduBridgeInteractionRequest.Prompt,
     value: String,
     onResult: (String?) -> Unit
@@ -2430,27 +2128,23 @@ private fun validateEduBridgePrompt(
         return
     }
     val script = """
-        (function (name, value) {
-            var validator = window[name];
-            if (typeof validator !== "function") {
-                return "输入校验函数不可用，请返回后重试";
-            }
+        (function () {
             try {
-                var result = validator(value);
+                var result = ${validator}(${JSONObject.quote(value)});
                 if (result === false || result == null || result === "") return null;
                 return String(result);
             } catch (error) {
                 return error && error.message ? error.message : String(error);
             }
-        })(${JSONObject.quote(validator)}, ${JSONObject.quote(value)});
+        })();
     """.trimIndent()
-    webView.evaluateJavascript(script) { onResult(decodeEduBridgeValidationResult(it)) }
+    bridge.evaluateJavascript(script) { onResult(decodeEduBridgeValidationResult(it)) }
 }
 
 @Composable
 private fun EduBridgeInteractionDialog(
     request: EduBridgeInteractionRequest?,
-    webView: WebView?,
+    bridge: ShiguangBridgeHost,
     state: AppState,
     backdrop: Backdrop?,
     onFinished: () -> Unit
@@ -2466,14 +2160,14 @@ private fun EduBridgeInteractionDialog(
                         label = request.confirmText,
                         style = LiquidAlertActionStyle.Primary
                     ) {
-                        webView?.resolveEduBridgeInteraction(request.requestId, "true")
+                        bridge.resolveEduBridgeInteraction(request.requestId, "true")
                         onFinished()
                     }
                 ),
                 backdrop = backdrop,
                 config = state.config,
                 onDismissRequest = {
-                    webView?.resolveEduBridgeInteraction(request.requestId, "false")
+                    bridge.resolveEduBridgeInteraction(request.requestId, "false")
                     onFinished()
                 }
             )
@@ -2482,19 +2176,14 @@ private fun EduBridgeInteractionDialog(
             var value by remember(request.requestId) { mutableStateOf(request.defaultValue) }
             var validationError by remember(request.requestId) { mutableStateOf<String?>(null) }
             fun cancel() {
-                webView?.resolveEduBridgeInteraction(request.requestId, "null")
+                bridge.resolveEduBridgeInteraction(request.requestId, "null")
                 onFinished()
             }
             fun submit() {
-                val target = webView
-                if (target == null) {
-                    validationError = "网页已关闭，请返回后重试"
-                    return
-                }
-                validateEduBridgePrompt(target, request, value) { error ->
+                validateEduBridgePrompt(bridge, request, value) { error ->
                     validationError = error
                     if (error == null) {
-                        target.resolveEduBridgeInteraction(request.requestId, JSONObject.quote(value))
+                        bridge.resolveEduBridgeInteraction(request.requestId, JSONObject.quote(value))
                         onFinished()
                     }
                 }
@@ -2550,12 +2239,12 @@ private fun EduBridgeInteractionDialog(
                 mutableIntStateOf(request.defaultIndex)
             }
             fun cancel() {
-                webView?.resolveEduBridgeInteraction(request.requestId, "null")
+                bridge.resolveEduBridgeInteraction(request.requestId, "null")
                 onFinished()
             }
             fun submit() {
                 if (selectedIndex !in request.options.indices) return
-                webView?.resolveEduBridgeInteraction(request.requestId, selectedIndex.toString())
+                bridge.resolveEduBridgeInteraction(request.requestId, selectedIndex.toString())
                 onFinished()
             }
             Dialog(
@@ -2643,28 +2332,21 @@ fun EduImportActivityScreen(
     var bridgeInteraction by remember { mutableStateOf<EduBridgeInteractionRequest?>(null) }
     var currentUrl by remember(adapter) {
         mutableStateOf(
-            if (adapter.requiresManualEduUrl()) "" else adapter.importUrl.ifBlank { "https://" }
+            if (adapter.requiresManualEduUrl()) "" else adapter.importUrl.ifBlank { "about:blank" }
         )
     }
     var showGeneralUrlDialog by remember(adapter) { mutableStateOf(adapter.requiresManualEduUrl()) }
-    val bridge = remember(state.config, adapter) {
-        EduImportBridge(
+    val bridge = remember(adapter) {
+        ShiguangBridgeHost(
             context = context,
-            adapter = adapter,
-            baseConfig = { state.config },
-            basePeriods = { state.periods },
             onDraft = onParsed,
             onMessage = { message = it },
-            onInteractionRequest = { bridgeInteraction = it },
-            onTaskCompleted = {
-                bridgeInteraction = null
-                webView?.detachEduImportBridge()
-            }
+            onInteractionRequest = { bridgeInteraction = it }
         )
     }
     EduBridgeInteractionDialog(
         request = bridgeInteraction,
-        webView = webView,
+        bridge = bridge,
         state = state,
         backdrop = backdrop,
         onFinished = { bridgeInteraction = null }
@@ -3034,7 +2716,7 @@ private fun eduDesktopUserAgent(context: Context): String {
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun EduImportBrowserScreen(
+private fun EduImportBrowserScreen(
     state: AppState,
     adapter: EduAdapter,
     webContentBackdrop: LayerBackdrop,
@@ -3043,7 +2725,7 @@ fun EduImportBrowserScreen(
     onWebView: (WebView?) -> Unit,
     currentUrl: String,
     onUrlChange: (String) -> Unit,
-    bridge: EduImportBridge,
+    bridge: ShiguangBridgeHost,
     useDetailTopPadding: Boolean = true,
     onMessage: (String) -> Unit
 ) {
@@ -3061,9 +2743,7 @@ fun EduImportBrowserScreen(
     var popupWebView by remember(adapter) { mutableStateOf<WebView?>(null) }
     var webViewGeneration by remember(adapter) { mutableIntStateOf(0) }
     var rendererRestoreUrl by remember(adapter) { mutableStateOf<String?>(null) }
-    var pendingOriginalImportScript by remember(adapter) { mutableStateOf<String?>(null) }
-    var pendingImportGeneration by remember(adapter) { mutableIntStateOf(0) }
-    var importGeneration by remember(adapter) { mutableIntStateOf(0) }
+    val requestInterceptor = remember(adapter) { ShiguangWebRequestInterceptor() }
     val taskProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     LaunchedEffect(taskProgress?.taskId, taskProgress?.finished) {
         val completed = taskProgress?.takeIf {
@@ -3330,21 +3010,6 @@ fun EduImportBrowserScreen(
         }
     }
 
-    fun executePendingOriginalImportScript(target: WebView) {
-        val script = pendingOriginalImportScript ?: return
-        pendingOriginalImportScript = null
-        onMessage("已安全启用导入桥接，正在执行拾光适配器")
-        target.evaluateJavascript(EDU_BRIDGE_PROMISE_BOOTSTRAP) {
-            target.evaluateJavascript(
-                """
-                console.log('SleepDown bridge check', !!window.AndroidBridgePromise, typeof window.AndroidBridgePromise?.showAlert, typeof window.AndroidBridge?.notifyTaskCompletion);
-                try { $script } catch (e) { console.error('SleepDown import script error', e && (e.stack || e.message || e)); throw e; }
-                """.trimIndent(),
-                null
-            )
-        }
-    }
-
     fun runOriginalImportScript() {
         val target = popupWebView ?: webView
         if (target == null) {
@@ -3359,25 +3024,11 @@ fun EduImportBrowserScreen(
         scope.launch {
             runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
                 .onSuccess { script ->
-                    importGeneration += 1
-                    pendingImportGeneration = importGeneration
-                    pendingOriginalImportScript = script
-                    bridge.beginTask()
-                    target.attachEduImportBridge(bridge)
-                    // addJavascriptInterface becomes visible to page JavaScript only after a navigation.
-                    // Reload the current page while the narrowly-scoped bridge is attached, run the
-                    // adapter from onPageFinished, then detach on completion or timeout.
-                    onMessage("已加载拾光仓库脚本，正在安全重载当前页面")
-                    target.reload()
-                    val generation = pendingImportGeneration
-                    launch {
-                        delay(15_000)
-                        if (importGeneration == generation && pendingOriginalImportScript != null) {
-                            pendingOriginalImportScript = null
-                            target.detachEduImportBridge()
-                            onMessage("当前页面重载超时，导入桥接已关闭，请检查网络后重试。")
-                        }
-                    }
+                    bridge.bindWebView(target)
+                    bridge.beginTask(state.config, state.periods)
+                    target.injectShiguangRuntime(desktopMode)
+                    onMessage("正在执行拾光官方适配器")
+                    target.evaluateJavascript(script, null)
                 }
                 .onFailure { onMessage("拾光仓库脚本加载失败：${it.message ?: "找不到该学校的导入脚本"}") }
         }
@@ -3405,11 +3056,13 @@ fun EduImportBrowserScreen(
 
     fun closePopupWebView() {
         popupWebView?.let { popup ->
+            popup.uninstallShiguangRuntime()
             (popup.parent as? ViewGroup)?.removeView(popup)
             popup.releaseSleepDownWebView(clearResourceCache = false)
         }
         popupWebView = null
         webView?.let { primary ->
+            bridge.bindWebView(primary)
             addressText = primary.url.orEmpty().ifBlank { currentUrl }
             onUrlChange(addressText)
             updateNavigationState(primary)
@@ -3458,7 +3111,7 @@ fun EduImportBrowserScreen(
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
-            configureEduImportSecurity(adapter)
+            configureEduImportSecurity()
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
             settings.setSupportZoom(true)
@@ -3476,15 +3129,14 @@ fun EduImportBrowserScreen(
                 setAcceptCookie(true)
                 setAcceptThirdPartyCookies(this@webView, true)
             }
+            installShiguangRuntime(bridge)
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest): Boolean {
                     return handleExternalNavigation(request.url)
                 }
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                    if (pendingOriginalImportScript == null) {
-                        view?.detachEduImportBridge()
-                    }
+                    view?.injectShiguangRuntime(desktopMode)
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
                     if (visiblePage) updateNavigationState(view)
                     super.onPageStarted(view, url, favicon)
@@ -3492,6 +3144,7 @@ fun EduImportBrowserScreen(
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    view?.injectShiguangRuntime(desktopMode)
                     view?.let { updateEduWebTopOffset(it) }
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
                     if (visiblePage) updateNavigationState(view)
@@ -3506,7 +3159,14 @@ fun EduImportBrowserScreen(
                         )
                         CookieManager.getInstance().flush()
                     }
-                    view?.let(::executePendingOriginalImportScript)
+                }
+
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: WebResourceRequest?
+                ): WebResourceResponse? {
+                    return request?.let { requestInterceptor.intercept(it, desktopMode) }
+                        ?: super.shouldInterceptRequest(view, request)
                 }
 
                 override fun onReceivedError(
@@ -3547,23 +3207,24 @@ fun EduImportBrowserScreen(
                     val restoreUrl = view?.url?.takeIf { it.isNotBlank() }
                         ?: addressText.takeIf { it.isNotBlank() }
                         ?: currentUrl
-                    view?.detachEduImportBridge()
+                    view?.uninstallShiguangRuntime()
                     (view?.parent as? ViewGroup)?.removeView(view)
                     view?.destroy()
                     popupWebView?.takeIf { it !== view }?.let { popup ->
-                        popup.detachEduImportBridge()
+                        popup.uninstallShiguangRuntime()
                         (popup.parent as? ViewGroup)?.removeView(popup)
                         popup.destroy()
                     }
                     popupWebView = null
                     if (isPopup) {
                         webView?.let { primary ->
-                            primary.detachEduImportBridge()
+                            primary.uninstallShiguangRuntime()
                             (primary.parent as? ViewGroup)?.removeView(primary)
                             primary.destroy()
                         }
                     }
                     onWebView(null)
+                    bridge.bindWebView(null)
                     rendererRestoreUrl = restoreUrl
                     webViewGeneration += 1
                     onMessage(
@@ -3604,6 +3265,7 @@ fun EduImportBrowserScreen(
         return WebView(context).apply {
             configureEduWebView(this, isPopup = false)
             onWebView(this)
+            bridge.bindWebView(this)
             updateNavigationState(this)
             val initialUrl = rendererRestoreUrl ?: normalizedUrl
             if (initialUrl.isNotBlank()) loadUrl(initialUrl)
@@ -3616,6 +3278,7 @@ fun EduImportBrowserScreen(
     DisposableEffect(Unit) {
         onDispose {
             popupWebView?.let { popup ->
+                popup.uninstallShiguangRuntime()
                 (popup.parent as? ViewGroup)?.removeView(popup)
                 popup.releaseSleepDownWebView(clearResourceCache = false)
             }
@@ -3645,7 +3308,11 @@ fun EduImportBrowserScreen(
                     // loadUrl from recomposition.
                     update = {},
                     onRelease = { released ->
-                        if (released === webView) onWebView(null)
+                        if (released === webView) {
+                            onWebView(null)
+                            bridge.bindWebView(null)
+                        }
+                        released.uninstallShiguangRuntime()
                         released.releaseSleepDownWebView()
                     }
                 )
@@ -3663,6 +3330,7 @@ fun EduImportBrowserScreen(
                         onRelease = { released ->
                             if (released === popupWebView) {
                                 popupWebView = null
+                                released.uninstallShiguangRuntime()
                                 released.releaseSleepDownWebView(clearResourceCache = false)
                             }
                         }

@@ -74,12 +74,18 @@ internal object ShiguangWarehouseUpdater {
             refreshMutex.withLock {
                 val relativePath = resourceRelativePath(adapter)
                 val snapshot = currentRemoteSnapshot(context)
-                require(snapshot.adapters.any { current ->
+                val existsInCurrentSnapshot = snapshot.adapters.any { current ->
                     current.school.id == adapter.school.id &&
                         current.adapterId == adapter.adapterId &&
                         resourceRelativePath(current) == relativePath
-                }) { "当前拾光索引不再包含此适配器：${adapter.displayName}" }
-                val target = safeResourceFile(context, snapshot.indexSha, relativePath)
+                }
+                val selectedGeneration = if (existsInCurrentSnapshot) {
+                    snapshot.indexSha
+                } else {
+                    adapter.warehouseGeneration.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+                        ?: snapshot.indexSha
+                }
+                val target = safeResourceFile(context, selectedGeneration, relativePath)
                 target.takeIf { it.isFile }?.readText()?.takeIf { it.isNotBlank() }?.let { return@withLock it }
 
                 val encodedPath = relativePath.split('/').joinToString("/") { segment ->
