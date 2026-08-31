@@ -49,6 +49,7 @@ import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.sleepDownPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidCascadingPopup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidMenuItem
+import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 
 @Composable
@@ -79,6 +80,12 @@ internal fun EduBrowserDock(
     var moreMenuVisible by remember { mutableStateOf(false) }
     var importAnchor by remember { mutableStateOf(Rect.Zero) }
     var moreAnchor by remember { mutableStateOf(Rect.Zero) }
+    val lightDockGlass = !appUsesDarkTheme(config)
+    val dockSurfaceColor = if (lightDockGlass) {
+        Color.White.copy(alpha = 0.22f)
+    } else {
+        Color(0xFF16181D).copy(alpha = 0.78f)
+    }
 
     Box(modifier = modifier) {
         LiquidButton(
@@ -89,12 +96,14 @@ internal fun EduBrowserDock(
                 .height(56.dp),
             height = 56.dp,
             contentPadding = PaddingValues(0.dp),
-            blurRadius = 16.dp,
-            lensHeight = 18.dp,
-            lensAmount = 28.dp,
+            blurRadius = 5.dp,
+            lensHeight = 14.dp,
+            lensAmount = 24.dp,
             chromaticAberration = false,
-            surfaceColor = Color.White.copy(alpha = 0.14f),
-            shadowEnabled = false,
+            surfaceColor = dockSurfaceColor,
+            shadowEnabled = lightDockGlass,
+            highlightEnabled = true,
+            clipToBounds = false,
             clickTargetEnabled = false,
             pressExpansion = 1.5.dp
         ) {

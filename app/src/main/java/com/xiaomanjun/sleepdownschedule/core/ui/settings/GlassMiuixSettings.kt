@@ -280,6 +280,7 @@ internal fun GlassMiuixDetailActivityScaffold(
     centerCompactTitle: Boolean,
     compactTitleMatchesSettings: Boolean,
     topBarVisible: Boolean,
+    topBarBackdropOverride: Backdrop?,
     topBarActions: @Composable (Backdrop?) -> Unit,
     content: @Composable (Backdrop?) -> Unit
 ) {
@@ -296,6 +297,7 @@ internal fun GlassMiuixDetailActivityScaffold(
         drawRect(pageColor)
         drawContent()
     }
+    val topBarBackdrop = topBarBackdropOverride ?: contentBackdrop
     val scrollBehavior = rememberSettingsScrollBehavior()
     val compactTopBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() +
         SleepDownDesignTokens.SecondaryPage.CompactTopBarHeight
@@ -341,18 +343,18 @@ internal fun GlassMiuixDetailActivityScaffold(
                         if (topBarVisible) {
                             SettingsGradientTopBar(
                                 config = pageConfig,
-                                backdrop = contentBackdrop,
+                                backdrop = topBarBackdrop,
                                 enabled = showTopGradientBlur
                             ) {
                                 if (compactTopBar) {
                                     DetailTopBar(
                                         title = title,
                                         config = pageConfig,
-                                        backdrop = contentBackdrop,
+                                        backdrop = topBarBackdrop,
                                         onBack = onBack,
                                         centerTitle = centerCompactTitle,
                                         useMiuixCollapsedTitleStyle = compactTitleMatchesSettings,
-                                        actions = { topBarActions(contentBackdrop) }
+                                        actions = { topBarActions(topBarBackdrop) }
                                     )
                                 } else {
                                     TopAppBar(
@@ -361,10 +363,10 @@ internal fun GlassMiuixDetailActivityScaffold(
                                         color = Color.Transparent,
                                         scrollBehavior = scrollBehavior,
                                         navigationIconPadding = 16.dp,
-                                        actions = { topBarActions(contentBackdrop) },
+                                        actions = { topBarActions(topBarBackdrop) },
                                         navigationIcon = {
                                             TopBackButton(
-                                                backdrop = contentBackdrop,
+                                                backdrop = topBarBackdrop,
                                                 config = pageConfig,
                                                 onClick = onBack,
                                                 modifier = Modifier.size(

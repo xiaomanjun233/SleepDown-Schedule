@@ -4368,6 +4368,7 @@ fun DetailActivityScaffold(
     centerCompactTitle: Boolean = false,
     compactTitleMatchesSettings: Boolean = false,
     topBarVisible: Boolean = true,
+    topBarBackdropOverride: Backdrop? = null,
     topBarActions: @Composable (Backdrop?) -> Unit = {},
     content: @Composable (Backdrop?) -> Unit
 ) {
@@ -4381,6 +4382,7 @@ fun DetailActivityScaffold(
         centerCompactTitle = centerCompactTitle,
         compactTitleMatchesSettings = compactTitleMatchesSettings,
         topBarVisible = topBarVisible,
+        topBarBackdropOverride = topBarBackdropOverride,
         topBarActions = topBarActions,
         content = content
     )
@@ -6956,6 +6958,10 @@ open class EduImportActivityHost : ComponentActivity() {
             val state by viewModel.state.collectAsStateWithLifecycle()
             val adapter = remember { eduAdapterFromIntentKey(intent.getStringExtra(EduAdapterExtra)) }
             var pendingDraft by remember { mutableStateOf<ImportDraft?>(null) }
+            val eduWebContentBackdrop = rememberGlassLayerBackdrop(
+                domain = GlassBackdropDomain.Content,
+                providerId = "edu-import-web-content"
+            )
             CourseScheduleTheme(config = state.config) {
                 if (pendingDraft == null) {
                     DetailActivityScaffold(
@@ -6963,7 +6969,8 @@ open class EduImportActivityHost : ComponentActivity() {
                         config = state.config,
                         onBack = { finish() },
                         isolateContentFromBackdrop = true,
-                        compactTopBar = true
+                        compactTopBar = true,
+                        topBarBackdropOverride = eduWebContentBackdrop
                     ) { backdrop ->
                         if (adapter == null) {
                             Box(
@@ -6978,6 +6985,7 @@ open class EduImportActivityHost : ComponentActivity() {
                                 state = state,
                                 adapter = adapter,
                                 backdrop = backdrop,
+                                webContentBackdrop = eduWebContentBackdrop,
                                 useDetailTopPadding = true,
                                 onParsed = { draft -> pendingDraft = draft }
                             )

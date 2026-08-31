@@ -278,6 +278,7 @@ import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.backdrop.catalog.components.LiquidSlider
 import com.kyant.backdrop.catalog.components.LiquidToggle
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
@@ -1888,7 +1889,7 @@ private fun EduAlphabetRailDock(
                 visible = showAlphabetRail,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(end = 2.dp),
+                    .padding(end = 0.dp),
                 enter = fadeIn(tween(240)),
                 exit = fadeOut(tween(240))
             ) {
@@ -2632,6 +2633,7 @@ fun EduImportActivityScreen(
     state: AppState,
     adapter: EduAdapter,
     backdrop: Backdrop?,
+    webContentBackdrop: LayerBackdrop,
     useDetailTopPadding: Boolean = true,
     onParsed: (ImportDraft) -> Unit
 ) {
@@ -2694,6 +2696,7 @@ fun EduImportActivityScreen(
     EduImportBrowserScreen(
         state = state,
         adapter = adapter,
+        webContentBackdrop = webContentBackdrop,
         message = message,
         webView = webView,
         onWebView = { webView = it },
@@ -3034,6 +3037,7 @@ private fun eduDesktopUserAgent(context: Context): String {
 fun EduImportBrowserScreen(
     state: AppState,
     adapter: EduAdapter,
+    webContentBackdrop: LayerBackdrop,
     message: String?,
     webView: WebView?,
     onWebView: (WebView?) -> Unit,
@@ -3045,10 +3049,6 @@ fun EduImportBrowserScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val webContentBackdrop = rememberGlassLayerBackdrop(
-        domain = GlassBackdropDomain.Content,
-        providerId = "edu-import-web-content"
-    )
     val buttonBackdrop = webContentBackdrop
     var addressText by remember(currentUrl) { mutableStateOf(currentUrl) }
     var canGoBack by remember { mutableStateOf(false) }
