@@ -31,6 +31,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.net.http.SslError
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Base64
@@ -39,11 +40,13 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
 import android.view.HapticFeedbackConstants
 import android.view.WindowInsetsController
+import android.view.ViewGroup
 import androidx.annotation.RequiresApi
 import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
@@ -52,6 +55,11 @@ import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.SslErrorHandler
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
@@ -3006,6 +3014,20 @@ private fun aiEduRequestPreview(settings: AiImportSettings, pageTextLength: Int)
     }
 }
 
+private fun eduDesktopUserAgent(context: Context): String {
+    val current = WebSettings.getDefaultUserAgent(context)
+    val webKit = Regex("AppleWebKit/[^\\s]+", RegexOption.IGNORE_CASE).find(current)?.value
+    val chromium = Regex("(?:Chrome|Chromium)/[0-9.]+", RegexOption.IGNORE_CASE).find(current)?.value
+    val safari = Regex("Safari/[^\\s]+", RegexOption.IGNORE_CASE).find(current)?.value
+    if (webKit == null || chromium == null || safari == null) {
+        return current
+            .replaceFirst(Regex("\\([^)]*\\)"), "(X11; Linux x86_64)")
+            .replace("; wv", "")
+            .replace(" Mobile ", " ")
+    }
+    return "Mozilla/5.0 (X11; Linux x86_64) $webKit (KHTML, like Gecko) $chromium $safari"
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun EduImportBrowserScreen(
@@ -3013,7 +3035,7 @@ fun EduImportBrowserScreen(
     adapter: EduAdapter,
     message: String?,
     webView: WebView?,
-    onWebView: (WebView) -> Unit,
+    onWebView: (WebView?) -> Unit,
     currentUrl: String,
     onUrlChange: (String) -> Unit,
     bridge: EduImportBridge,
@@ -3035,6 +3057,9 @@ fun EduImportBrowserScreen(
     var aiProgress by remember { mutableStateOf<AiEduImportProgress?>(null) }
     var isScreenCapturing by remember { mutableStateOf(false) }
     var screenCaptureStatus by remember { mutableStateOf<String?>(null) }
+    var popupWebView by remember(adapter) { mutableStateOf<WebView?>(null) }
+    var webViewGeneration by remember(adapter) { mutableIntStateOf(0) }
+    var rendererRestoreUrl by remember(adapter) { mutableStateOf<String?>(null) }
     var pendingOriginalImportScript by remember(adapter) { mutableStateOf<String?>(null) }
     var pendingImportGeneration by remember(adapter) { mutableIntStateOf(0) }
     var importGeneration by remember(adapter) { mutableIntStateOf(0) }
@@ -3058,7 +3083,7 @@ fun EduImportBrowserScreen(
             return
         }
         onUrlChange(normalizedUrl)
-        webView?.loadUrl(normalizedUrl)
+        (popupWebView ?: webView)?.loadUrl(normalizedUrl)
     }
 
     fun appendAiStep(step: String) {
@@ -3075,7 +3100,7 @@ fun EduImportBrowserScreen(
     }
 
     fun runAiEduImport(forceFallback: Boolean = false) {
-        val target = webView
+        val target = popupWebView ?: webView
         if (target == null) {
             onMessage("网页还没有加载完成")
             return
@@ -3319,7 +3344,7 @@ fun EduImportBrowserScreen(
     }
 
     fun runOriginalImportScript() {
-        val target = webView
+        val target = popupWebView ?: webView
         if (target == null) {
             onMessage("网页还没有加载完成")
             return
@@ -3362,22 +3387,59 @@ fun EduImportBrowserScreen(
     fun applyEduWebMode(target: WebView, desktop: Boolean) {
         with(target.settings) {
             userAgentString = if (desktop) {
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+                eduDesktopUserAgent(context)
             } else {
                 null
             }
             useWideViewPort = true
-            loadWithOverviewMode = true
+            loadWithOverviewMode = !desktop
+            layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
             textZoom = 100
         }
-        target.setInitialScale(if (desktop) 80 else 0)
+        target.setInitialScale(if (desktop) 100 else 0)
     }
 
-    fun createEduWebView(context: Context): WebView {
-        return WebView(context).apply {
+    fun closePopupWebView() {
+        popupWebView?.let { popup ->
+            (popup.parent as? ViewGroup)?.removeView(popup)
+            popup.releaseSleepDownWebView(clearResourceCache = false)
+        }
+        popupWebView = null
+        webView?.let { primary ->
+            addressText = primary.url.orEmpty().ifBlank { currentUrl }
+            onUrlChange(addressText)
+            updateNavigationState(primary)
+        }
+    }
+
+    fun handleExternalNavigation(uri: Uri): Boolean {
+        val scheme = uri.scheme?.lowercase(Locale.ROOT).orEmpty()
+        if (scheme == "http" || scheme == "https") return false
+        val intent = try {
+            if (scheme == "intent") Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
+            else Intent(Intent.ACTION_VIEW, uri)
+        } catch (_: java.net.URISyntaxException) {
+            onMessage("无法识别此页面请求的外部链接")
+            return true
+        }
+        val safeIntent = intent.apply {
+            component = null
+            selector = null
+        }
+        if (safeIntent.resolveActivity(context.packageManager) == null) {
+            onMessage("未找到可处理 ${scheme.ifBlank { "此" }} 链接的应用")
+            return true
+        }
+        context.startActivity(safeIntent)
+        return true
+    }
+
+    fun configureEduWebView(target: WebView, isPopup: Boolean) {
+        target.apply webView@ {
             setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            settings.databaseEnabled = true
             configureEduImportSecurity(adapter)
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
@@ -3385,22 +3447,36 @@ fun EduImportBrowserScreen(
             settings.builtInZoomControls = true
             settings.displayZoomControls = false
             settings.javaScriptCanOpenWindowsAutomatically = true
+            settings.setSupportMultipleWindows(!isPopup)
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            settings.cacheMode = WebSettings.LOAD_DEFAULT
             isHorizontalScrollBarEnabled = true
             isVerticalScrollBarEnabled = true
             overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
             applyEduWebMode(this, desktopMode)
+            CookieManager.getInstance().apply {
+                setAcceptCookie(true)
+                setAcceptThirdPartyCookies(this@webView, true)
+            }
             webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest): Boolean {
+                    return handleExternalNavigation(request.url)
+                }
+
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     if (pendingOriginalImportScript == null) {
                         view?.detachEduImportBridge()
                     }
+                    val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
+                    if (visiblePage) updateNavigationState(view)
                     super.onPageStarted(view, url, favicon)
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    updateNavigationState(view)
-                    if (!url.isNullOrBlank()) {
+                    val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
+                    if (visiblePage) updateNavigationState(view)
+                    if (visiblePage && !url.isNullOrBlank()) {
                         addressText = url
                         onUrlChange(url)
                         EduLoginHistoryStore.remember(
@@ -3413,275 +3489,228 @@ fun EduImportBrowserScreen(
                     }
                     view?.let(::executePendingOriginalImportScript)
                 }
+
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    error: WebResourceError?
+                ) {
+                    super.onReceivedError(view, request, error)
+                    if (request?.isForMainFrame == true) {
+                        onMessage("页面加载失败：${error?.description ?: "网络连接异常"}")
+                    }
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    errorResponse: WebResourceResponse?
+                ) {
+                    super.onReceivedHttpError(view, request, errorResponse)
+                    if (request?.isForMainFrame == true) {
+                        onMessage("页面返回 HTTP ${errorResponse?.statusCode ?: "错误"}")
+                    }
+                }
+
+                override fun onReceivedSslError(
+                    view: WebView?,
+                    handler: SslErrorHandler?,
+                    error: SslError?
+                ) {
+                    onMessage("网站证书校验失败，已停止加载")
+                    super.onReceivedSslError(view, handler, error)
+                }
+
+                override fun onRenderProcessGone(
+                    view: WebView?,
+                    detail: RenderProcessGoneDetail?
+                ): Boolean {
+                    val restoreUrl = view?.url?.takeIf { it.isNotBlank() }
+                        ?: addressText.takeIf { it.isNotBlank() }
+                        ?: currentUrl
+                    view?.detachEduImportBridge()
+                    (view?.parent as? ViewGroup)?.removeView(view)
+                    view?.destroy()
+                    popupWebView?.takeIf { it !== view }?.let { popup ->
+                        popup.detachEduImportBridge()
+                        (popup.parent as? ViewGroup)?.removeView(popup)
+                        popup.destroy()
+                    }
+                    popupWebView = null
+                    if (isPopup) {
+                        webView?.let { primary ->
+                            primary.detachEduImportBridge()
+                            (primary.parent as? ViewGroup)?.removeView(primary)
+                            primary.destroy()
+                        }
+                    }
+                    onWebView(null)
+                    rendererRestoreUrl = restoreUrl
+                    webViewGeneration += 1
+                    onMessage(
+                        if (detail?.didCrash() == true) "网页渲染器异常，已恢复当前页面"
+                        else "网页渲染器已被系统回收，正在恢复"
+                    )
+                    return true
+                }
             }
-            webChromeClient = WebChromeClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onCreateWindow(
+                    view: WebView?,
+                    isDialog: Boolean,
+                    isUserGesture: Boolean,
+                    resultMsg: Message?
+                ): Boolean {
+                    if (isPopup) return false
+                    val message = resultMsg ?: return false
+                    val transport = message.obj as? WebView.WebViewTransport ?: return false
+                    closePopupWebView()
+                    val child = WebView(context)
+                    configureEduWebView(child, isPopup = true)
+                    popupWebView = child
+                    transport.webView = child
+                    message.sendToTarget()
+                    return true
+                }
+
+                override fun onCloseWindow(window: WebView?) {
+                    if (window === popupWebView) closePopupWebView()
+                }
+            }
             enableSleepDownDownloads()
-            onWebView(this)
-            updateNavigationState(this)
-            if (normalizedUrl.isNotBlank()) loadUrl(normalizedUrl)
         }
     }
 
-    // Only the native WebView is recorded into this dedicated backdrop. The address row, messages
-    // and floating controls remain siblings outside its RenderNode capture chain.
+    fun createEduWebView(context: Context): WebView {
+        return WebView(context).apply {
+            configureEduWebView(this, isPopup = false)
+            onWebView(this)
+            updateNavigationState(this)
+            val initialUrl = rendererRestoreUrl ?: normalizedUrl
+            if (initialUrl.isNotBlank()) loadUrl(initialUrl)
+        }
+    }
+
+    BackHandler(enabled = popupWebView != null) {
+        closePopupWebView()
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            popupWebView?.let { popup ->
+                (popup.parent as? ViewGroup)?.removeView(popup)
+                popup.releaseSleepDownWebView(clearResourceCache = false)
+            }
+            popupWebView = null
+        }
+    }
+
+    // Only the native WebView is recorded into this dedicated backdrop. Messages, the unified
+    // Browser Dock and its root-overlay popups remain later siblings outside the capture chain.
     Box(modifier = Modifier.fillMaxSize().padding(top = topPadding)) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
+                .glassBackdropProducer(webContentBackdrop)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (isScreenCapturing) {
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        screenCaptureStatus ?: "正在识屏截取",
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(21.dp))
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.90f))
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.weight(1f))
-                } else {
-                    BasicTextField(
-                        value = addressText,
-                        onValueChange = { addressText = it },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(42.dp)
-                            .clip(RoundedCornerShape(21.dp))
-                            .background(if (appUsesDarkTheme(state.config)) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
-                            .padding(horizontal = 14.dp, vertical = 11.dp),
-                        decorationBox = { innerTextField ->
-                            Box(contentAlignment = Alignment.CenterStart) {
-                                if (addressText.isBlank() || addressText == "https://") {
-                                    Text("输入教务系统网址", color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                                }
-                                innerTextField()
-                            }
-                        }
-                    )
-                    LiquidMenuButton(null, "打开", onClick = { loadAddress() })
-                }
-            }
-            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                Box(
+            key(webViewGeneration) {
+                AndroidView(
                     modifier = Modifier
                         .fillMaxSize()
-                        .glassBackdropProducer(webContentBackdrop)
-                ) {
+                        .graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        },
+                    factory = { createEduWebView(it) },
+                    // Navigation remains event-driven; observed page URLs never feed back into
+                    // loadUrl from recomposition.
+                    update = {},
+                    onRelease = { released ->
+                        if (released === webView) onWebView(null)
+                        released.releaseSleepDownWebView()
+                    }
+                )
+            }
+            popupWebView?.let { popup ->
+                key(popup) {
                     AndroidView(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
                                 compositingStrategy = CompositingStrategy.Offscreen
                             },
-                        factory = { createEduWebView(it) },
-                        // Navigation is event-driven (initial creation, address confirmation or an
-                        // explicit browser action). Observed page URLs must never feed back into
-                        // loadUrl from recomposition.
+                        factory = { popup },
                         update = {},
-                        onRelease = { it.releaseSleepDownWebView() }
-                    )
-                }
-                if (!isScreenCapturing) message?.let {
-                    Text(
-                        it,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 10.dp, start = 16.dp, end = 16.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.86f))
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-        if (!isScreenCapturing) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .navigationBarsPadding()
-                    .padding(start = 22.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                    EduWebNavButton(
-                        backdrop = buttonBackdrop,
-                        iconRes = R.drawable.ic_arrow_back,
-                        contentDescription = "网页后退",
-                        enabled = canGoBack,
-                        onClick = {
-                            webView?.goBack()
-                            updateNavigationState(webView)
-                        }
-                    )
-                    EduWebNavButton(
-                        backdrop = buttonBackdrop,
-                        iconRes = R.drawable.ic_arrow_back,
-                        contentDescription = "网页前进",
-                        enabled = canGoForward,
-                        flipHorizontal = true,
-                        onClick = {
-                            webView?.goForward()
-                            updateNavigationState(webView)
-                        }
-                    )
-                    EduWebNavButton(
-                        backdrop = buttonBackdrop,
-                        iconRes = R.drawable.ic_refresh,
-                        contentDescription = "刷新网页",
-                        enabled = true,
-                        onClick = {
-                            webView?.reload()
-                            onMessage("已刷新页面")
-                        }
-                    )
-                    EduWebModeButton(
-                        backdrop = buttonBackdrop,
-                        label = if (desktopMode) "电脑" else "手机",
-                        onClick = {
-                            desktopMode = !desktopMode
-                            webView?.let { target ->
-                                applyEduWebMode(target, desktopMode)
-                                target.reload()
+                        onRelease = { released ->
+                            if (released === popupWebView) {
+                                popupWebView = null
+                                released.releaseSleepDownWebView(clearResourceCache = false)
                             }
                         }
                     )
-            }
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    .padding(end = 22.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                horizontalAlignment = Alignment.End
-            ) {
-                    EduWebImportButton(
-                        backdrop = buttonBackdrop,
-                        iconRes = R.drawable.ic_ai_import,
-                        contentDescription = if (adapter.isAiEduImportTool()) "AI专用教务导入" else "AI兜底扒页",
-                        tint = ComposeColor(0xFF0A84FF),
-                        alpha = if (aiParsing) 0.58f else 1f,
-                        onClick = { runAiEduImport(forceFallback = !adapter.isAiEduImportTool()) }
-                    )
-                    if (!adapter.isAiEduImportTool()) {
-                        EduWebImportButton(
-                            backdrop = buttonBackdrop,
-                            iconRes = R.drawable.ic_download,
-                            contentDescription = "执行原有导入脚本",
-                            tint = ComposeColor(0xFF0A84FF),
-                            onClick = { runOriginalImportScript() }
-                        )
-                    }
+                }
             }
         }
-    }
-}
 
-@Composable
-fun EduWebNavButton(
-    backdrop: Backdrop,
-    iconRes: Int,
-    contentDescription: String,
-    enabled: Boolean,
-    flipHorizontal: Boolean = false,
-    onClick: () -> Unit
-) {
-    LiquidButton(
-        onClick = { if (enabled) onClick() },
-        backdrop = backdrop,
-        modifier = Modifier
-            .size(50.dp)
-            .graphicsLayer(alpha = if (enabled) 1f else 0.42f),
-        isInteractive = enabled,
-        surfaceColor = ComposeColor.White.copy(alpha = 0.16f),
-        contentPadding = PaddingValues(0.dp),
-        blurRadius = 8.dp,
-        lensHeight = 30.dp,
-        lensAmount = 38.dp,
-        chromaticAberration = false
-    ) {
-        Icon(
-            painterResource(iconRes),
-            contentDescription = contentDescription,
-            tint = LocalContentColor.current,
-            modifier = Modifier
-                .size(22.dp)
-                .graphicsLayer(scaleX = if (flipHorizontal) -1f else 1f)
-        )
-    }
-}
-
-@Composable
-fun EduWebModeButton(
-    backdrop: Backdrop,
-    label: String,
-    onClick: () -> Unit
-) {
-    LiquidButton(
-        onClick = onClick,
-        backdrop = backdrop,
-        modifier = Modifier.size(50.dp),
-        surfaceColor = ComposeColor.White.copy(alpha = 0.16f),
-        contentPadding = PaddingValues(0.dp),
-        blurRadius = 8.dp,
-        lensHeight = 30.dp,
-        lensAmount = 38.dp,
-        chromaticAberration = false
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = LocalContentColor.current,
-            maxLines = 1,
-            softWrap = false
-        )
-    }
-}
-
-@Composable
-fun EduWebImportButton(
-    backdrop: Backdrop,
-    iconRes: Int,
-    contentDescription: String,
-    tint: ComposeColor,
-    alpha: Float = 1f,
-    onClick: () -> Unit
-) {
-    LiquidButton(
-        onClick = onClick,
-        backdrop = backdrop,
-        modifier = Modifier
-            .size(58.dp)
-            .graphicsLayer(alpha = alpha),
-        tint = tint,
-        surfaceColor = tint.copy(alpha = 0.34f),
-        contentPadding = PaddingValues(0.dp),
-        blurRadius = 8.dp,
-        lensHeight = 34.dp,
-        lensAmount = 42.dp,
-        chromaticAberration = false
-    ) {
-        Icon(
-            painterResource(iconRes),
-            contentDescription = contentDescription,
-            tint = ComposeColor.White,
-            modifier = Modifier.size(25.dp)
-        )
+        val visibleMessage = screenCaptureStatus ?: message
+        visibleMessage?.let {
+            Text(
+                it,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 10.dp, start = 16.dp, end = 16.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.86f))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (!isScreenCapturing) {
+            EduBrowserDock(
+                config = state.config,
+                backdrop = buttonBackdrop,
+                address = addressText,
+                onAddressChange = { addressText = it },
+                onGo = { loadAddress() },
+                canGoBack = canGoBack,
+                canGoForward = canGoForward,
+                onBack = {
+                    val target = popupWebView ?: webView
+                    target?.goBack()
+                    updateNavigationState(target)
+                },
+                onForward = {
+                    val target = popupWebView ?: webView
+                    target?.goForward()
+                    updateNavigationState(target)
+                },
+                originalImportAvailable = !adapter.isAiEduImportTool(),
+                aiImportRunning = aiParsing,
+                onOriginalImport = { runOriginalImportScript() },
+                onAiImport = { runAiEduImport(forceFallback = !adapter.isAiEduImportTool()) },
+                desktopMode = desktopMode,
+                onRefresh = {
+                    (popupWebView ?: webView)?.reload()
+                    onMessage("已刷新页面")
+                },
+                onToggleDesktopMode = {
+                    desktopMode = !desktopMode
+                    (popupWebView ?: webView)?.let { target ->
+                        // Changing UA during an active load makes WebView restart that load itself.
+                        // Stop first, apply the complete mode, then perform one explicit reload.
+                        target.stopLoading()
+                        applyEduWebMode(target, desktopMode)
+                        target.reload()
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            )
+        }
     }
 }
 
