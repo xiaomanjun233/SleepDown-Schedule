@@ -824,6 +824,10 @@ fun NormalizedCourseEditorScreen(
             CourseColorPicker(
                 show = colorPickerVisible,
                 selectedColorArgb = drafts.getValue(page).customColorArgb,
+                automaticColorArgb = courseCardBaseColor(
+                    config,
+                    editorGroups[page].representative?.copy(customColorArgb = null)
+                ).toArgb().toLong() and 0xFFFFFFFFL,
                 backdrop = backdrop,
                 config = config,
                 renderInRootScaffold = pickerRenderInRootScaffold,

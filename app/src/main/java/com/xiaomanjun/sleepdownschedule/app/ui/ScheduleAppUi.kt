@@ -91,7 +91,6 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Colorize
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
@@ -5582,55 +5581,6 @@ private fun CourseColorModeRow(
         }
     }
 
-    @Composable
-    fun PaletteButton() {
-        val buttonColor = if (customSelected) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            ComposeColor.White.copy(alpha = 0.90f)
-        }
-        val iconColor = if (customSelected) ComposeColor.White else ComposeColor(0xFF1A1A1A)
-        if (backdrop != null) {
-            LiquidButton(
-                onClick = onOpenPalette,
-                backdrop = backdrop,
-                modifier = Modifier.size(32.dp),
-                height = 32.dp,
-                contentPadding = PaddingValues(0.dp),
-                surfaceColor = buttonColor,
-                blurRadius = 8.dp,
-                lensHeight = 18.dp,
-                lensAmount = 22.dp,
-                chromaticAberration = false
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Filled.Palette,
-                        contentDescription = "自定义课程卡颜色",
-                        tint = iconColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-        } else {
-            Surface(
-                modifier = Modifier.size(32.dp),
-                shape = RoundedCornerShape(50),
-                color = buttonColor,
-                onClick = onOpenPalette
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Filled.Palette,
-                        contentDescription = "自定义课程卡颜色",
-                        tint = iconColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-        }
-    }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -5654,8 +5604,13 @@ private fun CourseColorModeRow(
                 repeat(5) { index ->
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         when (index) {
-                            1 -> PresetButton(presets.first())
-                            3 -> PaletteButton()
+                            0 -> PresetButton(presets.first())
+                            4 -> CourseColorPaletteButton(
+                                backdrop = backdrop,
+                                selected = customSelected,
+                                onClick = onOpenPalette,
+                                size = 32.dp
+                            )
                         }
                     }
                 }
@@ -5666,7 +5621,12 @@ private fun CourseColorModeRow(
                     }
                 }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    PaletteButton()
+                    CourseColorPaletteButton(
+                        backdrop = backdrop,
+                        selected = customSelected,
+                        onClick = onOpenPalette,
+                        size = 32.dp
+                    )
                 }
             }
         }

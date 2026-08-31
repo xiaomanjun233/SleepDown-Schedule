@@ -46,7 +46,6 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -72,8 +71,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -99,6 +96,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
@@ -680,6 +678,7 @@ internal fun CourseManagementDetailPage(
                     selectedColor = selectedColor,
                     onColorSelected = { selectedColor = it },
                     onOpenColorPicker = { colorPickerVisible = true },
+                    backdrop = cardBackdrop,
                     config = state.config
                 )
             }
@@ -749,6 +748,10 @@ internal fun CourseManagementDetailPage(
         CourseColorPicker(
             show = colorPickerVisible,
             selectedColorArgb = selectedColor,
+            automaticColorArgb = courseCardBaseColor(
+                state.config,
+                group.representative.copy(customColorArgb = null)
+            ).toArgb().toLong() and 0xFFFFFFFFL,
             backdrop = pickerBackdrop,
             config = state.config,
             renderInRootScaffold = true,
@@ -873,6 +876,7 @@ private fun CourseIdentityCard(
     selectedColor: Long?,
     onColorSelected: (Long?) -> Unit,
     onOpenColorPicker: () -> Unit,
+    backdrop: Backdrop?,
     config: ScheduleConfigEntity
 ) {
     CourseManagementSettingsSection(title = "课程信息") {
@@ -890,40 +894,13 @@ private fun CourseIdentityCard(
                 insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
             )
             val palette = LocalCourseCardPalette.current.ifEmpty { DefaultCourseCardPalette }
-            FlowRow(
+            val visiblePalette = palette.take(4)
+            Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    Modifier.size(34.dp).clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .then(
-                            if (selectedColor == null) {
-                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .clickable { onColorSelected(null) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (selectedColor == null) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_check),
-                            contentDescription = "已选择自动课程颜色",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.align(Alignment.TopEnd).padding(2.dp).size(11.dp)
-                        )
-                    }
-                    Icon(
-                        imageVector = Icons.Filled.AutoAwesome,
-                        contentDescription = "自动课程颜色",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-                palette.take(6).forEach { argb ->
+                visiblePalette.forEach { argb ->
                     val selected = selectedColor == argb
                     Box(
                         Modifier
@@ -957,31 +934,12 @@ private fun CourseIdentityCard(
                         }
                     }
                 }
-                val customSelected = selectedColor != null && selectedColor !in palette.take(6)
-                Box(
-                    Modifier.size(34.dp).clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .then(
-                            if (customSelected) {
-                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .clickable(onClick = onOpenColorPicker),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Palette,
-                        contentDescription = "打开调色盘",
-                        tint = if (customSelected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
+                CourseColorPaletteButton(
+                    backdrop = backdrop,
+                    selected = selectedColor != null && selectedColor !in visiblePalette,
+                    onClick = onOpenColorPicker,
+                    size = 34.dp
+                )
             }
         }
     }
