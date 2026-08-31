@@ -31,6 +31,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas as AndroidCanvas
 import android.net.Uri
 import android.net.http.SslError
 import android.provider.MediaStore
@@ -1244,6 +1245,7 @@ fun EduSchoolPickerScreen(
     val adapters = remember(warehouseGeneration) {
         runCatching { ShiguangWarehouse.loadAdapters(context) }
             .getOrDefault(emptyList())
+            .filterNot(EduAdapter::isGeneralEduTool)
     }
     var adapterChoices by remember { mutableStateOf<List<EduAdapter>?>(null) }
     var query by remember { mutableStateOf("") }
@@ -2917,6 +2919,9 @@ private fun EduImportBrowserScreen(
     var popupWebView by remember(adapter) { mutableStateOf<WebView?>(null) }
     var webViewGeneration by remember(adapter) { mutableIntStateOf(0) }
     var rendererRestoreUrl by remember(adapter) { mutableStateOf<String?>(null) }
+    var webTopEdgeBitmap by remember(adapter) { mutableStateOf<Bitmap?>(null) }
+    val topEdgeSampleHandler = remember(adapter) { Handler(Looper.getMainLooper()) }
+    val topEdgeSampleToken = remember(adapter) { Any() }
     val requestInterceptor = remember(adapter) { ShiguangWebRequestInterceptor() }
     val taskProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     LaunchedEffect(taskProgress?.taskId, taskProgress?.finished) {
@@ -2928,9 +2933,25 @@ private fun EduImportBrowserScreen(
         onMessage(completed.error ?: completed.liveSummary.ifBlank { completed.steps.lastOrNull().orEmpty() })
     }
     val topPadding = if (useDetailTopPadding) detailContentTopPadding() else 0.dp
-    val webContentTopInsetPx = with(LocalDensity.current) { topPadding.roundToPx() }
     val normalizedUrl = remember(addressText) {
         normalizeEduUrl(addressText)
+    }
+
+    fun scheduleWebTopEdgeSample(target: WebView) {
+        topEdgeSampleHandler.removeCallbacksAndMessages(topEdgeSampleToken)
+        topEdgeSampleHandler.postAtTime(
+            {
+                val width = target.width
+                if (width > 0 && target.height > 0) {
+                    Bitmap.createBitmap(width, 1, Bitmap.Config.ARGB_8888).also { bitmap ->
+                        target.draw(AndroidCanvas(bitmap))
+                        webTopEdgeBitmap = bitmap
+                    }
+                }
+            },
+            topEdgeSampleToken,
+            android.os.SystemClock.uptimeMillis() + 48L
+        )
     }
 
     fun loadAddress() {
@@ -3240,6 +3261,7 @@ private fun EduImportBrowserScreen(
             addressText = primary.url.orEmpty().ifBlank { currentUrl }
             onUrlChange(addressText)
             updateNavigationState(primary)
+            scheduleWebTopEdgeSample(primary)
         }
     }
 
@@ -3265,22 +3287,11 @@ private fun EduImportBrowserScreen(
         return true
     }
 
-    fun updateEduWebTopOffset(target: WebView, scrollY: Int = target.scrollY) {
-        if (webContentTopInsetPx <= 0) {
-            target.translationY = 0f
-            return
-        }
-        val collapseDistance = webContentTopInsetPx * 2.5f
-        val collapseProgress = (scrollY.coerceAtLeast(0) / collapseDistance).coerceIn(0f, 1f)
-        target.translationY = webContentTopInsetPx * (1f - collapseProgress)
-    }
-
     fun configureEduWebView(target: WebView, isPopup: Boolean) {
         target.apply webView@ {
             setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-            updateEduWebTopOffset(this)
-            setOnScrollChangeListener { _, _, scrollY, _, _ ->
-                updateEduWebTopOffset(this, scrollY)
+            setOnScrollChangeListener { _, _, _, _, _ ->
+                scheduleWebTopEdgeSample(this)
             }
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -3319,7 +3330,7 @@ private fun EduImportBrowserScreen(
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     view?.injectShiguangRuntime(desktopMode)
-                    view?.let { updateEduWebTopOffset(it) }
+                    view?.let(::scheduleWebTopEdgeSample)
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
                     if (visiblePage) updateNavigationState(view)
                     if (visiblePage && !url.isNullOrBlank()) {
@@ -3451,6 +3462,7 @@ private fun EduImportBrowserScreen(
     }
     DisposableEffect(Unit) {
         onDispose {
+            topEdgeSampleHandler.removeCallbacksAndMessages(topEdgeSampleToken)
             popupWebView?.let { popup ->
                 popup.uninstallShiguangRuntime()
                 (popup.parent as? ViewGroup)?.removeView(popup)
@@ -3460,9 +3472,9 @@ private fun EduImportBrowserScreen(
         }
     }
 
-    // The producer and unclipped WebView span the whole window. The complete WebView surface starts
-    // below the compact bar, then its translation collapses from real scrollY so fixed page headers
-    // remain intact and can move beneath the gradient glass. Dock and popups stay outside capture.
+    // Keep the WebView at its natural position below the compact bar. A one-pixel sample of the
+    // current WebView top edge is stretched only through the producer's top-bar region, so the
+    // gradient glass keeps the page color without moving or clipping the page header itself.
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
@@ -3470,10 +3482,21 @@ private fun EduImportBrowserScreen(
                 .glassBackdropProducer(webContentBackdrop)
                 .background(MaterialTheme.colorScheme.background)
         ) {
+            webTopEdgeBitmap?.let { edge ->
+                Image(
+                    bitmap = edge.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(topPadding),
+                    contentScale = ContentScale.FillBounds
+                )
+            }
             key(webViewGeneration) {
                 AndroidView(
                     modifier = Modifier
                         .fillMaxSize()
+                        .padding(top = topPadding)
                         .graphicsLayer {
                             compositingStrategy = CompositingStrategy.Offscreen
                         },
@@ -3496,6 +3519,7 @@ private fun EduImportBrowserScreen(
                     AndroidView(
                         modifier = Modifier
                             .fillMaxSize()
+                            .padding(top = topPadding)
                             .graphicsLayer {
                                 compositingStrategy = CompositingStrategy.Offscreen
                             },
