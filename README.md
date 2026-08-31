@@ -103,9 +103,12 @@ git clone https://gitee.com/xiaomanjun233/SleepDown-Schedule.git
 
 分发或提供修改版时，必须同步公开对应源代码，使项目至少达到源码可见标准，并遵守许可证中的显著署名、修改说明和非官方标识要求；商业使用须另行取得书面授权。
 
-- `main`：已验证的最新稳定代码。
+- `main`：已验证的最新稳定代码，受分支保护。
+- `develop`：贡献者提交 Pull Request 的目标分支，受分支保护。
 - `v<版本号>`：正式发布版本标签，例如 `v1.1.1`。
 - `feature/*`、`fix/*`、`release/*`、`codex/*`：短期开发分支，不作为长期下载入口。
+
+提交改进与 Pull Request 的具体步骤见文末[开发协作](#开发协作)章节。
 
 ## 项目结构
 
@@ -160,6 +163,52 @@ CourseSchedule/
 ## 开发协作
 
 本项目部分代码分析、实现、测试与文档整理由 OpenAI Codex 协助完成，最终内容由项目作者审阅并发布。
+
+### 分支约定
+
+- `main`：已验证的最新稳定代码，受分支保护，只能通过合并进入。
+- `develop`：贡献者提交变更的目标分支，受分支保护。所有来自外部的 Pull Request 默认合并到 `develop`，验证稳定后再由维护者合入 `main`。
+- `v<版本号>`：正式发布版本标签，例如 `v1.1.1`。
+- `feature/*`、`fix/*`、`release/*`、`codex/*`：短期开发分支，不作为长期下载入口。
+
+### 如何提交 Pull Request
+
+欢迎提交问题反馈或代码改进。本项目并非完全开源，参与贡献前请阅读 [LICENSE.md](LICENSE.md)，确认你的改动符合署名非商业、源码可见许可，且不包含未经授权的第三方素材。
+
+1. **Fork 仓库**：在 GitHub 上点击 `Fork`，将 `xiaomanjun233/SleepDown-Schedule` 复制到你的账号。
+
+2. **克隆你的 Fork 并同步上游**：
+
+   ```bash
+   git clone https://github.com/<你的用户名>/SleepDown-Schedule.git
+   cd SleepDown-Schedule
+   git remote add upstream https://github.com/xiaomanjun233/SleepDown-Schedule.git
+   git fetch upstream
+   ```
+
+3. **从 `develop` 创建功能分支**（不要直接从 `main` 拉分支）：
+
+   ```bash
+   git checkout -b feature/my-change upstream/develop
+   ```
+
+4. **完成修改并提交**：遵循仓库现有代码风格，为改动添加必要的说明，使用清晰、面向用户的语言描述提交内容。
+
+5. **推送分支并创建 PR**：
+
+   ```bash
+   git push -u origin feature/my-change
+   ```
+
+   然后到 GitHub 上你的 Fork 页面点击 `Compare & pull request`，将 **base 分支选择为上游仓库的 `develop`**（不是 `main`），填写改动说明后提交 PR。
+
+6. **跟进反馈**：PR 会经过审查；如需调整，在同一个分支继续提交并推送即可，PR 会自动更新。合入 `develop` 前需要至少一次审查通过。
+
+提交 PR 前请确认：
+
+- 变更范围与描述一致，不混入无关改动。
+- 未包含敏感信息（API Key、密钥、个人隐私、数据库文件等）。
+- 若修改了视觉或交互，请说明其效果与验收方式。
 
 ## 许可证
 
