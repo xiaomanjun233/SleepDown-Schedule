@@ -3074,6 +3074,7 @@ fun EduImportBrowserScreen(
         onMessage(completed.error ?: completed.liveSummary.ifBlank { completed.steps.lastOrNull().orEmpty() })
     }
     val topPadding = if (useDetailTopPadding) detailContentTopPadding() else 0.dp
+    val webContentTopInsetPx = with(LocalDensity.current) { topPadding.roundToPx() }
     val normalizedUrl = remember(addressText) {
         normalizeEduUrl(addressText)
     }
@@ -3440,6 +3441,8 @@ fun EduImportBrowserScreen(
     fun configureEduWebView(target: WebView, isPopup: Boolean) {
         target.apply webView@ {
             setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            setPadding(0, webContentTopInsetPx, 0, 0)
+            clipToPadding = false
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
@@ -3607,9 +3610,9 @@ fun EduImportBrowserScreen(
         }
     }
 
-    // The producer spans the whole window for the compact top bar, while the actual WebView is
-    // laid out below that bar. Messages, the unified Browser Dock and root-overlay popups remain
-    // later siblings outside the capture chain.
+    // The producer and WebView span the whole window for the compact top bar. WebView's own top
+    // padding keeps the first page frame below the bar, then scrolls away with the page so content
+    // can continue beneath the gradient glass. Messages, the Browser Dock and popups stay outside.
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
@@ -3620,7 +3623,6 @@ fun EduImportBrowserScreen(
                 AndroidView(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = topPadding)
                         .graphicsLayer {
                             compositingStrategy = CompositingStrategy.Offscreen
                         },
@@ -3639,7 +3641,6 @@ fun EduImportBrowserScreen(
                     AndroidView(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = topPadding)
                             .graphicsLayer {
                                 compositingStrategy = CompositingStrategy.Offscreen
                             },
