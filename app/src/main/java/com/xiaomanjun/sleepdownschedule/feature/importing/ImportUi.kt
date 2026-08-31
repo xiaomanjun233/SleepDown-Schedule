@@ -3607,9 +3607,10 @@ fun EduImportBrowserScreen(
         }
     }
 
-    // Only the native WebView is recorded into this dedicated backdrop. Messages, the unified
-    // Browser Dock and its root-overlay popups remain later siblings outside the capture chain.
-    Box(modifier = Modifier.fillMaxSize().padding(top = topPadding)) {
+    // The WebView producer extends behind the compact top bar so its gradient glass has real page
+    // pixels to sample. Messages, the unified Browser Dock and root-overlay popups remain later
+    // siblings outside the capture chain.
+    Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -3659,7 +3660,7 @@ fun EduImportBrowserScreen(
                 it,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 10.dp, start = 16.dp, end = 16.dp)
+                    .padding(top = topPadding + 10.dp, start = 16.dp, end = 16.dp)
                     .clip(RoundedCornerShape(50))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.86f))
                     .padding(horizontal = 14.dp, vertical = 8.dp),

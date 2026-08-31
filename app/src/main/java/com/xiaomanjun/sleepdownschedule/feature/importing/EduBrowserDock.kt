@@ -5,11 +5,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationSource
+import androidx.compose.foundation.layout.imeAnimationTarget
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -35,14 +42,15 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.core.CubicBezierEasing
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.xiaomanjun.sleepdownschedule.R
@@ -50,8 +58,15 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.sleepDownPanelForeg
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidCascadingPopup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidMenuItem
 import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.glass.ui.platformMotionBlurRenderEffect
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMotionBlurRadiusDp
 
+private val BrowserDockImeEasing = CubicBezierEasing(0.18f, 0f, 0f, 1f)
+private val BrowserDockLeftControlsWidth = 93.dp
+private val BrowserDockRightControlsWidth = 82.dp
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun EduBrowserDock(
     config: ScheduleConfigEntity,
@@ -73,6 +88,7 @@ internal fun EduBrowserDock(
     modifier: Modifier = Modifier
 ) {
     val foreground = sleepDownPanelForegroundColor(config)
+    val density = LocalDensity.current
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     var addressFocused by remember { mutableStateOf(false) }
@@ -86,6 +102,22 @@ internal fun EduBrowserDock(
     } else {
         Color(0xFF16181D).copy(alpha = 0.78f)
     }
+    val navigationBottom = WindowInsets.navigationBars.getBottom(density)
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val imeSourceBottom = WindowInsets.imeAnimationSource.getBottom(density)
+    val imeTargetBottom = WindowInsets.imeAnimationTarget.getBottom(density)
+    val imeTravel = (maxOf(imeBottom, imeSourceBottom, imeTargetBottom) - navigationBottom)
+        .coerceAtLeast(0)
+    val rawImeProgress = if (imeTravel == 0) {
+        0f
+    } else {
+        ((imeBottom - navigationBottom).coerceAtLeast(0).toFloat() / imeTravel).coerceIn(0f, 1f)
+    }
+    val addressExpansionProgress = BrowserDockImeEasing.transform(rawImeProgress)
+    val sideControlsAlpha = (1f - addressExpansionProgress).coerceIn(0f, 1f)
+    val sideControlsBlurPx = detailMotionBlurRadiusDp(addressExpansionProgress) * density.density
+    val sideControlsEnabled = addressExpansionProgress < 0.02f
+    val sideControlsTravelPx = with(density) { 18.dp.toPx() } * addressExpansionProgress
 
     Box(modifier = modifier) {
         LiquidButton(
@@ -103,6 +135,8 @@ internal fun EduBrowserDock(
             surfaceColor = dockSurfaceColor,
             shadowEnabled = lightDockGlass,
             highlightEnabled = true,
+            isInteractive = true,
+            highlightRadiusMultiplier = 2.2f,
             clipToBounds = false,
             clickTargetEnabled = false,
             pressExpansion = 1.5.dp
@@ -114,35 +148,66 @@ internal fun EduBrowserDock(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                EduBrowserDockIcon(
-                    iconRes = R.drawable.ic_arrow_back,
-                    contentDescription = "网页后退",
-                    foreground = foreground,
-                    enabled = canGoBack,
-                    onClick = onBack
-                )
-                EduBrowserDockIcon(
-                    iconRes = R.drawable.ic_arrow_back,
-                    contentDescription = "网页前进",
-                    foreground = foreground,
-                    enabled = canGoForward,
-                    flipHorizontal = true,
-                    onClick = onForward
-                )
                 Box(
-                    Modifier
-                        .padding(horizontal = 4.dp)
-                        .width(1.dp)
-                        .height(24.dp)
-                        .background(foreground.copy(alpha = 0.16f))
-                )
+                    modifier = Modifier
+                        .width(BrowserDockLeftControlsWidth * sideControlsAlpha)
+                        .height(40.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .width(BrowserDockLeftControlsWidth)
+                            .height(40.dp)
+                            .graphicsLayer {
+                                translationX = -sideControlsTravelPx
+                                alpha = sideControlsAlpha
+                                compositingStrategy = if (sideControlsBlurPx > 0.01f) {
+                                    CompositingStrategy.Offscreen
+                                } else {
+                                    CompositingStrategy.Auto
+                                }
+                                renderEffect = platformMotionBlurRenderEffect(sideControlsBlurPx)
+                                clip = false
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        EduBrowserDockIcon(
+                            iconRes = R.drawable.ic_arrow_back,
+                            contentDescription = "网页后退",
+                            foreground = foreground,
+                            enabled = canGoBack && sideControlsEnabled,
+                            onClick = onBack
+                        )
+                        EduBrowserDockIcon(
+                            iconRes = R.drawable.ic_arrow_back,
+                            contentDescription = "网页前进",
+                            foreground = foreground,
+                            enabled = canGoForward && sideControlsEnabled,
+                            flipHorizontal = true,
+                            onClick = onForward
+                        )
+                        Box(
+                            Modifier
+                                .padding(horizontal = 4.dp)
+                                .width(1.dp)
+                                .height(24.dp)
+                                .background(foreground.copy(alpha = 0.16f))
+                        )
+                    }
+                }
                 BasicTextField(
                     value = address,
                     onValueChange = onAddressChange,
                     modifier = Modifier
                         .weight(1f)
                         .height(40.dp)
-                        .onFocusChanged { addressFocused = it.isFocused },
+                        .onFocusChanged {
+                            addressFocused = it.isFocused
+                            if (it.isFocused) {
+                                importMenuVisible = false
+                                moreMenuVisible = false
+                            }
+                        },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                         color = if (addressFocused) foreground else Color.Transparent
@@ -187,38 +252,51 @@ internal fun EduBrowserDock(
                 )
                 Box(
                     modifier = Modifier
+                        .width(BrowserDockRightControlsWidth * sideControlsAlpha)
                         .height(40.dp)
-                        .onGloballyPositioned { importAnchor = it.boundsInRoot() }
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .width(BrowserDockRightControlsWidth)
+                            .height(40.dp)
+                            .graphicsLayer {
+                                translationX = sideControlsTravelPx
+                                alpha = sideControlsAlpha
+                                compositingStrategy = if (sideControlsBlurPx > 0.01f) {
+                                    CompositingStrategy.Offscreen
+                                } else {
+                                    CompositingStrategy.Auto
+                                }
+                                renderEffect = platformMotionBlurRenderEffect(sideControlsBlurPx)
+                                clip = false
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        EduBrowserDockIcon(
+                            iconRes = R.drawable.ic_school_import,
+                            contentDescription = "导入",
+                            foreground = foreground,
+                            enabled = sideControlsEnabled,
+                            modifier = Modifier.onGloballyPositioned { importAnchor = it.boundsInRoot() },
                             onClick = {
                                 moreMenuVisible = false
                                 importMenuVisible = !importMenuVisible
                             }
                         )
-                        .padding(horizontal = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "导入",
-                        color = if (aiImportRunning) foreground.copy(alpha = 0.55f) else foreground,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
-                    )
-                }
-                EduBrowserDockIcon(
-                    iconRes = R.drawable.ic_more_horizontal,
-                    contentDescription = "更多浏览器操作",
-                    foreground = foreground,
-                    enabled = true,
-                    modifier = Modifier.onGloballyPositioned { moreAnchor = it.boundsInRoot() },
-                    onClick = {
-                        importMenuVisible = false
-                        moreMenuVisible = !moreMenuVisible
+                        EduBrowserDockIcon(
+                            iconRes = R.drawable.ic_more_horizontal,
+                            contentDescription = "更多浏览器操作",
+                            foreground = foreground,
+                            enabled = sideControlsEnabled,
+                            modifier = Modifier.onGloballyPositioned { moreAnchor = it.boundsInRoot() },
+                            onClick = {
+                                importMenuVisible = false
+                                moreMenuVisible = !moreMenuVisible
+                            }
+                        )
                     }
-                )
+                }
             }
         }
 
@@ -230,6 +308,7 @@ internal fun EduBrowserDock(
                     add(SleepDownLiquidMenuItem(
                         key = "edu-original-import",
                         text = "常规教务导入",
+                        iconRes = R.drawable.ic_school_import,
                         onClick = {
                             importMenuVisible = false
                             onOriginalImport()
@@ -239,6 +318,7 @@ internal fun EduBrowserDock(
                 add(SleepDownLiquidMenuItem(
                     key = "edu-ai-import",
                     text = "AI 导入",
+                    iconRes = R.drawable.ic_ai_import,
                     enabled = !aiImportRunning,
                     onClick = {
                         importMenuVisible = false
@@ -258,6 +338,7 @@ internal fun EduBrowserDock(
                 SleepDownLiquidMenuItem(
                     key = "edu-refresh",
                     text = "刷新",
+                    iconRes = R.drawable.ic_refresh,
                     onClick = {
                         moreMenuVisible = false
                         onRefresh()
@@ -266,6 +347,7 @@ internal fun EduBrowserDock(
                 SleepDownLiquidMenuItem(
                     key = "edu-web-mode",
                     text = if (desktopMode) "切换为手机网页" else "切换为电脑网页",
+                    iconRes = R.drawable.ic_web_mode,
                     onClick = {
                         moreMenuVisible = false
                         onToggleDesktopMode()

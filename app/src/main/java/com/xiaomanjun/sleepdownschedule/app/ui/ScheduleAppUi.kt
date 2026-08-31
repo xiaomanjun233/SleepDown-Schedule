@@ -6919,8 +6919,9 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                 contentDescription = if (warehouseRefreshing) "正在更新适配器" else "更新适配器",
                                 onClick = { refreshWarehouse(manual = true) },
                                 modifier = Modifier
-                                    .size(42.dp)
-                                    .graphicsLayer { alpha = if (warehouseRefreshing) 0.46f else 1f }
+                                    .size(SleepDownDesignTokens.SecondaryPage.BackButtonSize)
+                                    .graphicsLayer { alpha = if (warehouseRefreshing) 0.46f else 1f },
+                                buttonHeight = SleepDownDesignTokens.SecondaryPage.BackButtonSize
                             )
                         }
                     ) { backdrop ->
@@ -6970,6 +6971,8 @@ open class EduImportActivityHost : ComponentActivity() {
                         onBack = { finish() },
                         isolateContentFromBackdrop = true,
                         compactTopBar = true,
+                        centerCompactTitle = true,
+                        compactTitleMatchesSettings = true,
                         topBarBackdropOverride = eduWebContentBackdrop
                     ) { backdrop ->
                         if (adapter == null) {

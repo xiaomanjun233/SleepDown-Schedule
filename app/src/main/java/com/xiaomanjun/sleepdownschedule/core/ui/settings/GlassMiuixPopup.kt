@@ -18,13 +18,16 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialog
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -50,6 +53,7 @@ import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 internal data class SleepDownLiquidMenuItem(
     val key: String,
     val text: String,
+    val iconRes: Int? = null,
     val summary: String? = null,
     val selected: Boolean = false,
     val enabled: Boolean = true,
@@ -248,13 +252,23 @@ internal fun SleepDownLiquidDropdownPreference(
     )
 }
 
-private fun SleepDownLiquidMenuItem.asMiuixDropdownItem(): DropdownItem = DropdownItem(
+private fun SleepDownLiquidMenuItem.asMiuixDropdownItem(iconColor: Color): DropdownItem = DropdownItem(
     text = text,
     enabled = enabled,
     selected = selected || accent,
     onClick = onClick,
+    icon = iconRes?.let { resourceId ->
+        { modifier ->
+            Icon(
+                painter = painterResource(resourceId),
+                contentDescription = null,
+                tint = iconColor,
+                modifier = modifier.size(20.dp)
+            )
+        }
+    },
     summary = summary,
-    children = children.takeIf { it.isNotEmpty() }?.map { it.asMiuixDropdownItem() }
+    children = children.takeIf { it.isNotEmpty() }?.map { it.asMiuixDropdownItem(iconColor) }
 )
 
 @Composable
@@ -281,7 +295,10 @@ internal fun SleepDownLiquidCascadingPopup(
     } else {
         primaryPopupBackdrop
     }
-    val entry = remember(items) { DropdownEntry(items.map { it.asMiuixDropdownItem() }) }
+    val popupContentColor = contentColor ?: sleepDownPanelForegroundColor(config)
+    val entry = remember(items, popupContentColor) {
+        DropdownEntry(items.map { it.asMiuixDropdownItem(popupContentColor) })
+    }
     val basePrimaryVisualStyle = rememberMiuixListPopupStyle(
         backdrop = completeUnderlayBackdrop,
         config = config,
