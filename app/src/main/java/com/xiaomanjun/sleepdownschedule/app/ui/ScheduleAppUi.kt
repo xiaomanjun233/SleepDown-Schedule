@@ -194,7 +194,6 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -6941,29 +6940,20 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                 )
                             }
                         )
-                        SleepDownPickerDialog(
-                            show = warehouseManualRefreshing,
-                            title = "更新适配器",
-                            onDismissRequest = {},
+                        LiquidAlertDialog(
+                            title = "正在更新适配器",
+                            message = "正在获取最新适配列表。现在可以返回或退到桌面，更新会在后台继续。",
+                            actions = listOf(
+                                LiquidAlertAction(
+                                    "后台继续",
+                                    LiquidAlertActionStyle.Secondary,
+                                    onClick = { warehouseManualRefreshing = false }
+                                )
+                            ),
                             backdrop = backdrop,
                             config = state.config,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.5.dp
-                                )
-                                Text(
-                                    text = "正在获取最新适配列表",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        }
+                            onDismissRequest = { warehouseManualRefreshing = false }
+                        )
                     }
                 }
             }
