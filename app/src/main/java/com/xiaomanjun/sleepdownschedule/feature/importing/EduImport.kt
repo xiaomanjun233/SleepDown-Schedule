@@ -17,6 +17,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.EOFException
 import java.io.IOException
+import java.security.MessageDigest
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -96,7 +97,7 @@ fun eduAdapterFromIntentKey(value: String?): EduAdapter? {
 }
 
 fun EduAdapter.isGeneralEduTool(): Boolean {
-    return school.id in setOf("zhengfang_jiaowu", "chaoxing_jiaowu", "qingguo_jiaowu", "urp_jiaowu")
+    return category == "GENERAL_TOOL"
 }
 
 fun EduAdapter.isAiEduImportTool(): Boolean {
@@ -104,7 +105,7 @@ fun EduAdapter.isAiEduImportTool(): Boolean {
 }
 
 fun EduAdapter.requiresManualEduUrl(): Boolean {
-    return isGeneralEduTool() || isAiEduImportTool()
+    return isAiEduImportTool()
 }
 
 fun EduAdapter.isEduTestTool(): Boolean {
@@ -141,32 +142,34 @@ object ShiguangWarehouse {
     private val quotedValue = Regex("""^\s*([A-Za-z_]+):\s*"?(.*?)"?\s*(?:#.*)?$""")
 
     fun loadAdapters(context: Context): List<EduAdapter> {
-        val protocolAdapters = runCatching {
+        val officialAdapters = runCatching {
             ShiguangWarehouseUpdater.cachedIndexFile(context)
                 .takeIf { it.isFile }
                 ?.readBytes()
-                ?.let(::parseProtocolV2Index)
+                ?.let(::parseProtocolV2Snapshot)
+                ?.adapters
                 ?.takeIf { it.isNotEmpty() }
         }.getOrNull() ?: loadBundledAdapters(context)
-        // Preserve bundled private adaptations that are not published by the official index.
-        val protocolSchoolIds = protocolAdapters.map { it.school.id }.toSet()
-        val warehouseAdapters = (
-            protocolAdapters + loadLegacyYamlAdapters(context).filter { it.school.id !in protocolSchoolIds }
-            ).map { adapter ->
-            if (adapter.isEduTestTool()) adapter.copy(importUrl = EDU_BRIDGE_TEST_PAGE_URL) else adapter
-        }.filter { it.assetJsPath.isNotBlank() && (it.importUrl.isNotBlank() || it.isGeneralEduTool()) }
+        val warehouseAdapters = officialAdapters
+            .filter { it.category in OfficialCategories }
             .sortedWith(compareBy<EduAdapter> { it.school.initial }.thenBy { it.school.name }.thenBy { it.adapterName })
         return listOf(aiEduImportAdapter()) + warehouseAdapters
     }
 
-    private fun loadBundledAdapters(context: Context): List<EduAdapter> = runCatching {
-        context.assets.open("$Root/school_index.pb").use { input ->
-            parseProtocolV2Index(input.readBytes())
-        }
-    }.getOrElse {
-        // YAML remains the bundled compatibility fallback for snapshots without a valid v2 index.
-        loadLegacyYamlAdapters(context)
+    private fun loadBundledAdapters(context: Context): List<EduAdapter> {
+        val protocolAdapters = runCatching {
+            context.assets.open("$Root/school_index.pb").use { input ->
+                parseProtocolV2Snapshot(input.readBytes()).adapters
+            }
+        }.getOrNull()
+        return protocolAdapters?.takeIf { it.isNotEmpty() } ?: loadLegacyYamlAdapters(context)
     }
+
+    private val OfficialCategories = setOf(
+        "GENERAL_TOOL",
+        "BACHELOR_AND_ASSOCIATE",
+        "POSTGRADUATE"
+    )
 
     private fun loadLegacyYamlAdapters(context: Context): List<EduAdapter> {
         val schools = parseSchools(
@@ -186,12 +189,6 @@ object ShiguangWarehouse {
 
     suspend fun resolveScript(context: Context, adapter: EduAdapter): String = withContext(Dispatchers.IO) {
         val relativePath = ShiguangWarehouseUpdater.resourceRelativePath(adapter)
-        ShiguangWarehouseUpdater.cachedScriptFile(context, adapter)
-            .takeIf { it.isFile }
-            ?.readText()
-            ?.takeIf { it.isNotBlank() }
-            ?.let { return@withContext it }
-
         var remoteFailure: Exception? = null
         if (ShiguangWarehouseUpdater.hasValidRemoteIndex(context)) {
             try {
@@ -270,16 +267,17 @@ object ShiguangWarehouse {
         return result
     }
 
-    /** Parses the official shiguang_warehouse protocol-v2 protobuf without a codegen runtime. */
-    internal fun parseProtocolV2Index(bytes: ByteArray): List<EduAdapter> {
+    /** Parses one immutable official protocol-v2 warehouse snapshot. */
+    internal fun parseProtocolV2Snapshot(bytes: ByteArray): ShiguangWarehouseSnapshot {
         val reader = ProtoReader(bytes)
         var protocolVersion = 0
+        var versionId = ""
         val schools = mutableListOf<ProtocolSchool>()
         while (!reader.exhausted) {
             val tag = reader.readTag()
             when (tag.fieldNumber) {
                 1 -> protocolVersion = reader.readInt32(tag.wireType)
-                2 -> reader.readString(tag.wireType) // version_id is informational at runtime.
+                2 -> versionId = reader.readString(tag.wireType)
                 3 -> schools += parseProtocolSchool(reader.readMessage(tag.wireType))
                 else -> reader.skip(tag.wireType)
             }
@@ -288,7 +286,7 @@ object ShiguangWarehouse {
             "不支持的拾光仓库索引协议：v$protocolVersion（需要 v$ProtocolV2）"
         }
         require(schools.isNotEmpty()) { "拾光仓库 v2 索引中没有学校数据" }
-        return schools.flatMap { record ->
+        val adapters = schools.flatMap { record ->
             val school = EduSchool(
                 id = record.id,
                 name = record.name,
@@ -308,6 +306,13 @@ object ShiguangWarehouse {
                 )
             }
         }
+        require(adapters.isNotEmpty()) { "拾光仓库 v2 索引中没有适配器" }
+        return ShiguangWarehouseSnapshot(
+            protocolVersion = protocolVersion,
+            versionId = versionId,
+            indexSha = bytes.sha256Hex(),
+            adapters = adapters
+        )
     }
 
     private fun parseProtocolSchool(reader: ProtoReader): ProtocolSchool {
@@ -448,7 +453,18 @@ object ShiguangWarehouse {
             error("拾光仓库 v2 索引包含过长的 varint")
         }
     }
+
+    private fun ByteArray.sha256Hex(): String = MessageDigest.getInstance("SHA-256")
+        .digest(this)
+        .joinToString("") { byte -> "%02x".format(byte) }
 }
+
+internal data class ShiguangWarehouseSnapshot(
+    val protocolVersion: Int,
+    val versionId: String,
+    val indexSha: String,
+    val adapters: List<EduAdapter>
+)
 
 class EduImportBridge(
     private val context: Context,

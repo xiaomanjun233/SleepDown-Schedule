@@ -15,7 +15,6 @@ import java.net.URL
 import java.net.URLEncoder
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 internal data class ShiguangRefreshResult(
@@ -29,6 +28,7 @@ internal object ShiguangWarehouseUpdater {
     private const val PreferencesName = "shiguang_warehouse_metadata"
     private const val LastSuccessfulRefreshKey = "last_successful_refresh"
     private const val IndexShaKey = "index_sha256"
+    private const val VersionIdKey = "version_id"
     private const val IndexUrl =
         "https://raw.githubusercontent.com/XingHeYuZhuan/shiguang_warehouse/index-pb-release/school_index.pb"
     private const val ResourceBaseUrl =
@@ -39,10 +39,10 @@ internal object ShiguangWarehouseUpdater {
     fun cachedIndexFile(context: Context): File = File(cacheRoot(context), IndexFileName)
 
     fun cachedScriptFile(context: Context, adapter: EduAdapter): File =
-        safeResourceFile(context, resourceRelativePath(adapter))
+        safeResourceFile(context, currentRemoteSnapshot(context).indexSha, resourceRelativePath(adapter))
 
     fun hasValidRemoteIndex(context: Context): Boolean = runCatching {
-        ShiguangWarehouse.parseProtocolV2Index(cachedIndexFile(context).readBytes()).isNotEmpty()
+        currentRemoteSnapshot(context).adapters.isNotEmpty()
     }.getOrDefault(false)
 
     fun isRefreshStale(context: Context, nowMillis: Long = System.currentTimeMillis()): Boolean {
@@ -53,19 +53,18 @@ internal object ShiguangWarehouseUpdater {
     suspend fun refresh(context: Context): ShiguangRefreshResult = withContext(Dispatchers.IO) {
         refreshMutex.withLock {
             val bytes = download(IndexUrl)
-            val adapters = ShiguangWarehouse.parseProtocolV2Index(bytes)
-            require(adapters.isNotEmpty()) { "远端拾光索引为空" }
-            val sha = bytes.sha256()
+            val snapshot = ShiguangWarehouse.parseProtocolV2Snapshot(bytes)
             val previousSha = preferences(context).getString(IndexShaKey, null)
             atomicWrite(cachedIndexFile(context), bytes)
             val committed = preferences(context).edit()
                 .putLong(LastSuccessfulRefreshKey, System.currentTimeMillis())
-                .putString(IndexShaKey, sha)
+                .putString(IndexShaKey, snapshot.indexSha)
+                .putString(VersionIdKey, snapshot.versionId)
                 .commit()
             check(committed) { "无法保存拾光仓库刷新时间" }
             ShiguangRefreshResult(
-                changed = previousSha != sha,
-                adapterCount = adapters.size
+                changed = previousSha != snapshot.indexSha,
+                adapterCount = snapshot.adapters.size
             )
         }
     }
@@ -74,7 +73,13 @@ internal object ShiguangWarehouseUpdater {
         withContext(Dispatchers.IO) {
             refreshMutex.withLock {
                 val relativePath = resourceRelativePath(adapter)
-                val target = safeResourceFile(context, relativePath)
+                val snapshot = currentRemoteSnapshot(context)
+                require(snapshot.adapters.any { current ->
+                    current.school.id == adapter.school.id &&
+                        current.adapterId == adapter.adapterId &&
+                        resourceRelativePath(current) == relativePath
+                }) { "当前拾光索引不再包含此适配器：${adapter.displayName}" }
+                val target = safeResourceFile(context, snapshot.indexSha, relativePath)
                 target.takeIf { it.isFile }?.readText()?.takeIf { it.isNotBlank() }?.let { return@withLock it }
 
                 val encodedPath = relativePath.split('/').joinToString("/") { segment ->
@@ -88,10 +93,11 @@ internal object ShiguangWarehouseUpdater {
         }
 
     internal fun resourceRelativePath(adapter: EduAdapter): String {
-        val path = if ('/' in adapter.assetJsPath) {
-            adapter.assetJsPath
+        val assetPath = adapter.assetJsPath.ifBlank { "${adapter.adapterId}.js" }
+        val path = if ('/' in assetPath) {
+            assetPath
         } else {
-            "${adapter.school.folder}/${adapter.assetJsPath}"
+            "${adapter.school.folder}/$assetPath"
         }
         require(path.isNotBlank()) { "拾光脚本路径为空" }
         require('\\' !in path && !path.startsWith('/')) { "非法拾光脚本路径：$path" }
@@ -107,10 +113,15 @@ internal object ShiguangWarehouseUpdater {
     private fun cacheRoot(context: Context): File =
         File(context.filesDir, CacheDirectoryName).apply { mkdirs() }
 
-    private fun safeResourceFile(context: Context, relativePath: String): File {
+    private fun currentRemoteSnapshot(context: Context) =
+        ShiguangWarehouse.parseProtocolV2Snapshot(cachedIndexFile(context).readBytes())
+
+    private fun safeResourceFile(context: Context, generation: String, relativePath: String): File {
+        require(generation.matches(Regex("[0-9a-f]{64}"))) { "非法拾光缓存 generation" }
         val resources = File(cacheRoot(context), "resources").apply { mkdirs() }
-        val target = File(resources, relativePath)
-        val rootPath = resources.canonicalFile.toPath()
+        val generationRoot = File(resources, generation).apply { mkdirs() }
+        val target = File(generationRoot, relativePath)
+        val rootPath = generationRoot.canonicalFile.toPath()
         val targetPath = target.canonicalFile.toPath()
         require(targetPath.startsWith(rootPath)) { "拾光脚本路径越界：$relativePath" }
         return target
@@ -154,7 +165,4 @@ internal object ShiguangWarehouseUpdater {
         }
     }
 
-    private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256")
-        .digest(this)
-        .joinToString("") { byte -> "%02x".format(byte) }
 }
