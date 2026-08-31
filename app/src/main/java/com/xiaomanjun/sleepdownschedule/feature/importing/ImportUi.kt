@@ -2669,7 +2669,7 @@ fun EduImportActivityScreen(
                     helperText = if (adapter.isAiEduImportTool()) {
                         "AI教务导入需要先打开学校教务系统网址。登录后进入课表页面，后续可使用 AI 解析当前页面。"
                     } else {
-                        "通用教务需要先填写学校教务系统网址，进入后可继续在顶部网址栏修改。"
+                        "通用教务需要先填写学校教务系统网址，进入后可继续在下方地址栏修改。"
                     },
                     onCancel = { showGeneralUrlDialog = false },
                     onConfirm = {
@@ -2702,7 +2702,7 @@ fun GeneralEduUrlDialog(
     backdrop: Backdrop?,
     adapter: EduAdapter,
     initialUrl: String,
-    helperText: String = "通用教务需要先填写学校教务系统网址，进入后可继续在顶部网址栏修改。",
+    helperText: String = "通用教务需要先填写学校教务系统网址，进入后可继续在下方地址栏修改。",
     onCancel: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
