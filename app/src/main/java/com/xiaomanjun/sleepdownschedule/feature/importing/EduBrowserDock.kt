@@ -62,7 +62,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.platformMotionBlurRenderEffect
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMotionBlurRadiusDp
 
-private val BrowserDockImeEasing = CubicBezierEasing(0.18f, 0f, 0f, 1f)
+private val BrowserDockImeEasing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 private val BrowserDockLeftControlsWidth = 93.dp
 private val BrowserDockRightControlsWidth = 82.dp
 

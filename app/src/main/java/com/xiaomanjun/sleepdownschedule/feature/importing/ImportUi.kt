@@ -3607,9 +3607,9 @@ fun EduImportBrowserScreen(
         }
     }
 
-    // The WebView producer extends behind the compact top bar so its gradient glass has real page
-    // pixels to sample. Messages, the unified Browser Dock and root-overlay popups remain later
-    // siblings outside the capture chain.
+    // The producer spans the whole window for the compact top bar, while the actual WebView is
+    // laid out below that bar. Messages, the unified Browser Dock and root-overlay popups remain
+    // later siblings outside the capture chain.
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
@@ -3620,6 +3620,7 @@ fun EduImportBrowserScreen(
                 AndroidView(
                     modifier = Modifier
                         .fillMaxSize()
+                        .padding(top = topPadding)
                         .graphicsLayer {
                             compositingStrategy = CompositingStrategy.Offscreen
                         },
@@ -3638,6 +3639,7 @@ fun EduImportBrowserScreen(
                     AndroidView(
                         modifier = Modifier
                             .fillMaxSize()
+                            .padding(top = topPadding)
                             .graphicsLayer {
                                 compositingStrategy = CompositingStrategy.Offscreen
                             },

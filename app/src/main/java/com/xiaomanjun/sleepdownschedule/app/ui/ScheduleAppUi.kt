@@ -6918,9 +6918,7 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                 iconRes = R.drawable.ic_refresh,
                                 contentDescription = if (warehouseRefreshing) "正在更新适配器" else "更新适配器",
                                 onClick = { refreshWarehouse(manual = true) },
-                                modifier = Modifier
-                                    .size(SleepDownDesignTokens.SecondaryPage.BackButtonSize)
-                                    .graphicsLayer { alpha = if (warehouseRefreshing) 0.46f else 1f },
+                                modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
                                 buttonHeight = SleepDownDesignTokens.SecondaryPage.BackButtonSize
                             )
                         }
