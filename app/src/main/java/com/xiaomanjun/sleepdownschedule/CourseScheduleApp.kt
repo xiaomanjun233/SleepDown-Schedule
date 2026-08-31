@@ -61,6 +61,10 @@ class CourseScheduleApp : Application() {
             }
 
             override fun onStop(owner: LifecycleOwner) {
+                // Some ColorOS/Oplus launchers remove the visible task when a launcher alias is
+                // changed during an Activity return/theme handoff. Appearance changes record the
+                // desired alias immediately, then publish it only after the process is backgrounded.
+                AppIconManager.applyStoredMode(this@CourseScheduleApp)
                 if (hideFromRecentsEnabled) setTaskExcludedFromRecents(true)
             }
         })
