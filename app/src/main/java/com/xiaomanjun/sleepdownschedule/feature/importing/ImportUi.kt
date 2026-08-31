@@ -3438,11 +3438,23 @@ fun EduImportBrowserScreen(
         return true
     }
 
+    fun updateEduWebTopOffset(target: WebView, scrollY: Int = target.scrollY) {
+        if (webContentTopInsetPx <= 0) {
+            target.translationY = 0f
+            return
+        }
+        val collapseDistance = webContentTopInsetPx * 2.5f
+        val collapseProgress = (scrollY.coerceAtLeast(0) / collapseDistance).coerceIn(0f, 1f)
+        target.translationY = webContentTopInsetPx * (1f - collapseProgress)
+    }
+
     fun configureEduWebView(target: WebView, isPopup: Boolean) {
         target.apply webView@ {
             setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-            setPadding(0, webContentTopInsetPx, 0, 0)
-            clipToPadding = false
+            updateEduWebTopOffset(this)
+            setOnScrollChangeListener { _, _, scrollY, _, _ ->
+                updateEduWebTopOffset(this, scrollY)
+            }
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
@@ -3480,6 +3492,7 @@ fun EduImportBrowserScreen(
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    view?.let { updateEduWebTopOffset(it) }
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
                     if (visiblePage) updateNavigationState(view)
                     if (visiblePage && !url.isNullOrBlank()) {
@@ -3610,14 +3623,15 @@ fun EduImportBrowserScreen(
         }
     }
 
-    // The producer and WebView span the whole window for the compact top bar. WebView's own top
-    // padding keeps the first page frame below the bar, then scrolls away with the page so content
-    // can continue beneath the gradient glass. Messages, the Browser Dock and popups stay outside.
+    // The producer and unclipped WebView span the whole window. The complete WebView surface starts
+    // below the compact bar, then its translation collapses from real scrollY so fixed page headers
+    // remain intact and can move beneath the gradient glass. Dock and popups stay outside capture.
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .glassBackdropProducer(webContentBackdrop)
+                .background(MaterialTheme.colorScheme.background)
         ) {
             key(webViewGeneration) {
                 AndroidView(
