@@ -6,6 +6,7 @@ import com.xiaomanjun.sleepdownschedule.*
 
 import com.xiaomanjun.sleepdownschedule.feature.backup.*
 
+import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -13,6 +14,7 @@ import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.os.Process
 import android.os.SystemClock
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -84,7 +86,8 @@ private data class AiImportNetworkContext(
     val inputType: String,
     val imageCount: Int = 0,
     val screenshotCount: Int = 0,
-    val onPhase: (AiImportHttpPhase) -> Unit = {}
+    val onPhase: (AiImportHttpPhase) -> Unit = {},
+    val processImportanceProvider: () -> Int? = { null }
 )
 
 enum class StructuredOutputMode {
@@ -1551,6 +1554,7 @@ class AiScheduleImportService(private val context: Context) {
                 val preprocess = DefaultScheduleFilePreprocessor(context).preprocess(file, config)
                 val input = preprocess.toScheduleInput(file)
                 val networkContext = input.networkContext(
+                    context,
                     if (file.isImage) "IMAGE" else "FILE",
                     onHttpPhase
                 )
@@ -1583,7 +1587,7 @@ class AiScheduleImportService(private val context: Context) {
                 require(cleaned.count { !it.isWhitespace() } >= 40) { "当前页面可提取文本太少，请确认已经进入课表页面" }
                 val config = settings.toProviderConfig().normalizedForRequest()
                 val input = AiScheduleInput.ExtractedText(cleaned, sourceName)
-                val networkContext = input.networkContext("TEXT", onHttpPhase)
+                val networkContext = input.networkContext(context, "TEXT", onHttpPhase)
                 val result = when {
                     config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
                     else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext)
@@ -1626,6 +1630,7 @@ class AiScheduleImportService(private val context: Context) {
                     AiScheduleInput.CapturedPage(cleaned, screenshots, sourceName, warnings)
                 }
                 val networkContext = input.networkContext(
+                    context,
                     inputType = "CAPTURED_PAGE",
                     onHttpPhase = onHttpPhase,
                     screenshotCount = screenshots.size
@@ -1666,7 +1671,8 @@ class AiScheduleImportService(private val context: Context) {
                 inputType = "REVISION",
                 imageCount = history.screenshotPreviews.size,
                 screenshotCount = history.screenshotPreviews.size,
-                onPhase = onHttpPhase
+                onPhase = onHttpPhase,
+                processImportanceProvider = { currentAiProcessImportance(context) }
             )
             val result = when {
                 config.endpointStyle == AiEndpointStyle.RESPONSES ->
@@ -1685,6 +1691,7 @@ class AiScheduleImportService(private val context: Context) {
 }
 
 private fun AiScheduleInput.networkContext(
+    context: Context,
     inputType: String,
     onHttpPhase: (AiImportHttpPhase) -> Unit,
     screenshotCount: Int = 0
@@ -1697,8 +1704,16 @@ private fun AiScheduleInput.networkContext(
         else -> 0
     },
     screenshotCount = screenshotCount,
-    onPhase = onHttpPhase
+    onPhase = onHttpPhase,
+    processImportanceProvider = { currentAiProcessImportance(context) }
 )
+
+private fun currentAiProcessImportance(context: Context): Int? = runCatching {
+    context.getSystemService(ActivityManager::class.java)
+        ?.runningAppProcesses
+        ?.firstOrNull { it.pid == Process.myPid() }
+        ?.importance
+}.getOrNull()
 
 suspend fun testAiProviderConnection(settings: AiImportSettings): Result<String> {
     return withContext(Dispatchers.IO) {
@@ -1829,9 +1844,21 @@ private fun AiImportSettings.toProviderConfig(): AiProviderConfig {
     )
 }
 
+/**
+ * Debug-only Chat/Responses A/B override for the background-disconnect investigation.
+ * Forces the effective endpoint style for the same provider/model/key/input so the two
+ * transports can be compared on device. MUST be removed (and reset to null) after the
+ * verification round; it is intentionally not surfaced in any user-facing setting.
+ */
+internal object AiEndpointDiagnostics {
+    @Volatile
+    var forcedEndpointStyle: AiEndpointStyle? = null
+}
+
 internal fun AiProviderConfig.normalizedForRequest(): AiProviderConfig {
     val normalizedBaseUrl = normalizeAiBaseUrlForProvider(providerId, baseUrl)
-    val useResponses = endpointStyle == AiEndpointStyle.RESPONSES && supportsResponses
+    val useResponses = (AiEndpointDiagnostics.forcedEndpointStyle ?: endpointStyle) ==
+        AiEndpointStyle.RESPONSES && supportsResponses
     val isMimo = providerId == AiProviderPresets.mimo.id || providerId == AiProviderPresets.mimoTokenPlan.id
     val outputMode = if (providerId == AiProviderPresets.deepSeek.id || isMimo) {
         StructuredOutputMode.PROMPT_ONLY
@@ -2708,9 +2735,19 @@ private class AiImportHttpTrace(
         .toString(36)
         .padStart(6, '0')
     private var currentPhase = AiImportHttpPhase.REQUEST_CREATED
+    private var eventCount = 0
+    private var firstEventElapsedMs: Long? = null
+    private var lastEventElapsedMs: Long? = null
 
     init {
         logPhase(AiImportHttpPhase.REQUEST_CREATED)
+    }
+
+    /** Counts a received SSE data payload without logging each event. */
+    fun onEvent() {
+        eventCount++
+        if (firstEventElapsedMs == null) firstEventElapsedMs = elapsedMs()
+        lastEventElapsedMs = elapsedMs()
     }
 
     fun mark(phase: AiImportHttpPhase) {
@@ -2726,6 +2763,8 @@ private class AiImportHttpTrace(
             commonFields() +
                 " phase=REQUEST_FAILED failedAt=${currentPhase.name}" +
                 " elapsedMs=${elapsedMs()}" +
+                eventStats() +
+                processImportanceField() +
                 " failure=${error.javaClass.name}" +
                 " message=${error.message.orEmpty().replace('\n', ' ').take(240)}" +
                 " cause=${cause?.javaClass?.name.orEmpty()}" +
@@ -2734,11 +2773,27 @@ private class AiImportHttpTrace(
     }
 
     private fun logPhase(phase: AiImportHttpPhase) {
+        val withStats = phase == AiImportHttpPhase.FIRST_EVENT || phase == AiImportHttpPhase.STREAM_END
         Log.d(
             AiImportLogTag,
-            commonFields() + " phase=${phase.name} elapsedMs=${elapsedMs()}"
+            commonFields() + " phase=${phase.name} elapsedMs=${elapsedMs()}" +
+                if (withStats) eventStats() else ""
         )
     }
+
+    private fun eventStats(): String {
+        val first = firstEventElapsedMs?.let { " firstEventElapsedMs=$it" }.orEmpty()
+        val last = lastEventElapsedMs?.let { " lastEventElapsedMs=$it" }.orEmpty()
+        val sinceLast = if (lastEventElapsedMs != null) {
+            " msSinceLastEvent=${elapsedMs() - lastEventElapsedMs!!}"
+        } else {
+            " msSinceLastEvent=no-event"
+        }
+        return " eventCount=$eventCount$first$last$sinceLast"
+    }
+
+    private fun processImportanceField(): String =
+        " processImportance=${requestContext.processImportanceProvider()?.let { "IMPORTANCE_$it" } ?: "unavailable"}"
 
     private fun commonFields(): String =
         "request=$requestId" +
@@ -2771,7 +2826,6 @@ private fun safeRequest(
         connectTimeout = 30_000
         readTimeout = 600_000
         doOutput = true
-        setFixedLengthStreamingMode(body.size.toLong())
         setAiAuthHeader(apiKey, authType)
         setRequestProperty("Content-Type", contentType)
         setRequestProperty("Accept", "application/json")
@@ -2931,7 +2985,6 @@ private fun postChatCompletionStreaming(
         connectTimeout = 30_000
         readTimeout = 600_000
         doOutput = true
-        setFixedLengthStreamingMode(bodyBytes.size.toLong())
         setAiAuthHeader(apiKey, authType)
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "text/event-stream")
@@ -2958,6 +3011,7 @@ private fun postChatCompletionStreaming(
                     if (!line.startsWith("data:")) return@forEach
                     val payload = line.removePrefix("data:").trim()
                     if (payload.isBlank() || payload == "[DONE]") return@forEach
+                    trace.onEvent()
                     if (firstEvent) {
                         firstEvent = false
                         trace.mark(AiImportHttpPhase.FIRST_EVENT)
@@ -3003,7 +3057,6 @@ private fun postResponsesStreaming(
         connectTimeout = 30_000
         readTimeout = 600_000
         doOutput = true
-        setFixedLengthStreamingMode(bodyBytes.size.toLong())
         setAiAuthHeader(apiKey, authType)
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "text/event-stream")
@@ -3030,6 +3083,7 @@ private fun postResponsesStreaming(
                     if (!line.startsWith("data:")) return@forEach
                     val payload = line.removePrefix("data:").trim()
                     if (payload.isBlank() || payload == "[DONE]") return@forEach
+                    trace.onEvent()
                     if (firstEvent) {
                         firstEvent = false
                         trace.mark(AiImportHttpPhase.FIRST_EVENT)

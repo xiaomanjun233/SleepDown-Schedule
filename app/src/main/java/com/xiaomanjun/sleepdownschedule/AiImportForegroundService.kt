@@ -11,23 +11,29 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.os.Process
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 
 class AiImportForegroundService : Service() {
-    private lateinit var notificationManager: NotificationManager
     private var activeTaskId: String? = null
 
     override fun onCreate() {
         super.onCreate()
-        notificationManager = getSystemService(NotificationManager::class.java)
         ensureChannels(this)
+        Log.d(TAG, "SERVICE_CREATE pid=${Process.myPid()} elapsed=${SystemClock.elapsedRealtime()}")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val taskId = intent?.getStringExtra(EXTRA_TASK_ID).orEmpty()
+        Log.d(
+            TAG,
+            "SERVICE_START action=${intent?.action} task=$taskId pid=${Process.myPid()}" +
+                " elapsed=${SystemClock.elapsedRealtime()}"
+        )
         when (intent?.action) {
             ACTION_START -> {
                 activeTaskId = taskId
@@ -49,12 +55,6 @@ class AiImportForegroundService : Service() {
                     Log.d(TAG, "AI import workflow owned by foreground service task=$taskId")
                 }
             }
-            ACTION_UPDATE -> if (taskId == activeTaskId) {
-                notificationManager.notify(
-                    RUNNING_NOTIFICATION_ID,
-                    runningNotification(taskId, intent.getStringExtra(EXTRA_STATUS).orEmpty())
-                )
-            }
             ACTION_COMPLETE, ACTION_FAILED -> {
                 // The result notification has already been posted directly by
                 // AiImportTaskManager; this service only clears its foreground state.
@@ -66,39 +66,30 @@ class AiImportForegroundService : Service() {
         return START_NOT_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.d(
+            TAG,
+            "SERVICE_TASK_REMOVED task=$activeTaskId pid=${Process.myPid()}" +
+                " elapsed=${SystemClock.elapsedRealtime()}"
+        )
+    }
+
     override fun onDestroy() {
+        Log.d(
+            TAG,
+            "SERVICE_DESTROY task=$activeTaskId pid=${Process.myPid()}" +
+                " elapsed=${SystemClock.elapsedRealtime()}"
+        )
         // Deliberately no cancellation here: the workflow intentionally outlives this service.
         super.onDestroy()
     }
 
-    private fun runningNotification(taskId: String, status: String): Notification {
-        val builder = Notification.Builder(this, RUNNING_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_agent_thinking)
-            .setContentTitle("SleepDown · AI 导入")
-            .setContentText(status.ifBlank { "正在整理输入" })
-            .setContentIntent(progressPendingIntent(this, taskId, 8401))
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setShowWhen(false)
-            .setCategory(Notification.CATEGORY_EVENT)
-            .setColor(0xFF0A84FF.toInt())
-            .requestPromotedOngoing("AI导入中")
-        return builder.build()
-            .also { notification ->
-                val promotable = runCatching {
-                    notification.javaClass
-                        .getMethod("hasPromotableCharacteristics")
-                        .invoke(notification) as? Boolean
-                }.getOrNull()
-                val requested = notification.extras
-                    .getBoolean("android.requestPromotedOngoing", false)
-                Log.d(TAG, "AI import live update built: promotable=$promotable, requested=$requested")
-            }
-    }
+    private fun runningNotification(taskId: String, status: String): Notification =
+        buildRunningNotification(this, taskId, status)
 
     companion object {
         private val ACTION_START = "${BuildConfig.APPLICATION_ID}.action.AI_IMPORT_START"
-        private val ACTION_UPDATE = "${BuildConfig.APPLICATION_ID}.action.AI_IMPORT_UPDATE"
         private val ACTION_COMPLETE = "${BuildConfig.APPLICATION_ID}.action.AI_IMPORT_COMPLETE"
         private val ACTION_FAILED = "${BuildConfig.APPLICATION_ID}.action.AI_IMPORT_FAILED"
         private const val EXTRA_TASK_ID = "ai_import_task_id"
@@ -120,11 +111,15 @@ class AiImportForegroundService : Service() {
             )
         }
 
+        /**
+         * Updates the existing foreground notification directly, without dispatching another
+         * service command. The run phase must not re-enter the service (an OEM background
+         * service gate would otherwise be able to interleave with every HTTP phase).
+         */
         fun update(context: Context, taskId: String, status: String) {
-            dispatchToRunningService(
-                context,
-                serviceIntent(context, ACTION_UPDATE, taskId).putExtra(EXTRA_STATUS, status)
-            )
+            ensureChannels(context)
+            context.getSystemService(NotificationManager::class.java)
+                .notify(RUNNING_NOTIFICATION_ID, buildRunningNotification(context, taskId, status))
         }
 
         fun complete(context: Context, taskId: String, courseCount: Int) {
@@ -180,6 +175,35 @@ class AiImportForegroundService : Service() {
                         ).apply { setShowBadge(false) }
                     )
                 )
+        }
+
+        private fun buildRunningNotification(
+            context: Context,
+            taskId: String,
+            status: String
+        ): Notification {
+            val builder = Notification.Builder(context, RUNNING_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_agent_thinking)
+                .setContentTitle("SleepDown · AI 导入")
+                .setContentText(status.ifBlank { "正在整理输入" })
+                .setContentIntent(progressPendingIntent(context, taskId, 8401))
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setShowWhen(false)
+                .setCategory(Notification.CATEGORY_SERVICE)
+                .setColor(0xFF0A84FF.toInt())
+                .requestPromotedOngoing("AI导入中")
+            return builder.build()
+                .also { notification ->
+                    val promotable = runCatching {
+                        notification.javaClass
+                            .getMethod("hasPromotableCharacteristics")
+                            .invoke(notification) as? Boolean
+                    }.getOrNull()
+                    val requested = notification.extras
+                        .getBoolean("android.requestPromotedOngoing", false)
+                    Log.d(TAG, "AI import live update built: promotable=$promotable, requested=$requested")
+                }
         }
 
         private fun completedNotification(
