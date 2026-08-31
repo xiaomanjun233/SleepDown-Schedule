@@ -31,11 +31,11 @@ object AiImportTaskManager {
         settings: AiImportSettings,
         scheduleConfig: ScheduleConfigEntity,
         initialProgress: AiEduImportProgress
-    ): String = startTask(context, initialProgress, scheduleConfig) { onRequestStarted ->
+    ): String = startTask(context, initialProgress, scheduleConfig) { onHttpPhase ->
         AiScheduleImportService(context.applicationContext).parseScheduleFile(
             file = file,
             settings = settings,
-            onRequestStarted = onRequestStarted
+            onHttpPhase = onHttpPhase
         )
     }
 
@@ -46,12 +46,12 @@ object AiImportTaskManager {
         settings: AiImportSettings,
         scheduleConfig: ScheduleConfigEntity,
         initialProgress: AiEduImportProgress
-    ): String = startTask(context, initialProgress, scheduleConfig) { onRequestStarted ->
+    ): String = startTask(context, initialProgress, scheduleConfig) { onHttpPhase ->
         AiScheduleImportService(context.applicationContext).parseScheduleText(
             text = text,
             sourceName = sourceName,
             settings = settings,
-            onRequestStarted = onRequestStarted
+            onHttpPhase = onHttpPhase
         )
     }
 
@@ -64,14 +64,14 @@ object AiImportTaskManager {
         settings: AiImportSettings,
         scheduleConfig: ScheduleConfigEntity,
         initialProgress: AiEduImportProgress
-    ): String = startTask(context, initialProgress, scheduleConfig) { onRequestStarted ->
+    ): String = startTask(context, initialProgress, scheduleConfig) { onHttpPhase ->
         AiScheduleImportService(context.applicationContext).parseScheduleCapturedPage(
             text = text,
             screenshots = screenshots,
             sourceName = sourceName,
             warnings = warnings,
             settings = settings,
-            onRequestStarted = onRequestStarted
+            onHttpPhase = onHttpPhase
         )
     }
 
@@ -89,10 +89,10 @@ object AiImportTaskManager {
         AiEduImportProgressSession.update(
             baseProgress.copy(
                 taskId = taskId,
-                steps = baseProgress.steps + "正在理解你的修改要求",
+                steps = baseProgress.steps + "正在整理输入",
                 userPrompt = instruction,
-                liveSummary = "正在理解你的修改要求，并核对现有课程、周次和节次。",
-                requestSent = true,
+                liveSummary = "正在整理修改要求、现有课程和原始材料。",
+                requestSent = false,
                 finished = false,
                 error = null
             )
@@ -115,7 +115,7 @@ object AiImportTaskManager {
                 finishFailure(appContext, taskId, error, "AI 修改任务未完成")
             }
         }
-        AiImportForegroundService.start(appContext, taskId, "正在理解修改要求")
+        AiImportForegroundService.start(appContext, taskId, "正在整理输入")
         return taskId
     }
 
@@ -123,7 +123,7 @@ object AiImportTaskManager {
         context: Context,
         initialProgress: AiEduImportProgress,
         scheduleConfig: ScheduleConfigEntity,
-        request: suspend (() -> Unit) -> Result<AiScheduleImportResult>
+        request: suspend ((AiImportHttpPhase) -> Unit) -> Result<AiScheduleImportResult>
     ): String {
         val appContext = context.applicationContext
         val taskId = UUID.randomUUID().toString()
@@ -193,23 +193,34 @@ object AiImportTaskManager {
         context: Context,
         taskId: String,
         scheduleConfig: ScheduleConfigEntity,
-        request: suspend (() -> Unit) -> Result<AiScheduleImportResult>
+        request: suspend ((AiImportHttpPhase) -> Unit) -> Result<AiScheduleImportResult>
     ) = coroutineScope {
         appendMainStep(taskId, context, "正在整理输入", "正在整理课程材料，准备发送给 AI。")
         var summaryTicker: Job? = null
-        val result = request {
-            appendMainStep(taskId, context, "已发送给 AI", "材料已发送，正在等待模型开始解析。")
-            appendMainStep(taskId, context, "AI 正在解析课程", "正在识别课程结构。")
-            summaryTicker = launch {
-                listOf(
-                    "正在整理课程名称与教师",
-                    "正在核对星期和节次",
-                    "正在检查周次范围",
-                    "正在等待模型返回完整结果"
-                ).forEach { summary ->
-                    delay(2_600)
-                    if (isActive) updateMicroStatus(taskId, summary)
+        val result = request { phase ->
+            when (phase) {
+                AiImportHttpPhase.BODY_WRITE_START ->
+                    appendMainStep(taskId, context, "正在上传材料", "正在上传课表材料。")
+                AiImportHttpPhase.BODY_WRITE_END ->
+                    appendMainStep(taskId, context, "已发送给 AI", "材料已发送，正在等待模型响应。")
+                AiImportHttpPhase.FIRST_EVENT,
+                AiImportHttpPhase.BODY_READ_START -> {
+                    appendMainStep(taskId, context, "AI 正在解析课程", "正在识别课程结构。")
+                    if (summaryTicker == null) {
+                        summaryTicker = launch {
+                            listOf(
+                                "正在整理课程名称与教师",
+                                "正在核对星期和节次",
+                                "正在检查周次范围",
+                                "正在等待模型返回完整结果"
+                            ).forEach { summary ->
+                                delay(2_600)
+                                if (isActive) updateMicroStatus(taskId, summary)
+                            }
+                        }
+                    }
                 }
+                else -> Unit
             }
         }
         summaryTicker?.cancel()
@@ -256,25 +267,41 @@ object AiImportTaskManager {
         settings: AiImportSettings,
         historicalEntryId: String?
     ) = coroutineScope {
-        appendMainStep(taskId, context, "AI 正在修改课程", "正在核对现有课表结构并生成修改方案。")
-        val summaryTicker = launch {
-            listOf(
-                "正在核对课程、周次和节次",
-                "正在生成课程修改方案",
-                "正在等待模型返回完整结果"
-            ).forEach { summary ->
-                delay(2_600)
-                if (isActive) updateMicroStatus(taskId, summary)
+        appendMainStep(taskId, context, "正在整理输入", "正在整理修改要求、现有课程和原始材料。")
+        var summaryTicker: Job? = null
+        val onHttpPhase: (AiImportHttpPhase) -> Unit = { phase ->
+            when (phase) {
+                AiImportHttpPhase.BODY_WRITE_START ->
+                    appendMainStep(taskId, context, "正在上传材料", "正在上传修改要求和课表材料。")
+                AiImportHttpPhase.BODY_WRITE_END ->
+                    appendMainStep(taskId, context, "已发送给 AI", "修改材料已发送，正在等待模型响应。")
+                AiImportHttpPhase.FIRST_EVENT,
+                AiImportHttpPhase.BODY_READ_START -> {
+                    appendMainStep(taskId, context, "AI 正在解析课程", "正在核对现有课表并生成修改方案。")
+                    if (summaryTicker == null) {
+                        summaryTicker = launch {
+                            listOf(
+                                "正在核对课程、周次和节次",
+                                "正在生成课程修改方案",
+                                "正在等待模型返回完整结果"
+                            ).forEach { summary ->
+                                delay(2_600)
+                                if (isActive) updateMicroStatus(taskId, summary)
+                            }
+                        }
+                    }
+                }
+                else -> Unit
             }
         }
         val result = AiScheduleImportService(context)
-            .reviseSchedule(baseDraft, instruction, baseProgress, settings)
+            .reviseSchedule(baseDraft, instruction, baseProgress, settings, onHttpPhase)
             .getOrElse { error ->
-                summaryTicker.cancel()
+                summaryTicker?.cancel()
                 finishFailure(context, taskId, error, "AI 修改请求失败")
                 return@coroutineScope
             }
-        summaryTicker.cancel()
+        summaryTicker?.cancel()
         update(taskId) {
             it.copy(reasoningOutput = result.reasoningOutput, aiOutput = result.rawOutput)
         }
@@ -334,7 +361,7 @@ object AiImportTaskManager {
     ) {
         update(taskId) { progress ->
             progress.copy(
-                steps = if (progress.steps.lastOrNull() == step) progress.steps else progress.steps + step,
+                steps = if (step in progress.steps) progress.steps else progress.steps + step,
                 liveSummary = summary,
                 requestSent = progress.requestSent || step == "已发送给 AI" || step == "AI 正在解析课程"
             )

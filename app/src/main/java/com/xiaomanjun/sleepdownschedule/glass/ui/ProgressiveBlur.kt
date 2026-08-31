@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -26,7 +28,8 @@ enum class ProgressiveBlurDirection {
     TopToBottom,
     BottomToTop,
     LeftToRight,
-    RightToLeft
+    RightToLeft,
+    RailThreeWay
 }
 
 @Composable
@@ -114,6 +117,17 @@ fun Modifier.progressiveBackdropBlur(
             }
         )
     } else {
+        if (direction == ProgressiveBlurDirection.RailThreeWay) {
+            return drawWithCache {
+                val radius = maxOf(size.width, size.height * 0.58f)
+                val brush = Brush.radialGradient(
+                    *fallbackTintStops.toTypedArray(),
+                    center = Offset(size.width, size.height / 2f),
+                    radius = radius
+                )
+                onDrawBehind { drawRect(brush) }
+            }
+        }
         val brush = when (direction) {
             ProgressiveBlurDirection.TopToBottom -> Brush.verticalGradient(*fallbackTintStops.toTypedArray())
             ProgressiveBlurDirection.BottomToTop -> Brush.verticalGradient(
@@ -123,6 +137,7 @@ fun Modifier.progressiveBackdropBlur(
             ProgressiveBlurDirection.RightToLeft -> Brush.horizontalGradient(
                 *fallbackTintStops.map { (stop, color) -> 1f - stop to color }.reversed().toTypedArray()
             )
+            ProgressiveBlurDirection.RailThreeWay -> error("Handled above")
         }
         background(brush)
     }
@@ -148,6 +163,18 @@ internal fun progressiveBlurShaderSource(direction: ProgressiveBlurDirection): S
         ProgressiveBlurDirection.RightToLeft -> """
             float mask = 1.0 - smoothstep(maskFadeStart, maskFadeEnd, x);
             float tintMask = 1.0 - smoothstep(tintFadeStart, tintFadeEnd, x);
+        """.trimIndent()
+
+        ProgressiveBlurDirection.RailThreeWay -> """
+            float horizontalMask = smoothstep(maskFadeStart, maskFadeEnd, x);
+            float topMask = smoothstep(0.0, 0.14, y);
+            float bottomMask = 1.0 - smoothstep(0.86, 1.0, y);
+            float mask = horizontalMask * topMask * bottomMask;
+
+            float tintHorizontalMask = smoothstep(tintFadeStart, tintFadeEnd, x);
+            float tintTopMask = smoothstep(0.02, 0.18, y);
+            float tintBottomMask = 1.0 - smoothstep(0.82, 0.98, y);
+            float tintMask = tintHorizontalMask * tintTopMask * tintBottomMask;
         """.trimIndent()
     }
     return """

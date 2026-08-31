@@ -10,7 +10,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -73,7 +72,6 @@ class AiImportForegroundService : Service() {
     }
 
     private fun runningNotification(taskId: String, status: String): Notification {
-        val stage = stageFor(status)
         val builder = Notification.Builder(this, RUNNING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_agent_thinking)
             .setContentTitle("SleepDown · AI 导入")
@@ -85,11 +83,6 @@ class AiImportForegroundService : Service() {
             .setCategory(Notification.CATEGORY_EVENT)
             .setColor(0xFF0A84FF.toInt())
             .requestPromotedOngoing("AI导入中")
-        if (Build.VERSION.SDK_INT >= 36) {
-            builder.setStyle(aiProgressStyle(this, stage))
-        } else {
-            builder.setProgress(AI_STAGE_COUNT, stage, false)
-        }
         return builder.build()
             .also { notification ->
                 val promotable = runCatching {
@@ -118,7 +111,6 @@ class AiImportForegroundService : Service() {
         private const val RESULT_CHANNEL_ID = "ai_import_result"
         private const val RUNNING_NOTIFICATION_ID = 20260830
         private const val RESULT_NOTIFICATION_ID = 20260831
-        private const val AI_STAGE_COUNT = 6
         private const val TAG = "SleepDownAiImport"
 
         fun start(context: Context, taskId: String, status: String) {
@@ -195,7 +187,7 @@ class AiImportForegroundService : Service() {
             taskId: String,
             courseCount: Int
         ): Notification {
-            val builder = Notification.Builder(context, RESULT_CHANNEL_ID)
+            return Notification.Builder(context, RESULT_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_agent_thinking)
                 .setContentTitle("课表解析完成 · 发现 ${courseCount} 门课程")
                 .setContentText("点击查看导入预览")
@@ -207,12 +199,7 @@ class AiImportForegroundService : Service() {
                 .setCategory(Notification.CATEGORY_STATUS)
                 .setColor(0xFF0A84FF.toInt())
                 .requestPromotedOngoing("待查看")
-            if (Build.VERSION.SDK_INT >= 36) {
-                builder.setStyle(aiProgressStyle(context, AI_STAGE_COUNT))
-            } else {
-                builder.setProgress(AI_STAGE_COUNT, AI_STAGE_COUNT, false)
-            }
-            return builder.build()
+                .build()
         }
 
         private fun failedNotification(
@@ -228,27 +215,6 @@ class AiImportForegroundService : Service() {
                 .setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_ERROR)
                 .build()
-
-        private fun stageFor(status: String): Int = when {
-            "生成导入预览" in status -> 5
-            "校验" in status -> 4
-            "解析" in status -> 3
-            "已发送" in status -> 2
-            else -> 1
-        }
-
-        @Suppress("NewApi")
-        private fun aiProgressStyle(context: Context, progress: Int): Notification.ProgressStyle =
-            Notification.ProgressStyle()
-                .setStyledByProgress(true)
-                .setProgressSegments(
-                    listOf(
-                        Notification.ProgressStyle.Segment(AI_STAGE_COUNT)
-                            .setColor(0xFF0A84FF.toInt())
-                    )
-                )
-                .setProgress(progress)
-                .setProgressTrackerIcon(whiteDotProgressTrackerIcon(context))
 
         private fun progressPendingIntent(
             context: Context,

@@ -12,7 +12,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.IBinder
 import androidx.core.content.ContextCompat
 import java.time.LocalDate
@@ -262,7 +261,7 @@ open class DayAgentForegroundServiceHost : Service() {
     }
 
     private fun runningNotification(): Notification {
-        val builder = Notification.Builder(this, RUNNING_CHANNEL_ID)
+        return Notification.Builder(this, RUNNING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_agent_thinking)
             .setContentTitle("今日助手")
             .setContentText("模型思考中")
@@ -270,28 +269,10 @@ open class DayAgentForegroundServiceHost : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
-            .setCategory(Notification.CATEGORY_PROGRESS)
+            .setCategory(Notification.CATEGORY_SERVICE)
             .setColor(0xFF0A84FF.toInt())
             .requestPromotedOngoing("思考中")
-        if (Build.VERSION.SDK_INT >= 36) {
-            // Fake three-stage progress: the marker sits in the "parsing" range while the
-            // model streams, using the same style as the AI import live update.
-            builder.setStyle(
-                Notification.ProgressStyle()
-                    .setStyledByProgress(true)
-                    .setProgressSegments(
-                        listOf(
-                            Notification.ProgressStyle.Segment(DAY_AGENT_STAGE_COUNT)
-                                .setColor(0xFF0A84FF.toInt())
-                        )
-                    )
-                    .setProgress(DAY_AGENT_FAKE_RUNNING_STAGE)
-                    .setProgressTrackerIcon(whiteDotProgressTrackerIcon(this))
-            )
-        } else {
-            builder.setProgress(0, 0, true)
-        }
-        return builder.build()
+            .build()
     }
 
     private fun completedNotification(): Notification =
@@ -370,9 +351,6 @@ open class DayAgentForegroundServiceHost : Service() {
         private const val RESULT_CHANNEL_ID = "day_agent_result"
         private const val RUNNING_NOTIFICATION_ID = 20260731
         private const val RESULT_NOTIFICATION_ID = 20260732
-        private const val DAY_AGENT_STAGE_COUNT = 6
-        private const val DAY_AGENT_FAKE_RUNNING_STAGE = 2
-
         fun startThinking(context: Context) {
             ContextCompat.startForegroundService(
                 context,

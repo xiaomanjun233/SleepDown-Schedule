@@ -1896,106 +1896,120 @@ private fun EduAlphabetRailDock(
                 }
                 Box(
                     modifier = Modifier
-                        .pointerInput(letters, sectionPositions, haptic) {
-                            awaitPointerEventScope {
-                                var lastIndex = -1
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val pressed = event.changes.firstOrNull { it.pressed }
-                                    if (pressed == null) {
-                                        railDragging = false
-                                        railPointerIndex = -1
-                                        lastIndex = -1
-                                        continue
-                                    }
-                                    railDragging = true
-                                    val itemHeight = size.height / letters.size.toFloat()
-                                    val index = (pressed.position.y / itemHeight).toInt().coerceIn(0, letters.lastIndex)
-                                    if (index == lastIndex) continue
-                                    lastIndex = index
-                                    railPointerIndex = index
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    sectionPositions[letters[index]]?.let { position ->
-                                        scope.launch { listState.scrollToItem(position) }
-                                    }
-                                }
-                            }
-                        }
-                        .width(alphabetRailWidth)
+                        .width(96.dp),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    // The veil owns a fixed 2D envelope. It is measured from the alphabet content
+                    // plus top/bottom fade space, but never participates in touch handling or the
+                    // rail's 10dp -> 58dp content-width animation.
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
                         .progressiveBackdropBlur(
                             backdrop = backdrop,
                             tintColor = railTint,
-                            // Softer than the top-bar gradient blur: lower radius and tint.
                             blurRadius = 8.dp,
                             tintIntensity = if (appUsesDarkTheme(config)) 0.08f else 0.18f,
                             domain = GlassBackdropDomain.ChromeCombined,
-                            direction = ProgressiveBlurDirection.LeftToRight,
-                            topMaskFadeStart = 0.08f,
-                            topMaskFadeEnd = 1f,
-                            topTintFadeStart = 0.18f,
-                            topTintFadeEnd = 1f,
+                            direction = ProgressiveBlurDirection.RailThreeWay,
+                            topMaskFadeStart = 0.04f,
+                            topMaskFadeEnd = 0.96f,
+                            topTintFadeStart = 0.12f,
+                            topTintFadeEnd = 0.98f,
                             fallbackTintStops = listOf(
-                                0f to ComposeColor.Transparent,
-                                0.42f to railTint.copy(alpha = 0.08f),
-                                1f to railTint.copy(alpha = 0.40f)
+                                0f to railTint.copy(alpha = 0.40f),
+                                0.58f to railTint.copy(alpha = 0.08f),
+                                1f to ComposeColor.Transparent
                             )
                         )
-                        .then(
-                            // Stable open/closed states stay layer-free; the offscreen motion
-                            // blur layer is mounted only while the rail fades in or out, so the
-                            // gradient blur is never re-sampled through a rectangular layer.
-                            if (railMotionProgress > 0.001f && railMotionProgress < 0.999f) {
-                                Modifier.graphicsLayer {
-                                    compositingStrategy = CompositingStrategy.Offscreen
-                                    renderEffect = platformBlurRenderEffect(
-                                        detailMotionBlurRadiusDp(railMotionProgress) * density.density
-                                    )
-                                }
-                            } else {
-                                Modifier
-                            }
-                        ),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    Column(
+                    )
+                    Box(
                         modifier = Modifier
-                            .graphicsLayer { alpha = alphabetContentAlpha }
-                            .padding(horizontal = 5.dp, vertical = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                            .align(Alignment.CenterEnd)
+                            .padding(vertical = 32.dp)
                     ) {
-                        letters.forEachIndexed { index, letter ->
-                            // The blue highlight rides the spring-driven indicator, so it
-                            // glides nonlinearly between letters instead of snapping.
-                            val highlight = (1f - abs(
-                                index.toFloat() - alphabetIndicatorProgress
-                            )).coerceIn(0f, 1f)
-                            Text(
-                                letter,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(50))
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        sectionPositions[letter]?.let { position ->
-                                            scope.launch { listState.animateScrollToItem(position) }
+                        Box(
+                            modifier = Modifier
+                                .pointerInput(letters, sectionPositions, haptic) {
+                                    awaitPointerEventScope {
+                                        var lastIndex = -1
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val pressed = event.changes.firstOrNull { it.pressed }
+                                            if (pressed == null) {
+                                                railDragging = false
+                                                railPointerIndex = -1
+                                                lastIndex = -1
+                                                continue
+                                            }
+                                            railDragging = true
+                                            val itemHeight = size.height / letters.size.toFloat()
+                                            val index = (pressed.position.y / itemHeight).toInt()
+                                                .coerceIn(0, letters.lastIndex)
+                                            if (index == lastIndex) continue
+                                            lastIndex = index
+                                            railPointerIndex = index
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            sectionPositions[letters[index]]?.let { position ->
+                                                scope.launch { listState.scrollToItem(position) }
+                                            }
                                         }
                                     }
-                                    .padding(horizontal = 4.dp, vertical = 1.dp),
-                                color = lerp(
-                                    sleepDownPanelForegroundColor(config).copy(
-                                        alpha = if (appUsesDarkTheme(config)) 0.52f else 0.68f
-                                    ),
-                                    ComposeColor(0xFF0A84FF),
-                                    highlight
+                                }
+                                .width(alphabetRailWidth)
+                                .then(
+                                    if (railMotionProgress > 0.001f && railMotionProgress < 0.999f) {
+                                        Modifier.graphicsLayer {
+                                            compositingStrategy = CompositingStrategy.Offscreen
+                                            renderEffect = platformBlurRenderEffect(
+                                                detailMotionBlurRadiusDp(railMotionProgress) * density.density
+                                            )
+                                        }
+                                    } else {
+                                        Modifier
+                                    }
                                 ),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                textAlign = TextAlign.Center
-                            )
+                            contentAlignment = Alignment.CenterEnd
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .graphicsLayer { alpha = alphabetContentAlpha }
+                                    .padding(horizontal = 5.dp, vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                letters.forEachIndexed { index, letter ->
+                                    val highlight = (1f - abs(
+                                        index.toFloat() - alphabetIndicatorProgress
+                                    )).coerceIn(0f, 1f)
+                                    Text(
+                                        letter,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(50))
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                sectionPositions[letter]?.let { position ->
+                                                    scope.launch { listState.animateScrollToItem(position) }
+                                                }
+                                            }
+                                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                                        color = lerp(
+                                            sleepDownPanelForegroundColor(config).copy(
+                                                alpha = if (appUsesDarkTheme(config)) 0.52f else 0.68f
+                                            ),
+                                            ComposeColor(0xFF0A84FF),
+                                            highlight
+                                        ),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -3772,13 +3786,28 @@ private fun AiImportChatPreview(
     onConfirm: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val progress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
+    val sessionDraft by AiEduImportProgressSession.previewDraft.collectAsStateWithLifecycle()
     val textColor = glassForegroundColor(settingsVisualConfig(draft.config))
     var traceExpanded by remember { mutableStateOf(false) }
     var revisionText by remember(draft) { mutableStateOf("") }
     var revising by remember { mutableStateOf(false) }
+    var ownedRevisionTaskId by remember { mutableStateOf<String?>(null) }
     var revisionError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(ownedRevisionTaskId, progress?.taskId, progress?.finished, progress?.error, sessionDraft) {
+        val taskId = ownedRevisionTaskId ?: return@LaunchedEffect
+        val taskProgress = progress?.takeIf { it.taskId == taskId && it.finished } ?: return@LaunchedEffect
+        revisionError = taskProgress.error
+        if (taskProgress.error == null) {
+            sessionDraft?.let { revised ->
+                revisionText = ""
+                onDraftChanged?.invoke(revised)
+            }
+        }
+        revising = false
+        ownedRevisionTaskId = null
+    }
     Column(Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.weight(1f),
@@ -3878,61 +3907,16 @@ private fun AiImportChatPreview(
                         if (instruction.isNotEmpty() && !revising) {
                             revising = true
                             revisionError = null
-                            scope.launch {
-                                val settings = AiImportSettingsStore.load(context)
-                                val baseProgress = progress ?: AiEduImportProgress(routeLabel = "AI 手动导入")
-                                AiEduImportProgressSession.update(
-                                    baseProgress.copy(
-                                        steps = (progress?.steps.orEmpty() + "按你的要求修改课表").distinct(),
-                                        userPrompt = instruction,
-                                        requestSent = true,
-                                        finished = false,
-                                        error = null
-                                    )
-                                )
-                                AiScheduleImportService(context)
-                                    .reviseSchedule(draft, instruction, baseProgress, settings)
-                                    .mapCatching { result ->
-                                        ScheduleImportParser.parse(
-                                            result.output.ifBlank { result.rawOutput },
-                                            draft.config
-                                        ).getOrThrow() to result
-                                    }
-                                    .onSuccess { (revised, result) ->
-                                        val next = revised.copy(source = ImportDraftSource.AI_EDU)
-                                        val previousTurns = baseProgress.conversationTurns.ifEmpty {
-                                            listOf(
-                                                AiEduImportConversationTurn(
-                                                    userPrompt = baseProgress.userPrompt,
-                                                    reasoningOutput = baseProgress.reasoningOutput,
-                                                    aiOutput = baseProgress.aiOutput
-                                                )
-                                            )
-                                        }
-                                        val nextProgress = baseProgress.copy(
-                                            steps = (baseProgress.steps + listOf("已理解修改要求", "已调用课表导入工具", "修改结果通过本地校验")).distinct(),
-                                            userPrompt = instruction,
-                                            requestSent = true,
-                                            reasoningOutput = result.reasoningOutput,
-                                            aiOutput = result.rawOutput,
-                                            finished = true,
-                                            error = null,
-                                            conversationTurns = previousTurns + AiEduImportConversationTurn(
-                                                userPrompt = instruction,
-                                                reasoningOutput = result.reasoningOutput,
-                                                aiOutput = result.rawOutput
-                                            )
-                                        )
-                                        revisionText = ""
-                                        AiEduImportProgressSession.update(nextProgress)
-                                        AiImportHistoryStore.updateMatching(context, draft, next, nextProgress)
-                                        onDraftChanged(next)
-                                    }
-                                    .onFailure {
-                                        revisionError = it.message ?: "AI 没有完成这次修改，请换一种说法重试"
-                                    }
-                                revising = false
-                            }
+                            val settings = AiImportSettingsStore.load(context)
+                            val baseProgress = progress ?: AiEduImportProgress(routeLabel = "AI 手动导入")
+                            ownedRevisionTaskId = AiImportTaskManager.startRevision(
+                                context = context,
+                                baseDraft = draft,
+                                instruction = instruction,
+                                baseProgress = baseProgress,
+                                settings = settings,
+                                historicalEntryId = null
+                            )
                         }
                     }
                 )
