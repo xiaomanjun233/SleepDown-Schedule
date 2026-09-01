@@ -111,6 +111,7 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.geometry.Rect
+import com.kyant.shapes.RoundedCornerStyle
 import com.kyant.shapes.RoundedRectangle
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -139,7 +140,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.DpOffset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.Lifecycle
@@ -151,7 +151,6 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
-import com.kyant.backdrop.shadow.Shadow
 import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.PopupLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1889,9 +1888,9 @@ private fun DayAgentConversationDialog(
                         }
                         .onGloballyPositioned { inputCapsuleBounds = it.boundsInRoot() },
                     shape = if (imageAttachment == null) {
-                        RoundedCornerShape(50)
+                        RoundedRectangle(cornerRadius = 28.dp, style = RoundedCornerStyle.Continuous)
                     } else {
-                        RoundedCornerShape(26.dp)
+                        RoundedRectangle(cornerRadius = 26.dp, style = RoundedCornerStyle.Continuous)
                     },
                     tokens = GlassTokens.dialog(intensity = 1f).copy(
                         blur = 16.dp,
@@ -2130,16 +2129,11 @@ private fun AgentInputLiquidCapsule(
     val interactiveHighlight = remember(interactionScope) {
         InteractiveHighlight(
             animationScope = interactionScope,
-            radius = { size -> size.minDimension * 2.2f },
+            radius = { size -> size.minDimension * 1.5f },
             acceptsGesture = { size, offset -> currentInteractionEnabledAt.value(size, offset) }
         )
     }
-    val lightDockGlass = !appUsesDarkTheme(config)
-    val dockSurfaceColor = if (lightDockGlass) {
-        Color.White.copy(alpha = 0.30f)
-    } else {
-        Color(0xFF16181D).copy(alpha = 0.78f)
-    }
+    val dark = appUsesDarkTheme(config)
     val dockHeight = if (expanded) 94.dp else 56.dp
     val pressExpansion = 1.5.dp
 
@@ -2149,24 +2143,23 @@ private fun AgentInputLiquidCapsule(
             .graphicsLayer { clip = false }
     ) {
         if (backdrop != null) {
-            // Match the edu WebView Dock: the glass consumer is a stable background sibling.
-            // The editable caret can blink without invalidating or rebuilding this backdrop layer.
+            // The glass consumer stays a stable background sibling so the editable caret can
+            // blink without invalidating or rebuilding this backdrop layer.
             LiquidButton(
                 onClick = {},
                 backdrop = backdrop,
                 modifier = Modifier.fillMaxSize(),
                 height = dockHeight,
                 contentPadding = PaddingValues(0.dp),
-                blurRadius = 5.dp,
-                lensHeight = 14.dp,
-                lensAmount = 24.dp,
+                blurRadius = 16.dp,
+                lensHeight = 18.dp,
+                lensAmount = 28.dp,
                 chromaticAberration = false,
-                surfaceColor = dockSurfaceColor,
-                shadowEnabled = lightDockGlass,
-                shadowStyle = AgentInputDockLightShadow,
+                surfaceColor = baseSurfaceColorOverride.copy(alpha = if (dark) 0.08f else 0.14f),
+                shadowEnabled = false,
                 highlightEnabled = true,
                 isInteractive = true,
-                highlightRadiusMultiplier = 2.2f,
+                highlightRadiusMultiplier = 1.5f,
                 shape = shape,
                 clipToBounds = false,
                 clickTargetEnabled = false,
@@ -2197,12 +2190,6 @@ private fun AgentInputLiquidCapsule(
         }
     }
 }
-
-private val AgentInputDockLightShadow = Shadow(
-    radius = 6.dp,
-    offset = DpOffset(0.dp, 2.dp),
-    color = Color.Black.copy(alpha = 0.10f)
-)
 
 @Composable
 private fun AgentAttachmentLiquidButton(
