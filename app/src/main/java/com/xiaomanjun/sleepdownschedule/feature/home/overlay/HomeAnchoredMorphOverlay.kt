@@ -1403,7 +1403,11 @@ internal fun HomeAnchoredMorphOverlayHost(
                         val innerY = targetPosition.y - menuContentTopPaddingPx
                         if (innerY in 0f..menuModeHeightPx) {
                             val innerWidth = targetRect.width - menuContentHorizontalPaddingPx * 2f
-                            val targetMode = if (innerX < innerWidth / 2f) HomeMode.Day else HomeMode.Week
+                            val targetMode = HomeMode.entries[
+                                ((innerX / innerWidth) * HomeMode.entries.size)
+                                    .toInt()
+                                    .coerceIn(HomeMode.entries.indices)
+                            ]
                             if (targetMode != homeMode) {
                                 outsideDragHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 onHomeModeChange(targetMode)
@@ -2572,11 +2576,11 @@ internal fun HomeAddMenuMorphPanel(
                     if (completedNormally) {
                         val innerY = lastPosition.y - contentTopPaddingPx
                         if (innerY in 0f..modeHeightPx) {
-                            val targetMode = if (lastPosition.x < size.width / 2f) {
-                                HomeMode.Day
-                            } else {
-                                HomeMode.Week
-                            }
+                            val targetMode = HomeMode.entries[
+                                ((lastPosition.x / size.width) * HomeMode.entries.size)
+                                    .toInt()
+                                    .coerceIn(HomeMode.entries.indices)
+                            ]
                             if (targetMode != homeMode) {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 onHomeModeChange(targetMode)
@@ -2653,7 +2657,7 @@ internal fun HomeAddMenuMorphPanel(
             CompositionLocalProvider(LocalContentColor provides textColor) {
                 Row(
                     modifier = Modifier
-                        .width(134.dp)
+                        .width(150.dp)
                         .align(Alignment.CenterHorizontally)
                         .height(HomeAddMenuModeHeightDp.dp),
                     horizontalArrangement = Arrangement.spacedBy(2.dp)

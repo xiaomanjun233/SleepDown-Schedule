@@ -62,8 +62,10 @@ internal data class SleepDownLiquidMenuItem(
     val onClick: () -> Unit = {}
 )
 
-private val UpwardDropdownPositionProvider = object : PopupPositionProvider {
-    private val margins = PaddingValues(vertical = 8.dp)
+private class UpwardDropdownPositionProvider(
+    horizontalSafeInset: Dp
+) : PopupPositionProvider {
+    private val margins = PaddingValues(horizontal = horizontalSafeInset, vertical = 8.dp)
 
     override fun calculatePosition(
         anchorBounds: IntRect,
@@ -281,6 +283,7 @@ internal fun SleepDownLiquidCascadingPopup(
     config: ScheduleConfigEntity,
     panelMinWidth: Dp = 168.dp,
     menuMaxHeight: Dp = 360.dp,
+    horizontalSafeInset: Dp = 0.dp,
     contentColor: Color? = null,
     collapseOnSelection: Boolean = true
 ) {
@@ -317,11 +320,14 @@ internal fun SleepDownLiquidCascadingPopup(
     val popupRowColors = rememberSleepDownPopupRowColors(
         contentColor ?: sleepDownPanelForegroundColor(config)
     )
+    val popupPositionProvider = remember(horizontalSafeInset) {
+        UpwardDropdownPositionProvider(horizontalSafeInset)
+    }
     OverlayCascadingListPopup(
         show = show,
         entries = listOf(entry),
         onDismissRequest = onDismissRequest,
-        popupPositionProvider = UpwardDropdownPositionProvider,
+        popupPositionProvider = popupPositionProvider,
         alignment = PopupPositionProvider.Align.End,
         enableWindowDim = false,
         minWidth = panelMinWidth,

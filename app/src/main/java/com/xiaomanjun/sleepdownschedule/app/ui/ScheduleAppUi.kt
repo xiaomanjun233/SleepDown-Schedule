@@ -283,6 +283,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost
@@ -312,6 +313,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
@@ -422,6 +424,11 @@ sealed interface Screen {
 }
 
 enum class HomeMode { Day, Week }
+internal fun HomeStartMode.toHomeMode(): HomeMode = when (this) {
+    HomeStartMode.DAY,
+    HomeStartMode.TWO_DAY -> HomeMode.Day
+    HomeStartMode.WEEK -> HomeMode.Week
+}
 enum class SettingsSection { Schedule, Notifications }
 enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
 
@@ -757,9 +764,9 @@ fun CourseScheduleAppUi(
     var settingsExitInterceptionRequired by remember { mutableStateOf(false) }
     var settingsExitRequest by remember { mutableIntStateOf(0) }
     var pendingSettingsExitAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    var homeMode by remember { mutableStateOf(if (state.config.defaultHomeMode == HomeStartMode.DAY) HomeMode.Day else HomeMode.Week) }
+    var homeMode by remember { mutableStateOf(state.config.defaultHomeMode.toHomeMode()) }
     LaunchedEffect(state.config.defaultHomeMode) {
-        homeMode = if (state.config.defaultHomeMode == HomeStartMode.DAY) HomeMode.Day else HomeMode.Week
+        homeMode = state.config.defaultHomeMode.toHomeMode()
     }
     var homeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     val aiHistorySelection by AiEduImportProgressSession.historySelection.collectAsStateWithLifecycle()
@@ -803,7 +810,7 @@ fun CourseScheduleAppUi(
             course = course,
             targetWeek = targetWeek,
             sourceBoundsInRoot = sourceBounds,
-            sourceIsDayCard = homeMode == HomeMode.Day && sourceBounds != null
+            sourceIsDayCard = homeMode != HomeMode.Week && sourceBounds != null
         )
     }
     fun closeCourseEditor() {
@@ -964,6 +971,12 @@ fun CourseScheduleAppUi(
     }
     val weekCardHeight = adaptiveWeekCardHeight * weekCardHeightScale
     val context = LocalContext.current
+    val dayViewMode = remember(screen, state.config.defaultHomeMode, context) {
+        DayViewPreferences.mode(
+            context = context,
+            legacyTwoDay = state.config.defaultHomeMode == HomeStartMode.TWO_DAY
+        )
+    }
     val remoteExperience by SleepDownRemoteConfig.experience.collectAsStateWithLifecycle()
     val remoteConfigState by SleepDownRemoteConfig.state.collectAsStateWithLifecycle()
     fun requestSettingsExit(action: () -> Unit) {
@@ -1478,12 +1491,12 @@ fun CourseScheduleAppUi(
         homeDisplayWeek = homeDisplayWeek.coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1))
         if (visualState.config.autoCurrentWeek) homeDisplayWeek = currentTargetWeek
     }
-    val homeTitleWeek = if (homeMode == HomeMode.Day) {
+    val homeTitleWeek = if (homeMode != HomeMode.Week) {
         effectiveCurrentWeek(visualState.config, homeDisplayDate)
     } else {
         homeDisplayWeek
     }
-    val homeTitleDate = if (homeMode == HomeMode.Day) {
+    val homeTitleDate = if (homeMode != HomeMode.Week) {
         homeDisplayDate
     } else {
         todayDate
@@ -1791,7 +1804,7 @@ fun CourseScheduleAppUi(
             targetValue = 1f,
             animationSpec = tween(
                 durationMillis = CourseGlassMaterialRevealDurationMillis,
-                easing = CubicBezierEasing(0.16f, 0.84f, 0.24f, 1f)
+                easing = CubicBezierEasing(0.22f, 0f, 0.18f, 1f)
             )
         )
         courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
@@ -2639,9 +2652,10 @@ fun CourseScheduleAppUi(
                                  HomeScreen(
                                      state = visualState,
                                      agentState = state,
-                                    personalizationPreviewState = personalizationPreviewState,
-                                    mode = homeMode,
-                                    adaptiveMetrics = homeAdaptiveMetrics,
+                                     personalizationPreviewState = personalizationPreviewState,
+                                     mode = homeMode,
+                                     dayViewMode = dayViewMode,
+                                     adaptiveMetrics = homeAdaptiveMetrics,
                                     weekCardHeight = weekCardHeight.dp,
                                     displayWeek = homeDisplayWeek,
                                     displayDate = homeDisplayDate,
@@ -4211,6 +4225,11 @@ internal val HomeTopOverlayHeight = 178.dp
 private val DetailTopBarHeight = SleepDownDesignTokens.SecondaryPage.CompactTopBarHeight
 private val DetailTopOverlayExtra = SleepDownDesignTokens.SecondaryPage.TopOverlayExtra
 private val DetailContentTopGap = SleepDownDesignTokens.SecondaryPage.ContentTopGap
+internal val LightTopBarButtonShadow = Shadow(
+    radius = 7.dp,
+    offset = DpOffset(0.dp, 1.dp),
+    color = ComposeColor.Black.copy(alpha = 0.10f)
+)
 internal val HomeInitialTopInset = 122.dp
 
 @Composable
@@ -4369,6 +4388,7 @@ fun DetailActivityScaffold(
     centerCompactTitle: Boolean = false,
     compactTitleMatchesSettings: Boolean = false,
     topBarVisible: Boolean = true,
+    preserveStatusBarSpace: Boolean = false,
     topBarBackdropOverride: Backdrop? = null,
     topBarActions: @Composable (Backdrop?) -> Unit = {},
     content: @Composable (Backdrop?) -> Unit
@@ -4383,6 +4403,7 @@ fun DetailActivityScaffold(
         centerCompactTitle = centerCompactTitle,
         compactTitleMatchesSettings = compactTitleMatchesSettings,
         topBarVisible = topBarVisible,
+        preserveStatusBarSpace = preserveStatusBarSpace,
         topBarBackdropOverride = topBarBackdropOverride,
         topBarActions = topBarActions,
         content = content
@@ -4400,14 +4421,17 @@ fun DetailTopBar(
     useMiuixCollapsedTitleStyle: Boolean = false,
     showBackButton: Boolean = true,
     backButtonStartPadding: Dp = 16.dp,
+    statusTopOverride: Dp? = null,
     actions: @Composable () -> Unit = {}
 ) {
     val density = LocalDensity.current
-    val statusTop = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
+    val statusTop = statusTopOverride
+        ?: with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(statusTop + DetailTopBarHeight)
+            .graphicsLayer { clip = false }
     ) {
         if (centerTitle) {
             Box(
@@ -4415,6 +4439,7 @@ fun DetailTopBar(
                     .fillMaxWidth()
                     .height(DetailTopBarHeight)
                     .align(Alignment.BottomCenter)
+                    .graphicsLayer { clip = false }
             ) {
                 if (showBackButton) {
                     TopBackButton(
@@ -4461,7 +4486,8 @@ fun DetailTopBar(
                 .fillMaxWidth()
                 .height(DetailTopBarHeight)
                 .align(Alignment.BottomCenter)
-                .padding(start = backButtonStartPadding, end = 16.dp),
+                .padding(start = backButtonStartPadding, end = 16.dp)
+                .graphicsLayer { clip = false },
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showBackButton) {
@@ -4492,7 +4518,8 @@ fun DetailTopBar(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .height(DetailTopBarHeight)
-                .padding(end = 10.dp),
+                .padding(end = 10.dp)
+                .graphicsLayer { clip = false },
             contentAlignment = Alignment.CenterEnd
         ) { actions() }
     }
@@ -4595,6 +4622,7 @@ internal fun AppTopBar(
                     state = state,
                     displayDate = homeDisplayDate,
                     displayWeek = homeDisplayWeek,
+                    showTwoDays = false,
                     beforeScheduleTerm = beforeScheduleTerm,
                     afterScheduleTerm = afterScheduleTerm,
                     showReturnToCurrentWeekHint = homeShowingAnotherWeek,
@@ -4753,7 +4781,8 @@ fun TopGlassIconButton(
             lensHeight = 16.dp,
             lensAmount = 24.dp,
             chromaticAberration = false,
-            shadowEnabled = false
+            shadowEnabled = lightGlass,
+            shadowStyle = LightTopBarButtonShadow
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(painterResource(iconRes), contentDescription = contentDescription, modifier = Modifier.size(22.dp))
@@ -4883,7 +4912,8 @@ internal fun HomeActionCapsuleVisual(
             lensHeight = HomeHeaderGlassLensHeight,
             lensAmount = HomeHeaderGlassLensAmount,
             chromaticAberration = false,
-            shadowEnabled = false,
+            shadowEnabled = lightGlass,
+            shadowStyle = LightTopBarButtonShadow,
             pressExpansion = 3.dp,
             highlightRadiusMultiplier = 0.9f,
             pressSnapshot = pressSnapshot,
@@ -4977,7 +5007,8 @@ internal fun HomeIconButtonVisual(
             lensHeight = HomeHeaderGlassLensHeight,
             lensAmount = HomeHeaderGlassLensAmount,
             chromaticAberration = false,
-            shadowEnabled = false,
+            shadowEnabled = lightGlass,
+            shadowStyle = LightTopBarButtonShadow,
             pressExpansion = 3.dp,
             pressSnapshot = pressSnapshot
         ) {
@@ -6564,6 +6595,9 @@ open class SettingsDetailActivityHost : ComponentActivity() {
             val isQuickSheetSettingsEntry = remember {
                 intent.transitionRouteIdOrNull() == TransitionRouteId.QuickSheetToSettingsDetail
             }
+            val isScheduleManagerSettingsEntry = remember {
+                intent.transitionRouteIdOrNull() == TransitionRouteId.ScheduleManagerToSettingsDetail
+            }
             CourseScheduleTheme(config = state.config) {
                 val darkWindowBackground = appUsesDarkTheme(state.config)
                 LaunchedEffect(darkWindowBackground, isAnchoredSettingsEntry) {
@@ -6614,10 +6648,16 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                         else -> closeSettings()
                     }
                 }
-                // An Activity-level callback disables Android's cross-Activity predictive-back
-                // animation. Only install it while a page really has a pending draft that must be
-                // committed or confirmed; clean pages stay on the native predictive-back path.
-                BackHandler(enabled = interceptSystemBack, onBack = requestExit)
+                // ScheduleManagerActivity opens this host through ScheduleManagerToSettingsDetail
+                // with the selected schedule id. Keep that exact route on the draft-aware back
+                // path from its first frame; after edits, ScheduleConfigScreen decides whether to
+                // show Save / Don't save / Continue editing before the Activity is allowed to close.
+                val scheduleDraftBackGuardRequired = section == SettingsPage.Schedule &&
+                    (customizeScheduleId != null || isScheduleManagerSettingsEntry)
+                BackHandler(
+                    enabled = interceptSystemBack || scheduleDraftBackGuardRequired,
+                    onBack = requestExit
+                )
                 Box(Modifier.fillMaxSize()) {
                 val settingsDetailContent: @Composable () -> Unit = {
                 DetailActivityScaffold(
@@ -6867,19 +6907,18 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                 warehouseManualRefreshing = manual
                 refreshScope.launch {
                     runCatching {
-                        ShiguangWarehouseUpdater.refresh(this@EduSchoolSelectActivityHost)
+                        if (manual) {
+                            ShiguangWarehouseUpdater.refresh(this@EduSchoolSelectActivityHost)
+                        } else {
+                            ShiguangWarehouseUpdater.refreshIfStale(this@EduSchoolSelectActivityHost)
+                        }
                     }.onSuccess { result ->
+                        if (result == null) return@onSuccess
                         if (result.changed) warehouseGeneration += 1
                         if (manual) {
                             Toast.makeText(
                                 this@EduSchoolSelectActivityHost,
                                 if (result.changed) "已更新适配列表" else "已是最新适配列表",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else if (result.changed) {
-                            Toast.makeText(
-                                this@EduSchoolSelectActivityHost,
-                                "适配列表已更新",
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
@@ -6923,6 +6962,14 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                 contentDescription = if (warehouseRefreshing) "正在更新适配器" else "更新适配器",
                                 onClick = { refreshWarehouse(manual = true) },
                                 modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
+                                // This action belongs to the dark page chrome even when wallpaper
+                                // sampling classifies the glass as light. Avoid the resulting
+                                // white 0.26 surface wash on this one button in dark mode.
+                                surfaceColorOverride = if (appUsesDarkTheme(state.config)) {
+                                    ComposeColor.Transparent
+                                } else {
+                                    null
+                                },
                                 buttonHeight = SleepDownDesignTokens.SecondaryPage.BackButtonSize
                             )
                         }
@@ -6940,20 +6987,22 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                 )
                             }
                         )
-                        LiquidAlertDialog(
-                            title = "正在更新适配器",
-                            message = "正在获取最新适配列表。现在可以返回或退到桌面，更新会在后台继续。",
-                            actions = listOf(
-                                LiquidAlertAction(
-                                    "后台继续",
-                                    LiquidAlertActionStyle.Secondary,
-                                    onClick = { warehouseManualRefreshing = false }
-                                )
-                            ),
-                            backdrop = backdrop,
-                            config = state.config,
-                            onDismissRequest = { warehouseManualRefreshing = false }
-                        )
+                        if (warehouseManualRefreshing) {
+                            LiquidAlertDialog(
+                                title = "正在更新适配器",
+                                message = "正在获取最新适配列表。现在可以返回或退到桌面，更新会在后台继续。",
+                                actions = listOf(
+                                    LiquidAlertAction(
+                                        "后台继续",
+                                        LiquidAlertActionStyle.Secondary,
+                                        onClick = { warehouseManualRefreshing = false }
+                                    )
+                                ),
+                                backdrop = backdrop,
+                                config = state.config,
+                                onDismissRequest = { warehouseManualRefreshing = false }
+                            )
+                        }
                     }
                 }
             }
@@ -6989,6 +7038,7 @@ open class EduImportActivityHost : ComponentActivity() {
                         compactTopBar = true,
                         centerCompactTitle = true,
                         compactTitleMatchesSettings = true,
+                        preserveStatusBarSpace = true,
                         topBarBackdropOverride = eduWebContentBackdrop
                     ) { backdrop ->
                         if (adapter == null) {
@@ -7011,23 +7061,28 @@ open class EduImportActivityHost : ComponentActivity() {
                         }
                     }
                 } else {
+                    val previewDraft = checkNotNull(pendingDraft)
                     DetailActivityScaffold(
                         title = "导入预览",
                         config = state.config,
-                        onBack = { finish() },
-                        showTopGradientBlur = false,
-                        isolateContentFromBackdrop = true
+                        onBack = { pendingDraft = null },
+                        isolateContentFromBackdrop = true,
+                        compactTopBar = true,
+                        centerCompactTitle = true,
+                        compactTitleMatchesSettings = true,
+                        preserveStatusBarSpace = true
                     ) { backdrop ->
                     if (adapter == null) {
                         MissingCourseScreen(onBack = { finish() })
                     } else {
                         Box(modifier = Modifier.padding(top = detailContentTopPadding())) {
                             ConfirmScheduleScreen(
-                                draft = pendingDraft!!,
+                                draft = previewDraft,
                                 warning = if (adapter.isGeneralEduTool()) "可能部分节次信息会有误，请自行检查修改。" else null,
+                                backdrop = backdrop,
                                 onCancel = { pendingDraft = null },
                                 onConfirm = { createNewSchedule ->
-                                    viewModel.importDraft(pendingDraft!!, createNewSchedule) {
+                                    viewModel.importDraft(previewDraft, createNewSchedule) {
                                         returnToScheduleHome()
                                     }
                                 }
@@ -8820,6 +8875,16 @@ fun ChangelogSettingsScreen(
             item(key = "about-changelog") {
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
+                SettingsInfoRow(
+                    "1.2.3",
+                    "重新设计教务导入页与网页内页，优化工具排版、字母选择栏、悬浮 Dock、渐变模糊顶栏、玻璃灵动岛和相关弹窗；AI 教务与通用工具的历史页面会从 Dock 处自然展开\n" +
+                        "完整接入拾光仓库 2.0 的官方学校索引、适配脚本和交互方式，支持提交课程、开学日期、学期周数与完整节次时间；学校索引和脚本改从 Gitee 获取，缓存超过七天后自动检查更新\n" +
+                        "AI 教务导入首次使用时只提醒一次后台网络风险，取消后仍可导入；导入进度接入实时活动，数据格式或字段校验异常时最多自动修正三次，并重做预览顶栏与内容展开动画\n" +
+                        "新增上课中、课间与明日课程实时活动，可分别设置课程实时活动、状态栏短文案、操作按钮、明日提醒及提醒时间；明日课程预告仅在第二天有课时显示五分钟\n" +
+                        "日视图新增标准与双日两种模式；标准模式会在今日课程全部结束后提前展示明日课程，双日模式沿用原日视图排版连续显示两天课程\n" +
+                        "修复教务 Dock 输入时的光标闪烁和焦点异常，优化中心弹窗跟手弥散光与遮挡恢复叠化，恢复浅色顶栏、返回按钮和搜索控件阴影，并恢复多课表详细设置的返回保存询问"
+                )
+                SettingsDivider()
                 SettingsInfoRow(
                     "1.2.2",
                     "优化教务系统导入页，修复网页重复加载、页面跳转闪烁等问题，并优化教务适配器选择，同一学校存在多个导入工具时可以查看并选择对应适配\n" +

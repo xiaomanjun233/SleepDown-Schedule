@@ -198,6 +198,7 @@ internal class ShiguangImportSession {
                     totalWeeks = imported.semesterTotalWeeks,
                     currentWeek = baseConfig.currentWeek.coerceIn(1, imported.semesterTotalWeeks),
                     termStartDate = imported.semesterStartDate,
+                    autoCurrentWeek = imported.semesterStartDate != null,
                     classDurationMinutes = imported.defaultClassDuration,
                     breakDurationMinutes = imported.defaultBreakDuration
                 )

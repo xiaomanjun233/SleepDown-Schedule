@@ -47,10 +47,13 @@ import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
 import android.view.HapticFeedbackConstants
-import android.view.WindowInsetsController
+import android.view.MotionEvent
 import android.view.ViewGroup
 import androidx.annotation.RequiresApi
 import androidx.core.view.WindowCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.content.FileProvider
 import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
@@ -141,6 +144,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
@@ -152,9 +156,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -184,6 +189,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
@@ -225,6 +232,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -252,11 +260,14 @@ import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMotionBlurRadius
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntSize
@@ -276,9 +287,11 @@ import org.json.JSONObject
 import com.kyant.backdrop.catalog.components.LiquidBottomTab
 import com.kyant.backdrop.catalog.components.LiquidBottomTabs
 import com.kyant.backdrop.catalog.components.LiquidButton
+import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.backdrop.catalog.components.LiquidSlider
 import com.kyant.backdrop.catalog.components.LiquidToggle
+import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
@@ -396,6 +409,7 @@ fun NormalizedAiManualImportScreen(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
+    val backgroundPermissionGate = rememberAiImportBackgroundPermissionGate()
     var jsonText by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var routeMessage by remember { mutableStateOf<String?>(null) }
@@ -495,6 +509,7 @@ fun NormalizedAiManualImportScreen(
             settings.domStorageEnabled = true
             settings.cacheMode = WebSettings.LOAD_DEFAULT
             configureEduImportSecurity()
+            enableSystemCredentialAutofill()
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
             setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
@@ -859,9 +874,11 @@ fun NormalizedAiManualImportScreen(
                     arrayOf("text/calendar", "application/ics", "application/octet-stream")
                 )
                 else -> if (!aiParsing) {
-                    // Some document providers report office files as application/octet-stream;
-                    // validate the real extension/MIME after selection instead of hiding them here.
-                    fileLauncher.launch(arrayOf("*/*"))
+                    backgroundPermissionGate.continueWithPermissionTip {
+                        // Some document providers report office files as application/octet-stream;
+                        // validate the real extension/MIME after selection instead of hiding them here.
+                        fileLauncher.launch(arrayOf("*/*"))
+                    }
                 }
             }
         }
@@ -898,7 +915,9 @@ fun NormalizedAiManualImportScreen(
                 LiquidAlertAction(
                     "交给 AI 整理",
                     LiquidAlertActionStyle.Primary,
-                    onClick = { repairTokenWithAi() }
+                    onClick = {
+                        backgroundPermissionGate.continueWithPermissionTip(::repairTokenWithAi)
+                    }
                 )
             ),
             backdrop = backdrop,
@@ -906,6 +925,11 @@ fun NormalizedAiManualImportScreen(
             onDismissRequest = { showAiTokenRepairPrompt = false }
         )
     }
+    AiImportBackgroundPermissionTip(
+        state = backgroundPermissionGate,
+        backdrop = backdrop,
+        config = state.config
+    )
 }
 
 @Composable
@@ -1245,7 +1269,9 @@ fun EduSchoolPickerScreen(
     val adapters = remember(warehouseGeneration) {
         runCatching { ShiguangWarehouse.loadAdapters(context) }
             .getOrDefault(emptyList())
-            .filterNot(EduAdapter::isGeneralEduTool)
+            // WakeUp and StarLink already share the AI manual-import input. The two GLOBAL_TOOLS
+            // component fixtures are upstream development pages rather than user-facing imports.
+            .filterNot { it.isManualShareCodeTool() || it.isDevelopmentOnlyGeneralTool() }
     }
     var adapterChoices by remember { mutableStateOf<List<EduAdapter>?>(null) }
     var query by remember { mutableStateOf("") }
@@ -1722,7 +1748,9 @@ private fun EduAlphabetRailDock(
     }
     val activeAlphabetIndex = railPointerIndex.takeIf { it >= 0 } ?: visibleSectionIndex
     val alphabetRailWidth by animateDpAsState(
-        targetValue = if (alphabetRailExpanded) 58.dp else 10.dp,
+        // Keep the touch target generous while moving the visible letters closer to the physical
+        // right edge. The surrounding blur veil remains independent of this content width.
+        targetValue = if (alphabetRailExpanded) 46.dp else 10.dp,
         animationSpec = tween(180),
         label = "edu-alphabet-width"
     )
@@ -1756,13 +1784,13 @@ private fun EduAlphabetRailDock(
                     top = topPadding,
                     bottom = alphabetRailBottomExclusion
                 )
-                .clipToBounds()
+                .graphicsLayer { clip = false }
         ) {
             AnimatedVisibility(
                 visible = showAlphabetRail,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(end = 0.dp),
+                    .offset(x = 4.dp),
                 enter = fadeIn(tween(240)),
                 exit = fadeOut(tween(240))
             ) {
@@ -1847,6 +1875,7 @@ private fun EduAlphabetRailDock(
                                             renderEffect = platformBlurRenderEffect(
                                                 detailMotionBlurRadiusDp(railMotionProgress) * density.density
                                             )
+                                            clip = false
                                         }
                                     } else {
                                         Modifier
@@ -1930,7 +1959,13 @@ private fun eduAdapterCategoryLabel(category: String): String = when (category.u
     else -> category.ifBlank { "未注明" }
 }
 
-private val EduSearchVerticalOverscan = 12.dp
+private val EduSearchVerticalOverscan = 18.dp
+private val EduSearchHorizontalOverscan = 16.dp
+private val LightEduSearchDockShadow = Shadow(
+    radius = 8.dp,
+    offset = DpOffset(0.dp, 2.dp),
+    color = ComposeColor.Black.copy(alpha = 0.10f)
+)
 
 @Composable
 private fun EduSchoolSearchDock(
@@ -2022,6 +2057,25 @@ fun SchoolSearchField(
     val foreground = sleepDownPanelForegroundColor(config)
     val lightSearchGlass = !appUsesDarkTheme(config)
     var focused by remember { mutableStateOf(false) }
+    val fieldInteractionScope = rememberCoroutineScope()
+    val fieldInteractiveHighlight = remember(fieldInteractionScope) {
+        InteractiveHighlight(animationScope = fieldInteractionScope)
+    }
+    var editableValue by remember {
+        mutableStateOf(TextFieldValue(value, selection = TextRange(value.length)))
+    }
+    LaunchedEffect(value) {
+        if (editableValue.text != value) {
+            editableValue = TextFieldValue(value, selection = TextRange(value.length))
+        }
+    }
+    LaunchedEffect(focused) {
+        if (focused) {
+            editableValue = editableValue.copy(
+                selection = TextRange(editableValue.text.length)
+            )
+        }
+    }
     val density = LocalDensity.current
     // The IME inset remains the only trigger. Keep the eased transition fast enough to follow the
     // keyboard, while still letting the cancel/search capsule finish separating after the lift.
@@ -2075,8 +2129,11 @@ fun SchoolSearchField(
     BackHandler(enabled = focused) { closeSearch() }
     val field: @Composable () -> Unit = {
         BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
+            value = editableValue,
+            onValueChange = { next ->
+                editableValue = next
+                if (next.text != value) onValueChange(next.text)
+            },
             singleLine = true,
             textStyle = MaterialTheme.typography.bodySmall.copy(color = foreground),
             cursorBrush = SolidColor(ComposeColor(0xFF9E9E9E)),
@@ -2086,18 +2143,30 @@ fun SchoolSearchField(
                 .fillMaxSize()
                 .onFocusChanged { focused = it.isFocused },
             decorationBox = { innerTextField ->
-                Box(
+                Row(
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.CenterStart
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (value.isBlank()) {
-                        Text(
-                            "搜索学校或导入工具…",
-                            color = foreground.copy(alpha = 0.50f),
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = foreground.copy(alpha = 0.58f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (editableValue.text.isBlank()) {
+                            Text(
+                                "搜索学校或教务工具…",
+                                color = foreground.copy(alpha = 0.50f),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        innerTextField()
                     }
-                    innerTextField()
                 }
             }
         )
@@ -2125,9 +2194,11 @@ fun SchoolSearchField(
         val actionPressOverscan = (
             actionWidth * pressScaleFactor + pressTranslationAllowance
         ).coerceAtMost(maxPressOverscan)
-        val fieldSlotWidth = fieldWidth + fieldPressOverscan * 2f
+        val fieldRenderOverscan = maxOf(fieldPressOverscan, EduSearchHorizontalOverscan)
+        val actionRenderOverscan = maxOf(actionPressOverscan, EduSearchHorizontalOverscan)
+        val fieldSlotWidth = fieldWidth + fieldRenderOverscan * 2f
         val actionSlotWidth = if (showAction) {
-            actionWidth + actionPressOverscan * 2f
+            actionWidth + actionRenderOverscan * 2f
         } else {
             0.dp
         }
@@ -2149,7 +2220,7 @@ fun SchoolSearchField(
                     .width(fieldSlotWidth)
                     .height(renderEnvelopeHeight)
                     .offset(
-                        x = horizontalInset - fieldPressOverscan,
+                        x = horizontalInset - fieldRenderOverscan,
                         y = -renderEnvelopeBottomOffset + entranceTranslation
                     )
                     .graphicsLayer {
@@ -2162,47 +2233,53 @@ fun SchoolSearchField(
                     .then(splitMotionBlurModifier),
                 contentAlignment = Alignment.Center
             ) {
-                if (backdrop != null) {
-                    LiquidButton(
-                        onClick = {},
-                        backdrop = backdrop,
-                        modifier = Modifier
-                            .width(fieldWidth),
-                        height = searchButtonHeight,
-                        contentPadding = PaddingValues(horizontal = 15.dp),
-                        blurRadius = searchBlurRadius,
-                        lensHeight = searchLensHeight,
-                        lensAmount = searchLensAmount,
-                        chromaticAberration = false,
-                        surfaceColor = searchSurfaceColor,
-                        // Keep the real glass blur/lens chain, but do not add a dark perimeter
-                        // shadow around the capsule. The sibling scrim below supplies the dock tint.
-                        shadowEnabled = lightSearchGlass,
-                        highlightEnabled = true,
-                        clickTargetEnabled = false,
-                        // The button's own Kyant layer must also allow the press transform to
-                        // extend beyond its measured capsule; an outer unclipped host alone is
-                        // not enough because drawBackdrop otherwise clips at the button bounds.
-                        clipToBounds = false,
-                        pressExpansion = pressExpansion
-                    ) {
+                Box(
+                    modifier = Modifier
+                        .width(fieldWidth)
+                        .height(searchButtonHeight)
+                ) {
+                    if (backdrop != null) {
+                        // The glass shell and editable foreground are siblings. Compose's blinking
+                        // caret can now redraw without invalidating the backdrop consumer beneath it.
+                        LiquidButton(
+                            onClick = {},
+                            backdrop = backdrop,
+                            modifier = Modifier.fillMaxSize(),
+                            height = searchButtonHeight,
+                            contentPadding = PaddingValues(0.dp),
+                            blurRadius = searchBlurRadius,
+                            lensHeight = searchLensHeight,
+                            lensAmount = searchLensAmount,
+                            chromaticAberration = false,
+                            surfaceColor = searchSurfaceColor,
+                            // Light mode keeps the soft depth shadow; dark mode relies on the dock
+                            // tint alone so it does not gain a heavy black perimeter.
+                            shadowEnabled = lightSearchGlass,
+                            shadowStyle = LightEduSearchDockShadow,
+                            highlightEnabled = true,
+                            isInteractive = true,
+                            clickTargetEnabled = false,
+                            clipToBounds = false,
+                            pressExpansion = pressExpansion,
+                            sharedInteractiveHighlight = fieldInteractiveHighlight
+                        ) {}
+                    } else {
                         Box(
                             modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            field()
-                        }
+                                .fillMaxSize()
+                                .clip(Capsule())
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        )
                     }
-                } else {
                     Box(
                         modifier = Modifier
-                            .width(fieldWidth)
-                            .height(searchButtonHeight)
-                            .clip(Capsule())
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .padding(horizontal = 16.dp),
+                            .fillMaxSize()
+                            .liquidButtonVisualTransform(
+                                interactiveHighlight = fieldInteractiveHighlight,
+                                pressExpansion = pressExpansion
+                            )
+                            .then(fieldInteractiveHighlight.gestureModifier)
+                            .padding(horizontal = 15.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         field()
@@ -2214,9 +2291,9 @@ fun SchoolSearchField(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .width(actionSlotWidth)
-                        .height(renderEnvelopeHeight)
-                        .offset(
-                            x = horizontalInset + fieldWidth + actionGap - actionPressOverscan,
+                    .height(renderEnvelopeHeight)
+                    .offset(
+                            x = horizontalInset + fieldWidth + actionGap - actionRenderOverscan,
                             y = -renderEnvelopeBottomOffset + entranceTranslation
                         )
                         .graphicsLayer {
@@ -2241,6 +2318,7 @@ fun SchoolSearchField(
                             chromaticAberration = false,
                             surfaceColor = searchSurfaceColor,
                             shadowEnabled = lightSearchGlass,
+                            shadowStyle = LightEduSearchDockShadow,
                             highlightEnabled = true,
                             clipToBounds = false,
                             pressExpansion = pressExpansion
@@ -2364,56 +2442,82 @@ private fun EduBridgeInteractionDialog(
                     }
                 }
             }
-            Dialog(
+            LiquidAlertDialog(
+                title = request.title,
+                message = request.message,
+                actions = listOf(
+                    LiquidAlertAction(
+                        label = "取消",
+                        style = LiquidAlertActionStyle.Secondary,
+                        onClick = ::cancel
+                    ),
+                    LiquidAlertAction(
+                        label = "完成",
+                        style = LiquidAlertActionStyle.Primary,
+                        dismissOnClick = false,
+                        onClick = ::submit
+                    )
+                ),
+                backdrop = backdrop,
+                config = state.config,
                 onDismissRequest = ::cancel,
-                properties = DialogProperties(usePlatformDefaultWidth = false)
-            ) {
-                CenterLiquidDialog(
-                    backdrop = backdrop,
-                    config = state.config,
-                    size = LiquidDialogSize.Compact
-                ) {
-                    LiquidDialogHeader(
-                        title = request.title,
-                        onDismiss = ::cancel,
-                        backdrop = backdrop,
-                        config = state.config,
-                        onConfirm = ::submit
-                    )
-                    if (request.message.isNotBlank()) {
-                        Text(
-                            request.message,
-                            modifier = Modifier.padding(horizontal = 18.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = LocalContentColor.current.copy(alpha = 0.72f)
+                messageContent = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (request.message.isNotBlank()) {
+                            Text(
+                                request.message,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = LocalContentColor.current.copy(alpha = 0.72f)
+                            )
+                        }
+                        DialogCapsuleField(
+                            value = value,
+                            onValueChange = {
+                                value = it
+                                validationError = null
+                            },
+                            placeholder = request.message.ifBlank { "请输入" },
+                            config = state.config,
+                            modifier = Modifier.fillMaxWidth()
                         )
+                        validationError?.let {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
-                    DialogCapsuleField(
-                        value = value,
-                        onValueChange = {
-                            value = it
-                            validationError = null
-                        },
-                        placeholder = request.message.ifBlank { "请输入" },
-                        config = state.config,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                    )
-                    validationError?.let {
-                        Text(
-                            it,
-                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                    Spacer(Modifier.height(12.dp))
                 }
-            }
+            )
         }
         is EduBridgeInteractionRequest.SingleSelection -> {
-            var selectedIndex by remember(request.requestId) {
-                mutableIntStateOf(request.defaultIndex)
+            if (request.options.isEmpty()) {
+                fun cancel() {
+                    bridge.resolveEduBridgeInteraction(request.requestId, "null")
+                    onFinished()
+                }
+                LiquidAlertDialog(
+                    title = request.title,
+                    message = "没有可选项",
+                    actions = listOf(
+                        LiquidAlertAction(
+                            label = "知道了",
+                            style = LiquidAlertActionStyle.Primary,
+                            onClick = ::cancel
+                        )
+                    ),
+                    backdrop = backdrop,
+                    config = state.config,
+                    onDismissRequest = ::cancel
+                )
+                return
             }
+            var selectedIndex by remember(request.requestId) {
+                mutableIntStateOf(request.defaultIndex.coerceIn(request.options.indices))
+            }
+            var visible by remember(request.requestId) { mutableStateOf(true) }
+            var completion by remember(request.requestId) { mutableStateOf<(() -> Unit)?>(null) }
             fun cancel() {
                 bridge.resolveEduBridgeInteraction(request.requestId, "null")
                 onFinished()
@@ -2423,70 +2527,75 @@ private fun EduBridgeInteractionDialog(
                 bridge.resolveEduBridgeInteraction(request.requestId, selectedIndex.toString())
                 onFinished()
             }
-            Dialog(
-                onDismissRequest = ::cancel,
-                properties = DialogProperties(usePlatformDefaultWidth = false)
+            fun closeThen(action: () -> Unit) {
+                if (!visible) return
+                completion = action
+                visible = false
+            }
+            val pickerForeground = appPanelForegroundColor(state.config)
+            val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
+                selectedTextColor = pickerForeground,
+                unselectedTextColor = pickerForeground.copy(alpha = 0.34f),
+                disabledSelectedTextColor = pickerForeground.copy(alpha = 0.55f),
+                disabledUnselectedTextColor = pickerForeground.copy(alpha = 0.22f)
+            )
+            SleepDownPickerDialog(
+                show = visible,
+                title = request.title,
+                onDismissRequest = { closeThen(::cancel) },
+                onDismissFinished = {
+                    val action = completion
+                    completion = null
+                    action?.invoke()
+                },
+                backdrop = backdrop,
+                config = state.config,
+                contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
             ) {
-                CenterLiquidDialog(
-                    backdrop = backdrop,
-                    config = state.config,
-                    size = LiquidDialogSize.Compact
+                Text(
+                    "请选择一项",
+                    modifier = Modifier.fillMaxWidth(),
+                    color = pickerForeground.copy(alpha = 0.62f),
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center
+                )
+                top.yukonga.miuix.kmp.basic.NumberPicker(
+                    value = selectedIndex,
+                    onValueChange = { selectedIndex = it },
+                    range = request.options.indices,
+                    visibleItemCount = 3,
+                    label = { request.options[it] },
+                    colors = pickerColors,
+                    textStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title3.copy(
+                        color = pickerForeground,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    itemHeight = 46.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(138.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
                 ) {
-                    LiquidDialogHeader(
-                        title = request.title,
-                        onDismiss = ::cancel,
+                    QuickSheetLiquidAction(
+                        label = "取消",
+                        enabled = true,
                         backdrop = backdrop,
                         config = state.config,
-                        onConfirm = if (selectedIndex in request.options.indices) ::submit else null
-                    )
-                    if (request.options.isEmpty()) {
-                        Text(
-                            "没有可选项",
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 20.dp),
-                            textAlign = TextAlign.Center,
-                            color = LocalContentColor.current.copy(alpha = 0.64f)
-                        )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 360.dp)
-                                .padding(horizontal = 14.dp, vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            itemsIndexed(request.options) { index, option ->
-                                val selected = index == selectedIndex
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(18.dp))
-                                        .background(
-                                            MaterialTheme.colorScheme.primary.copy(
-                                                alpha = if (selected) 0.14f else 0f
-                                            )
-                                        )
-                                        .clickable { selectedIndex = index }
-                                        .padding(horizontal = 16.dp, vertical = 13.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        option,
-                                        modifier = Modifier.weight(1f),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = LocalContentColor.current
-                                    )
-                                    if (selected) {
-                                        Text(
-                                            "✓",
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(10.dp))
+                        modifier = Modifier.weight(1f),
+                        height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+                    ) { closeThen(::cancel) }
+                    QuickSheetLiquidAction(
+                        label = "完成",
+                        enabled = selectedIndex in request.options.indices,
+                        backdrop = backdrop,
+                        config = state.config,
+                        modifier = Modifier.weight(1f),
+                        primary = true,
+                        height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+                    ) { closeThen(::submit) }
                 }
             }
         }
@@ -2511,7 +2620,6 @@ fun EduImportActivityScreen(
             if (adapter.requiresManualEduUrl()) "" else adapter.importUrl.ifBlank { "about:blank" }
         )
     }
-    var showGeneralUrlDialog by remember(adapter) { mutableStateOf(adapter.requiresManualEduUrl()) }
     val bridge = remember(adapter) {
         ShiguangBridgeHost(
             context = context,
@@ -2527,30 +2635,6 @@ fun EduImportActivityScreen(
         backdrop = backdrop,
         onFinished = { bridgeInteraction = null }
     )
-    if (showGeneralUrlDialog) {
-        Dialog(onDismissRequest = { showGeneralUrlDialog = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            CenterLiquidDialog(backdrop = backdrop, config = state.config) {
-                GeneralEduUrlDialog(
-                    config = state.config,
-                    backdrop = backdrop,
-                    adapter = adapter,
-                    initialUrl = currentUrl,
-                    helperText = if (adapter.isAiEduImportTool()) {
-                        "AI教务导入需要先打开学校教务系统网址。登录后进入课表页面，后续可使用 AI 解析当前页面。"
-                    } else {
-                        "通用教务需要先填写学校教务系统网址，进入后可继续在下方地址栏修改。"
-                    },
-                    onCancel = { showGeneralUrlDialog = false },
-                    onConfirm = {
-                        EduLoginHistoryStore.remember(context, adapter, it)
-                        currentUrl = it
-                        showGeneralUrlDialog = false
-                        webView?.loadUrl(it)
-                    }
-                )
-            }
-        }
-    }
     EduImportBrowserScreen(
         state = state,
         adapter = adapter,
@@ -2564,108 +2648,6 @@ fun EduImportActivityScreen(
         useDetailTopPadding = useDetailTopPadding,
         onMessage = { message = it }
     )
-}
-
-@Composable
-fun GeneralEduUrlDialog(
-    config: ScheduleConfigEntity,
-    backdrop: Backdrop?,
-    adapter: EduAdapter,
-    initialUrl: String,
-    helperText: String = "通用教务需要先填写学校教务系统网址，进入后可继续在下方地址栏修改。",
-    onCancel: () -> Unit,
-    onConfirm: (String) -> Unit
-) {
-    val context = LocalContext.current
-    val dialogForeground = sleepDownPanelForegroundColor(config)
-    var url by remember(initialUrl) { mutableStateOf(initialUrl.ifBlank { "https://" }) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var history by remember(adapter.adapterId) { mutableStateOf(EduLoginHistoryStore.load(context)) }
-    fun submit() {
-        val normalized = normalizeEduUrl(url)
-        if (normalized.isBlank()) error = "请输入教务系统网址" else onConfirm(normalized)
-    }
-    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        LiquidDialogHeader("输入教务网址", onCancel, backdrop, config, onConfirm = ::submit)
-        DialogCapsuleField(
-            value = url,
-            onValueChange = { url = it },
-            placeholder = "https://example.edu.cn",
-            config = config,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            keyboardType = KeyboardType.Uri
-        )
-        Text(
-            error ?: helperText,
-            modifier = Modifier.padding(horizontal = 16.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = if (error == null) dialogForeground.copy(alpha = 0.72f) else MaterialTheme.colorScheme.error,
-            lineHeight = 18.sp
-        )
-        if (history.isNotEmpty()) {
-            Text(
-                "最近使用",
-                modifier = Modifier.padding(start = 18.dp, top = 2.dp),
-                style = MaterialTheme.typography.labelLarge,
-                color = dialogForeground.copy(alpha = 0.76f)
-            )
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                history.take(4).forEach { entry ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(dialogForeground.copy(alpha = 0.08f))
-                            .clickable {
-                                EduLoginHistoryStore.restoreCookies(entry)
-                                url = entry.url
-                                onConfirm(entry.url)
-                            }
-                            .padding(start = 14.dp, top = 10.dp, bottom = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                entry.title,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = dialogForeground
-                            )
-                            Text(
-                                entry.url,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = dialogForeground.copy(alpha = 0.58f)
-                            )
-                        }
-                        IconButton(onClick = {
-                            EduLoginHistoryStore.remove(context, entry.id)
-                            history = EduLoginHistoryStore.load(context)
-                        }) {
-                            Icon(
-                                painterResource(android.R.drawable.ic_menu_delete),
-                                contentDescription = "删除登录记录",
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                }
-            }
-            Text(
-                "网址与登录 Cookie 使用设备密钥加密，仅保存在本机。",
-                modifier = Modifier.padding(horizontal = 18.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = dialogForeground.copy(alpha = 0.52f)
-            )
-        }
-    }
 }
 
 private val AiEduPageExtractScript = """
@@ -2890,6 +2872,461 @@ private fun eduDesktopUserAgent(context: Context): String {
     return "Mozilla/5.0 (X11; Linux x86_64) $webKit (KHTML, like Gecko) $chromium $safari"
 }
 
+private fun eduImportIslandStatus(rawStatus: String?): String? {
+    val status = rawStatus?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val lowercase = status.lowercase(Locale.ROOT)
+    val isTechnicalFailure = listOf(
+        "失败", "错误", "异常", "无效", "无法", "不能", "未找到", "抓不到",
+        "不支持", "超时", "error", "exception", "invalid", "failed", "failure",
+        "json", "schema", "bridge", "javascript", "network", "socket", "connection",
+        "unexpected", "expected", "token", "null"
+    ).any { signal -> lowercase.contains(signal) }
+    return when {
+        isTechnicalFailure -> "导入遇到问题"
+        status.contains("取消") -> "已取消导入"
+        status.contains("成功") || status.contains("完成") -> "导入处理完成"
+        status.contains("确认") || status.contains("预览") -> "等待确认预览"
+        status.contains("截取") || status.contains("截图") -> "正在截取页面"
+        status.contains("识屏") -> "正在处理识屏"
+        status.contains("解析") || status.contains("整理") -> "正在解析课程"
+        status.contains("加载") -> "正在加载页面"
+        status.contains("登录") || status.contains("认证") -> "等待完成登录"
+        status.contains("保存") -> "正在保存课程"
+        status.contains("读取") || status.contains("获取") || status.contains("抓取") ->
+            "正在读取课程"
+        else -> "正在处理导入"
+    }
+}
+
+@Composable
+private fun EduImportGuideMorphOverlay(
+    adapter: EduAdapter,
+    backdrop: Backdrop,
+    visible: Boolean,
+    expanded: Boolean,
+    statusText: String?,
+    onExpand: () -> Unit,
+    onCollapse: () -> Unit
+) {
+    val density = LocalDensity.current
+    val view = LocalView.current
+    val window = (view.context as? ComponentActivity)?.window
+    val originalCutoutMode = remember(window) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window?.attributes?.layoutInDisplayCutoutMode
+        } else {
+            null
+        }
+    }
+    val morphProgress = remember(adapter) { Animatable(0f) }
+    val openMorphEasing = remember { CubicBezierEasing(0.20f, 0.48f, 0.18f, 1f) }
+    val closeMorphEasing = remember { CubicBezierEasing(0.32f, 0f, 0.22f, 1f) }
+    val reboundMorphEasing = remember { CubicBezierEasing(0.30f, 0f, 0.24f, 1f) }
+    val settleMorphEasing = remember { CubicBezierEasing(0.34f, 0f, 0.30f, 1f) }
+    var handleDragY by remember(adapter) { mutableFloatStateOf(0f) }
+    val visibleAlpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (visible) 300 else 200,
+            easing = if (visible) openMorphEasing else closeMorphEasing
+        ),
+        label = "edu-import-guide-visible"
+    )
+    LaunchedEffect(window, view, visible) {
+        val targetWindow = window ?: return@LaunchedEffect
+        val controller = WindowCompat.getInsetsController(targetWindow, view)
+        if (visible) {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val attributes = targetWindow.attributes
+                attributes.layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                } else {
+                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+                targetWindow.attributes = attributes
+            }
+        } else {
+            controller.show(WindowInsetsCompat.Type.statusBars())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && originalCutoutMode != null) {
+                val attributes = targetWindow.attributes
+                attributes.layoutInDisplayCutoutMode = originalCutoutMode
+                targetWindow.attributes = attributes
+            }
+        }
+    }
+    DisposableEffect(window, view, originalCutoutMode) {
+        onDispose {
+            val targetWindow = window ?: return@onDispose
+            WindowCompat.getInsetsController(targetWindow, view)
+                .show(WindowInsetsCompat.Type.statusBars())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && originalCutoutMode != null) {
+                val attributes = targetWindow.attributes
+                attributes.layoutInDisplayCutoutMode = originalCutoutMode
+                targetWindow.attributes = attributes
+            }
+        }
+    }
+    LaunchedEffect(visible, expanded) {
+        val target = if (visible && expanded) 1f else 0f
+        val start = morphProgress.value
+        val travel = abs(target - start)
+        if (travel <= 0.0005f) {
+            morphProgress.snapTo(target)
+            return@LaunchedEffect
+        }
+        val opening = target > start
+        val fullDurationMillis = if (opening) 620 else 560
+        val duration = (fullDurationMillis * travel.coerceIn(0.38f, 1f)).roundToInt()
+        val reboundAt = (duration * 0.74f).roundToInt()
+        val settleAt = (duration * 0.90f).roundToInt()
+        morphProgress.animateTo(
+            targetValue = target,
+            animationSpec = keyframes {
+                durationMillis = duration
+                start at 0 using if (opening) openMorphEasing else closeMorphEasing
+                (if (opening) 1.016f else -0.014f) at reboundAt using reboundMorphEasing
+                (if (opening) 0.997f else 0.003f) at settleAt using settleMorphEasing
+            }
+        )
+    }
+    val activeStatus = statusText?.trim()?.takeIf { it.isNotEmpty() }
+    val collapsedStatus = remember(activeStatus) { activeStatus?.take(7) ?: "导入中" }
+    val collapsedStatusStyle = MaterialTheme.typography.labelMedium.copy(
+        fontWeight = FontWeight.SemiBold
+    )
+    val textMeasurer = rememberTextMeasurer()
+    val collapsedStatusWidth = with(density) {
+        textMeasurer.measure(
+            text = collapsedStatus,
+            style = collapsedStatusStyle,
+            maxLines = 1
+        ).size.width.toDp()
+    }
+    LaunchedEffect(visible, expanded, activeStatus) {
+        if (visible && expanded) {
+            delay(5_000)
+            onCollapse()
+        }
+    }
+    val geometryProgress = morphProgress.value.coerceIn(-0.02f, 1.02f)
+    val synchronizedProgress = geometryProgress.coerceIn(0f, 1f)
+    val foreground = ComposeColor.White
+    val contentMotionBlurPx =
+        detailMotionBlurRadiusDp(synchronizedProgress) * 0.75f * density.density
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer { clip = false }
+            .zIndex(1000f)
+    ) {
+        val rootInsets = ViewCompat.getRootWindowInsets(view)
+        val statusBarHeightPx = rootInsets
+            ?.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars())
+            ?.top
+            ?.takeIf { it > 0 }
+            ?: WindowInsets.statusBars.getTop(density)
+        val statusBarHeight = with(density) { statusBarHeightPx.toDp() }
+        val topCutoutRects = rootInsets?.displayCutout?.boundingRects.orEmpty()
+            .filter { it.top <= statusBarHeightPx }
+        val cutoutBounds = if (topCutoutRects.isEmpty()) {
+            null
+        } else {
+            android.graphics.Rect(
+                topCutoutRects.minOf { it.left },
+                topCutoutRects.minOf { it.top },
+                topCutoutRects.maxOf { it.right },
+                topCutoutRects.maxOf { it.bottom }
+            )
+        }
+        val cutoutWidth = with(density) { (cutoutBounds?.width() ?: 0).toDp() }
+        val cutoutHeight = with(density) { (cutoutBounds?.height() ?: 0).toDp() }
+        val cameraContentGap = maxOf(cutoutWidth + 18.dp, 42.dp)
+        val collapsedSideWidth = maxOf(34.dp, collapsedStatusWidth + 13.dp)
+        val targetCollapsedWidth = maxOf(
+            150.dp,
+            cameraContentGap + collapsedSideWidth * 2f
+        )
+            .coerceAtMost((maxWidth - 12.dp).coerceAtLeast(0.dp))
+        val collapsedWidth by animateDpAsState(
+            targetValue = targetCollapsedWidth,
+            animationSpec = tween(durationMillis = 240, easing = openMorphEasing),
+            label = "edu-import-guide-collapsed-width"
+        )
+        val collapsedHeight = maxOf(32.dp, cutoutHeight + 2.dp).coerceAtMost(38.dp)
+        val cameraCenterX = cutoutBounds?.let { bounds ->
+            with(density) { bounds.centerX().toDp() }
+        } ?: maxWidth / 2f
+        val cameraCenterY = cutoutBounds?.let { bounds ->
+            with(density) { bounds.centerY().toDp() }
+        } ?: statusBarHeight / 2f
+        val collapsedLeft = (cameraCenterX - collapsedWidth / 2f).coerceIn(
+            6.dp,
+            (maxWidth - collapsedWidth - 6.dp).coerceAtLeast(6.dp)
+        )
+        val collapsedTop = (cameraCenterY - collapsedHeight / 2f).coerceAtLeast(3.dp)
+        val expandedSafeInset = 8.dp
+        val guideHeaderHeight = maxOf(statusBarHeight, 38.dp)
+        val guideContentTopPadding = (guideHeaderHeight - 6.dp).coerceAtLeast(32.dp)
+        val expandedWidth = (maxWidth - expandedSafeInset * 2f).coerceAtLeast(collapsedWidth)
+        val expandedHeight = (guideHeaderHeight + 126.dp)
+            .coerceAtMost((maxHeight - expandedSafeInset * 2f).coerceAtLeast(collapsedHeight))
+        val cardWidth = collapsedWidth + (expandedWidth - collapsedWidth) * geometryProgress
+        val cardHeight = collapsedHeight + (expandedHeight - collapsedHeight) * geometryProgress
+        val cardLeft = collapsedLeft + (expandedSafeInset - collapsedLeft) * geometryProgress
+        val cardTop = collapsedTop + (expandedSafeInset - collapsedTop) * geometryProgress
+
+        fun roundedCornerRadius(position: Int): Dp? {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+            return view.rootWindowInsets
+                ?.getRoundedCorner(position)
+                ?.radius
+                ?.takeIf { it > 0 }
+                ?.let { with(density) { it.toDp() } }
+        }
+
+        val fallbackBodyCorner = 30.dp
+        val expandedBodyCorner = listOfNotNull(
+            roundedCornerRadius(android.view.RoundedCorner.POSITION_TOP_LEFT),
+            roundedCornerRadius(android.view.RoundedCorner.POSITION_TOP_RIGHT),
+            roundedCornerRadius(android.view.RoundedCorner.POSITION_BOTTOM_LEFT),
+            roundedCornerRadius(android.view.RoundedCorner.POSITION_BOTTOM_RIGHT)
+        ).maxOrNull() ?: fallbackBodyCorner
+        val collapsedCorner = collapsedHeight / 2f
+        val cardCorner = collapsedCorner +
+            (expandedBodyCorner - collapsedCorner) * synchronizedProgress
+        val cardShape = RoundedRectangle(cardCorner)
+        val expandedContentAlpha = synchronizedProgress
+        val collapsedContentAlpha = 1f - synchronizedProgress
+        val handleCollapseThreshold = with(density) { 18.dp.toPx() }
+
+        LiquidButton(
+            onClick = { if (!expanded) onExpand() },
+            backdrop = backdrop,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(x = cardLeft, y = cardTop)
+                .width(cardWidth)
+                .height(cardHeight)
+                .graphicsLayer {
+                    alpha = visibleAlpha
+                    clip = false
+                },
+            isInteractive = visible,
+            clickTargetEnabled = visible,
+            height = cardHeight,
+            contentPadding = PaddingValues(0.dp),
+            blurRadius = 10.dp,
+            lensHeight = 24.dp + 6.dp * synchronizedProgress,
+            lensAmount = 42.dp + 8.dp * synchronizedProgress,
+            chromaticAberration = true,
+            surfaceColor = ComposeColor.Black.copy(alpha = 0.68f - 0.42f * synchronizedProgress),
+            shadowEnabled = true,
+            shadowStyle = Shadow(
+                radius = 22.dp,
+                offset = DpOffset(0.dp, 8.dp),
+                color = ComposeColor.Black.copy(alpha = 0.34f)
+            ),
+            highlightEnabled = true,
+            shape = cardShape,
+            clipToBounds = false,
+            pressExpansion = 3.dp
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(cardShape)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = 0.34f + 0.66f * synchronizedProgress }
+                        .background(
+                            Brush.verticalGradient(
+                                0f to ComposeColor.Black.copy(alpha = 0.98f),
+                                0.28f to ComposeColor.Black.copy(alpha = 0.84f),
+                                0.48f to ComposeColor.Black.copy(alpha = 0.54f),
+                                0.72f to ComposeColor.Black.copy(alpha = 0.14f),
+                                1f to ComposeColor.Black.copy(alpha = 0.03f)
+                            )
+                        )
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = 1f - synchronizedProgress }
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    ComposeColor.White.copy(alpha = 0.10f),
+                                    ComposeColor.Black.copy(alpha = 0.88f),
+                                    ComposeColor.Black.copy(alpha = 0.88f),
+                                    ComposeColor.White.copy(alpha = 0.10f)
+                                )
+                            )
+                        )
+                )
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth()
+                        .padding(horizontal = 13.dp)
+                        .graphicsLayer {
+                            alpha = collapsedContentAlpha
+                            scaleX = 1f - 0.04f * synchronizedProgress
+                            scaleY = 1f - 0.04f * synchronizedProgress
+                            compositingStrategy = if (contentMotionBlurPx > 0.01f) {
+                                CompositingStrategy.Offscreen
+                            } else {
+                                CompositingStrategy.Auto
+                            }
+                            renderEffect = platformMotionBlurRenderEffect(contentMotionBlurPx)
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_school_import),
+                        contentDescription = null,
+                        tint = foreground,
+                        modifier = Modifier.size(21.dp)
+                    )
+                    Text(
+                        text = collapsedStatus,
+                        color = foreground,
+                        style = collapsedStatusStyle,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            alpha = expandedContentAlpha
+                            translationY = (1f - expandedContentAlpha) * 6.dp.toPx()
+                            scaleX = 0.98f + 0.02f * expandedContentAlpha
+                            scaleY = 0.98f + 0.02f * expandedContentAlpha
+                            compositingStrategy = if (contentMotionBlurPx > 0.01f) {
+                                CompositingStrategy.Offscreen
+                            } else {
+                                CompositingStrategy.Auto
+                            }
+                            renderEffect = platformMotionBlurRenderEffect(contentMotionBlurPx)
+                        }
+                        .padding(
+                            start = 18.dp,
+                            top = guideContentTopPadding,
+                            end = 18.dp,
+                            bottom = 6.dp
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedRectangle(12.dp))
+                                .background(foreground.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_school_import),
+                                contentDescription = null,
+                                tint = foreground,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = adapter.school.name,
+                                color = foreground,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "适配作者 · ${adapter.maintainer.ifBlank { "拾光社区" }}",
+                                color = foreground.copy(alpha = 0.66f),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    if (adapter.description.isNotBlank()) {
+                        Text(
+                            text = adapter.description,
+                            modifier = Modifier.fillMaxWidth(),
+                            color = foreground.copy(alpha = 0.56f),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(foreground.copy(alpha = 0.14f))
+                    )
+                    Text(
+                        text = activeStatus
+                            ?: "登录后进入课程表页面，点击底部导入并核对预览。",
+                        color = foreground.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(22.dp)
+                            .pointerInput(expanded, onCollapse, handleCollapseThreshold) {
+                                detectDragGestures(
+                                    onDragStart = { handleDragY = 0f },
+                                    onDragCancel = { handleDragY = 0f },
+                                    onDragEnd = {
+                                        if (handleDragY <= -handleCollapseThreshold) onCollapse()
+                                        handleDragY = 0f
+                                    }
+                                ) { change, dragAmount ->
+                                    change.consume()
+                                    handleDragY += dragAmount.y
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .graphicsLayer {
+                                    translationY = handleDragY.coerceIn(-10f, 8f) * 0.25f
+                                }
+                                .width(38.dp)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(foreground.copy(alpha = 0.34f))
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun EduImportBrowserScreen(
@@ -2908,6 +3345,7 @@ private fun EduImportBrowserScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val buttonBackdrop = webContentBackdrop
+    val backgroundPermissionGate = rememberAiImportBackgroundPermissionGate()
     var addressText by remember(currentUrl) { mutableStateOf(currentUrl) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
@@ -2920,6 +3358,19 @@ private fun EduImportBrowserScreen(
     var webViewGeneration by remember(adapter) { mutableIntStateOf(0) }
     var rendererRestoreUrl by remember(adapter) { mutableStateOf<String?>(null) }
     var webTopEdgeBitmap by remember(adapter) { mutableStateOf<Bitmap?>(null) }
+    var importGuideVisible by remember(adapter) { mutableStateOf(false) }
+    var importGuideExpanded by remember(adapter) { mutableStateOf(false) }
+    var webGestureActive by remember(adapter) { mutableStateOf(false) }
+    var loginHistory by remember(adapter) { mutableStateOf(EduLoginHistoryStore.load(context)) }
+    val unifiedDockHistoryEnabled = adapter.isGeneralEduTool() || adapter.isAiEduImportTool()
+    var dockHistoryExpanded by remember(adapter) { mutableStateOf(unifiedDockHistoryEnabled) }
+    val dockHistoryEntries = remember(loginHistory, adapter) {
+        if (unifiedDockHistoryEnabled) {
+            loginHistory.take(3)
+        } else {
+            emptyList()
+        }
+    }
     val topEdgeSampleHandler = remember(adapter) { Handler(Looper.getMainLooper()) }
     val topEdgeSampleToken = remember(adapter) { Any() }
     val requestInterceptor = remember(adapter) { ShiguangWebRequestInterceptor() }
@@ -3298,13 +3749,26 @@ private fun EduImportBrowserScreen(
             )
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-            setOnScrollChangeListener { _, _, _, _, _ ->
+            setOnTouchListener { _, event ->
+                webGestureActive = when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> true
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> false
+                    else -> webGestureActive
+                }
+                false
+            }
+            setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
                 scheduleWebTopEdgeSample(this)
+                if (webGestureActive && kotlin.math.abs(scrollY - oldScrollY) > 1) {
+                    importGuideExpanded = false
+                    dockHistoryExpanded = false
+                }
             }
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
             configureEduImportSecurity()
+            enableSystemCredentialAutofill()
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
             settings.setSupportZoom(true)
@@ -3341,6 +3805,16 @@ private fun EduImportBrowserScreen(
                     view?.let(::scheduleWebTopEdgeSample)
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
                     if (visiblePage) updateNavigationState(view)
+                    val pageUri = runCatching { Uri.parse(url) }.getOrNull()
+                    if (
+                        visiblePage &&
+                        !importGuideVisible &&
+                        pageUri?.scheme?.lowercase(Locale.ROOT) in setOf("http", "https") &&
+                        !pageUri?.host.isNullOrBlank()
+                    ) {
+                        importGuideVisible = true
+                        importGuideExpanded = true
+                    }
                     if (visiblePage && !url.isNullOrBlank()) {
                         addressText = url
                         onUrlChange(url)
@@ -3350,6 +3824,7 @@ private fun EduImportBrowserScreen(
                             url,
                             CookieManager.getInstance().getCookie(url)
                         )
+                        loginHistory = EduLoginHistoryStore.load(context)
                         CookieManager.getInstance().flush()
                     }
                 }
@@ -3480,6 +3955,49 @@ private fun EduImportBrowserScreen(
         }
     }
 
+    val guideStatusText = eduImportIslandStatus(screenCaptureStatus ?: message)
+    LaunchedEffect(importGuideVisible, guideStatusText) {
+        if (importGuideVisible && !guideStatusText.isNullOrBlank()) {
+            importGuideExpanded = true
+        }
+    }
+    val floatingOverlayHost = LocalDetailActivityFloatingOverlayHost.current
+    val currentGuideVisible = rememberUpdatedState(importGuideVisible)
+    val currentGuideExpanded = rememberUpdatedState(importGuideExpanded)
+    val currentGuideStatus = rememberUpdatedState(guideStatusText)
+    val currentGuideExpandAction = rememberUpdatedState<() -> Unit>({ importGuideExpanded = true })
+    val currentGuideCollapseAction = rememberUpdatedState<() -> Unit>({ importGuideExpanded = false })
+    val floatingImportGuide: (@Composable () -> Unit)? = if (floatingOverlayHost != null) {
+        remember(floatingOverlayHost, adapter, buttonBackdrop) {
+            @Composable {
+                EduImportGuideMorphOverlay(
+                    adapter = adapter,
+                    backdrop = buttonBackdrop,
+                    visible = currentGuideVisible.value,
+                    expanded = currentGuideExpanded.value,
+                    statusText = currentGuideStatus.value,
+                    onExpand = currentGuideExpandAction.value,
+                    onCollapse = currentGuideCollapseAction.value
+                )
+            }
+        }
+    } else {
+        null
+    }
+    DisposableEffect(floatingOverlayHost, floatingImportGuide) {
+        val host = floatingOverlayHost
+        if (host != null && floatingImportGuide != null) {
+            host.content = floatingImportGuide
+        }
+        onDispose {
+            if (host != null && host.content === floatingImportGuide) {
+                host.content = null
+            }
+        }
+    }
+    val importGuideMountedAtRoot = floatingOverlayHost != null &&
+        floatingOverlayHost.content === floatingImportGuide
+
     // Keep the WebView at its natural position below the compact bar. A one-pixel sample of the
     // current WebView top edge is stretched only through the producer's top-bar region, so the
     // gradient glass keeps the page color without moving or clipping the page header itself.
@@ -3489,6 +4007,18 @@ private fun EduImportBrowserScreen(
                 .fillMaxSize()
                 .glassBackdropProducer(webContentBackdrop)
                 .background(MaterialTheme.colorScheme.background)
+                .pointerInput(importGuideExpanded) {
+                    if (importGuideExpanded) {
+                        awaitEachGesture {
+                            awaitFirstDown(
+                                requireUnconsumed = false,
+                                pass = PointerEventPass.Initial
+                            )
+                            // Observe without consuming: the same gesture still reaches WebView.
+                            importGuideExpanded = false
+                        }
+                    }
+                }
         ) {
             webTopEdgeBitmap?.let { edge ->
                 Image(
@@ -3545,22 +4075,6 @@ private fun EduImportBrowserScreen(
             }
         }
 
-        val visibleMessage = screenCaptureStatus ?: message
-        visibleMessage?.let {
-            Text(
-                it,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = topPadding + 10.dp, start = 16.dp, end = 16.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.86f))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
         if (!isScreenCapturing) {
             EduBrowserDock(
                 config = state.config,
@@ -3583,7 +4097,11 @@ private fun EduImportBrowserScreen(
                 originalImportAvailable = !adapter.isAiEduImportTool(),
                 aiImportRunning = aiParsing,
                 onOriginalImport = { runOriginalImportScript() },
-                onAiImport = { runAiEduImport(forceFallback = !adapter.isAiEduImportTool()) },
+                onAiImport = {
+                    backgroundPermissionGate.continueWithPermissionTip {
+                        runAiEduImport(forceFallback = !adapter.isAiEduImportTool())
+                    }
+                },
                 desktopMode = desktopMode,
                 onRefresh = {
                     (popupWebView ?: webView)?.reload()
@@ -3599,15 +4117,49 @@ private fun EduImportBrowserScreen(
                         target.reload()
                     }
                 },
+                historyEntries = dockHistoryEntries,
+                historyExpanded = dockHistoryExpanded,
+                onHistoryExpandedChange = { dockHistoryExpanded = it },
+                onHistorySelected = { entry ->
+                    EduLoginHistoryStore.restoreCookies(entry)
+                    addressText = entry.url
+                    onUrlChange(entry.url)
+                    dockHistoryExpanded = false
+                    (popupWebView ?: webView)?.loadUrl(entry.url)
+                },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .imePadding()
                     .navigationBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                    .padding(top = 12.dp, bottom = 18.dp)
+            )
+        }
+        if (!importGuideMountedAtRoot) {
+            EduImportGuideMorphOverlay(
+                adapter = adapter,
+                backdrop = buttonBackdrop,
+                visible = importGuideVisible,
+                expanded = importGuideExpanded,
+                statusText = guideStatusText,
+                onExpand = { importGuideExpanded = true },
+                onCollapse = { importGuideExpanded = false }
             )
         }
     }
+    AiImportBackgroundPermissionTip(
+        state = backgroundPermissionGate,
+        backdrop = buttonBackdrop,
+        config = state.config
+    )
 }
+
+private fun importDraftConfigurationSummary(draft: ImportDraft): String = buildList {
+    add("${draft.config.totalWeeks} 周")
+    add("${draft.periods.size} 个节次")
+    draft.config.termStartDate?.takeIf(String::isNotBlank)?.let { add("开学 $it") }
+    add("每节 ${draft.config.classDurationMinutes} 分钟")
+    add("课间 ${draft.config.breakDurationMinutes} 分钟")
+}.joinToString(" · ")
 
 @Composable
 fun ConfirmScheduleScreen(
@@ -3653,7 +4205,7 @@ fun ConfirmScheduleScreen(
         warning?.let { text ->
             item { Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
         }
-        item { Text("总周数 " + previewDraft.config.totalWeeks + " 周，节次数 " + previewDraft.periods.size) }
+        item { Text(importDraftConfigurationSummary(previewDraft)) }
         if (previewDraft.courses.isEmpty()) {
             item { Text("没有解析到课程", color = MaterialTheme.colorScheme.error) }
         } else {
@@ -3789,7 +4341,7 @@ private fun AiImportChatPreview(
             }
             item {
                 Text(
-                    "导入预览 · ${draft.config.totalWeeks} 周 · ${draft.periods.size} 个节次",
+                    "导入预览 · ${importDraftConfigurationSummary(draft)}",
                     color = textColor.copy(alpha = 0.62f),
                     style = MaterialTheme.typography.labelMedium
                 )

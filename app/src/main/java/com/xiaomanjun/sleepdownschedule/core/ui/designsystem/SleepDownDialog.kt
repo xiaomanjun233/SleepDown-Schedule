@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.DpSize
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidPanel
+import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedCornerStyle
 import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.Capsule
@@ -602,7 +603,9 @@ fun DialogLiquidButton(
     monochromeNeutral: Boolean = false,
     lightStyleOverride: Boolean? = null,
     highContrast: Boolean = false,
-    roundIcon: Boolean = false
+    roundIcon: Boolean = false,
+    shadowEnabled: Boolean = true,
+    shadowStyle: Shadow = Shadow.Default
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val useMonochromeNeutral = role == DialogButtonRole.Neutral && monochromeNeutral
@@ -645,7 +648,9 @@ fun DialogLiquidButton(
             blurRadius = blurRadius,
             lensHeight = 16.dp,
             lensAmount = 24.dp,
-            chromaticAberration = false
+            chromaticAberration = false,
+            shadowEnabled = shadowEnabled,
+            shadowStyle = shadowStyle
         ) {
             resolvedIconRes?.let {
                 Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)

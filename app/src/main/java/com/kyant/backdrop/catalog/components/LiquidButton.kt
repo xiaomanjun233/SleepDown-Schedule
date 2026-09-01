@@ -75,6 +75,7 @@ fun LiquidButton(
     lensAmount: Dp = 24f.dp,
     chromaticAberration: Boolean = false,
     shadowEnabled: Boolean = true,
+    shadowStyle: Shadow = Shadow.Default,
     highlightEnabled: Boolean = true,
     clickTargetEnabled: Boolean = true,
     pressExpansion: Dp = 4f.dp,
@@ -83,6 +84,7 @@ fun LiquidButton(
     shape: Shape = Capsule(),
     clipToBounds: Boolean = false,
     pressSnapshot: LiquidButtonPressSnapshot? = null,
+    sharedInteractiveHighlight: InteractiveHighlight? = null,
     interactionEnabledAt: (size: Size, offset: Offset) -> Boolean = { _, _ -> true },
     content: @Composable RowScope.() -> Unit
 ) {
@@ -91,8 +93,12 @@ fun LiquidButton(
     val pressed by clickInteractionSource.collectIsPressedAsState()
     val latestInteractionEnabledAt = rememberUpdatedState(interactionEnabledAt)
 
-    val interactiveHighlight = remember(animationScope, highlightRadiusMultiplier) {
-        InteractiveHighlight(
+    val interactiveHighlight = remember(
+        animationScope,
+        highlightRadiusMultiplier,
+        sharedInteractiveHighlight
+    ) {
+        sharedInteractiveHighlight ?: InteractiveHighlight(
             animationScope = animationScope,
             radius = { size -> size.minDimension * highlightRadiusMultiplier },
             acceptsGesture = { size, offset ->
@@ -149,7 +155,7 @@ fun LiquidButton(
                     lens(lensHeight.toPx(), lensAmount.toPx(), chromaticAberration = chromaticAberration)
                 },
                 highlightOverride = if (highlightEnabled) ({ Highlight.Default }) else null,
-                shadowOverride = if (shadowEnabled) ({ Shadow.Default }) else null,
+                shadowOverride = if (shadowEnabled) ({ shadowStyle }) else null,
                 additionalLayerBlock = if (isInteractive) {
                     {
                         val width = size.width
@@ -223,7 +229,13 @@ fun LiquidButton(
                 if (isInteractive) {
                     Modifier
                         .then(interactiveHighlight.modifier)
-                        .then(interactiveHighlight.gestureModifier)
+                        .then(
+                            if (sharedInteractiveHighlight == null) {
+                                interactiveHighlight.gestureModifier
+                            } else {
+                                Modifier
+                            }
+                        )
                 } else {
                     Modifier
                 }
@@ -234,6 +246,32 @@ fun LiquidButton(
         verticalAlignment = Alignment.CenterVertically,
         content = content
     )
+}
+
+/**
+ * Applies the exact same press expansion and pointer-following stretch as [LiquidButton] to a
+ * sibling foreground layer. Editable fields can use this while remaining outside the backdrop
+ * consumer, so their blinking caret does not invalidate the glass surface beneath them.
+ */
+fun Modifier.liquidButtonVisualTransform(
+    interactiveHighlight: InteractiveHighlight,
+    pressExpansion: Dp = 4f.dp
+): Modifier = graphicsLayer {
+    val progress = interactiveHighlight.pressProgress
+    val safeHeight = size.height.coerceAtLeast(1f)
+    val safeWidth = size.width.coerceAtLeast(1f)
+    val expansionPx = pressExpansion.toPx()
+    val scale = lerp(1f, 1f + expansionPx / safeHeight, progress)
+    val maxOffset = size.minDimension.coerceAtLeast(1f)
+    val offset = interactiveHighlight.offset
+    translationX = maxOffset * tanh(0.05f * offset.x / maxOffset)
+    translationY = maxOffset * tanh(0.05f * offset.y / maxOffset)
+    val maxDragScale = expansionPx / safeHeight
+    val offsetAngle = atan2(offset.y, offset.x)
+    scaleX = scale + maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension.coerceAtLeast(1f)) *
+        (safeWidth / safeHeight).fastCoerceAtMost(1f)
+    scaleY = scale + maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension.coerceAtLeast(1f)) *
+        (safeHeight / safeWidth).fastCoerceAtMost(1f)
 }
 
 @Composable

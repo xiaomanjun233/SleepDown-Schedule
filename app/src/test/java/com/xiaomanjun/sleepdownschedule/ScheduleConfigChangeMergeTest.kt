@@ -17,6 +17,7 @@ class ScheduleConfigChangeMergeTest {
             LiveUpdateChipTextMode.NORMAL,
             converters.stringToLiveUpdateChipTextMode("SHORT")
         )
+        assertEquals(HomeStartMode.TWO_DAY, converters.stringToHomeStartMode("TWO_DAY"))
     }
 
     @Test
@@ -58,6 +59,7 @@ class ScheduleConfigChangeMergeTest {
         val database = defaultConfig(id = 4).copy(
             notificationLeadMinutes = 35,
             notificationsEnabled = false,
+            liveUpdateActionsEnabled = false,
             currentWeek = 8,
             darkMode = false,
             homeChromeBlurScale = 1.8f,
@@ -79,6 +81,7 @@ class ScheduleConfigChangeMergeTest {
 
         assertEquals(35, rebased.notificationLeadMinutes)
         assertEquals(false, rebased.notificationsEnabled)
+        assertEquals(false, rebased.liveUpdateActionsEnabled)
         assertEquals(8, rebased.currentWeek)
         assertEquals(false, rebased.followSystemDarkMode)
         assertEquals(true, rebased.darkMode)
@@ -137,7 +140,8 @@ class ScheduleConfigChangeMergeTest {
             notificationLeadMinutes = 35,
             notificationsEnabled = false,
             notificationMode = NotificationMode.LIVE_UPDATE,
-            liveUpdateChipTextMode = LiveUpdateChipTextMode.SHORT
+            liveUpdateChipTextMode = LiveUpdateChipTextMode.SHORT,
+            liveUpdateActionsEnabled = false
         )
 
         val merged = database.withNotificationSettingsFrom(notificationDraft)
@@ -149,6 +153,7 @@ class ScheduleConfigChangeMergeTest {
         assertEquals(false, merged.notificationsEnabled)
         assertEquals(NotificationMode.LIVE_UPDATE, merged.notificationMode)
         assertEquals(LiveUpdateChipTextMode.SHORT, merged.liveUpdateChipTextMode)
+        assertEquals(false, merged.liveUpdateActionsEnabled)
     }
 
     @Test

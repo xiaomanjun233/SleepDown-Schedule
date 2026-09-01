@@ -91,6 +91,22 @@ fun EduAdapter.isGeneralEduTool(): Boolean {
     return category == "GENERAL_TOOL"
 }
 
+fun EduAdapter.isManualShareCodeTool(): Boolean {
+    if (!isGeneralEduTool() || !school.id.equals("GLOBAL_TOOLS", ignoreCase = true)) {
+        return false
+    }
+    return adapterId.equals("WakeUp", ignoreCase = true) ||
+        adapterId.equals("StarLink", ignoreCase = true)
+}
+
+fun EduAdapter.isDevelopmentOnlyGeneralTool(): Boolean {
+    if (!isGeneralEduTool() || !school.id.equals("GLOBAL_TOOLS", ignoreCase = true)) {
+        return false
+    }
+    return adapterId.equals("GENERAL_TOOL_01", ignoreCase = true) ||
+        adapterId.equals("GENERAL_TOOL_02", ignoreCase = true)
+}
+
 fun EduAdapter.isAiEduImportTool(): Boolean {
     return school.id == "AI_EDU_IMPORT" && adapterId == "AI_EDU_IMPORT"
 }

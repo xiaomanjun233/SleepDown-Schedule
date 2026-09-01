@@ -9,7 +9,7 @@ enum class WeekParity { ALL, ODD, EVEN }
 enum class NotificationMode { STANDARD, LIVE_UPDATE }
 enum class DefaultWallpaperStyle { KANBAN, NONE }
 enum class DockAlignment { LEFT, CENTER, RIGHT }
-enum class HomeStartMode { DAY, WEEK }
+enum class HomeStartMode { DAY, TWO_DAY, WEEK }
 enum class LiveUpdateChipTextMode { LOCATION, COUNTDOWN, SHORT, NORMAL }
 enum class PeriodSchemeMode { MANUAL, AUTO_MATCH }
 enum class ScheduleTermState { MANUAL, UPCOMING, ACTIVE, ENDED, INVALID }

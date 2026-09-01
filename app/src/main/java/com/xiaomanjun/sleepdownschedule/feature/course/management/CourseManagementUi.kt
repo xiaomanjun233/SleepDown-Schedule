@@ -636,7 +636,9 @@ internal fun CourseManagementDetailPage(
                 role = DialogButtonRole.Confirm,
                 iconRes = R.drawable.ic_add_course,
                 roundIcon = true,
-                blurRadius = 10.dp
+                blurRadius = 10.dp,
+                shadowEnabled = !appUsesDarkTheme(state.config),
+                shadowStyle = LightTopBarButtonShadow
             )
         }
     ) { cardBackdrop ->

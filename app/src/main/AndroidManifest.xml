@@ -7,7 +7,6 @@
         android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -239,8 +238,7 @@
         <service
             android:name=".AiImportForegroundService"
             android:exported="false"
-            android:stopWithTask="false"
-            android:foregroundServiceType="dataSync|systemExempted" />
+            android:foregroundServiceType="dataSync" />
         <receiver
             android:name=".TodayCoursesWidgetProvider"
             android:label="@string/widget_today_courses_name"
@@ -301,6 +299,7 @@
                 <action android:name="android.intent.action.DATE_CHANGED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
     </application>

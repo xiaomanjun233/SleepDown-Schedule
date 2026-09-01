@@ -298,6 +298,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 import java.io.File
@@ -494,6 +495,7 @@ fun HomeDateTitle(
     state: AppState,
     displayDate: LocalDate,
     displayWeek: Int,
+    showTwoDays: Boolean,
     beforeScheduleTerm: Boolean,
     afterScheduleTerm: Boolean,
     showReturnToCurrentWeekHint: Boolean,
@@ -523,7 +525,12 @@ fun HomeDateTitle(
             softWrap = false
         )
         HomeReadableText(
-            "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}",
+            if (showTwoDays) {
+                val nextDate = displayDate.plusDays(1)
+                "${displayDate.monthValue}月${displayDate.dayOfMonth}日–${nextDate.monthValue}月${nextDate.dayOfMonth}日"
+            } else {
+                "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}"
+            },
             style = MaterialTheme.typography.titleMedium.copy(
                 fontSize = 19.sp,
                 lineHeight = 21.sp
@@ -544,21 +551,21 @@ fun HomeModeSwitch(backdrop: Backdrop?, config: ScheduleConfigEntity, mode: Home
         Box(
             modifier = Modifier
                 .padding(end = 12.dp)
-                .width(104.dp)
+                .width(108.dp)
                 .height(44.dp),
             contentAlignment = Alignment.Center
         ) {
             Box(
                 modifier = Modifier
-                    .requiredSize(width = 112.dp, height = 52.dp),
+                    .requiredSize(width = 116.dp, height = 52.dp),
                 contentAlignment = Alignment.Center
             ) {
                 LiquidBottomTabs(
-                    selectedTabIndex = { if (mode == HomeMode.Day) 0 else 1 },
-                    onTabSelected = { index -> onModeChange(if (index == 0) HomeMode.Day else HomeMode.Week) },
+                    selectedTabIndex = { mode.ordinal },
+                    onTabSelected = { index -> HomeMode.entries.getOrNull(index)?.let(onModeChange) },
                     backdrop = backdrop,
                     tabsCount = 2,
-                    modifier = Modifier.size(width = 104.dp, height = 44.dp),
+                    modifier = Modifier.size(width = 108.dp, height = 44.dp),
                     containerHeight = 44.dp,
                     indicatorHeight = 36.dp,
                     horizontalPadding = 4.dp,
@@ -644,6 +651,7 @@ internal fun HomeScreen(
     agentState: AppState = state,
     personalizationPreviewState: PersonalizationPreviewState,
     mode: HomeMode,
+    dayViewMode: DayViewMode,
     adaptiveMetrics: HomeAdaptiveMetrics,
     weekCardHeight: Dp,
     displayWeek: Int,
@@ -734,7 +742,7 @@ internal fun HomeScreen(
         AnimatedContent(
             targetState = mode,
             transitionSpec = {
-                val direction = if (targetState == HomeMode.Week) 1 else -1
+                val direction = if (targetState.ordinal > initialState.ordinal) 1 else -1
                 (
                     fadeIn(tween(180, delayMillis = 40)) +
                         slideInHorizontally(tween(200)) { direction * it / 10 }
@@ -756,6 +764,7 @@ internal fun HomeScreen(
                         adaptiveMetrics = adaptiveMetrics,
                         displayDate = displayDate,
                         displayWeek = effectiveCurrentWeek(state.config, displayDate),
+                        displayDayCount = if (dayViewMode == DayViewMode.TWO_DAY) 2 else 1,
                         cardColor = cardColor,
                         textColor = textColor,
                         backdrop = backdrop,
@@ -1434,6 +1443,21 @@ fun appPanelForegroundColor(config: ScheduleConfigEntity): ComposeColor {
     return if (appUsesDarkTheme(config)) ComposeColor.White else ComposeColor(0xFF111111)
 }
 
+internal fun shouldShowSecondaryDay(
+    displayDayCount: Int,
+    targetDate: LocalDate,
+    now: LocalDateTime,
+    dayCourses: List<CourseEntity>,
+    periods: List<PeriodEntity>
+): Boolean {
+    if (displayDayCount >= 2) return true
+    if (displayDayCount != 1 || targetDate != now.toLocalDate()) return false
+    if (dayCourses.isEmpty()) return true
+    val lastCourseEnd = dayCourses.mapNotNull { courseEndTime(it, periods) }.maxOrNull()
+        ?: return false
+    return !now.toLocalTime().isBefore(lastCourseEnd)
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun DayScheduleScreen(
@@ -1442,6 +1466,7 @@ internal fun DayScheduleScreen(
     adaptiveMetrics: HomeAdaptiveMetrics,
     displayDate: LocalDate,
     displayWeek: Int,
+    displayDayCount: Int = 1,
     cardColor: ComposeColor,
     textColor: ComposeColor,
     backdrop: Backdrop?,
@@ -1573,6 +1598,13 @@ internal fun DayScheduleScreen(
                             .thenBy { it.name }
                     )
             }
+            val minuteClock by produceState(initialValue = LocalDateTime.now(), page) {
+                while (true) {
+                    val nowMillis = System.currentTimeMillis()
+                    delay((60_000L - nowMillis % 60_000L + 100L).coerceAtLeast(1_000L))
+                    value = LocalDateTime.now()
+                }
+            }
             val listState = rememberLazyListState()
             val contentUnderTopBar by remember {
                 derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 }
@@ -1583,10 +1615,9 @@ internal fun DayScheduleScreen(
                     onContentUnderTopBarChange(contentUnderTopBar)
                 }
             }
-            val isToday = targetDate == LocalDate.now()
+            val isToday = targetDate == minuteClock.toLocalDate()
             val currentPeriod = if (isToday && targetWeekOrNull != null) {
-                val now = LocalTime.now()
-                currentTimelinePeriod(state.periods, now)
+                currentTimelinePeriod(state.periods, minuteClock.toLocalTime())
             } else null
             val headerContent: @Composable () -> Unit = {
                 currentPeriod?.let { period ->
@@ -1595,35 +1626,11 @@ internal fun DayScheduleScreen(
                             .fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
-                        GlassSurface(
+                        DayStatusGlassPill(
+                            text = "第${period.periodIndex}节",
                             backdrop = backdrop,
-                            config = state.config,
-                            shape = RoundedRectangle(50.dp),
-                            tokens = GlassTokens.pill().copy(
-                                blur = 4.dp,
-                                surfaceAlpha = 0.72f,
-                                highlightAlpha = 0.10f,
-                                innerShadowAlpha = 0.10f
-                            ),
-                            baseSurfaceColorOverride = ComposeColor(0xFF0A84FF),
-                            modifier = Modifier
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .widthIn(min = 80.dp)
-                                    .heightIn(min = 34.dp)
-                                    .padding(horizontal = 14.dp, vertical = 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "第${period.periodIndex}节",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = ComposeColor.White,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1
-                                )
-                            }
-                        }
+                            config = state.config
+                        )
                     }
                 }
             }
@@ -1650,10 +1657,54 @@ internal fun DayScheduleScreen(
                         ?.let { part to it }
                 }
             }
+            val primaryDayFinished = shouldShowSecondaryDay(
+                displayDayCount = displayDayCount,
+                targetDate = targetDate,
+                now = minuteClock,
+                dayCourses = dayCourses,
+                periods = state.periods
+            )
+            val secondaryDate = when {
+                displayDayCount >= 2 -> targetDate.plusDays(1)
+                displayDayCount == 1 && primaryDayFinished -> targetDate.plusDays(1)
+                else -> null
+            }
+            val secondaryWeekOrNull = secondaryDate?.let { scheduleWeekForDateOrNull(state.config, it) }
+            val secondaryWeek = secondaryDate?.let { effectiveCurrentWeek(state.config, it) }
+                ?: targetWeek
+            val secondaryWeekday = secondaryDate?.dayOfWeek?.toChineseWeekday()
+            val secondaryCourses = remember(
+                state.courses,
+                state.periods,
+                secondaryWeekOrNull,
+                secondaryWeekday
+            ) {
+                if (secondaryWeekOrNull == null || secondaryWeekday == null) {
+                    emptyList()
+                } else {
+                    weekCourseBuckets(state.courses, secondaryWeekOrNull)
+                        .byWeekday[secondaryWeekday]
+                        .orEmpty()
+                        .sortedWith(
+                            compareBy<CourseEntity> { courseStartTime(it, state.periods) ?: LocalTime.MAX }
+                                .thenBy { it.name }
+                        )
+                }
+            }
+            val groupedSecondaryCourses = remember(secondaryCourses, state.config) {
+                PeriodDayPart.entries.mapNotNull { part ->
+                    secondaryCourses.filter { course -> courseDayPart(state.config, course) == part }
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { part to it }
+                }
+            }
+            val visibleSecondaryDate = secondaryDate?.takeIf { secondaryCourses.isNotEmpty() }
             val courseList: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
-                if (dayCourses.isEmpty()) item { HomeReadableText("这一天没有课程", color = textColor) }
+                if (dayCourses.isEmpty()) item(key = "primary-empty-$targetDate") {
+                    HomeReadableText(if (isToday) "今天没有课程" else "这一天没有课程", color = textColor)
+                }
                 groupedDayCourses.forEach { (part, coursesInPart) ->
-                    item(key = "day-part-${part.name}") {
+                    item(key = "primary-day-part-$targetDate-${part.name}") {
                         DayPartHeader(
                             part = part,
                             courses = coursesInPart,
@@ -1661,7 +1712,7 @@ internal fun DayScheduleScreen(
                             textColor = textColor
                         )
                     }
-                    itemsIndexed(coursesInPart, key = { _, it -> it.id }) { _, course ->
+                    itemsIndexed(coursesInPart, key = { _, it -> "primary-$targetDate-${it.id}" }) { _, course ->
                         val coursePeriods = course.periods.toSet()
                         val simultaneousCount = dayCourses.count { other ->
                             other.id == course.id || other.periods.any(coursePeriods::contains)
@@ -1678,6 +1729,46 @@ internal fun DayScheduleScreen(
                             simultaneousCount = simultaneousCount,
                             tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f
                         )
+                    }
+                }
+                visibleSecondaryDate?.let { visibleDate ->
+                    item(key = "secondary-date-$visibleDate") {
+                        DayDateSectionHeader(
+                            badge = if (displayDayCount == 1) "明日预告" else "第二天课程",
+                            backdrop = backdrop,
+                            config = state.config
+                        )
+                    }
+                    groupedSecondaryCourses.forEach { (part, coursesInPart) ->
+                        item(key = "secondary-day-part-$visibleDate-${part.name}") {
+                            DayPartHeader(
+                                part = part,
+                                courses = coursesInPart,
+                                periods = state.periods,
+                                textColor = textColor.copy(alpha = 0.82f)
+                            )
+                        }
+                        itemsIndexed(
+                            coursesInPart,
+                            key = { _, course -> "secondary-$visibleDate-${course.id}" }
+                        ) { index, course ->
+                            val coursePeriods = course.periods.toSet()
+                            val simultaneousCount = secondaryCourses.count { other ->
+                                other.id == course.id || other.periods.any(coursePeriods::contains)
+                            }
+                            DayTimelineCourse(
+                                course = course,
+                                currentWeek = secondaryWeek,
+                                periods = state.periods,
+                                cardColor = cardColor,
+                                backdrop = backdrop,
+                                config = state.config,
+                                onCourseClick = onCourseClick,
+                                entranceIndex = dayCourses.size + index,
+                                simultaneousCount = simultaneousCount,
+                                tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f
+                            )
+                        }
                     }
                 }
             }
@@ -1762,6 +1853,64 @@ private fun dayPartLabel(part: PeriodDayPart): String = when (part) {
     PeriodDayPart.NOON -> "中午"
     PeriodDayPart.AFTERNOON -> "下午"
     PeriodDayPart.EVENING -> "晚上"
+}
+
+@Composable
+private fun DayStatusGlassPill(
+    text: String,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    modifier: Modifier = Modifier
+) {
+    GlassSurface(
+        backdrop = backdrop,
+        config = config,
+        shape = RoundedRectangle(50.dp),
+        tokens = GlassTokens.pill().copy(
+            blur = 4.dp,
+            surfaceAlpha = 0.72f,
+            highlightAlpha = 0.10f,
+            innerShadowAlpha = 0.10f
+        ),
+        baseSurfaceColorOverride = ComposeColor(0xFF0A84FF),
+        modifier = modifier
+    ) {
+        Box(
+            modifier = Modifier
+                .widthIn(min = 80.dp)
+                .heightIn(min = 34.dp)
+                .padding(horizontal = 14.dp, vertical = 5.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.titleSmall,
+                color = ComposeColor.White,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun DayDateSectionHeader(
+    badge: String,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 2.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        DayStatusGlassPill(
+            text = badge,
+            backdrop = backdrop,
+            config = config
+        )
+    }
 }
 
 @Composable

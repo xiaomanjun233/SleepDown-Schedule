@@ -1654,6 +1654,34 @@ class AiScheduleImportService(private val context: Context) {
         }
     }
 
+    internal suspend fun repairScheduleJson(
+        output: String,
+        failure: AiImportParseFailure,
+        settings: AiImportSettings,
+        onHttpPhase: (AiImportHttpPhase) -> Unit = {}
+    ): Result<AiScheduleImportResult> = withContext(Dispatchers.IO) {
+        runCatching {
+            require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
+            require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
+            require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
+            val config = settings.toProviderConfig().normalizedForRequest()
+            val repairPrompt = AiImportRepairManager.buildRepairPrompt(output, failure)
+            val input = AiScheduleInput.ExtractedText(repairPrompt, "上轮 AI JSON")
+            val networkContext = input.networkContext(context, "REPAIR", onHttpPhase)
+            val result = when {
+                config.endpointStyle == AiEndpointStyle.RESPONSES ->
+                    OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
+                else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext)
+            }
+            AiScheduleImportResult(
+                output = result.content,
+                routeMessage = "已修复课程数据格式。",
+                rawOutput = result.content,
+                reasoningOutput = result.reasoning
+            )
+        }
+    }
+
     suspend fun reviseSchedule(
         draft: ImportDraft,
         instruction: String,

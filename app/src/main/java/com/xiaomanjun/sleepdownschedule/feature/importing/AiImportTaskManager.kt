@@ -31,7 +31,7 @@ object AiImportTaskManager {
         settings: AiImportSettings,
         scheduleConfig: ScheduleConfigEntity,
         initialProgress: AiEduImportProgress
-    ): String = startTask(context, initialProgress, scheduleConfig) { onHttpPhase ->
+    ): String = startTask(context, initialProgress, scheduleConfig, settings) { onHttpPhase ->
         AiScheduleImportService(context.applicationContext).parseScheduleFile(
             file = file,
             settings = settings,
@@ -46,7 +46,7 @@ object AiImportTaskManager {
         settings: AiImportSettings,
         scheduleConfig: ScheduleConfigEntity,
         initialProgress: AiEduImportProgress
-    ): String = startTask(context, initialProgress, scheduleConfig) { onHttpPhase ->
+    ): String = startTask(context, initialProgress, scheduleConfig, settings) { onHttpPhase ->
         AiScheduleImportService(context.applicationContext).parseScheduleText(
             text = text,
             sourceName = sourceName,
@@ -64,7 +64,7 @@ object AiImportTaskManager {
         settings: AiImportSettings,
         scheduleConfig: ScheduleConfigEntity,
         initialProgress: AiEduImportProgress
-    ): String = startTask(context, initialProgress, scheduleConfig) { onHttpPhase ->
+    ): String = startTask(context, initialProgress, scheduleConfig, settings) { onHttpPhase ->
         AiScheduleImportService(context.applicationContext).parseScheduleCapturedPage(
             text = text,
             screenshots = screenshots,
@@ -123,6 +123,7 @@ object AiImportTaskManager {
         context: Context,
         initialProgress: AiEduImportProgress,
         scheduleConfig: ScheduleConfigEntity,
+        settings: AiImportSettings,
         request: suspend ((AiImportHttpPhase) -> Unit) -> Result<AiScheduleImportResult>
     ): String {
         val appContext = context.applicationContext
@@ -144,7 +145,7 @@ object AiImportTaskManager {
         pendingTasks.clear()
         pendingTasks[taskId] = {
             try {
-                runTask(appContext, taskId, scheduleConfig, request)
+                runTask(appContext, taskId, scheduleConfig, settings, request)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -193,6 +194,7 @@ object AiImportTaskManager {
         context: Context,
         taskId: String,
         scheduleConfig: ScheduleConfigEntity,
+        settings: AiImportSettings,
         request: suspend ((AiImportHttpPhase) -> Unit) -> Result<AiScheduleImportResult>
     ) = coroutineScope {
         appendMainStep(taskId, context, "正在整理输入", "正在整理课程材料，准备发送给 AI。")
@@ -235,13 +237,41 @@ object AiImportTaskManager {
             )
         }
         appendMainStep(taskId, context, "正在校验课程数据", "正在检查星期、节次、周次和重复课程。")
-        val parsed = ScheduleImportParser.parse(
-            aiResult.output.ifBlank { aiResult.rawOutput },
-            scheduleConfig
+        val repaired = AiImportRepairManager.parseWithRepair(
+            initialResult = aiResult,
+            scheduleConfig = scheduleConfig,
+            onRepairAttempt = { attempt, _ ->
+                appendMainStep(
+                    taskId,
+                    context,
+                    "正在修复课程数据（$attempt/${AiImportRepairManager.MaxRepairAttempts}）",
+                    "AI 返回格式需要调整，正在自动修复，不会重新上传原始材料。"
+                )
+            },
+            requestRepair = { output, failure, _ ->
+                AiScheduleImportService(context).repairScheduleJson(
+                    output = output,
+                    failure = failure,
+                    settings = settings,
+                    onHttpPhase = { phase ->
+                        if (phase == AiImportHttpPhase.BODY_WRITE_END) {
+                            updateMicroStatus(taskId, "修复请求已发送，正在等待模型返回 JSON。")
+                        }
+                    }
+                ).onSuccess { repairResult ->
+                    update(taskId) { progress ->
+                        progress.copy(
+                            reasoningOutput = repairResult.reasoningOutput.ifBlank { progress.reasoningOutput },
+                            aiOutput = repairResult.rawOutput
+                        )
+                    }
+                }
+            }
         ).getOrElse { error ->
             finishFailure(context, taskId, error, "课程数据校验失败")
             return@coroutineScope
         }
+        val parsed = repaired.draft
         appendMainStep(taskId, context, "正在生成导入预览", "课程数据已通过校验，正在整理导入预览。")
         val preview = parsed.copy(source = ImportDraftSource.AI_EDU)
         AiEduImportProgressSession.setPreviewDraft(preview)

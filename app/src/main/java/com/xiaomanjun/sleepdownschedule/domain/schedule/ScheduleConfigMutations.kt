@@ -14,7 +14,6 @@ internal fun ScheduleConfigEntity.withGeneralSettingsFrom(draft: ScheduleConfigE
         dockAlignment = draft.dockAlignment,
         defaultWallpaperStyle = draft.defaultWallpaperStyle,
         defaultHomeMode = draft.defaultHomeMode,
-        liveUpdateActionsEnabled = draft.liveUpdateActionsEnabled,
         hideFromRecents = draft.hideFromRecents,
         autoCheckUpdates = draft.autoCheckUpdates
     )
@@ -30,7 +29,8 @@ internal fun ScheduleConfigEntity.withNotificationSettingsFrom(draft: ScheduleCo
         notificationLeadMinutes = draft.notificationLeadMinutes,
         notificationsEnabled = draft.notificationsEnabled,
         notificationMode = draft.notificationMode,
-        liveUpdateChipTextMode = draft.liveUpdateChipTextMode
+        liveUpdateChipTextMode = draft.liveUpdateChipTextMode,
+        liveUpdateActionsEnabled = draft.liveUpdateActionsEnabled
     )
 }
 

@@ -17,7 +17,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.time.LocalTime
 
 class LiveUpdateForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -66,10 +65,7 @@ class LiveUpdateForegroundService : Service() {
         refreshJob = serviceScope.launch {
             while (isActive) {
                 val payload = activePayload ?: break
-                val start = payload.startTime()
-                val reachedStart = start == null ||
-                    !LocalTime.now().isBefore(start)
-                if (reachedStart && !payload.isPreview()) {
+                if (payload.shouldStop()) {
                     clearStoredPayload()
                     NotificationManagerCompat.from(this@LiveUpdateForegroundService)
                         .cancel(NotificationScheduler.liveUpdateId())
@@ -78,7 +74,7 @@ class LiveUpdateForegroundService : Service() {
                     break
                 }
                 if (!NotificationScheduler.canPostNotifications(this@LiveUpdateForegroundService)) {
-                    Log.w("SleepDownLiveUpdate", "stop live update: POST_NOTIFICATIONS denied")
+                    Log.w("SleepDownLiveUpdate", "stop live update: notification delivery unavailable")
                     clearStoredPayload()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
@@ -96,44 +92,32 @@ class LiveUpdateForegroundService : Service() {
                     stopSelf()
                     break
                 }
-                // Align updates with the wall-clock minute boundary. The native
-                // chronometer keeps ticking in SystemUI between these refreshes.
+                // Align the compact "X分钟" text with the wall-clock minute boundary. SystemUI's
+                // chronometer is intentionally not used because it replaces the promoted chip.
                 val now = System.currentTimeMillis()
                 delay((60_000L - now % 60_000L + 150L).coerceAtLeast(1_000L))
             }
         }
     }
 
-    private fun Intent.toLiveUpdatePayload(): LiveUpdatePayload? {
-        val name = getStringExtra(NotificationScheduler.EXTRA_LIVE_UPDATE_NAME)
-            ?.takeIf { it.isNotBlank() } ?: return null
-        val timeText = getStringExtra(NotificationScheduler.EXTRA_LIVE_UPDATE_TIME)
-            ?.takeIf { it.isNotBlank() } ?: return null
-        return LiveUpdatePayload(
-            name = name,
-            timeText = timeText,
-            location = getStringExtra(NotificationScheduler.EXTRA_LIVE_UPDATE_LOCATION).orEmpty(),
-            showActions = getBooleanExtra(NotificationScheduler.EXTRA_LIVE_UPDATE_ACTIONS, true),
-            muteKey = getStringExtra(NotificationScheduler.EXTRA_LIVE_UPDATE_MUTE_KEY).orEmpty(),
-            muteUntil = getStringExtra(NotificationScheduler.EXTRA_LIVE_UPDATE_MUTE_UNTIL).orEmpty(),
-            chipTextMode = runCatching {
-                LiveUpdateChipTextMode.valueOf(
-                    getStringExtra(NotificationScheduler.EXTRA_LIVE_UPDATE_CHIP_MODE)
-                        ?: LiveUpdateChipTextMode.LOCATION.name
-                )
-            }.getOrDefault(LiveUpdateChipTextMode.LOCATION)
-        )
-    }
+    private fun Intent.toLiveUpdatePayload(): LiveUpdatePayload? =
+        NotificationScheduler.payloadFromIntent(this)
 
     private fun storePayload(payload: LiveUpdatePayload) {
         getSharedPreferences(LiveUpdatePayload.PREFS, MODE_PRIVATE).edit {
-                putString("name", payload.name)
+                putString("kind", payload.kind.name)
+                .putString("name", payload.name)
                 .putString("time", payload.timeText)
                 .putString("location", payload.location)
                 .putBoolean("actions", payload.showActions)
                 .putString("mute_key", payload.muteKey)
                 .putString("mute_until", payload.muteUntil)
                 .putString("chip_mode", payload.chipTextMode.name)
+                .putString("segments", payload.segments.joinToString(";") { "${it.startAtMillis}:${it.endAtMillis}" })
+                .putBoolean("during_class", payload.duringClassEnabled)
+                .putBoolean("break_status", payload.breakStatusEnabled)
+                .putLong("expires_at", payload.expiresAtMillis)
+                .putInt("tomorrow_count", payload.tomorrowCourseCount)
             }
     }
 
@@ -142,6 +126,12 @@ class LiveUpdateForegroundService : Service() {
         val name = prefs.getString("name", null)?.takeIf { it.isNotBlank() } ?: return null
         val time = prefs.getString("time", null)?.takeIf { it.isNotBlank() } ?: return null
         return LiveUpdatePayload(
+            kind = runCatching {
+                com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdateKind.valueOf(
+                    prefs.getString("kind", com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdateKind.COURSE.name)
+                        ?: com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdateKind.COURSE.name
+                )
+            }.getOrDefault(com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdateKind.COURSE),
             name = name,
             timeText = time,
             location = prefs.getString("location", "").orEmpty(),
@@ -153,7 +143,17 @@ class LiveUpdateForegroundService : Service() {
                     prefs.getString("chip_mode", LiveUpdateChipTextMode.LOCATION.name)
                         ?: LiveUpdateChipTextMode.LOCATION.name
                 )
-            }.getOrDefault(LiveUpdateChipTextMode.LOCATION)
+            }.getOrDefault(LiveUpdateChipTextMode.LOCATION),
+            segments = prefs.getString("segments", "").orEmpty().split(';').mapNotNull { encoded ->
+                val start = encoded.substringBefore(':').toLongOrNull() ?: return@mapNotNull null
+                val end = encoded.substringAfter(':', "").toLongOrNull() ?: return@mapNotNull null
+                com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdateSegment(start, end)
+                    .takeIf { end > start }
+            },
+            duringClassEnabled = prefs.getBoolean("during_class", false),
+            breakStatusEnabled = prefs.getBoolean("break_status", true),
+            expiresAtMillis = prefs.getLong("expires_at", 0L),
+            tomorrowCourseCount = prefs.getInt("tomorrow_count", 0)
         )
     }
 

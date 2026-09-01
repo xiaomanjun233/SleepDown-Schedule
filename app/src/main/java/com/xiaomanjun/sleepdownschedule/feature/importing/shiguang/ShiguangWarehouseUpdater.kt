@@ -30,9 +30,9 @@ internal object ShiguangWarehouseUpdater {
     private const val IndexShaKey = "index_sha256"
     private const val VersionIdKey = "version_id"
     private const val IndexUrl =
-        "https://raw.githubusercontent.com/XingHeYuZhuan/shiguang_warehouse/index-pb-release/school_index.pb"
+        "https://gitee.com/XingHeYuZhuan-gh/shiguang_warehouse/raw/index-pb-release/school_index.pb"
     private const val ResourceBaseUrl =
-        "https://raw.githubusercontent.com/XingHeYuZhuan/shiguang_warehouse/main/resources/"
+        "https://gitee.com/XingHeYuZhuan-gh/shiguang_warehouse/raw/main/resources/"
     private val RefreshIntervalMillis = TimeUnit.DAYS.toMillis(7)
     private val refreshMutex = Mutex()
 
@@ -47,26 +47,35 @@ internal object ShiguangWarehouseUpdater {
 
     fun isRefreshStale(context: Context, nowMillis: Long = System.currentTimeMillis()): Boolean {
         val lastSuccess = preferences(context).getLong(LastSuccessfulRefreshKey, 0L)
-        return lastSuccess <= 0L || nowMillis - lastSuccess >= RefreshIntervalMillis
+        return shouldRefresh(
+            lastSuccessfulRefreshMillis = lastSuccess,
+            nowMillis = nowMillis,
+            hasValidRemoteIndex = hasValidRemoteIndex(context)
+        )
     }
 
     suspend fun refresh(context: Context): ShiguangRefreshResult = withContext(Dispatchers.IO) {
         refreshMutex.withLock {
-            val bytes = download(IndexUrl)
-            val snapshot = ShiguangWarehouse.parseProtocolV2Snapshot(bytes)
-            val previousSha = preferences(context).getString(IndexShaKey, null)
-            atomicWrite(cachedIndexFile(context), bytes)
-            val committed = preferences(context).edit()
-                .putLong(LastSuccessfulRefreshKey, System.currentTimeMillis())
-                .putString(IndexShaKey, snapshot.indexSha)
-                .putString(VersionIdKey, snapshot.versionId)
-                .commit()
-            check(committed) { "无法保存拾光仓库刷新时间" }
-            ShiguangRefreshResult(
-                changed = previousSha != snapshot.indexSha,
-                adapterCount = snapshot.adapters.size
-            )
+            refreshLocked(context)
         }
+    }
+
+    /** Atomically rechecks the seven-day TTL so concurrent page entries cannot queue downloads. */
+    suspend fun refreshIfStale(context: Context): ShiguangRefreshResult? = withContext(Dispatchers.IO) {
+        refreshMutex.withLock {
+            if (!isRefreshStale(context)) return@withLock null
+            refreshLocked(context)
+        }
+    }
+
+    internal fun shouldRefresh(
+        lastSuccessfulRefreshMillis: Long,
+        nowMillis: Long,
+        hasValidRemoteIndex: Boolean
+    ): Boolean {
+        if (!hasValidRemoteIndex || lastSuccessfulRefreshMillis <= 0L) return true
+        val ageMillis = nowMillis - lastSuccessfulRefreshMillis
+        return ageMillis < 0L || ageMillis >= RefreshIntervalMillis
     }
 
     suspend fun resolveRemoteScript(context: Context, adapter: EduAdapter): String =
@@ -136,12 +145,33 @@ internal object ShiguangWarehouseUpdater {
     private fun preferences(context: Context) =
         context.applicationContext.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
 
+    private fun refreshLocked(context: Context): ShiguangRefreshResult {
+        val bytes = download(IndexUrl)
+        val snapshot = ShiguangWarehouse.parseProtocolV2Snapshot(bytes)
+        val previousSha = preferences(context).getString(IndexShaKey, null)
+        atomicWrite(cachedIndexFile(context), bytes)
+        val committed = preferences(context).edit()
+            .putLong(LastSuccessfulRefreshKey, System.currentTimeMillis())
+            .putString(IndexShaKey, snapshot.indexSha)
+            .putString(VersionIdKey, snapshot.versionId)
+            .commit()
+        check(committed) { "无法保存拾光仓库刷新时间" }
+        return ShiguangRefreshResult(
+            changed = previousSha != snapshot.indexSha,
+            adapterCount = snapshot.adapters.size
+        )
+    }
+
     private fun download(url: String): ByteArray {
         val connection = URL(url).openConnection() as HttpURLConnection
         return try {
             connection.connectTimeout = 12_000
             connection.readTimeout = 20_000
-            connection.instanceFollowRedirects = false
+            // Gitee's stable repository URL responds with 302 and a short-lived signed
+            // raw.giteeusercontent.com URL. Following that HTTPS redirect is required for both
+            // the protocol-v2 index and adapter scripts; the signed destination must not be
+            // persisted because Gitee rotates it.
+            connection.instanceFollowRedirects = true
             connection.setRequestProperty("Accept", "application/octet-stream, text/javascript, */*")
             connection.setRequestProperty("User-Agent", "SleepDown-Schedule/ShiguangWarehouse")
             val status = connection.responseCode

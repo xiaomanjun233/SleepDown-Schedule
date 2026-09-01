@@ -6,7 +6,6 @@ import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebView
-import android.widget.Toast
 import com.xiaomanjun.sleepdownschedule.ImportDraft
 import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
@@ -55,10 +54,7 @@ internal class ShiguangBridgeHost(
         try {
             when (message.action) {
                 "showToast" -> parsePayload<ShiguangShowToastPayload>(message).let { payload ->
-                    mainHandler.post {
-                        Toast.makeText(context, payload.message, Toast.LENGTH_SHORT).show()
-                        onMessage(payload.message)
-                    }
+                    mainHandler.post { onMessage(payload.message) }
                 }
 
                 "showAlert" -> parsePayload<ShiguangShowAlertPayload>(message).let { payload ->

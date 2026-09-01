@@ -1132,9 +1132,7 @@ private fun AiEduAttachmentMorphOverlay(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val progress = remember(request) { Animatable(0f) }
-    val contentAlpha = remember(request) { Animatable(0f) }
     var closing by remember(request) { mutableStateOf(false) }
-    var contentMounted by remember(request) { mutableStateOf(false) }
     val target = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
     val screenCornerRadiusPx = deviceScreenCornerRadiusPx()
     val morphProgress = progress.value.coerceIn(0f, 1f)
@@ -1148,6 +1146,9 @@ private fun AiEduAttachmentMorphOverlay(
     val sourceHandoff = aiAttachmentPreviewSmoothStep(0.06f, 0.32f, morphProgress)
     val sourceAlpha = 1f - sourceHandoff
     val sourceScale = 1f - 0.018f * sourceHandoff
+    val contentReveal = aiAttachmentPreviewSmoothStep(0.14f, 0.82f, morphProgress)
+    val contentMotionBlurPx =
+        detailMotionBlurRadiusDp(morphProgress) * 0.65f * density.density
     val sourceCornerRadiusPx = with(density) { 20.dp.toPx() }
     val cornerRadiusPx = sourceCornerRadiusPx +
         (screenCornerRadiusPx - sourceCornerRadiusPx) * morphProgress
@@ -1158,10 +1159,6 @@ private fun AiEduAttachmentMorphOverlay(
         if (!closing) {
             closing = true
             scope.launch {
-                if (contentMounted) {
-                    contentAlpha.animateTo(0f, tween(90))
-                    contentMounted = false
-                }
                 coroutineScope {
                     launch {
                         progress.animateTo(
@@ -1213,11 +1210,6 @@ private fun AiEduAttachmentMorphOverlay(
                 )
             }
         }
-        if (!closing) {
-            contentMounted = true
-            contentAlpha.snapTo(0f)
-            contentAlpha.animateTo(1f, tween(100))
-        }
     }
     BackHandler(onBack = ::dismiss)
     Box(
@@ -1260,39 +1252,48 @@ private fun AiEduAttachmentMorphOverlay(
                 )
             }
         }
-        if (contentMounted) {
-            AiEduLiquidPanel(
-                backdrop = backdrop,
-                config = config,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = contentAlpha.value },
-                accent = Color(0xFF8E8E93),
-                shape = RoundedCornerShape(0.dp)
-            ) {
-                Column(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(top = 34.dp, start = 16.dp, end = 16.dp, bottom = 18.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(request.attachment.title, modifier = Modifier.weight(1f), color = textColor, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        Text("完成", modifier = Modifier.clickable(onClick = ::dismiss).padding(12.dp), color = Color(0xFF0A84FF), fontWeight = FontWeight.SemiBold)
+        AiEduLiquidPanel(
+            backdrop = backdrop,
+            config = config,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = contentReveal
+                    translationY = (1f - contentReveal) * 12.dp.toPx()
+                    scaleX = 0.97f + 0.03f * contentReveal
+                    scaleY = 0.97f + 0.03f * contentReveal
+                    compositingStrategy = if (contentMotionBlurPx > 0.01f) {
+                        CompositingStrategy.Offscreen
+                    } else {
+                        CompositingStrategy.Auto
                     }
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        if (request.attachment.text.isNotBlank()) item(key = "attachment-text") {
-                            Text(request.attachment.text, color = textColor.copy(alpha = 0.88f), style = MaterialTheme.typography.bodyMedium, lineHeight = 21.sp)
-                        }
-                        itemsIndexed(
-                            items = request.attachment.images,
-                            key = { _, image -> image.pageIndex }
-                        ) { index, image ->
-                            AiEduPreviewImage(image, "第 ${index + 1} 页")
-                        }
+                    renderEffect = platformMotionBlurRenderEffect(contentMotionBlurPx)
+                },
+            accent = Color(0xFF8E8E93),
+            shape = RoundedCornerShape(0.dp)
+        ) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(top = 34.dp, start = 16.dp, end = 16.dp, bottom = 18.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(request.attachment.title, modifier = Modifier.weight(1f), color = textColor, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Text("完成", modifier = Modifier.clickable(onClick = ::dismiss).padding(12.dp), color = Color(0xFF0A84FF), fontWeight = FontWeight.SemiBold)
+                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (request.attachment.text.isNotBlank()) item(key = "attachment-text") {
+                        Text(request.attachment.text, color = textColor.copy(alpha = 0.88f), style = MaterialTheme.typography.bodyMedium, lineHeight = 21.sp)
+                    }
+                    itemsIndexed(
+                        items = request.attachment.images,
+                        key = { _, image -> image.pageIndex }
+                    ) { index, image ->
+                        AiEduPreviewImage(image, "第 ${index + 1} 页")
                     }
                 }
             }
