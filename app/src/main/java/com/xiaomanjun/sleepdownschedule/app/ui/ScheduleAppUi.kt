@@ -2862,7 +2862,9 @@ fun CourseScheduleAppUi(
             if (screen is Screen.Home || screen is Screen.Config) {
                 DockEntranceContainer(
                     phase = startupPhase,
-                    modifier = Modifier.align(Alignment.BottomStart)
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .zIndex(100f)
                 ) {
                     FloatingDock(
                         selected = screen,
@@ -5542,6 +5544,7 @@ private fun tonalPreviewColors(seed: Long): List<ComposeColor> {
 @Composable
 private fun CourseColorModeRow(
     title: String,
+    iconRes: Int,
     mode: CourseCardColorMode,
     selectedMode: CourseCardColorMode,
     presets: List<List<Long>>,
@@ -5622,13 +5625,26 @@ private fun CourseColorModeRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = title,
+        Row(
             modifier = Modifier.width(42.dp),
-            color = if (selectedMode == mode) MaterialTheme.colorScheme.primary else foreground,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (selectedMode == mode) FontWeight.Bold else FontWeight.Medium
-        )
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                tint = labelColor,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = title,
+                color = labelColor,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (selectedMode == mode) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
         Row(
             modifier = Modifier.weight(1f),
             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -5700,7 +5716,7 @@ private fun CourseColorEditorDialog(
                     modifier = Modifier.size(38.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Colorize,
+                        painter = painterResource(R.drawable.ic_color_eyedropper),
                         contentDescription = "从壁纸吸色",
                         tint = foreground,
                         modifier = Modifier.size(21.dp)
@@ -6263,6 +6279,7 @@ fun PersonalizePanel(
                 Spacer(Modifier.height(8.dp))
                 CourseColorModeRow(
                     title = "纯色",
+                    iconRes = R.drawable.ic_color_solid,
                     mode = CourseCardColorMode.SOLID,
                     selectedMode = state.config.courseCardColorMode,
                     presets = SolidCourseColorPresets.map { listOf(it) },
@@ -6283,6 +6300,7 @@ fun PersonalizePanel(
                 )
                 CourseColorModeRow(
                     title = "渐变",
+                    iconRes = R.drawable.ic_color_gradient,
                     mode = CourseCardColorMode.GRADIENT,
                     selectedMode = state.config.courseCardColorMode,
                     presets = GradientCourseColorPresets.map { listOf(it) },
@@ -6303,6 +6321,7 @@ fun PersonalizePanel(
                 )
                 CourseColorModeRow(
                     title = "彩色",
+                    iconRes = R.drawable.ic_color_colorful,
                     mode = CourseCardColorMode.COLORFUL,
                     selectedMode = state.config.courseCardColorMode,
                     presets = listOf(AutomaticColorfulCoursePreview),
