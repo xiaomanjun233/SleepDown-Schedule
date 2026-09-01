@@ -91,7 +91,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
@@ -5555,6 +5554,7 @@ private fun CourseColorModeRow(
     onOpenPalette: () -> Unit
 ) {
     val foreground = LocalContentColor.current
+    val labelColor = if (selectedMode == mode) MaterialTheme.colorScheme.primary else foreground
     @Composable
     fun PresetButton(colors: List<Long>) {
         val selected = selectedMode == mode && selectedPreset(colors)
