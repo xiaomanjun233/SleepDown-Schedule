@@ -91,6 +91,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshotFlow
@@ -101,6 +102,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -127,6 +129,8 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
@@ -135,6 +139,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.DpOffset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.Lifecycle
@@ -144,6 +149,9 @@ import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
+import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
+import com.kyant.backdrop.catalog.utils.InteractiveHighlight
+import com.kyant.backdrop.shadow.Shadow
 import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.PopupLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -2063,11 +2071,29 @@ private fun AgentComposerTextField(
     modifier: Modifier = Modifier
 ) {
     val input = inputState.value
+    var editableValue by remember {
+        mutableStateOf(TextFieldValue(input, selection = TextRange(input.length)))
+    }
+    LaunchedEffect(input) {
+        if (editableValue.text != input) {
+            editableValue = TextFieldValue(input, selection = TextRange(input.length))
+        }
+    }
     BasicTextField(
-        value = input,
-        onValueChange = { inputState.value = it },
+        value = editableValue,
+        onValueChange = { next ->
+            editableValue = next
+            if (next.text != inputState.value) inputState.value = next.text
+        },
         modifier = modifier
             .focusRequester(focusRequester)
+            .onFocusChanged { state ->
+                if (state.isFocused) {
+                    editableValue = editableValue.copy(
+                        selection = TextRange(editableValue.text.length)
+                    )
+                }
+            }
             .onGloballyPositioned { onBoundsChanged(it.boundsInRoot()) },
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = foreground),
         cursorBrush = SolidColor(Color(0xFF168CFF)),
@@ -2075,7 +2101,7 @@ private fun AgentComposerTextField(
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
         keyboardActions = KeyboardActions(onSend = { onSend() }),
         decorationBox = { inner ->
-            if (input.isBlank()) {
+            if (editableValue.text.isBlank()) {
                 AutoFitSingleLineText(
                     text = "问问今天的安排…",
                     color = foreground.copy(alpha = 0.5f),
@@ -2099,41 +2125,84 @@ private fun AgentInputLiquidCapsule(
     interactionEnabledAt: (size: Size, offset: Offset) -> Boolean,
     content: @Composable () -> Unit
 ) {
-    if (backdrop != null) {
-        val dark = appUsesDarkTheme(config)
-        LiquidButton(
-            onClick = {},
-            backdrop = backdrop,
-            modifier = modifier,
-            height = if (expanded) 94.dp else 56.dp,
-            contentPadding = PaddingValues(0.dp),
-            blurRadius = 16.dp,
-            lensHeight = 18.dp,
-            lensAmount = 28.dp,
-            chromaticAberration = false,
-            surfaceColor = baseSurfaceColorOverride.copy(alpha = if (dark) 0.08f else 0.14f),
-            shadowEnabled = false,
-            clickTargetEnabled = false,
-            pressExpansion = 1.5.dp,
-            interactionEnabledAt = interactionEnabledAt
-        ) {
-            Box(Modifier.weight(1f).fillMaxSize()) {
-                content()
-            }
-        }
+    val interactionScope = rememberCoroutineScope()
+    val currentInteractionEnabledAt = rememberUpdatedState(interactionEnabledAt)
+    val interactiveHighlight = remember(interactionScope) {
+        InteractiveHighlight(
+            animationScope = interactionScope,
+            radius = { size -> size.minDimension * 2.2f },
+            acceptsGesture = { size, offset -> currentInteractionEnabledAt.value(size, offset) }
+        )
+    }
+    val lightDockGlass = !appUsesDarkTheme(config)
+    val dockSurfaceColor = if (lightDockGlass) {
+        Color.White.copy(alpha = 0.30f)
     } else {
-        GlassSurface(
-            backdrop = null,
-            config = config,
-            modifier = modifier,
-            shape = shape,
-            tokens = tokens,
-            baseSurfaceColorOverride = baseSurfaceColorOverride
+        Color(0xFF16181D).copy(alpha = 0.78f)
+    }
+    val dockHeight = if (expanded) 94.dp else 56.dp
+    val pressExpansion = 1.5.dp
+
+    Box(
+        modifier = modifier
+            .height(dockHeight)
+            .graphicsLayer { clip = false }
+    ) {
+        if (backdrop != null) {
+            // Match the edu WebView Dock: the glass consumer is a stable background sibling.
+            // The editable caret can blink without invalidating or rebuilding this backdrop layer.
+            LiquidButton(
+                onClick = {},
+                backdrop = backdrop,
+                modifier = Modifier.fillMaxSize(),
+                height = dockHeight,
+                contentPadding = PaddingValues(0.dp),
+                blurRadius = 5.dp,
+                lensHeight = 14.dp,
+                lensAmount = 24.dp,
+                chromaticAberration = false,
+                surfaceColor = dockSurfaceColor,
+                shadowEnabled = lightDockGlass,
+                shadowStyle = AgentInputDockLightShadow,
+                highlightEnabled = true,
+                isInteractive = true,
+                highlightRadiusMultiplier = 2.2f,
+                shape = shape,
+                clipToBounds = false,
+                clickTargetEnabled = false,
+                pressExpansion = pressExpansion,
+                sharedInteractiveHighlight = interactiveHighlight,
+                interactionEnabledAt = interactionEnabledAt
+            ) {}
+        } else {
+            GlassSurface(
+                backdrop = null,
+                config = config,
+                modifier = Modifier.fillMaxSize(),
+                shape = shape,
+                tokens = tokens,
+                baseSurfaceColorOverride = baseSurfaceColorOverride
+            ) {}
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .liquidButtonVisualTransform(
+                    interactiveHighlight = interactiveHighlight,
+                    pressExpansion = pressExpansion
+                )
+                .then(interactiveHighlight.gestureModifier)
         ) {
             content()
         }
     }
 }
+
+private val AgentInputDockLightShadow = Shadow(
+    radius = 6.dp,
+    offset = DpOffset(0.dp, 2.dp),
+    color = Color.Black.copy(alpha = 0.10f)
+)
 
 @Composable
 private fun AgentAttachmentLiquidButton(

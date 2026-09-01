@@ -25,6 +25,8 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.domain.course.*
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.uninstallShiguangRuntime
 
 import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
 import com.xiaomanjun.sleepdownschedule.feature.backup.*
@@ -89,8 +91,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Colorize
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
@@ -282,6 +282,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost
@@ -311,6 +312,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
@@ -421,6 +423,11 @@ sealed interface Screen {
 }
 
 enum class HomeMode { Day, Week }
+internal fun HomeStartMode.toHomeMode(): HomeMode = when (this) {
+    HomeStartMode.DAY,
+    HomeStartMode.TWO_DAY -> HomeMode.Day
+    HomeStartMode.WEEK -> HomeMode.Week
+}
 enum class SettingsSection { Schedule, Notifications }
 enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
 
@@ -756,9 +763,9 @@ fun CourseScheduleAppUi(
     var settingsExitInterceptionRequired by remember { mutableStateOf(false) }
     var settingsExitRequest by remember { mutableIntStateOf(0) }
     var pendingSettingsExitAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    var homeMode by remember { mutableStateOf(if (state.config.defaultHomeMode == HomeStartMode.DAY) HomeMode.Day else HomeMode.Week) }
+    var homeMode by remember { mutableStateOf(state.config.defaultHomeMode.toHomeMode()) }
     LaunchedEffect(state.config.defaultHomeMode) {
-        homeMode = if (state.config.defaultHomeMode == HomeStartMode.DAY) HomeMode.Day else HomeMode.Week
+        homeMode = state.config.defaultHomeMode.toHomeMode()
     }
     var homeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     val aiHistorySelection by AiEduImportProgressSession.historySelection.collectAsStateWithLifecycle()
@@ -802,7 +809,7 @@ fun CourseScheduleAppUi(
             course = course,
             targetWeek = targetWeek,
             sourceBoundsInRoot = sourceBounds,
-            sourceIsDayCard = homeMode == HomeMode.Day && sourceBounds != null
+            sourceIsDayCard = homeMode != HomeMode.Week && sourceBounds != null
         )
     }
     fun closeCourseEditor() {
@@ -963,6 +970,12 @@ fun CourseScheduleAppUi(
     }
     val weekCardHeight = adaptiveWeekCardHeight * weekCardHeightScale
     val context = LocalContext.current
+    val dayViewMode = remember(screen, state.config.defaultHomeMode, context) {
+        DayViewPreferences.mode(
+            context = context,
+            legacyTwoDay = state.config.defaultHomeMode == HomeStartMode.TWO_DAY
+        )
+    }
     val remoteExperience by SleepDownRemoteConfig.experience.collectAsStateWithLifecycle()
     val remoteConfigState by SleepDownRemoteConfig.state.collectAsStateWithLifecycle()
     fun requestSettingsExit(action: () -> Unit) {
@@ -1477,12 +1490,12 @@ fun CourseScheduleAppUi(
         homeDisplayWeek = homeDisplayWeek.coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1))
         if (visualState.config.autoCurrentWeek) homeDisplayWeek = currentTargetWeek
     }
-    val homeTitleWeek = if (homeMode == HomeMode.Day) {
+    val homeTitleWeek = if (homeMode != HomeMode.Week) {
         effectiveCurrentWeek(visualState.config, homeDisplayDate)
     } else {
         homeDisplayWeek
     }
-    val homeTitleDate = if (homeMode == HomeMode.Day) {
+    val homeTitleDate = if (homeMode != HomeMode.Week) {
         homeDisplayDate
     } else {
         todayDate
@@ -1790,7 +1803,7 @@ fun CourseScheduleAppUi(
             targetValue = 1f,
             animationSpec = tween(
                 durationMillis = CourseGlassMaterialRevealDurationMillis,
-                easing = CubicBezierEasing(0.16f, 0.84f, 0.24f, 1f)
+                easing = CubicBezierEasing(0.22f, 0f, 0.18f, 1f)
             )
         )
         courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
@@ -2638,9 +2651,10 @@ fun CourseScheduleAppUi(
                                  HomeScreen(
                                      state = visualState,
                                      agentState = state,
-                                    personalizationPreviewState = personalizationPreviewState,
-                                    mode = homeMode,
-                                    adaptiveMetrics = homeAdaptiveMetrics,
+                                     personalizationPreviewState = personalizationPreviewState,
+                                     mode = homeMode,
+                                     dayViewMode = dayViewMode,
+                                     adaptiveMetrics = homeAdaptiveMetrics,
                                     weekCardHeight = weekCardHeight.dp,
                                     displayWeek = homeDisplayWeek,
                                     displayDate = homeDisplayDate,
@@ -2847,7 +2861,9 @@ fun CourseScheduleAppUi(
             if (screen is Screen.Home || screen is Screen.Config) {
                 DockEntranceContainer(
                     phase = startupPhase,
-                    modifier = Modifier.align(Alignment.BottomStart)
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .zIndex(100f)
                 ) {
                     FloatingDock(
                         selected = screen,
@@ -4210,6 +4226,11 @@ internal val HomeTopOverlayHeight = 178.dp
 private val DetailTopBarHeight = SleepDownDesignTokens.SecondaryPage.CompactTopBarHeight
 private val DetailTopOverlayExtra = SleepDownDesignTokens.SecondaryPage.TopOverlayExtra
 private val DetailContentTopGap = SleepDownDesignTokens.SecondaryPage.ContentTopGap
+internal val LightTopBarButtonShadow = Shadow(
+    radius = 7.dp,
+    offset = DpOffset(0.dp, 1.dp),
+    color = ComposeColor.Black.copy(alpha = 0.10f)
+)
 internal val HomeInitialTopInset = 122.dp
 
 @Composable
@@ -4368,6 +4389,8 @@ fun DetailActivityScaffold(
     centerCompactTitle: Boolean = false,
     compactTitleMatchesSettings: Boolean = false,
     topBarVisible: Boolean = true,
+    preserveStatusBarSpace: Boolean = false,
+    topBarBackdropOverride: Backdrop? = null,
     topBarActions: @Composable (Backdrop?) -> Unit = {},
     content: @Composable (Backdrop?) -> Unit
 ) {
@@ -4381,6 +4404,8 @@ fun DetailActivityScaffold(
         centerCompactTitle = centerCompactTitle,
         compactTitleMatchesSettings = compactTitleMatchesSettings,
         topBarVisible = topBarVisible,
+        preserveStatusBarSpace = preserveStatusBarSpace,
+        topBarBackdropOverride = topBarBackdropOverride,
         topBarActions = topBarActions,
         content = content
     )
@@ -4397,14 +4422,17 @@ fun DetailTopBar(
     useMiuixCollapsedTitleStyle: Boolean = false,
     showBackButton: Boolean = true,
     backButtonStartPadding: Dp = 16.dp,
+    statusTopOverride: Dp? = null,
     actions: @Composable () -> Unit = {}
 ) {
     val density = LocalDensity.current
-    val statusTop = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
+    val statusTop = statusTopOverride
+        ?: with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(statusTop + DetailTopBarHeight)
+            .graphicsLayer { clip = false }
     ) {
         if (centerTitle) {
             Box(
@@ -4412,6 +4440,7 @@ fun DetailTopBar(
                     .fillMaxWidth()
                     .height(DetailTopBarHeight)
                     .align(Alignment.BottomCenter)
+                    .graphicsLayer { clip = false }
             ) {
                 if (showBackButton) {
                     TopBackButton(
@@ -4458,7 +4487,8 @@ fun DetailTopBar(
                 .fillMaxWidth()
                 .height(DetailTopBarHeight)
                 .align(Alignment.BottomCenter)
-                .padding(start = backButtonStartPadding, end = 16.dp),
+                .padding(start = backButtonStartPadding, end = 16.dp)
+                .graphicsLayer { clip = false },
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showBackButton) {
@@ -4489,7 +4519,8 @@ fun DetailTopBar(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .height(DetailTopBarHeight)
-                .padding(end = 10.dp),
+                .padding(end = 10.dp)
+                .graphicsLayer { clip = false },
             contentAlignment = Alignment.CenterEnd
         ) { actions() }
     }
@@ -4568,9 +4599,8 @@ internal fun AppTopBar(
                 .height(66.dp)
                 .graphicsLayer { clip = false }
         ) {
-            // Material's app-bar layout owns the stable title geometry. Keep the animated liquid
-            // controls in a later sibling so their press/morph envelope is not clipped to that
-            // layout's bounds.
+            // Keep Material's bar shell, but render both the title and animated liquid controls as
+            // siblings so neither is clipped by TopAppBar's internal single-line title layout.
             TopAppBar(
                 modifier = Modifier.fillMaxSize(),
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -4580,18 +4610,26 @@ internal fun AppTopBar(
                     actionIconContentColor = homeTextColor,
                     navigationIconContentColor = homeTextColor
                 ),
-                title = {
-                    HomeDateTitle(
-                        state = state,
-                        displayDate = homeDisplayDate,
-                        displayWeek = homeDisplayWeek,
-                        beforeScheduleTerm = beforeScheduleTerm,
-                        afterScheduleTerm = afterScheduleTerm,
-                        showReturnToCurrentWeekHint = homeShowingAnotherWeek,
-                        onReturnCurrent = onReturnHomeToCurrentWeek
-                    )
-                }
+                title = {}
             )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 120.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                HomeDateTitle(
+                    state = state,
+                    displayDate = homeDisplayDate,
+                    displayWeek = homeDisplayWeek,
+                    showTwoDays = false,
+                    beforeScheduleTerm = beforeScheduleTerm,
+                    afterScheduleTerm = afterScheduleTerm,
+                    showReturnToCurrentWeekHint = homeShowingAnotherWeek,
+                    onReturnCurrent = onReturnHomeToCurrentWeek
+                )
+            }
             Row(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -4744,7 +4782,8 @@ fun TopGlassIconButton(
             lensHeight = 16.dp,
             lensAmount = 24.dp,
             chromaticAberration = false,
-            shadowEnabled = false
+            shadowEnabled = lightGlass,
+            shadowStyle = LightTopBarButtonShadow
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(painterResource(iconRes), contentDescription = contentDescription, modifier = Modifier.size(22.dp))
@@ -4874,7 +4913,8 @@ internal fun HomeActionCapsuleVisual(
             lensHeight = HomeHeaderGlassLensHeight,
             lensAmount = HomeHeaderGlassLensAmount,
             chromaticAberration = false,
-            shadowEnabled = false,
+            shadowEnabled = lightGlass,
+            shadowStyle = LightTopBarButtonShadow,
             pressExpansion = 3.dp,
             highlightRadiusMultiplier = 0.9f,
             pressSnapshot = pressSnapshot,
@@ -4968,7 +5008,8 @@ internal fun HomeIconButtonVisual(
             lensHeight = HomeHeaderGlassLensHeight,
             lensAmount = HomeHeaderGlassLensAmount,
             chromaticAberration = false,
-            shadowEnabled = false,
+            shadowEnabled = lightGlass,
+            shadowStyle = LightTopBarButtonShadow,
             pressExpansion = 3.dp,
             pressSnapshot = pressSnapshot
         ) {
@@ -5502,14 +5543,81 @@ private fun tonalPreviewColors(seed: Long): List<ComposeColor> {
 @Composable
 private fun CourseColorModeRow(
     title: String,
+    iconRes: Int,
     mode: CourseCardColorMode,
     selectedMode: CourseCardColorMode,
     presets: List<List<Long>>,
     selectedPreset: (List<Long>) -> Boolean,
+    customSelected: Boolean,
+    backdrop: Backdrop?,
     onPresetSelected: (List<Long>) -> Unit,
     onOpenPalette: () -> Unit
 ) {
     val foreground = LocalContentColor.current
+    val labelColor = if (selectedMode == mode) MaterialTheme.colorScheme.primary else foreground
+    @Composable
+    fun PresetButton(colors: List<Long>) {
+        val selected = selectedMode == mode && selectedPreset(colors)
+        val previewColors = when (mode) {
+            CourseCardColorMode.SOLID -> colors.map { ComposeColor(it.toInt()) }
+            CourseCardColorMode.GRADIENT -> tonalPreviewColors(colors.first())
+            CourseCardColorMode.COLORFUL -> colors.map { vividPreviewColor(it) }
+        }
+        Surface(
+            modifier = Modifier.size(32.dp),
+            shape = RoundedCornerShape(50),
+            color = if (mode == CourseCardColorMode.COLORFUL) {
+                ComposeColor.White.copy(alpha = 0.88f)
+            } else {
+                ComposeColor.Transparent
+            },
+            border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+            onClick = { onPresetSelected(colors) }
+        ) {
+            if (mode == CourseCardColorMode.COLORFUL) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    // A four-color dot cluster reads instantly as "colorful"; a themed glyph
+                    // cannot express the multi-palette idea on its own.
+                    Canvas(
+                        Modifier
+                            .size(19.dp)
+                            .semantics { contentDescription = "自动彩色课程卡" }
+                    ) {
+                        val dotRadius = size.minDimension * 0.165f
+                        val gap = size.minDimension * 0.235f
+                        val centerX = size.width / 2f
+                        val centerY = size.height / 2f
+                        val dotColors = listOf(
+                            ComposeColor(0xFFFF5A52),
+                            ComposeColor(0xFFFFB300),
+                            ComposeColor(0xFF30C851),
+                            ComposeColor(0xFF0A84FF)
+                        )
+                        val dotCenters = listOf(
+                            Offset(centerX - gap, centerY - gap),
+                            Offset(centerX + gap, centerY - gap),
+                            Offset(centerX - gap, centerY + gap),
+                            Offset(centerX + gap, centerY + gap)
+                        )
+                        dotCenters.forEachIndexed { index, center ->
+                            drawCircle(color = dotColors[index], radius = dotRadius, center = center)
+                        }
+                    }
+                }
+            } else {
+                Box(
+                    Modifier.background(
+                        if (previewColors.size == 1) {
+                            Brush.linearGradient(listOf(previewColors.first(), previewColors.first()))
+                        } else {
+                            Brush.linearGradient(previewColors)
+                        }
+                    )
+                )
+            }
+        }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -5517,83 +5625,57 @@ private fun CourseColorModeRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = title,
-            modifier = Modifier.width(42.dp),
-            color = if (selectedMode == mode) MaterialTheme.colorScheme.primary else foreground,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (selectedMode == mode) FontWeight.Bold else FontWeight.Medium
-        )
         Row(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = if (mode == CourseCardColorMode.COLORFUL) {
-                Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally)
-            } else {
-                Arrangement.SpaceEvenly
-            },
+            modifier = Modifier.width(42.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            presets.forEach { colors ->
-                val selected = selectedMode == mode && selectedPreset(colors)
-                val previewColors = when (mode) {
-                    CourseCardColorMode.SOLID -> colors.map { ComposeColor(it.toInt()) }
-                    CourseCardColorMode.GRADIENT -> tonalPreviewColors(colors.first())
-                    CourseCardColorMode.COLORFUL -> colors.map { vividPreviewColor(it) }
-                }
-                val shape = RoundedCornerShape(50)
-                Surface(
-                    modifier = Modifier.size(32.dp),
-                    shape = shape,
-                    color = ComposeColor.Transparent,
-                    border = if (selected) {
-                        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                    } else {
-                        null
-                    },
-                    onClick = { onPresetSelected(colors) }
-                ) {
-                    Box(
-                        Modifier.background(
-                            when {
-                                previewColors.size == 1 -> Brush.linearGradient(
-                                    listOf(
-                                        previewColors.first(),
-                                        previewColors.first()
-                                    )
-                                )
-                                mode == CourseCardColorMode.COLORFUL -> Brush.sweepGradient(
-                                    previewColors
-                                )
-                                else -> Brush.linearGradient(
-                                    previewColors
-                                )
-                            }
-                        )
-                    )
-                }
-            }
-            Surface(
-                modifier = Modifier.size(32.dp),
-                shape = RoundedCornerShape(50),
-                color = ComposeColor.Transparent,
-                border = null,
-                onClick = onOpenPalette
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.sweepGradient(
-                                AutomaticColorfulCoursePreview.map { vividPreviewColor(it) }
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                tint = labelColor,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = title,
+                color = labelColor,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (selectedMode == mode) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (mode == CourseCardColorMode.COLORFUL) {
+                repeat(5) { index ->
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        when (index) {
+                            0 -> PresetButton(presets.first())
+                            4 -> CourseColorPaletteButton(
+                                backdrop = backdrop,
+                                selected = customSelected,
+                                onClick = onOpenPalette,
+                                size = 32.dp
                             )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Palette,
-                        contentDescription = "自定义课程卡颜色",
-                        tint = if (foreground.luminance() > 0.5f) ComposeColor.White else ComposeColor.Black,
-                        modifier = Modifier.size(19.dp)
+                        }
+                    }
+                }
+            } else {
+                presets.forEach { colors ->
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        PresetButton(colors)
+                    }
+                }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    CourseColorPaletteButton(
+                        backdrop = backdrop,
+                        selected = customSelected,
+                        onClick = onOpenPalette,
+                        size = 32.dp
                     )
                 }
             }
@@ -5634,7 +5716,7 @@ private fun CourseColorEditorDialog(
                     modifier = Modifier.size(38.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Colorize,
+                        painter = painterResource(R.drawable.ic_color_eyedropper),
                         contentDescription = "从壁纸吸色",
                         tint = foreground,
                         modifier = Modifier.size(21.dp)
@@ -6197,10 +6279,14 @@ fun PersonalizePanel(
                 Spacer(Modifier.height(8.dp))
                 CourseColorModeRow(
                     title = "纯色",
+                    iconRes = R.drawable.ic_color_solid,
                     mode = CourseCardColorMode.SOLID,
                     selectedMode = state.config.courseCardColorMode,
                     presets = SolidCourseColorPresets.map { listOf(it) },
                     selectedPreset = { it.firstOrNull() == state.config.cardColorArgb },
+                    customSelected = state.config.courseCardColorMode == CourseCardColorMode.SOLID &&
+                        SolidCourseColorPresets.none { it == state.config.cardColorArgb },
+                    backdrop = backdrop,
                     onPresetSelected = { colors ->
                         onUpdateConfig(
                             PersonalizeCardColorChange,
@@ -6214,10 +6300,14 @@ fun PersonalizePanel(
                 )
                 CourseColorModeRow(
                     title = "渐变",
+                    iconRes = R.drawable.ic_color_gradient,
                     mode = CourseCardColorMode.GRADIENT,
                     selectedMode = state.config.courseCardColorMode,
                     presets = GradientCourseColorPresets.map { listOf(it) },
                     selectedPreset = { it.firstOrNull() == state.config.cardColorArgb },
+                    customSelected = state.config.courseCardColorMode == CourseCardColorMode.GRADIENT &&
+                        GradientCourseColorPresets.none { it == state.config.cardColorArgb },
+                    backdrop = backdrop,
                     onPresetSelected = { colors ->
                         onUpdateConfig(
                             PersonalizeCardColorChange,
@@ -6231,10 +6321,14 @@ fun PersonalizePanel(
                 )
                 CourseColorModeRow(
                     title = "彩色",
+                    iconRes = R.drawable.ic_color_colorful,
                     mode = CourseCardColorMode.COLORFUL,
                     selectedMode = state.config.courseCardColorMode,
                     presets = listOf(AutomaticColorfulCoursePreview),
                     selectedPreset = { state.config.courseCardPalette.isBlank() },
+                    customSelected = state.config.courseCardColorMode == CourseCardColorMode.COLORFUL &&
+                        state.config.courseCardPalette.isNotBlank(),
+                    backdrop = backdrop,
                     onPresetSelected = {
                         onUpdateConfig(
                             PersonalizeCardColorChange,
@@ -6520,6 +6614,9 @@ open class SettingsDetailActivityHost : ComponentActivity() {
             val isQuickSheetSettingsEntry = remember {
                 intent.transitionRouteIdOrNull() == TransitionRouteId.QuickSheetToSettingsDetail
             }
+            val isScheduleManagerSettingsEntry = remember {
+                intent.transitionRouteIdOrNull() == TransitionRouteId.ScheduleManagerToSettingsDetail
+            }
             CourseScheduleTheme(config = state.config) {
                 val darkWindowBackground = appUsesDarkTheme(state.config)
                 LaunchedEffect(darkWindowBackground, isAnchoredSettingsEntry) {
@@ -6570,10 +6667,16 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                         else -> closeSettings()
                     }
                 }
-                // An Activity-level callback disables Android's cross-Activity predictive-back
-                // animation. Only install it while a page really has a pending draft that must be
-                // committed or confirmed; clean pages stay on the native predictive-back path.
-                BackHandler(enabled = interceptSystemBack, onBack = requestExit)
+                // ScheduleManagerActivity opens this host through ScheduleManagerToSettingsDetail
+                // with the selected schedule id. Keep that exact route on the draft-aware back
+                // path from its first frame; after edits, ScheduleConfigScreen decides whether to
+                // show Save / Don't save / Continue editing before the Activity is allowed to close.
+                val scheduleDraftBackGuardRequired = section == SettingsPage.Schedule &&
+                    (customizeScheduleId != null || isScheduleManagerSettingsEntry)
+                BackHandler(
+                    enabled = interceptSystemBack || scheduleDraftBackGuardRequired,
+                    onBack = requestExit
+                )
                 Box(Modifier.fillMaxSize()) {
                 val settingsDetailContent: @Composable () -> Unit = {
                 DetailActivityScaffold(
@@ -6813,6 +6916,49 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                 factory = ScheduleViewModelFactory(app, app.repository)
             )
             val state by viewModel.state.collectAsStateWithLifecycle()
+            val refreshScope = rememberCoroutineScope()
+            var warehouseGeneration by remember { mutableIntStateOf(0) }
+            var warehouseRefreshing by remember { mutableStateOf(false) }
+            var warehouseManualRefreshing by remember { mutableStateOf(false) }
+            fun refreshWarehouse(manual: Boolean) {
+                if (warehouseRefreshing) return
+                warehouseRefreshing = true
+                warehouseManualRefreshing = manual
+                refreshScope.launch {
+                    runCatching {
+                        if (manual) {
+                            ShiguangWarehouseUpdater.refresh(this@EduSchoolSelectActivityHost)
+                        } else {
+                            ShiguangWarehouseUpdater.refreshIfStale(this@EduSchoolSelectActivityHost)
+                        }
+                    }.onSuccess { result ->
+                        if (result == null) return@onSuccess
+                        if (result.changed) warehouseGeneration += 1
+                        if (manual) {
+                            Toast.makeText(
+                                this@EduSchoolSelectActivityHost,
+                                if (result.changed) "已更新适配列表" else "已是最新适配列表",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }.onFailure { error ->
+                        if (manual) {
+                            Toast.makeText(
+                                this@EduSchoolSelectActivityHost,
+                                "更新失败，继续使用当前适配列表：${error.message ?: "网络请求失败"}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                    warehouseRefreshing = false
+                    warehouseManualRefreshing = false
+                }
+            }
+            LaunchedEffect(Unit) {
+                if (ShiguangWarehouseUpdater.isRefreshStale(this@EduSchoolSelectActivityHost)) {
+                    refreshWarehouse(manual = false)
+                }
+            }
             CourseScheduleTheme(config = state.config) {
                 CrossActivityTransitionHost(
                     activity = this@EduSchoolSelectActivityHost,
@@ -6826,11 +6972,31 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                     DetailActivityScaffold(
                         title = "选择学校",
                         config = state.config,
-                        onBack = requestClose
+                        onBack = requestClose,
+                        topBarActions = { topBackdrop ->
+                            TopGlassIconButton(
+                                backdrop = topBackdrop,
+                                config = state.config,
+                                iconRes = R.drawable.ic_refresh,
+                                contentDescription = if (warehouseRefreshing) "正在更新适配器" else "更新适配器",
+                                onClick = { refreshWarehouse(manual = true) },
+                                modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
+                                // This action belongs to the dark page chrome even when wallpaper
+                                // sampling classifies the glass as light. Avoid the resulting
+                                // white 0.26 surface wash on this one button in dark mode.
+                                surfaceColorOverride = if (appUsesDarkTheme(state.config)) {
+                                    ComposeColor.Transparent
+                                } else {
+                                    null
+                                },
+                                buttonHeight = SleepDownDesignTokens.SecondaryPage.BackButtonSize
+                            )
+                        }
                     ) { backdrop ->
                         EduSchoolPickerScreen(
                             state = state,
                             backdrop = backdrop,
+                            warehouseGeneration = warehouseGeneration,
                             onSelect = { adapter ->
                                 ActivityTransitionCoordinator.openImmediate(
                                     this@EduSchoolSelectActivityHost,
@@ -6840,6 +7006,22 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                 )
                             }
                         )
+                        if (warehouseManualRefreshing) {
+                            LiquidAlertDialog(
+                                title = "正在更新适配器",
+                                message = "正在获取最新适配列表。现在可以返回或退到桌面，更新会在后台继续。",
+                                actions = listOf(
+                                    LiquidAlertAction(
+                                        "后台继续",
+                                        LiquidAlertActionStyle.Secondary,
+                                        onClick = { warehouseManualRefreshing = false }
+                                    )
+                                ),
+                                backdrop = backdrop,
+                                config = state.config,
+                                onDismissRequest = { warehouseManualRefreshing = false }
+                            )
+                        }
                     }
                 }
             }
@@ -6861,6 +7043,10 @@ open class EduImportActivityHost : ComponentActivity() {
             val state by viewModel.state.collectAsStateWithLifecycle()
             val adapter = remember { eduAdapterFromIntentKey(intent.getStringExtra(EduAdapterExtra)) }
             var pendingDraft by remember { mutableStateOf<ImportDraft?>(null) }
+            val eduWebContentBackdrop = rememberGlassLayerBackdrop(
+                domain = GlassBackdropDomain.Content,
+                providerId = "edu-import-web-content"
+            )
             CourseScheduleTheme(config = state.config) {
                 if (pendingDraft == null) {
                     DetailActivityScaffold(
@@ -6868,7 +7054,11 @@ open class EduImportActivityHost : ComponentActivity() {
                         config = state.config,
                         onBack = { finish() },
                         isolateContentFromBackdrop = true,
-                        compactTopBar = true
+                        compactTopBar = true,
+                        centerCompactTitle = true,
+                        compactTitleMatchesSettings = true,
+                        preserveStatusBarSpace = true,
+                        topBarBackdropOverride = eduWebContentBackdrop
                     ) { backdrop ->
                         if (adapter == null) {
                             Box(
@@ -6883,29 +7073,35 @@ open class EduImportActivityHost : ComponentActivity() {
                                 state = state,
                                 adapter = adapter,
                                 backdrop = backdrop,
+                                webContentBackdrop = eduWebContentBackdrop,
                                 useDetailTopPadding = true,
                                 onParsed = { draft -> pendingDraft = draft }
                             )
                         }
                     }
                 } else {
+                    val previewDraft = checkNotNull(pendingDraft)
                     DetailActivityScaffold(
                         title = "导入预览",
                         config = state.config,
-                        onBack = { finish() },
-                        showTopGradientBlur = false,
-                        isolateContentFromBackdrop = true
+                        onBack = { pendingDraft = null },
+                        isolateContentFromBackdrop = true,
+                        compactTopBar = true,
+                        centerCompactTitle = true,
+                        compactTitleMatchesSettings = true,
+                        preserveStatusBarSpace = true
                     ) { backdrop ->
                     if (adapter == null) {
                         MissingCourseScreen(onBack = { finish() })
                     } else {
                         Box(modifier = Modifier.padding(top = detailContentTopPadding())) {
                             ConfirmScheduleScreen(
-                                draft = pendingDraft!!,
+                                draft = previewDraft,
                                 warning = if (adapter.isGeneralEduTool()) "可能部分节次信息会有误，请自行检查修改。" else null,
+                                backdrop = backdrop,
                                 onCancel = { pendingDraft = null },
                                 onConfirm = { createNewSchedule ->
-                                    viewModel.importDraft(pendingDraft!!, createNewSchedule) {
+                                    viewModel.importDraft(previewDraft, createNewSchedule) {
                                         returnToScheduleHome()
                                     }
                                 }
@@ -8699,6 +8895,16 @@ fun ChangelogSettingsScreen(
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
                 SettingsInfoRow(
+                    "1.2.3",
+                    "重新设计教务导入页与网页内页，优化工具排版、字母选择栏、悬浮 Dock、渐变模糊顶栏、玻璃灵动岛和相关弹窗；AI 教务与通用工具的历史页面会从 Dock 处自然展开\n" +
+                        "完整接入拾光仓库 2.0 的官方学校索引、适配脚本和交互方式，支持提交课程、开学日期、学期周数与完整节次时间；学校索引和脚本改从 Gitee 获取，缓存超过七天后自动检查更新\n" +
+                        "AI 教务导入首次使用时只提醒一次后台网络风险，取消后仍可导入；导入进度接入实时活动，数据格式或字段校验异常时最多自动修正三次，并重做预览顶栏与内容展开动画\n" +
+                        "新增上课中、课间与明日课程实时活动，可分别设置课程实时活动、状态栏短文案、操作按钮、明日提醒及提醒时间；明日课程预告仅在第二天有课时显示五分钟\n" +
+                        "日视图新增标准与双日两种模式；标准模式会在今日课程全部结束后提前展示明日课程，双日模式沿用原日视图排版连续显示两天课程\n" +
+                        "修复教务 Dock 输入时的光标闪烁和焦点异常，优化中心弹窗跟手弥散光与遮挡恢复叠化，恢复浅色顶栏、返回按钮和搜索控件阴影，并恢复多课表详细设置的返回保存询问"
+                )
+                SettingsDivider()
+                SettingsInfoRow(
                     "1.2.2",
                     "优化教务系统导入页，修复网页重复加载、页面跳转闪烁等问题，并优化教务适配器选择，同一学校存在多个导入工具时可以查看并选择对应适配\n" +
                         "修复平板小组件排版异常的问题\n" +
@@ -8859,7 +9065,7 @@ internal fun WebView.releaseSleepDownWebView(clearResourceCache: Boolean = true)
     // Resource cache can grow into tens of megabytes after repeated school-site imports.
     // Cookies and DOM storage are intentionally retained so login state is not lost.
     if (clearResourceCache) runCatching { clearCache(true) }
-    runCatching { detachEduImportBridge() }
+    runCatching { uninstallShiguangRuntime() }
     runCatching { destroy() }
 }
 

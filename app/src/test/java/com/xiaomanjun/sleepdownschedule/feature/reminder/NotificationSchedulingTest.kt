@@ -87,4 +87,85 @@ class NotificationSchedulingTest {
 
         assertNotEquals(firstDay, nextDay)
     }
+
+    @Test
+    fun liveUpdatePreferenceChangeInvalidatesScheduledAlarmWindow() {
+        val config = defaultConfig().copy(notificationMode = NotificationMode.LIVE_UPDATE)
+        val periods = listOf(PeriodEntity(1, "08:00", "08:45"))
+        val today = LocalDate.of(2026, 9, 2)
+        val before = LiveUpdatePreferencesSnapshot(
+            duringClassEnabled = true,
+            breakStatusEnabled = true,
+            tomorrowReminderEnabled = true,
+            tomorrowReminderTime = LocalTime.of(22, 0)
+        )
+
+        val first = NotificationScheduler.scheduleSignature(
+            courses = emptyList(),
+            config = config,
+            periods = periods,
+            today = today,
+            liveUpdatePreferences = before
+        )
+        val changed = NotificationScheduler.scheduleSignature(
+            courses = emptyList(),
+            config = config,
+            periods = periods,
+            today = today,
+            liveUpdatePreferences = before.copy(tomorrowReminderTime = LocalTime.of(21, 30))
+        )
+
+        assertNotEquals(first, changed)
+    }
+
+    @Test
+    fun tomorrowReminderWaitsUntilLateClassEndsAndNeverCrossesMidnight() {
+        val targetDate = LocalDate.of(2026, 9, 3)
+        val zone = ZoneId.of("Asia/Shanghai")
+        val lateCourse = CourseEntity(
+            id = 7,
+            name = "晚课",
+            teacher = null,
+            location = null,
+            weekday = 3,
+            periods = listOf(1),
+            weeks = listOf(1),
+            weekParity = WeekParity.ALL,
+            note = null
+        )
+
+        val afterClass = NotificationScheduler.tomorrowReminderTriggerEpochMillis(
+            targetDate = targetDate,
+            reminderTime = LocalTime.of(22, 0),
+            previousDayCourses = listOf(lateCourse),
+            periods = listOf(PeriodEntity(1, "21:45", "22:30")),
+            zone = zone
+        )
+        assertEquals(
+            targetDate.minusDays(1).atTime(22, 35).atZone(zone).toInstant().toEpochMilli(),
+            afterClass
+        )
+
+        val capped = NotificationScheduler.tomorrowReminderTriggerEpochMillis(
+            targetDate = targetDate,
+            reminderTime = LocalTime.of(22, 0),
+            previousDayCourses = listOf(lateCourse),
+            periods = listOf(PeriodEntity(1, "23:30", "23:59")),
+            zone = zone
+        )
+        assertEquals(
+            targetDate.atStartOfDay(zone).minusMinutes(5).toInstant().toEpochMilli(),
+            capped
+        )
+    }
+
+    @Test
+    fun tomorrowReminderExpiresFiveMinutesAfterItAppears() {
+        val trigger = 1_788_272_400_000L
+
+        assertEquals(
+            trigger + 5 * 60_000L,
+            NotificationScheduler.tomorrowReminderExpiryEpochMillis(trigger)
+        )
+    }
 }

@@ -89,7 +89,6 @@ object AppIconManager {
             putBoolean(FollowsSystemDarkModeKey, followsSystemDarkMode)
             putBoolean(DarkThemeKey, darkTheme)
         }
-        applyStoredMode(context)
     }
 
     fun applyStoredMode(context: Context) {

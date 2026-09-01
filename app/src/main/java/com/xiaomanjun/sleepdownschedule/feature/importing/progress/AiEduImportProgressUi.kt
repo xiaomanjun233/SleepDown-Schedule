@@ -33,7 +33,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -93,9 +93,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
@@ -141,7 +139,6 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
@@ -157,11 +154,14 @@ open class AiEduImportProgressActivityHost : ComponentActivity() {
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         val app = application as CourseScheduleApp
+        val taskId = intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID)
+        AiImportForegroundService.clearCompletion(this, taskId)
         setContent {
             val state by app.repository.state.collectAsStateWithLifecycle(AppState())
             CourseScheduleTheme(config = state.config) {
                 AiEduImportProgressPage(
                     config = state.config,
+                    taskId = taskId,
                     onImportSubmitted = { returnToScheduleHome() },
                     onScreenModeRequested = {
                         finish()
@@ -176,6 +176,15 @@ open class AiEduImportProgressActivityHost : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        AiImportForegroundService.clearCompletion(
+            this,
+            intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID)
+        )
     }
 }
 
@@ -216,6 +225,7 @@ internal fun aiComposerBottomInsetPx(
 internal fun AiEduImportProgressPage(
     config: ScheduleConfigEntity,
     onClose: () -> Unit,
+    taskId: String? = null,
     onImportSubmitted: () -> Unit = onClose,
     onScreenModeRequested: () -> Unit = AiEduImportProgressSession::useScreenMode,
     historicalProgress: AiEduImportProgress? = null,
@@ -225,22 +235,32 @@ internal fun AiEduImportProgressPage(
     hostConsumesImeResize: Boolean = false,
     onImportRequested: ((ImportDraft, Boolean) -> Unit)? = null
 ) {
-    val sessionProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
+    val observedSessionProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     val sessionPreviewDraft by AiEduImportProgressSession.previewDraft.collectAsStateWithLifecycle()
     val historicalMode = historicalProgress != null && historicalDraft != null
     var localProgress by remember(historicalProgress) { mutableStateOf(historicalProgress) }
     var localPreviewDraft by remember(historicalDraft) { mutableStateOf(historicalDraft) }
-    val current = if (historicalMode) {
+    var ownedRevisionTaskId by remember(historicalProgress) { mutableStateOf<String?>(null) }
+    val sessionProgress = observedSessionProgress?.takeIf {
+        taskId.isNullOrBlank() || it.taskId == taskId
+    }
+    val ownedRevisionProgress = observedSessionProgress?.takeIf {
+        ownedRevisionTaskId != null && it.taskId == ownedRevisionTaskId
+    }
+    val current = ownedRevisionProgress ?: if (historicalMode) {
         checkNotNull(localProgress ?: historicalProgress)
     } else {
         sessionProgress ?: AiEduImportProgress(steps = listOf("等待 AI 教务导入任务"))
     }
-    val previewDraft = if (historicalMode) localPreviewDraft else sessionPreviewDraft
+    val previewDraft = if (ownedRevisionProgress != null) {
+        sessionPreviewDraft
+    } else if (historicalMode) {
+        localPreviewDraft
+    } else {
+        sessionPreviewDraft
+    }
     fun updateProgress(next: AiEduImportProgress) {
         if (historicalMode) localProgress = next else AiEduImportProgressSession.update(next)
-    }
-    fun updatePreviewDraft(next: ImportDraft) {
-        if (historicalMode) localPreviewDraft = next else AiEduImportProgressSession.setPreviewDraft(next)
     }
     fun requestImport(draft: ImportDraft, createNewSchedule: Boolean) {
         onImportRequested?.invoke(draft, createNewSchedule)
@@ -318,8 +338,24 @@ internal fun AiEduImportProgressPage(
         hostConsumesImeResize = hostConsumesImeResize
     )
     val conversationScope = rememberCoroutineScope()
+    LaunchedEffect(
+        historicalMode,
+        ownedRevisionTaskId,
+        ownedRevisionProgress?.finished,
+        sessionPreviewDraft
+    ) {
+        val completed = ownedRevisionProgress
+        if (historicalMode && completed?.finished == true) {
+            localProgress = completed
+            sessionPreviewDraft?.let { localPreviewDraft = it }
+            ownedRevisionTaskId = null
+        }
+    }
     LaunchedEffect(current.finished) {
-        if (current.finished) executionExpanded = false
+        if (current.finished) {
+            executionExpanded = false
+            conversationSending = false
+        }
     }
     BackHandler(enabled = current.awaitingConfirmation) {
         AiEduImportProgressSession.cancel()
@@ -349,15 +385,6 @@ internal fun AiEduImportProgressPage(
                     val zoom = previewBackgroundZoom.value
                     scaleX = zoom
                     scaleY = zoom
-                    val depthProgress = (
-                        (zoom - 1f) / (HomeAnchoredMorphBackgroundScale - 1f)
-                        ).coerceIn(0f, 1f)
-                    val blurPx = 12.dp.toPx() * depthProgress
-                    renderEffect = if (blurPx > 0.01f) {
-                        BlurEffect(blurPx, blurPx, TileMode.Clamp)
-                    } else {
-                        null
-                    }
                 }
         ) {
             Box(Modifier.fillMaxSize().glassBackdropProducer(previewSceneBackdrop)) {
@@ -554,93 +581,16 @@ internal fun AiEduImportProgressPage(
                         } else {
                             val baseDraft = previewDraft ?: return@send
                             conversationSending = true
-                            conversationScope.launch {
-                                val settings = AiImportSettingsStore.loadForRuntime(context)
-                                    ?: AiImportSettingsStore.load(context)
-                                var workingProgress = current.copy(
-                                    steps = current.steps + listOf(
-                                        "正在理解你的新要求",
-                                        "模型正在分析课程、周次和节次"
-                                    ),
-                                    userPrompt = prompt,
-                                    liveSummary = "我正在理解你的修改要求，并核对现有课程、周次和节次信息。",
-                                    finished = false,
-                                    error = null
-                                )
-                                updateProgress(workingProgress)
-                                val progressTicker = launch {
-                                    listOf(
-                                        "模型正在核对现有课表结构",
-                                        "模型正在生成修改方案",
-                                        "仍在等待模型完成，请保留此页面"
-                                    ).forEach { summary ->
-                                        delay(2_400)
-                                        if (!workingProgress.finished) {
-                                            workingProgress = workingProgress.copy(
-                                                steps = workingProgress.steps + summary,
-                                                liveSummary = summary
-                                            )
-                                            updateProgress(workingProgress)
-                                        }
-                                    }
-                                }
-                                AiScheduleImportService(context)
-                                    .reviseSchedule(baseDraft, prompt, current, settings)
-                                    .mapCatching { result ->
-                                        val revised = ScheduleImportParser.parse(
-                                            result.output.ifBlank { result.rawOutput },
-                                            baseDraft.config
-                                        ).getOrThrow().copy(source = ImportDraftSource.AI_EDU)
-                                        revised to result
-                                    }
-                                    .onSuccess { (revised, result) ->
-                                        progressTicker.cancel()
-                                        val previousTurns = current.conversationTurns.ifEmpty {
-                                            listOf(
-                                                AiEduImportConversationTurn(
-                                                    userPrompt = current.userPrompt,
-                                                    reasoningOutput = current.reasoningOutput,
-                                                    aiOutput = current.aiOutput
-                                                )
-                                            )
-                                        }
-                                        val nextProgress = workingProgress.copy(
-                                            steps = workingProgress.steps + listOf("模型已给出修改摘要", "修改结果通过本地校验"),
-                                            userPrompt = prompt,
-                                            requestSent = true,
-                                            reasoningOutput = result.reasoningOutput,
-                                            aiOutput = result.rawOutput,
-                                            liveSummary = result.reasoningOutput.ifBlank {
-                                                "本轮已按你的要求更新课表，并通过本地校验。"
-                                            },
-                                            finished = true,
-                                            error = null,
-                                            conversationTurns = previousTurns + AiEduImportConversationTurn(
-                                                userPrompt = prompt,
-                                                reasoningOutput = result.reasoningOutput,
-                                                aiOutput = result.rawOutput
-                                            )
-                                        )
-                                        updatePreviewDraft(revised)
-                                        updateProgress(nextProgress)
-                                        if (historicalEntryId != null) {
-                                            AiImportHistoryStore.update(context, historicalEntryId, revised, nextProgress)
-                                        } else {
-                                            AiImportHistoryStore.updateMatching(context, baseDraft, revised, nextProgress)
-                                        }
-                                    }
-                                    .onFailure { error ->
-                                        progressTicker.cancel()
-                                        updateProgress(
-                                            workingProgress.copy(
-                                                steps = workingProgress.steps + "本次修改未完成",
-                                                finished = true,
-                                                error = error.message ?: "AI 没有完成这次修改"
-                                            )
-                                        )
-                                    }
-                                conversationSending = false
-                            }
+                            val settings = AiImportSettingsStore.loadForRuntime(context)
+                                ?: AiImportSettingsStore.load(context)
+                            ownedRevisionTaskId = AiImportTaskManager.startRevision(
+                                context = context,
+                                baseDraft = baseDraft,
+                                instruction = prompt,
+                                baseProgress = current,
+                                settings = settings,
+                                historicalEntryId = historicalEntryId
+                            )
                         }
                     }
                 )
@@ -1185,32 +1135,26 @@ private fun AiEduAttachmentMorphOverlay(
     var closing by remember(request) { mutableStateOf(false) }
     val target = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
     val screenCornerRadiusPx = deviceScreenCornerRadiusPx()
-    val geometry = homeAnchoredMorphGeometry(
-        source = request.sourceBounds,
-        target = target,
-        rawProgress = progress.value,
-        closing = closing,
-        // A document preview is a direct card-to-page expansion. The droplet/pinch trajectory
-        // used by Home menu destinations made this short vertical transition visibly change
-        // direction; use the same reversible direct geometry for opening and closing instead.
-        directClosing = true,
-        sourceCornerRadiusPx = with(density) { 20.dp.toPx() },
-        pinchDiameterPx = with(density) { 44.dp.toPx() },
-        minimumDropPx = with(density) { 10.dp.toPx() },
-        maximumDropPx = with(density) { 54.dp.toPx() },
-        maximumArcPx = with(density) { 46.dp.toPx() },
-        targetCornerRadiusPx = screenCornerRadiusPx
+    val morphProgress = progress.value.coerceIn(0f, 1f)
+    val source = request.sourceBounds
+    val rect = Rect(
+        left = source.left + (target.left - source.left) * morphProgress,
+        top = source.top + (target.top - source.top) * morphProgress,
+        right = source.right + (target.right - source.right) * morphProgress,
+        bottom = source.bottom + (target.bottom - source.bottom) * morphProgress
     )
-    val fullyOpen = !closing && progress.value >= 0.999f
-    val renderedCornerRadiusPx = if (fullyOpen) 0f else geometry.cornerRadiusPx
-    val sourceBlurPx = with(density) { 5.dp.toPx() } * homeMorphSmoothStep(
-        0f,
-        0.34f,
-        geometry.pathProgress
-    )
-    val contentBlurPx = with(density) { 5.dp.toPx() } * (
-        1f - homeMorphSmoothStep(0.42f, 0.98f, geometry.expansionProgress)
-    )
+    val sourceHandoff = aiAttachmentPreviewSmoothStep(0.06f, 0.32f, morphProgress)
+    val sourceAlpha = 1f - sourceHandoff
+    val sourceScale = 1f - 0.018f * sourceHandoff
+    val contentReveal = aiAttachmentPreviewSmoothStep(0.14f, 0.82f, morphProgress)
+    val contentMotionBlurPx =
+        detailMotionBlurRadiusDp(morphProgress) * 0.65f * density.density
+    val sourceCornerRadiusPx = with(density) { 20.dp.toPx() }
+    val cornerRadiusPx = sourceCornerRadiusPx +
+        (screenCornerRadiusPx - sourceCornerRadiusPx) * morphProgress
+    val fullyOpen = morphProgress >= 0.999f
+    val renderedCornerRadiusPx = if (fullyOpen) 0f else cornerRadiusPx
+    val shellColor = if (appUsesDarkTheme(config)) Color(0xFF202124) else Color(0xFFF7F7F8)
     fun dismiss() {
         if (!closing) {
             closing = true
@@ -1219,15 +1163,18 @@ private fun AiEduAttachmentMorphOverlay(
                     launch {
                         progress.animateTo(
                             0f,
-                            tween(HomeAnchoredMorphCloseDurationMillis, easing = LinearEasing)
+                            tween(
+                                AiAttachmentPreviewCloseDurationMillis,
+                                easing = AiAttachmentPreviewCloseEasing
+                            )
                         )
                     }
                     launch {
                         backgroundZoom.animateTo(
                             1f,
                             tween(
-                                HomeAnchoredMorphBackgroundDurationMillis,
-                                easing = HomeAnchoredBackgroundEasing
+                                AiAttachmentPreviewBackgroundDurationMillis,
+                                easing = AiAttachmentPreviewCloseEasing
                             )
                         )
                     }
@@ -1246,16 +1193,19 @@ private fun AiEduAttachmentMorphOverlay(
             launch {
                 progress.animateTo(
                     1f,
-                    tween(HomeAnchoredMorphOpenDurationMillis, easing = LinearEasing)
+                    tween(
+                        AiAttachmentPreviewOpenDurationMillis,
+                        easing = AiAttachmentPreviewOpenEasing
+                    )
                 )
             }
             launch {
                 backgroundZoom.animateTo(
-                    HomeAnchoredMorphBackgroundScale,
+                    AiAttachmentPreviewBackgroundScale,
                     tween(
-                        HomeAnchoredMorphBackgroundDurationMillis,
-                        delayMillis = HomeAnchoredMorphBackgroundDelayMillis,
-                        easing = HomeAnchoredBackgroundEasing
+                        AiAttachmentPreviewBackgroundDurationMillis,
+                        delayMillis = 24,
+                        easing = AiAttachmentPreviewOpenEasing
                     )
                 )
             }
@@ -1265,48 +1215,34 @@ private fun AiEduAttachmentMorphOverlay(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.34f * geometry.expansionProgress))
+            .background(Color.Black.copy(alpha = 0.34f * morphProgress))
             .clickable(onClick = ::dismiss)
     )
     Box(
         Modifier
-            .offset { IntOffset(geometry.rect.left.roundToInt(), geometry.rect.top.roundToInt()) }
+            .offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
             .size(
-                with(density) { geometry.rect.width.toDp() },
-                with(density) { geometry.rect.height.toDp() }
+                with(density) { rect.width.toDp() },
+                with(density) { rect.height.toDp() }
             )
-             .graphicsLayer {
-                 clip = !fullyOpen
-                 shape = RoundedCornerShape(with(density) { renderedCornerRadiusPx.toDp() })
-                 compositingStrategy = if (fullyOpen) {
-                     CompositingStrategy.Auto
-                 } else {
-                     CompositingStrategy.Offscreen
-                 }
-             }
+            .graphicsLayer {
+                clip = !fullyOpen
+                shape = RoundedCornerShape(with(density) { renderedCornerRadiusPx.toDp() })
+            }
+            .background(
+                color = shellColor,
+                shape = RoundedCornerShape(with(density) { renderedCornerRadiusPx.toDp() })
+            )
             .clickable(enabled = false) {}
     ) {
-        AiEduLiquidPanel(
-            backdrop = backdrop,
-            config = config,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { alpha = geometry.surfaceAlpha.coerceAtLeast(0.08f) },
-            accent = Color(0xFF8E8E93),
-            shape = RoundedCornerShape(with(density) { renderedCornerRadiusPx.toDp() })
-        ) { }
-        if (geometry.sourceAlpha > 0.01f) {
+        if (sourceAlpha > 0.01f) {
             Box(
                 Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = geometry.sourceAlpha
-                        scaleX = geometry.sourceScale
-                        scaleY = geometry.sourceScale
-                        compositingStrategy = CompositingStrategy.Offscreen
-                        renderEffect = if (sourceBlurPx > 0.01f) {
-                            BlurEffect(sourceBlurPx, sourceBlurPx, TileMode.Clamp)
-                        } else null
+                        alpha = sourceAlpha
+                        scaleX = sourceScale
+                        scaleY = sourceScale
                     }
             ) {
                 AiEduAttachmentCardContent(
@@ -1316,17 +1252,29 @@ private fun AiEduAttachmentMorphOverlay(
                 )
             }
         }
-        if (geometry.contentAlpha > 0.01f) {
+        AiEduLiquidPanel(
+            backdrop = backdrop,
+            config = config,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = contentReveal
+                    translationY = (1f - contentReveal) * 12.dp.toPx()
+                    scaleX = 0.97f + 0.03f * contentReveal
+                    scaleY = 0.97f + 0.03f * contentReveal
+                    compositingStrategy = if (contentMotionBlurPx > 0.01f) {
+                        CompositingStrategy.Offscreen
+                    } else {
+                        CompositingStrategy.Auto
+                    }
+                    renderEffect = platformMotionBlurRenderEffect(contentMotionBlurPx)
+                },
+            accent = Color(0xFF8E8E93),
+            shape = RoundedCornerShape(0.dp)
+        ) {
             Column(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = geometry.contentAlpha
-                        compositingStrategy = CompositingStrategy.Offscreen
-                        renderEffect = if (contentBlurPx > 0.01f) {
-                            BlurEffect(contentBlurPx, contentBlurPx, TileMode.Clamp)
-                        } else null
-                    }
                     .padding(top = 34.dp, start = 16.dp, end = 16.dp, bottom = 18.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1338,16 +1286,32 @@ private fun AiEduAttachmentMorphOverlay(
                     contentPadding = PaddingValues(vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (request.attachment.text.isNotBlank()) item {
+                    if (request.attachment.text.isNotBlank()) item(key = "attachment-text") {
                         Text(request.attachment.text, color = textColor.copy(alpha = 0.88f), style = MaterialTheme.typography.bodyMedium, lineHeight = 21.sp)
                     }
-                    itemsIndexed(request.attachment.images) { index, image ->
+                    itemsIndexed(
+                        items = request.attachment.images,
+                        key = { _, image -> image.pageIndex }
+                    ) { index, image ->
                         AiEduPreviewImage(image, "第 ${index + 1} 页")
                     }
                 }
             }
         }
     }
+
+}
+
+private const val AiAttachmentPreviewOpenDurationMillis = 430
+private const val AiAttachmentPreviewCloseDurationMillis = 360
+private const val AiAttachmentPreviewBackgroundDurationMillis = 280
+private const val AiAttachmentPreviewBackgroundScale = 1.04f
+private val AiAttachmentPreviewOpenEasing = CubicBezierEasing(0.20f, 0f, 0f, 1f)
+private val AiAttachmentPreviewCloseEasing = CubicBezierEasing(0.40f, 0f, 0.20f, 1f)
+
+private fun aiAttachmentPreviewSmoothStep(start: Float, end: Float, value: Float): Float {
+    val normalized = ((value - start) / (end - start)).coerceIn(0f, 1f)
+    return normalized * normalized * (3f - 2f * normalized)
 }
 
 @Composable

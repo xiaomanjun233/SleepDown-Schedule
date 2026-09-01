@@ -35,6 +35,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
@@ -52,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
+import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.shapes.Capsule
@@ -130,7 +133,8 @@ fun SleepDownPickerDialog(
     val visuals = rememberCenteredDialogVisuals(
         backdrop = backdrop,
         config = config,
-        blurRadius = blurRadius
+        blurRadius = blurRadius,
+        enableForegroundHighlight = false
     )
     val resolvedRenderInRootScaffold = renderInRootScaffold
         ?: LocalCenteredDialogRenderInRootScaffold.current
@@ -239,21 +243,51 @@ internal fun rememberCenteredDialogVisuals(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     blurRadius: Dp,
-    maxWidth: Dp = SleepDownDesignTokens.CenteredDialog.Width
+    maxWidth: Dp = SleepDownDesignTokens.CenteredDialog.Width,
+    enableForegroundHighlight: Boolean = true
 ): CenteredDialogVisuals {
     val animationProgress = remember { mutableFloatStateOf(0f) }
     val completeUnderlayBackdrop = LocalCenteredDialogSceneBackdrop.current ?: backdrop
+    val density = LocalDensity.current
+    val highlightScope = rememberCoroutineScope()
+    val dark = appUsesDarkTheme(config)
+    val highlightRadiusPx = with(density) { 112.dp.toPx() }
+    val foregroundHighlight = remember(highlightScope, highlightRadiusPx, dark) {
+        InteractiveHighlight(
+            animationScope = highlightScope,
+            radius = { highlightRadiusPx },
+            ambientAlpha = 0f,
+            spotAlpha = if (dark) 0.11f else 0.16f,
+            fallbackAlpha = if (dark) 0.13f else 0.18f
+        )
+    }
+    val centeredShape = remember {
+        RoundedRectangle(
+            cornerRadius = SleepDownDesignTokens.CenteredDialog.Corner,
+            style = RoundedCornerStyle.Continuous
+        )
+    }
+    val highlightModifier = if (enableForegroundHighlight) {
+        Modifier
+            .then(foregroundHighlight.gestureModifier)
+            .then(foregroundHighlight.foregroundModifier)
+    } else {
+        Modifier
+    }
     return CenteredDialogVisuals(
-        surfaceModifier = Modifier.centeredDialogBackdropModifier(
-            backdrop = completeUnderlayBackdrop,
-            config = config,
-            blurRadius = blurRadius,
-            maxWidth = maxWidth
-        ),
+        surfaceModifier = Modifier
+            .clip(centeredShape)
+            .then(highlightModifier)
+            .centeredDialogBackdropModifier(
+                backdrop = completeUnderlayBackdrop,
+                config = config,
+                blurRadius = blurRadius,
+                maxWidth = maxWidth
+            ),
         backgroundModifier = Modifier.centeredDialogBackgroundBlur(
             backdrop = completeUnderlayBackdrop,
             animationProgress = animationProgress,
-            dark = appUsesDarkTheme(config)
+            dark = dark
         ),
         animationProgress = animationProgress
     )

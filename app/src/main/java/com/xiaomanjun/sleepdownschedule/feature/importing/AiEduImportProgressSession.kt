@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 data class AiEduImportProgress(
+    val taskId: String = "",
     val steps: List<String> = emptyList(),
     val routeLabel: String = "",
     val requestPreview: String = "",

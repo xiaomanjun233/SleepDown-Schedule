@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseAllowsWeekPeriodDrag as domainCourseAllowsWeekPeriodDrag
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseAnchorPeriodsForTimeRange as domainCourseAnchorPeriodsForTimeRange
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseEndTime as domainCourseEndTime
+import com.xiaomanjun.sleepdownschedule.domain.schedule.coursesForDate as domainCoursesForDate
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseStartTime as domainCourseStartTime
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeLabel as domainCourseTimeLabel
 import com.xiaomanjun.sleepdownschedule.domain.schedule.currentTimelinePeriod as domainCurrentTimelinePeriod
@@ -37,6 +38,8 @@ typealias WeekExactTimePlacement =
     com.xiaomanjun.sleepdownschedule.domain.schedule.WeekExactTimePlacement
 
 fun todayCourses(state: AppState): List<CourseEntity> = domainTodayCourses(state)
+
+fun coursesForDate(state: AppState, date: LocalDate): List<CourseEntity> = domainCoursesForDate(state, date)
 
 fun currentTimelinePeriod(periods: List<PeriodEntity>, now: LocalTime): PeriodEntity? =
     domainCurrentTimelinePeriod(periods, now)

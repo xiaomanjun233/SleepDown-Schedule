@@ -14,6 +14,8 @@ import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTopologyOperation
 import com.xiaomanjun.sleepdownschedule.domain.schedule.allocatePeriodCountsByStartTimes
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
+import com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdatePreferences
+import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 
 import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
 import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
@@ -63,10 +65,8 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -226,6 +226,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -233,8 +234,10 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -271,10 +274,7 @@ import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -318,6 +318,14 @@ fun GeneralSettingsScreen(
     val topPadding = detailContentTopPadding()
     var draft by remember(state.config.id) { mutableStateOf(state.config) }
     var hasLocalEdits by remember(state.config.id) { mutableStateOf(false) }
+    var dayViewMode by remember(context, state.config.id) {
+        mutableStateOf(
+            DayViewPreferences.mode(
+                context = context,
+                legacyTwoDay = state.config.defaultHomeMode == HomeStartMode.TWO_DAY
+            )
+        )
+    }
     var appIconMode by remember(context) {
         mutableStateOf(AppIconManager.currentMode(context))
     }
@@ -403,6 +411,19 @@ fun GeneralSettingsScreen(
                         config = visualConfig,
                         onSelected = { applyChange(draft.copy(defaultHomeMode = it)) }
                     )
+                    SettingsDivider()
+                    SettingsDayViewModeRow(
+                        selected = dayViewMode,
+                        backdrop = backdrop,
+                        config = visualConfig,
+                        onSelected = { mode ->
+                            dayViewMode = mode
+                            DayViewPreferences.setMode(context, mode)
+                            if (draft.defaultHomeMode == HomeStartMode.TWO_DAY) {
+                                applyChange(draft.copy(defaultHomeMode = HomeStartMode.DAY))
+                            }
+                        }
+                    )
                 }
             }
         }
@@ -414,14 +435,6 @@ fun GeneralSettingsScreen(
                     backdrop = backdrop,
                     config = visualConfig,
                     onSelected = { applyChange(draft.copy(defaultWallpaperStyle = it)) }
-                )
-                SettingsDivider()
-                SettingsToggleRow(
-                    title = "实时活动按钮",
-                    subtitle = "在实时活动中显示取消提醒和勿扰按钮。",
-                    checked = draft.liveUpdateActionsEnabled,
-                    backdrop = backdrop,
-                    onCheckedChange = { applyChange(draft.copy(liveUpdateActionsEnabled = it)) }
                 )
                 SettingsDivider()
                 SettingsToggleRow(
@@ -812,6 +825,7 @@ fun AiImportSettingsSection(
         apiKey = apiKey
     )
     fun reload() {
+        message = null
         saved = AiImportSettingsStore.load(context)
         selectedProviderId = saved.profile.id
         customProviderName = saved.profile.displayName
@@ -839,11 +853,14 @@ fun AiImportSettingsSection(
 	}
     LaunchedEffect(
         remoteConfigState.bootstrap?.ai?.configVersion,
-        remoteConfigState.bootstrap?.ai?.enabled
+        remoteConfigState.bootstrap?.ai?.enabled,
+        remoteConfigState.bootstrap?.ai?.keyId,
+        remoteConfigState.bootstrap?.ai?.message
     ) {
         if (isManagedFreeProvider) reload()
     }
     fun selectProvider(providerId: String) {
+        message = null
         // Preserve the current provider draft before switching. In particular, the
         // custom compatible endpoint must not fall back to its empty preset whenever
         // the user temporarily selects another provider.
@@ -995,7 +1012,7 @@ fun AiImportSettingsSection(
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
             SettingsInfoRow(
                 "每日免费 AI",
-                "每天由 SleepDown 提供共享免费额度，不保存明文 Key。${SleepDownRemoteConfig.managedFreeStatusMessage(context)}"
+                SleepDownRemoteConfig.managedFreeStatusMessage(context)
             )
 			SettingsActionRow(
 				title = "远程配置",
@@ -1084,7 +1101,10 @@ fun AiImportSettingsSection(
             title = if (saved.apiKey.isBlank()) "API Key" else "API Key（已保存）",
             value = apiKeyInput,
             onValueChange = { apiKeyInput = it },
-            keyboardType = KeyboardType.Password
+            // Password mode can trigger an OEM secure keyboard and block paste/password-manager
+            // affordances. Keep the key local and encrypted, but use the normal ASCII editor.
+            keyboardType = KeyboardType.Ascii,
+            moveCursorToEndOnFocus = true
         )
                 }
             }
@@ -1409,14 +1429,15 @@ fun SettingsHomeStartModeRow(
     config: ScheduleConfigEntity,
     onSelected: (HomeStartMode) -> Unit
 ) {
-    val options = HomeStartMode.entries
+    val options = listOf(HomeStartMode.DAY, HomeStartMode.WEEK)
+    val normalizedSelected = if (selected == HomeStartMode.TWO_DAY) HomeStartMode.DAY else selected
     SleepDownLiquidDropdownPreference(
         items = listOf("日视图", "周视图"),
-        selectedIndex = options.indexOf(selected).coerceAtLeast(0),
+        selectedIndex = options.indexOf(normalizedSelected).coerceAtLeast(0),
         title = "默认首页视图",
         backdrop = backdrop,
         config = config,
-        summary = "选择每次打开应用时显示日视图或周视图",
+        summary = "选择每次打开应用时进入日视图或周视图",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 240.dp,
@@ -1774,7 +1795,8 @@ fun SettingsTextFieldRow(
     onValueChange: (String) -> Unit,
     keyboardType: KeyboardType = KeyboardType.Text,
     enabled: Boolean = true,
-    placeholder: String = ""
+    placeholder: String = "",
+    moveCursorToEndOnFocus: Boolean = false
 ) {
     val context = LocalContext.current
     val isTimePicker = keyboardType == KeyboardType.Text && value.matches(Regex("\\d{1,2}:\\d{2}"))
@@ -1804,30 +1826,17 @@ fun SettingsTextFieldRow(
             modifier = Modifier.fillMaxWidth(),
             insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
             endActions = {
-                BasicTextField(
+                SettingsInlineTextField(
                     value = value,
                     onValueChange = onValueChange,
                     enabled = enabled,
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                    keyboardType = keyboardType,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.End
                     ),
-                    modifier = Modifier.width(170.dp),
-                    decorationBox = { innerTextField ->
-                        Box(contentAlignment = Alignment.CenterEnd) {
-                            if (value.isEmpty() && placeholder.isNotEmpty()) {
-                                Text(
-                                    placeholder,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                                    textAlign = TextAlign.End
-                                )
-                            }
-                            innerTextField()
-                        }
-                    }
+                    placeholder = placeholder,
+                    moveCursorToEndOnFocus = moveCursorToEndOnFocus
                 )
             }
         )
@@ -1851,32 +1860,111 @@ fun SettingsTextFieldRow(
                 .weight(1f)
                 .offset(y = 1.dp)
         )
+        SettingsInlineTextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            keyboardType = keyboardType,
+            textStyle = MaterialTheme.typography.titleMedium.copy(
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End
+            ),
+            placeholder = placeholder,
+            moveCursorToEndOnFocus = moveCursorToEndOnFocus
+        )
+    }
+}
+
+@Composable
+private fun SettingsInlineTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    enabled: Boolean,
+    keyboardType: KeyboardType,
+    textStyle: TextStyle,
+    placeholder: String,
+    moveCursorToEndOnFocus: Boolean
+) {
+    val fieldModifier = Modifier.width(170.dp)
+    val decoration: @Composable ((@Composable () -> Unit) -> Unit) = { innerTextField ->
+        Box(contentAlignment = Alignment.CenterEnd) {
+            if (value.isEmpty() && placeholder.isNotEmpty()) {
+                Text(
+                    placeholder,
+                    style = textStyle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                    textAlign = TextAlign.End
+                )
+            }
+            innerTextField()
+        }
+    }
+    if (!moveCursorToEndOnFocus) {
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
             enabled = enabled,
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-            textStyle = MaterialTheme.typography.titleMedium.copy(
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.End
-            ),
-            modifier = Modifier.width(170.dp),
-            decorationBox = { innerTextField ->
-                Box(contentAlignment = Alignment.CenterEnd) {
-                    if (value.isEmpty() && placeholder.isNotEmpty()) {
-                        Text(
-                            placeholder,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                            textAlign = TextAlign.End
-                        )
-                    }
-                    innerTextField()
-                }
-            }
+            textStyle = textStyle,
+            modifier = fieldModifier,
+            decorationBox = decoration
         )
+        return
     }
+
+    var editableValue by remember {
+        mutableStateOf(TextFieldValue(value, selection = TextRange(value.length)))
+    }
+    var focused by remember { mutableStateOf(false) }
+    LaunchedEffect(value) {
+        if (editableValue.text != value) {
+            editableValue = TextFieldValue(value, selection = TextRange(value.length))
+        }
+    }
+    LaunchedEffect(focused) {
+        if (focused) {
+            editableValue = editableValue.copy(
+                selection = TextRange(editableValue.text.length)
+            )
+        }
+    }
+    BasicTextField(
+        value = editableValue,
+        onValueChange = { next ->
+            editableValue = next
+            if (next.text != value) onValueChange(next.text)
+        },
+        enabled = enabled,
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        textStyle = textStyle,
+        modifier = fieldModifier.onFocusChanged { focused = it.isFocused },
+        decorationBox = decoration
+    )
+}
+
+@Composable
+private fun SettingsDayViewModeRow(
+    selected: DayViewMode,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onSelected: (DayViewMode) -> Unit
+) {
+    val options = DayViewMode.entries
+    SleepDownLiquidDropdownPreference(
+        items = listOf("默认模式", "两日模式"),
+        selectedIndex = options.indexOf(selected).coerceAtLeast(0),
+        title = "日视图模式",
+        backdrop = backdrop,
+        config = config,
+        summary = "两日模式会在原日视图下方继续显示第二天课程",
+        modifier = Modifier.fillMaxWidth(),
+        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        maxHeight = 220.dp,
+        onExpandedChange = {},
+        onSelectedIndexChange = { index -> options.getOrNull(index)?.let(onSelected) }
+    )
 }
 
 @Composable
@@ -2120,27 +2208,48 @@ fun SettingsTimePickerRow(
         config = config,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
     ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = selectedHour,
-                    onValueChange = { hour ->
-                        val minute = pickerMinute.coerceIn(minuteRangeForHour(hour, safeMinimum, safeMaximum))
-                        pickerHour = hour
-                        pickerMinute = minute
-                    },
-                    range = (safeMinimum / 60)..(safeMaximum / 60),
-                    visibleItemCount = 3,
-                    label = { "%02d时".format(it) },
-                    modifier = Modifier.weight(1f)
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val pickerContentColor = LocalContentColor.current
+                val compact = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.15f
+                val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                    color = pickerContentColor,
+                    fontSize = if (compact) 23.sp else 28.sp
                 )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = selectedMinute % 60,
-                    onValueChange = { pickerMinute = it },
-                    range = allowedMinuteRange,
-                    visibleItemCount = 3,
-                    label = { "%02d分".format(it) },
-                    modifier = Modifier.weight(1f)
+                val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
+                    selectedTextColor = pickerContentColor,
+                    unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
+                    disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
+                    disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
                 )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)
+                ) {
+                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                        value = selectedHour,
+                        onValueChange = { hour ->
+                            val minute = pickerMinute.coerceIn(minuteRangeForHour(hour, safeMinimum, safeMaximum))
+                            pickerHour = hour
+                            pickerMinute = minute
+                        },
+                        range = (safeMinimum / 60)..(safeMaximum / 60),
+                        visibleItemCount = 3,
+                        label = { "%02d时".format(it) },
+                        colors = pickerColors,
+                        textStyle = pickerTextStyle,
+                        modifier = Modifier.weight(1f)
+                    )
+                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                        value = selectedMinute % 60,
+                        onValueChange = { pickerMinute = it },
+                        range = allowedMinuteRange,
+                        visibleItemCount = 3,
+                        label = { "%02d分".format(it) },
+                        colors = pickerColors,
+                        textStyle = pickerTextStyle,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
             Row(
                 Modifier.fillMaxWidth(),
@@ -2158,6 +2267,72 @@ fun SettingsTimePickerRow(
                     showPicker = false
                 }
             }
+    }
+}
+
+@Composable
+private fun SettingsMinutePickerRow(
+    title: String,
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    enabled: Boolean = true,
+    range: IntRange = 0..180
+) {
+    val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
+    var showPicker by remember { mutableStateOf(false) }
+    val safeValue = value.coerceIn(range)
+    var pickerValue by remember(safeValue, showPicker) { mutableIntStateOf(safeValue) }
+    SettingsPickerValueRow(
+        title = title,
+        value = "$safeValue 分钟",
+        enabled = enabled,
+        onClick = { showPicker = true }
+    )
+    SleepDownPickerDialog(
+        show = showPicker,
+        title = "选择提前时间",
+        onDismissRequest = { showPicker = false },
+        backdrop = popupBackdrop,
+        config = config,
+        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
+    ) {
+        val pickerContentColor = LocalContentColor.current
+        top.yukonga.miuix.kmp.basic.NumberPicker(
+            value = pickerValue,
+            onValueChange = { pickerValue = it },
+            range = range,
+            visibleItemCount = 3,
+            label = { "${it}分钟" },
+            colors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
+                selectedTextColor = pickerContentColor,
+                unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
+                disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
+                disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
+            ),
+            textStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                color = pickerContentColor,
+                fontSize = 28.sp
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
+        ) {
+            QuickSheetLiquidAction(
+                "取消", true, popupBackdrop, config,
+                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) { showPicker = false }
+            QuickSheetLiquidAction(
+                "确定", true, popupBackdrop, config, primary = true,
+                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                onValueChange(pickerValue)
+                showPicker = false
+            }
+        }
     }
 }
 
@@ -2303,6 +2478,7 @@ fun SettingsInfoRow(title: String, body: String) {
 internal val LocalCollapsibleSettingsInfoRows = compositionLocalOf { false }
 
 private val changelogReleaseDates = mapOf(
+    "1.2.3" to "2026-09-01",
     "1.2.2" to "2026-08-29",
     "1.2.1" to "2026-08-28",
     "1.2.0" to "2026-08-19",
@@ -2673,6 +2849,8 @@ fun ScheduleSettingsContent(
     onNotificationModeChange: (NotificationMode) -> Unit,
     liveUpdateChipTextMode: LiveUpdateChipTextMode,
     onLiveUpdateChipTextModeChange: (LiveUpdateChipTextMode) -> Unit,
+    liveUpdateActionsEnabled: Boolean,
+    onLiveUpdateActionsEnabledChange: (Boolean) -> Unit,
     autoCurrentWeek: Boolean,
     onAutoCurrentWeekChange: (Boolean) -> Unit,
     hideEmptyWeekends: Boolean,
@@ -2699,6 +2877,14 @@ fun ScheduleSettingsContent(
     onPreviewLiveUpdate: () -> Unit
 ) {
     val appContext = LocalContext.current
+    var livePreferences by remember(appContext) {
+        mutableStateOf(LiveUpdatePreferences.read(appContext))
+    }
+    fun updateLivePreferences(update: () -> Unit) {
+        update()
+        livePreferences = LiveUpdatePreferences.read(appContext)
+        NotificationScheduler.requestReschedule(appContext)
+    }
     val topPadding = detailContentTopPadding()
     if (section == SettingsSection.Schedule) {
         ScheduleSettingsContentFixed(
@@ -2793,6 +2979,9 @@ fun ScheduleSettingsContent(
                 }
             }
         } else {
+            item(key = "notification-before-title") {
+                Text("课前提醒", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
+            }
             item(key = "notification-options") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsToggleRow(
@@ -2803,39 +2992,141 @@ fun ScheduleSettingsContent(
                         onCheckedChange = onNotificationsEnabledChange
                     )
                     SettingsDivider()
-                    SettingsTextFieldRow("提前提醒分钟", leadMinutes, { onLeadMinutesChange(it.filter(Char::isDigit)) }, KeyboardType.Number, enabled = notificationsEnabled)
+                    SettingsMinutePickerRow(
+                        title = "提前提醒时间",
+                        value = leadMinutes.toIntOrNull() ?: state.config.notificationLeadMinutes,
+                        onValueChange = { onLeadMinutesChange(it.toString()) },
+                        backdrop = backdrop,
+                        config = state.config,
+                        enabled = notificationsEnabled
+                    )
                     SettingsDivider()
                     SettingsChoiceRow("通知样式", notificationMode, backdrop, state.config, onNotificationModeChange)
                     if (notificationMode == NotificationMode.LIVE_UPDATE) {
                         SettingsDivider()
-                        SettingsLiveUpdateChipTextRow(liveUpdateChipTextMode, backdrop, state.config, onLiveUpdateChipTextModeChange)
+                        SettingsLiveUpdateChipTextRow(
+                            liveUpdateChipTextMode,
+                            backdrop,
+                            state.config,
+                            onLiveUpdateChipTextModeChange
+                        )
                     }
                 }
             }
-            item(key = "notification-compatibility") {
-                Text(
-                    "实时活动目前仅支持原生安卓系统、ColorOS16、HyperOS 3.0.300以上版本、荣耀 MagicOS 10。原生安卓机型请选择课程名称或者倒计时。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
+            if (notificationMode == NotificationMode.LIVE_UPDATE) {
+                item(key = "notification-live-course-title") {
+                    Text("课程实时活动", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
+                }
+                item(key = "notification-live-course") {
+                    SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                        SettingsToggleRow(
+                            title = "实时活动按钮",
+                            subtitle = "显示取消提醒和课程勿扰按钮。",
+                            checked = liveUpdateActionsEnabled,
+                            backdrop = backdrop,
+                            enabled = notificationsEnabled,
+                            onCheckedChange = onLiveUpdateActionsEnabledChange
+                        )
+                        SettingsDivider()
+                        SettingsToggleRow(
+                            title = "上课中实时活动",
+                            subtitle = "关闭后课程开始时会直接结束实时活动，不再显示课间或下课提醒。",
+                            checked = livePreferences.duringClassEnabled,
+                            backdrop = backdrop,
+                            enabled = notificationsEnabled,
+                            onCheckedChange = { enabled ->
+                                updateLivePreferences {
+                                    LiveUpdatePreferences.setDuringClassEnabled(appContext, enabled)
+                                }
+                            }
+                        )
+                        SettingsDivider()
+                        SettingsToggleRow(
+                            title = "课间提醒",
+                            subtitle = "课间显示下一节的具体上课时间；关闭后只保留下课提醒。",
+                            checked = livePreferences.breakStatusEnabled,
+                            backdrop = backdrop,
+                            enabled = notificationsEnabled && livePreferences.duringClassEnabled,
+                            onCheckedChange = { enabled ->
+                                updateLivePreferences {
+                                    LiveUpdatePreferences.setBreakStatusEnabled(appContext, enabled)
+                                }
+                            }
+                        )
+                    }
+                }
+                item(key = "notification-tomorrow-title") {
+                    Text("明日课程", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
+                }
+                item(key = "notification-tomorrow") {
+                    SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                        SettingsToggleRow(
+                            title = "睡前提醒",
+                            subtitle = "第二天有课时，提醒检查并设置闹钟。",
+                            checked = livePreferences.tomorrowReminderEnabled,
+                            backdrop = backdrop,
+                            enabled = notificationsEnabled,
+                            onCheckedChange = { enabled ->
+                                updateLivePreferences {
+                                    LiveUpdatePreferences.setTomorrowReminderEnabled(appContext, enabled)
+                                }
+                            }
+                        )
+                        SettingsDivider()
+                        SettingsTimePickerRow(
+                            title = "提醒时间",
+                            value = livePreferences.tomorrowReminderTime.toString(),
+                            onValueChange = { value ->
+                                val time = runCatching { LocalTime.parse(value) }.getOrNull()
+                                    ?: return@SettingsTimePickerRow
+                                updateLivePreferences {
+                                    LiveUpdatePreferences.setTomorrowReminderTime(appContext, time)
+                                }
+                            },
+                            backdrop = backdrop,
+                            config = state.config,
+                            enabled = notificationsEnabled && livePreferences.tomorrowReminderEnabled
+                        )
+                    }
+                }
             }
-            item(key = "notification-permissions") {
+            item(key = "notification-live-settings") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                    SettingsInfoRow("保活权限", "为保证课程提醒和实时活动稳定弹出，请允许电池优化例外，并在系统权限管理中允许后台运行或自启动。不同厂商的入口可能不同。")
+                    SettingsInfoRow(
+                        title = "设置实时活动",
+                        body = "请在系统中允许 SleepDown 显示通知和实时活动。"
+                    )
                     SettingsDivider()
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        SettingsActionButton("电池优化", backdrop, onClick = {
-                            openBatteryOptimizationSettings(appContext)
-                        }, modifier = Modifier.weight(1f), monochrome = true)
-                        SettingsActionButton("自启动设置", backdrop, onClick = {
-                            openKeepAliveSettings(appContext)
-                        }, modifier = Modifier.weight(1f), monochrome = true)
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                        SettingsActionButton(
+                            "打开通知设置",
+                            backdrop,
+                            onClick = {
+                                val intent = NotificationScheduler.promotedNotificationSettingsIntent(appContext)
+                                    ?: NotificationScheduler.notificationSettingsIntent(appContext)
+                                appContext.startActivity(intent)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            monochrome = true
+                        )
+                    }
+                }
+            }
+            item(key = "notification-background-settings") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsInfoRow(
+                        title = "允许后台活动",
+                        body = "允许应用在后台运行，避免锁屏或切到后台后延迟课程提醒与实时活动更新。"
+                    )
+                    SettingsDivider()
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                        SettingsActionButton(
+                            "打开后台运行设置",
+                            backdrop,
+                            onClick = { openBatteryOptimizationSettings(appContext) },
+                            modifier = Modifier.fillMaxWidth(),
+                            monochrome = true
+                        )
                     }
                 }
             }
@@ -4367,6 +4658,7 @@ fun ScheduleConfigScreen(
     var notificationsEnabled by remember { mutableStateOf(state.config.notificationsEnabled) }
     var notificationMode by remember { mutableStateOf(state.config.notificationMode) }
     var liveUpdateChipTextMode by remember { mutableStateOf(state.config.liveUpdateChipTextMode) }
+    var liveUpdateActionsEnabled by remember { mutableStateOf(state.config.liveUpdateActionsEnabled) }
     var autoCurrentWeek by remember { mutableStateOf(state.config.autoCurrentWeek) }
     var hideEmptyWeekends by remember { mutableStateOf(state.config.hideEmptyWeekends) }
     var termStartDate by remember { mutableStateOf(state.config.termStartDate.orEmpty()) }
@@ -4396,6 +4688,7 @@ fun ScheduleConfigScreen(
         notificationsEnabled = state.config.notificationsEnabled
         notificationMode = state.config.notificationMode
         liveUpdateChipTextMode = state.config.liveUpdateChipTextMode
+        liveUpdateActionsEnabled = state.config.liveUpdateActionsEnabled
         autoCurrentWeek = state.config.autoCurrentWeek
         hideEmptyWeekends = state.config.hideEmptyWeekends
         termStartDate = state.config.termStartDate.orEmpty()
@@ -4418,6 +4711,7 @@ fun ScheduleConfigScreen(
             notificationsEnabled != lastSavedConfig.notificationsEnabled ||
             notificationMode != lastSavedConfig.notificationMode ||
             liveUpdateChipTextMode != lastSavedConfig.liveUpdateChipTextMode ||
+            liveUpdateActionsEnabled != lastSavedConfig.liveUpdateActionsEnabled ||
             autoCurrentWeek != lastSavedConfig.autoCurrentWeek ||
             hideEmptyWeekends != lastSavedConfig.hideEmptyWeekends ||
             termStartDate != lastSavedConfig.termStartDate.orEmpty() ||
@@ -4553,6 +4847,7 @@ fun ScheduleConfigScreen(
                 notificationsEnabled = notificationsEnabled,
                 notificationMode = notificationMode,
                 liveUpdateChipTextMode = liveUpdateChipTextMode,
+                liveUpdateActionsEnabled = liveUpdateActionsEnabled,
                 classDurationMinutes = classDuration,
                 breakDurationMinutes = breakDuration
                 ,morningPeriodCount = morningPeriodCount
@@ -4657,7 +4952,8 @@ fun ScheduleConfigScreen(
         leadMinutes,
         notificationsEnabled,
         notificationMode,
-        liveUpdateChipTextMode
+        liveUpdateChipTextMode,
+        liveUpdateActionsEnabled
     ) {
         if (section == SettingsSection.Notifications && computeDirty()) {
             saveConfigDraft()
@@ -4680,6 +4976,8 @@ fun ScheduleConfigScreen(
         onNotificationModeChange = { notificationMode = it },
         liveUpdateChipTextMode = liveUpdateChipTextMode,
         onLiveUpdateChipTextModeChange = { liveUpdateChipTextMode = it },
+        liveUpdateActionsEnabled = liveUpdateActionsEnabled,
+        onLiveUpdateActionsEnabledChange = { liveUpdateActionsEnabled = it },
         autoCurrentWeek = autoCurrentWeek,
         onAutoCurrentWeekChange = { autoCurrentWeek = it },
         hideEmptyWeekends = hideEmptyWeekends,

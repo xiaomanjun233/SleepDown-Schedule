@@ -233,17 +233,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.palette.graphics.Palette
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -4079,84 +4075,32 @@ fun WeekCourseBlock(
                     modifier = modifier.then(resizeHandleModifier)
                 )
             }
-            val cardEndsAtFinalPeriod = periodIndexes.indexOf(periodIndex)
-                .takeIf { it >= 0 }
-                ?.let { it + currentSpan >= periodIndexes.size } == true
-            if (cardEndsAtFinalPeriod && editMode && !customTimeLocked) {
-                // The final row sits inside the vertical scroll/pager clip. Use a zero-size anchor
-                // plus a non-clipping Popup for only this corner control, leaving the card layout
-                // unchanged while the handle floats above the grid and remains touchable.
-                val handlePopupPositionProvider = remember(density) {
-                    object : androidx.compose.ui.window.PopupPositionProvider {
-                        override fun calculatePosition(
-                            anchorBounds: IntRect,
-                            windowSize: IntSize,
-                            layoutDirection: LayoutDirection,
-                            popupContentSize: IntSize
-                        ): IntOffset {
-                            val overscan = with(density) { 4.dp.roundToPx() }
-                            return IntOffset(
-                                x = anchorBounds.left - popupContentSize.width + overscan,
-                                y = anchorBounds.top - popupContentSize.height + overscan
-                            )
-                        }
+            // Keep every resize control in the week grid's own layer. The edit-mode gutter above
+            // already provides the four drawing pixels used by this handle; promoting only the
+            // final-row handle to a window Popup made it render above the app's bottom dock.
+            AnimatedVisibility(
+                visible = editMode && !customTimeLocked,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = 4.dp, y = 4.dp)
+                    .size(44.dp)
+                    .graphicsLayer {
+                        alpha = editControlHandoffProgress.coerceIn(0f, 1f)
+                        val handoffScale = 0.42f + editControlHandoffProgress * 0.58f
+                        scaleX = handoffScale
+                        scaleY = handoffScale
                     }
-                }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .size(0.dp)
-                ) {
-                    Popup(
-                        popupPositionProvider = handlePopupPositionProvider,
-                        properties = PopupProperties(
-                            focusable = false,
-                            dismissOnBackPress = false,
-                            dismissOnClickOutside = false,
-                            clippingEnabled = false
-                        )
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .graphicsLayer {
-                                    alpha = editControlHandoffProgress.coerceIn(0f, 1f)
-                                    val handoffScale = 0.42f + editControlHandoffProgress * 0.58f
-                                    scaleX = handoffScale
-                                    scaleY = handoffScale
-                                    clip = false
-                                }
-                                .zIndex(6f)
-                        ) {
-                            renderResizeHandle(Modifier.fillMaxSize())
-                        }
-                    }
-                }
-            } else {
-                AnimatedVisibility(
-                    visible = editMode && !customTimeLocked,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .offset(x = 4.dp, y = 4.dp)
-                        .size(44.dp)
-                        .graphicsLayer {
-                            alpha = editControlHandoffProgress.coerceIn(0f, 1f)
-                            val handoffScale = 0.42f + editControlHandoffProgress * 0.58f
-                            scaleX = handoffScale
-                            scaleY = handoffScale
-                        }
-                        .zIndex(6f),
-                    enter = fadeIn(tween(135, delayMillis = 45 + (startupIndex % 7) * 8)) +
-                        scaleIn(
-                            animationSpec = spring(dampingRatio = 0.52f, stiffness = 470f),
-                            initialScale = 0.32f,
-                            transformOrigin = TransformOrigin(0f, 0f)
-                        ),
-                    exit = fadeOut(tween(90)) +
-                        scaleOut(tween(125), targetScale = 0.55f, transformOrigin = TransformOrigin(0f, 0f))
-                ) {
-                    renderResizeHandle(Modifier.fillMaxSize())
-                }
+                    .zIndex(6f),
+                enter = fadeIn(tween(135, delayMillis = 45 + (startupIndex % 7) * 8)) +
+                    scaleIn(
+                        animationSpec = spring(dampingRatio = 0.52f, stiffness = 470f),
+                        initialScale = 0.32f,
+                        transformOrigin = TransformOrigin(0f, 0f)
+                    ),
+                exit = fadeOut(tween(90)) +
+                    scaleOut(tween(125), targetScale = 0.55f, transformOrigin = TransformOrigin(0f, 0f))
+            ) {
+                renderResizeHandle(Modifier.fillMaxSize())
             }
             }
         }

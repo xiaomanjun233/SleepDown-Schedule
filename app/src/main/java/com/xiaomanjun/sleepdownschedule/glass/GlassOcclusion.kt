@@ -32,7 +32,7 @@ enum class CourseGlassOcclusionPhase {
  * at most every second display frame instead of doubling material initialization throughput.
  */
 internal const val CourseGlassRestoreCadenceNanos = 16_666_667L
-internal const val CourseGlassMaterialRevealDurationMillis = 200
+internal const val CourseGlassMaterialRevealDurationMillis = 280
 
 internal fun courseGlassFlatFallbackAlpha(baseAlpha: Float, materialProgress: Float): Float =
     baseAlpha.coerceIn(0f, 1f) * (1f - materialProgress.coerceIn(0f, 1f))

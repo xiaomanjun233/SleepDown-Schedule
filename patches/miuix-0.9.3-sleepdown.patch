@@ -214,3 +214,56 @@ index 815962d..66374c4 100644
          content = content,
      )
  }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/TopAppBar.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/TopAppBar.kt
+index 9121bd6..5883353 100644
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/TopAppBar.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/TopAppBar.kt
+@@ -93,6 +93,7 @@ import kotlin.math.abs
+  * @param titlePadding The horizontal padding of the [TopAppBar]'s title & large title.
+  * @param navigationIconPadding The start padding of the navigation icon.
+  * @param actionIconPadding The end padding of the action icons.
++ * @param clipContent Whether content drawing is clipped to the animated app-bar bounds.
+  * @param bottomContent The [Composable] content displayed below the title bar area.
+  */
+ @Composable
+@@ -112,6 +113,7 @@ fun TopAppBar(
+     titlePadding: Dp = TopAppBarDefaults.TitlePadding,
+     navigationIconPadding: Dp = TopAppBarDefaults.NavigationIconPadding,
+     actionIconPadding: Dp = TopAppBarDefaults.ActionIconPadding,
++    clipContent: Boolean = true,
+     bottomContent: @Composable () -> Unit = {},
+ ) {
+     // Wrap the given actions in a Row.
+@@ -144,6 +146,7 @@ fun TopAppBar(
+         scrollBehavior = scrollBehavior,
+         modifier = modifier,
+         defaultWindowInsetsPadding = defaultWindowInsetsPadding,
++        clipContent = clipContent,
+         bottomContent = bottomContent,
+     )
+ }
+@@ -605,6 +608,7 @@ private suspend fun settleAppBar(
+  * @param modifier the [Modifier] to be applied to this layout.
+  * @param largeTitle the large title of the [TopAppBar], if not specified, it will be the same as title.
+  * @param defaultWindowInsetsPadding whether to apply default window insets padding to the [TopAppBar].
++ * @param clipContent whether content drawing is clipped to the animated app-bar bounds.
+  * @param bottomContent the composable content displayed below the title bar area.
+  */
+ @Composable
+@@ -624,6 +628,7 @@ private fun TopAppBarLayout(
+     modifier: Modifier = Modifier,
+     largeTitle: String = title,
+     defaultWindowInsetsPadding: Boolean = true,
++    clipContent: Boolean = true,
+     bottomContent: @Composable () -> Unit = {},
+ ) {
+     // Producer lambdas — reads stay in layout/draw phases so scroll never recomposes this subtree.
+@@ -776,7 +781,7 @@ private fun TopAppBarLayout(
+                 },
+             )
+             .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top))
+-            .clipToBounds()
++            .then(if (clipContent) Modifier.clipToBounds() else Modifier)
+             .pointerInput(Unit) {
+                 detectTapGestures { /* Consume click */ }
+             },

@@ -23,11 +23,21 @@ import kotlinx.serialization.json.put
 
 private val AgentResponsesJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
+private fun toolDecisionReasoningEffort(profile: AiProviderProfile): AiReasoningEffort {
+    val supported = AiProviderPresets.reasoningEfforts(profile)
+    return when {
+        AiReasoningEffort.MINIMAL in supported -> AiReasoningEffort.MINIMAL
+        AiReasoningEffort.LOW in supported -> AiReasoningEffort.LOW
+        else -> profile.reasoningEffort
+    }
+}
+
 internal data class AgentResponsesTurn(
     val outputItems: List<JsonObject>,
     val calls: List<AgentToolCall>,
     val content: String,
-    val unparsedToolCallCount: Int
+    val unparsedToolCallCount: Int,
+    val usage: AgentTokenUsage
 )
 
 /**
@@ -45,7 +55,8 @@ internal class OpenAiResponsesAgentRunner {
         onStatus: (AgentRunStatus) -> Unit,
         onDelta: (String) -> Unit,
         onStreamReset: () -> Unit,
-        executeTool: (AgentToolCall) -> AgentToolResult
+        executeTool: (AgentToolCall) -> AgentToolResult,
+        telemetry: DayAgentTurnTelemetry
     ): String {
         val instructions = chatMessages
             .filter { it["role"]?.jsonPrimitive?.contentOrNull == "system" }
@@ -56,9 +67,12 @@ internal class OpenAiResponsesAgentRunner {
             .map(::toResponsesInputMessage)
             .toMutableList()
         val completedOneShotTools = mutableSetOf<AgentToolName>()
+        val evidenceKeys = mutableSetOf<String>()
+        val decisionEffort = toolDecisionReasoningEffort(settings.profile)
 
-        repeat(6) {
+        toolRounds@ for (round in 0 until MaxAgentToolRounds) {
             onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在思考"))
+            telemetry.requestStarted()
             val decision = parseAgentResponsesTurn(
                 post(
                     settings,
@@ -70,10 +84,13 @@ internal class OpenAiResponsesAgentRunner {
                         stream = false,
                         includeTools = true,
                         includeMemoryTool = includeMemoryTool,
-                        excludedTools = completedOneShotTools
+                        excludedTools = completedOneShotTools,
+                        reasoningEffort = decisionEffort
                     )
                 )
             )
+            telemetry.recordUsage(decision.usage)
+            telemetry.recordDecisionRound(decision.calls.size)
             if (decision.unparsedToolCallCount > 0) {
                 throw IllegalStateException(
                     "模型返回了 ${decision.unparsedToolCallCount} 个无法识别的工具调用，请重试"
@@ -98,13 +115,14 @@ internal class OpenAiResponsesAgentRunner {
                     input = input,
                     onStatus = onStatus,
                     onDelta = onDelta,
-                    onStreamReset = onStreamReset
+                    onStreamReset = onStreamReset,
+                    telemetry = telemetry
                 )
             }
 
             // Stateless Responses continuation requires every output item, not just visible text.
             input += decision.outputItems
-            decision.calls.forEach { call ->
+            val results = decision.calls.map { call ->
                 onStatus(call.name.runStatus())
                 val result = executeTool(call)
                 input += buildJsonObject {
@@ -113,7 +131,13 @@ internal class OpenAiResponsesAgentRunner {
                     put("output", result.content)
                 }
                 if (call.name.isOneShotPerTurn) completedOneShotTools += call.name
+                result
             }
+            telemetry.recordToolResults(results)
+            val addedEvidence = decision.calls
+                .map { call -> evidenceKeys.add(call.cacheKey()) }
+                .any { it }
+            if (!addedEvidence) break@toolRounds
         }
 
         return streamFinal(
@@ -122,7 +146,8 @@ internal class OpenAiResponsesAgentRunner {
             input = input,
             onStatus = onStatus,
             onDelta = onDelta,
-            onStreamReset = onStreamReset
+            onStreamReset = onStreamReset,
+            telemetry = telemetry
         )
     }
 
@@ -132,9 +157,11 @@ internal class OpenAiResponsesAgentRunner {
         input: List<JsonObject>,
         onStatus: (AgentRunStatus) -> Unit,
         onDelta: (String) -> Unit,
-        onStreamReset: () -> Unit
+        onStreamReset: () -> Unit,
+        telemetry: DayAgentTurnTelemetry
     ): String {
         onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "整理结果"))
+        telemetry.finalAnswerStarted()
         val finalInstructions = instructions + "\n\n" + DayAgentPrompts.FinalAnswerStage
         val body = responsesBody(
             settings = settings,
@@ -143,11 +170,13 @@ internal class OpenAiResponsesAgentRunner {
             stream = true,
             includeTools = false,
             includeMemoryTool = false,
-            excludedTools = emptySet()
+            excludedTools = emptySet(),
+            reasoningEffort = settings.profile.reasoningEffort
         )
         return try {
+            telemetry.requestStarted()
             val gate = AgentFinalOutputGate(onDelta)
-            gate.finish(stream(settings, body, gate::accept))
+            gate.finish(stream(settings, body, gate::accept, telemetry::recordUsage))
         } catch (error: Throwable) {
             if (error !is MissingResponsesBodyException &&
                 error !is MissingAgentBodyException &&
@@ -164,9 +193,13 @@ internal class OpenAiResponsesAgentRunner {
                 stream = false,
                 includeTools = false,
                 includeMemoryTool = false,
-                excludedTools = emptySet()
+                excludedTools = emptySet(),
+                reasoningEffort = settings.profile.reasoningEffort
             )
-            val content = parseAgentResponsesTurn(post(settings, retry)).content
+            telemetry.requestStarted()
+            val retryTurn = parseAgentResponsesTurn(post(settings, retry))
+            telemetry.recordUsage(retryTurn.usage)
+            val content = retryTurn.content
                 .takeIf(String::isNotBlank)
                 ?: throw MissingResponsesBodyException()
             if (containsLeakedAgentFunctionProtocol(content)) {
@@ -184,7 +217,8 @@ internal class OpenAiResponsesAgentRunner {
         stream: Boolean,
         includeTools: Boolean,
         includeMemoryTool: Boolean,
-        excludedTools: Set<AgentToolName>
+        excludedTools: Set<AgentToolName>,
+        reasoningEffort: AiReasoningEffort
     ): JsonObject = buildJsonObject {
         put("model", settings.profile.defaultModel)
         put("store", false)
@@ -192,7 +226,7 @@ internal class OpenAiResponsesAgentRunner {
         put("instructions", instructions)
         put("input", JsonArray(input))
         put("reasoning", buildJsonObject {
-            put("effort", settings.profile.reasoningEffort.apiValue)
+            put("effort", reasoningEffort.apiValue)
             if (
                 settings.profile.id == AiProviderPresets.openAI.id &&
                 isOfficialOpenAIBaseUrl(settings.profile.baseUrl)
@@ -221,7 +255,8 @@ internal class OpenAiResponsesAgentRunner {
     private fun stream(
         settings: AiImportSettings,
         body: JsonObject,
-        onDelta: (String) -> Unit
+        onDelta: (String) -> Unit,
+        onUsage: (AgentTokenUsage) -> Unit
     ): String {
         val connection = open(settings, body)
         val code = connection.responseCode
@@ -233,7 +268,9 @@ internal class OpenAiResponsesAgentRunner {
         if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
             val response = connection.inputStream.bufferedReader().use { it.readText() }
             connection.disconnect()
-            val content = parseAgentResponsesTurn(response).content
+            val turn = parseAgentResponsesTurn(response)
+            onUsage(turn.usage)
+            val content = turn.content
                 .takeIf(String::isNotBlank)
                 ?: throw MissingResponsesBodyException()
             onDelta(content)
@@ -249,6 +286,8 @@ internal class OpenAiResponsesAgentRunner {
                 val event = runCatching {
                     AgentResponsesJson.parseToJsonElement(data).jsonObject
                 }.getOrNull() ?: return@forEach
+                val usage = agentTokenUsage(event)
+                if (!usage.isEmpty) onUsage(usage)
                 when (event["type"]?.jsonPrimitive?.contentOrNull) {
                     "response.output_text.delta" -> {
                         val delta = event["delta"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -370,7 +409,8 @@ internal fun parseAgentResponsesTurn(response: String): AgentResponsesTurn {
         outputItems = outputItems,
         calls = calls,
         content = content,
-        unparsedToolCallCount = functionItems.size - calls.size
+        unparsedToolCallCount = functionItems.size - calls.size,
+        usage = agentTokenUsage(root)
     )
 }
 

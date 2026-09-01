@@ -209,6 +209,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.toArgb
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
@@ -389,6 +390,7 @@ private data class CourseEditorDraft(
     val periodEnd: Int,
     val customStartTime: String?,
     val customEndTime: String?,
+    val customColorArgb: Long?,
     val weeks: Set<Int>,
     val parity: WeekParity,
     val note: String
@@ -624,6 +626,7 @@ private fun courseEditorDraft(
         periodEnd = course?.periods?.maxOrNull() ?: (periodValues.firstOrNull() ?: 1),
         customStartTime = course?.customStartTime,
         customEndTime = course?.customEndTime,
+        customColorArgb = course?.customColorArgb,
         weeks = activeWeeks,
         parity = selectionMode.toWeekParity(),
         note = course?.note.orEmpty()
@@ -641,7 +644,8 @@ internal fun courseEditorOriginalForWeekday(
 
 private fun CourseEditorDraft.toCourses(
     originals: List<CourseEntity>,
-    periodValues: List<Int>
+    periodValues: List<Int>,
+    allowCustomColorOverride: Boolean
 ): List<CourseEntity> {
     val originalWeekdays = originals.map(CourseEntity::weekday).toSet()
     val originalWeeks = originals.flatMap(CourseEntity::weeks).toSet()
@@ -669,7 +673,11 @@ private fun CourseEditorDraft.toCourses(
             note = note.trim().ifBlank { null },
             customStartTime = customStartTime,
             customEndTime = customEndTime,
-            customColorArgb = original?.customColorArgb ?: originals.firstOrNull()?.customColorArgb,
+            customColorArgb = if (allowCustomColorOverride) {
+                customColorArgb
+            } else {
+                original?.customColorArgb ?: originals.firstOrNull()?.customColorArgb
+            },
             scheduleId = original?.scheduleId ?: originals.firstOrNull()?.scheduleId ?: 0
         )
     }
@@ -713,8 +721,10 @@ fun NormalizedCourseEditorScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var pickerRequest by remember { mutableStateOf<CourseEditorPickerRequest?>(null) }
     var pickerVisible by remember { mutableStateOf(false) }
+    var colorPickerPage by remember { mutableStateOf<Int?>(null) }
+    var colorPickerVisible by remember { mutableStateOf(false) }
     val currentPage = pagerState.currentPage.coerceIn(editorGroups.indices)
-    val pagerIndicatorVisible = editorGroups.size > 1 && pickerRequest == null
+    val pagerIndicatorVisible = editorGroups.size > 1 && pickerRequest == null && colorPickerPage == null
 
     SideEffect {
         onPagerPresentationChange?.invoke(
@@ -734,7 +744,7 @@ fun NormalizedCourseEditorScreen(
             modifier = Modifier.fillMaxSize(),
             beyondViewportPageCount = 1,
             pageSpacing = 10.dp,
-            userScrollEnabled = pickerRequest == null,
+            userScrollEnabled = pickerRequest == null && colorPickerPage == null,
             key = { page -> editorGroups[page].representative?.id ?: Long.MIN_VALUE }
         ) { page ->
             val group = editorGroups[page]
@@ -754,7 +764,11 @@ fun NormalizedCourseEditorScreen(
                 onCancel = onCancel,
                 onSave = {
                     val currentDraft = drafts.getValue(page)
-                    val edited = currentDraft.toCourses(group.courses, periodValues)
+                    val edited = currentDraft.toCourses(
+                        originals = group.courses,
+                        periodValues = periodValues,
+                        allowCustomColorOverride = courseCardAllowsCustomOverrides(config)
+                    )
                     when {
                         currentDraft.name.isBlank() -> error = "课程名称不能为空"
                         currentDraft.weekdays.isEmpty() -> error = "请选择星期"
@@ -775,6 +789,10 @@ fun NormalizedCourseEditorScreen(
                 onOpenPicker = {
                     pickerRequest = it
                     pickerVisible = true
+                },
+                onOpenColorPicker = {
+                    colorPickerPage = page
+                    colorPickerVisible = true
                 },
                 pageCount = editorGroups.size
             )
@@ -802,6 +820,27 @@ fun NormalizedCourseEditorScreen(
                 }
             )
         }
+        colorPickerPage?.let { page ->
+            CourseColorPicker(
+                show = colorPickerVisible,
+                selectedColorArgb = drafts.getValue(page).customColorArgb,
+                automaticColorArgb = courseCardBaseColor(
+                    config,
+                    editorGroups[page].representative?.copy(customColorArgb = null)
+                ).toArgb().toLong() and 0xFFFFFFFFL,
+                backdrop = backdrop,
+                config = config,
+                renderInRootScaffold = pickerRenderInRootScaffold,
+                onDismissRequest = { colorPickerVisible = false },
+                onDismissFinished = {
+                    if (!colorPickerVisible) colorPickerPage = null
+                },
+                onColorSelected = { color ->
+                    drafts = drafts + (page to drafts.getValue(page).copy(customColorArgb = color))
+                    error = null
+                }
+            )
+        }
     }
 }
 
@@ -821,6 +860,7 @@ private fun CourseEditorFormPage(
     onSave: () -> Unit,
     onDelete: (() -> Unit)?,
     onOpenPicker: (CourseEditorPickerRequest) -> Unit,
+    onOpenColorPicker: () -> Unit,
     pageCount: Int
 ) {
     // This form lives on the wallpaper-sampling CourseGlassCard. Its complete foreground domain
@@ -984,6 +1024,18 @@ private fun CourseEditorFormPage(
                 backdrop = backdrop,
                 config = config
             ) { courseWeekSelectionModeLabel(it) }
+        }
+        if (courseCardAllowsCustomOverrides(config)) {
+            item(key = "course-color", contentType = "picker") {
+                CourseEditorColorValue(
+                    colorArgb = draft.customColorArgb,
+                    automaticColorArgb = courseCardBaseColor(
+                        config,
+                        course?.copy(customColorArgb = null)
+                    ).toArgb().toLong() and 0xFFFFFFFFL,
+                    onClick = onOpenColorPicker
+                )
+            }
         }
         item(key = "note", contentType = "field") {
             DialogCapsuleField(
@@ -1285,6 +1337,49 @@ private fun CourseEditorPickerValue(
                     painter = painterResource(R.drawable.ic_arrow_back),
                     contentDescription = "打开${title}选择器",
                     tint = buttonTextColor.copy(alpha = 0.62f),
+                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 180f }
+                )
+            },
+            onClick = onClick
+        )
+    }
+}
+
+@Composable
+private fun CourseEditorColorValue(
+    colorArgb: Long?,
+    automaticColorArgb: Long,
+    onClick: () -> Unit
+) {
+    val contentColor = LocalContentColor.current
+    val previewColor = colorArgb ?: automaticColorArgb
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .height(42.dp)
+            .clip(RoundedCornerShape(18.dp))
+    ) {
+        MiuixBasicComponent(
+            title = "课程颜色",
+            titleColor = MiuixBasicComponentDefaults.titleColor(
+                color = contentColor,
+                disabledColor = contentColor.copy(alpha = 0.38f)
+            ),
+            modifier = Modifier.fillMaxSize(),
+            insideMargin = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+            endActions = {
+                Surface(
+                    modifier = Modifier.size(20.dp),
+                    shape = RoundedCornerShape(50),
+                    color = ComposeColor(previewColor.toInt()),
+                    border = BorderStroke(1.dp, contentColor.copy(alpha = 0.28f))
+                ) {}
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_back),
+                    contentDescription = "打开课程颜色选择器",
+                    tint = contentColor.copy(alpha = 0.62f),
                     modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 180f }
                 )
             },

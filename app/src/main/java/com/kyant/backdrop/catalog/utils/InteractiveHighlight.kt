@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.util.fastCoerceIn
@@ -71,60 +72,67 @@ half4 main(float2 coord) {
             null
         }
 
-    val modifier: Modifier =
-        Modifier.drawWithContent {
-            val progress = pressProgressAnimation.value
-            val highlightPosition = exactExternalPosition ?: positionAnimation.value
-            if (progress > 0f) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shader != null) {
-                    if (ambientAlpha > 0f) {
-                        drawRect(
-                            Color.White.copy(ambientAlpha * progress),
-                            blendMode = BlendMode.Plus
-                        )
-                    }
-                    shader.apply {
-                        val position = position(size, highlightPosition)
-                        setFloatUniform("size", size.width, size.height)
-                        setColorUniform("color", Color.White.copy(spotAlpha * progress).toArgb())
-                        setFloatUniform("radius", radius(size))
-                        setFloatUniform(
-                            "position",
-                            position.x.fastCoerceIn(0f, size.width),
-                            position.y.fastCoerceIn(0f, size.height)
-                        )
-                    }
-                    drawRect(
-                        ShaderBrush(shader),
-                        blendMode = BlendMode.Plus
-                    )
-                } else {
-                    if (ambientAlpha > 0f) {
-                        drawRect(
-                            Color.White.copy(ambientAlpha * progress),
-                            blendMode = BlendMode.Plus
-                        )
-                    }
-                    val resolvedPosition = position(size, highlightPosition)
-                    val resolvedRadius = radius(size)
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                Color.White.copy(fallbackAlpha * progress),
-                                Color.Transparent
-                            ),
-                            center = resolvedPosition,
-                            radius = resolvedRadius
-                        ),
-                        radius = resolvedRadius,
-                        center = resolvedPosition,
-                        blendMode = BlendMode.Plus
-                    )
-                }
+    private fun DrawScope.drawHighlightLayer() {
+        val progress = pressProgressAnimation.value
+        val highlightPosition = exactExternalPosition ?: positionAnimation.value
+        if (progress <= 0f) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shader != null) {
+            if (ambientAlpha > 0f) {
+                drawRect(
+                    Color.White.copy(ambientAlpha * progress),
+                    blendMode = BlendMode.Plus
+                )
             }
-
-            drawContent()
+            shader.apply {
+                val position = position(size, highlightPosition)
+                setFloatUniform("size", size.width, size.height)
+                setColorUniform("color", Color.White.copy(spotAlpha * progress).toArgb())
+                setFloatUniform("radius", radius(size))
+                setFloatUniform(
+                    "position",
+                    position.x.fastCoerceIn(0f, size.width),
+                    position.y.fastCoerceIn(0f, size.height)
+                )
+            }
+            drawRect(
+                ShaderBrush(shader),
+                blendMode = BlendMode.Plus
+            )
+        } else {
+            if (ambientAlpha > 0f) {
+                drawRect(
+                    Color.White.copy(ambientAlpha * progress),
+                    blendMode = BlendMode.Plus
+                )
+            }
+            val resolvedPosition = position(size, highlightPosition)
+            val resolvedRadius = radius(size)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(fallbackAlpha * progress),
+                        Color.Transparent
+                    ),
+                    center = resolvedPosition,
+                    radius = resolvedRadius
+                ),
+                radius = resolvedRadius,
+                center = resolvedPosition,
+                blendMode = BlendMode.Plus
+            )
         }
+    }
+
+    val modifier: Modifier = Modifier.drawWithContent {
+        drawHighlightLayer()
+        drawContent()
+    }
+
+    /** Draws the pointer-following light after child content for lifted foreground surfaces. */
+    val foregroundModifier: Modifier = Modifier.drawWithContent {
+        drawContent()
+        drawHighlightLayer()
+    }
 
     private fun settle(generation: Long = inputGeneration) {
         animationScope.launch {

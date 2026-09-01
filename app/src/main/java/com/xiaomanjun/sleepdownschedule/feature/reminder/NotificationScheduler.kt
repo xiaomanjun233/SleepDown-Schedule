@@ -31,8 +31,6 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
-import kotlin.math.max
 
 object NotificationScheduler {
     private const val TAG = "SleepDownLiveUpdate"
@@ -47,10 +45,15 @@ object NotificationScheduler {
     private const val KEY_DND_RULE_MIGRATED = "dnd_rule_migrated"
     private const val DND_RULE_NAME = "SleepDown 课程勿扰"
     private const val LIVE_UPDATE_ID = 20260522
+    private const val SCHEDULE_HORIZON_DAYS = 8L
+    private const val EVENT_COURSE = "course"
+    private const val EVENT_TOMORROW = "tomorrow"
     val ACTION_CANCEL_LIVE_UPDATE = "${BuildConfig.APPLICATION_ID}.action.CANCEL_LIVE_UPDATE"
     val ACTION_TOGGLE_DND = "${BuildConfig.APPLICATION_ID}.action.TOGGLE_DND"
     val ACTION_START_LIVE_UPDATE_SERVICE = "${BuildConfig.APPLICATION_ID}.action.START_LIVE_UPDATE_SERVICE"
     val ACTION_STOP_LIVE_UPDATE_SERVICE = "${BuildConfig.APPLICATION_ID}.action.STOP_LIVE_UPDATE_SERVICE"
+    val ACTION_COURSE_REMINDER = "${BuildConfig.APPLICATION_ID}.action.COURSE_REMINDER"
+    val ACTION_REFRESH_COURSE_ALARMS = "${BuildConfig.APPLICATION_ID}.action.REFRESH_COURSE_ALARMS"
     private const val EXTRA_LIVE_UPDATE_NOTIFICATION = "live_update_notification"
     const val EXTRA_LIVE_UPDATE_NAME = "live_update_name"
     const val EXTRA_LIVE_UPDATE_TIME = "live_update_time"
@@ -59,6 +62,13 @@ object NotificationScheduler {
     const val EXTRA_LIVE_UPDATE_MUTE_KEY = "live_update_mute_key"
     const val EXTRA_LIVE_UPDATE_MUTE_UNTIL = "live_update_mute_until"
     const val EXTRA_LIVE_UPDATE_CHIP_MODE = "live_update_chip_mode"
+    const val EXTRA_LIVE_UPDATE_KIND = "live_update_kind"
+    const val EXTRA_LIVE_UPDATE_SEGMENTS = "live_update_segments"
+    const val EXTRA_LIVE_UPDATE_DURING_CLASS = "live_update_during_class"
+    const val EXTRA_LIVE_UPDATE_BREAK_STATUS = "live_update_break_status"
+    const val EXTRA_LIVE_UPDATE_EXPIRES_AT = "live_update_expires_at"
+    const val EXTRA_LIVE_UPDATE_TOMORROW_COUNT = "live_update_tomorrow_count"
+    const val EXTRA_REMINDER_EVENT = "reminder_event"
 
     inline fun withShortWakeLock(context: Context, tagSuffix: String, block: () -> Unit) {
         val powerManager = context.getSystemService(PowerManager::class.java)
@@ -73,67 +83,163 @@ object NotificationScheduler {
         }
     }
 
-    suspend fun refreshToday(context: Context, courses: List<CourseEntity>, config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
+    suspend fun refreshToday(
+        context: Context,
+        courses: List<CourseEntity>,
+        config: ScheduleConfigEntity,
+        periods: List<PeriodEntity>,
+        forceReschedule: Boolean = false
+    ) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val signature = scheduleSignature(courses, config, periods)
+        val liveUpdatePreferences = LiveUpdatePreferences.read(context)
+        val signature = scheduleSignature(courses, config, periods, liveUpdatePreferences = liveUpdatePreferences)
         val todayIsInTerm = scheduleWeekForDateOrNull(
             config,
             LocalDate.now()
         ) != null
-        if (!todayIsInTerm || prefs.getString(KEY_SCHEDULE_SIGNATURE, null) != signature) {
+        if (forceReschedule || !todayIsInTerm || prefs.getString(KEY_SCHEDULE_SIGNATURE, null) != signature) {
             // Always clear stale alarms outside the term, even if this process has
             // already seen today's signature before the boundary check was fixed.
-            scheduleToday(context, courses, config, periods)
+            scheduleToday(context, courses, config, periods, liveUpdatePreferences)
             prefs.edit {putString(KEY_SCHEDULE_SIGNATURE, signature)}
         }
         checkImmediateLiveUpdate(context, courses, config, periods)
     }
 
-    suspend fun scheduleToday(context: Context, courses: List<CourseEntity>, config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
+    internal suspend fun scheduleToday(
+        context: Context,
+        courses: List<CourseEntity>,
+        config: ScheduleConfigEntity,
+        periods: List<PeriodEntity>,
+        liveUpdatePreferences: LiveUpdatePreferencesSnapshot = LiveUpdatePreferences.read(context)
+    ) {
         createChannel(context)
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         cancelPreviouslyScheduled(context, alarmManager)
         if (!config.notificationsEnabled) {
             return
         }
-        val today = todayCourses(AppState(courses = courses, config = config, periods = periods))
+        val state = AppState(courses = courses, config = config, periods = periods)
         val now = System.currentTimeMillis()
         val scheduleZone = ZoneId.systemDefault()
-        val scheduleDate = LocalDate.now(scheduleZone)
-        val scheduledCodes = mutableListOf<Int>()
-        today.forEach { course ->
-            val start = courseStartTime(course, periods) ?: return@forEach
-            val trigger = notificationTriggerEpochMillis(
-                date = scheduleDate,
-                time = start,
-                leadMinutes = config.notificationLeadMinutes,
-                zone = scheduleZone
-            )
-            if (trigger > now) {
+        val today = LocalDate.now(scheduleZone)
+        val scheduledKeys = mutableListOf<String>()
+        (0L..SCHEDULE_HORIZON_DAYS).forEach { dayOffset ->
+            val scheduleDate = today.plusDays(dayOffset)
+            val dayCourses = coursesForDate(state, scheduleDate)
+            dayCourses.forEach { course ->
+                val payload = coursePayload(
+                    date = scheduleDate,
+                    course = course,
+                    config = config,
+                    periods = periods,
+                    preferences = liveUpdatePreferences,
+                    zone = scheduleZone
+                ) ?: return@forEach
+                val firstStart = payload.startAtMillis() ?: return@forEach
+                val finalEnd = payload.endAtMillis() ?: firstStart
+                val reminderTrigger = firstStart - config.notificationLeadMinutes.coerceAtLeast(0) * 60_000L
                 val retryTriggers = if (config.notificationMode == NotificationMode.LIVE_UPDATE) {
-                    listOf(trigger, trigger + 60_000L, trigger + 3 * 60_000L, trigger + 5 * 60_000L)
+                    listOf(reminderTrigger, reminderTrigger + 60_000L, reminderTrigger + 3 * 60_000L, reminderTrigger + 5 * 60_000L)
                 } else {
-                    listOf(trigger)
+                    listOf(reminderTrigger)
                 }
-                retryTriggers.forEachIndexed { index, retryTrigger ->
-                    val courseEnd = courseEndTime(course, periods) ?: start
-                    val retryEnd = scheduleDate.atTime(courseEnd).atZone(scheduleZone).toInstant().toEpochMilli()
-                    if (retryTrigger > now && retryTrigger < retryEnd) {
-                        val requestCode = course.requestCode(index)
-                        scheduleAlarm(alarmManager, retryTrigger, pendingIntent(context, course, config, periods, requestCode))
-                        scheduledCodes += requestCode
+                retryTriggers.forEachIndexed { index, trigger ->
+                    if (trigger > now && trigger < finalEnd) {
+                        schedulePayloadAlarm(
+                            context = context,
+                            alarmManager = alarmManager,
+                            trigger = trigger,
+                            requestCode = eventRequestCode(scheduleDate, course.id, index, EVENT_COURSE),
+                            payload = payload,
+                            config = config,
+                            event = EVENT_COURSE,
+                            scheduledKeys = scheduledKeys
+                        )
                     }
+                }
+                if (config.notificationMode == NotificationMode.LIVE_UPDATE && liveUpdatePreferences.duringClassEnabled) {
+                    payload.segments
+                        .flatMap { listOf(it.startAtMillis, it.endAtMillis) }
+                        .distinct()
+                        .filter { it > now }
+                        .forEachIndexed { index, trigger ->
+                            schedulePayloadAlarm(
+                                context = context,
+                                alarmManager = alarmManager,
+                                trigger = trigger,
+                                requestCode = eventRequestCode(scheduleDate, course.id, 20 + index, EVENT_COURSE),
+                                payload = payload,
+                                config = config,
+                                event = EVENT_COURSE,
+                                scheduledKeys = scheduledKeys
+                            )
+                        }
+                }
+            }
+            if (
+                dayOffset > 0L &&
+                config.notificationMode == NotificationMode.LIVE_UPDATE &&
+                liveUpdatePreferences.tomorrowReminderEnabled &&
+                dayCourses.isNotEmpty()
+            ) {
+                val trigger = tomorrowReminderTriggerEpochMillis(
+                    targetDate = scheduleDate,
+                    reminderTime = liveUpdatePreferences.tomorrowReminderTime,
+                    previousDayCourses = coursesForDate(state, scheduleDate.minusDays(1)),
+                    periods = periods,
+                    zone = scheduleZone
+                )
+                if (trigger > now) {
+                    val payload = tomorrowPayload(scheduleDate, dayCourses, periods, trigger, scheduleZone)
+                    schedulePayloadAlarm(
+                        context = context,
+                        alarmManager = alarmManager,
+                        trigger = trigger,
+                        requestCode = eventRequestCode(scheduleDate, 0L, 0, EVENT_TOMORROW),
+                        payload = payload,
+                        config = config,
+                        event = EVENT_TOMORROW,
+                        scheduledKeys = scheduledKeys
+                    )
+                    schedulePayloadAlarm(
+                        context = context,
+                        alarmManager = alarmManager,
+                        trigger = payload.expiresAtMillis,
+                        requestCode = eventRequestCode(scheduleDate, 0L, 1, EVENT_TOMORROW),
+                        payload = payload,
+                        config = config,
+                        event = EVENT_TOMORROW,
+                        scheduledKeys = scheduledKeys
+                    )
                 }
             }
         }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {putString(KEY_REQUEST_CODES, scheduledCodes.joinToString(","))}
+        val maintenanceTrigger = today.plusDays(1).atTime(0, 5).atZone(scheduleZone).toInstant().toEpochMilli()
+        val maintenanceCode = eventRequestCode(today.plusDays(1), 0L, 99, "refresh")
+        scheduleAlarm(
+            alarmManager,
+            maintenanceTrigger,
+            PendingIntent.getBroadcast(
+                context,
+                maintenanceCode,
+                Intent(context, CourseAlarmReceiver::class.java).setAction(ACTION_REFRESH_COURSE_ALARMS),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        )
+        scheduledKeys += "$maintenanceCode|$ACTION_REFRESH_COURSE_ALARMS"
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+            putString(KEY_REQUEST_CODES, scheduledKeys.joinToString(","))
+        }
+        Log.d(TAG, "scheduled ${scheduledKeys.size} course/live-update alarms through ${today.plusDays(SCHEDULE_HORIZON_DAYS)}")
     }
 
     internal fun scheduleSignature(
         courses: List<CourseEntity>,
         config: ScheduleConfigEntity,
         periods: List<PeriodEntity>,
-        today: LocalDate = LocalDate.now()
+        today: LocalDate = LocalDate.now(),
+        liveUpdatePreferences: LiveUpdatePreferencesSnapshot? = null
     ): String {
         val coursePart = courses
             .sortedBy { it.id }
@@ -160,6 +266,10 @@ object NotificationScheduler {
             config.notificationMode.name,
             config.liveUpdateActionsEnabled,
             config.liveUpdateChipTextMode.name,
+            liveUpdatePreferences?.duringClassEnabled,
+            liveUpdatePreferences?.breakStatusEnabled,
+            liveUpdatePreferences?.tomorrowReminderEnabled,
+            liveUpdatePreferences?.tomorrowReminderTime,
             coursePart,
             periodPart
         ).joinToString("|")
@@ -179,12 +289,15 @@ object NotificationScheduler {
     private fun scheduleAlarm(alarmManager: AlarmManager, trigger: Long, pending: PendingIntent) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-                alarmManager.set(AlarmManager.RTC_WAKEUP, trigger, pending)
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pending)
+                Log.w(TAG, "scheduled inexact alarm; exact-alarm access is unavailable trigger=$trigger")
             } else {
                 alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pending)
+                Log.d(TAG, "scheduled exact alarm trigger=$trigger")
             }
-        } catch (_: SecurityException) {
-            alarmManager.set(AlarmManager.RTC_WAKEUP, trigger, pending)
+        } catch (error: SecurityException) {
+            Log.w(TAG, "exact alarm rejected; using allow-while-idle fallback", error)
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pending)
         }
     }
 
@@ -200,69 +313,300 @@ object NotificationScheduler {
             return
         }
         if (!canPostNotifications(context)) {
-            Log.w(TAG, "skip immediate live update: POST_NOTIFICATIONS denied")
+            Log.w(TAG, "skip immediate live update: notification delivery unavailable")
             NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
             stopLiveUpdateService(context)
             return
         }
-        val now = LocalTime.now()
-        val lead = config.notificationLeadMinutes.coerceAtLeast(0).toLong()
-        val active = todayCourses(AppState(courses = courses, config = config, periods = periods))
-            .firstOrNull { course ->
-                val start = courseStartTime(course, periods) ?: return@firstOrNull false
-                !now.isBefore(start.minusMinutes(lead)) && now.isBefore(start)
+        val nowMillis = System.currentTimeMillis()
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now(zone)
+        val state = AppState(courses = courses, config = config, periods = periods)
+        val preferences = LiveUpdatePreferences.read(context)
+        val activePayload = coursesForDate(state, today)
+            .mapNotNull { course -> coursePayload(today, course, config, periods, preferences, zone) }
+            .firstOrNull { payload ->
+                val start = payload.startAtMillis() ?: return@firstOrNull false
+                val end = payload.endAtMillis() ?: start
+                val visibleEnd = if (preferences.duringClassEnabled) end else start
+                nowMillis >= start - config.notificationLeadMinutes.coerceAtLeast(0) * 60_000L &&
+                    nowMillis < visibleEnd
             }
-        if (active == null) {
-            Log.d(TAG, "skip immediate live update: no active course")
+            ?: immediateTomorrowPayload(
+                state = state,
+                periods = periods,
+                preferences = preferences,
+                nowMillis = nowMillis,
+                zone = zone
+            )
+        if (activePayload == null) {
+            Log.d(TAG, "skip immediate live update: no active course or tomorrow reminder")
             NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
             stopLiveUpdateService(context)
             return
         }
-        val activeEnd = courseEndTime(active, periods) ?: courseStartTime(active, periods) ?: now
-        if (isMutedForCurrentCourse(context, active, activeEnd)) {
-            Log.d(TAG, "skip immediate live update: muted course=${active.name}")
+        if (isMutedForPayload(context, activePayload, nowMillis)) {
+            Log.d(TAG, "skip immediate live update: muted key=${activePayload.muteKey}")
             NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
             stopLiveUpdateService(context)
             return
         }
-        Log.d(TAG, "start immediate live update: course=${active.name}, chip=${config.liveUpdateChipTextMode}, actions=${config.liveUpdateActionsEnabled}")
-        startLiveUpdateService(
-            context = context,
-            name = active.name,
-            timeText = courseTimeLabel(active, periods),
-            location = active.location.orEmpty(),
-            showActions = config.liveUpdateActionsEnabled,
-            muteKey = active.muteKey(),
-            muteUntil = activeEnd.toString(),
-            chipTextMode = config.liveUpdateChipTextMode
+        Log.d(
+            TAG,
+            "start immediate live update: kind=${activePayload.kind}, name=${activePayload.name}, " +
+                "chip=${activePayload.chipTextMode}, actions=${activePayload.showActions}"
         )
+        startLiveUpdateService(context, activePayload)
     }
 
     private fun cancelPreviouslyScheduled(context: Context, alarmManager: AlarmManager) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val codes = prefs.getString(KEY_REQUEST_CODES, "").orEmpty().split(",").mapNotNull { it.toIntOrNull() }
-        codes.forEach { alarmManager.cancel(emptyPendingIntent(context, it)) }
+        val keys = prefs.getString(KEY_REQUEST_CODES, "").orEmpty().split(",").filter(String::isNotBlank)
+        keys.forEach { key ->
+            val requestCode = key.substringBefore('|').toIntOrNull() ?: return@forEach
+            val action = key.substringAfter('|', "").ifBlank { null }
+            alarmManager.cancel(emptyPendingIntent(context, requestCode, action))
+            if (action == null) {
+                // Cancel PendingIntents created by the pre-event-action implementation.
+                alarmManager.cancel(emptyPendingIntent(context, requestCode, null))
+            }
+        }
         prefs.edit {remove(KEY_REQUEST_CODES)}
     }
 
-    private fun pendingIntent(context: Context, course: CourseEntity, config: ScheduleConfigEntity, periods: List<PeriodEntity>, requestCode: Int = course.requestCode()): PendingIntent {
+    private fun schedulePayloadAlarm(
+        context: Context,
+        alarmManager: AlarmManager,
+        trigger: Long,
+        requestCode: Int,
+        payload: LiveUpdatePayload,
+        config: ScheduleConfigEntity,
+        event: String,
+        scheduledKeys: MutableList<String>
+    ) {
         val intent = Intent(context, CourseAlarmReceiver::class.java)
-            .putExtra("courseName", course.name)
-            .putExtra("location", course.location ?: "")
-            .putExtra("timeText", courseTimeLabel(course, periods))
+            .setAction(ACTION_COURSE_REMINDER)
+            .putExtra(EXTRA_REMINDER_EVENT, event)
             .putExtra("notificationMode", config.notificationMode.name)
-            .putExtra("liveUpdateActionsEnabled", config.liveUpdateActionsEnabled)
-            .putExtra("liveUpdateChipTextMode", config.liveUpdateChipTextMode.name)
-            .putExtra("muteKey", course.muteKey())
-            .putExtra("muteUntil", (courseEndTime(course, periods) ?: courseStartTime(course, periods))?.toString().orEmpty())
-        return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            .putLiveUpdatePayload(payload)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        scheduleAlarm(alarmManager, trigger, pendingIntent)
+        scheduledKeys += "$requestCode|$ACTION_COURSE_REMINDER"
     }
 
-    private fun emptyPendingIntent(context: Context, requestCode: Int): PendingIntent {
-        return PendingIntent.getBroadcast(context, requestCode, Intent(context, CourseAlarmReceiver::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    private fun emptyPendingIntent(context: Context, requestCode: Int, action: String?): PendingIntent {
+        val intent = Intent(context, CourseAlarmReceiver::class.java)
+        if (action != null) intent.action = action
+        return PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
-    private fun CourseEntity.requestCode(retryIndex: Int = 0): Int = ((id * 10 + retryIndex) % Int.MAX_VALUE).toInt()
+    private fun eventRequestCode(date: LocalDate, courseId: Long, eventIndex: Int, event: String): Int =
+        listOf(date.toEpochDay(), courseId, eventIndex, event).hashCode() and Int.MAX_VALUE
+
+    internal fun putPayload(intent: Intent, payload: LiveUpdatePayload): Intent = intent.putLiveUpdatePayload(payload)
+
+    internal fun payloadFromIntent(intent: Intent): LiveUpdatePayload? = intent.liveUpdatePayloadOrNull()
+
+    private fun Intent.putLiveUpdatePayload(payload: LiveUpdatePayload): Intent =
+        putExtra(EXTRA_LIVE_UPDATE_KIND, payload.kind.name)
+            .putExtra(EXTRA_LIVE_UPDATE_NAME, payload.name)
+            .putExtra(EXTRA_LIVE_UPDATE_TIME, payload.timeText)
+            .putExtra(EXTRA_LIVE_UPDATE_LOCATION, payload.location)
+            .putExtra(EXTRA_LIVE_UPDATE_ACTIONS, payload.showActions)
+            .putExtra(EXTRA_LIVE_UPDATE_MUTE_KEY, payload.muteKey)
+            .putExtra(EXTRA_LIVE_UPDATE_MUTE_UNTIL, payload.muteUntil)
+            .putExtra(EXTRA_LIVE_UPDATE_CHIP_MODE, payload.chipTextMode.name)
+            .putExtra(EXTRA_LIVE_UPDATE_SEGMENTS, encodeSegments(payload.segments))
+            .putExtra(EXTRA_LIVE_UPDATE_DURING_CLASS, payload.duringClassEnabled)
+            .putExtra(EXTRA_LIVE_UPDATE_BREAK_STATUS, payload.breakStatusEnabled)
+            .putExtra(EXTRA_LIVE_UPDATE_EXPIRES_AT, payload.expiresAtMillis)
+            .putExtra(EXTRA_LIVE_UPDATE_TOMORROW_COUNT, payload.tomorrowCourseCount)
+
+    private fun Intent.liveUpdatePayloadOrNull(): LiveUpdatePayload? {
+        val name = getStringExtra(EXTRA_LIVE_UPDATE_NAME)
+            ?: getStringExtra("courseName")
+            ?: return null
+        val timeText = getStringExtra(EXTRA_LIVE_UPDATE_TIME)
+            ?: getStringExtra("timeText")
+            ?: return null
+        return LiveUpdatePayload(
+            kind = runCatching {
+                LiveUpdateKind.valueOf(getStringExtra(EXTRA_LIVE_UPDATE_KIND) ?: LiveUpdateKind.COURSE.name)
+            }.getOrDefault(LiveUpdateKind.COURSE),
+            name = name,
+            timeText = timeText,
+            location = getStringExtra(EXTRA_LIVE_UPDATE_LOCATION)
+                ?: getStringExtra("location")
+                ?: "",
+            showActions = getBooleanExtra(
+                EXTRA_LIVE_UPDATE_ACTIONS,
+                getBooleanExtra("liveUpdateActionsEnabled", true)
+            ),
+            muteKey = getStringExtra(EXTRA_LIVE_UPDATE_MUTE_KEY)
+                ?: getStringExtra("muteKey")
+                ?: "",
+            muteUntil = getStringExtra(EXTRA_LIVE_UPDATE_MUTE_UNTIL)
+                ?: getStringExtra("muteUntil")
+                ?: "",
+            chipTextMode = runCatching {
+                LiveUpdateChipTextMode.valueOf(
+                    getStringExtra(EXTRA_LIVE_UPDATE_CHIP_MODE)
+                        ?: getStringExtra("liveUpdateChipTextMode")
+                        ?: LiveUpdateChipTextMode.LOCATION.name
+                )
+            }.getOrDefault(LiveUpdateChipTextMode.LOCATION),
+            segments = decodeSegments(getStringExtra(EXTRA_LIVE_UPDATE_SEGMENTS).orEmpty()),
+            duringClassEnabled = getBooleanExtra(EXTRA_LIVE_UPDATE_DURING_CLASS, false),
+            breakStatusEnabled = getBooleanExtra(EXTRA_LIVE_UPDATE_BREAK_STATUS, true),
+            expiresAtMillis = getLongExtra(EXTRA_LIVE_UPDATE_EXPIRES_AT, 0L),
+            tomorrowCourseCount = getIntExtra(EXTRA_LIVE_UPDATE_TOMORROW_COUNT, 0)
+        )
+    }
+
+    internal fun coursePayload(
+        date: LocalDate,
+        course: CourseEntity,
+        config: ScheduleConfigEntity,
+        periods: List<PeriodEntity>,
+        preferences: LiveUpdatePreferencesSnapshot,
+        zone: ZoneId = ZoneId.systemDefault()
+    ): LiveUpdatePayload? {
+        val timeline = courseTimeline(date, course, periods, zone)
+        val end = timeline.lastOrNull()?.endAtMillis ?: return null
+        return LiveUpdatePayload(
+            kind = LiveUpdateKind.COURSE,
+            name = course.name,
+            timeText = courseTimeLabel(course, periods),
+            location = course.location.orEmpty(),
+            showActions = config.liveUpdateActionsEnabled,
+            muteKey = course.muteKey(date),
+            muteUntil = end.toString(),
+            chipTextMode = config.liveUpdateChipTextMode,
+            segments = timeline,
+            duringClassEnabled = preferences.duringClassEnabled,
+            breakStatusEnabled = preferences.breakStatusEnabled,
+            expiresAtMillis = end
+        )
+    }
+
+    internal fun courseTimeline(
+        date: LocalDate,
+        course: CourseEntity,
+        periods: List<PeriodEntity>,
+        zone: ZoneId = ZoneId.systemDefault()
+    ): List<LiveUpdateSegment> {
+        course.customTimeRangeOrNull()?.let { (start, end) ->
+            return listOf(
+                LiveUpdateSegment(
+                    date.atTime(start).atZone(zone).toInstant().toEpochMilli(),
+                    date.atTime(end).atZone(zone).toInstant().toEpochMilli()
+                )
+            )
+        }
+        val periodByIndex = periods.associateBy(PeriodEntity::periodIndex)
+        return course.periods.distinct().sorted().mapNotNull { periodIndex ->
+            val period = periodByIndex[periodIndex] ?: return@mapNotNull null
+            val start = runCatching { LocalTime.parse(period.startTime) }.getOrNull() ?: return@mapNotNull null
+            val end = runCatching { LocalTime.parse(period.endTime) }.getOrNull() ?: return@mapNotNull null
+            if (!end.isAfter(start)) return@mapNotNull null
+            LiveUpdateSegment(
+                date.atTime(start).atZone(zone).toInstant().toEpochMilli(),
+                date.atTime(end).atZone(zone).toInstant().toEpochMilli()
+            )
+        }
+    }
+
+    internal fun tomorrowReminderTriggerEpochMillis(
+        targetDate: LocalDate,
+        reminderTime: LocalTime,
+        previousDayCourses: List<CourseEntity>,
+        periods: List<PeriodEntity>,
+        zone: ZoneId = ZoneId.systemDefault()
+    ): Long {
+        val reminderDate = targetDate.minusDays(1)
+        val configured = reminderDate.atTime(reminderTime).atZone(zone).toInstant().toEpochMilli()
+        val lastCourseEnd = previousDayCourses.mapNotNull { courseEndTime(it, periods) }.maxOrNull()
+            ?.let { reminderDate.atTime(it).plusMinutes(5).atZone(zone).toInstant().toEpochMilli() }
+            ?: configured
+        val latestReasonable = targetDate.atStartOfDay(zone).minusMinutes(5).toInstant().toEpochMilli()
+        return maxOf(configured, lastCourseEnd).coerceAtMost(latestReasonable)
+    }
+
+    private fun tomorrowPayload(
+        targetDate: LocalDate,
+        courses: List<CourseEntity>,
+        periods: List<PeriodEntity>,
+        triggerAtMillis: Long,
+        zone: ZoneId
+    ): LiveUpdatePayload {
+        val first = courses.minByOrNull { courseStartTime(it, periods) ?: LocalTime.MAX }
+        val firstTime = first?.let { courseStartTime(it, periods) }
+        val firstSummary = buildString {
+            first?.let { course ->
+                append("第一节：${course.name}")
+                course.location?.takeIf(String::isNotBlank)?.let { append(" · $it") }
+            }
+        }
+        val expiry = tomorrowReminderExpiryEpochMillis(triggerAtMillis)
+        return LiveUpdatePayload(
+            kind = LiveUpdateKind.TOMORROW,
+            name = "明天有${courses.size}门课",
+            timeText = firstTime?.let { "${it}开始" }.orEmpty(),
+            location = firstSummary,
+            showActions = true,
+            muteKey = "tomorrow:$targetDate",
+            muteUntil = expiry.toString(),
+            chipTextMode = LiveUpdateChipTextMode.NORMAL,
+            expiresAtMillis = expiry,
+            tomorrowCourseCount = courses.size
+        )
+    }
+
+    internal fun tomorrowReminderExpiryEpochMillis(triggerAtMillis: Long): Long =
+        triggerAtMillis + 5 * 60_000L
+
+    private fun immediateTomorrowPayload(
+        state: AppState,
+        periods: List<PeriodEntity>,
+        preferences: LiveUpdatePreferencesSnapshot,
+        nowMillis: Long,
+        zone: ZoneId
+    ): LiveUpdatePayload? {
+        if (!preferences.tomorrowReminderEnabled) return null
+        val today = LocalDate.now(zone)
+        val tomorrow = today.plusDays(1)
+        val tomorrowCourses = coursesForDate(state, tomorrow)
+        if (tomorrowCourses.isEmpty()) return null
+        val trigger = tomorrowReminderTriggerEpochMillis(
+            targetDate = tomorrow,
+            reminderTime = preferences.tomorrowReminderTime,
+            previousDayCourses = coursesForDate(state, today),
+            periods = periods,
+            zone = zone
+        )
+        val payload = tomorrowPayload(tomorrow, tomorrowCourses, periods, trigger, zone)
+        return payload.takeIf { nowMillis >= trigger && !it.shouldStop(nowMillis) }
+    }
+
+    private fun encodeSegments(segments: List<LiveUpdateSegment>): String = segments.joinToString(";") {
+        "${it.startAtMillis}:${it.endAtMillis}"
+    }
+
+    private fun decodeSegments(value: String): List<LiveUpdateSegment> = value.split(';').mapNotNull { encoded ->
+        val start = encoded.substringBefore(':').toLongOrNull() ?: return@mapNotNull null
+        val end = encoded.substringAfter(':', "").toLongOrNull() ?: return@mapNotNull null
+        LiveUpdateSegment(start, end).takeIf { end > start }
+    }
 
     fun createChannel(context: Context) {
         val channel = NotificationChannel(CHANNEL_ID, "课程提醒", NotificationManager.IMPORTANCE_DEFAULT)
@@ -277,14 +621,17 @@ object NotificationScheduler {
         createChannel(context)
         if (!canPostNotifications(context)) return
         val previewMinutes = config.notificationLeadMinutes.coerceIn(1, 30)
-        val start = LocalTime.now()
+        val zone = ZoneId.systemDefault()
+        val date = LocalDate.now(zone)
+        val start = LocalTime.now(zone)
             .plusMinutes(previewMinutes.toLong())
             .withSecond(0)
             .withNano(0)
         val end = start.plusMinutes(45)
         val timeText = "${start.format(DateTimeFormatter.ofPattern("HH:mm"))} - ${end.format(DateTimeFormatter.ofPattern("HH:mm"))}"
-        startLiveUpdateService(
-            context = context,
+        val startMillis = date.atTime(start).atZone(zone).toInstant().toEpochMilli()
+        val endMillis = date.atTime(end).atZone(zone).toInstant().toEpochMilli()
+        startLiveUpdateService(context, LiveUpdatePayload(
             name = "高等数学",
             timeText = timeText,
             location = "教学楼 A101",
@@ -292,24 +639,56 @@ object NotificationScheduler {
             // disabled optional actions for real course reminders.
             showActions = true,
             muteKey = "preview:${System.currentTimeMillis()}",
-            muteUntil = end.toString(),
-            chipTextMode = config.liveUpdateChipTextMode
-        )
+            muteUntil = startMillis.toString(),
+            chipTextMode = config.liveUpdateChipTextMode,
+            segments = listOf(LiveUpdateSegment(startMillis, endMillis)),
+            duringClassEnabled = false,
+            expiresAtMillis = startMillis
+        ))
     }
 
     fun liveUpdateNotification(context: Context, name: String, timeText: String, location: String, showActions: Boolean, muteKey: String, muteUntil: String, chipTextMode: LiveUpdateChipTextMode): android.app.Notification {
-        return buildLiveUpdateNotification(context, name, timeText, location, minutesUntil(timeText), showActions, muteKey, muteUntil, chipTextMode)
+        return liveUpdateNotification(
+            context,
+            LiveUpdatePayload(
+                name = name,
+                timeText = timeText,
+                location = location,
+                showActions = showActions,
+                muteKey = muteKey,
+                muteUntil = muteUntil,
+                chipTextMode = chipTextMode
+            )
+        )
     }
 
-    private fun buildLiveUpdateNotification(context: Context, name: String, timeText: String, location: String, minutesLeft: Int, showActions: Boolean, muteKey: String, muteUntil: String, chipTextMode: LiveUpdateChipTextMode): android.app.Notification {
-        val placeText = location.ifBlank { "未设置地点" }
-        val countdownText = if (minutesLeft <= 0) "准备上课" else "还剩${minutesLeft}分钟"
-        val shortText = liveUpdateChipText(chipTextMode, name, placeText, minutesLeft)
+    internal fun liveUpdateNotification(context: Context, payload: LiveUpdatePayload): android.app.Notification {
+        val nowMillis = System.currentTimeMillis()
+        val status = payload.statusAt(nowMillis)
+        val placeText = payload.location.ifBlank { "未设置地点" }
+        val shortText = when {
+            payload.kind == LiveUpdateKind.TOMORROW -> "明日${payload.tomorrowCourseCount}门"
+            status.phase == LiveUpdatePhase.BEFORE_CLASS -> liveUpdateChipText(
+                payload.chipTextMode,
+                payload.name,
+                placeText,
+                status.minutesToTransition
+            )
+            else -> liveUpdateCountdownChipText(status.minutesToTransition)
+        }
         // Chip text is strictly a compact/island presentation choice. The
         // expanded notification always keeps the same complete course content.
-        val titleText = name
-        val bodyText = "$countdownText · $timeText"
-        val expandedText = if (location.isBlank()) bodyText else "$bodyText\n$placeText"
+        val titleText = payload.name
+        val bodyText = if (payload.kind == LiveUpdateKind.TOMORROW) {
+            status.detailText
+        } else {
+            "${courseCardStatusText(status)} · ${payload.timeText}"
+        }
+        val expandedText = if (payload.kind == LiveUpdateKind.TOMORROW || payload.location.isBlank()) {
+            bodyText
+        } else {
+            "$bodyText\n$placeText"
+        }
         val openAppIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val contentIntent = PendingIntent.getActivity(
@@ -330,8 +709,8 @@ object NotificationScheduler {
                     context,
                     ACTION_CANCEL_LIVE_UPDATE,
                     3,
-                    muteKey,
-                    muteUntil
+                    payload.muteKey,
+                    payload.muteUntil
                 )
             )
             .setOngoing(true)
@@ -339,7 +718,20 @@ object NotificationScheduler {
             .setShowWhen(false)
             .setCategory(android.app.Notification.CATEGORY_EVENT)
             .setColor(0xFF0A84FF.toInt())
-        if (showActions) {
+        if (payload.kind == LiveUpdateKind.TOMORROW) {
+            builder
+                .addAction(android.app.Notification.Action.Builder(
+                    Icon.createWithResource(context, R.drawable.ic_close_light),
+                    "取消提醒",
+                    actionPendingIntent(
+                        context,
+                        ACTION_CANCEL_LIVE_UPDATE,
+                        1,
+                        payload.muteKey,
+                        payload.muteUntil
+                    )
+                ).build())
+        } else if (payload.showActions) {
             val notificationManager = context.getSystemService(NotificationManager::class.java)
             val hasDndAccess = notificationManager?.isNotificationPolicyAccessGranted == true
             val dndEnabled = isDoNotDisturbEnabledByApp(context)
@@ -352,12 +744,12 @@ object NotificationScheduler {
                 .addAction(android.app.Notification.Action.Builder(
                     Icon.createWithResource(context, R.drawable.ic_close_light),
                     "取消本次提醒",
-                    actionPendingIntent(context, ACTION_CANCEL_LIVE_UPDATE, 1, muteKey, muteUntil)
+                    actionPendingIntent(context, ACTION_CANCEL_LIVE_UPDATE, 1, payload.muteKey, payload.muteUntil)
                 ).build())
                 .addAction(android.app.Notification.Action.Builder(
                     Icon.createWithResource(context, R.drawable.ic_moon_light),
                     dndTitle,
-                    dndActionPendingIntent(context, muteKey, muteUntil)
+                    dndActionPendingIntent(context, payload.muteKey, payload.muteUntil)
                 ).build())
         }
         runCatching {
@@ -393,8 +785,26 @@ object NotificationScheduler {
                     .invoke(notification) as? Boolean
             }.getOrNull()
             val requested = notification.extras.getBoolean("android.requestPromotedOngoing", false)
-            Log.d(TAG, "live update built: promotable=$promotable, requested=$requested, flags=${notification.flags}, style=${notification.extras.getString("android.template")}")
+            val promotionAllowed = canPostPromotedLiveUpdates(context)
+            Log.d(
+                TAG,
+                "live update built: promotable=$promotable, requested=$requested, " +
+                    "promotionAllowed=$promotionAllowed, flags=${notification.flags}, " +
+                    "style=${notification.extras.getString("android.template")}"
+            )
         }
+    }
+
+    private fun courseCardStatusText(status: LiveUpdateStatus): String = when (status.phase) {
+        LiveUpdatePhase.BEFORE_CLASS -> if (status.minutesToTransition <= 0) {
+            "准备上课"
+        } else {
+            "还剩${status.minutesToTransition}分钟"
+        }
+        LiveUpdatePhase.IN_CLASS,
+        LiveUpdatePhase.BREAK -> status.detailText
+        LiveUpdatePhase.FINISHED -> "已下课"
+        LiveUpdatePhase.TOMORROW -> status.statusText
     }
 
     private fun liveUpdateChipText(
@@ -402,15 +812,11 @@ object NotificationScheduler {
         courseName: String,
         placeText: String,
         minutesLeft: Int
-    ): CharSequence {
-        return when (mode) {
-            LiveUpdateChipTextMode.COUNTDOWN -> liveUpdateCountdownChipText(minutesLeft)
-            LiveUpdateChipTextMode.LOCATION -> placeText
-            // SHORT remains readable for old persisted settings, but no longer exposes a short
-            // label. Both legacy SHORT and the new NORMAL value show the actual course name.
-            LiveUpdateChipTextMode.SHORT,
-            LiveUpdateChipTextMode.NORMAL -> courseName
-        }
+    ): CharSequence = when (mode) {
+        LiveUpdateChipTextMode.COUNTDOWN -> liveUpdateCountdownChipText(minutesLeft)
+        LiveUpdateChipTextMode.LOCATION -> placeText
+        LiveUpdateChipTextMode.SHORT,
+        LiveUpdateChipTextMode.NORMAL -> courseName
     }
 
     private fun liveUpdateCountdownChipText(minutesLeft: Int): CharSequence {
@@ -418,13 +824,6 @@ object NotificationScheduler {
         // Keep the island text plain. Some promoted-notification renderers reject or partially
         // preserve spans in shortCriticalText, which made the countdown fail to render normally.
         return "${safeMinutes}分钟"
-    }
-
-    private fun minutesUntil(timeText: String): Int {
-        val startText = timeText.substringBefore("-").trim()
-        val start = runCatching { LocalTime.parse(startText) }.getOrNull() ?: return 0
-        val now = LocalTime.now()
-        return max(0, ChronoUnit.MINUTES.between(now, start).toInt())
     }
 
     private fun actionPendingIntent(context: Context, action: String, requestCode: Int, muteKey: String, muteUntil: String): PendingIntent {
@@ -452,7 +851,8 @@ object NotificationScheduler {
         )
     }
 
-    private fun CourseEntity.muteKey(): String = "$id:$name:${weekday}:${periods.joinToString(",")}:${weeks.joinToString(",")}"
+    private fun CourseEntity.muteKey(date: LocalDate): String =
+        "$id:$date:$name:${weekday}:${periods.joinToString(",")}:${weeks.joinToString(",")}"
 
     private fun isPreviewLiveUpdateRunning(context: Context): Boolean {
         val prefs = context.getSharedPreferences(LiveUpdatePayload.PREFS, Context.MODE_PRIVATE)
@@ -460,17 +860,28 @@ object NotificationScheduler {
         return muteKey.startsWith("preview:")
     }
 
-    private fun isMutedForCurrentCourse(context: Context, course: CourseEntity, endTime: LocalTime): Boolean {
+    private fun isMutedForPayload(
+        context: Context,
+        payload: LiveUpdatePayload,
+        nowMillis: Long = System.currentTimeMillis()
+    ): Boolean {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val key = prefs.getString(KEY_MUTED_COURSE, null) ?: return false
-        val until = prefs.getString(KEY_MUTED_UNTIL, null)?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: return false
-        val now = LocalTime.now()
-        if (!now.isBefore(until)) {
+        val storedUntil = prefs.getString(KEY_MUTED_UNTIL, null) ?: return false
+        val active = storedUntil.toLongOrNull()?.let { nowMillis < it } ?: run {
+            // Compatibility with reminders muted by builds that stored only a LocalTime.
+            val until = runCatching { LocalTime.parse(storedUntil) }.getOrNull() ?: return false
+            LocalTime.now().isBefore(until)
+        }
+        if (!active) {
             prefs.edit {remove(KEY_MUTED_COURSE).remove(KEY_MUTED_UNTIL)}
             return false
         }
-        return key == course.muteKey() && until == endTime
+        return key == payload.muteKey
     }
+
+    internal fun isPayloadMuted(context: Context, payload: LiveUpdatePayload): Boolean =
+        isMutedForPayload(context, payload)
 
     fun cancelCurrentLiveUpdate(context: Context, muteKey: String?, muteUntil: String?) {
         if (!muteKey.isNullOrBlank() && !muteUntil.isNullOrBlank()) {
@@ -624,29 +1035,29 @@ object NotificationScheduler {
         muteUntil: String,
         chipTextMode: LiveUpdateChipTextMode
     ) {
-        val notification = liveUpdateNotification(
+        startLiveUpdateService(
             context,
-            name,
-            timeText,
-            location,
-            showActions,
-            muteKey,
-            muteUntil,
-            chipTextMode
+            LiveUpdatePayload(
+                name = name,
+                timeText = timeText,
+                location = location,
+                showActions = showActions,
+                muteKey = muteKey,
+                muteUntil = muteUntil,
+                chipTextMode = chipTextMode
+            )
         )
+    }
+
+    internal fun startLiveUpdateService(context: Context, payload: LiveUpdatePayload) {
+        val notification = liveUpdateNotification(context, payload)
         val intent = Intent(context, LiveUpdateForegroundService::class.java)
             .setAction(ACTION_START_LIVE_UPDATE_SERVICE)
             .putExtra(EXTRA_LIVE_UPDATE_NOTIFICATION, notification)
-            .putExtra(EXTRA_LIVE_UPDATE_NAME, name)
-            .putExtra(EXTRA_LIVE_UPDATE_TIME, timeText)
-            .putExtra(EXTRA_LIVE_UPDATE_LOCATION, location)
-            .putExtra(EXTRA_LIVE_UPDATE_ACTIONS, showActions)
-            .putExtra(EXTRA_LIVE_UPDATE_MUTE_KEY, muteKey)
-            .putExtra(EXTRA_LIVE_UPDATE_MUTE_UNTIL, muteUntil)
-            .putExtra(EXTRA_LIVE_UPDATE_CHIP_MODE, chipTextMode.name)
+            .let { putPayload(it, payload) }
         runCatching {
             ContextCompat.startForegroundService(context, intent)
-            Log.d(TAG, "startForegroundService requested")
+            Log.d(TAG, "startForegroundService requested kind=${payload.kind} key=${payload.muteKey}")
         }.onFailure {
             Log.w(TAG, "startForegroundService failed, fallback notify: ${it.javaClass.simpleName}: ${it.message}")
             if (!canPostNotifications(context)) {
@@ -667,8 +1078,67 @@ object NotificationScheduler {
     }
 
     internal fun canPostNotifications(context: Context): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        val runtimePermissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        if (!runtimePermissionGranted || !NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            return false
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = context.getSystemService(NotificationManager::class.java)
+                ?.getNotificationChannel(CHANNEL_ID)
+            if (channel?.importance == NotificationManager.IMPORTANCE_NONE) return false
+        }
+        return true
+    }
+
+    fun notificationSettingsIntent(context: Context): Intent =
+        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    fun canPostPromotedLiveUpdates(context: Context): Boolean? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) return null
+        return context.getSystemService(NotificationManager::class.java)
+            ?.canPostPromotedNotifications()
+            ?: false
+    }
+
+    fun promotedNotificationSettingsIntent(context: Context): Intent? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) return null
+        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return intent.takeIf {
+            context.packageManager.resolveActivity(it, PackageManager.MATCH_DEFAULT_ONLY) != null
+        }
+    }
+
+    fun canScheduleExactCourseAlarms(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+        val manager = context.getSystemService(AlarmManager::class.java) ?: return false
+        return manager.canScheduleExactAlarms()
+    }
+
+    fun exactAlarmSettingsIntent(context: Context): Intent? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || canScheduleExactCourseAlarms(context)) return null
+        return Intent(
+            Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+            Uri.parse("package:${context.packageName}")
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    fun requestReschedule(context: Context) {
+        val app = context.applicationContext as? CourseScheduleApp ?: return
+        app.applicationScope.launch(Dispatchers.IO) {
+            val snapshot = app.repository.activeSnapshot()
+            refreshToday(
+                context = app,
+                courses = snapshot.courses,
+                config = snapshot.config,
+                periods = snapshot.periods,
+                forceReschedule = true
+            )
+        }
     }
 
     fun stopLiveUpdateService(context: Context) {
