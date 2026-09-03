@@ -4585,12 +4585,12 @@ fun HomeTopGradientBlur(
         modifier = modifier,
         tintColor = tintColor,
         height = height,
-        blurRadius = 12.dp,
-        tintIntensity = if (lightGlass) 0.15f else 0.18f,
+        blurRadius = 10.dp,
+        tintIntensity = if (lightGlass) 0.12f else 0.14f,
         direction = ProgressiveBlurDirection.TopToBottom,
         fallbackTintStops = listOf(
-            0f to tintColor.copy(alpha = if (lightGlass) 0.34f else 0.42f),
-            0.42f to tintColor.copy(alpha = if (lightGlass) 0.14f else 0.18f),
+            0f to tintColor.copy(alpha = if (lightGlass) 0.28f else 0.34f),
+            0.42f to tintColor.copy(alpha = if (lightGlass) 0.10f else 0.13f),
             1f to ComposeColor.Transparent
         )
     )

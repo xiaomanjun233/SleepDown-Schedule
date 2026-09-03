@@ -429,14 +429,13 @@ fun GeneralSettingsScreen(
                         }
                     )
                     SettingsDivider()
-                    SettingsToggleRow(
-                        title = "无界周视图",
-                        subtitle = "星期与日期融入顶栏，课程可滚动到屏幕顶部；开启后隐藏上一周/下一周按钮，可用左右滑动切换周次。",
-                        checked = weekViewStyle == WeekViewStyle.BOUNDLESS,
+                    SettingsWeekViewStyleRow(
+                        selected = weekViewStyle,
                         backdrop = backdrop,
-                        onCheckedChange = { enabled ->
-                            weekViewStyle = if (enabled) WeekViewStyle.BOUNDLESS else WeekViewStyle.NORMAL
-                            WeekViewPreferences.setStyle(context, weekViewStyle)
+                        config = visualConfig,
+                        onSelected = { style ->
+                            weekViewStyle = style
+                            WeekViewPreferences.setStyle(context, style)
                         }
                     )
                 }
@@ -1974,6 +1973,29 @@ private fun SettingsDayViewModeRow(
         backdrop = backdrop,
         config = config,
         summary = "两日模式会在原日视图下方继续显示第二天课程",
+        modifier = Modifier.fillMaxWidth(),
+        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        maxHeight = 220.dp,
+        onExpandedChange = {},
+        onSelectedIndexChange = { index -> options.getOrNull(index)?.let(onSelected) }
+    )
+}
+
+@Composable
+private fun SettingsWeekViewStyleRow(
+    selected: WeekViewStyle,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onSelected: (WeekViewStyle) -> Unit
+) {
+    val options = WeekViewStyle.entries
+    SleepDownLiquidDropdownPreference(
+        items = listOf("普通模式", "无界模式"),
+        selectedIndex = options.indexOf(selected).coerceAtLeast(0),
+        title = "周视图模式",
+        backdrop = backdrop,
+        config = config,
+        summary = "无界模式会将星期与日期融入顶栏，课程可滚动到屏幕顶部，并隐藏上一周/下一周按钮",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 220.dp,
