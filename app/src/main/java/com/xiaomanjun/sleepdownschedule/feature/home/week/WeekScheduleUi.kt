@@ -403,9 +403,8 @@ internal fun SinglePillWeekScheduleScreen(
     // AppTopBar in ScheduleAppUi.kt is statusBarsPadding + 66dp, and the week header row keeps
     // the same 46dp height as the normal-mode pill.
     val boundlessAppTopBarHeight = 66.dp
-    val boundlessWeekHeaderRowHeight = 46.dp
     val boundlessHeaderOffset =
-        adaptiveMetrics.safeTop + boundlessAppTopBarHeight + boundlessWeekHeaderRowHeight
+        adaptiveMetrics.safeTop + boundlessAppTopBarHeight + BoundlessWeekHeaderRowHeight
     val transitionTravelWidth = if (adaptiveMetrics.isLargeScreen) {
         (
             adaptiveMetrics.screenWidth - horizontalContentStartPadding -
@@ -856,57 +855,6 @@ internal fun SinglePillWeekScheduleScreen(
             Spacer(Modifier.height(WeekDockScrollPadding))
         }
     }
-        if (boundless) {
-            // Fixed top info layer: an empty leading slot keeps the weekday/date labels on the
-            // exact course-column geometry (rowHeaderWidth leading slot, weekGridEndPadding
-            // trailing) without rendering a "节次" caption in boundless mode.
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .padding(top = adaptiveMetrics.safeTop + boundlessAppTopBarHeight)
-                    .padding(start = horizontalContentStartPadding, end = horizontalContentEndPadding)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(boundlessWeekHeaderRowHeight),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Fixed-width leading slot (same width as the timeline rail) keeps the weekday labels on
-                    // the exact course-column geometry. It shows the current week so users can
-                    // read week changes from left/right swipes while scrolling the canvas.
-                    Box(
-                        modifier = Modifier
-                            .width(rowHeaderWidth)
-                            .fillMaxHeight(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "第${displayWeek}周",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = textColor,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1
-                        )
-                    }
-                    WeekPagerHeaderLabels(
-                        pagerState = pagerState,
-                        displayWeek = displayWeek,
-                        courses = state.courses,
-                        config = state.config,
-                        today = today,
-                        textColor = textColor,
-                        endPadding = weekGridEndPadding,
-                        todayStyle = WeekdayTodayStyle.LIGHTWEIGHT,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                    )
-                }
-            }
-        }
         WeekEditOverlayHost(
             request = weekEditOverlay.request,
             hostBounds = overlayHostBounds,
@@ -1398,6 +1346,73 @@ fun WeekSwitchButton(direction: Int, config: ScheduleConfigEntity, backdrop: Bac
 internal enum class WeekdayTodayStyle {
     PILL,
     LIGHTWEIGHT
+}
+
+/** Height of the boundless week header row, shared with the home top bar slot renderer. */
+internal val BoundlessWeekHeaderRowHeight = 46.dp
+
+/**
+ * The boundless week header lives on the app top bar layer (above the top gradient blur), so the
+ * weekday/date labels stay crisp and are never covered by the gradient. It reuses the exact
+ * course-column geometry: a rowHeaderWidth leading slot (same width as the timeline rail) plus
+ * equal weekday columns with weekGridEndPadding trailing. The leading slot is fixed width so the
+ * grid always stays aligned; the current-week caption stays hidden until the user swipes weeks.
+ */
+@Composable
+internal fun BoundlessWeekdayHeaderRow(
+    displayWeek: Int,
+    courses: List<CourseEntity>,
+    config: ScheduleConfigEntity,
+    today: LocalDate,
+    textColor: ComposeColor,
+    rowHeaderWidth: Dp,
+    weekGridEndPadding: Dp,
+    showWeekCaption: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .height(BoundlessWeekHeaderRowHeight),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .width(rowHeaderWidth)
+                .fillMaxHeight(),
+            contentAlignment = Alignment.Center
+        ) {
+            val captionAlpha = animateFloatAsState(
+                targetValue = if (showWeekCaption) 1f else 0f,
+                animationSpec = spring(dampingRatio = 0.9f, stiffness = 520f),
+                label = "boundless-week-caption-alpha"
+            )
+            Text(
+                text = "第${displayWeek}周",
+                modifier = Modifier.graphicsLayer { alpha = captionAlpha.value },
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = textColor,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+        }
+        val displayedPage = (displayWeek - 1).coerceIn(0, config.totalWeeks.coerceAtLeast(1) - 1)
+        val displayedWeekdays = remember(courses, displayedPage, config.hideEmptyWeekends) {
+            val buckets = weekCourseBuckets(courses, displayedPage + 1)
+            visibleWeekdaysForBuckets(buckets, config.hideEmptyWeekends)
+        }
+        WeekdayHeaderLabels(
+            weekdays = displayedWeekdays,
+            weekStart = scheduleWeekStartDate(config, displayedPage + 1, today),
+            today = today,
+            textColor = textColor,
+            endPadding = weekGridEndPadding,
+            todayStyle = WeekdayTodayStyle.LIGHTWEIGHT,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+        )
+    }
 }
 
 @Composable

@@ -113,8 +113,10 @@ private fun Modifier.miuixCascadingPopupSurface(
         return background(if (dark) Color(0xFF242424) else Color.White)
     }
     val effectiveBlur = blurRadius.coerceAtMost(12.dp)
-    val lensHeight = 22.dp
-    val lensAmount = 30.dp
+    // Keep the lens gentle: an overlarge lens/refraction band refracts content against the
+    // rounded popup corners and reads as torn glass lines at the bottom corners.
+    val lensHeight = 16.dp
+    val lensAmount = 22.dp
     val surfaceAlpha = if (dark) 0.74f else 0.64f
     val surfaceColor = if (dark) Color(0xFF242424) else Color.White
     val topHighlightAlpha = if (dark) 0.10f else 0.07f

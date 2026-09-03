@@ -1467,6 +1467,15 @@ fun CourseScheduleAppUi(
     val beforeScheduleTerm = isBeforeScheduleTerm(visualState.config, todayDate)
     val afterScheduleTerm = isAfterScheduleTerm(visualState.config, todayDate)
     var homeDisplayWeek by remember(visualState.config.id) { mutableIntStateOf(1) }
+    // Boundless: the fixed header's week caption stays hidden until the user swipes weeks
+    // (horizontal week change), then it stays visible for the rest of the session.
+    var boundlessWeekSwipeSeen by remember(visualState.config.id) { mutableStateOf(false) }
+    val boundlessInitialWeek = remember(visualState.config.id) { homeDisplayWeek }
+    LaunchedEffect(homeDisplayWeek) {
+        if (!boundlessWeekSwipeSeen && homeDisplayWeek != boundlessInitialWeek) {
+            boundlessWeekSwipeSeen = true
+        }
+    }
     var pendingConflictCourseId by remember(visualState.config.id) { mutableStateOf<Long?>(null) }
     var pendingConflictCourseKey by remember(visualState.config.id) { mutableStateOf<String?>(null) }
     var pendingConflictWeeks by remember(visualState.config.id) { mutableStateOf<List<Int>>(emptyList()) }
@@ -2587,6 +2596,31 @@ fun CourseScheduleAppUi(
                                 toggleHomeAnchoredOverlay(HomeAnchoredOverlayKind.Personalize, sourceScale)
                             },
                             onBackHome = { screen = Screen.Home }
+                        )
+                    }
+                    if (homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS) {
+                        // Boundless week header lives on the top bar layer (above the gradient
+                        // blur) so weekday labels are never covered; geometry mirrors the course
+                        // grid (rowHeaderWidth slot + equal columns + weekGridEndPadding).
+                        BoundlessWeekdayHeaderRow(
+                            displayWeek = homeDisplayWeek,
+                            courses = visualState.courses,
+                            config = visualState.config,
+                            today = todayDate,
+                            textColor = homeForegroundColor(visualState.config),
+                            rowHeaderWidth = 56.dp,
+                            weekGridEndPadding = if (homeAdaptiveMetrics.isLargeScreen) 0.dp else 8.dp,
+                            showWeekCaption = boundlessWeekSwipeSeen,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .zIndex(12f)
+                                .fillMaxWidth()
+                                .padding(top = homeAdaptiveMetrics.safeTop + 66.dp)
+                                .padding(
+                                    start = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp,
+                                    end = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp
+                                )
+                                .graphicsLayer { clip = false }
                         )
                     }
                 }
