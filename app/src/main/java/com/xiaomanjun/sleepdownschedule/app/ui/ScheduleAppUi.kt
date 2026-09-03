@@ -976,6 +976,9 @@ fun CourseScheduleAppUi(
             legacyTwoDay = state.config.defaultHomeMode == HomeStartMode.TWO_DAY
         )
     }
+    var weekViewStyle by remember(screen, context) {
+        mutableStateOf(WeekViewPreferences.style(context))
+    }
     val remoteExperience by SleepDownRemoteConfig.experience.collectAsStateWithLifecycle()
     val remoteConfigState by SleepDownRemoteConfig.state.collectAsStateWithLifecycle()
     fun requestSettingsExit(action: () -> Unit) {
@@ -2654,6 +2657,7 @@ fun CourseScheduleAppUi(
                                      personalizationPreviewState = personalizationPreviewState,
                                      mode = homeMode,
                                      dayViewMode = dayViewMode,
+                                     weekViewStyle = weekViewStyle,
                                      adaptiveMetrics = homeAdaptiveMetrics,
                                     weekCardHeight = weekCardHeight.dp,
                                     displayWeek = homeDisplayWeek,
@@ -3415,6 +3419,32 @@ fun CourseScheduleAppUi(
                     }
                 }
             }
+        )
+    }
+
+    // One-time first-run prompt for the boundless week view (per reaching version).
+    var showBoundlessIntro by remember { mutableStateOf(false) }
+    LaunchedEffect(visualState.loaded, screen) {
+        if (screen is Screen.Home && visualState.loaded && WeekViewPreferences.shouldShowIntro(context)) {
+            WeekViewPreferences.markIntroShown(context)
+            showBoundlessIntro = true
+        }
+    }
+    if (showBoundlessIntro) {
+        LiquidAlertDialog(
+            title = "周视图推出无界模式",
+            message = "周视图新增「无界」显示模式：星期与日期融入顶栏，课程可滚动到屏幕顶部，体验更沉浸。\n是否立即切换？（之后可在「通用设置 → 外观与布局」中随时调整）",
+            actions = listOf(
+                LiquidAlertAction("稍后", LiquidAlertActionStyle.Secondary) { showBoundlessIntro = false },
+                LiquidAlertAction("确认", LiquidAlertActionStyle.Primary) {
+                    weekViewStyle = WeekViewStyle.BOUNDLESS
+                    WeekViewPreferences.setStyle(context, WeekViewStyle.BOUNDLESS)
+                    showBoundlessIntro = false
+                }
+            ),
+            backdrop = homeDialogBackdrop,
+            config = visualState.config,
+            onDismissRequest = { showBoundlessIntro = false }
         )
     }
 

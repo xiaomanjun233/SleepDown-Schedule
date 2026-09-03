@@ -8,6 +8,7 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
+import com.xiaomanjun.sleepdownschedule.feature.home.week.*
 
 import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
@@ -326,6 +327,9 @@ fun GeneralSettingsScreen(
             )
         )
     }
+    var weekViewStyle by remember(context, state.config.id) {
+        mutableStateOf(WeekViewPreferences.style(context))
+    }
     var appIconMode by remember(context) {
         mutableStateOf(AppIconManager.currentMode(context))
     }
@@ -422,6 +426,17 @@ fun GeneralSettingsScreen(
                             if (draft.defaultHomeMode == HomeStartMode.TWO_DAY) {
                                 applyChange(draft.copy(defaultHomeMode = HomeStartMode.DAY))
                             }
+                        }
+                    )
+                    SettingsDivider()
+                    SettingsToggleRow(
+                        title = "无界周视图",
+                        subtitle = "星期与日期融入顶栏，课程可滚动到屏幕顶部；开启后隐藏上一周/下一周按钮，可用左右滑动切换周次。",
+                        checked = weekViewStyle == WeekViewStyle.BOUNDLESS,
+                        backdrop = backdrop,
+                        onCheckedChange = { enabled ->
+                            weekViewStyle = if (enabled) WeekViewStyle.BOUNDLESS else WeekViewStyle.NORMAL
+                            WeekViewPreferences.setStyle(context, weekViewStyle)
                         }
                     )
                 }

@@ -341,6 +341,7 @@ internal fun SinglePillWeekScheduleScreen(
     headerBackdrop: Backdrop? = backdrop,
     onSwipeWeek: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
+    style: WeekViewStyle = WeekViewStyle.NORMAL,
     weekEditMode: Boolean = false,
     onEnterWeekEditMode: () -> Unit = {},
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
@@ -397,6 +398,21 @@ internal fun SinglePillWeekScheduleScreen(
         (rowHeaderWidth - weekHeaderOuterHorizontalPadding).coerceAtLeast(0.dp)
     val weekHeaderLabelsEndPadding =
         (weekGridEndPadding - weekHeaderOuterHorizontalPadding).coerceAtLeast(0.dp)
+    val boundless = style == WeekViewStyle.BOUNDLESS
+    // Boundless header geometry. Both values must stay in sync with their upstream sources:
+    // AppTopBar in ScheduleAppUi.kt is statusBarsPadding + 66dp, and the week header row keeps
+    // the same 46dp height as the normal-mode pill.
+    val boundlessAppTopBarHeight = 66.dp
+    val boundlessWeekHeaderRowHeight = 46.dp
+    val boundlessHeaderOffset =
+        adaptiveMetrics.safeTop + boundlessAppTopBarHeight + boundlessWeekHeaderRowHeight
+    // Captures the course canvas subtree so the fixed top blur can soften courses passing under
+    // the boundless header. Applied as a producer only in boundless non-edit mode (see canvas
+    // Box below), mirroring the existing stationaryCoursesBackdrop pattern.
+    val weekBoundlessCanvasBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "week-boundless-canvas"
+    )
     val transitionTravelWidth = if (adaptiveMetrics.isLargeScreen) {
         (
             adaptiveMetrics.screenWidth - horizontalContentStartPadding -
@@ -577,60 +593,68 @@ internal fun SinglePillWeekScheduleScreen(
                 end = horizontalContentEndPadding
             )
         ) {
-            Spacer(Modifier.height(topSpacerHeight))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                WeekSwitchButton(-1, state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
-                Text(
-                    text = "第${displayWeek}周",
-                    modifier = Modifier.padding(horizontal = 10.dp),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
-                    color = textColor
-                )
-                WeekSwitchButton(1, state.config, headerBackdrop, enabled = displayWeek < state.config.totalWeeks) { onSwipeWeek(1) }
+            if (boundless) {
+                // Courses start right below the fixed header and travel behind it (and the app
+                // bar) when the user scrolls up.
+                Spacer(Modifier.height(boundlessHeaderOffset))
+            } else {
+                Spacer(Modifier.height(topSpacerHeight))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    WeekSwitchButton(-1, state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
+                    Text(
+                        text = "第${displayWeek}周",
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        color = textColor
+                    )
+                    WeekSwitchButton(1, state.config, headerBackdrop, enabled = displayWeek < state.config.totalWeeks) { onSwipeWeek(1) }
+                }
             }
 
             Column(modifier = Modifier.fillMaxWidth()) {
-                Box(
-                    modifier = Modifier
-                        .height(46.dp)
-                        .fillMaxWidth()
-                        .padding(horizontal = weekHeaderOuterHorizontalPadding, vertical = 4.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    WeekHeaderPill(headerBackdrop, state.config, selected = false) {
-                        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier.width(weekHeaderLeadingSlotWidth).fillMaxHeight(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "节次",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = textColor,
-                                    textAlign = TextAlign.Center
+                if (!boundless) {
+                    Box(
+                        modifier = Modifier
+                            .height(46.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = weekHeaderOuterHorizontalPadding, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        WeekHeaderPill(headerBackdrop, state.config, selected = false) {
+                            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier.width(weekHeaderLeadingSlotWidth).fillMaxHeight(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "节次",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = textColor,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                                WeekPagerHeaderLabels(
+                                    pagerState = pagerState,
+                                    displayWeek = displayWeek,
+                                    courses = state.courses,
+                                    config = state.config,
+                                    today = today,
+                                    textColor = textColor,
+                                    endPadding = weekHeaderLabelsEndPadding,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
                                 )
                             }
-                            WeekPagerHeaderLabels(
-                                pagerState = pagerState,
-                                displayWeek = displayWeek,
-                                courses = state.courses,
-                                config = state.config,
-                                today = today,
-                                textColor = textColor,
-                                endPadding = weekHeaderLabelsEndPadding,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                            )
                         }
                     }
                 }
@@ -640,6 +664,13 @@ internal fun SinglePillWeekScheduleScreen(
                         .fillMaxWidth()
                         .height(cardHeight * state.periods.size + editControlOverflow)
                         .then(if (retainEditControlOverflow) Modifier else Modifier.clipToBounds())
+                        .then(
+                            if (boundless && !weekEditMode) {
+                                Modifier.glassBackdropProducer(weekBoundlessCanvasBackdrop)
+                            } else {
+                                Modifier
+                            }
+                        )
                 ) {
                     Column(
                         modifier = Modifier
@@ -839,6 +870,78 @@ internal fun SinglePillWeekScheduleScreen(
             Spacer(Modifier.height(WeekDockScrollPadding))
         }
     }
+        if (boundless) {
+            // Fixed top gradient blur. Softens courses passing under the boundless header; the
+            // header info layer below is drawn on top so its text stays crisp. The app-bar region
+            // above keeps the existing root HomeTopGradientBlur for readability.
+            val headerTintColor =
+                if (glassUsesLightStyle(state.config)) HomeLightGlassGradientColor else ComposeColor(0xFF111111)
+            val blurBackdrop =
+                backdrop?.let { combined -> rememberGlassCombinedBackdrop(combined, weekBoundlessCanvasBackdrop) }
+                    ?: weekBoundlessCanvasBackdrop
+            ProgressiveBackdropBlur(
+                backdrop = blurBackdrop,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = adaptiveMetrics.safeTop + boundlessAppTopBarHeight),
+                tintColor = headerTintColor,
+                height = boundlessWeekHeaderRowHeight,
+                blurRadius = 12.dp,
+                tintIntensity = 0.14f,
+                direction = ProgressiveBlurDirection.TopToBottom,
+                fallbackTintStops = listOf(
+                    0f to headerTintColor.copy(alpha = 0.32f),
+                    0.42f to headerTintColor.copy(alpha = 0.12f),
+                    1f to ComposeColor.Transparent
+                )
+            )
+        }
+        if (boundless) {
+            // Fixed top info layer: leading "节次" slot + weekday/date labels, sharing the exact
+            // course-column geometry (rowHeaderWidth leading slot, weekGridEndPadding trailing).
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(top = adaptiveMetrics.safeTop + boundlessAppTopBarHeight)
+                    .padding(start = horizontalContentStartPadding, end = horizontalContentEndPadding)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(boundlessWeekHeaderRowHeight),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(rowHeaderWidth)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "节次",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = textColor,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    WeekPagerHeaderLabels(
+                        pagerState = pagerState,
+                        displayWeek = displayWeek,
+                        courses = state.courses,
+                        config = state.config,
+                        today = today,
+                        textColor = textColor,
+                        endPadding = weekGridEndPadding,
+                        todayStyle = WeekdayTodayStyle.LIGHTWEIGHT,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    )
+                }
+            }
+        }
         WeekEditOverlayHost(
             request = weekEditOverlay.request,
             hostBounds = overlayHostBounds,
@@ -1327,6 +1430,11 @@ fun WeekSwitchButton(direction: Int, config: ScheduleConfigEntity, backdrop: Bac
     }
 }
 
+internal enum class WeekdayTodayStyle {
+    PILL,
+    LIGHTWEIGHT
+}
+
 @Composable
 private fun WeekPagerHeaderLabels(
     pagerState: PagerState,
@@ -1336,6 +1444,7 @@ private fun WeekPagerHeaderLabels(
     today: LocalDate,
     textColor: ComposeColor,
     endPadding: Dp,
+    todayStyle: WeekdayTodayStyle = WeekdayTodayStyle.PILL,
     modifier: Modifier = Modifier
 ) {
     val maxPage = (config.totalWeeks - 1).coerceAtLeast(0)
@@ -1381,6 +1490,7 @@ private fun WeekPagerHeaderLabels(
                         today = today,
                         textColor = textColor,
                         endPadding = endPadding,
+                        todayStyle = todayStyle,
                         modifier = Modifier.graphicsLayer { translationX = translation }
                     )
                 }
@@ -1395,7 +1505,8 @@ private fun WeekPagerHeaderLabels(
                 weekStart = scheduleWeekStartDate(config, displayedPage + 1, today),
                 today = today,
                 textColor = textColor,
-                endPadding = endPadding
+                endPadding = endPadding,
+                todayStyle = todayStyle
             )
         }
     }
@@ -1408,8 +1519,10 @@ private fun WeekdayHeaderLabels(
     today: LocalDate,
     textColor: ComposeColor,
     endPadding: Dp,
+    todayStyle: WeekdayTodayStyle = WeekdayTodayStyle.PILL,
     modifier: Modifier = Modifier
 ) {
+    val todayAccentColor = MaterialTheme.colorScheme.primary
     Row(
         modifier = modifier
             .fillMaxSize()
@@ -1421,12 +1534,13 @@ private fun WeekdayHeaderLabels(
             val isToday = date == today
             val extendsToHeaderEnd = isToday && index == weekdays.lastIndex
             val indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+            val lightweightToday = isToday && todayStyle == WeekdayTodayStyle.LIGHTWEIGHT
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxSize()
                     .then(
-                        if (isToday) Modifier
+                        if (isToday && todayStyle == WeekdayTodayStyle.PILL) Modifier
                             .drawWithContent {
                                 val horizontalInset = 1.dp.toPx()
                                 val verticalInset = 2.dp.toPx()
@@ -1468,7 +1582,7 @@ private fun WeekdayHeaderLabels(
                     fontSize = 11.sp,
                     lineHeight = 12.sp,
                     fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
-                    color = textColor,
+                    color = if (lightweightToday) todayAccentColor else textColor,
                     textAlign = TextAlign.Center,
                     maxLines = 1
                 )
@@ -1476,11 +1590,20 @@ private fun WeekdayHeaderLabels(
                     text = "${date.monthValue}/${date.dayOfMonth}",
                     fontSize = 9.sp,
                     lineHeight = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = textColor.copy(alpha = 0.72f),
+                    fontWeight = if (lightweightToday) FontWeight.Bold else FontWeight.Medium,
+                    color = if (lightweightToday) todayAccentColor.copy(alpha = 0.9f) else textColor.copy(alpha = 0.72f),
                     textAlign = TextAlign.Center,
                     maxLines = 1
                 )
+                if (lightweightToday) {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 1.dp)
+                            .width(10.dp)
+                            .height(2.dp)
+                            .background(todayAccentColor, RoundedCornerShape(1.dp))
+                    )
+                }
             }
         }
     }
