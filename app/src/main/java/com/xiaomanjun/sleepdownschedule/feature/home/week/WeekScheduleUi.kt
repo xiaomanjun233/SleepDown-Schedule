@@ -406,13 +406,6 @@ internal fun SinglePillWeekScheduleScreen(
     val boundlessWeekHeaderRowHeight = 46.dp
     val boundlessHeaderOffset =
         adaptiveMetrics.safeTop + boundlessAppTopBarHeight + boundlessWeekHeaderRowHeight
-    // Captures the course canvas subtree so the fixed top blur can soften courses passing under
-    // the boundless header. Applied as a producer only in boundless non-edit mode (see canvas
-    // Box below), mirroring the existing stationaryCoursesBackdrop pattern.
-    val weekBoundlessCanvasBackdrop = rememberGlassLayerBackdrop(
-        domain = GlassBackdropDomain.Content,
-        providerId = "week-boundless-canvas"
-    )
     val transitionTravelWidth = if (adaptiveMetrics.isLargeScreen) {
         (
             adaptiveMetrics.screenWidth - horizontalContentStartPadding -
@@ -664,13 +657,6 @@ internal fun SinglePillWeekScheduleScreen(
                         .fillMaxWidth()
                         .height(cardHeight * state.periods.size + editControlOverflow)
                         .then(if (retainEditControlOverflow) Modifier else Modifier.clipToBounds())
-                        .then(
-                            if (boundless && !weekEditMode) {
-                                Modifier.glassBackdropProducer(weekBoundlessCanvasBackdrop)
-                            } else {
-                                Modifier
-                            }
-                        )
                 ) {
                     Column(
                         modifier = Modifier
@@ -871,45 +857,6 @@ internal fun SinglePillWeekScheduleScreen(
         }
     }
         if (boundless) {
-            // Fixed top gradient blur. Appears only while content is passing under the header
-            // (scroll > 0); at rest the header is a clean extension of the app bar over the
-            // wallpaper, with no blur or tint. Fades in like the root HomeTopGradientBlur.
-            val headerTintColor =
-                if (glassUsesLightStyle(state.config)) HomeLightGlassGradientColor else ComposeColor(0xFF111111)
-            val blurBackdrop =
-                backdrop?.let { combined -> rememberGlassCombinedBackdrop(combined, weekBoundlessCanvasBackdrop) }
-                    ?: weekBoundlessCanvasBackdrop
-            AnimatedVisibility(
-                visible = contentUnderTopBar,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = adaptiveMetrics.safeTop + boundlessAppTopBarHeight),
-                enter = fadeIn(animationSpec = spring(dampingRatio = 0.9f, stiffness = 520f)),
-                exit = fadeOut(animationSpec = spring(dampingRatio = 0.95f, stiffness = 560f))
-            ) {
-                // Soft top gradient with a wide cover: lower blur amount, multi-level falloff
-                // where the strong blur extends far down and only drops quickly at the tail
-                // (front-slow / rear-fast), so courses stay readable while passing under.
-                ProgressiveBackdropBlur(
-                    backdrop = blurBackdrop,
-                    tintColor = headerTintColor,
-                    height = 110.dp,
-                    blurRadius = 9.dp,
-                    tintIntensity = 0.10f,
-                    direction = ProgressiveBlurDirection.TopToBottom,
-                    topMaskFadeStart = 0.55f,
-                    topMaskFadeEnd = 1f,
-                    fallbackTintStops = listOf(
-                        0f to headerTintColor.copy(alpha = 0.28f),
-                        0.3f to headerTintColor.copy(alpha = 0.20f),
-                        0.55f to headerTintColor.copy(alpha = 0.12f),
-                        0.8f to headerTintColor.copy(alpha = 0.05f),
-                        1f to ComposeColor.Transparent
-                    )
-                )
-            }
-        }
-        if (boundless) {
             // Fixed top info layer: an empty leading slot keeps the weekday/date labels on the
             // exact course-column geometry (rowHeaderWidth leading slot, weekGridEndPadding
             // trailing) without rendering a "节次" caption in boundless mode.
@@ -926,25 +873,23 @@ internal fun SinglePillWeekScheduleScreen(
                         .height(boundlessWeekHeaderRowHeight),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Leading slot keeps weekday labels on the exact course-column geometry. At
-                    // rest it stays clean; once content scrolls under the header it shows the
-                    // current week as part of the top info layer.
-                    AnimatedVisibility(
-                        visible = contentUnderTopBar,
-                        modifier = Modifier.width(rowHeaderWidth).fillMaxHeight(),
-                        enter = fadeIn(animationSpec = spring(dampingRatio = 0.9f, stiffness = 520f)),
-                        exit = fadeOut(animationSpec = spring(dampingRatio = 0.95f, stiffness = 560f))
+                    // Fixed-width leading slot (same width as the timeline rail) keeps the weekday labels on
+                    // the exact course-column geometry. It shows the current week so users can
+                    // read week changes from left/right swipes while scrolling the canvas.
+                    Box(
+                        modifier = Modifier
+                            .width(rowHeaderWidth)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "第${displayWeek}周",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = textColor,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1
-                            )
-                        }
+                        Text(
+                            text = "第${displayWeek}周",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = textColor,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1
+                        )
                     }
                     WeekPagerHeaderLabels(
                         pagerState = pagerState,

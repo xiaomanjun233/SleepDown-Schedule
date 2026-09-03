@@ -274,7 +274,9 @@ internal fun calculateHomeAdaptiveMetrics(
             safeBottom = safeBottom,
             isThreeTwoLike = false,
             topOverlayHeight = HomeTopOverlayHeight,
-            topGradientHeight = HomeTopOverlayHeight,
+            // The top gradient extends well past the week's fixed header band so the boundless
+            // header reads as a continuation of the app top bar chrome.
+            topGradientHeight = 230.dp,
             dayContentTopPadding = compactDayTop,
             weekTopSpacerHeight = compactWeekTop,
             daySidePaneWidth = 0.dp,
@@ -294,7 +296,9 @@ internal fun calculateHomeAdaptiveMetrics(
             safeBottom = safeBottom,
             isThreeTwoLike = false,
             topOverlayHeight = HomeTopOverlayHeight,
-            topGradientHeight = HomeTopOverlayHeight,
+            // The top gradient extends well past the week's fixed header band so the boundless
+            // header reads as a continuation of the app top bar chrome.
+            topGradientHeight = 230.dp,
             dayContentTopPadding = compactDayTop.coerceIn(100.dp, 116.dp),
             weekTopSpacerHeight = compactWeekTop,
             daySidePaneWidth = 0.dp,
@@ -320,7 +324,7 @@ internal fun calculateHomeAdaptiveMetrics(
         safeBottom = safeBottom,
         isThreeTwoLike = isThreeTwoLike,
         topOverlayHeight = topOverlay,
-        topGradientHeight = topOverlay + 10.dp,
+        topGradientHeight = topOverlay + 90.dp,
         dayContentTopPadding = contentTop,
         weekTopSpacerHeight = (contentTop - 30.dp).coerceIn(54.dp, 82.dp),
         daySidePaneWidth = sidePaneWidth,

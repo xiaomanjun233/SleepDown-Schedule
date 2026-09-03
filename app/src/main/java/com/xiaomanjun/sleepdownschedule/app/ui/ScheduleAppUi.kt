@@ -4588,6 +4588,10 @@ fun HomeTopGradientBlur(
         blurRadius = 10.dp,
         tintIntensity = if (lightGlass) 0.12f else 0.14f,
         direction = ProgressiveBlurDirection.TopToBottom,
+        // Front-slow / rear-fast: strong blur persists well into the week's fixed header band
+        // (the header reads as an extension of the top bar) and only drops at the tail.
+        topMaskFadeStart = 0.6f,
+        topMaskFadeEnd = 1f,
         fallbackTintStops = listOf(
             0f to tintColor.copy(alpha = if (lightGlass) 0.28f else 0.34f),
             0.42f to tintColor.copy(alpha = if (lightGlass) 0.10f else 0.13f),

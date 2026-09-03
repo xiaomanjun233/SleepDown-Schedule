@@ -112,9 +112,9 @@ private fun Modifier.miuixCascadingPopupSurface(
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
         return background(if (dark) Color(0xFF242424) else Color.White)
     }
-    val effectiveBlur = blurRadius.coerceAtMost(9.dp)
-    val lensHeight = 24.dp
-    val lensAmount = 44.dp
+    val effectiveBlur = blurRadius.coerceAtMost(12.dp)
+    val lensHeight = 22.dp
+    val lensAmount = 30.dp
     val surfaceAlpha = if (dark) 0.74f else 0.64f
     val surfaceColor = if (dark) Color(0xFF242424) else Color.White
     val topHighlightAlpha = if (dark) 0.10f else 0.07f
@@ -193,7 +193,7 @@ private fun rememberMiuixListPopupStyle(
     surfaceModifier = Modifier.miuixCascadingPopupSurface(
         backdrop = backdrop,
         config = config,
-        blurRadius = 8.dp
+        blurRadius = 10.dp
     ),
     backgroundColor = Color.Transparent,
     cornerRadius = cornerRadius
