@@ -2608,6 +2608,7 @@ fun CourseScheduleAppUi(
                             config = visualState.config,
                             today = todayDate,
                             textColor = homeForegroundColor(visualState.config),
+                            backdrop = chromeBackdrop,
                             rowHeaderWidth = 56.dp,
                             weekGridEndPadding = if (homeAdaptiveMetrics.isLargeScreen) 0.dp else 8.dp,
                             showWeekCaption = boundlessWeekSwipeSeen,
@@ -4620,16 +4621,18 @@ fun HomeTopGradientBlur(
         tintColor = tintColor,
         height = height,
         blurRadius = 7.dp,
-        tintIntensity = if (lightGlass) 0.12f else 0.14f,
+        // Pure blur: no white/dark tint base. A faint tint remains only as the API<33 fallback
+        // brush (the runtime shader path is driven by tintIntensity = 0).
+        tintIntensity = 0f,
         direction = ProgressiveBlurDirection.TopToBottom,
-        // Keep the blur mostly flat (~7dp) over the whole top zone, extending past the "第X周"
+        // Keep the blur mostly flat (~7dp) over the whole top zone, extending past the weekday
         // title text and the week header band; only below that does it fade out quickly. A long
         // plateau with a short tail reads as one soft chrome gradient instead of fast steps.
         topMaskFadeStart = 0.85f,
         topMaskFadeEnd = 1f,
         fallbackTintStops = listOf(
-            0f to tintColor.copy(alpha = if (lightGlass) 0.26f else 0.32f),
-            0.6f to tintColor.copy(alpha = if (lightGlass) 0.12f else 0.15f),
+            0f to tintColor.copy(alpha = if (lightGlass) 0.12f else 0.16f),
+            0.6f to tintColor.copy(alpha = if (lightGlass) 0.05f else 0.07f),
             1f to ComposeColor.Transparent
         )
     )

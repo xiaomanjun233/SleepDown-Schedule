@@ -1365,6 +1365,7 @@ internal fun BoundlessWeekdayHeaderRow(
     config: ScheduleConfigEntity,
     today: LocalDate,
     textColor: ComposeColor,
+    backdrop: Backdrop?,
     rowHeaderWidth: Dp,
     weekGridEndPadding: Dp,
     showWeekCaption: Boolean,
@@ -1389,10 +1390,7 @@ internal fun BoundlessWeekdayHeaderRow(
             Text(
                 text = "第${displayWeek}周",
                 modifier = Modifier.graphicsLayer { alpha = captionAlpha.value },
-                style = MaterialTheme.typography.titleSmall.copy(
-                    fontSize = 17.sp,
-                    lineHeight = 19.sp
-                ),
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = textColor,
                 textAlign = TextAlign.Center,
@@ -1411,6 +1409,9 @@ internal fun BoundlessWeekdayHeaderRow(
             textColor = textColor,
             endPadding = weekGridEndPadding,
             todayStyle = WeekdayTodayStyle.LIGHTWEIGHT,
+            backdrop = backdrop,
+            config = config,
+            enlargeWeekdayLabels = true,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
@@ -1503,9 +1504,11 @@ private fun WeekdayHeaderLabels(
     textColor: ComposeColor,
     endPadding: Dp,
     todayStyle: WeekdayTodayStyle = WeekdayTodayStyle.PILL,
+    backdrop: Backdrop? = null,
+    config: ScheduleConfigEntity? = null,
+    enlargeWeekdayLabels: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val todayAccentColor = MaterialTheme.colorScheme.primary
     Row(
         modifier = modifier
             .fillMaxSize()
@@ -1560,48 +1563,53 @@ private fun WeekdayHeaderLabels(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                val dayLabels: @Composable () -> Unit = {
+                val showTodayCapsule = lightweightToday && backdrop != null && config != null
+                val dayLabels: @Composable (ComposeColor) -> Unit = { labelColor ->
                     Text(
                         text = "周${weekdayLabel(day)}",
-                        fontSize = 11.sp,
-                        lineHeight = 12.sp,
+                        fontSize = if (enlargeWeekdayLabels) 13.sp else 11.sp,
+                        lineHeight = if (enlargeWeekdayLabels) 14.sp else 12.sp,
                         fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
-                        color = textColor,
+                        color = labelColor,
                         textAlign = TextAlign.Center,
                         maxLines = 1
                     )
                     Text(
                         text = "${date.monthValue}/${date.dayOfMonth}",
-                        fontSize = 9.sp,
-                        lineHeight = 10.sp,
+                        fontSize = if (enlargeWeekdayLabels) 11.sp else 9.sp,
+                        lineHeight = if (enlargeWeekdayLabels) 12.sp else 10.sp,
                         fontWeight = FontWeight.Medium,
-                        color = textColor.copy(alpha = 0.72f),
+                        color = labelColor.copy(alpha = if (isToday) 0.92f else 0.72f),
                         textAlign = TextAlign.Center,
                         maxLines = 1
                     )
                 }
-                if (lightweightToday) {
-                    // A compact blue glass capsule marks today instead of recoloring the text,
-                    // so the labels keep the top-bar foreground color and stay readable over the
-                    // gradient while the capsule still reads as a quick locate marker.
-                    Box(
+                if (showTodayCapsule) {
+                    // Blue glass capsule for today on the top bar layer, mirroring the day
+                    // view's current-period pill (DayStatusGlassPill): capsule glass surface with
+                    // a blue base and white labels. The two-line weekday/date layout is kept.
+                    GlassSurface(
+                        backdrop = backdrop,
+                        config = config,
+                        shape = RoundedRectangle(50.dp),
+                        tokens = GlassTokens.pill().copy(
+                            blur = 4.dp,
+                            surfaceAlpha = 0.72f,
+                            highlightAlpha = 0.10f,
+                            innerShadowAlpha = 0.10f
+                        ),
+                        baseSurfaceColorOverride = ComposeColor(0xFF0A84FF),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        todayAccentColor.copy(alpha = 0.32f),
-                                        todayAccentColor.copy(alpha = 0.14f)
-                                    )
-                                )
-                            )
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                        contentAlignment = Alignment.Center
                     ) {
-                        dayLabels()
+                        Box(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            dayLabels(ComposeColor.White)
+                        }
                     }
                 } else {
-                    dayLabels()
+                    dayLabels(textColor)
                 }
             }
         }
