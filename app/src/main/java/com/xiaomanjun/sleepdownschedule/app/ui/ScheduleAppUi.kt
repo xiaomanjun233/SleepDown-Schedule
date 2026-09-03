@@ -242,6 +242,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.graphics.asImageBitmap
@@ -4615,27 +4616,57 @@ fun HomeTopGradientBlur(
 ) {
     val lightGlass = glassUsesLightStyle(config)
     val tintColor = if (lightGlass) HomeLightGlassGradientColor else ComposeColor(0xFF111111)
-    ProgressiveBackdropBlur(
-        backdrop = backdrop,
-        modifier = modifier,
-        tintColor = tintColor,
-        height = height,
-        blurRadius = 7.dp,
-        // Pure blur: no white/dark tint base. A faint tint remains only as the API<33 fallback
-        // brush (the runtime shader path is driven by tintIntensity = 0).
-        tintIntensity = 0f,
-        direction = ProgressiveBlurDirection.TopToBottom,
-        // Keep the blur mostly flat (~7dp) over the whole top zone, extending past the weekday
-        // title text and the week header band; only below that does it fade out quickly. A long
-        // plateau with a short tail reads as one soft chrome gradient instead of fast steps.
-        topMaskFadeStart = 0.85f,
-        topMaskFadeEnd = 1f,
-        fallbackTintStops = listOf(
-            0f to tintColor.copy(alpha = if (lightGlass) 0.12f else 0.16f),
-            0.6f to tintColor.copy(alpha = if (lightGlass) 0.05f else 0.07f),
-            1f to ComposeColor.Transparent
+    Box(modifier = modifier) {
+        ProgressiveBackdropBlur(
+            backdrop = backdrop,
+            tintColor = tintColor,
+            height = height,
+            blurRadius = 7.dp,
+            // Pure blur: no white/dark tint base. A faint tint remains only as the API<33 fallback
+            // brush (the runtime shader path is driven by tintIntensity = 0).
+            tintIntensity = 0f,
+            direction = ProgressiveBlurDirection.TopToBottom,
+            // Keep the blur mostly flat (~7dp) over the whole top zone, extending past the weekday
+            // title text and the week header band; only below that does it fade out quickly. A long
+            // plateau with a short tail reads as one soft chrome gradient instead of fast steps.
+            topMaskFadeStart = 0.85f,
+            topMaskFadeEnd = 1f,
+            fallbackTintStops = listOf(
+                0f to tintColor.copy(alpha = if (lightGlass) 0.12f else 0.16f),
+                0.6f to tintColor.copy(alpha = if (lightGlass) 0.05f else 0.07f),
+                1f to ComposeColor.Transparent
+            )
         )
-    )
+        // Wallpaper brightness: the backdrop sampled above already carries the glass sampling dim,
+        // but the remainder dim (WallpaperToneOverlay) is kept outside the backdrop producers so
+        // course cards stay bright. Re-apply that exact remainder inside the gradient zone so the
+        // chrome does not read brighter ("发白") than the dimmed wallpaper around it.
+        val brightness = config.wallpaperBrightness.coerceIn(0.35f, 1f)
+        val totalDim = (1f - brightness).coerceIn(0f, 0.65f)
+        val samplingDim = wallpaperGlassSamplingDim(brightness)
+        val remainderDim = if (samplingDim >= 0.999f) {
+            0f
+        } else {
+            ((totalDim - samplingDim) / (1f - samplingDim)).coerceIn(0f, 0.65f)
+        }
+        if (remainderDim > 0.001f) {
+            val dimColor = ComposeColor.Black.copy(alpha = remainderDim)
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(height)
+                    .drawBehind {
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                0f to dimColor,
+                                0.85f to dimColor.copy(alpha = dimColor.alpha * 0.6f),
+                                1f to ComposeColor.Transparent
+                            )
+                        )
+                    }
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
