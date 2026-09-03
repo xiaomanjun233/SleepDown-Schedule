@@ -1389,7 +1389,10 @@ internal fun BoundlessWeekdayHeaderRow(
             Text(
                 text = "第${displayWeek}周",
                 modifier = Modifier.graphicsLayer { alpha = captionAlpha.value },
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontSize = 17.sp,
+                    lineHeight = 19.sp
+                ),
                 fontWeight = FontWeight.SemiBold,
                 color = textColor,
                 textAlign = TextAlign.Center,
@@ -1557,32 +1560,48 @@ private fun WeekdayHeaderLabels(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text(
-                    text = "周${weekdayLabel(day)}",
-                    fontSize = 11.sp,
-                    lineHeight = 12.sp,
-                    fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
-                    color = if (lightweightToday) todayAccentColor else textColor,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1
-                )
-                Text(
-                    text = "${date.monthValue}/${date.dayOfMonth}",
-                    fontSize = 9.sp,
-                    lineHeight = 10.sp,
-                    fontWeight = if (lightweightToday) FontWeight.Bold else FontWeight.Medium,
-                    color = if (lightweightToday) todayAccentColor.copy(alpha = 0.9f) else textColor.copy(alpha = 0.72f),
-                    textAlign = TextAlign.Center,
-                    maxLines = 1
-                )
+                val dayLabels: @Composable () -> Unit = {
+                    Text(
+                        text = "周${weekdayLabel(day)}",
+                        fontSize = 11.sp,
+                        lineHeight = 12.sp,
+                        fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
+                        color = textColor,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "${date.monthValue}/${date.dayOfMonth}",
+                        fontSize = 9.sp,
+                        lineHeight = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = textColor.copy(alpha = 0.72f),
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
+                }
                 if (lightweightToday) {
+                    // A compact blue glass capsule marks today instead of recoloring the text,
+                    // so the labels keep the top-bar foreground color and stay readable over the
+                    // gradient while the capsule still reads as a quick locate marker.
                     Box(
                         modifier = Modifier
-                            .padding(top = 1.dp)
-                            .width(10.dp)
-                            .height(2.dp)
-                            .background(todayAccentColor, RoundedCornerShape(1.dp))
-                    )
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        todayAccentColor.copy(alpha = 0.32f),
+                                        todayAccentColor.copy(alpha = 0.14f)
+                                    )
+                                )
+                            )
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        dayLabels()
+                    }
+                } else {
+                    dayLabels()
                 }
             }
         }

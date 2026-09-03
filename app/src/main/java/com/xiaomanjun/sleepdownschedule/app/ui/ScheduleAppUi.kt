@@ -4619,16 +4619,17 @@ fun HomeTopGradientBlur(
         modifier = modifier,
         tintColor = tintColor,
         height = height,
-        blurRadius = 10.dp,
+        blurRadius = 7.dp,
         tintIntensity = if (lightGlass) 0.12f else 0.14f,
         direction = ProgressiveBlurDirection.TopToBottom,
-        // Front-slow / rear-fast: strong blur persists well into the week's fixed header band
-        // (the header reads as an extension of the top bar) and only drops at the tail.
-        topMaskFadeStart = 0.6f,
+        // Keep the blur mostly flat (~7dp) over the whole top zone, extending past the "第X周"
+        // title text and the week header band; only below that does it fade out quickly. A long
+        // plateau with a short tail reads as one soft chrome gradient instead of fast steps.
+        topMaskFadeStart = 0.85f,
         topMaskFadeEnd = 1f,
         fallbackTintStops = listOf(
-            0f to tintColor.copy(alpha = if (lightGlass) 0.28f else 0.34f),
-            0.42f to tintColor.copy(alpha = if (lightGlass) 0.10f else 0.13f),
+            0f to tintColor.copy(alpha = if (lightGlass) 0.26f else 0.32f),
+            0.6f to tintColor.copy(alpha = if (lightGlass) 0.12f else 0.15f),
             1f to ComposeColor.Transparent
         )
     )
