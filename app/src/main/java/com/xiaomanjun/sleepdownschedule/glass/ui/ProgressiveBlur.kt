@@ -84,8 +84,14 @@ fun Modifier.progressiveBackdropBlur(
 ): Modifier {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backdrop != null) {
         val material = remember(blurRadius, tintIntensity) {
+            // Pure progressive blur: strip the default highlight/shadow/inner-shadow decorations
+            // so the gradient never adds a whitish/bright layer over the sampled content.
             GlassMaterialSpec.simpleBlur(blurRadius).copy(
-                surfaceAlpha = tintIntensity.coerceIn(0f, 1f)
+                surfaceAlpha = tintIntensity.coerceIn(0f, 1f),
+                borderAlpha = 0f,
+                highlightAlpha = 0f,
+                shadowAlpha = 0f,
+                innerShadowAlpha = 0f
             )
         }
         val descriptor = rememberGlassSurfaceDescriptor(

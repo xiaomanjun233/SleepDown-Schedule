@@ -130,6 +130,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
@@ -1521,7 +1522,8 @@ private fun WeekdayHeaderLabels(
             val extendsToHeaderEnd = isToday && index == weekdays.lastIndex
             val indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
             val lightweightToday = isToday && todayStyle == WeekdayTodayStyle.LIGHTWEIGHT
-            Column(
+            val showTodayCapsule = lightweightToday && backdrop != null && config != null
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxSize()
@@ -1558,36 +1560,14 @@ private fun WeekdayHeaderLabels(
                                 drawContent()
                             }
                         else Modifier
-                    )
-                    .padding(vertical = 2.dp, horizontal = 1.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                val showTodayCapsule = lightweightToday && backdrop != null && config != null
-                val dayLabels: @Composable (ComposeColor) -> Unit = { labelColor ->
-                    Text(
-                        text = "周${weekdayLabel(day)}",
-                        fontSize = if (enlargeWeekdayLabels) 13.sp else 11.sp,
-                        lineHeight = if (enlargeWeekdayLabels) 14.sp else 12.sp,
-                        fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
-                        color = labelColor,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = "${date.monthValue}/${date.dayOfMonth}",
-                        fontSize = if (enlargeWeekdayLabels) 11.sp else 9.sp,
-                        lineHeight = if (enlargeWeekdayLabels) 12.sp else 10.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = labelColor.copy(alpha = if (isToday) 0.92f else 0.72f),
-                        textAlign = TextAlign.Center,
-                        maxLines = 1
-                    )
-                }
+                // Today in boundless mode: a blue glass capsule sits BEHIND the text as an outer
+                // container. The two-line weekday/date layout below stays byte-for-byte identical
+                // to the other days (same texts, fonts, spacing and centering) — only the color
+                // switches to white so it reads inside the blue glass container.
                 if (showTodayCapsule) {
-                    // Blue glass capsule for today on the top bar layer, mirroring the day
-                    // view's current-period pill (DayStatusGlassPill): capsule glass surface with
-                    // a blue base and white labels. The two-line weekday/date layout is kept.
                     GlassSurface(
                         backdrop = backdrop,
                         config = config,
@@ -1599,17 +1579,37 @@ private fun WeekdayHeaderLabels(
                             innerShadowAlpha = 0.10f
                         ),
                         baseSurfaceColorOverride = ComposeColor(0xFF0A84FF),
-                        modifier = Modifier
+                        modifier = Modifier.widthIn(min = 72.dp).heightIn(min = 34.dp)
                     ) {
-                        Box(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            dayLabels(ComposeColor.White)
-                        }
                     }
-                } else {
-                    dayLabels(textColor)
+                }
+                Column(
+                    modifier = Modifier.padding(vertical = 2.dp, horizontal = 1.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "周${weekdayLabel(day)}",
+                        fontSize = if (enlargeWeekdayLabels) 13.sp else 11.sp,
+                        lineHeight = if (enlargeWeekdayLabels) 14.sp else 12.sp,
+                        fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
+                        color = if (showTodayCapsule) ComposeColor.White else textColor,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "${date.monthValue}/${date.dayOfMonth}",
+                        fontSize = if (enlargeWeekdayLabels) 11.sp else 9.sp,
+                        lineHeight = if (enlargeWeekdayLabels) 12.sp else 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (showTodayCapsule) {
+                            ComposeColor.White.copy(alpha = 0.92f)
+                        } else {
+                            textColor.copy(alpha = 0.72f)
+                        },
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
                 }
             }
         }
