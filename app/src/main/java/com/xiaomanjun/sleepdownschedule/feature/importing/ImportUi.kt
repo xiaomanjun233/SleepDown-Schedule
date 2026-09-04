@@ -2833,9 +2833,14 @@ private fun inspectEduPageCapture(pageText: String): EduPageCaptureIssue? {
 }
 
 private fun aiEduRequestPreview(settings: AiImportSettings, pageTextLength: Int): String {
-    val baseUrl = normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl)
     val useResponses = AiProviderPresets.shouldUseResponses(settings.profile)
-    val endpoint = baseUrl.trimEnd('/') + if (useResponses) "/responses" else "/chat/completions"
+    val path = (if (useResponses) settings.profile.responsesPath else settings.profile.chatCompletionsPath).trim('/')
+    val baseUrl = if (path.isEmpty()) {
+        settings.profile.baseUrl.trim().trimEnd('/')
+    } else {
+        normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl).trimEnd('/')
+    }
+    val endpoint = if (path.isEmpty()) baseUrl.trimEnd('/') else baseUrl.trimEnd('/') + "/" + path
     val outputMode = if (settings.profile.id == AiProviderPresets.deepSeek.id) {
         StructuredOutputMode.PROMPT_ONLY
     } else {

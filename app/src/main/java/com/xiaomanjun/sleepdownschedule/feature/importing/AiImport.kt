@@ -186,8 +186,20 @@ data class AiProviderConfig(
     val supportsResponses: Boolean,
     val inputMode: AiInputMode,
     val reasoningEffort: AiReasoningEffort,
-    val authType: AiAuthType = AiAuthType.ApiKeyBearer
-)
+    val authType: AiAuthType = AiAuthType.ApiKeyBearer,
+    val responsesPath: String = "/responses",
+    val chatCompletionsPath: String = "/chat/completions"
+) {
+    /**
+     * 解析实际请求端点。仅当显式配置了非空路径时才追加；路径为空时直接使用 baseUrl，
+     * 以便后端下发的完整地址按原样使用，而不是被强制补上 /responses 等后缀。
+     */
+    fun resolveRequestEndpoint(): String {
+        val base = baseUrl.trim().trimEnd('/')
+        val path = (if (endpointStyle == AiEndpointStyle.RESPONSES) responsesPath else chatCompletionsPath).trim('/')
+        return if (path.isEmpty()) base else "$base/$path"
+    }
+}
 
 sealed interface AiScheduleInput {
     data class ExtractedText(
@@ -403,6 +415,9 @@ object AiProviderPresets {
         endpointStyle = AiEndpointStyle.RESPONSES,
         structuredOutputMode = StructuredOutputMode.JSON_SCHEMA,
         supportsVision = true,
+        // 每日免费 AI 的地址由后端下发，按原样使用、不再额外补 /responses 等后缀
+        responsesPath = "",
+        chatCompletionsPath = "",
         availableModels = emptyList()
     )
 
@@ -1758,7 +1773,7 @@ suspend fun testAiProviderConnection(settings: AiImportSettings): Result<String>
                     putResponsesReasoning(config)
                     put("max_output_tokens", JsonPrimitive(32))
                 }
-                postJson(config.baseUrl.trimEnd('/') + "/responses", config.apiKey, body.toString(), config.authType, config.providerId)
+                postJson(config.resolveRequestEndpoint(), config.apiKey, body.toString(), config.authType, config.providerId)
             } else {
                 val body = buildJsonObject {
                     put("model", JsonPrimitive(config.model))
@@ -1775,7 +1790,7 @@ suspend fun testAiProviderConnection(settings: AiImportSettings): Result<String>
                         put("max_tokens", JsonPrimitive(32))
                     }
                 }
-                postJson(config.baseUrl.trimEnd('/') + "/chat/completions", config.apiKey, body.toString(), config.authType, config.providerId)
+                postJson(config.resolveRequestEndpoint(), config.apiKey, body.toString(), config.authType, config.providerId)
             }
             "连接测试成功\n" + response.compactForSettingsResult()
         }
@@ -1788,11 +1803,7 @@ suspend fun diagnoseAiProviderNetwork(settings: AiImportSettings): Result<String
             require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
             require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
             val config = settings.toProviderConfig().normalizedForRequest()
-            val endpoint = config.baseUrl.trimEnd('/') + if (config.endpointStyle == AiEndpointStyle.RESPONSES) {
-                "/responses"
-            } else {
-                "/chat/completions"
-            }
+            val endpoint = config.resolveRequestEndpoint()
             val endpointUrl = URL(endpoint)
             val port = if (endpointUrl.port > 0) endpointUrl.port else endpointUrl.defaultPort.takeIf { it > 0 } ?: 443
             val result = StringBuilder()
@@ -1868,7 +1879,9 @@ private fun AiImportSettings.toProviderConfig(): AiProviderConfig {
         supportsResponses = AiProviderPresets.supportsResponses(profile),
         inputMode = profile.inputMode,
         reasoningEffort = profile.reasoningEffort,
-        authType = profile.authType
+        authType = profile.authType,
+        responsesPath = profile.responsesPath,
+        chatCompletionsPath = profile.chatCompletionsPath
     )
 }
 
@@ -1884,9 +1897,15 @@ internal object AiEndpointDiagnostics {
 }
 
 internal fun AiProviderConfig.normalizedForRequest(): AiProviderConfig {
-    val normalizedBaseUrl = normalizeAiBaseUrlForProvider(providerId, baseUrl)
     val useResponses = (AiEndpointDiagnostics.forcedEndpointStyle ?: endpointStyle) ==
         AiEndpointStyle.RESPONSES && supportsResponses
+    val configuredPath = if (useResponses) responsesPath else chatCompletionsPath
+    val normalizedBaseUrl = if (configuredPath.isBlank()) {
+        // An empty path means baseUrl is already the complete endpoint supplied by the backend.
+        baseUrl.trim().trimEnd('/')
+    } else {
+        normalizeAiBaseUrlForProvider(providerId, baseUrl)
+    }
     val isMimo = providerId == AiProviderPresets.mimo.id || providerId == AiProviderPresets.mimoTokenPlan.id
     val outputMode = if (providerId == AiProviderPresets.deepSeek.id || isMimo) {
         StructuredOutputMode.PROMPT_ONLY
@@ -2099,7 +2118,7 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
             putChatOutputBudget(config)
         }
         val response = postJson(
-            config.baseUrl.trimEnd('/') + "/chat/completions",
+            config.resolveRequestEndpoint(),
             config.apiKey,
             body.toString(),
             config.authType,
@@ -2146,7 +2165,7 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
             putChatOutputBudget(config)
         }
         val firstResponse = postJson(
-            config.baseUrl.trimEnd('/') + "/chat/completions",
+            config.resolveRequestEndpoint(),
             config.apiKey,
             firstBody.toString(),
             config.authType,
@@ -2191,7 +2210,7 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
             putChatOutputBudget(config)
         }
         val secondResponse = postJson(
-            config.baseUrl.trimEnd('/') + "/chat/completions",
+            config.resolveRequestEndpoint(),
             config.apiKey,
             secondBody.toString(),
             config.authType,
@@ -2282,7 +2301,7 @@ private class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
                 putChatOutputBudget(config)
             }
             val response = postJson(
-                config.baseUrl.trimEnd('/') + "/chat/completions",
+                config.resolveRequestEndpoint(),
                 config.apiKey,
                 body.toString(),
                 config.authType,
@@ -2387,7 +2406,7 @@ private class OpenAiResponsesProvider : AiScheduleImportProvider {
             })
         }
         val response = postJson(
-            config.baseUrl.trimEnd('/') + "/responses",
+            config.resolveRequestEndpoint(),
             config.apiKey,
             body.toString(),
             config.authType,
@@ -2422,7 +2441,7 @@ private class OpenAiResponsesProvider : AiScheduleImportProvider {
             put("tool_choice", JsonPrimitive("auto"))
         }
         val firstResponse = postJson(
-            config.baseUrl.trimEnd('/') + "/responses",
+            config.resolveRequestEndpoint(),
             config.apiKey,
             firstBody.toString(),
             config.authType,
@@ -2477,7 +2496,7 @@ private class OpenAiResponsesProvider : AiScheduleImportProvider {
             })
         }
         val secondResponse = postJson(
-            config.baseUrl.trimEnd('/') + "/responses",
+            config.resolveRequestEndpoint(),
             config.apiKey,
             secondBody.toString(),
             config.authType,

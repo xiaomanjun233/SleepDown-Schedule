@@ -174,10 +174,15 @@ internal class DayAgentChatTransport {
         settings: AiImportSettings,
         body: String
     ): HttpURLConnection {
-        val base = normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl)
-        val path = settings.profile.chatCompletionsPath.ifBlank { "/chat/completions" }
+        val path = settings.profile.chatCompletionsPath.trim('/')
+        val base = if (path.isEmpty()) {
+            // 未显式配置路径：直接使用下发的完整地址，不再 normalize 剥掉 /chat/completions 等后缀
+            settings.profile.baseUrl.trim().trimEnd('/')
+        } else {
+            normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl).trimEnd('/')
+        }
         val connection = URL(
-            base.trimEnd('/') + "/" + path.trimStart('/')
+            if (path.isEmpty()) base else "$base/$path"
         ).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
         connection.connectTimeout = 30_000

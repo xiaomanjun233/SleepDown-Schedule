@@ -311,9 +311,15 @@ internal class OpenAiResponsesAgentRunner {
     }
 
     private fun open(settings: AiImportSettings, body: JsonObject): HttpURLConnection {
-        val base = normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl)
-        val path = settings.profile.responsesPath.ifBlank { "/responses" }
-        return (URL(base.trimEnd('/') + "/" + path.trimStart('/')).openConnection() as HttpURLConnection)
+        val path = settings.profile.responsesPath.trim('/')
+        val base = if (path.isEmpty()) {
+            // 未显式配置路径：直接使用下发的完整地址，不再 normalize 剥掉 /responses 等后缀
+            settings.profile.baseUrl.trim().trimEnd('/')
+        } else {
+            normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl).trimEnd('/')
+        }
+        val endpoint = if (path.isEmpty()) base else "$base/$path"
+        return (URL(endpoint).openConnection() as HttpURLConnection)
             .apply {
                 requestMethod = "POST"
                 connectTimeout = 30_000
