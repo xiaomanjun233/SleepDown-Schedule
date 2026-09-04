@@ -74,4 +74,11 @@ class DaySecondaryPreviewTest {
             )
         )
     }
+
+    @Test
+    fun twoDayModeRendersFollowingDateEvenWhenItHasNoCourses() {
+        assertTrue(shouldRenderSecondaryDay(displayDayCount = 2, secondaryCourses = emptyList()))
+        assertFalse(shouldRenderSecondaryDay(displayDayCount = 1, secondaryCourses = emptyList()))
+        assertTrue(shouldRenderSecondaryDay(displayDayCount = 1, secondaryCourses = listOf(course)))
+    }
 }

@@ -359,7 +359,7 @@ internal fun SinglePillWeekScheduleScreen(
     // boundless mode the rail is narrowed so the period/time header shifts left, the left
     // clearance to the grid shrinks, and the freed width flows into every course column equally.
     val boundless = style == WeekViewStyle.BOUNDLESS
-    val rowHeaderWidth = if (boundless) 48.dp else 56.dp
+    val rowHeaderWidth = if (boundless) BoundlessWeekRowHeaderWidth else 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
     val now = LocalTime.now()
@@ -398,7 +398,7 @@ internal fun SinglePillWeekScheduleScreen(
     }
     val weekGridEndPadding = when {
         adaptiveMetrics.isLargeScreen -> 0.dp
-        boundless -> 4.dp
+        boundless -> BoundlessWeekGridEndPadding
         else -> 8.dp
     }
     val weekHeaderOuterHorizontalPadding = 4.dp
@@ -1357,6 +1357,8 @@ internal enum class WeekdayTodayStyle {
 
 /** Height of the boundless week header row, shared with the home top bar slot renderer. */
 internal val BoundlessWeekHeaderRowHeight = 46.dp
+internal val BoundlessWeekRowHeaderWidth = 44.dp
+internal val BoundlessWeekGridEndPadding = 4.dp
 
 /**
  * The boundless week header lives on the app top bar layer (above the top gradient blur), so the
@@ -1567,23 +1569,32 @@ private fun WeekdayHeaderLabels(
                 // to the other days (same texts, fonts, spacing and centering) — only the color
                 // switches to white so it reads inside the blue glass container.
                 if (showTodayCapsule) {
-                    GlassSurface(
-                        backdrop = backdrop,
-                        config = config,
-                        shape = RoundedRectangle(50.dp),
-                        tokens = GlassTokens.pill().copy(
-                            blur = 4.dp,
-                            surfaceAlpha = 0.72f,
-                            highlightAlpha = 0.10f,
-                            innerShadowAlpha = 0.10f
-                        ),
-                        baseSurfaceColorOverride = ComposeColor(0xFF0A84FF),
+                    val todayCapsuleShape = RoundedRectangle(50.dp)
+                    val todayCapsuleColor = ComposeColor(0xFF0A84FF)
+                    Box(
                         modifier = Modifier
-                            .widthIn(
-                                min = if (weekdays.size >= 6) 64.dp else 92.dp
-                            )
+                            .widthIn(min = if (weekdays.size >= 6) 64.dp else 92.dp)
                             .heightIn(min = 34.dp)
                     ) {
+                        GlassSurface(
+                            backdrop = backdrop,
+                            config = config,
+                            shape = todayCapsuleShape,
+                            tokens = GlassTokens.pill().copy(
+                                blur = 4.dp,
+                                surfaceAlpha = 0.64f,
+                                highlightAlpha = 0.10f,
+                                innerShadowAlpha = 0.10f
+                            ),
+                            baseSurfaceColorOverride = todayCapsuleColor,
+                            modifier = Modifier.matchParentSize()
+                        ) {}
+                        VerticalGlassAccentOverlay(
+                            accentColor = todayCapsuleColor,
+                            shape = todayCapsuleShape,
+                            lightGlass = glassUsesLightStyle(config),
+                            modifier = Modifier.matchParentSize()
+                        )
                     }
                 }
                 Column(

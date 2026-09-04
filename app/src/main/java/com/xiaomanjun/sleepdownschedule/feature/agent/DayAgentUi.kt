@@ -500,7 +500,6 @@ fun TodayAgentCard(
     }
     val foreground = LocalAdaptiveGlass.current.contentColor
     val cardIsDark = !glassUsesLightStyle(state.config)
-    val activityAccent = if (cardIsDark) Color(0xFF62B5FF) else Color(0xFF006EDC)
     val currentSlot = remember(facts.today, now) {
         facts.today.firstOrNull { !now.toLocalTime().isBefore(it.start) && now.toLocalTime().isBefore(it.end) }
     }
@@ -512,6 +511,11 @@ fun TodayAgentCard(
         currentSlot == null &&
         nextSlot == null &&
         facts.tomorrow.isNotEmpty()
+    val activityAccent = when {
+        currentSlot != null -> if (cardIsDark) Color(0xFFFF7474) else Color(0xFFD92D2D)
+        nextSlot != null || previewTomorrow -> if (cardIsDark) Color(0xFFFFB45C) else Color(0xFFD96A00)
+        else -> if (cardIsDark) Color(0xFF62B5FF) else Color(0xFF006EDC)
+    }
     val focusSlot = currentSlot ?: nextSlot ?: facts.tomorrow.firstOrNull().takeIf { previewTomorrow }
     val remainingMinutes = remember(currentSlot, nextSlot, now) {
         val target = currentSlot?.end ?: nextSlot?.start
@@ -616,7 +620,7 @@ fun TodayAgentCard(
         blur = if (cardIsDark) 8.dp else 10.dp,
         lensHeight = 20.dp,
         lensAmount = 40.dp,
-        surfaceAlpha = if (cardIsDark) 0.50f else 0.54f,
+        surfaceAlpha = if (cardIsDark) 0.46f else 0.50f,
         borderAlpha = 0.34f,
         highlightAlpha = 0.075f,
         depthEffect = true,
@@ -919,6 +923,11 @@ private fun DayAgentCardVisualContent(
                 } else {
                     Color.White.copy(alpha = 0.30f)
                 }
+            )
+            .verticalGlassAccent(
+                accentColor = activityAccent,
+                shape = shape,
+                lightGlass = !visual.cardIsDark
             )
             .padding(horizontal = 16.dp, vertical = if (visual.collapsed) 10.dp else 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)

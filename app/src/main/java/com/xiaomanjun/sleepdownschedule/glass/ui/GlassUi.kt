@@ -734,6 +734,79 @@ internal fun courseCardGlassEffectFrame(
     )
 )
 
+internal fun Modifier.verticalGlassAccent(
+    accentColor: Color,
+    shape: Shape,
+    lightGlass: Boolean
+): Modifier = this
+            .clip(shape)
+            .drawBehind {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Black.copy(alpha = if (lightGlass) 0.018f else 0.028f),
+                            0.18f to Color.Black.copy(alpha = if (lightGlass) 0.013f else 0.020f),
+                            0.32f to Color.Black.copy(alpha = if (lightGlass) 0.006f else 0.009f),
+                            0.46f to Color.Transparent,
+                            1f to Color.Transparent
+                        ),
+                        endY = size.height
+                    )
+                )
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Transparent,
+                            0.40f to Color.Transparent,
+                            0.58f to accentColor.copy(alpha = 0.018f),
+                            0.74f to accentColor.copy(alpha = 0.060f),
+                            0.88f to accentColor.copy(alpha = 0.125f),
+                            1f to accentColor.copy(alpha = 0.205f)
+                        ),
+                        endY = size.height
+                    )
+                )
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Transparent,
+                            0.54f to Color.Transparent,
+                            0.72f to Color.White.copy(alpha = 0.008f),
+                            0.88f to Color.White.copy(alpha = if (lightGlass) 0.036f else 0.046f),
+                            1f to Color.White.copy(alpha = if (lightGlass) 0.090f else 0.110f)
+                        ),
+                        endY = size.height
+                    )
+                )
+            }
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0f to Color.White.copy(alpha = if (lightGlass) 0.28f else 0.16f),
+                        0.28f to Color.Transparent,
+                        1f to Color.Transparent
+                    )
+                ),
+                shape = shape
+            )
+
+@Composable
+internal fun VerticalGlassAccentOverlay(
+    accentColor: Color,
+    shape: Shape,
+    lightGlass: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier.verticalGlassAccent(
+            accentColor = accentColor,
+            shape = shape,
+            lightGlass = lightGlass
+        )
+    )
+}
+
 @Composable
 fun CourseGlassCard(
     backdrop: Backdrop?,
@@ -965,47 +1038,17 @@ fun CourseGlassCard(
                     )
             )
         }
-        // ColorOS-style card decoration: a restrained top edge and a course-colour inset shadow
-        // anchored to the lower outline. The two feathered strokes stay inside the card clip and
-        // remain below content, avoiding an outer glow or colour wash over the labels.
-        Box(
-            Modifier
+        // ColorOS-style card decoration: subtly suppress the upper-third brightness, then let a
+        // course-colour inner light diffuse continuously through the lower half. Full-area
+        // gradients avoid the hard inner edge produced by stacked border strokes; the white tail
+        // lifts the light without adding blur, shaders or another offscreen layer.
+        VerticalGlassAccentOverlay(
+            accentColor = baseColor,
+            shape = shape,
+            lightGlass = lightGlass,
+            modifier = Modifier
                 .matchParentSize()
-                .clip(shape)
                 .then(materialAlphaModifier)
-                .border(
-                    width = 9.dp,
-                    brush = Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0f to Color.Transparent,
-                            0.72f to Color.Transparent,
-                            1f to baseColor.copy(alpha = 0.16f)
-                        )
-                    ),
-                    shape = shape
-                )
-                .border(
-                    width = 3.dp,
-                    brush = Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0f to Color.Transparent,
-                            0.82f to Color.Transparent,
-                            1f to baseColor.copy(alpha = 0.30f)
-                        )
-                    ),
-                    shape = shape
-                )
-                .border(
-                    width = 1.dp,
-                    brush = Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0f to Color.White.copy(alpha = if (lightGlass) 0.28f else 0.16f),
-                            0.28f to Color.Transparent,
-                            1f to Color.Transparent
-                        )
-                    ),
-                    shape = shape
-                )
         )
         content()
         if (pressed) {

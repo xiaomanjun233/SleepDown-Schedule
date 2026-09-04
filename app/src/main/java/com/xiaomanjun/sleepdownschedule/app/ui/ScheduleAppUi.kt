@@ -2605,8 +2605,12 @@ fun CourseScheduleAppUi(
                             today = todayDate,
                             textColor = homeForegroundColor(visualState.config),
                             backdrop = chromeBackdrop,
-                            rowHeaderWidth = 48.dp,
-                            weekGridEndPadding = if (homeAdaptiveMetrics.isLargeScreen) 0.dp else 8.dp,
+                            rowHeaderWidth = BoundlessWeekRowHeaderWidth,
+                            weekGridEndPadding = if (homeAdaptiveMetrics.isLargeScreen) {
+                                0.dp
+                            } else {
+                                BoundlessWeekGridEndPadding
+                            },
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .zIndex(12f)

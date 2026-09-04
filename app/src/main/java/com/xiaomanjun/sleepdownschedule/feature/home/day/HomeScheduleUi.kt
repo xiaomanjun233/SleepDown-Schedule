@@ -1464,6 +1464,11 @@ internal fun shouldShowSecondaryDay(
     return !now.toLocalTime().isBefore(lastCourseEnd)
 }
 
+internal fun shouldRenderSecondaryDay(
+    displayDayCount: Int,
+    secondaryCourses: List<CourseEntity>
+): Boolean = displayDayCount >= 2 || secondaryCourses.isNotEmpty()
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun DayScheduleScreen(
@@ -1704,7 +1709,12 @@ internal fun DayScheduleScreen(
                         ?.let { part to it }
                 }
             }
-            val visibleSecondaryDate = secondaryDate?.takeIf { secondaryCourses.isNotEmpty() }
+            // Two-day mode owns two calendar days, even when the following day is empty. The old
+            // course-presence gate made the second day disappear while browsing dates whose next
+            // day had no classes, which made the mode look as if it only worked on Today.
+            val visibleSecondaryDate = secondaryDate?.takeIf {
+                shouldRenderSecondaryDay(displayDayCount, secondaryCourses)
+            }
             val courseList: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
                 if (dayCourses.isEmpty()) item(key = "primary-empty-$targetDate") {
                     HomeReadableText(if (isToday) "今天没有课程" else "这一天没有课程", color = textColor)
@@ -1744,6 +1754,11 @@ internal fun DayScheduleScreen(
                             backdrop = backdrop,
                             config = state.config
                         )
+                    }
+                    if (secondaryCourses.isEmpty()) {
+                        item(key = "secondary-empty-$visibleDate") {
+                            HomeReadableText("第二天没有课程", color = textColor.copy(alpha = 0.82f))
+                        }
                     }
                     groupedSecondaryCourses.forEach { (part, coursesInPart) ->
                         item(key = "secondary-day-part-$visibleDate-${part.name}") {
