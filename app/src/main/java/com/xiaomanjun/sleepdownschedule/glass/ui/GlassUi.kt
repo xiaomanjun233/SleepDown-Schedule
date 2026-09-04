@@ -9,6 +9,7 @@ import com.xiaomanjun.sleepdownschedule.core.performance.LocalGlassQuality
 
 import android.os.Build
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.background
@@ -31,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
@@ -110,7 +112,9 @@ fun resolvedCourseCardPalette(
         config.cardColorArgb.takeUnless { it == MulticolorCourseCardArgb } ?: 0xFFD6E9FFL
     )
     CourseCardColorMode.COLORFUL -> decodeCourseCardPalette(config.courseCardPalette)
-        .ifEmpty { wallpaperColors }
+        .ifEmpty {
+            if (config.hasAnyWallpaper()) wallpaperColors else DefaultCourseCardPalette
+        }
         .ifEmpty { DefaultCourseCardPalette }
 }
 
@@ -961,6 +965,48 @@ fun CourseGlassCard(
                     )
             )
         }
+        // ColorOS-style card decoration: a restrained top edge and a course-colour inset shadow
+        // anchored to the lower outline. The two feathered strokes stay inside the card clip and
+        // remain below content, avoiding an outer glow or colour wash over the labels.
+        Box(
+            Modifier
+                .matchParentSize()
+                .clip(shape)
+                .then(materialAlphaModifier)
+                .border(
+                    width = 9.dp,
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Transparent,
+                            0.72f to Color.Transparent,
+                            1f to baseColor.copy(alpha = 0.16f)
+                        )
+                    ),
+                    shape = shape
+                )
+                .border(
+                    width = 3.dp,
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Transparent,
+                            0.82f to Color.Transparent,
+                            1f to baseColor.copy(alpha = 0.30f)
+                        )
+                    ),
+                    shape = shape
+                )
+                .border(
+                    width = 1.dp,
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.White.copy(alpha = if (lightGlass) 0.28f else 0.16f),
+                            0.28f to Color.Transparent,
+                            1f to Color.Transparent
+                        )
+                    ),
+                    shape = shape
+                )
+        )
         content()
         if (pressed) {
             Box(

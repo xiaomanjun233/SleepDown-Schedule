@@ -525,13 +525,37 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
     val renderKey = remember(sourceKey, blurBucket) {
         homeWallpaperRenderKey(config, useDarkDefaultWallpaper)
     }
+    val explicitNoWallpaper = config.wallpaperUri.isNullOrBlank() &&
+        config.defaultWallpaperStyle == DefaultWallpaperStyle.NONE
     // Keep the last rendered image while only the blur bucket is changing.  Keying
     // this state by renderKey used to replace it with an empty bitmap for one frame,
     // which was visible as a flash whenever the blur slider crossed an integer.
-    val images = remember { mutableStateOf(synchronized(wallpaperRenderCache) {
-        wallpaperRenderCache[renderKey] ?: HomeWallpaperImages(null, null, null, blurBucket)
-    }) }
+    val images = remember {
+        mutableStateOf(
+            if (explicitNoWallpaper) {
+                HomeWallpaperImages(null, null, null, blurBucket, renderKey = renderKey)
+            } else {
+                synchronized(wallpaperRenderCache) {
+                    wallpaperRenderCache[renderKey] ?: HomeWallpaperImages(null, null, null, blurBucket)
+                }
+            }
+        )
+    }
     LaunchedEffect(renderKey) {
+        if (explicitNoWallpaper) {
+            val noWallpaper = HomeWallpaperImages(
+                source = null,
+                reducedSource = null,
+                blurredSource = null,
+                blurBucket = blurBucket,
+                representativeColors = DefaultCourseCardPalette,
+                readabilityBitmap = null,
+                renderKey = renderKey
+            )
+            synchronized(wallpaperRenderCache) { wallpaperRenderCache[renderKey] = noWallpaper }
+            images.value = noWallpaper
+            return@LaunchedEffect
+        }
         val cached = synchronized(wallpaperRenderCache) { wallpaperRenderCache[renderKey] }
         if (cached != null) {
             images.value = cached

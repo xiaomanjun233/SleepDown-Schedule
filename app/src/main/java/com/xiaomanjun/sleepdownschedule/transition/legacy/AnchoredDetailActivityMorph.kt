@@ -213,6 +213,7 @@ internal fun AnchoredDetailActivityMorph(
     openingReady: Boolean = true,
     onOpened: () -> Unit = {},
     onCloseRequested: (() -> Boolean)? = null,
+    handleSystemBack: Boolean = true,
     content: @Composable (requestClose: () -> Unit) -> Unit
 ) {
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
@@ -284,7 +285,7 @@ internal fun AnchoredDetailActivityMorph(
         }
     }
 
-    BackHandler(onBack = ::close)
+    BackHandler(enabled = handleSystemBack, onBack = ::close)
     LaunchedEffect(sourceBounds, rootSize, motionStyle, openingMode, openingReady) {
         if (openingMode == AnchoredDetailOpeningMode.ShowDestination) {
             if (progress.value < 1f) progress.snapTo(1f)

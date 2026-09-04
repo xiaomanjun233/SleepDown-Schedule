@@ -613,10 +613,10 @@ fun TodayAgentCard(
 
     val cardShape = RoundedRectangle(if (collapsed) 26.dp else 28.dp)
     val cardTokens = GlassTokens.dialog(intensity = 1.12f).copy(
-        blur = if (cardIsDark) 10.dp else 12.dp,
-        lensHeight = 18.dp,
-        lensAmount = 34.dp,
-        surfaceAlpha = if (cardIsDark) 0.54f else 0.58f,
+        blur = if (cardIsDark) 8.dp else 10.dp,
+        lensHeight = 20.dp,
+        lensAmount = 40.dp,
+        surfaceAlpha = if (cardIsDark) 0.50f else 0.54f,
         borderAlpha = 0.34f,
         highlightAlpha = 0.075f,
         depthEffect = true,

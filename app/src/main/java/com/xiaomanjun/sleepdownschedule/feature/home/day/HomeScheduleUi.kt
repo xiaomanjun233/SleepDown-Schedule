@@ -1062,11 +1062,15 @@ internal fun WallpaperGlassSamplingToneOverlay(
 }
 
 @Composable
-fun HomeBackdropFallback() {
+fun HomeBackdropFallback(noWallpaper: Boolean = true) {
     val colors = MaterialTheme.colorScheme
     val dark = colors.background.luminance() < 0.5f
 
     Canvas(Modifier.fillMaxSize()) {
+        if (noWallpaper) {
+            drawRect(if (dark) ComposeColor(0xFF111111) else ComposeColor.White)
+            return@Canvas
+        }
         drawRect(colors.background)
         drawRect(
             brush = Brush.verticalGradient(

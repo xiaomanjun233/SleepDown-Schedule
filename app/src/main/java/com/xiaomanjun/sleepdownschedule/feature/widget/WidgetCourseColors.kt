@@ -50,12 +50,15 @@ internal object WidgetCourseColors {
         ).joinToString("|")
         synchronized(cache) { cache[key]?.let { return it } }
 
+        val explicitNoWallpaper = state.config.wallpaperUri.isNullOrBlank() &&
+            state.config.defaultWallpaperStyle == DefaultWallpaperStyle.NONE
         val needsWallpaperPalette = state.config.courseCardColorMode == CourseCardColorMode.COLORFUL &&
-            decodeCourseCardPalette(state.config.courseCardPalette).isEmpty()
+            decodeCourseCardPalette(state.config.courseCardPalette).isEmpty() &&
+            !explicitNoWallpaper
         val representativeColors = if (needsWallpaperPalette) {
             val source = loadWallpaperBitmap(context, state.config, darkMode)
             try {
-                extractRepresentativeWallpaperColors(source)
+                source?.let(::extractRepresentativeWallpaperColors) ?: DefaultCourseCardPalette
             } finally {
                 source?.recycle()
             }

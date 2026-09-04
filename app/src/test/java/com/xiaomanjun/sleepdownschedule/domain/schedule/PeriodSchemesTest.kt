@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.domain.schedule
 import com.xiaomanjun.sleepdownschedule.model.*
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -54,6 +55,27 @@ class PeriodSchemesTest {
 
         assertEquals("08:05", result[0].startTime)
         assertEquals("08:55", result[1].startTime)
+    }
+
+    @Test
+    fun laterAutoOverridePushesFollowingPeriodPastItsRealEnd() {
+        val scheme = PeriodSchemeEntity(
+            id = 14,
+            scheduleId = 1,
+            name = "override",
+            mode = PeriodSchemeMode.AUTO_MATCH,
+            classDurationMinutes = 45,
+            breakDurationMinutes = 10
+        )
+        val override = PeriodSchemeTimeEntity(14, 1, "08:05", "09:20")
+
+        val result = resolveSchemeTimes(
+            config,
+            PeriodSchemeDraft(scheme, listOf(override), overriddenPeriods = setOf(1))
+        )
+
+        assertEquals("09:30", result[1].startTime)
+        assertNull(validateResolvedPeriodTimes(result))
     }
 
     @Test
@@ -222,5 +244,47 @@ class PeriodSchemesTest {
         )
 
         assertNull(counts)
+    }
+
+    @Test
+    fun manualInsertMovesDownstreamTimelineWithoutOverlap() {
+        val newConfig = defaultConfig().copy(
+            morningPeriodCount = 5,
+            noonPeriodCount = 0,
+            afternoonPeriodCount = 4,
+            eveningPeriodCount = 0
+        )
+        val scheme = PeriodSchemeEntity(
+            id = 15,
+            scheduleId = newConfig.id,
+            name = "manual",
+            mode = PeriodSchemeMode.MANUAL,
+            classDurationMinutes = 45,
+            breakDurationMinutes = 10
+        )
+        val originalTimes = (1..8).map { index ->
+            val start = 8 * 60 + (index - 1) * 55
+            PeriodSchemeTimeEntity(
+                schemeId = scheme.id,
+                periodIndex = index,
+                startTime = "%02d:%02d".format(start / 60, start % 60),
+                endTime = "%02d:%02d".format((start + 45) / 60, (start + 45) % 60)
+            )
+        }
+
+        val result = insertPeriodIntoSchemeDraft(
+            draft = PeriodSchemeDraft(scheme, originalTimes),
+            after = 4,
+            newConfig = newConfig
+        )
+
+        assertNotNull(result)
+        val times = requireNotNull(result).times
+        assertEquals((1..9).toList(), times.map { it.periodIndex })
+        assertEquals("11:40", times[4].startTime)
+        assertEquals("12:25", times[4].endTime)
+        assertEquals("12:35", times[5].startTime)
+        assertEquals(originalTimes.take(4), times.take(4))
+        assertNull(validateResolvedPeriodTimes(times))
     }
 }

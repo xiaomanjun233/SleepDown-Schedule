@@ -14,6 +14,8 @@ import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTopologyOperation
 import com.xiaomanjun.sleepdownschedule.domain.schedule.allocatePeriodCountsByStartTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.deletePeriodFromSchemeDraft
+import com.xiaomanjun.sleepdownschedule.domain.schedule.insertPeriodIntoSchemeDraft
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdatePreferences
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
@@ -401,7 +403,12 @@ fun GeneralSettingsScreen(
                             AppIconManager.setMode(context, mode)
                         }
                     )
-                    SettingsDivider()
+                }
+            }
+        }
+        item(key = "general-layout-mode") {
+            GlassPreferenceSection("首页与模式") {
+                SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
                     SettingsDockAlignmentRow(
                         selected = draft.dockAlignment,
                         backdrop = backdrop,
@@ -438,19 +445,19 @@ fun GeneralSettingsScreen(
                             WeekViewPreferences.setStyle(context, style)
                         }
                     )
+                    SettingsDivider()
+                    SettingsDefaultWallpaperRow(
+                        selected = draft.defaultWallpaperStyle,
+                        backdrop = backdrop,
+                        config = visualConfig,
+                        onSelected = { applyChange(draft.copy(defaultWallpaperStyle = it)) }
+                    )
                 }
             }
         }
-        item(key = "general-home-system") {
-            GlassPreferenceSection("首页与系统") {
+        item(key = "general-system-behavior") {
+            GlassPreferenceSection("系统行为") {
                 SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
-                SettingsDefaultWallpaperRow(
-                    selected = draft.defaultWallpaperStyle,
-                    backdrop = backdrop,
-                    config = visualConfig,
-                    onSelected = { applyChange(draft.copy(defaultWallpaperStyle = it)) }
-                )
-                SettingsDivider()
                 SettingsToggleRow(
                     title = "隐藏后台卡片",
                     subtitle = "以任意方式离开应用后，都从最近任务列表中隐藏本应用。",
@@ -1995,7 +2002,7 @@ private fun SettingsWeekViewStyleRow(
         title = "周视图模式",
         backdrop = backdrop,
         config = config,
-        summary = "无界模式会将星期与日期融入顶栏，课程可滚动到屏幕顶部，并隐藏上一周/下一周按钮",
+        summary = "无界模式让星期日期融入顶栏，课程可滚到顶部",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 220.dp,
@@ -3714,29 +3721,6 @@ private fun PeriodSchemeEditor(
         onDraftChange(draft.copy(schemes = draft.schemes.map { if (it.scheme.id == active.scheme.id) transform(it) else it }))
     }
 
-    fun shiftedTimesForInsert(item: PeriodSchemeDraft, after: Int, newConfig: ScheduleConfigEntity): PeriodSchemeDraft {
-        val shifted = item.times.map {
-            if (it.periodIndex > after) it.copy(periodIndex = it.periodIndex + 1) else it
-        }.toMutableList()
-        if (item.scheme.mode == PeriodSchemeMode.MANUAL) {
-            val previous = shifted.firstOrNull { it.periodIndex == after }
-            val start = previous?.endTime?.let { runCatching { LocalTime.parse(it).plusMinutes(item.scheme.breakDurationMinutes.toLong()) }.getOrNull() }
-                ?: when {
-                    after < newConfig.morningPeriodCount -> LocalTime.parse(item.scheme.morningStartTime)
-                    after < newConfig.morningPeriodCount + newConfig.noonPeriodCount -> LocalTime.parse(item.scheme.noonStartTime)
-                    after < newConfig.morningPeriodCount + newConfig.noonPeriodCount + newConfig.afternoonPeriodCount -> LocalTime.parse(item.scheme.afternoonStartTime)
-                    else -> LocalTime.parse(item.scheme.eveningStartTime)
-                }
-            val end = start.plusMinutes(item.scheme.classDurationMinutes.toLong())
-            shifted += PeriodSchemeTimeEntity(item.scheme.id, after + 1, start.toString(), end.toString())
-        }
-        return item.copy(
-            times = shifted.sortedBy { it.periodIndex },
-            specialBreaks = item.specialBreaks.mapKeys { (index, _) -> if (index > after) index + 1 else index },
-            overriddenPeriods = item.overriddenPeriods.map { if (it > after) it + 1 else it }.toSet()
-        ).let { if (it.scheme.mode == PeriodSchemeMode.AUTO_MATCH) it.copy(times = resolveSchemeTimes(newConfig, it)) else it }
-    }
-
     fun addPeriod(part: PeriodDayPart) {
         val range = config.periodRange(part)
         val after = when {
@@ -3752,10 +3736,19 @@ private fun PeriodSchemeEditor(
             PeriodDayPart.AFTERNOON -> config.copy(afternoonPeriodCount = config.afternoonPeriodCount + 1)
             PeriodDayPart.EVENING -> config.copy(eveningPeriodCount = config.eveningPeriodCount + 1)
         }
+        val migratedSchemes = mutableListOf<PeriodSchemeDraft>()
+        draft.schemes.forEach { item ->
+            val migrated = insertPeriodIntoSchemeDraft(item, after, newConfig)
+            if (migrated == null) {
+                localError = "${item.scheme.name} 无法在当前时间范围内新增节次"
+                return
+            }
+            migratedSchemes += migrated
+        }
         onCountsChange(newConfig.morningPeriodCount, newConfig.noonPeriodCount, newConfig.afternoonPeriodCount, newConfig.eveningPeriodCount)
         onDraftChange(
             draft.copy(
-                schemes = draft.schemes.map { shiftedTimesForInsert(it, after, newConfig) },
+                schemes = migratedSchemes,
                 topologyOperations = draft.topologyOperations + PeriodTopologyOperation.AddAfter(after)
             )
         )
@@ -3773,19 +3766,54 @@ private fun PeriodSchemeEditor(
             localError = "至少需要保留一个节次"
             return
         }
+        val migratedSchemes = mutableListOf<PeriodSchemeDraft>()
+        draft.schemes.forEach { item ->
+            val migrated = deletePeriodFromSchemeDraft(item, index, newConfig)
+            if (migrated == null) {
+                localError = "${item.scheme.name} 无法删除当前节次，请先修正该方案的时间"
+                return
+            }
+            migratedSchemes += migrated
+        }
         onCountsChange(newConfig.morningPeriodCount, newConfig.noonPeriodCount, newConfig.afternoonPeriodCount, newConfig.eveningPeriodCount)
         onDraftChange(
             draft.copy(
-                schemes = draft.schemes.map { item ->
-                    item.copy(
-                        times = item.times.filter { it.periodIndex != index }.map { if (it.periodIndex > index) it.copy(periodIndex = it.periodIndex - 1) else it },
-                        specialBreaks = item.specialBreaks.filterKeys { it != index }.mapKeys { (key, _) -> if (key > index) key - 1 else key },
-                        overriddenPeriods = item.overriddenPeriods.filter { it != index }.map { if (it > index) it - 1 else it }.toSet()
-                    )
-                },
+                schemes = migratedSchemes,
                 topologyOperations = draft.topologyOperations + PeriodTopologyOperation.Delete(index)
             )
         )
+    }
+
+    fun repartitionExistingPeriods(
+        morning: Int,
+        noon: Int,
+        afternoon: Int,
+        evening: Int
+    ) {
+        val total = config.totalPeriodCount()
+        if (morning + noon + afternoon + evening != total || total <= 0) return
+        val repartitioned = config.copy(
+            morningPeriodCount = morning,
+            noonPeriodCount = noon,
+            afternoonPeriodCount = afternoon,
+            eveningPeriodCount = evening
+        )
+        val repartitionedSchemes = draft.schemes.map { item ->
+            if (item.scheme.mode == PeriodSchemeMode.AUTO_MATCH) {
+                item.copy(times = resolveSchemeTimes(repartitioned, item))
+            } else {
+                item
+            }
+        }
+        val invalidScheme = repartitionedSchemes.firstOrNull { item ->
+            item.times.size != total || validateResolvedPeriodTimes(item.times) != null
+        }
+        if (invalidScheme != null) {
+            localError = "${invalidScheme.scheme.name} 的时间无法适配当前节数分配"
+            return
+        }
+        onCountsChange(morning, noon, afternoon, evening)
+        onDraftChange(draft.copy(schemes = repartitionedSchemes))
     }
 
     fun changePartCounts(requestedMorning: Int, requestedNoon: Int, requestedAfternoon: Int, requestedEvening: Int) {
@@ -3797,6 +3825,17 @@ private fun PeriodSchemeEditor(
         )
         if (targets.values.sum() == 0) {
             localError = "上午、中午、下午、晚上至少需要启用一个时段"
+            return
+        }
+        val currentTotal = config.totalPeriodCount()
+        val requestedTotal = targets.values.sum()
+        if (requestedTotal == currentTotal) {
+            repartitionExistingPeriods(
+                morning = targets.getValue(PeriodDayPart.MORNING),
+                noon = targets.getValue(PeriodDayPart.NOON),
+                afternoon = targets.getValue(PeriodDayPart.AFTERNOON),
+                evening = targets.getValue(PeriodDayPart.EVENING)
+            )
             return
         }
         var workingConfig = config
@@ -3820,63 +3859,46 @@ private fun PeriodSchemeEditor(
                     PeriodDayPart.AFTERNOON -> workingConfig.copy(afternoonPeriodCount = workingConfig.afternoonPeriodCount + 1)
                     PeriodDayPart.EVENING -> workingConfig.copy(eveningPeriodCount = workingConfig.eveningPeriodCount + 1)
                 }
-                workingSchemes = workingSchemes.map { shiftedTimesForInsert(it, after, workingConfig) }
+                val migratedSchemes = mutableListOf<PeriodSchemeDraft>()
+                workingSchemes.forEach { item ->
+                    val migrated = insertPeriodIntoSchemeDraft(item, after, workingConfig)
+                    if (migrated == null) {
+                        localError = "${item.scheme.name} 无法在当前时间范围内新增节次"
+                        return
+                    }
+                    migratedSchemes += migrated
+                }
+                workingSchemes = migratedSchemes
                 operations += PeriodTopologyOperation.AddAfter(after)
             }
             if (targetCount < oldCount) repeat(oldCount - targetCount) {
                 val range = workingConfig.periodRange(part)
                 val index = range.last
-                workingSchemes = workingSchemes.map { item ->
-                    item.copy(
-                        times = item.times.filter { it.periodIndex != index }.map { if (it.periodIndex > index) it.copy(periodIndex = it.periodIndex - 1) else it },
-                        specialBreaks = item.specialBreaks.filterKeys { it != index }.mapKeys { (key, _) -> if (key > index) key - 1 else key },
-                        overriddenPeriods = item.overriddenPeriods.filter { it != index }.map { if (it > index) it - 1 else it }.toSet()
-                    )
-                }
-                workingConfig = when (part) {
+                val nextConfig = when (part) {
                     PeriodDayPart.MORNING -> workingConfig.copy(morningPeriodCount = workingConfig.morningPeriodCount - 1)
                     PeriodDayPart.NOON -> workingConfig.copy(noonPeriodCount = workingConfig.noonPeriodCount - 1)
                     PeriodDayPart.AFTERNOON -> workingConfig.copy(afternoonPeriodCount = workingConfig.afternoonPeriodCount - 1)
                     PeriodDayPart.EVENING -> workingConfig.copy(eveningPeriodCount = workingConfig.eveningPeriodCount - 1)
                 }
+                val migratedSchemes = mutableListOf<PeriodSchemeDraft>()
+                workingSchemes.forEach { item ->
+                    val migrated = deletePeriodFromSchemeDraft(item, index, nextConfig)
+                    if (migrated == null) {
+                        localError = "${item.scheme.name} 无法删除当前节次，请先修正该方案的时间"
+                        return
+                    }
+                    migratedSchemes += migrated
+                }
+                workingSchemes = migratedSchemes
+                workingConfig = nextConfig
                 operations += PeriodTopologyOperation.Delete(index)
             }
         }
         onCountsChange(workingConfig.morningPeriodCount, workingConfig.noonPeriodCount, workingConfig.afternoonPeriodCount, workingConfig.eveningPeriodCount)
         onDraftChange(
             draft.copy(
-                schemes = workingSchemes.map { item ->
-                    if (item.scheme.mode == PeriodSchemeMode.AUTO_MATCH) item.copy(times = resolveSchemeTimes(workingConfig, item)) else item
-                },
+                schemes = workingSchemes,
                 topologyOperations = draft.topologyOperations + operations
-            )
-        )
-    }
-
-    fun repartitionExistingPeriods(
-        morning: Int,
-        noon: Int,
-        afternoon: Int,
-        evening: Int
-    ) {
-        val total = config.totalPeriodCount()
-        if (morning + noon + afternoon + evening != total || total <= 0) return
-        val repartitioned = config.copy(
-            morningPeriodCount = morning,
-            noonPeriodCount = noon,
-            afternoonPeriodCount = afternoon,
-            eveningPeriodCount = evening
-        )
-        onCountsChange(morning, noon, afternoon, evening)
-        onDraftChange(
-            draft.copy(
-                schemes = draft.schemes.map { item ->
-                    if (item.scheme.mode == PeriodSchemeMode.AUTO_MATCH) {
-                        item.copy(times = resolveSchemeTimes(repartitioned, item))
-                    } else {
-                        item
-                    }
-                }
             )
         )
     }
@@ -4716,6 +4738,9 @@ fun ScheduleConfigScreen(
     var lastSavedConfig by remember { mutableStateOf(state.config) }
     var lastSavedPeriods by remember { mutableStateOf(state.periods) }
     var currentDraftScheduleId by remember { mutableIntStateOf(state.config.id) }
+    var draftReady by remember(state.config.id, section) {
+        mutableStateOf(section != SettingsSection.Schedule)
+    }
 
     fun resetConfigDraftFromState() {
         currentDraftScheduleId = state.config.id
@@ -4742,24 +4767,29 @@ fun ScheduleConfigScreen(
     }
 
     fun computeDirty(): Boolean {
-        return totalWeeks != lastSavedConfig.totalWeeks.toString() ||
-            currentWeek != lastSavedConfig.currentWeek.toString() ||
-            leadMinutes != lastSavedConfig.notificationLeadMinutes.toString() ||
-            notificationsEnabled != lastSavedConfig.notificationsEnabled ||
-            notificationMode != lastSavedConfig.notificationMode ||
-            liveUpdateChipTextMode != lastSavedConfig.liveUpdateChipTextMode ||
-            liveUpdateActionsEnabled != lastSavedConfig.liveUpdateActionsEnabled ||
-            autoCurrentWeek != lastSavedConfig.autoCurrentWeek ||
-            hideEmptyWeekends != lastSavedConfig.hideEmptyWeekends ||
-            termStartDate != lastSavedConfig.termStartDate.orEmpty() ||
-            classDurationMinutes != lastSavedConfig.classDurationMinutes.toString() ||
-            breakDurationMinutes != lastSavedConfig.breakDurationMinutes.toString() ||
-            morningPeriodCount != lastSavedConfig.morningPeriodCount ||
-            noonPeriodCount != lastSavedConfig.noonPeriodCount ||
-            afternoonPeriodCount != lastSavedConfig.afternoonPeriodCount ||
-            eveningPeriodCount != lastSavedConfig.eveningPeriodCount ||
-            schemeDraft != lastSavedSchemeDraft ||
-            periods != lastSavedPeriods
+        return when (section) {
+            SettingsSection.Schedule -> draftReady && (
+                totalWeeks != lastSavedConfig.totalWeeks.toString() ||
+                    currentWeek != lastSavedConfig.currentWeek.toString() ||
+                    autoCurrentWeek != lastSavedConfig.autoCurrentWeek ||
+                    hideEmptyWeekends != lastSavedConfig.hideEmptyWeekends ||
+                    termStartDate != lastSavedConfig.termStartDate.orEmpty() ||
+                    classDurationMinutes != lastSavedConfig.classDurationMinutes.toString() ||
+                    breakDurationMinutes != lastSavedConfig.breakDurationMinutes.toString() ||
+                    morningPeriodCount != lastSavedConfig.morningPeriodCount ||
+                    noonPeriodCount != lastSavedConfig.noonPeriodCount ||
+                    afternoonPeriodCount != lastSavedConfig.afternoonPeriodCount ||
+                    eveningPeriodCount != lastSavedConfig.eveningPeriodCount ||
+                    schemeDraft != lastSavedSchemeDraft ||
+                    periods != lastSavedPeriods
+                )
+            SettingsSection.Notifications ->
+                leadMinutes != lastSavedConfig.notificationLeadMinutes.toString() ||
+                    notificationsEnabled != lastSavedConfig.notificationsEnabled ||
+                    notificationMode != lastSavedConfig.notificationMode ||
+                    liveUpdateChipTextMode != lastSavedConfig.liveUpdateChipTextMode ||
+                    liveUpdateActionsEnabled != lastSavedConfig.liveUpdateActionsEnabled
+        }
     }
 
     LaunchedEffect(state.config.id, state.config, state.periods) {
@@ -4771,21 +4801,32 @@ fun ScheduleConfigScreen(
         if (section != SettingsSection.Schedule) {
             schemeDraft = null
             lastSavedSchemeDraft = null
+            draftReady = true
             return@LaunchedEffect
         }
+        draftReady = false
         runCatching { repository.loadPeriodSchemes(state.config.id) }
-            .onSuccess {
-                schemeDraft = it
-                lastSavedSchemeDraft = it
-                val active = it.schemes.firstOrNull { scheme -> scheme.scheme.id == it.activeSchemeId }
-                if (active != null) {
-                    // Stored scheme times are authoritative. Merely opening this page must not
-                    // regenerate an AUTO_MATCH scheme with newly introduced defaults.
-                    periods = active.times.sortedBy { time -> time.periodIndex }
-                        .map { time -> PeriodEntity(time.periodIndex, time.startTime, time.endTime, state.config.id) }
+            .onSuccess { loaded ->
+                val active = loaded.schemes.firstOrNull { scheme ->
+                    scheme.scheme.id == loaded.activeSchemeId
                 }
+                val loadedActivePeriods = active?.times
+                    ?.sortedBy { time -> time.periodIndex }
+                    ?.map { time ->
+                        PeriodEntity(time.periodIndex, time.startTime, time.endTime, state.config.id)
+                    }
+                    ?: state.periods
+                schemeDraft = loaded
+                lastSavedSchemeDraft = loaded
+                periods = loadedActivePeriods
+                lastSavedPeriods = loadedActivePeriods
+                lastSavedConfig = state.config
+                draftReady = true
             }
-            .onFailure { error = it.message ?: "作息方案加载失败" }
+            .onFailure {
+                error = it.message ?: "作息方案加载失败"
+                draftReady = true
+            }
     }
     val detectedWeek = remember(autoCurrentWeek, termStartDate, totalWeeks, currentWeek) {
         val total = totalWeeks.toIntOrNull() ?: state.config.totalWeeks
@@ -4973,7 +5014,11 @@ fun ScheduleConfigScreen(
         if (exitCommitRequest <= 0) return@LaunchedEffect
         when (section) {
             SettingsSection.Schedule -> {
-                if (computeDirty()) showExitSaveConfirm = true else onExitCommitFinished(true)
+                when {
+                    saving -> Unit
+                    computeDirty() -> showExitSaveConfirm = true
+                    else -> onExitCommitFinished(true)
+                }
             }
             SettingsSection.Notifications -> {
                 // Controls enqueue their write independently of navigation; this only makes the

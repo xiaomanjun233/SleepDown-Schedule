@@ -28,6 +28,7 @@ fun CrossActivityTransitionHost(
     activity: ComponentActivity,
     sourceContent: @Composable BoxScope.() -> Unit,
     openingReady: Boolean = true,
+    handleSystemBack: Boolean = true,
     onFinished: () -> Unit = {},
     content: @Composable (requestClose: () -> Unit) -> Unit
 ) {
@@ -78,6 +79,7 @@ fun CrossActivityTransitionHost(
                 destinationFirstOpening = profile?.destinationFirstOpening == true,
                 openingMode = openingMode,
                 openingReady = openingReady,
+                handleSystemBack = handleSystemBack,
                 onOpened = {
                     if (session?.hasReachedNativeRunning != true) {
                         ActivityTransitionCoordinator.markOpen(sessionId)

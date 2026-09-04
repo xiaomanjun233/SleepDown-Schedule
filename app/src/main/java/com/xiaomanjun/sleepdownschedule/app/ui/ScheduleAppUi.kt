@@ -1194,6 +1194,10 @@ fun CourseScheduleAppUi(
     )
     val wallpaperLoadFinished = !visualState.config.hasAnyWallpaper() ||
         wallpaperImages.renderKey == expectedWallpaperRenderKey
+    val noWallpaperResolved =
+        visualState.config.defaultWallpaperStyle == DefaultWallpaperStyle.NONE &&
+            wallpaperImages.renderKey == expectedWallpaperRenderKey &&
+            wallpaperImages.source == null
     LaunchedEffect(wallpaperImages.renderKey, expectedWallpaperRenderKey) {
         if (wallpaperImages.renderKey == expectedWallpaperRenderKey) {
             // Keep the cheap GPU blur preview visible until the one final CPU-cached bitmap is
@@ -1468,15 +1472,6 @@ fun CourseScheduleAppUi(
     val beforeScheduleTerm = isBeforeScheduleTerm(visualState.config, todayDate)
     val afterScheduleTerm = isAfterScheduleTerm(visualState.config, todayDate)
     var homeDisplayWeek by remember(visualState.config.id) { mutableIntStateOf(1) }
-    // Boundless: the fixed header's week caption stays hidden until the user swipes weeks
-    // (horizontal week change), then it stays visible for the rest of the session.
-    var boundlessWeekSwipeSeen by remember(visualState.config.id) { mutableStateOf(false) }
-    val boundlessInitialWeek = remember(visualState.config.id) { homeDisplayWeek }
-    LaunchedEffect(homeDisplayWeek) {
-        if (!boundlessWeekSwipeSeen && homeDisplayWeek != boundlessInitialWeek) {
-            boundlessWeekSwipeSeen = true
-        }
-    }
     var pendingConflictCourseId by remember(visualState.config.id) { mutableStateOf<Long?>(null) }
     var pendingConflictCourseKey by remember(visualState.config.id) { mutableStateOf<String?>(null) }
     var pendingConflictWeeks by remember(visualState.config.id) { mutableStateOf<List<Int>>(emptyList()) }
@@ -2610,9 +2605,8 @@ fun CourseScheduleAppUi(
                             today = todayDate,
                             textColor = homeForegroundColor(visualState.config),
                             backdrop = chromeBackdrop,
-                            rowHeaderWidth = 56.dp,
+                            rowHeaderWidth = 48.dp,
                             weekGridEndPadding = if (homeAdaptiveMetrics.isLargeScreen) 0.dp else 8.dp,
-                            showWeekCaption = boundlessWeekSwipeSeen,
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .zIndex(12f)
@@ -2639,7 +2633,9 @@ fun CourseScheduleAppUi(
                 ) {
                     if (screen is Screen.Home) {
                         if (!visualState.loaded) {
-                            HomeBackdropFallback()
+                            HomeBackdropFallback(
+                                noWallpaper = !visualState.config.hasAnyWallpaper()
+                            )
                         } else {
                             if (wallpaperImages.source != null) {
                                 HomeWallpaper(
@@ -2654,7 +2650,7 @@ fun CourseScheduleAppUi(
                                     personalizationPreviewState
                                 )
                             } else {
-                                HomeBackdropFallback()
+                                HomeBackdropFallback(noWallpaper = noWallpaperResolved)
                             }
                         }
                     } else if (screen is Screen.Config) {
@@ -6717,9 +6713,6 @@ open class SettingsDetailActivityHost : ComponentActivity() {
             val isQuickSheetSettingsEntry = remember {
                 intent.transitionRouteIdOrNull() == TransitionRouteId.QuickSheetToSettingsDetail
             }
-            val isScheduleManagerSettingsEntry = remember {
-                intent.transitionRouteIdOrNull() == TransitionRouteId.ScheduleManagerToSettingsDetail
-            }
             CourseScheduleTheme(config = state.config) {
                 val darkWindowBackground = appUsesDarkTheme(state.config)
                 LaunchedEffect(darkWindowBackground, isAnchoredSettingsEntry) {
@@ -6770,14 +6763,13 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                         else -> closeSettings()
                     }
                 }
-                // ScheduleManagerActivity opens this host through ScheduleManagerToSettingsDetail
-                // with the selected schedule id. Keep that exact route on the draft-aware back
-                // path from its first frame; after edits, ScheduleConfigScreen decides whether to
-                // show Save / Don't save / Continue editing before the Activity is allowed to close.
-                val scheduleDraftBackGuardRequired = section == SettingsPage.Schedule &&
-                    (customizeScheduleId != null || isScheduleManagerSettingsEntry)
+                // Anchored schedule pages need the Activity host to route Back through the page
+                // before asking the Morph to close. Ordinary clean pages keep the platform Back
+                // path unregistered so predictive Back remains available.
+                val anchoredScheduleBackRequired =
+                    section == SettingsPage.Schedule && isAnchoredSettingsEntry
                 BackHandler(
-                    enabled = interceptSystemBack || scheduleDraftBackGuardRequired,
+                    enabled = interceptSystemBack || anchoredScheduleBackRequired,
                     onBack = requestExit
                 )
                 Box(Modifier.fillMaxSize()) {
@@ -6937,6 +6929,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                         // before the selected schedule arrives, which looks like a skipped
                         // transition. Precompose the real page, then release the existing motion.
                         openingReady = !isQuickSheetSettingsEntry || scheduleEditReady,
+                        handleSystemBack = section != SettingsPage.Schedule,
                         sourceContent = {
                             // The QuickSheet route already supplies the exact composed button and
                             // full background frame. Painting a synthetic source card here would
@@ -7999,6 +7992,13 @@ fun SettingsRootScreen(
                         selected = selectedPage == SettingsPage.BackupRestore,
                         onClick = { onPageChange(SettingsPage.BackupRestore) }
                     )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        "捐赠支持",
+                        "如果它帮到了你，可以请作者喝杯奶茶",
+                        selected = selectedPage == SettingsPage.Donate,
+                        onClick = { onPageChange(SettingsPage.Donate) }
+                    )
                 }
             }
         }
@@ -8867,16 +8867,10 @@ fun ChangelogSettingsScreen(
                     )
                     SettingsDivider()
 					SettingsNavigationRow(
-						"隐私政策",
-						"了解数据处理、权限用途与个人信息权利",
-						onClick = onPrivacyPolicy
-					)
-					SettingsDivider()
-                    SettingsNavigationRow(
-                        "捐赠支持",
-                        "如果它帮到了你，可以请作者喝杯奶茶",
-                        onClick = onDonate
-                    )
+							"隐私政策",
+							"了解数据处理、权限用途与个人信息权利",
+							onClick = onPrivacyPolicy
+						)
                 }
             }
 

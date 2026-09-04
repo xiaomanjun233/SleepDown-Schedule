@@ -355,8 +355,11 @@ internal fun SinglePillWeekScheduleScreen(
     // Keep the period rail and the weekday grid on one shared horizontal geometry. The phone
     // rail used to be 52dp, which left little breathing room around HH:mm labels and made the
     // course columns look slightly left-heavy. The wider rail moves the complete card grid as a
-    // unit while the header below derives its leading slot from the exact same boundary.
-    val rowHeaderWidth = 56.dp
+    // unit while the header below derives its leading slot from the exact same boundary. In
+    // boundless mode the rail is narrowed so the period/time header shifts left, the left
+    // clearance to the grid shrinks, and the freed width flows into every course column equally.
+    val boundless = style == WeekViewStyle.BOUNDLESS
+    val rowHeaderWidth = if (boundless) 48.dp else 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
     val now = LocalTime.now()
@@ -393,13 +396,16 @@ internal fun SinglePillWeekScheduleScreen(
     } else {
         0.dp
     }
-    val weekGridEndPadding = if (adaptiveMetrics.isLargeScreen) 0.dp else 8.dp
+    val weekGridEndPadding = when {
+        adaptiveMetrics.isLargeScreen -> 0.dp
+        boundless -> 4.dp
+        else -> 8.dp
+    }
     val weekHeaderOuterHorizontalPadding = 4.dp
     val weekHeaderLeadingSlotWidth =
         (rowHeaderWidth - weekHeaderOuterHorizontalPadding).coerceAtLeast(0.dp)
     val weekHeaderLabelsEndPadding =
         (weekGridEndPadding - weekHeaderOuterHorizontalPadding).coerceAtLeast(0.dp)
-    val boundless = style == WeekViewStyle.BOUNDLESS
     // Boundless header geometry. Both values must stay in sync with their upstream sources:
     // AppTopBar in ScheduleAppUi.kt is statusBarsPadding + 66dp, and the week header row keeps
     // the same 46dp height as the normal-mode pill.
@@ -1369,7 +1375,6 @@ internal fun BoundlessWeekdayHeaderRow(
     backdrop: Backdrop?,
     rowHeaderWidth: Dp,
     weekGridEndPadding: Dp,
-    showWeekCaption: Boolean,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -1383,14 +1388,8 @@ internal fun BoundlessWeekdayHeaderRow(
                 .fillMaxHeight(),
             contentAlignment = Alignment.Center
         ) {
-            val captionAlpha = animateFloatAsState(
-                targetValue = if (showWeekCaption) 1f else 0f,
-                animationSpec = spring(dampingRatio = 0.9f, stiffness = 520f),
-                label = "boundless-week-caption-alpha"
-            )
             Text(
                 text = "第${displayWeek}周",
-                modifier = Modifier.graphicsLayer { alpha = captionAlpha.value },
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = textColor,
@@ -1579,7 +1578,11 @@ private fun WeekdayHeaderLabels(
                             innerShadowAlpha = 0.10f
                         ),
                         baseSurfaceColorOverride = ComposeColor(0xFF0A84FF),
-                        modifier = Modifier.widthIn(min = 72.dp).heightIn(min = 34.dp)
+                        modifier = Modifier
+                            .widthIn(
+                                min = if (weekdays.size >= 6) 64.dp else 92.dp
+                            )
+                            .heightIn(min = 34.dp)
                     ) {
                     }
                 }

@@ -65,6 +65,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -792,6 +793,29 @@ fun ScheduleHomeSnapshotPreview(
     }
     val cardColor = previewBaseColor.copy(alpha = if (config.courseCardGlassEnabled) 0.66f else config.cardAlpha)
     val textColor = homeForegroundColor(config)
+    val previewPalette = remember(
+        config.courseCardColorMode,
+        config.cardColorArgb,
+        config.courseCardPalette,
+        config.defaultWallpaperStyle,
+        wallpaperBitmap
+    ) {
+        resolvedCourseCardPalette(
+            config,
+            if (config.defaultWallpaperStyle == DefaultWallpaperStyle.NONE && wallpaperBitmap == null) {
+                DefaultCourseCardPalette
+            } else {
+                emptyList()
+            }
+        )
+    }
+    val previewAssignments = remember(courses, previewPalette, config.courseCardColorMode) {
+        buildCourseCardColorAssignments(
+            courses,
+            previewPalette,
+            tonalFamily = config.courseCardColorMode == CourseCardColorMode.GRADIENT
+        )
+    }
     Box(modifier = modifier.background(if (appUsesDarkTheme(config)) Color(0xFF050505) else Color.White)) {
         if (wallpaperBitmap != null) {
             Image(
@@ -801,6 +825,12 @@ fun ScheduleHomeSnapshotPreview(
                 contentScale = ContentScale.Crop
             )
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (appUsesDarkTheme(config)) 0.20f else 0.04f)))
+        } else if (config.defaultWallpaperStyle == DefaultWallpaperStyle.NONE) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(if (appUsesDarkTheme(config)) Color(0xFF111111) else Color.White)
+            )
         } else {
             Box(
                 Modifier
@@ -825,13 +855,18 @@ fun ScheduleHomeSnapshotPreview(
                 }
                 .padding(horizontal = 6.dp, vertical = 10.dp)
         ) {
-            StaticWeekSnapshotGrid(
-                state = previewState,
-                displayWeek = week,
-                cardColor = cardColor,
-                textColor = textColor,
-                modifier = Modifier.weight(1f)
-            )
+            CompositionLocalProvider(
+                LocalCourseCardPalette provides previewPalette,
+                LocalCourseCardColorAssignments provides previewAssignments
+            ) {
+                StaticWeekSnapshotGrid(
+                    state = previewState,
+                    displayWeek = week,
+                    cardColor = cardColor,
+                    textColor = textColor,
+                    modifier = Modifier.weight(1f)
+                )
+            }
             if (selected) {
                 Spacer(Modifier.height(8.dp))
                 Box(
