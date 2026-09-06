@@ -9,11 +9,14 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 fun todayCourses(state: AppState): List<CourseEntity> {
-    val today = LocalDate.now()
-    val weekday = today.dayOfWeek.toChineseWeekday()
+    return coursesForDate(state, LocalDate.now())
+}
+
+fun coursesForDate(state: AppState, date: LocalDate): List<CourseEntity> {
+    val weekday = date.dayOfWeek.toChineseWeekday()
     // Do not fold dates before/after the term into week 1/the final week. Widgets,
     // notifications and the live activity all consume this shared query.
-    val currentWeek = scheduleWeekForDateOrNull(state.config, today) ?: return emptyList()
+    val currentWeek = scheduleWeekForDateOrNull(state.config, date) ?: return emptyList()
     return state.courses.filter { it.weekday == weekday && it.weeks.contains(currentWeek) && parityMatches(it.weekParity, currentWeek) }
         .sortedBy { courseStartTime(it, state.periods) ?: LocalTime.MAX }
 }

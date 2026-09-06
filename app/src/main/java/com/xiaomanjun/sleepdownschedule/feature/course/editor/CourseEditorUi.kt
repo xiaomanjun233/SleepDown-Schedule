@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.editor
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
+
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
@@ -143,7 +145,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.Capsule
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
@@ -209,6 +211,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.toArgb
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
@@ -389,6 +392,7 @@ private data class CourseEditorDraft(
     val periodEnd: Int,
     val customStartTime: String?,
     val customEndTime: String?,
+    val customColorArgb: Long?,
     val weeks: Set<Int>,
     val parity: WeekParity,
     val note: String
@@ -510,7 +514,7 @@ private data class CourseEditorGroupingKey(
     val name: String,
     val teacher: String,
     val location: String,
-    val weekday: Int,
+    // 星期与周次不参与分组：同课不同星期的实例合并到一页、星期变多选
     val periods: List<Int>,
     val customStartTime: String?,
     val customEndTime: String?,
@@ -524,7 +528,6 @@ private fun CourseEntity.editorGroupingKey() = CourseEditorGroupingKey(
     name = name.trim(),
     teacher = teacher.orEmpty().trim(),
     location = location.orEmpty().trim(),
-    weekday = weekday,
     periods = periods.distinct().sorted(),
     customStartTime = customStartTime,
     customEndTime = customEndTime,
@@ -624,6 +627,7 @@ private fun courseEditorDraft(
         periodEnd = course?.periods?.maxOrNull() ?: (periodValues.firstOrNull() ?: 1),
         customStartTime = course?.customStartTime,
         customEndTime = course?.customEndTime,
+        customColorArgb = course?.customColorArgb,
         weeks = activeWeeks,
         parity = selectionMode.toWeekParity(),
         note = course?.note.orEmpty()
@@ -641,7 +645,8 @@ internal fun courseEditorOriginalForWeekday(
 
 private fun CourseEditorDraft.toCourses(
     originals: List<CourseEntity>,
-    periodValues: List<Int>
+    periodValues: List<Int>,
+    allowCustomColorOverride: Boolean
 ): List<CourseEntity> {
     val originalWeekdays = originals.map(CourseEntity::weekday).toSet()
     val originalWeeks = originals.flatMap(CourseEntity::weeks).toSet()
@@ -669,7 +674,11 @@ private fun CourseEditorDraft.toCourses(
             note = note.trim().ifBlank { null },
             customStartTime = customStartTime,
             customEndTime = customEndTime,
-            customColorArgb = original?.customColorArgb ?: originals.firstOrNull()?.customColorArgb,
+            customColorArgb = if (allowCustomColorOverride) {
+                customColorArgb
+            } else {
+                original?.customColorArgb ?: originals.firstOrNull()?.customColorArgb
+            },
             scheduleId = original?.scheduleId ?: originals.firstOrNull()?.scheduleId ?: 0
         )
     }
@@ -690,7 +699,8 @@ fun NormalizedCourseEditorScreen(
     onDeleteGroup: ((List<CourseEntity>) -> Unit)? = null,
     pickerRenderInRootScaffold: Boolean = true,
     renderPagerIndicator: Boolean = true,
-    onPagerPresentationChange: ((CourseEditorPagerPresentation) -> Unit)? = null
+    onPagerPresentationChange: ((CourseEditorPagerPresentation) -> Unit)? = null,
+    rowEntrance: (Int) -> Float = { _ -> 1f }
 ) {
     val config = formData.config
     val editorGroups = remember(initialCourse, formData.courses) {
@@ -713,8 +723,10 @@ fun NormalizedCourseEditorScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var pickerRequest by remember { mutableStateOf<CourseEditorPickerRequest?>(null) }
     var pickerVisible by remember { mutableStateOf(false) }
+    var colorPickerPage by remember { mutableStateOf<Int?>(null) }
+    var colorPickerVisible by remember { mutableStateOf(false) }
     val currentPage = pagerState.currentPage.coerceIn(editorGroups.indices)
-    val pagerIndicatorVisible = editorGroups.size > 1 && pickerRequest == null
+    val pagerIndicatorVisible = editorGroups.size > 1 && pickerRequest == null && colorPickerPage == null
 
     SideEffect {
         onPagerPresentationChange?.invoke(
@@ -734,7 +746,7 @@ fun NormalizedCourseEditorScreen(
             modifier = Modifier.fillMaxSize(),
             beyondViewportPageCount = 1,
             pageSpacing = 10.dp,
-            userScrollEnabled = pickerRequest == null,
+            userScrollEnabled = pickerRequest == null && colorPickerPage == null,
             key = { page -> editorGroups[page].representative?.id ?: Long.MIN_VALUE }
         ) { page ->
             val group = editorGroups[page]
@@ -754,7 +766,11 @@ fun NormalizedCourseEditorScreen(
                 onCancel = onCancel,
                 onSave = {
                     val currentDraft = drafts.getValue(page)
-                    val edited = currentDraft.toCourses(group.courses, periodValues)
+                    val edited = currentDraft.toCourses(
+                        originals = group.courses,
+                        periodValues = periodValues,
+                        allowCustomColorOverride = courseCardAllowsCustomOverrides(config)
+                    )
                     when {
                         currentDraft.name.isBlank() -> error = "课程名称不能为空"
                         currentDraft.weekdays.isEmpty() -> error = "请选择星期"
@@ -776,7 +792,12 @@ fun NormalizedCourseEditorScreen(
                     pickerRequest = it
                     pickerVisible = true
                 },
-                pageCount = editorGroups.size
+                onOpenColorPicker = {
+                    colorPickerPage = page
+                    colorPickerVisible = true
+                },
+                pageCount = editorGroups.size,
+                rowEntrance = rowEntrance
             )
         }
         if (renderPagerIndicator && pagerIndicatorVisible) {
@@ -802,6 +823,27 @@ fun NormalizedCourseEditorScreen(
                 }
             )
         }
+        colorPickerPage?.let { page ->
+            CourseColorPicker(
+                show = colorPickerVisible,
+                selectedColorArgb = drafts.getValue(page).customColorArgb,
+                automaticColorArgb = courseCardBaseColor(
+                    config,
+                    editorGroups[page].representative?.copy(customColorArgb = null)
+                ).toArgb().toLong() and 0xFFFFFFFFL,
+                backdrop = backdrop,
+                config = config,
+                renderInRootScaffold = pickerRenderInRootScaffold,
+                onDismissRequest = { colorPickerVisible = false },
+                onDismissFinished = {
+                    if (!colorPickerVisible) colorPickerPage = null
+                },
+                onColorSelected = { color ->
+                    drafts = drafts + (page to drafts.getValue(page).copy(customColorArgb = color))
+                    error = null
+                }
+            )
+        }
     }
 }
 
@@ -821,7 +863,9 @@ private fun CourseEditorFormPage(
     onSave: () -> Unit,
     onDelete: (() -> Unit)?,
     onOpenPicker: (CourseEditorPickerRequest) -> Unit,
-    pageCount: Int
+    onOpenColorPicker: () -> Unit,
+    pageCount: Int,
+    rowEntrance: (Int) -> Float = { _ -> 1f }
 ) {
     // This form lives on the wallpaper-sampling CourseGlassCard. Its complete foreground domain
     // must follow the glass contrast decision; appPanelForegroundColor follows the app theme and
@@ -837,25 +881,38 @@ private fun CourseEditorFormPage(
         ComposeColor.White.copy(alpha = 0.70f)
     }
     val editorFieldTextColor = readableOn(editorFieldSurface)
+    // Row timing/easing is owned by the overlay; apply it once as an upward popup.
+    // Other callers default to 1f and remain stationary.
+    val rowEntranceDensity = LocalDensity.current
+    fun Modifier.courseEditorFormRowEntrance(index: Int): Modifier = graphicsLayer {
+        val p = rowEntrance(index).coerceIn(0f, 1f)
+        alpha = p
+        scaleX = 0.86f + 0.14f * p
+        scaleY = 0.86f + 0.14f * p
+        translationY = (1f - p) * with(rowEntranceDensity) { 32.dp.toPx() }
+    }
     CompositionLocalProvider(LocalContentColor provides editorContentColor) {
     Box(modifier = Modifier.fillMaxSize()) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            // The title/actions live above the scrolling form. Reserve their full glass band so
-            // the first field never slides under a moving header.
-            top = 76.dp,
-            bottom = when {
-                pageCount > 1 -> 52.dp
-                course == null -> 32.dp
-                else -> 16.dp
-            }
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)
+    Column(
+        // 表单行数固定且很少：用非懒加载 Column + 滚动，保证底部行（备注/删除等）在
+        // 逐行飞入期间已组合，不会因懒加载错过入场动画。
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(
+                // The title/actions live above the scrolling form. Reserve their full glass band so
+                // the first field never slides under a moving header.
+                top = 76.dp,
+                bottom = when {
+                    pageCount > 1 -> 52.dp
+                    course == null -> 32.dp
+                    else -> 16.dp
+                }
+            ),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (course != null) {
-            item(key = "summary", contentType = "summary") {
-                Text(
+            Text(
                     listOfNotNull(
                         course.teacher,
                         course.location,
@@ -863,59 +920,55 @@ private fun CourseEditorFormPage(
                         if (course.hasCustomTime()) courseTimeLabel(course, periods)
                         else course.periods.takeIf { it.isNotEmpty() }?.let { "第${it.min()}-${it.max()}节" }
                     ).joinToString(" · "),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).courseEditorFormRowEntrance(1),
                     style = MaterialTheme.typography.labelMedium,
                     color = LocalContentColor.current.copy(alpha = 0.68f),
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-            }
         }
-        item(key = "course-name", contentType = "field") {
-            DialogCapsuleField(
-                value = draft.name,
-                onValueChange = { onDraftChange(draft.copy(name = it)) },
-                placeholder = "课程名称",
-                config = config,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                fieldTextColor = editorFieldTextColor
-            )
+        DialogCapsuleField(
+            value = draft.name,
+            onValueChange = { onDraftChange(draft.copy(name = it)) },
+            placeholder = "课程名称",
+            config = config,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).courseEditorFormRowEntrance(2),
+            fieldTextColor = editorFieldTextColor
+        )
+        DialogCapsuleField(
+            value = draft.teacher,
+            onValueChange = { onDraftChange(draft.copy(teacher = it)) },
+            placeholder = "教师",
+            config = config,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).courseEditorFormRowEntrance(3),
+            fieldTextColor = editorFieldTextColor
+        )
+        DialogCapsuleField(
+            value = draft.location,
+            onValueChange = { onDraftChange(draft.copy(location = it)) },
+            placeholder = "地点",
+            config = config,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).courseEditorFormRowEntrance(4),
+            fieldTextColor = editorFieldTextColor
+        )
+        Box(Modifier.fillMaxWidth().courseEditorFormRowEntrance(5)) {
+        DialogMultiGridSelector(
+            title = "星期",
+            values = (1..7).toList(),
+            selected = draft.weekdays,
+            displayValue = draft.weekdays.sorted()
+                .joinToString("、") { "周${weekdayLabel(it)}" },
+            preferredColumns = 7,
+            onSelected = { onDraftChange(draft.copy(weekdays = it)) },
+            onOpenPicker = onOpenPicker,
+            backdrop = backdrop,
+            config = config
+        ) { "周${weekdayLabel(it)}" }
         }
-        item(key = "teacher", contentType = "field") {
-            DialogCapsuleField(
-                value = draft.teacher,
-                onValueChange = { onDraftChange(draft.copy(teacher = it)) },
-                placeholder = "教师",
-                config = config,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                fieldTextColor = editorFieldTextColor
-            )
-        }
-        item(key = "location", contentType = "field") {
-            DialogCapsuleField(
-                value = draft.location,
-                onValueChange = { onDraftChange(draft.copy(location = it)) },
-                placeholder = "地点",
-                config = config,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                fieldTextColor = editorFieldTextColor
-            )
-        }
-        item(key = "weekday", contentType = "picker") {
-            DialogSingleWheelSelector(
-                title = "星期",
-                values = (1..7).toList(),
-                selected = draft.weekdays.firstOrNull() ?: 1,
-                onSelected = { onDraftChange(draft.copy(weekdays = setOf(it))) },
-                onOpenPicker = onOpenPicker,
-                backdrop = backdrop,
-                config = config
-            ) { "周${weekdayLabel(it)}" }
-        }
-        item(key = "period-range", contentType = "range-picker") {
-            DialogPeriodSelector(
-                title = "节次",
+        Box(Modifier.fillMaxWidth().courseEditorFormRowEntrance(6)) {
+        DialogPeriodSelector(
+            title = "节次",
                 values = periodValues.ifEmpty { listOf(1) },
                 periods = periods,
                 start = draft.periodStart,
@@ -954,9 +1007,9 @@ private fun CourseEditorFormPage(
                 config = config
             ) { "第${it}节" }
         }
-        item(key = "week-range", contentType = "range-picker") {
-            DialogMultiGridSelector(
-                title = "周次",
+        Box(Modifier.fillMaxWidth().courseEditorFormRowEntrance(7)) {
+        DialogMultiGridSelector(
+            title = "周次",
                 values = (1..totalWeeks).toList(),
                 selected = draft.weeks,
                 displayValue = compactWeekSelectionLabel(draft.weeks.toList()),
@@ -970,8 +1023,8 @@ private fun CourseEditorFormPage(
                 config = config
             ) { it.toString() }
         }
-        item(key = "parity", contentType = "picker") {
-            val selectedMode = inferCourseWeekSelectionMode(draft.weeks)
+        Box(Modifier.fillMaxWidth().courseEditorFormRowEntrance(8)) {
+        val selectedMode = inferCourseWeekSelectionMode(draft.weeks)
             DialogSingleWheelSelector(
                 title = "单双周",
                 values = CourseWeekSelectionMode.entries,
@@ -985,33 +1038,41 @@ private fun CourseEditorFormPage(
                 config = config
             ) { courseWeekSelectionModeLabel(it) }
         }
-        item(key = "note", contentType = "field") {
-            DialogCapsuleField(
-                value = draft.note,
-                onValueChange = { onDraftChange(draft.copy(note = it)) },
-                placeholder = "备注",
-                config = config,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                fieldTextColor = editorFieldTextColor
+        if (courseCardAllowsCustomOverrides(config)) {
+            Box(Modifier.fillMaxWidth().courseEditorFormRowEntrance(9)) {
+            CourseEditorColorValue(
+                colorArgb = draft.customColorArgb,
+                automaticColorArgb = courseCardBaseColor(
+                    config,
+                    course?.copy(customColorArgb = null)
+                ).toArgb().toLong() and 0xFFFFFFFFL,
+                onClick = onOpenColorPicker
             )
+            }
         }
+        DialogCapsuleField(
+            value = draft.note,
+            onValueChange = { onDraftChange(draft.copy(note = it)) },
+            placeholder = "备注",
+            config = config,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).courseEditorFormRowEntrance(10),
+            fieldTextColor = editorFieldTextColor
+        )
         if (onDelete != null) {
-            item(key = "delete", contentType = "action") {
-                Box(Modifier.padding(horizontal = 16.dp)) {
-                    DialogLiquidButton(
-                        backdrop = backdrop,
-                        label = "删除课程",
-                        onClick = onDelete,
-                        modifier = Modifier.fillMaxWidth(),
-                        role = DialogButtonRole.Cancel,
-                        destructiveFilled = true,
-                        blurRadius = 8.dp
-                    )
-                }
+            Box(Modifier.padding(horizontal = 16.dp).courseEditorFormRowEntrance(11)) {
+                DialogLiquidButton(
+                    backdrop = backdrop,
+                    label = "删除课程",
+                    onClick = onDelete,
+                    modifier = Modifier.fillMaxWidth(),
+                    role = DialogButtonRole.Cancel,
+                    destructiveFilled = true,
+                    blurRadius = 8.dp
+                )
             }
         }
         error?.let { message ->
-            item(key = "error", contentType = "message") { Text(message, modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error) }
+            Text(message, modifier = Modifier.padding(horizontal = 16.dp).courseEditorFormRowEntrance(12), color = MaterialTheme.colorScheme.error)
         }
     }
     CourseEditorFixedHeader(
@@ -1022,7 +1083,8 @@ private fun CourseEditorFormPage(
         onSave = onSave,
         modifier = Modifier
             .align(Alignment.TopCenter)
-            .zIndex(8f)
+            .zIndex(8f),
+        contentModifier = Modifier.courseEditorFormRowEntrance(0)
     )
     }
     }
@@ -1036,7 +1098,8 @@ private fun CourseEditorFixedHeader(
     config: ScheduleConfigEntity,
     onCancel: () -> Unit,
     onSave: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentModifier: Modifier = Modifier
 ) {
     val dark = appUsesDarkTheme(config)
     val tint = if (dark) {
@@ -1073,7 +1136,7 @@ private fun CourseEditorFixedHeader(
             onDismiss = onCancel,
             backdrop = backdrop,
             config = config,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().then(contentModifier),
             buttonBlurRadius = 4.dp,
             onConfirm = onSave
         )
@@ -1258,7 +1321,7 @@ private fun CourseEditorPickerValue(
             .height(42.dp)
             // Only round the pressed/selection indication emitted by BasicComponent. This row has
             // no persistent capsule background in its resting state.
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedRectangle(18.dp))
     ) {
         MiuixBasicComponent(
             title = title,
@@ -1285,6 +1348,49 @@ private fun CourseEditorPickerValue(
                     painter = painterResource(R.drawable.ic_arrow_back),
                     contentDescription = "打开${title}选择器",
                     tint = buttonTextColor.copy(alpha = 0.62f),
+                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 180f }
+                )
+            },
+            onClick = onClick
+        )
+    }
+}
+
+@Composable
+private fun CourseEditorColorValue(
+    colorArgb: Long?,
+    automaticColorArgb: Long,
+    onClick: () -> Unit
+) {
+    val contentColor = LocalContentColor.current
+    val previewColor = colorArgb ?: automaticColorArgb
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .height(42.dp)
+            .clip(RoundedRectangle(18.dp))
+    ) {
+        MiuixBasicComponent(
+            title = "课程颜色",
+            titleColor = MiuixBasicComponentDefaults.titleColor(
+                color = contentColor,
+                disabledColor = contentColor.copy(alpha = 0.38f)
+            ),
+            modifier = Modifier.fillMaxSize(),
+            insideMargin = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+            endActions = {
+                Surface(
+                    modifier = Modifier.size(20.dp),
+                    shape = Capsule(),
+                    color = ComposeColor(previewColor.toInt()),
+                    border = BorderStroke(1.dp, contentColor.copy(alpha = 0.28f))
+                ) {}
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_back),
+                    contentDescription = "打开课程颜色选择器",
+                    tint = contentColor.copy(alpha = 0.62f),
                     modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 180f }
                 )
             },
@@ -1739,7 +1845,7 @@ internal fun ProjectPagerIndicator(
     val horizontalPaddingPx = with(density) { 12.dp.toPx() }
     val indicatorWidth = with(density) { (24 + (pageCount - 1) * 15).dp }
     Canvas(modifier = modifier.width(indicatorWidth).height(24.dp)) {
-        drawRoundRect(
+        drawContinuousRoundRect(
             color = ComposeColor.Black.copy(alpha = 0.28f),
             cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
         )

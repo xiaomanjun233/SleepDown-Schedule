@@ -274,7 +274,9 @@ internal fun calculateHomeAdaptiveMetrics(
             safeBottom = safeBottom,
             isThreeTwoLike = false,
             topOverlayHeight = HomeTopOverlayHeight,
-            topGradientHeight = HomeTopOverlayHeight,
+            // The top gradient extends well past the week's fixed header band so the boundless
+            // header reads as a continuation of the app top bar chrome.
+            topGradientHeight = 230.dp,
             dayContentTopPadding = compactDayTop,
             weekTopSpacerHeight = compactWeekTop,
             daySidePaneWidth = 0.dp,
@@ -294,7 +296,9 @@ internal fun calculateHomeAdaptiveMetrics(
             safeBottom = safeBottom,
             isThreeTwoLike = false,
             topOverlayHeight = HomeTopOverlayHeight,
-            topGradientHeight = HomeTopOverlayHeight,
+            // The top gradient extends well past the week's fixed header band so the boundless
+            // header reads as a continuation of the app top bar chrome.
+            topGradientHeight = 230.dp,
             dayContentTopPadding = compactDayTop.coerceIn(100.dp, 116.dp),
             weekTopSpacerHeight = compactWeekTop,
             daySidePaneWidth = 0.dp,
@@ -320,7 +324,7 @@ internal fun calculateHomeAdaptiveMetrics(
         safeBottom = safeBottom,
         isThreeTwoLike = isThreeTwoLike,
         topOverlayHeight = topOverlay,
-        topGradientHeight = topOverlay + 10.dp,
+        topGradientHeight = topOverlay + 90.dp,
         dayContentTopPadding = contentTop,
         weekTopSpacerHeight = (contentTop - 30.dp).coerceIn(54.dp, 82.dp),
         daySidePaneWidth = sidePaneWidth,
@@ -379,5 +383,8 @@ internal fun adaptiveWeekCardCornerRadius(
     } else {
         baseRadius + (maximumRadius - baseRadius) * (safeProgress - 0.5f) * 2f
     }
-    return radius.dp
+    // 大屏（宽窗口）在滑块基础上再扩大一截曲率，短卡仍保持不塌成胶囊
+    val tabletBoost = if (shortWindowEdge >= 600f) 3f else 0f
+    val scaledRadius = (radius + tabletBoost).coerceAtMost(shortCardEdge * 0.34f)
+    return scaledRadius.dp
 }

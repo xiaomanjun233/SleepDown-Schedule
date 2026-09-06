@@ -14,7 +14,6 @@ internal fun ScheduleConfigEntity.withGeneralSettingsFrom(draft: ScheduleConfigE
         dockAlignment = draft.dockAlignment,
         defaultWallpaperStyle = draft.defaultWallpaperStyle,
         defaultHomeMode = draft.defaultHomeMode,
-        liveUpdateActionsEnabled = draft.liveUpdateActionsEnabled,
         hideFromRecents = draft.hideFromRecents,
         autoCheckUpdates = draft.autoCheckUpdates
     )
@@ -30,7 +29,8 @@ internal fun ScheduleConfigEntity.withNotificationSettingsFrom(draft: ScheduleCo
         notificationLeadMinutes = draft.notificationLeadMinutes,
         notificationsEnabled = draft.notificationsEnabled,
         notificationMode = draft.notificationMode,
-        liveUpdateChipTextMode = draft.liveUpdateChipTextMode
+        liveUpdateChipTextMode = draft.liveUpdateChipTextMode,
+        liveUpdateActionsEnabled = draft.liveUpdateActionsEnabled
     )
 }
 
@@ -117,6 +117,21 @@ internal fun ScheduleConfigEntity.withChangesFrom(
             original.courseCardGlassEnabled,
             updated.courseCardGlassEnabled,
             courseCardGlassEnabled
+        ),
+        courseCardOutlineLightEnabled = changed(
+            original.courseCardOutlineLightEnabled,
+            updated.courseCardOutlineLightEnabled,
+            courseCardOutlineLightEnabled
+        ),
+        courseCardRefractionStrength = changed(
+            original.courseCardRefractionStrength,
+            updated.courseCardRefractionStrength,
+            courseCardRefractionStrength
+        ),
+        courseCardGaussianBlurEnabled = changed(
+            original.courseCardGaussianBlurEnabled,
+            updated.courseCardGaussianBlurEnabled,
+            courseCardGaussianBlurEnabled
         ),
         courseCardFontScale = changed(
             original.courseCardFontScale,
@@ -267,6 +282,9 @@ internal fun ScheduleConfigEntity.withPersonalizationFrom(
     cardAlpha = updated.cardAlpha,
     courseCardBlur = updated.courseCardBlur,
     courseCardGlassEnabled = updated.courseCardGlassEnabled,
+    courseCardOutlineLightEnabled = updated.courseCardOutlineLightEnabled,
+    courseCardRefractionStrength = updated.courseCardRefractionStrength,
+    courseCardGaussianBlurEnabled = updated.courseCardGaussianBlurEnabled,
     courseCardFontScale = updated.courseCardFontScale,
     courseCardColorMode = updated.courseCardColorMode,
     courseCardPalette = updated.courseCardPalette,

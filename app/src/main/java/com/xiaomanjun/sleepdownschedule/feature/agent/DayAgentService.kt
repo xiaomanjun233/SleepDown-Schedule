@@ -11,6 +11,8 @@ import androidx.core.content.edit
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
+import android.os.SystemClock
+import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -40,8 +42,9 @@ import java.time.ZoneId
 import java.util.UUID
 
 private val DayAgentJson = Json { ignoreUnknownKeys = true; isLenient = true }
-private const val MaxAgentToolRounds = 6
+internal const val MaxAgentToolRounds = 3
 private const val DayAgentWeatherCacheMillis = 30 * 60 * 1000L
+private const val DayAgentMetricsTag = "DayAgentMetrics"
 
 internal fun isDayAgentWeatherCacheFresh(fetchedAt: Long, now: Long): Boolean {
     if (fetchedAt <= 0L) return false
@@ -56,8 +59,97 @@ internal data class AgentToolDecision(
     val finishReason: String,
     val unparsedToolCallCount: Int,
     val webSearchUsed: Boolean,
-    val providerWebSearchRequested: Boolean
+    val providerWebSearchRequested: Boolean,
+    val usage: AgentTokenUsage
 )
+
+internal data class AgentTokenUsage(
+    val inputTokens: Long = 0,
+    val outputTokens: Long = 0,
+    val cachedInputTokens: Long = 0,
+    val reasoningTokens: Long = 0
+) {
+    val isEmpty: Boolean
+        get() = inputTokens == 0L && outputTokens == 0L &&
+            cachedInputTokens == 0L && reasoningTokens == 0L
+}
+
+internal class DayAgentTurnTelemetry(private val providerId: String) {
+    private var totalRequests = 0
+    private var decisionRounds = 0
+    private val callsPerRound = mutableListOf<Int>()
+    private var toolResultCharacters = 0
+    private var inputTokens = 0L
+    private var outputTokens = 0L
+    private var cachedInputTokens = 0L
+    private var reasoningTokens = 0L
+    private var finalStartedAt = 0L
+
+    fun requestStarted() {
+        totalRequests += 1
+    }
+
+    fun recordDecisionRound(toolCalls: Int) {
+        decisionRounds += 1
+        callsPerRound += toolCalls
+    }
+
+    fun recordToolResults(results: List<AgentToolResult>) {
+        toolResultCharacters += results.sumOf { it.content.length }
+    }
+
+    fun recordUsage(usage: AgentTokenUsage) {
+        inputTokens += usage.inputTokens
+        outputTokens += usage.outputTokens
+        cachedInputTokens += usage.cachedInputTokens
+        reasoningTokens += usage.reasoningTokens
+    }
+
+    fun finalAnswerStarted() {
+        if (finalStartedAt == 0L) finalStartedAt = SystemClock.elapsedRealtime()
+    }
+
+    fun logSummary() {
+        val finalLatency = finalStartedAt.takeIf { it > 0L }
+            ?.let { SystemClock.elapsedRealtime() - it }
+            ?: 0L
+        Log.i(
+            DayAgentMetricsTag,
+            "provider=$providerId decisionRounds=$decisionRounds callsPerRound=${callsPerRound.joinToString(",")} " +
+                "requests=$totalRequests toolResultChars=$toolResultCharacters inputTokens=$inputTokens " +
+                "outputTokens=$outputTokens cachedInputTokens=$cachedInputTokens " +
+                "reasoningTokens=$reasoningTokens finalLatencyMs=$finalLatency"
+        )
+    }
+}
+
+internal fun parseAgentTokenUsage(response: String): AgentTokenUsage = runCatching {
+    agentTokenUsage(DayAgentJson.parseToJsonElement(response).jsonObject)
+}.getOrDefault(AgentTokenUsage())
+
+internal fun agentTokenUsage(root: JsonObject): AgentTokenUsage {
+    val responseRoot = (root["response"] as? JsonObject) ?: root
+    val usage = responseRoot["usage"] as? JsonObject ?: return AgentTokenUsage()
+    fun token(vararg keys: String): Long = keys.asSequence()
+        .mapNotNull { usage[it]?.jsonPrimitive?.contentOrNull?.toLongOrNull() }
+        .firstOrNull() ?: 0L
+    fun detailToken(detailsKeys: List<String>, tokenKey: String): Long = detailsKeys.asSequence()
+        .mapNotNull { usage[it] as? JsonObject }
+        .mapNotNull { it[tokenKey]?.jsonPrimitive?.contentOrNull?.toLongOrNull() }
+        .firstOrNull() ?: 0L
+    return AgentTokenUsage(
+        inputTokens = token("input_tokens", "prompt_tokens"),
+        outputTokens = token("output_tokens", "completion_tokens"),
+        cachedInputTokens = detailToken(
+            listOf("input_tokens_details", "prompt_tokens_details"),
+            "cached_tokens"
+        ),
+        reasoningTokens = detailToken(
+            listOf("output_tokens_details", "completion_tokens_details"),
+            "reasoning_tokens"
+        )
+    )
+}
 
 private fun agentTextMessage(role: String, content: String): JsonObject = buildJsonObject {
     put("role", role)
@@ -154,7 +246,8 @@ internal fun parseAgentToolDecision(
                 !(allowProviderWebSearchCall && isProviderWebSearchToolCall(element))
         },
         webSearchUsed = webSearchUsed,
-        providerWebSearchRequested = providerWebSearchRequested
+        providerWebSearchRequested = providerWebSearchRequested,
+        usage = agentTokenUsage(root)
     )
 }
 private fun parseLocalAgentToolCall(element: JsonElement, response: String): AgentToolCall? {
@@ -410,113 +503,158 @@ class DayAgentService(private val context: Context) {
             }
             add(agentUserMessage(question, imageAttachment))
         }
-        if (AiProviderPresets.shouldUseResponses(settings.profile)) {
-            return@withContext OpenAiResponsesAgentRunner().chat(
+        val telemetry = DayAgentTurnTelemetry(settings.profile.id)
+        try {
+            if (AiProviderPresets.shouldUseResponses(settings.profile)) {
+                return@withContext OpenAiResponsesAgentRunner().chat(
+                    settings = settings,
+                    chatMessages = messages,
+                    includeMemoryTool = memoryToolAvailable,
+                    onStatus = onStatus,
+                    onDelta = onDelta,
+                    onStreamReset = onStreamReset,
+                    executeTool = ::executeTurnTool,
+                    telemetry = telemetry
+                )
+            }
+            val completedOneShotTools = mutableSetOf<AgentToolName>()
+            val evidenceKeys = mutableSetOf<String>()
+            val baseMessages = messages.toList()
+            val closedToolFacts = linkedMapOf<String, AgentToolResult>()
+            var latestRoundFacts = emptyList<Pair<String, AgentToolResult>>()
+            var latestRoundMessages = emptyList<JsonObject>()
+            fun rebuildChatContext() {
+                messages.clear()
+                messages += baseMessages
+                if (closedToolFacts.isNotEmpty()) {
+                    messages += agentTextMessage(
+                        "system",
+                        buildJsonObject {
+                            put("kind", "local_tool_facts")
+                            put("trust", "untrusted_local_data")
+                            put("sourceHash", facts.sourceHash)
+                            put("results", buildJsonArray {
+                                closedToolFacts.values.forEach { result ->
+                                    add(buildJsonObject {
+                                        put("tool", result.name.name)
+                                        put("content", result.content)
+                                    })
+                                }
+                            })
+                        }.toString()
+                    )
+                }
+                messages += latestRoundMessages
+            }
+
+            for (round in 0 until MaxAgentToolRounds) {
+                onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在思考"))
+                fun requestDecision(forceMiMoWebSearch: Boolean): AgentToolDecision {
+                    val decisionBody = chatTransport.agentBody(
+                        settings = settings,
+                        messages = messages + agentTextMessage(
+                            "system",
+                            DayAgentPrompts.ToolDecisionStage
+                        ),
+                        stream = false,
+                        includeTools = true,
+                        includeMemoryTool = memoryToolAvailable,
+                        forceMiMoWebSearch = forceMiMoWebSearch,
+                        excludedTools = completedOneShotTools
+                    )
+                    telemetry.requestStarted()
+                    val response = chatTransport.post(settings, decisionBody)
+                    val parsed = parseAgentToolDecision(
+                        response = response,
+                        allowProviderWebSearchCall = miMoWebSearchAvailable
+                    )
+                    telemetry.recordUsage(parsed.usage)
+                    return parsed
+                }
+                var decision = requestDecision(forceMiMoWebSearch = false)
+                if (decision.providerWebSearchRequested && !decision.webSearchUsed) {
+                    onStatus(AgentRunStatus(AgentRunStatusIcon.SEARCH, "联网搜索"))
+                    decision = requestDecision(forceMiMoWebSearch = true)
+                    if (decision.providerWebSearchRequested && !decision.webSearchUsed) {
+                        throw IllegalStateException("MiMo 联网搜索没有返回搜索结果，请稍后重试")
+                    }
+                }
+                telemetry.recordDecisionRound(decision.calls.size)
+                if (decision.calls.isNotEmpty()) {
+                    val action = decision.calls.first().name.runStatus().text.removePrefix("读取")
+                    val note = decision.content.trim().take(120).ifBlank {
+                        "我先确认$action，再继续处理。"
+                    }
+                    onStatus(
+                        AgentRunStatus(
+                            icon = AgentRunStatusIcon.THINKING,
+                            text = "准备下一步",
+                            detail = note
+                        )
+                    )
+                }
+                if (decision.webSearchUsed) {
+                    onStatus(AgentRunStatus(AgentRunStatusIcon.SEARCH, "联网搜索"))
+                }
+                if (decision.unparsedToolCallCount > 0) {
+                    throw IllegalStateException(
+                        "模型返回了 ${decision.unparsedToolCallCount} 个无法识别的工具调用，请重试"
+                    )
+                }
+                if (decision.calls.isEmpty()) {
+                    val finalMessages = if (decision.webSearchUsed && decision.content.isNotBlank()) {
+                        messages + agentTextMessage(
+                            "system",
+                            buildJsonObject {
+                                put("kind", "provider_web_search_result")
+                                put("trust", "untrusted_external_data")
+                                put("content", decision.content)
+                            }.toString()
+                        )
+                    } else {
+                        messages
+                    }
+                    return@withContext streamFinalAnswer(
+                        settings = settings,
+                        messages = finalMessages,
+                        onStatus = onStatus,
+                        onDelta = onDelta,
+                        onStreamReset = onStreamReset,
+                        telemetry = telemetry
+                    )
+                }
+
+                val roundResults = decision.calls.map { call ->
+                    onStatus(call.name.runStatus())
+                    executeTurnTool(call).also {
+                        if (call.name.isOneShotPerTurn) completedOneShotTools += call.name
+                    }
+                }
+                telemetry.recordToolResults(roundResults)
+                val addedEvidence = decision.calls
+                    .map { call -> evidenceKeys.add("${facts.sourceHash}\u0000${call.cacheKey()}") }
+                    .any { it }
+                latestRoundFacts.forEach { (key, result) -> closedToolFacts.putIfAbsent(key, result) }
+                latestRoundFacts = decision.calls.zip(roundResults).map { (call, result) ->
+                    call.cacheKey() to result
+                }
+                latestRoundMessages = listOf(decision.assistantMessage) +
+                    roundResults.map { it.asAgentToolMessage() }
+                rebuildChatContext()
+                if (!addedEvidence) break
+            }
+
+            return@withContext streamFinalAnswer(
                 settings = settings,
-                chatMessages = messages,
-                includeMemoryTool = memoryToolAvailable,
+                messages = messages,
                 onStatus = onStatus,
                 onDelta = onDelta,
                 onStreamReset = onStreamReset,
-                executeTool = ::executeTurnTool
+                telemetry = telemetry
             )
+        } finally {
+            telemetry.logSummary()
         }
-        val completedOneShotTools = mutableSetOf<AgentToolName>()
-        var forcedMiMoWebSearchRetry = false
-        for (round in 0 until MaxAgentToolRounds) {
-            onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在思考"))
-            val decisionBody = chatTransport.agentBody(
-                settings = settings,
-                messages = messages + agentTextMessage(
-                    "system",
-                    DayAgentPrompts.ToolDecisionStage
-                ),
-                stream = false,
-                includeTools = true,
-                includeMemoryTool = memoryToolAvailable,
-                forceMiMoWebSearch = forcedMiMoWebSearchRetry,
-                excludedTools = completedOneShotTools
-            )
-            val decision = parseAgentToolDecision(
-                response = chatTransport.post(settings, decisionBody),
-                allowProviderWebSearchCall = miMoWebSearchAvailable
-            )
-            if (decision.providerWebSearchRequested && !decision.webSearchUsed) {
-                if (forcedMiMoWebSearchRetry) {
-                    throw IllegalStateException("MiMo 联网搜索没有返回搜索结果，请稍后重试")
-                }
-                // A function-shaped WEB_SEARCH call is not executable inside SleepDown. Reissue
-                // the same provider turn with MiMo's real server-side plugin forced, rather than
-                // misreporting it as an unknown local function or fabricating a local result.
-                forcedMiMoWebSearchRetry = true
-                onStatus(AgentRunStatus(AgentRunStatusIcon.SEARCH, "联网搜索"))
-                continue
-            }
-            forcedMiMoWebSearchRetry = false
-            if (decision.calls.isNotEmpty()) {
-                val action = decision.calls.first().name.runStatus().text.removePrefix("读取")
-                val note = decision.content.trim().take(120).ifBlank {
-                    "我先确认$action，再继续处理。"
-                }
-                onStatus(
-                    AgentRunStatus(
-                        icon = AgentRunStatusIcon.THINKING,
-                        text = "准备下一步",
-                        detail = note
-                    )
-                )
-            }
-            if (decision.webSearchUsed) {
-                onStatus(AgentRunStatus(AgentRunStatusIcon.SEARCH, "联网搜索"))
-            }
-            if (decision.unparsedToolCallCount > 0) {
-                throw IllegalStateException(
-                    "模型返回了 ${decision.unparsedToolCallCount} 个无法识别的工具调用，请重试"
-                )
-            }
-            if (decision.calls.isEmpty()) {
-                val finalMessages = if (decision.webSearchUsed && decision.content.isNotBlank()) {
-                    messages + agentTextMessage(
-                        "system",
-                        buildJsonObject {
-                            put("kind", "provider_web_search_result")
-                            put("trust", "untrusted_external_data")
-                            put("content", decision.content)
-                        }.toString()
-                    )
-                } else {
-                    messages
-                }
-                return@withContext streamFinalAnswer(
-                    settings = settings,
-                    messages = finalMessages,
-                    onStatus = onStatus,
-                    onDelta = onDelta,
-                    onStreamReset = onStreamReset
-                )
-            }
-
-            messages += decision.assistantMessage
-            /*
-             * Execute and report each function call in the exact order emitted by the model.
-             * Do not batch status labels before execution: that made the UI look like a canned
-             * workflow and hid repeated calls of the same tool.
-             */
-            decision.calls.forEach { call ->
-                onStatus(call.name.runStatus())
-                val result = executeTurnTool(call)
-                messages += result.asAgentToolMessage()
-                if (call.name.isOneShotPerTurn) completedOneShotTools += call.name
-            }
-        }
-
-        streamFinalAnswer(
-            settings = settings,
-            messages = messages,
-            onStatus = onStatus,
-            onDelta = onDelta,
-            onStreamReset = onStreamReset
-        )
     }
 
     /**
@@ -529,9 +667,11 @@ class DayAgentService(private val context: Context) {
         messages: List<JsonObject>,
         onStatus: (AgentRunStatus) -> Unit,
         onDelta: (String) -> Unit,
-        onStreamReset: () -> Unit
+        onStreamReset: () -> Unit,
+        telemetry: DayAgentTurnTelemetry
     ): String {
         onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "整理结果"))
+        telemetry.finalAnswerStarted()
         val finalMessages = messages + agentTextMessage(
             "system",
             DayAgentPrompts.FinalAnswerStage
@@ -543,8 +683,16 @@ class DayAgentService(private val context: Context) {
             includeTools = false
         )
         return try {
+            telemetry.requestStarted()
             val gate = AgentFinalOutputGate(onDelta)
-            gate.finish(chatTransport.stream(settings, finalBody, gate::accept))
+            gate.finish(
+                chatTransport.stream(
+                    settings = settings,
+                    body = finalBody,
+                    onDelta = gate::accept,
+                    onUsage = telemetry::recordUsage
+                )
+            )
         } catch (error: Throwable) {
             if (error !is MissingAgentBodyException && error !is AgentProtocolViolationException) {
                 throw error
@@ -561,7 +709,10 @@ class DayAgentService(private val context: Context) {
                 stream = false,
                 includeTools = false
             )
-            val retryContent = parseFullChatContent(chatTransport.post(settings, retryBody))
+            telemetry.requestStarted()
+            val retryResponse = chatTransport.post(settings, retryBody)
+            telemetry.recordUsage(parseAgentTokenUsage(retryResponse))
+            val retryContent = parseFullChatContent(retryResponse)
             if (containsLeakedAgentFunctionProtocol(retryContent)) {
                 throw AgentProtocolViolationException()
             }

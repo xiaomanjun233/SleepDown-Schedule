@@ -9,7 +9,7 @@ enum class WeekParity { ALL, ODD, EVEN }
 enum class NotificationMode { STANDARD, LIVE_UPDATE }
 enum class DefaultWallpaperStyle { KANBAN, NONE }
 enum class DockAlignment { LEFT, CENTER, RIGHT }
-enum class HomeStartMode { DAY, WEEK }
+enum class HomeStartMode { DAY, TWO_DAY, WEEK }
 enum class LiveUpdateChipTextMode { LOCATION, COUNTDOWN, SHORT, NORMAL }
 enum class PeriodSchemeMode { MANUAL, AUTO_MATCH }
 enum class ScheduleTermState { MANUAL, UPCOMING, ACTIVE, ENDED, INVALID }
@@ -85,6 +85,9 @@ data class ScheduleConfigEntity(
     val cardAlpha: Float = 1f,
     val courseCardBlur: Float = 18f,
     val courseCardGlassEnabled: Boolean = true,
+    @ColumnInfo(defaultValue = "1") val courseCardOutlineLightEnabled: Boolean = true,
+    @ColumnInfo(defaultValue = "0.5") val courseCardRefractionStrength: Float = 0.5f,
+    @ColumnInfo(defaultValue = "1") val courseCardGaussianBlurEnabled: Boolean = true,
     val courseCardFontScale: Float = 1f,
     @ColumnInfo(defaultValue = "'SOLID'") val courseCardColorMode: CourseCardColorMode = CourseCardColorMode.SOLID,
     @ColumnInfo(defaultValue = "''") val courseCardPalette: String = "",

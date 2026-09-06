@@ -511,9 +511,10 @@ private fun agentWeekResult(facts: DayAgentFacts): String = buildString {
 
 private fun agentSemesterResult(facts: DayAgentFacts): String = buildString {
     appendLine("学期状态=${facts.termState.name}（${facts.termStatus}）")
+    appendLine("课程行=id|名称|星期|节次|周次；可选字段 p=单双周（默认 ALL）、l=地点、t=教师、x=自定义时间")
     append(
         facts.semesterCourses.distinctBy { it.id }
-            .joinToString("\n", transform = ::agentCourseLine)
+            .joinToString("\n", transform = ::agentCompactCourseLine)
             .ifBlank { "本学期无课程" }
     )
 }
@@ -562,3 +563,39 @@ private fun agentCourseLine(course: CourseEntity): String =
         course.customTimeRangeOrNull()?.let { (start, end) ->
             "；自定义时间=${start}-${end}（优先于节次默认时间）"
         }.orEmpty()
+
+private fun agentCompactCourseLine(course: CourseEntity): String = buildList {
+    add(course.id.toString())
+    add(course.name.toAgentCompactField())
+    add(course.weekday.toString())
+    add(course.periods.toAgentRanges())
+    add(course.weeks.toAgentRanges())
+    if (course.weekParity != WeekParity.ALL) add("p=${course.weekParity}")
+    course.location?.takeIf(String::isNotBlank)?.let { add("l=${it.toAgentCompactField()}") }
+    course.teacher?.takeIf(String::isNotBlank)?.let { add("t=${it.toAgentCompactField()}") }
+    course.customTimeRangeOrNull()?.let { (start, end) -> add("x=$start-$end") }
+}.joinToString("|")
+
+private fun String.toAgentCompactField(): String = trim()
+    .replace('|', '／')
+    .replace('\r', ' ')
+    .replace('\n', ' ')
+
+private fun List<Int>.toAgentRanges(): String {
+    val values = distinct().sorted()
+    if (values.isEmpty()) return "-"
+    val ranges = mutableListOf<String>()
+    var start = values.first()
+    var end = start
+    values.drop(1).forEach { value ->
+        if (value == end + 1) {
+            end = value
+        } else {
+            ranges += if (start == end) "$start" else "$start-$end"
+            start = value
+            end = value
+        }
+    }
+    ranges += if (start == end) "$start" else "$start-$end"
+    return ranges.joinToString(",")
+}

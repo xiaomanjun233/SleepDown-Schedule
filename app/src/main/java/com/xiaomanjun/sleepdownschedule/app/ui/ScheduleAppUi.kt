@@ -25,6 +25,8 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.domain.course.*
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.uninstallShiguangRuntime
 
 import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
 import com.xiaomanjun.sleepdownschedule.feature.backup.*
@@ -89,8 +91,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Colorize
-import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
@@ -184,7 +185,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.Capsule
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
@@ -242,6 +243,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.graphics.asImageBitmap
@@ -282,6 +284,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost
@@ -311,6 +314,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
@@ -421,6 +425,11 @@ sealed interface Screen {
 }
 
 enum class HomeMode { Day, Week }
+internal fun HomeStartMode.toHomeMode(): HomeMode = when (this) {
+    HomeStartMode.DAY,
+    HomeStartMode.TWO_DAY -> HomeMode.Day
+    HomeStartMode.WEEK -> HomeMode.Week
+}
 enum class SettingsSection { Schedule, Notifications }
 enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
 
@@ -756,9 +765,9 @@ fun CourseScheduleAppUi(
     var settingsExitInterceptionRequired by remember { mutableStateOf(false) }
     var settingsExitRequest by remember { mutableIntStateOf(0) }
     var pendingSettingsExitAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    var homeMode by remember { mutableStateOf(if (state.config.defaultHomeMode == HomeStartMode.DAY) HomeMode.Day else HomeMode.Week) }
+    var homeMode by remember { mutableStateOf(state.config.defaultHomeMode.toHomeMode()) }
     LaunchedEffect(state.config.defaultHomeMode) {
-        homeMode = if (state.config.defaultHomeMode == HomeStartMode.DAY) HomeMode.Day else HomeMode.Week
+        homeMode = state.config.defaultHomeMode.toHomeMode()
     }
     var homeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     val aiHistorySelection by AiEduImportProgressSession.historySelection.collectAsStateWithLifecycle()
@@ -802,7 +811,7 @@ fun CourseScheduleAppUi(
             course = course,
             targetWeek = targetWeek,
             sourceBoundsInRoot = sourceBounds,
-            sourceIsDayCard = homeMode == HomeMode.Day && sourceBounds != null
+            sourceIsDayCard = homeMode != HomeMode.Week && sourceBounds != null
         )
     }
     fun closeCourseEditor() {
@@ -963,6 +972,15 @@ fun CourseScheduleAppUi(
     }
     val weekCardHeight = adaptiveWeekCardHeight * weekCardHeightScale
     val context = LocalContext.current
+    val dayViewMode = remember(screen, state.config.defaultHomeMode, context) {
+        DayViewPreferences.mode(
+            context = context,
+            legacyTwoDay = state.config.defaultHomeMode == HomeStartMode.TWO_DAY
+        )
+    }
+    var weekViewStyle by remember(screen, context) {
+        mutableStateOf(WeekViewPreferences.style(context))
+    }
     val remoteExperience by SleepDownRemoteConfig.experience.collectAsStateWithLifecycle()
     val remoteConfigState by SleepDownRemoteConfig.state.collectAsStateWithLifecycle()
     fun requestSettingsExit(action: () -> Unit) {
@@ -1177,6 +1195,10 @@ fun CourseScheduleAppUi(
     )
     val wallpaperLoadFinished = !visualState.config.hasAnyWallpaper() ||
         wallpaperImages.renderKey == expectedWallpaperRenderKey
+    val noWallpaperResolved =
+        visualState.config.defaultWallpaperStyle == DefaultWallpaperStyle.NONE &&
+            wallpaperImages.renderKey == expectedWallpaperRenderKey &&
+            wallpaperImages.source == null
     LaunchedEffect(wallpaperImages.renderKey, expectedWallpaperRenderKey) {
         if (wallpaperImages.renderKey == expectedWallpaperRenderKey) {
             // Keep the cheap GPU blur preview visible until the one final CPU-cached bitmap is
@@ -1342,6 +1364,7 @@ fun CourseScheduleAppUi(
             PersonalizeWeekHeightSlider -> "WeekHeight"
             PersonalizeCardAlphaSlider -> "CardAlpha"
             PersonalizeCardBlurSlider -> "CardBlur"
+            PersonalizeCardRefractionSlider -> "CardRefraction"
             PersonalizeCardFontSlider -> "CardFont"
             else -> "Idle"
         }
@@ -1350,32 +1373,21 @@ fun CourseScheduleAppUi(
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening ||
             (courseEditorRequest != null && courseEditorOverlayPhase == CourseEditorOverlayPhase.Open)
-    val courseEditorBackdropBase =
-        if (
-            reduceWallpaperQualityForCourseEditor ||
-            (courseEditorRequest != null && courseEditorOverlayPhase != CourseEditorOverlayPhase.Open)
-        ) {
-            backgroundBackdrop
-        } else {
-            chromeBackdrop
-        }
+    // Sample the window-origin recorded home scene so the morph shell and the wallpaper
+    // behind it stay aligned (see homeAnchoredOverlayBackdrop).
     val courseEditorBackdrop = rememberScreenScaledBackdrop(
-        backdrop = courseEditorBackdropBase,
+        backdrop = cachedWeekHomeBackdrop,
         scale = { courseEditorMotionState.backgroundZoom.value },
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
     )
-    val weekPersonalizationMotionActive = homeMode == HomeMode.Week &&
-        (
-            homeAnchoredOverlayRequest?.kind == HomeAnchoredOverlayKind.Personalize ||
-                homeAnchoredMorphState.renderedKind == HomeAnchoredOverlayKind.Personalize
-            ) && personalizationSliderPreviewKey == null
+    // The week grid is recorded into screenGraphicsLayer at the window origin (the whole
+    // readable root including the top bar). Sampling that same recorded scene keeps the
+    // source-anchored overlays aligned in both day and week modes; the live chromeBackdrop
+    // producers live below the top bar, so drawing them at the root origin shifts the
+    // sampled wallpaper upward by the top-bar height.
     val homeAnchoredOverlayBackdrop = rememberScreenScaledBackdrop(
-        backdrop = if (weekPersonalizationMotionActive) {
-            cachedWeekHomeBackdrop
-        } else {
-            chromeBackdrop
-        },
+        backdrop = cachedWeekHomeBackdrop,
         scale = {
             val zoom = homeAnchoredMorphState.backgroundZoom.value
             1f + (zoom - 1f) * (1f - personalizationPreviewProgress)
@@ -1386,24 +1398,14 @@ fun CourseScheduleAppUi(
     // Android Dialog content owns a separate Compose root/window. Wrap each recorded layer in
     // screen coordinates before combining them, otherwise LayerBackdrop mixes the dialog and
     // activity window origins and samples with a decor/status-bar offset on ColorOS.
-    val homeDialogBackgroundBackdrop = rememberScreenScaledBackdrop(
-        backdrop = backgroundBackdrop,
+    val homeDialogBackdrop = rememberScreenScaledBackdrop(
+        backdrop = cachedWeekHomeBackdrop,
         scale = { 1f },
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
-    ) ?: backgroundBackdrop
-    val homeDialogContentBackdrop = rememberScreenScaledBackdrop(
-        backdrop = contentBackdrop,
-        scale = { 1f },
-        rootPositionOnScreen = { homeRootPositionOnScreen },
-        rootSize = { homeReadabilityRootSize }
-    ) ?: contentBackdrop
-    val homeDialogBackdrop = rememberGlassCombinedBackdrop(
-        homeDialogBackgroundBackdrop,
-        homeDialogContentBackdrop
-    )
+    ) ?: cachedWeekHomeBackdrop
     val homeMenuDestinationBackdrop = rememberScreenScaledBackdrop(
-        backdrop = chromeBackdrop,
+        backdrop = cachedWeekHomeBackdrop,
         scale = { homeMenuDestinationMotionState.backgroundZoom.value },
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
@@ -1427,6 +1429,8 @@ fun CourseScheduleAppUi(
         }
     }
     val dayAgentBackdrop = rememberScreenScaledBackdrop(
+        // TodayAgentHost is inside screenGraphicsLayer: sampling that layer here would
+        // make its RenderNode graph recursive. The wallpaper producer excludes the agent.
         backdrop = backgroundBackdrop,
         scale = { dayAgentBackgroundMotionState.backgroundZoom.value },
         rootPositionOnScreen = { homeRootPositionOnScreen },
@@ -1477,12 +1481,12 @@ fun CourseScheduleAppUi(
         homeDisplayWeek = homeDisplayWeek.coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1))
         if (visualState.config.autoCurrentWeek) homeDisplayWeek = currentTargetWeek
     }
-    val homeTitleWeek = if (homeMode == HomeMode.Day) {
+    val homeTitleWeek = if (homeMode != HomeMode.Week) {
         effectiveCurrentWeek(visualState.config, homeDisplayDate)
     } else {
         homeDisplayWeek
     }
-    val homeTitleDate = if (homeMode == HomeMode.Day) {
+    val homeTitleDate = if (homeMode != HomeMode.Week) {
         homeDisplayDate
     } else {
         todayDate
@@ -1790,7 +1794,7 @@ fun CourseScheduleAppUi(
             targetValue = 1f,
             animationSpec = tween(
                 durationMillis = CourseGlassMaterialRevealDurationMillis,
-                easing = CubicBezierEasing(0.16f, 0.84f, 0.24f, 1f)
+                easing = CubicBezierEasing(0.22f, 0f, 0.18f, 1f)
             )
         )
         courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
@@ -2523,7 +2527,12 @@ fun CourseScheduleAppUi(
                     phase = startupPhase,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(rootTopBarLayoutHeight(screen))
+                        .height(
+                            rootTopBarLayoutHeight(
+                                screen,
+                                homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS
+                            )
+                        )
                 ) {
                     if (screen is Screen.Home) {
                         AnimatedVisibility(
@@ -2537,7 +2546,18 @@ fun CourseScheduleAppUi(
                             HomeTopGradientBlur(
                                 config = visualState.config,
                                 backdrop = chromeBackdrop,
-                                height = rootTopGradientHeight(screen),
+                                height = if (
+                                    homeMode == HomeMode.Week &&
+                                    weekViewStyle == WeekViewStyle.BOUNDLESS
+                                ) {
+                                    homeAdaptiveMetrics.topGradientHeight
+                                } else if (homeMode == HomeMode.Week) {
+                                    // 普通周视图用独立的顶栏模糊：不包含无界模式表头那段高度
+                                    (homeAdaptiveMetrics.topOverlayHeight -
+                                        BoundlessWeekHeaderRowHeight).coerceAtLeast(110.dp)
+                                } else {
+                                    homeAdaptiveMetrics.topOverlayHeight
+                                },
                                 modifier = Modifier
                             )
                         }
@@ -2573,6 +2593,35 @@ fun CourseScheduleAppUi(
                             onBackHome = { screen = Screen.Home }
                         )
                     }
+                    if (homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS) {
+                        // Boundless week header lives on the top bar layer (above the gradient
+                        // blur) so weekday labels are never covered; geometry mirrors the course
+                        // grid (rowHeaderWidth slot + equal columns + weekGridEndPadding).
+                        BoundlessWeekdayHeaderRow(
+                            displayWeek = homeDisplayWeek,
+                            courses = visualState.courses,
+                            config = visualState.config,
+                            today = todayDate,
+                            textColor = homeForegroundColor(visualState.config),
+                            backdrop = chromeBackdrop,
+                            rowHeaderWidth = BoundlessWeekRowHeaderWidth,
+                            weekGridEndPadding = if (homeAdaptiveMetrics.isLargeScreen) {
+                                0.dp
+                            } else {
+                                BoundlessWeekGridEndPadding
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .zIndex(12f)
+                                .fillMaxWidth()
+                                .padding(top = homeAdaptiveMetrics.safeTop + 66.dp)
+                                .padding(
+                                    start = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp,
+                                    end = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp
+                                )
+                                .graphicsLayer { clip = false }
+                        )
+                    }
                 }
             }
         ) { padding ->
@@ -2587,7 +2636,9 @@ fun CourseScheduleAppUi(
                 ) {
                     if (screen is Screen.Home) {
                         if (!visualState.loaded) {
-                            HomeBackdropFallback()
+                            HomeBackdropFallback(
+                                noWallpaper = !visualState.config.hasAnyWallpaper()
+                            )
                         } else {
                             if (wallpaperImages.source != null) {
                                 HomeWallpaper(
@@ -2602,7 +2653,7 @@ fun CourseScheduleAppUi(
                                     personalizationPreviewState
                                 )
                             } else {
-                                HomeBackdropFallback()
+                                HomeBackdropFallback(noWallpaper = noWallpaperResolved)
                             }
                         }
                     } else if (screen is Screen.Config) {
@@ -2638,9 +2689,11 @@ fun CourseScheduleAppUi(
                                  HomeScreen(
                                      state = visualState,
                                      agentState = state,
-                                    personalizationPreviewState = personalizationPreviewState,
-                                    mode = homeMode,
-                                    adaptiveMetrics = homeAdaptiveMetrics,
+                                     personalizationPreviewState = personalizationPreviewState,
+                                     mode = homeMode,
+                                     dayViewMode = dayViewMode,
+                                     weekViewStyle = weekViewStyle,
+                                     adaptiveMetrics = homeAdaptiveMetrics,
                                     weekCardHeight = weekCardHeight.dp,
                                     displayWeek = homeDisplayWeek,
                                     displayDate = homeDisplayDate,
@@ -2847,7 +2900,9 @@ fun CourseScheduleAppUi(
             if (screen is Screen.Home || screen is Screen.Config) {
                 DockEntranceContainer(
                     phase = startupPhase,
-                    modifier = Modifier.align(Alignment.BottomStart)
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .zIndex(100f)
                 ) {
                     FloatingDock(
                         selected = screen,
@@ -3011,6 +3066,35 @@ fun CourseScheduleAppUi(
         rememberUpdatedState<(TransitionRouteId, Intent) -> Unit> { routeId, targetIntent ->
             if (homeMenuActivityLaunched) return@rememberUpdatedState
             val activity = context.findActivity() ?: return@rememberUpdatedState
+            if (homeAdaptiveMetrics.isLargeScreen) {
+                // Large screens skip the heavy home morph: first retract the three-dot menu,
+                // then open with the system default cross-activity transition. Returning lands
+                // on the plain home with the menu already closed.
+                homeMenuActivityLaunched = true
+                homeAnchoredOverlayRequest = null
+                appScope.launch {
+                    try {
+                        snapshotFlow {
+                            homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Idle &&
+                                homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Idle
+                        }.first { it }
+                        if (!activity.isFinishing) {
+                            ActivityTransitionCoordinator.openImmediate(
+                                activity,
+                                if (routeId == TransitionRouteId.HomeToCourseManagement) {
+                                    TransitionRouteId.TabletHomeToCourseManagement
+                                } else {
+                                    TransitionRouteId.TabletHomeToEduImport
+                                },
+                                targetIntent
+                            )
+                        }
+                    } finally {
+                        releaseHomeMenuActivitySource()
+                    }
+                }
+                return@rememberUpdatedState
+            }
             val sharedDestinationRequest =
                 currentHomeMenuDestinationRequest(HomeMenuDestinationKind.EduImport)
                     ?: return@rememberUpdatedState
@@ -3399,6 +3483,32 @@ fun CourseScheduleAppUi(
                     }
                 }
             }
+        )
+    }
+
+    // One-time first-run prompt for the boundless week view (per reaching version).
+    var showBoundlessIntro by remember { mutableStateOf(false) }
+    LaunchedEffect(visualState.loaded, screen) {
+        if (screen is Screen.Home && visualState.loaded && WeekViewPreferences.shouldShowIntro(context)) {
+            WeekViewPreferences.markIntroShown(context)
+            showBoundlessIntro = true
+        }
+    }
+    if (showBoundlessIntro) {
+        LiquidAlertDialog(
+            title = "周视图推出无界模式",
+            message = "周视图新增「无界」显示模式：星期与日期融入顶栏，课程可滚动到屏幕顶部，体验更沉浸。\n是否立即切换？（之后可在「通用设置 → 外观与布局」中随时调整）",
+            actions = listOf(
+                LiquidAlertAction("稍后", LiquidAlertActionStyle.Secondary) { showBoundlessIntro = false },
+                LiquidAlertAction("确认", LiquidAlertActionStyle.Primary) {
+                    weekViewStyle = WeekViewStyle.BOUNDLESS
+                    WeekViewPreferences.setStyle(context, WeekViewStyle.BOUNDLESS)
+                    showBoundlessIntro = false
+                }
+            ),
+            backdrop = homeDialogBackdrop,
+            config = visualState.config,
+            onDismissRequest = { showBoundlessIntro = false }
         )
     }
 
@@ -4210,6 +4320,11 @@ internal val HomeTopOverlayHeight = 178.dp
 private val DetailTopBarHeight = SleepDownDesignTokens.SecondaryPage.CompactTopBarHeight
 private val DetailTopOverlayExtra = SleepDownDesignTokens.SecondaryPage.TopOverlayExtra
 private val DetailContentTopGap = SleepDownDesignTokens.SecondaryPage.ContentTopGap
+internal val LightTopBarButtonShadow = Shadow(
+    radius = 7.dp,
+    offset = DpOffset(0.dp, 1.dp),
+    color = ComposeColor.Black.copy(alpha = 0.10f)
+)
 internal val HomeInitialTopInset = 122.dp
 
 @Composable
@@ -4327,9 +4442,21 @@ private fun HomeBackgroundBlurLayer(
 }
 
 @Composable
-private fun rootTopBarLayoutHeight(screen: Screen): Dp {
+private fun rootTopBarLayoutHeight(
+    screen: Screen,
+    boundlessWeekHeader: Boolean = false
+): Dp {
     return when (screen) {
-        Screen.Home -> rememberHomeAdaptiveMetrics().topOverlayHeight
+        Screen.Home -> {
+            val metrics = rememberHomeAdaptiveMetrics()
+            if (boundlessWeekHeader) {
+                // 无界表头作为顶栏延伸，容器必须容纳 statusBar + 66dp 顶栏 + 46dp 表头，
+                // 否则大屏（topOverlayHeight 上限 132dp）会裁掉表头下半截。
+                metrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 4.dp
+            } else {
+                metrics.topOverlayHeight
+            }
+        }
         Screen.Config -> detailTopOverlayHeight()
     }
 }
@@ -4339,14 +4466,6 @@ internal fun detailTopOverlayHeight(): Dp {
     val density = LocalDensity.current
     val statusTop = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
     return statusTop + DetailTopBarHeight + DetailTopOverlayExtra
-}
-
-@Composable
-private fun rootTopGradientHeight(screen: Screen): Dp {
-    return when (screen) {
-        Screen.Home -> rememberHomeAdaptiveMetrics().topGradientHeight
-        Screen.Config -> detailTopOverlayHeight()
-    }
 }
 
 @Composable
@@ -4368,6 +4487,8 @@ fun DetailActivityScaffold(
     centerCompactTitle: Boolean = false,
     compactTitleMatchesSettings: Boolean = false,
     topBarVisible: Boolean = true,
+    preserveStatusBarSpace: Boolean = false,
+    topBarBackdropOverride: Backdrop? = null,
     topBarActions: @Composable (Backdrop?) -> Unit = {},
     content: @Composable (Backdrop?) -> Unit
 ) {
@@ -4381,6 +4502,8 @@ fun DetailActivityScaffold(
         centerCompactTitle = centerCompactTitle,
         compactTitleMatchesSettings = compactTitleMatchesSettings,
         topBarVisible = topBarVisible,
+        preserveStatusBarSpace = preserveStatusBarSpace,
+        topBarBackdropOverride = topBarBackdropOverride,
         topBarActions = topBarActions,
         content = content
     )
@@ -4397,14 +4520,17 @@ fun DetailTopBar(
     useMiuixCollapsedTitleStyle: Boolean = false,
     showBackButton: Boolean = true,
     backButtonStartPadding: Dp = 16.dp,
+    statusTopOverride: Dp? = null,
     actions: @Composable () -> Unit = {}
 ) {
     val density = LocalDensity.current
-    val statusTop = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
+    val statusTop = statusTopOverride
+        ?: with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(statusTop + DetailTopBarHeight)
+            .graphicsLayer { clip = false }
     ) {
         if (centerTitle) {
             Box(
@@ -4412,6 +4538,7 @@ fun DetailTopBar(
                     .fillMaxWidth()
                     .height(DetailTopBarHeight)
                     .align(Alignment.BottomCenter)
+                    .graphicsLayer { clip = false }
             ) {
                 if (showBackButton) {
                     TopBackButton(
@@ -4458,7 +4585,8 @@ fun DetailTopBar(
                 .fillMaxWidth()
                 .height(DetailTopBarHeight)
                 .align(Alignment.BottomCenter)
-                .padding(start = backButtonStartPadding, end = 16.dp),
+                .padding(start = backButtonStartPadding, end = 16.dp)
+                .graphicsLayer { clip = false },
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showBackButton) {
@@ -4489,7 +4617,8 @@ fun DetailTopBar(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .height(DetailTopBarHeight)
-                .padding(end = 10.dp),
+                .padding(end = 10.dp)
+                .graphicsLayer { clip = false },
             contentAlignment = Alignment.CenterEnd
         ) { actions() }
     }
@@ -4519,20 +4648,57 @@ fun HomeTopGradientBlur(
 ) {
     val lightGlass = glassUsesLightStyle(config)
     val tintColor = if (lightGlass) HomeLightGlassGradientColor else ComposeColor(0xFF111111)
-    ProgressiveBackdropBlur(
-        backdrop = backdrop,
-        modifier = modifier,
-        tintColor = tintColor,
-        height = height,
-        blurRadius = 12.dp,
-        tintIntensity = if (lightGlass) 0.15f else 0.18f,
-        direction = ProgressiveBlurDirection.TopToBottom,
-        fallbackTintStops = listOf(
-            0f to tintColor.copy(alpha = if (lightGlass) 0.34f else 0.42f),
-            0.42f to tintColor.copy(alpha = if (lightGlass) 0.14f else 0.18f),
-            1f to ComposeColor.Transparent
+    Box(modifier = modifier) {
+        ProgressiveBackdropBlur(
+            backdrop = backdrop,
+            tintColor = tintColor,
+            height = height,
+            blurRadius = 7.dp,
+            // Pure blur: no white/dark tint base. A faint tint remains only as the API<33 fallback
+            // brush (the runtime shader path is driven by tintIntensity = 0).
+            tintIntensity = 0f,
+            direction = ProgressiveBlurDirection.TopToBottom,
+            // Keep the blur mostly flat (~7dp) over the whole top zone, extending past the weekday
+            // title text and the week header band; only below that does it fade out quickly. A long
+            // plateau with a short tail reads as one soft chrome gradient instead of fast steps.
+            topMaskFadeStart = 0.85f,
+            topMaskFadeEnd = 1f,
+            fallbackTintStops = listOf(
+                0f to tintColor.copy(alpha = if (lightGlass) 0.12f else 0.16f),
+                0.6f to tintColor.copy(alpha = if (lightGlass) 0.05f else 0.07f),
+                1f to ComposeColor.Transparent
+            )
         )
-    )
+        // Wallpaper brightness: the backdrop sampled above already carries the glass sampling dim,
+        // but the remainder dim (WallpaperToneOverlay) is kept outside the backdrop producers so
+        // course cards stay bright. Re-apply that exact remainder inside the gradient zone so the
+        // chrome does not read brighter ("发白") than the dimmed wallpaper around it.
+        val brightness = config.wallpaperBrightness.coerceIn(0.35f, 1f)
+        val totalDim = (1f - brightness).coerceIn(0f, 0.65f)
+        val samplingDim = wallpaperGlassSamplingDim(brightness)
+        val remainderDim = if (samplingDim >= 0.999f) {
+            0f
+        } else {
+            ((totalDim - samplingDim) / (1f - samplingDim)).coerceIn(0f, 0.65f)
+        }
+        if (remainderDim > 0.001f) {
+            val dimColor = ComposeColor.Black.copy(alpha = remainderDim)
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(height)
+                    .drawBehind {
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                0f to dimColor,
+                                0.85f to dimColor.copy(alpha = dimColor.alpha * 0.6f),
+                                1f to ComposeColor.Transparent
+                            )
+                        )
+                    }
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -4568,9 +4734,8 @@ internal fun AppTopBar(
                 .height(66.dp)
                 .graphicsLayer { clip = false }
         ) {
-            // Material's app-bar layout owns the stable title geometry. Keep the animated liquid
-            // controls in a later sibling so their press/morph envelope is not clipped to that
-            // layout's bounds.
+            // Keep Material's bar shell, but render both the title and animated liquid controls as
+            // siblings so neither is clipped by TopAppBar's internal single-line title layout.
             TopAppBar(
                 modifier = Modifier.fillMaxSize(),
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -4580,18 +4745,26 @@ internal fun AppTopBar(
                     actionIconContentColor = homeTextColor,
                     navigationIconContentColor = homeTextColor
                 ),
-                title = {
-                    HomeDateTitle(
-                        state = state,
-                        displayDate = homeDisplayDate,
-                        displayWeek = homeDisplayWeek,
-                        beforeScheduleTerm = beforeScheduleTerm,
-                        afterScheduleTerm = afterScheduleTerm,
-                        showReturnToCurrentWeekHint = homeShowingAnotherWeek,
-                        onReturnCurrent = onReturnHomeToCurrentWeek
-                    )
-                }
+                title = {}
             )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 120.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                HomeDateTitle(
+                    state = state,
+                    displayDate = homeDisplayDate,
+                    displayWeek = homeDisplayWeek,
+                    showTwoDays = false,
+                    beforeScheduleTerm = beforeScheduleTerm,
+                    afterScheduleTerm = afterScheduleTerm,
+                    showReturnToCurrentWeekHint = homeShowingAnotherWeek,
+                    onReturnCurrent = onReturnHomeToCurrentWeek
+                )
+            }
             Row(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -4744,7 +4917,8 @@ fun TopGlassIconButton(
             lensHeight = 16.dp,
             lensAmount = 24.dp,
             chromaticAberration = false,
-            shadowEnabled = false
+            shadowEnabled = lightGlass,
+            shadowStyle = LightTopBarButtonShadow
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(painterResource(iconRes), contentDescription = contentDescription, modifier = Modifier.size(22.dp))
@@ -4874,7 +5048,8 @@ internal fun HomeActionCapsuleVisual(
             lensHeight = HomeHeaderGlassLensHeight,
             lensAmount = HomeHeaderGlassLensAmount,
             chromaticAberration = false,
-            shadowEnabled = false,
+            shadowEnabled = lightGlass,
+            shadowStyle = LightTopBarButtonShadow,
             pressExpansion = 3.dp,
             highlightRadiusMultiplier = 0.9f,
             pressSnapshot = pressSnapshot,
@@ -4968,7 +5143,8 @@ internal fun HomeIconButtonVisual(
             lensHeight = HomeHeaderGlassLensHeight,
             lensAmount = HomeHeaderGlassLensAmount,
             chromaticAberration = false,
-            shadowEnabled = false,
+            shadowEnabled = lightGlass,
+            shadowStyle = LightTopBarButtonShadow,
             pressExpansion = 3.dp,
             pressSnapshot = pressSnapshot
         ) {
@@ -5031,7 +5207,7 @@ fun AddMenuLiquidItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(itemHeight - 2.dp)
-                .clip(RoundedCornerShape(HomeAddMenuSelectionCornerDp.dp))
+                .clip(RoundedRectangle(HomeAddMenuSelectionCornerDp.dp))
                 .background(if (highlighted) selectedColor else ComposeColor.Transparent)
                 .padding(horizontal = 16.dp),
             contentAlignment = Alignment.CenterStart
@@ -5301,8 +5477,11 @@ internal const val PersonalizeWeekCornerSlider = "week-corner"
 private const val PersonalizeCardColorChange = "card-color"
 internal const val PersonalizeCardAlphaSlider = "card-alpha"
 internal const val PersonalizeCardBlurSlider = "card-blur"
+internal const val PersonalizeCardRefractionSlider = "card-refraction"
 internal const val PersonalizeCardFontSlider = "card-font"
 private const val PersonalizeCardGlassChange = "card-glass"
+private const val PersonalizeCardOutlineLightChange = "card-outline-light"
+private const val PersonalizeCardGaussianBlurChange = "card-gaussian-blur"
 
 internal fun resolveActivePersonalizationSlider(
     currentKey: String?,
@@ -5353,9 +5532,18 @@ internal fun mergePersonalizationCandidate(
     )
     PersonalizeCardAlphaSlider -> current.copy(cardAlpha = candidate.cardAlpha)
     PersonalizeCardBlurSlider -> current.copy(courseCardBlur = candidate.courseCardBlur)
+    PersonalizeCardRefractionSlider -> current.copy(
+        courseCardRefractionStrength = candidate.courseCardRefractionStrength
+    )
     PersonalizeCardFontSlider -> current.copy(courseCardFontScale = candidate.courseCardFontScale)
     PersonalizeCardGlassChange -> current.switchCourseCardGlassMode(
         candidate.courseCardGlassEnabled
+    )
+    PersonalizeCardOutlineLightChange -> current.copy(
+        courseCardOutlineLightEnabled = candidate.courseCardOutlineLightEnabled
+    )
+    PersonalizeCardGaussianBlurChange -> current.copy(
+        courseCardGaussianBlurEnabled = candidate.courseCardGaussianBlurEnabled
     )
     else -> current
 }
@@ -5502,98 +5690,140 @@ private fun tonalPreviewColors(seed: Long): List<ComposeColor> {
 @Composable
 private fun CourseColorModeRow(
     title: String,
+    iconRes: Int,
     mode: CourseCardColorMode,
     selectedMode: CourseCardColorMode,
     presets: List<List<Long>>,
     selectedPreset: (List<Long>) -> Boolean,
+    customSelected: Boolean,
+    backdrop: Backdrop?,
+    modifier: Modifier = Modifier,
     onPresetSelected: (List<Long>) -> Unit,
     onOpenPalette: () -> Unit
 ) {
     val foreground = LocalContentColor.current
+    val labelColor = if (selectedMode == mode) MaterialTheme.colorScheme.primary else foreground
+    @Composable
+    fun PresetButton(colors: List<Long>) {
+        val selected = selectedMode == mode && selectedPreset(colors)
+        val previewColors = when (mode) {
+            CourseCardColorMode.SOLID -> colors.map { ComposeColor(it.toInt()) }
+            CourseCardColorMode.GRADIENT -> tonalPreviewColors(colors.first())
+            CourseCardColorMode.COLORFUL -> colors.map { vividPreviewColor(it) }
+        }
+        Surface(
+            modifier = Modifier.size(32.dp),
+            shape = Capsule(),
+            color = if (mode == CourseCardColorMode.COLORFUL) {
+                ComposeColor.White.copy(alpha = 0.88f)
+            } else {
+                ComposeColor.Transparent
+            },
+            border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+            onClick = { onPresetSelected(colors) }
+        ) {
+            if (mode == CourseCardColorMode.COLORFUL) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    // A four-color dot cluster reads instantly as "colorful"; a themed glyph
+                    // cannot express the multi-palette idea on its own.
+                    Canvas(
+                        Modifier
+                            .size(19.dp)
+                            .semantics { contentDescription = "自动彩色课程卡" }
+                    ) {
+                        val dotRadius = size.minDimension * 0.165f
+                        val gap = size.minDimension * 0.235f
+                        val centerX = size.width / 2f
+                        val centerY = size.height / 2f
+                        val dotColors = listOf(
+                            ComposeColor(0xFFFF5A52),
+                            ComposeColor(0xFFFFB300),
+                            ComposeColor(0xFF30C851),
+                            ComposeColor(0xFF0A84FF)
+                        )
+                        val dotCenters = listOf(
+                            Offset(centerX - gap, centerY - gap),
+                            Offset(centerX + gap, centerY - gap),
+                            Offset(centerX - gap, centerY + gap),
+                            Offset(centerX + gap, centerY + gap)
+                        )
+                        dotCenters.forEachIndexed { index, center ->
+                            drawCircle(color = dotColors[index], radius = dotRadius, center = center)
+                        }
+                    }
+                }
+            } else {
+                Box(
+                    Modifier.background(
+                        if (previewColors.size == 1) {
+                            Brush.linearGradient(listOf(previewColors.first(), previewColors.first()))
+                        } else {
+                            Brush.linearGradient(previewColors)
+                        }
+                    )
+                )
+            }
+        }
+    }
+
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = title,
-            modifier = Modifier.width(42.dp),
-            color = if (selectedMode == mode) MaterialTheme.colorScheme.primary else foreground,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (selectedMode == mode) FontWeight.Bold else FontWeight.Medium
-        )
         Row(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = if (mode == CourseCardColorMode.COLORFUL) {
-                Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally)
-            } else {
-                Arrangement.SpaceEvenly
-            },
+            modifier = Modifier.width(42.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            presets.forEach { colors ->
-                val selected = selectedMode == mode && selectedPreset(colors)
-                val previewColors = when (mode) {
-                    CourseCardColorMode.SOLID -> colors.map { ComposeColor(it.toInt()) }
-                    CourseCardColorMode.GRADIENT -> tonalPreviewColors(colors.first())
-                    CourseCardColorMode.COLORFUL -> colors.map { vividPreviewColor(it) }
-                }
-                val shape = RoundedCornerShape(50)
-                Surface(
-                    modifier = Modifier.size(32.dp),
-                    shape = shape,
-                    color = ComposeColor.Transparent,
-                    border = if (selected) {
-                        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                    } else {
-                        null
-                    },
-                    onClick = { onPresetSelected(colors) }
-                ) {
-                    Box(
-                        Modifier.background(
-                            when {
-                                previewColors.size == 1 -> Brush.linearGradient(
-                                    listOf(
-                                        previewColors.first(),
-                                        previewColors.first()
-                                    )
-                                )
-                                mode == CourseCardColorMode.COLORFUL -> Brush.sweepGradient(
-                                    previewColors
-                                )
-                                else -> Brush.linearGradient(
-                                    previewColors
-                                )
-                            }
-                        )
-                    )
-                }
-            }
-            Surface(
-                modifier = Modifier.size(32.dp),
-                shape = RoundedCornerShape(50),
-                color = ComposeColor.Transparent,
-                border = null,
-                onClick = onOpenPalette
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.sweepGradient(
-                                AutomaticColorfulCoursePreview.map { vividPreviewColor(it) }
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                tint = labelColor,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = title,
+                color = labelColor,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (selectedMode == mode) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (mode == CourseCardColorMode.COLORFUL) {
+                repeat(5) { index ->
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        when (index) {
+                            0 -> PresetButton(presets.first())
+                            4 -> CourseColorPaletteButton(
+                                backdrop = backdrop,
+                                selected = customSelected,
+                                onClick = onOpenPalette,
+                                size = 32.dp
                             )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Palette,
-                        contentDescription = "自定义课程卡颜色",
-                        tint = if (foreground.luminance() > 0.5f) ComposeColor.White else ComposeColor.Black,
-                        modifier = Modifier.size(19.dp)
+                        }
+                    }
+                }
+            } else {
+                presets.forEach { colors ->
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        PresetButton(colors)
+                    }
+                }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    CourseColorPaletteButton(
+                        backdrop = backdrop,
+                        selected = customSelected,
+                        onClick = onOpenPalette,
+                        size = 32.dp
                     )
                 }
             }
@@ -5634,7 +5864,7 @@ private fun CourseColorEditorDialog(
                     modifier = Modifier.size(38.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Colorize,
+                        painter = painterResource(R.drawable.ic_color_eyedropper),
                         contentDescription = "从壁纸吸色",
                         tint = foreground,
                         modifier = Modifier.size(21.dp)
@@ -5647,15 +5877,17 @@ private fun CourseColorEditorDialog(
         }
     ) {
         if (stage == CourseColorDialogStage.Picker) {
-            if (mode == CourseCardColorMode.COLORFUL && colors.size > 1) {
-                Row(
+            if (mode == CourseCardColorMode.COLORFUL && colors.isNotEmpty()) {
+                LazyRow(
                     modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
                 ) {
-                    colors.forEachIndexed { index, color ->
+                    items(colors.size) { index ->
+                        val color = colors[index]
                         Surface(
                             modifier = Modifier.size(34.dp),
-                            shape = RoundedCornerShape(50),
+                            shape = Capsule(),
                             color = ComposeColor(color.toInt()),
                             border = BorderStroke(
                                 if (index == selectedIndex) 3.dp else 1.dp,
@@ -5664,6 +5896,64 @@ private fun CourseColorEditorDialog(
                             ),
                             onClick = { onSelectedIndexChange(index) }
                         ) {}
+                    }
+                    item {
+                        val addColor: () -> Unit = {
+                            val addIndex = colors.size
+                            onColorChange(
+                                addIndex,
+                                DefaultCourseCardPalette[addIndex % DefaultCourseCardPalette.size]
+                            )
+                            onSelectedIndexChange(addIndex)
+                        }
+                        // 外层 padding 与 clip=false 保证按压放大不被列表/弹窗裁切
+                        Box(
+                            // 与色块保持同尺寸(34dp)让加号对齐；按压放大外扩交给
+                            // LazyRow 的 contentPadding 与 clip=false 处理，
+                            // 项内 padding 会导致加号相对色块错位。
+                            modifier = Modifier
+                                .size(34.dp)
+                                .graphicsLayer { clip = false },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (backdrop != null) {
+                                LiquidButton(
+                                    onClick = addColor,
+                                    backdrop = backdrop,
+                                    modifier = Modifier.size(34.dp),
+                                    height = 34.dp,
+                                    contentPadding = PaddingValues(0.dp),
+                                    surfaceColor = ComposeColor(0xFF0A84FF),
+                                    blurRadius = 7.dp,
+                                    lensHeight = 11.dp,
+                                    lensAmount = 15.dp,
+                                    pressExpansion = 3.dp
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.Add,
+                                        contentDescription = "添加颜色",
+                                        tint = ComposeColor.White,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                            } else {
+                                Surface(
+                                    modifier = Modifier.size(34.dp),
+                                    shape = Capsule(),
+                                    color = ComposeColor(0xFF0A84FF),
+                                    onClick = addColor
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Rounded.Add,
+                                            contentDescription = "添加颜色",
+                                            tint = ComposeColor.White,
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -5821,7 +6111,7 @@ private fun WallpaperPaletteSampler(
             modifier = Modifier
                 .width(210.dp)
                 .height(previewHeight)
-                .clip(RoundedCornerShape(24.dp))
+                .clip(RoundedRectangle(24.dp))
                 .background(if (appUsesDarkTheme(config)) ComposeColor(0xFF15171C) else ComposeColor(0xFFF1F3F8))
                 .onSizeChanged { previewSize = it }
                 .pointerInput(bitmap, previewSize, selectedPoint) {
@@ -5877,7 +6167,7 @@ private fun WallpaperPaletteSampler(
                                 }
                             )
                         },
-                    shape = RoundedCornerShape(50),
+                    shape = Capsule(),
                     color = markerColor,
                     border = BorderStroke(
                         if (selectedPoint == index) 3.dp else 2.dp,
@@ -6007,7 +6297,7 @@ fun PersonalizePanel(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
+                .clip(RoundedRectangle(18.dp))
                 .background(
                     ComposeColor.Black.copy(
                         alpha = 0.10f * (1f - previewProgress.coerceIn(0f, 1f))
@@ -6197,10 +6487,15 @@ fun PersonalizePanel(
                 Spacer(Modifier.height(8.dp))
                 CourseColorModeRow(
                     title = "纯色",
+                    iconRes = R.drawable.ic_color_solid,
                     mode = CourseCardColorMode.SOLID,
                     selectedMode = state.config.courseCardColorMode,
                     presets = SolidCourseColorPresets.map { listOf(it) },
                     selectedPreset = { it.firstOrNull() == state.config.cardColorArgb },
+                    customSelected = state.config.courseCardColorMode == CourseCardColorMode.SOLID &&
+                        SolidCourseColorPresets.none { it == state.config.cardColorArgb },
+                    backdrop = backdrop,
+                    modifier = Modifier.personalizePreviewVisibility(previewSliderKey, previewProgress),
                     onPresetSelected = { colors ->
                         onUpdateConfig(
                             PersonalizeCardColorChange,
@@ -6214,10 +6509,15 @@ fun PersonalizePanel(
                 )
                 CourseColorModeRow(
                     title = "渐变",
+                    iconRes = R.drawable.ic_color_gradient,
                     mode = CourseCardColorMode.GRADIENT,
                     selectedMode = state.config.courseCardColorMode,
                     presets = GradientCourseColorPresets.map { listOf(it) },
                     selectedPreset = { it.firstOrNull() == state.config.cardColorArgb },
+                    customSelected = state.config.courseCardColorMode == CourseCardColorMode.GRADIENT &&
+                        GradientCourseColorPresets.none { it == state.config.cardColorArgb },
+                    backdrop = backdrop,
+                    modifier = Modifier.personalizePreviewVisibility(previewSliderKey, previewProgress),
                     onPresetSelected = { colors ->
                         onUpdateConfig(
                             PersonalizeCardColorChange,
@@ -6231,10 +6531,15 @@ fun PersonalizePanel(
                 )
                 CourseColorModeRow(
                     title = "彩色",
+                    iconRes = R.drawable.ic_color_colorful,
                     mode = CourseCardColorMode.COLORFUL,
                     selectedMode = state.config.courseCardColorMode,
                     presets = listOf(AutomaticColorfulCoursePreview),
                     selectedPreset = { state.config.courseCardPalette.isBlank() },
+                    customSelected = state.config.courseCardColorMode == CourseCardColorMode.COLORFUL &&
+                        state.config.courseCardPalette.isNotBlank(),
+                    backdrop = backdrop,
+                    modifier = Modifier.personalizePreviewVisibility(previewSliderKey, previewProgress),
                     onPresetSelected = {
                         onUpdateConfig(
                             PersonalizeCardColorChange,
@@ -6246,7 +6551,14 @@ fun PersonalizePanel(
                     },
                     onOpenPalette = { openCourseColorDialog(CourseCardColorMode.COLORFUL) }
                 )
-                val alphaLabel = if (state.config.courseCardGlassEnabled) "课程卡片着色强度" else "课程卡片不透明度"
+                val glassLocked = !state.config.hasAnyWallpaper()
+                val alphaLabel = when {
+                    !glassLocked &&
+                        state.config.courseCardGlassEnabled &&
+                        state.config.courseCardOutlineLightEnabled -> "轮廓光强度"
+                    !glassLocked && state.config.courseCardGlassEnabled -> "课程卡片着色强度"
+                    else -> "课程卡片不透明度"
+                }
                 PersonalizeValueSlider(
                     sliderKey = PersonalizeCardAlphaSlider,
                     value = state.config.cardAlpha.coerceIn(0f, 1f),
@@ -6273,34 +6585,39 @@ fun PersonalizePanel(
                         updateSliderTouchOwner(PersonalizeCardAlphaSlider, it)
                     }
                 )
-                val maxCourseCardBlur = courseCardBlurMaximum(state.config.courseCardGlassEnabled)
-                PersonalizeValueSlider(
-                    sliderKey = PersonalizeCardBlurSlider,
-                    value = state.config.courseCardBlur.coerceIn(0f, maxCourseCardBlur) /
-                        maxCourseCardBlur * 100f,
-                    valueRange = 0f..100f,
-                    backdrop = backdrop,
-                    label = { "课程卡片模糊 ${it.toInt()}%" },
-                    onCommit = {
-                        onUpdateConfig(
-                            PersonalizeCardBlurSlider,
-                            state.config.copy(courseCardBlur = it / 100f * maxCourseCardBlur)
-                        )
-                    },
-                    onPreviewValueChange = {
-                        onPreviewConfig(
-                            PersonalizeCardBlurSlider,
-                            state.config.copy(courseCardBlur = it / 100f * maxCourseCardBlur)
-                        )
-                    },
-                    previewSliderKey = previewSliderKey,
-                    previewProgress = previewProgress,
-                    onSliderPreviewActiveChange = onSliderPreviewActiveChange,
-                    snapValue = 35f,
-                    onTouchActiveChange = {
-                        updateSliderTouchOwner(PersonalizeCardBlurSlider, it)
-                    }
-                )
+                if (
+                    (state.config.courseCardGlassEnabled || state.config.courseCardGaussianBlurEnabled) &&
+                    !glassLocked
+                ) {
+                    val maxCourseCardBlur = courseCardBlurMaximum(state.config.courseCardGlassEnabled)
+                    PersonalizeValueSlider(
+                        sliderKey = PersonalizeCardBlurSlider,
+                        value = state.config.courseCardBlur.coerceIn(0f, maxCourseCardBlur) /
+                            maxCourseCardBlur * 100f,
+                        valueRange = 0f..100f,
+                        backdrop = backdrop,
+                        label = { "课程卡片模糊 ${it.toInt()}%" },
+                        onCommit = {
+                            onUpdateConfig(
+                                PersonalizeCardBlurSlider,
+                                state.config.copy(courseCardBlur = it / 100f * maxCourseCardBlur)
+                            )
+                        },
+                        onPreviewValueChange = {
+                            onPreviewConfig(
+                                PersonalizeCardBlurSlider,
+                                state.config.copy(courseCardBlur = it / 100f * maxCourseCardBlur)
+                            )
+                        },
+                        previewSliderKey = previewSliderKey,
+                        previewProgress = previewProgress,
+                        onSliderPreviewActiveChange = onSliderPreviewActiveChange,
+                        snapValue = 35f,
+                        onTouchActiveChange = {
+                            updateSliderTouchOwner(PersonalizeCardBlurSlider, it)
+                        }
+                    )
+                }
                 PersonalizeValueSlider(
                     sliderKey = PersonalizeCardFontSlider,
                     value = state.config.courseCardFontScale,
@@ -6355,24 +6672,114 @@ fun PersonalizePanel(
                         }
                     )
                 }
+                if (state.config.courseCardGlassEnabled && !glassLocked) {
+                    PersonalizeValueSlider(
+                        sliderKey = PersonalizeCardRefractionSlider,
+                        value = state.config.courseCardRefractionStrength.coerceIn(0f, 1f),
+                        valueRange = 0f..1f,
+                        backdrop = backdrop,
+                        label = { "折射强度 ${(it * 100f).toInt()}%" },
+                        onCommit = {
+                            onUpdateConfig(
+                                PersonalizeCardRefractionSlider,
+                                state.config.copy(courseCardRefractionStrength = it)
+                            )
+                        },
+                        onPreviewValueChange = {
+                            onPreviewConfig(
+                                PersonalizeCardRefractionSlider,
+                                state.config.copy(courseCardRefractionStrength = it)
+                            )
+                        },
+                        previewSliderKey = previewSliderKey,
+                        previewProgress = previewProgress,
+                        onSliderPreviewActiveChange = onSliderPreviewActiveChange,
+                        snapValue = 0.5f,
+                        onTouchActiveChange = {
+                            updateSliderTouchOwner(PersonalizeCardRefractionSlider, it)
+                        }
+                    )
+                }
+                Spacer(
+                    Modifier
+                        .height(4.dp)
+                        .personalizePreviewVisibility(previewSliderKey, previewProgress)
+                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .personalizePreviewVisibility(previewSliderKey, previewProgress),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("课程卡片液态玻璃", style = MaterialTheme.typography.labelLarge)
                     LiquidControlToggle(
-                        checked = state.config.courseCardGlassEnabled,
+                        checked = state.config.courseCardGlassEnabled && !glassLocked,
                         onCheckedChange = {
                             onUpdateConfig(
                                 PersonalizeCardGlassChange,
                                 state.config.copy(courseCardGlassEnabled = it)
                             )
                         },
+                        enabled = !glassLocked,
                         backdrop = backdrop
                     )
+                }
+                if (glassLocked) {
+                    Text(
+                        "设置壁纸以启用课程卡片液态玻璃效果",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = personalizePanelForegroundColor(state.config).copy(alpha = 0.60f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp, bottom = 6.dp)
+                            .personalizePreviewVisibility(previewSliderKey, previewProgress)
+                    )
+                }
+                if (state.config.courseCardGlassEnabled && !glassLocked) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .personalizePreviewVisibility(previewSliderKey, previewProgress),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("质感轮廓光", style = MaterialTheme.typography.labelLarge)
+                        LiquidControlToggle(
+                            checked = state.config.courseCardOutlineLightEnabled,
+                            onCheckedChange = {
+                                onUpdateConfig(
+                                    PersonalizeCardOutlineLightChange,
+                                    state.config.copy(courseCardOutlineLightEnabled = it)
+                                )
+                            },
+                            backdrop = backdrop
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .personalizePreviewVisibility(previewSliderKey, previewProgress),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("课程卡片高斯模糊", style = MaterialTheme.typography.labelLarge)
+                        LiquidControlToggle(
+                            checked = state.config.courseCardGaussianBlurEnabled && !glassLocked,
+                            onCheckedChange = {
+                                onUpdateConfig(
+                                    PersonalizeCardGaussianBlurChange,
+                                    state.config.copy(courseCardGaussianBlurEnabled = it)
+                                )
+                            },
+                            enabled = !glassLocked,
+                            backdrop = backdrop
+                        )
+                    }
                 }
             }
         }
@@ -6462,7 +6869,7 @@ fun LiquidMenuButton(
         Text(
             label,
             modifier = modifier
-                .clip(RoundedCornerShape(50))
+                .clip(Capsule())
                 .background(surfaceColor.copy(alpha = surfaceColor.alpha.coerceAtLeast(0.14f)))
                 .clickable(onClick = onClick)
                 .padding(horizontal = 14.dp, vertical = 10.dp),
@@ -6570,10 +6977,15 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                         else -> closeSettings()
                     }
                 }
-                // An Activity-level callback disables Android's cross-Activity predictive-back
-                // animation. Only install it while a page really has a pending draft that must be
-                // committed or confirmed; clean pages stay on the native predictive-back path.
-                BackHandler(enabled = interceptSystemBack, onBack = requestExit)
+                // Anchored schedule pages need the Activity host to route Back through the page
+                // before asking the Morph to close. Ordinary clean pages keep the platform Back
+                // path unregistered so predictive Back remains available.
+                val anchoredScheduleBackRequired =
+                    section == SettingsPage.Schedule && isAnchoredSettingsEntry
+                BackHandler(
+                    enabled = interceptSystemBack || anchoredScheduleBackRequired,
+                    onBack = requestExit
+                )
                 Box(Modifier.fillMaxSize()) {
                 val settingsDetailContent: @Composable () -> Unit = {
                 DetailActivityScaffold(
@@ -6731,6 +7143,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                         // before the selected schedule arrives, which looks like a skipped
                         // transition. Precompose the real page, then release the existing motion.
                         openingReady = !isQuickSheetSettingsEntry || scheduleEditReady,
+                        handleSystemBack = section != SettingsPage.Schedule,
                         sourceContent = {
                             // The QuickSheet route already supplies the exact composed button and
                             // full background frame. Painting a synthetic source card here would
@@ -6813,6 +7226,49 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                 factory = ScheduleViewModelFactory(app, app.repository)
             )
             val state by viewModel.state.collectAsStateWithLifecycle()
+            val refreshScope = rememberCoroutineScope()
+            var warehouseGeneration by remember { mutableIntStateOf(0) }
+            var warehouseRefreshing by remember { mutableStateOf(false) }
+            var warehouseManualRefreshing by remember { mutableStateOf(false) }
+            fun refreshWarehouse(manual: Boolean) {
+                if (warehouseRefreshing) return
+                warehouseRefreshing = true
+                warehouseManualRefreshing = manual
+                refreshScope.launch {
+                    runCatching {
+                        if (manual) {
+                            ShiguangWarehouseUpdater.refresh(this@EduSchoolSelectActivityHost)
+                        } else {
+                            ShiguangWarehouseUpdater.refreshIfStale(this@EduSchoolSelectActivityHost)
+                        }
+                    }.onSuccess { result ->
+                        if (result == null) return@onSuccess
+                        if (result.changed) warehouseGeneration += 1
+                        if (manual) {
+                            Toast.makeText(
+                                this@EduSchoolSelectActivityHost,
+                                if (result.changed) "已更新适配列表" else "已是最新适配列表",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }.onFailure { error ->
+                        if (manual) {
+                            Toast.makeText(
+                                this@EduSchoolSelectActivityHost,
+                                "更新失败，继续使用当前适配列表：${error.message ?: "网络请求失败"}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                    warehouseRefreshing = false
+                    warehouseManualRefreshing = false
+                }
+            }
+            LaunchedEffect(Unit) {
+                if (ShiguangWarehouseUpdater.isRefreshStale(this@EduSchoolSelectActivityHost)) {
+                    refreshWarehouse(manual = false)
+                }
+            }
             CourseScheduleTheme(config = state.config) {
                 CrossActivityTransitionHost(
                     activity = this@EduSchoolSelectActivityHost,
@@ -6826,11 +7282,23 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                     DetailActivityScaffold(
                         title = "选择学校",
                         config = state.config,
-                        onBack = requestClose
+                        onBack = requestClose,
+                        topBarActions = { topBackdrop ->
+                            TopGlassIconButton(
+                                backdrop = topBackdrop,
+                                config = settingsVisualConfig(state.config),
+                                iconRes = R.drawable.ic_refresh,
+                                contentDescription = if (warehouseRefreshing) "正在更新适配器" else "更新适配器",
+                                onClick = { refreshWarehouse(manual = true) },
+                                modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
+                                buttonHeight = 42.dp
+                            )
+                        }
                     ) { backdrop ->
                         EduSchoolPickerScreen(
                             state = state,
                             backdrop = backdrop,
+                            warehouseGeneration = warehouseGeneration,
                             onSelect = { adapter ->
                                 ActivityTransitionCoordinator.openImmediate(
                                     this@EduSchoolSelectActivityHost,
@@ -6840,6 +7308,22 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                 )
                             }
                         )
+                        if (warehouseManualRefreshing) {
+                            LiquidAlertDialog(
+                                title = "正在更新适配器",
+                                message = "正在获取最新适配列表。现在可以返回或退到桌面，更新会在后台继续。",
+                                actions = listOf(
+                                    LiquidAlertAction(
+                                        "后台继续",
+                                        LiquidAlertActionStyle.Secondary,
+                                        onClick = { warehouseManualRefreshing = false }
+                                    )
+                                ),
+                                backdrop = backdrop,
+                                config = state.config,
+                                onDismissRequest = { warehouseManualRefreshing = false }
+                            )
+                        }
                     }
                 }
             }
@@ -6861,6 +7345,10 @@ open class EduImportActivityHost : ComponentActivity() {
             val state by viewModel.state.collectAsStateWithLifecycle()
             val adapter = remember { eduAdapterFromIntentKey(intent.getStringExtra(EduAdapterExtra)) }
             var pendingDraft by remember { mutableStateOf<ImportDraft?>(null) }
+            val eduWebContentBackdrop = rememberGlassLayerBackdrop(
+                domain = GlassBackdropDomain.Content,
+                providerId = "edu-import-web-content"
+            )
             CourseScheduleTheme(config = state.config) {
                 if (pendingDraft == null) {
                     DetailActivityScaffold(
@@ -6868,7 +7356,11 @@ open class EduImportActivityHost : ComponentActivity() {
                         config = state.config,
                         onBack = { finish() },
                         isolateContentFromBackdrop = true,
-                        compactTopBar = true
+                        compactTopBar = true,
+                        centerCompactTitle = true,
+                        compactTitleMatchesSettings = true,
+                        preserveStatusBarSpace = true,
+                        topBarBackdropOverride = eduWebContentBackdrop
                     ) { backdrop ->
                         if (adapter == null) {
                             Box(
@@ -6883,29 +7375,35 @@ open class EduImportActivityHost : ComponentActivity() {
                                 state = state,
                                 adapter = adapter,
                                 backdrop = backdrop,
+                                webContentBackdrop = eduWebContentBackdrop,
                                 useDetailTopPadding = true,
                                 onParsed = { draft -> pendingDraft = draft }
                             )
                         }
                     }
                 } else {
+                    val previewDraft = checkNotNull(pendingDraft)
                     DetailActivityScaffold(
                         title = "导入预览",
                         config = state.config,
-                        onBack = { finish() },
-                        showTopGradientBlur = false,
-                        isolateContentFromBackdrop = true
+                        onBack = { pendingDraft = null },
+                        isolateContentFromBackdrop = true,
+                        compactTopBar = true,
+                        centerCompactTitle = true,
+                        compactTitleMatchesSettings = true,
+                        preserveStatusBarSpace = true
                     ) { backdrop ->
                     if (adapter == null) {
                         MissingCourseScreen(onBack = { finish() })
                     } else {
                         Box(modifier = Modifier.padding(top = detailContentTopPadding())) {
                             ConfirmScheduleScreen(
-                                draft = pendingDraft!!,
+                                draft = previewDraft,
                                 warning = if (adapter.isGeneralEduTool()) "可能部分节次信息会有误，请自行检查修改。" else null,
+                                backdrop = backdrop,
                                 onCancel = { pendingDraft = null },
                                 onConfirm = { createNewSchedule ->
-                                    viewModel.importDraft(pendingDraft!!, createNewSchedule) {
+                                    viewModel.importDraft(previewDraft, createNewSchedule) {
                                         returnToScheduleHome()
                                     }
                                 }
@@ -7081,17 +7579,23 @@ fun LiquidControlToggle(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     backdrop: Backdrop?,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
+    val alpha = if (enabled) 1f else 0.40f
     if (backdrop != null) {
         LiquidToggle(
             selected = { checked },
-            onSelect = onCheckedChange,
+            onSelect = { if (enabled) onCheckedChange(it) },
             backdrop = backdrop,
-            modifier = modifier
+            modifier = modifier.graphicsLayer { this.alpha = alpha }
         )
     } else {
-        Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = modifier)
+        Switch(
+            checked = checked,
+            onCheckedChange = { if (enabled) onCheckedChange(it) },
+            modifier = modifier.graphicsLayer { this.alpha = alpha }
+        )
     }
 }
 
@@ -7101,7 +7605,7 @@ fun DockItem(selected: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntit
     val pressed by interactionSource.collectIsPressedAsState()
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
+            .clip(Capsule())
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
             .height(60.dp)
             .width(78.dp),
@@ -7604,7 +8108,7 @@ fun SettingsRootScreen(
                             modifier = Modifier
                                 .padding(end = 10.dp)
                                 .size(56.dp)
-                                .clip(RoundedCornerShape(16.dp))
+                                .clip(RoundedRectangle(16.dp))
                         )
                     },
                     endActions = {
@@ -7699,6 +8203,13 @@ fun SettingsRootScreen(
                         "保存课表和设置，或从备份恢复",
                         selected = selectedPage == SettingsPage.BackupRestore,
                         onClick = { onPageChange(SettingsPage.BackupRestore) }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        "捐赠支持",
+                        "如果它帮到了你，可以请作者喝杯奶茶",
+                        selected = selectedPage == SettingsPage.Donate,
+                        onClick = { onPageChange(SettingsPage.Donate) }
                     )
                 }
             }
@@ -7902,7 +8413,7 @@ fun ScheduleManagerScreen(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
+                                            .clip(RoundedRectangle(6.dp))
                                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
                                             .padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
@@ -8036,7 +8547,7 @@ fun AboutSettingsScreen(state: AppState, backdrop: Backdrop?) {
                         contentDescription = null,
                         modifier = Modifier
                             .size(64.dp)
-                            .clip(RoundedCornerShape(18.dp))
+                            .clip(RoundedRectangle(18.dp))
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
@@ -8178,7 +8689,7 @@ private fun AboutGlassPanel(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(28.dp)
+    val shape = RoundedRectangle(28.dp)
     val panelGradient = if (darkTheme) {
         Brush.linearGradient(
             listOf(
@@ -8347,7 +8858,7 @@ private fun AboutHero(
             contentDescription = null,
             modifier = Modifier
                 .size(116.dp)
-                .clip(RoundedCornerShape(30.dp))
+                .clip(RoundedRectangle(30.dp))
         )
         Spacer(Modifier.height(30.dp))
         BoxWithConstraints(
@@ -8568,16 +9079,10 @@ fun ChangelogSettingsScreen(
                     )
                     SettingsDivider()
 					SettingsNavigationRow(
-						"隐私政策",
-						"了解数据处理、权限用途与个人信息权利",
-						onClick = onPrivacyPolicy
-					)
-					SettingsDivider()
-                    SettingsNavigationRow(
-                        "捐赠支持",
-                        "如果它帮到了你，可以请作者喝杯奶茶",
-                        onClick = onDonate
-                    )
+							"隐私政策",
+							"了解数据处理、权限用途与个人信息权利",
+							onClick = onPrivacyPolicy
+						)
                 }
             }
 
@@ -8698,6 +9203,32 @@ fun ChangelogSettingsScreen(
             item(key = "about-changelog") {
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
+                SettingsInfoRow(
+                    "1.2.4",
+                    "课程卡片新增质感轮廓光：卡片边缘带有一圈柔和的亮光描边，让课程卡从壁纸中浮起、更有层次；同时新增折射强度控制，可以在个性化面板中分别调节\n" +
+                        "周视图新增无界模式：星期与日期融入顶栏，课程可滚动到屏幕顶部，并可隐藏上一周/下一周按钮；通用设置中开启，首次更新会弹出切换引导\n" +
+                        "重新打造课程编辑弹窗：玻璃外壳先展开到位，随后标题、输入框、选择器按从上到下的顺序，从弹窗中间以轻微缩放与透明度渐变逐行飞入，展开与内容载入节奏更紧凑\n" +
+                        "优化三点菜单的拖拽变形反馈，拖动时更加跟手灵动\n" +
+                        "课程管理、教务导入等入口在平板上会先收回三点菜单，再以系统过渡打开，返回更顺滑、不再跳帧闪黑；无界模式下大屏课程卡片的圆角与文字随调节幅度整体放大\n" +
+                        "修复手动导入、添加单节课、个性化等弹窗内的壁纸采样与真实壁纸错位的问题，玻璃透出的背景与背后画面保持一致\n" +
+                        "优化无壁纸状态下的背景与明暗可读性，没有壁纸时界面更清晰自然\n" +
+                        "优化调色盘的布局与操作\n" +
+                        "优化设置页的布局与操作逻辑，信息层级和返回路径更清晰\n" +
+                        "修复教务工具页右上角按钮在浅色模式下错误带灰色着色的问题\n" +
+                        "精简实时活动相关文案表述\n" +
+                        "完善 AI 请求端点配置兼容"
+                )
+                SettingsDivider()
+                SettingsInfoRow(
+                    "1.2.3",
+                    "重新设计教务导入页与网页内页，优化工具排版、字母选择栏、悬浮 Dock、渐变模糊顶栏、玻璃灵动岛和相关弹窗；AI 教务与通用工具的历史页面会从 Dock 处自然展开\n" +
+                        "完整接入拾光仓库 2.0 的官方学校索引、适配脚本和交互方式，支持提交课程、开学日期、学期周数与完整节次时间；学校索引和脚本改从 Gitee 获取，缓存超过七天后自动检查更新\n" +
+                        "AI 教务导入首次使用时只提醒一次后台网络风险，取消后仍可导入；导入进度接入实时活动，数据格式或字段校验异常时最多自动修正三次，并重做预览顶栏与内容展开动画\n" +
+                        "新增上课中、课间与明日课程实时活动，可分别设置课程实时活动、状态栏短文案、操作按钮、明日提醒及提醒时间；明日课程预告仅在第二天有课时显示五分钟\n" +
+                        "日视图新增标准与双日两种模式；标准模式会在今日课程全部结束后提前展示明日课程，双日模式沿用原日视图排版连续显示两天课程\n" +
+                        "修复教务 Dock 输入时的光标闪烁和焦点异常，优化中心弹窗跟手弥散光与遮挡恢复叠化，恢复浅色顶栏、返回按钮和搜索控件阴影，并恢复多课表详细设置的返回保存询问"
+                )
+                SettingsDivider()
                 SettingsInfoRow(
                     "1.2.2",
                     "优化教务系统导入页，修复网页重复加载、页面跳转闪烁等问题，并优化教务适配器选择，同一学校存在多个导入工具时可以查看并选择对应适配\n" +
@@ -8859,7 +9390,7 @@ internal fun WebView.releaseSleepDownWebView(clearResourceCache: Boolean = true)
     // Resource cache can grow into tens of megabytes after repeated school-site imports.
     // Cookies and DOM storage are intentionally retained so login state is not lost.
     if (clearResourceCache) runCatching { clearCache(true) }
-    runCatching { detachEduImportBridge() }
+    runCatching { uninstallShiguangRuntime() }
     runCatching { destroy() }
 }
 
@@ -9082,3 +9613,4 @@ private fun Context.handleSleepDownBase64Download(base64: String, mimeType: Stri
         Toast.makeText(this, "下载失败", Toast.LENGTH_SHORT).show()
     }
 }
+

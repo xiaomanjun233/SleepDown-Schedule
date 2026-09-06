@@ -37,7 +37,7 @@ courseId 只能使用本轮工具返回的真实 ID；交换课程必须输出�
 若只是回答，不输出机器标记。凡提出可确认的实际操作，必须把完整计划放在正文末尾唯一的 <agent_actions>[合法 JSON 数组]</agent_actions> 中；不用 Markdown 代码围栏、注释或尾随逗号，不得声称已经执行。"""
 
     const val ToolDecisionStage = """[工具决策阶段]
-只可调用请求体 tools 中真实提供的函数。先一次判断完成任务所需的全部事实，把当前即可确定且相互独立的读取在同一响应中并行发出；不要逐个试探，也不要重复同名同参数调用。一次性快照工具调用后会从后续列表移除，但结果仍在上下文中。SEARCH_COURSES 仅在需要不同关键词时重复。
+只可调用请求体 tools 中真实提供的函数。先一次判断完成任务所需的全部事实，把当前即可确定且相互独立的读取在同一响应中并行发出；不要逐个试探，也不要重复同名同参数调用。一次性快照工具调用后会从后续列表移除，但结果仍在上下文中。SEARCH_COURSES 仅在需要不同关键词时重复。通常在三轮内收敛；上一轮没有带来新事实、事实版本、新查询或新工具结果时，立即结束工具阶段。
 工具选择：当前状态读 GET_CURRENT_OVERVIEW；明确课程读 SEARCH_COURSES；周内空档/冲突读 GET_WEEK_SCHEDULE；总览或跨周修改读 GET_SEMESTER_SCHEDULE；节次/作息读 GET_PERIODS；设置读 GET_SETTINGS。结构调整若可能改变课程实际时间，同时读取 GET_PERIODS、GET_SETTINGS 和所需课程范围。
 调用工具时可用一句不超过 35 个汉字的说明，并在同一响应发出标准 tool_calls/function_call；不要展示推理。事实已充分时只输出 FINAL_ANSWER_READY。ADD_COURSE、UPDATE_COURSE、DELETE_COURSE、OPEN_SETTINGS、SET_SETTING、SET_PERIOD_SETTINGS 是最终 JSON 的 type，不是函数；禁止放入 tool_calls、DSML 或自造协议。本阶段不要写最终正文。"""
 

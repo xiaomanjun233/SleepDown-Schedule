@@ -6,12 +6,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.unit.IntOffset
@@ -235,18 +236,22 @@ private fun Rect.union(other: Rect): Rect = Rect(
 // Backdrop 2.0 validates the host shape before evaluating a lens chain and deliberately rejects
 // Outline.Generic. Keep the host on its supported CornerBasedShape path; the real disjoint card
 // geometry is still enforced by both the shared SDF and the union clip below.
-private val GlassGroupHostShape = RoundedCornerShape(0.dp)
+private val GlassGroupHostShape = RoundedRectangle(0.dp)
 
 private fun glassGroupClipPath(members: List<GlassGroupCandidate>): Path = Path().apply {
     members.forEach { member ->
         val rect = member.boundsInViewport
         val radius = member.cornerRadiusPx.coerceIn(0f, minOf(rect.width, rect.height) / 2f)
-        addRoundRect(
-            RoundRect(
-                rect = rect,
-                cornerRadius = CornerRadius(radius, radius)
+        val memberPath = Path().apply {
+            addOutline(
+                RoundedRectangle(radius.dp).createOutline(
+                    androidx.compose.ui.geometry.Size(rect.width, rect.height),
+                    androidx.compose.ui.unit.LayoutDirection.Ltr,
+                    androidx.compose.ui.unit.Density(1f)
+                )
             )
-        )
+        }
+        addPath(memberPath, androidx.compose.ui.geometry.Offset(rect.left, rect.top))
     }
 }
 

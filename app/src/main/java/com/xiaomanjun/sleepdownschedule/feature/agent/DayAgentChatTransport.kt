@@ -47,7 +47,12 @@ internal class DayAgentChatTransport {
         }
     }
 
-    fun stream(settings: AiImportSettings, body: String, onDelta: (String) -> Unit): String {
+    fun stream(
+        settings: AiImportSettings,
+        body: String,
+        onDelta: (String) -> Unit,
+        onUsage: (AgentTokenUsage) -> Unit
+    ): String {
         val connection = openConnection(settings, body)
         return try {
             val code = connection.responseCode
@@ -60,9 +65,9 @@ internal class DayAgentChatTransport {
                 throw IllegalStateException(formatAiRequestError(code, error, settings.profile.id))
             }
             if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
-                val content = parseFullChatContent(
-                    connection.inputStream.bufferedReader().use { it.readText() }
-                )
+                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                onUsage(parseAgentTokenUsage(response))
+                val content = parseFullChatContent(response)
                 onDelta(content)
                 content
             } else {
@@ -73,9 +78,13 @@ internal class DayAgentChatTransport {
                         if (!line.startsWith("data:")) return@forEach
                         val data = line.removePrefix("data:").trim()
                         if (data == "[DONE]" || data.isBlank()) return@forEach
+                        val event = runCatching {
+                            AgentChatJson.parseToJsonElement(data).jsonObject
+                        }.getOrNull() ?: return@forEach
+                        val usage = agentTokenUsage(event)
+                        if (!usage.isEmpty) onUsage(usage)
                         val content = runCatching {
-                            val choice = AgentChatJson.parseToJsonElement(data)
-                                .jsonObject["choices"]
+                            val choice = event["choices"]
                                 ?.jsonArray
                                 ?.firstOrNull()
                                 ?.jsonObject
@@ -165,10 +174,15 @@ internal class DayAgentChatTransport {
         settings: AiImportSettings,
         body: String
     ): HttpURLConnection {
-        val base = normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl)
-        val path = settings.profile.chatCompletionsPath.ifBlank { "/chat/completions" }
+        val path = settings.profile.chatCompletionsPath.trim('/')
+        val base = if (path.isEmpty()) {
+            // 未显式配置路径：直接使用下发的完整地址，不再 normalize 剥掉 /chat/completions 等后缀
+            settings.profile.baseUrl.trim().trimEnd('/')
+        } else {
+            normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl).trimEnd('/')
+        }
         val connection = URL(
-            base.trimEnd('/') + "/" + path.trimStart('/')
+            if (path.isEmpty()) base else "$base/$path"
         ).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
         connection.connectTimeout = 30_000

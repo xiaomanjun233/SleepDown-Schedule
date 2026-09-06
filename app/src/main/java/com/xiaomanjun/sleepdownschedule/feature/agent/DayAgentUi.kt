@@ -73,7 +73,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.UnevenRoundedRectangle
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -91,6 +92,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshotFlow
@@ -101,6 +103,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -109,6 +112,7 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.geometry.Rect
+import com.kyant.shapes.RoundedCornerStyle
 import com.kyant.shapes.RoundedRectangle
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -127,6 +131,8 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
@@ -144,6 +150,8 @@ import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
+import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
+import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.PopupLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -493,7 +501,6 @@ fun TodayAgentCard(
     }
     val foreground = LocalAdaptiveGlass.current.contentColor
     val cardIsDark = !glassUsesLightStyle(state.config)
-    val activityAccent = if (cardIsDark) Color(0xFF62B5FF) else Color(0xFF006EDC)
     val currentSlot = remember(facts.today, now) {
         facts.today.firstOrNull { !now.toLocalTime().isBefore(it.start) && now.toLocalTime().isBefore(it.end) }
     }
@@ -505,6 +512,11 @@ fun TodayAgentCard(
         currentSlot == null &&
         nextSlot == null &&
         facts.tomorrow.isNotEmpty()
+    val activityAccent = when {
+        currentSlot != null -> if (cardIsDark) Color(0xFFFF7474) else Color(0xFFD92D2D)
+        nextSlot != null || previewTomorrow -> if (cardIsDark) Color(0xFFFFB45C) else Color(0xFFD96A00)
+        else -> if (cardIsDark) Color(0xFF62B5FF) else Color(0xFF006EDC)
+    }
     val focusSlot = currentSlot ?: nextSlot ?: facts.tomorrow.firstOrNull().takeIf { previewTomorrow }
     val remainingMinutes = remember(currentSlot, nextSlot, now) {
         val target = currentSlot?.end ?: nextSlot?.start
@@ -606,10 +618,10 @@ fun TodayAgentCard(
 
     val cardShape = RoundedRectangle(if (collapsed) 26.dp else 28.dp)
     val cardTokens = GlassTokens.dialog(intensity = 1.12f).copy(
-        blur = if (cardIsDark) 10.dp else 12.dp,
-        lensHeight = 18.dp,
-        lensAmount = 34.dp,
-        surfaceAlpha = if (cardIsDark) 0.54f else 0.58f,
+        blur = if (cardIsDark) 8.dp else 10.dp,
+        lensHeight = 20.dp,
+        lensAmount = 40.dp,
+        surfaceAlpha = if (cardIsDark) 0.46f else 0.50f,
         borderAlpha = 0.34f,
         highlightAlpha = 0.075f,
         depthEffect = true,
@@ -834,7 +846,7 @@ private fun AgentOperationLiquidButton(
         Box(
             modifier = modifier
                 .height(42.dp)
-                .clip(RoundedCornerShape(50))
+                .clip(Capsule())
                 .background(background.copy(alpha = if (applied) 0.46f else 0.94f))
                 .clickable(enabled = !applied && enabled, onClick = onClick),
             contentAlignment = Alignment.Center
@@ -912,6 +924,13 @@ private fun DayAgentCardVisualContent(
                 } else {
                     Color.White.copy(alpha = 0.30f)
                 }
+            )
+            .verticalGlassAccent(
+                accentColor = activityAccent,
+                shape = shape,
+                lightGlass = !visual.cardIsDark,
+                intensity = 1f,
+                expanded = true
             )
             .padding(horizontal = 16.dp, vertical = if (visual.collapsed) 10.dp else 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1428,7 +1447,7 @@ private fun DayAgentConversationDialog(
                     backdrop = backdrop,
                     config = state.config,
                     modifier = Modifier.matchParentSize(),
-                    shape = RoundedCornerShape(32.dp),
+                    shape = RoundedRectangle(32.dp),
                     // Keep the expanded conversation shell visually identical to the compact
                     // home card. Passing the resolved tokens also preserves the card's light/dark
                     // wallpaper treatment instead of maintaining a second drifting parameter set.
@@ -1552,7 +1571,7 @@ private fun DayAgentConversationDialog(
                                                   modifier = Modifier
                                                       .width(176.dp)
                                                       .height(112.dp)
-                                                      .clip(RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp))
+                                                      .clip(UnevenRoundedRectangle(14.dp, 14.dp, 4.dp, 14.dp))
                                               )
                                           }
                                           if (userContent.text.isNotBlank()) {
@@ -1561,7 +1580,7 @@ private fun DayAgentConversationDialog(
                                                   modifier = Modifier
                                                       .background(
                                                           Color(0xFF168CFF).copy(alpha = 0.88f),
-                                                          RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
+                                                          UnevenRoundedRectangle(18.dp, 18.dp, 4.dp, 18.dp)
                                                       )
                                                       .padding(horizontal = 12.dp, vertical = 8.dp),
                                                   color = Color.White,
@@ -1881,9 +1900,9 @@ private fun DayAgentConversationDialog(
                         }
                         .onGloballyPositioned { inputCapsuleBounds = it.boundsInRoot() },
                     shape = if (imageAttachment == null) {
-                        RoundedCornerShape(50)
+                        RoundedRectangle(cornerRadius = 28.dp, style = RoundedCornerStyle.Continuous)
                     } else {
-                        RoundedCornerShape(26.dp)
+                        RoundedRectangle(cornerRadius = 26.dp, style = RoundedCornerStyle.Continuous)
                     },
                     tokens = GlassTokens.dialog(intensity = 1f).copy(
                         blur = 16.dp,
@@ -2063,11 +2082,29 @@ private fun AgentComposerTextField(
     modifier: Modifier = Modifier
 ) {
     val input = inputState.value
+    var editableValue by remember {
+        mutableStateOf(TextFieldValue(input, selection = TextRange(input.length)))
+    }
+    LaunchedEffect(input) {
+        if (editableValue.text != input) {
+            editableValue = TextFieldValue(input, selection = TextRange(input.length))
+        }
+    }
     BasicTextField(
-        value = input,
-        onValueChange = { inputState.value = it },
+        value = editableValue,
+        onValueChange = { next ->
+            editableValue = next
+            if (next.text != inputState.value) inputState.value = next.text
+        },
         modifier = modifier
             .focusRequester(focusRequester)
+            .onFocusChanged { state ->
+                if (state.isFocused) {
+                    editableValue = editableValue.copy(
+                        selection = TextRange(editableValue.text.length)
+                    )
+                }
+            }
             .onGloballyPositioned { onBoundsChanged(it.boundsInRoot()) },
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = foreground),
         cursorBrush = SolidColor(Color(0xFF168CFF)),
@@ -2075,7 +2112,7 @@ private fun AgentComposerTextField(
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
         keyboardActions = KeyboardActions(onSend = { onSend() }),
         decorationBox = { inner ->
-            if (input.isBlank()) {
+            if (editableValue.text.isBlank()) {
                 AutoFitSingleLineText(
                     text = "问问今天的安排…",
                     color = foreground.copy(alpha = 0.5f),
@@ -2099,36 +2136,67 @@ private fun AgentInputLiquidCapsule(
     interactionEnabledAt: (size: Size, offset: Offset) -> Boolean,
     content: @Composable () -> Unit
 ) {
-    if (backdrop != null) {
-        val dark = appUsesDarkTheme(config)
-        LiquidButton(
-            onClick = {},
-            backdrop = backdrop,
-            modifier = modifier,
-            height = if (expanded) 94.dp else 56.dp,
-            contentPadding = PaddingValues(0.dp),
-            blurRadius = 16.dp,
-            lensHeight = 18.dp,
-            lensAmount = 28.dp,
-            chromaticAberration = false,
-            surfaceColor = baseSurfaceColorOverride.copy(alpha = if (dark) 0.08f else 0.14f),
-            shadowEnabled = false,
-            clickTargetEnabled = false,
-            pressExpansion = 1.5.dp,
-            interactionEnabledAt = interactionEnabledAt
-        ) {
-            Box(Modifier.weight(1f).fillMaxSize()) {
-                content()
-            }
+    val interactionScope = rememberCoroutineScope()
+    val currentInteractionEnabledAt = rememberUpdatedState(interactionEnabledAt)
+    val interactiveHighlight = remember(interactionScope) {
+        InteractiveHighlight(
+            animationScope = interactionScope,
+            radius = { size -> size.minDimension * 1.5f },
+            acceptsGesture = { size, offset -> currentInteractionEnabledAt.value(size, offset) }
+        )
+    }
+    val dark = appUsesDarkTheme(config)
+    val dockHeight = if (expanded) 94.dp else 56.dp
+    val pressExpansion = 1.5.dp
+
+    Box(
+        modifier = modifier
+            .height(dockHeight)
+            .graphicsLayer { clip = false }
+    ) {
+        if (backdrop != null) {
+            // The glass consumer stays a stable background sibling so the editable caret can
+            // blink without invalidating or rebuilding this backdrop layer.
+            LiquidButton(
+                onClick = {},
+                backdrop = backdrop,
+                modifier = Modifier.fillMaxSize(),
+                height = dockHeight,
+                contentPadding = PaddingValues(0.dp),
+                blurRadius = 16.dp,
+                lensHeight = 18.dp,
+                lensAmount = 28.dp,
+                chromaticAberration = false,
+                surfaceColor = baseSurfaceColorOverride.copy(alpha = if (dark) 0.08f else 0.14f),
+                shadowEnabled = false,
+                highlightEnabled = true,
+                isInteractive = true,
+                highlightRadiusMultiplier = 1.5f,
+                shape = shape,
+                clipToBounds = false,
+                clickTargetEnabled = false,
+                pressExpansion = pressExpansion,
+                sharedInteractiveHighlight = interactiveHighlight,
+                interactionEnabledAt = interactionEnabledAt
+            ) {}
+        } else {
+            GlassSurface(
+                backdrop = null,
+                config = config,
+                modifier = Modifier.fillMaxSize(),
+                shape = shape,
+                tokens = tokens,
+                baseSurfaceColorOverride = baseSurfaceColorOverride
+            ) {}
         }
-    } else {
-        GlassSurface(
-            backdrop = null,
-            config = config,
-            modifier = modifier,
-            shape = shape,
-            tokens = tokens,
-            baseSurfaceColorOverride = baseSurfaceColorOverride
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .liquidButtonVisualTransform(
+                    interactiveHighlight = interactiveHighlight,
+                    pressExpansion = pressExpansion
+                )
+                .then(interactiveHighlight.gestureModifier)
         ) {
             content()
         }
@@ -2187,7 +2255,7 @@ private fun AgentAttachmentLiquidButton(
             backdrop = null,
             config = config,
             modifier = modifier.height(48.dp),
-            shape = RoundedCornerShape(50),
+            shape = Capsule(),
             tokens = GlassTokens.dialog(intensity = 1f).copy(
                 blur = 16.dp,
                 surfaceAlpha = if (appUsesDarkTheme(config)) 0.08f else 0.14f,

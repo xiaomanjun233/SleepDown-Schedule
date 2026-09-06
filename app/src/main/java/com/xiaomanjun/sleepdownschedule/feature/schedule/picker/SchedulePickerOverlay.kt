@@ -37,7 +37,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.Capsule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -443,7 +444,7 @@ fun QuickScheduleSettingsSheets(
                                     position.y + size.height
                                 )
                             }
-                            .clip(RoundedCornerShape(50))
+                            .clip(Capsule())
                             .background(
                                 if (appUsesDarkTheme(config)) Color(0xFF30343D)
                                 else Color(0xFFE8ECF3)
@@ -808,7 +809,7 @@ fun SchedulePickerOverlay(
                                 scaleY = targetScale * deletionScale
                                 alpha = (if (deleting) pickerState.deleteAlpha else 1f) *
                                     (1f - 0.06f * lowerLayerAmount)
-                                shape = RoundedCornerShape(34.dp)
+                                shape = RoundedRectangle(34.dp)
                                 clip = false
                                 shadowElevation = with(density) { (6.dp + 18.dp * stackDepth).toPx() }
                                 ambientShadowColor = Color.Black.copy(alpha = 0.18f + 0.10f * stackDepth)
@@ -865,7 +866,7 @@ fun SchedulePickerOverlay(
                                 Box(
                                     Modifier
                                         .fillMaxSize()
-                                        .clip(RoundedCornerShape(34.dp))
+                                        .clip(RoundedRectangle(34.dp))
                                         .background(Color(0xFF7A7A80).copy(alpha = 0.055f * lowerLayerAmount))
                                 )
                             }
@@ -878,7 +879,7 @@ fun SchedulePickerOverlay(
                                 Box(
                                     Modifier
                                         .size(54.dp)
-                                        .clip(RoundedCornerShape(50))
+                                        .clip(Capsule())
                                         .background(Color.Black.copy(alpha = 0.38f)),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -919,7 +920,7 @@ fun SchedulePickerOverlay(
                         Modifier
                             .width(indicatorWidth)
                             .height(25.dp)
-                            .clip(RoundedCornerShape(50))
+                            .clip(Capsule())
                             .background(Color.White.copy(alpha = 0.13f))
                     ) {
                         Row(
@@ -933,7 +934,7 @@ fun SchedulePickerOverlay(
                                 Box(
                                     Modifier
                                         .size(dotSize)
-                                        .clip(RoundedCornerShape(50))
+                                        .clip(Capsule())
                                         .background(Color.Gray.copy(alpha = 0.72f))
                                         .clickable(enabled = pagerInputEnabled) {
                                             scope.launch { pagerState.animateScrollToPage(index) }
@@ -947,7 +948,7 @@ fun SchedulePickerOverlay(
                                 .align(Alignment.CenterStart)
                                 .offset(x = indicatorPadding - 1.dp + step * continuousPage)
                                 .size(9.dp)
-                                .clip(RoundedCornerShape(50))
+                                .clip(Capsule())
                                 .background(Color.White)
                         )
                     }
@@ -1018,7 +1019,7 @@ fun SchedulePickerOverlay(
                     .width(animatedWidth)
                     .height(animatedHeight)
                     .graphicsLayer {
-                        shape = RoundedCornerShape(34.dp * pickerState.cornerProgress.value)
+                        shape = RoundedRectangle(34.dp * pickerState.cornerProgress.value)
                         clip = true
                     }
                     .zIndex(50f)
@@ -1122,7 +1123,7 @@ private fun PickerHeaderButton(
             Text(label, color = Color.White, fontWeight = FontWeight.SemiBold)
         }
     } else {
-        Text(label, color = Color.White, modifier = Modifier.width(86.dp).clip(RoundedCornerShape(50)).background(if (primary) Color(0xFF007AFF) else Color.White.copy(alpha = 0.12f)).clickable(enabled = enabled, onClick = onClick).padding(vertical = 11.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Text(label, color = Color.White, modifier = Modifier.width(86.dp).clip(Capsule()).background(if (primary) Color(0xFF007AFF) else Color.White.copy(alpha = 0.12f)).clickable(enabled = enabled, onClick = onClick).padding(vertical = 11.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
 
@@ -1155,7 +1156,7 @@ private fun PickerIconLiquidButton(
             Icon(painterResource(icon), description, tint = Color.White, modifier = Modifier.size(23.dp))
         }
     } else {
-        Box(modifier.clip(RoundedCornerShape(50)).background(tint.copy(alpha = 0.5f)).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
+        Box(modifier.clip(Capsule()).background(tint.copy(alpha = 0.5f)).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
             Icon(painterResource(icon), description, tint = Color.White, modifier = Modifier.size(23.dp))
         }
     }
@@ -1181,6 +1182,6 @@ private fun PickerTextButton(label: String, enabled: Boolean, backdrop: Backdrop
             Text(label, color = Color.White.copy(alpha = if (enabled) 1f else 0.42f), fontWeight = FontWeight.SemiBold)
         }
     } else {
-        Text(label, color = Color.White.copy(alpha = if (enabled) 1f else 0.42f), fontWeight = FontWeight.Medium, modifier = buttonModifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.12f)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 20.dp, vertical = 11.dp))
+        Text(label, color = Color.White.copy(alpha = if (enabled) 1f else 0.42f), fontWeight = FontWeight.Medium, modifier = buttonModifier.clip(Capsule()).background(Color.White.copy(alpha = 0.12f)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 20.dp, vertical = 11.dp))
     }
 }

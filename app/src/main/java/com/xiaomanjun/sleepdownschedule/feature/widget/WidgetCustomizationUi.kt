@@ -51,7 +51,8 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.Capsule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -844,7 +845,7 @@ private fun WidgetWallpaperEditor(
                 .size(cardWidth, cardHeight)
                 .graphicsLayer {
                     shadowElevation = 30.dp.toPx() * p
-                    shape = RoundedCornerShape(cardCorner)
+                    shape = RoundedRectangle(cardCorner)
                     clip = true
                 }
                 .background(Color(0xFF1C1C1E).copy(alpha = p)),
@@ -1007,7 +1008,7 @@ private fun WidgetWallpaperRoundAction(
             Surface(
                 onClick = onClick,
                 modifier = Modifier.size(56.dp),
-                shape = RoundedCornerShape(50),
+                shape = Capsule(),
                 color = surface
             ) {
                 Box(contentAlignment = Alignment.Center) {

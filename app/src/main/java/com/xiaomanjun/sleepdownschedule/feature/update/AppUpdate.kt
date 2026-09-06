@@ -12,6 +12,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import androidx.core.content.ContextCompat
@@ -414,20 +415,38 @@ class UpdateDownloadForegroundService : Service() {
             packageManager.getLaunchIntentForPackage(packageName) ?: Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        return Notification.Builder(this, CHANNEL_ID)
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_download)
             .setContentTitle("正在下载更新")
             .setContentText(if (progress == null) name else "$name · $progress%")
             .setContentIntent(openApp)
-            .setProgress(100, progress ?: 0, progress == null)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_PROGRESS)
             .setColor(0xFF0A84FF.toInt())
             .requestPromotedOngoing(if (progress == null) "下载中" else "$progress%")
-            .build()
+        if (Build.VERSION.SDK_INT >= 36) {
+            builder.setStyle(downloadProgressStyle(progress))
+        } else {
+            builder.setProgress(100, progress ?: 0, progress == null)
+        }
+        return builder.build()
     }
+
+    @Suppress("NewApi")
+    private fun downloadProgressStyle(progress: Int?): Notification.ProgressStyle =
+        Notification.ProgressStyle()
+            .setStyledByProgress(true)
+            .setProgressSegments(
+                listOf(
+                    Notification.ProgressStyle.Segment(100)
+                        .setColor(0xFF0A84FF.toInt())
+                )
+            )
+            .setProgress(progress ?: 0)
+            .setProgressIndeterminate(progress == null)
+            .setProgressTrackerIcon(whiteDotProgressTrackerIcon(this))
 
     private fun completedNotification(name: String, apk: File): Notification {
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
@@ -445,10 +464,19 @@ class UpdateDownloadForegroundService : Service() {
             .setContentTitle("更新下载完成")
             .setContentText("点击安装 $name")
             .setContentIntent(install)
-            .setAutoCancel(true)
+            .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setShowWhen(false)
             .setCategory(Notification.CATEGORY_STATUS)
             .setColor(0xFF0A84FF.toInt())
+            .requestPromotedOngoing("待安装")
+            .let { builder ->
+                if (Build.VERSION.SDK_INT >= 36) {
+                    builder.setStyle(downloadProgressStyle(100))
+                } else {
+                    builder.setProgress(100, 100, false)
+                }
+            }
             .build()
     }
 
@@ -469,7 +497,7 @@ class UpdateDownloadForegroundService : Service() {
     private fun createChannel() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "应用更新", NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(CHANNEL_ID, "应用更新", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "显示应用更新包的下载进度"
                 setShowBadge(false)
             }
@@ -490,7 +518,7 @@ class UpdateDownloadForegroundService : Service() {
         const val EXTRA_TAG = "update_tag"
         const val EXTRA_NAME = "update_name"
         const val EXTRA_APK_NAME = "update_apk_name"
-        private const val CHANNEL_ID = "app_update_download"
+        private const val CHANNEL_ID = "app_update_live_progress"
         private const val NOTIFICATION_ID = 20260720
     }
 }

@@ -5,10 +5,12 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.DetailActivityFloatingO
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
 
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.CompositionLocalProvider
@@ -28,6 +30,7 @@ fun CrossActivityTransitionHost(
     activity: ComponentActivity,
     sourceContent: @Composable BoxScope.() -> Unit,
     openingReady: Boolean = true,
+    handleSystemBack: Boolean = true,
     onFinished: () -> Unit = {},
     content: @Composable (requestClose: () -> Unit) -> Unit
 ) {
@@ -64,7 +67,19 @@ fun CrossActivityTransitionHost(
                 .fillMaxSize()
                 .graphicsLayer { clip = false }
         ) {
-            AnchoredDetailActivityMorph(
+            if (routeId == TransitionRouteId.TabletHomeToCourseManagement ||
+                routeId == TransitionRouteId.TabletHomeToEduImport
+            ) {
+                val requestClose: () -> Unit = {
+                    latestOnFinished()
+                    activity.finish()
+                }
+                LaunchedEffect(sessionId) {
+                    ActivityTransitionCoordinator.markOpen(sessionId)
+                }
+                BackHandler(enabled = handleSystemBack, onBack = requestClose)
+                content(requestClose)
+            } else AnchoredDetailActivityMorph(
                 sourceBounds = openingAnchor?.boundsInWindow,
                 collapseBounds = returnAnchor?.boundsInWindow,
                 sourceCornerRadius = (profile?.sourceCornerRadiusDp ?: 0f).dp,
@@ -78,6 +93,7 @@ fun CrossActivityTransitionHost(
                 destinationFirstOpening = profile?.destinationFirstOpening == true,
                 openingMode = openingMode,
                 openingReady = openingReady,
+                handleSystemBack = handleSystemBack,
                 onOpened = {
                     if (session?.hasReachedNativeRunning != true) {
                         ActivityTransitionCoordinator.markOpen(sessionId)

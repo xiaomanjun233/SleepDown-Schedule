@@ -260,6 +260,136 @@ fun inferPeriodCounts(periods: List<PeriodEntity>): PeriodPartCounts {
     return PeriodPartCounts(morning, noon, afternoon, evening)
 }
 
+/**
+ * Inserts one real period while preserving a manual scheme's existing timeline before the
+ * insertion point and its downstream gaps. Automatic schemes are regenerated from their current
+ * inputs after their stored indices and overrides have been shifted.
+ */
+internal fun insertPeriodIntoSchemeDraft(
+    draft: PeriodSchemeDraft,
+    after: Int,
+    newConfig: ScheduleConfigEntity
+): PeriodSchemeDraft? {
+    val expectedCount = newConfig.totalPeriodCount()
+    if (after !in 0 until expectedCount) return null
+
+    val shiftedSpecialBreaks = draft.specialBreaks.mapKeys { (index, _) ->
+        if (index > after) index + 1 else index
+    }
+    val shiftedOverrides = draft.overriddenPeriods.map { index ->
+        if (index > after) index + 1 else index
+    }.toSet()
+    val shiftedTimes = if (draft.scheme.mode == PeriodSchemeMode.MANUAL) {
+        val ordered = draft.times.sortedBy { it.periodIndex }
+        val previous = ordered.firstOrNull { it.periodIndex == after }
+        val following = ordered.firstOrNull { it.periodIndex == after + 1 }
+        val normalBreak = draft.scheme.breakDurationMinutes.coerceIn(0, 300)
+        val startMinute = following?.startTime?.let(::parseMinuteOfDay)
+            ?: previous?.endTime?.let(::parseMinuteOfDay)?.plus(normalBreak)
+            ?: configuredPartStartMinute(newConfig, draft.scheme, after + 1)
+            ?: return null
+        val endMinute = startMinute + draft.scheme.classDurationMinutes.coerceIn(1, 300)
+        if (endMinute > LastMinuteOfDay) return null
+
+        val followingStart = following?.startTime?.let(::parseMinuteOfDay)
+        if (following != null && followingStart == null) return null
+        val downstreamShift = followingStart
+            ?.let { (endMinute + normalBreak - it).coerceAtLeast(0) }
+            ?: 0
+        val migrated = buildList {
+            ordered.forEach { time ->
+                if (time.periodIndex <= after) {
+                    add(time)
+                } else {
+                    val shiftedStart = parseMinuteOfDay(time.startTime)?.plus(downstreamShift)
+                        ?: return null
+                    val shiftedEnd = parseMinuteOfDay(time.endTime)?.plus(downstreamShift)
+                        ?: return null
+                    if (shiftedStart > LastMinuteOfDay || shiftedEnd > LastMinuteOfDay) return null
+                    add(
+                        time.copy(
+                            periodIndex = time.periodIndex + 1,
+                            startTime = formatMinuteOfDay(shiftedStart),
+                            endTime = formatMinuteOfDay(shiftedEnd)
+                        )
+                    )
+                }
+            }
+            add(
+                PeriodSchemeTimeEntity(
+                    schemeId = draft.scheme.id,
+                    periodIndex = after + 1,
+                    startTime = formatMinuteOfDay(startMinute),
+                    endTime = formatMinuteOfDay(endMinute)
+                )
+            )
+        }
+        migrated.sortedBy { it.periodIndex }
+    } else {
+        draft.times.map { time ->
+            if (time.periodIndex > after) time.copy(periodIndex = time.periodIndex + 1) else time
+        }
+    }
+    val shifted = draft.copy(
+        times = shiftedTimes,
+        specialBreaks = shiftedSpecialBreaks,
+        overriddenPeriods = shiftedOverrides
+    )
+    val resolved = if (draft.scheme.mode == PeriodSchemeMode.AUTO_MATCH) {
+        shifted.copy(times = resolveSchemeTimes(newConfig, shifted))
+    } else {
+        shifted
+    }
+    return resolved.takeIf {
+        it.times.size == expectedCount && validateResolvedPeriodTimes(it.times) == null
+    }
+}
+
+internal fun deletePeriodFromSchemeDraft(
+    draft: PeriodSchemeDraft,
+    index: Int,
+    newConfig: ScheduleConfigEntity
+): PeriodSchemeDraft? {
+    val shifted = draft.copy(
+        times = draft.times
+            .filter { it.periodIndex != index }
+            .map { if (it.periodIndex > index) it.copy(periodIndex = it.periodIndex - 1) else it },
+        specialBreaks = draft.specialBreaks
+            .filterKeys { it != index }
+            .mapKeys { (key, _) -> if (key > index) key - 1 else key },
+        overriddenPeriods = draft.overriddenPeriods
+            .filter { it != index }
+            .map { if (it > index) it - 1 else it }
+            .toSet()
+    )
+    val resolved = if (draft.scheme.mode == PeriodSchemeMode.AUTO_MATCH) {
+        shifted.copy(times = resolveSchemeTimes(newConfig, shifted))
+    } else {
+        shifted
+    }
+    return resolved.takeIf {
+        it.times.size == newConfig.totalPeriodCount() && validateResolvedPeriodTimes(it.times) == null
+    }
+}
+
+private fun configuredPartStartMinute(
+    config: ScheduleConfigEntity,
+    scheme: PeriodSchemeEntity,
+    periodIndex: Int
+): Int? {
+    val part = PeriodDayPart.entries.firstOrNull { periodIndex in config.periodRange(it) } ?: return null
+    val value = when (part) {
+        PeriodDayPart.MORNING -> scheme.morningStartTime
+        PeriodDayPart.NOON -> scheme.noonStartTime
+        PeriodDayPart.AFTERNOON -> scheme.afternoonStartTime
+        PeriodDayPart.EVENING -> scheme.eveningStartTime
+    }
+    return parseMinuteOfDay(value)
+}
+
+private fun formatMinuteOfDay(value: Int): String =
+    LocalTime.of(value / 60, value % 60).format(PeriodTimeFormatter)
+
 fun resolveSchemeTimes(config: ScheduleConfigEntity, draft: PeriodSchemeDraft): List<PeriodSchemeTimeEntity> {
     if (draft.scheme.mode == PeriodSchemeMode.MANUAL) {
         return draft.times.sortedBy { it.periodIndex }
@@ -301,9 +431,11 @@ fun resolveSchemeTimes(config: ScheduleConfigEntity, draft: PeriodSchemeDraft): 
                 startTime = cursor.format(PeriodTimeFormatter),
                 endTime = automaticEnd.format(PeriodTimeFormatter)
             )
-            result += if (index in draft.overriddenPeriods) existing[index] ?: automatic else automatic
+            val resolved = if (index in draft.overriddenPeriods) existing[index] ?: automatic else automatic
+            result += resolved
             val gap = draft.specialBreaks[index] ?: normalBreak
-            cursor = automaticEnd.plusMinutes(gap.toLong())
+            val resolvedEnd = runCatching { LocalTime.parse(resolved.endTime) }.getOrNull()
+            cursor = maxOf(automaticEnd, resolvedEnd ?: automaticEnd).plusMinutes(gap.toLong())
         }
         previousPartEnd = result.lastOrNull()?.endTime?.let {
             runCatching { LocalTime.parse(it) }.getOrNull()

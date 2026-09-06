@@ -3,8 +3,6 @@ package com.xiaomanjun.sleepdownschedule.core.ui.settings
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
-import com.xiaomanjun.sleepdownschedule.glass.GlassHighlightFrame
-import com.xiaomanjun.sleepdownschedule.glass.GlassHighlightStyle
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
@@ -18,13 +16,17 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialog
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import com.kyant.shapes.RoundedRectangle
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -50,6 +52,7 @@ import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 internal data class SleepDownLiquidMenuItem(
     val key: String,
     val text: String,
+    val iconRes: Int? = null,
     val summary: String? = null,
     val selected: Boolean = false,
     val enabled: Boolean = true,
@@ -58,8 +61,10 @@ internal data class SleepDownLiquidMenuItem(
     val onClick: () -> Unit = {}
 )
 
-private val UpwardDropdownPositionProvider = object : PopupPositionProvider {
-    private val margins = PaddingValues(vertical = 8.dp)
+private class UpwardDropdownPositionProvider(
+    horizontalSafeInset: Dp
+) : PopupPositionProvider {
+    private val margins = PaddingValues(horizontal = horizontalSafeInset, vertical = 8.dp)
 
     override fun calculatePosition(
         anchorBounds: IntRect,
@@ -107,16 +112,20 @@ private fun Modifier.miuixCascadingPopupSurface(
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
         return background(if (dark) Color(0xFF242424) else Color.White)
     }
-    val effectiveBlur = blurRadius.coerceAtMost(9.dp)
-    val lensHeight = 22.dp
-    val lensAmount = 38.dp
-    val highlightAlpha = if (dark) 0.16f else 0.24f
+    val effectiveBlur = blurRadius.coerceAtMost(12.dp)
+    // Keep the lens gentle: an overlarge lens/refraction band refracts content against the
+    // rounded popup corners and reads as torn glass lines at the bottom corners.
+    val lensHeight = 16.dp
+    val lensAmount = 22.dp
+    val surfaceAlpha = if (dark) 0.74f else 0.64f
+    val surfaceColor = if (dark) Color(0xFF242424) else Color.White
+    val topHighlightAlpha = if (dark) 0.10f else 0.07f
     val material = GlassMaterialSpec.popup(effectiveBlur).copy(
         lensHeight = lensHeight,
         lensAmount = lensAmount,
-        surfaceAlpha = if (dark) 0.80f else 0.72f,
+        surfaceAlpha = surfaceAlpha,
         borderAlpha = 0f,
-        highlightAlpha = highlightAlpha,
+        highlightAlpha = 0f,
         shadowAlpha = 0f,
         innerShadowAlpha = 0f,
         depthEffect = false,
@@ -134,23 +143,20 @@ private fun Modifier.miuixCascadingPopupSurface(
         // Backdrop's lens shader requires a CornerBasedShape. A zero-radius rounded rect is
         // pixel-identical to RectangleShape while satisfying that runtime contract; Miuix still
         // owns the animated primary/secondary clip paths outside this material layer.
-        shape = { RoundedCornerShape(0.dp) },
+        shape = { RoundedRectangle(0.dp) },
         effectFrame = GlassEffectFrame(
             blur = effectiveBlur,
             lensHeight = lensHeight,
             lensAmount = lensAmount,
             useVibrancy = true,
             chromaticAberration = false,
-            highlight = GlassHighlightFrame(
-                style = GlassHighlightStyle.Default,
-                alpha = highlightAlpha
-            ),
+            highlight = null,
             shadowAlpha = null,
             innerShadow = null,
             depthEffect = false
         ),
-        // NexioSchedule 款式：实色容器底（亮 #FFFFFF/0.72、暗 #242424/0.80），
-        // 边缘光与 vibrancy 由 effectFrame 提供，不再叠加径向白高光。
+        // Keep the Nexio/Miuix effect order and let the surface tint stay light enough for the
+        // stronger lens to remain visible through both primary and cascading popup layers.
         effectsOverride = {
             vibrancy()
             blur(effectiveBlur.toPx())
@@ -162,12 +168,16 @@ private fun Modifier.miuixCascadingPopupSurface(
             )
         },
         onDrawSurface = {
+            drawRect(surfaceColor.copy(alpha = surfaceAlpha))
             drawRect(
-                if (dark) {
-                    Color(0xFF242424).copy(alpha = 0.80f)
-                } else {
-                    Color(0xFFFFFFFF).copy(alpha = 0.72f)
-                }
+                brush = Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0f to Color.White.copy(alpha = topHighlightAlpha),
+                        0.22f to Color.White.copy(alpha = topHighlightAlpha * 0.34f),
+                        1f to Color.Transparent
+                    ),
+                    endY = size.height * 0.52f
+                )
             )
         }
     )
@@ -185,7 +195,7 @@ private fun rememberMiuixListPopupStyle(
     surfaceModifier = Modifier.miuixCascadingPopupSurface(
         backdrop = backdrop,
         config = config,
-        blurRadius = 14.dp
+        blurRadius = 10.dp
     ),
     backgroundColor = Color.Transparent,
     cornerRadius = cornerRadius
@@ -248,13 +258,23 @@ internal fun SleepDownLiquidDropdownPreference(
     )
 }
 
-private fun SleepDownLiquidMenuItem.asMiuixDropdownItem(): DropdownItem = DropdownItem(
+private fun SleepDownLiquidMenuItem.asMiuixDropdownItem(iconColor: Color): DropdownItem = DropdownItem(
     text = text,
     enabled = enabled,
     selected = selected || accent,
     onClick = onClick,
+    icon = iconRes?.let { resourceId ->
+        { modifier ->
+            Icon(
+                painter = painterResource(resourceId),
+                contentDescription = null,
+                tint = iconColor,
+                modifier = modifier.size(20.dp)
+            )
+        }
+    },
     summary = summary,
-    children = children.takeIf { it.isNotEmpty() }?.map { it.asMiuixDropdownItem() }
+    children = children.takeIf { it.isNotEmpty() }?.map { it.asMiuixDropdownItem(iconColor) }
 )
 
 @Composable
@@ -267,6 +287,7 @@ internal fun SleepDownLiquidCascadingPopup(
     config: ScheduleConfigEntity,
     panelMinWidth: Dp = 168.dp,
     menuMaxHeight: Dp = 360.dp,
+    horizontalSafeInset: Dp = 0.dp,
     contentColor: Color? = null,
     collapseOnSelection: Boolean = true
 ) {
@@ -281,7 +302,10 @@ internal fun SleepDownLiquidCascadingPopup(
     } else {
         primaryPopupBackdrop
     }
-    val entry = remember(items) { DropdownEntry(items.map { it.asMiuixDropdownItem() }) }
+    val popupContentColor = contentColor ?: sleepDownPanelForegroundColor(config)
+    val entry = remember(items, popupContentColor) {
+        DropdownEntry(items.map { it.asMiuixDropdownItem(popupContentColor) })
+    }
     val basePrimaryVisualStyle = rememberMiuixListPopupStyle(
         backdrop = completeUnderlayBackdrop,
         config = config,
@@ -300,11 +324,14 @@ internal fun SleepDownLiquidCascadingPopup(
     val popupRowColors = rememberSleepDownPopupRowColors(
         contentColor ?: sleepDownPanelForegroundColor(config)
     )
+    val popupPositionProvider = remember(horizontalSafeInset) {
+        UpwardDropdownPositionProvider(horizontalSafeInset)
+    }
     OverlayCascadingListPopup(
         show = show,
         entries = listOf(entry),
         onDismissRequest = onDismissRequest,
-        popupPositionProvider = UpwardDropdownPositionProvider,
+        popupPositionProvider = popupPositionProvider,
         alignment = PopupPositionProvider.Align.End,
         enableWindowDim = false,
         minWidth = panelMinWidth,

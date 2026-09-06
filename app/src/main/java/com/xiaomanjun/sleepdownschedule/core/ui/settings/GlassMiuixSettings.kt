@@ -40,6 +40,10 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
@@ -280,6 +284,8 @@ internal fun GlassMiuixDetailActivityScaffold(
     centerCompactTitle: Boolean,
     compactTitleMatchesSettings: Boolean,
     topBarVisible: Boolean,
+    preserveStatusBarSpace: Boolean,
+    topBarBackdropOverride: Backdrop?,
     topBarActions: @Composable (Backdrop?) -> Unit,
     content: @Composable (Backdrop?) -> Unit
 ) {
@@ -296,8 +302,22 @@ internal fun GlassMiuixDetailActivityScaffold(
         drawRect(pageColor)
         drawContent()
     }
+    val topBarBackdrop = topBarBackdropOverride ?: contentBackdrop
     val scrollBehavior = rememberSettingsScrollBehavior()
-    val compactTopBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() +
+    val density = LocalDensity.current
+    val rootView = LocalView.current
+    val visibleStatusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val stableStatusBarTop = if (preserveStatusBarSpace) {
+        val stableTopPx = ViewCompat.getRootWindowInsets(rootView)
+            ?.getInsetsIgnoringVisibility(
+                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            ?.top
+        stableTopPx?.let { with(density) { it.toDp() } } ?: visibleStatusBarTop
+    } else {
+        visibleStatusBarTop
+    }
+    val compactTopBarHeight = stableStatusBarTop +
         SleepDownDesignTokens.SecondaryPage.CompactTopBarHeight
     val dialogSceneBackdrop = rememberCenteredDialogSceneBackdrop("settings-detail-dialog-scene")
     // Reuse a host supplied by the activity transition/home overlay when present. This keeps a
@@ -337,22 +357,24 @@ internal fun GlassMiuixDetailActivityScaffold(
                         Modifier
                             .fillMaxWidth()
                             .then(if (compactTopBar) Modifier.height(compactTopBarHeight) else Modifier)
+                            .graphicsLayer { clip = false }
                     ) {
                         if (topBarVisible) {
                             SettingsGradientTopBar(
                                 config = pageConfig,
-                                backdrop = contentBackdrop,
+                                backdrop = topBarBackdrop,
                                 enabled = showTopGradientBlur
                             ) {
                                 if (compactTopBar) {
                                     DetailTopBar(
                                         title = title,
                                         config = pageConfig,
-                                        backdrop = contentBackdrop,
+                                        backdrop = topBarBackdrop,
                                         onBack = onBack,
                                         centerTitle = centerCompactTitle,
                                         useMiuixCollapsedTitleStyle = compactTitleMatchesSettings,
-                                        actions = { topBarActions(contentBackdrop) }
+                                        statusTopOverride = stableStatusBarTop.takeIf { preserveStatusBarSpace },
+                                        actions = { topBarActions(topBarBackdrop) }
                                     )
                                 } else {
                                     TopAppBar(
@@ -361,9 +383,11 @@ internal fun GlassMiuixDetailActivityScaffold(
                                         color = Color.Transparent,
                                         scrollBehavior = scrollBehavior,
                                         navigationIconPadding = 16.dp,
+                                        clipContent = false,
+                                        actions = { topBarActions(topBarBackdrop) },
                                         navigationIcon = {
                                             TopBackButton(
-                                                backdrop = contentBackdrop,
+                                                backdrop = topBarBackdrop,
                                                 config = pageConfig,
                                                 onClick = onBack,
                                                 modifier = Modifier.size(
@@ -448,6 +472,7 @@ private fun SettingsGradientTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .then(blurModifier)
+            .graphicsLayer { clip = false }
     ) {
         content()
     }

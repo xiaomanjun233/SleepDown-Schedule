@@ -260,8 +260,8 @@ open class DayAgentForegroundServiceHost : Service() {
         )
     }
 
-    private fun runningNotification(): Notification =
-        Notification.Builder(this, RUNNING_CHANNEL_ID)
+    private fun runningNotification(): Notification {
+        return Notification.Builder(this, RUNNING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_agent_thinking)
             .setContentTitle("今日助手")
             .setContentText("模型思考中")
@@ -269,11 +269,11 @@ open class DayAgentForegroundServiceHost : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
-            .setCategory(Notification.CATEGORY_PROGRESS)
+            .setCategory(Notification.CATEGORY_SERVICE)
             .setColor(0xFF0A84FF.toInt())
-            .setProgress(0, 0, true)
             .requestPromotedOngoing("思考中")
             .build()
+    }
 
     private fun completedNotification(): Notification =
         Notification.Builder(this, RESULT_CHANNEL_ID)
@@ -351,7 +351,6 @@ open class DayAgentForegroundServiceHost : Service() {
         private const val RESULT_CHANNEL_ID = "day_agent_result"
         private const val RUNNING_NOTIFICATION_ID = 20260731
         private const val RESULT_NOTIFICATION_ID = 20260732
-
         fun startThinking(context: Context) {
             ContextCompat.startForegroundService(
                 context,

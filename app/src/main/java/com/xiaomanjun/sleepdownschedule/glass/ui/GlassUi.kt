@@ -9,6 +9,7 @@ import com.xiaomanjun.sleepdownschedule.core.performance.LocalGlassQuality
 
 import android.os.Build
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.background
@@ -18,7 +19,8 @@ import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.Capsule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
@@ -31,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
@@ -59,6 +62,7 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sampledBackdropOnly
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 const val MulticolorCourseCardArgb = 0x00000000L
 
@@ -96,7 +100,7 @@ fun decodeCourseCardPalette(value: String): List<Long> = value
     .toList()
 
 fun courseCardUsesAssignments(config: ScheduleConfigEntity): Boolean =
-    config.courseCardColorMode != CourseCardColorMode.SOLID
+    config.courseCardColorMode != CourseCardColorMode.SOLID || !config.hasAnyWallpaper()
 
 fun courseCardAllowsCustomOverrides(config: ScheduleConfigEntity): Boolean =
     config.courseCardColorMode == CourseCardColorMode.COLORFUL
@@ -106,11 +110,18 @@ fun resolvedCourseCardPalette(
     wallpaperColors: List<Long>
 ): List<Long> = when (config.courseCardColorMode) {
     CourseCardColorMode.SOLID,
-    CourseCardColorMode.GRADIENT -> listOf(
-        config.cardColorArgb.takeUnless { it == MulticolorCourseCardArgb } ?: 0xFFD6E9FFL
-    )
+    CourseCardColorMode.GRADIENT -> if (config.hasAnyWallpaper()) {
+        listOf(
+            config.cardColorArgb.takeUnless { it == MulticolorCourseCardArgb } ?: 0xFFD6E9FFL
+        )
+    } else {
+        // 无壁纸纯色卡片：默认使用多彩预制色而非单一浅蓝
+        DefaultCourseCardPalette
+    }
     CourseCardColorMode.COLORFUL -> decodeCourseCardPalette(config.courseCardPalette)
-        .ifEmpty { wallpaperColors }
+        .ifEmpty {
+            if (config.hasAnyWallpaper()) wallpaperColors else DefaultCourseCardPalette
+        }
         .ifEmpty { DefaultCourseCardPalette }
 }
 
@@ -469,6 +480,16 @@ internal fun courseSimpleBlurTintAlpha(cardAlpha: Float, quality: Float, hasWall
         .coerceIn(0f, 0.18f)
 }
 
+/**
+ * 壁纸降亮度时课程卡片的跟随衰减系数。卡片也随壁纸变暗一点，但幅度小于壁纸；
+ * 开启质感轮廓光时降得比关闭时更多（轮廓光更依赖亮度氛围）。
+ */
+internal fun courseCardBrightnessAttenuation(brightness: Float, outlineLightEnabled: Boolean): Float {
+    val dim = (1f - brightness.coerceIn(0.35f, 1f)).coerceIn(0f, 0.65f)
+    val strength = if (outlineLightEnabled) 0.55f else 0.18f
+    return (1f - dim * strength).coerceIn(0.2f, 1f)
+}
+
 typealias GlassTokens = GlassMaterialSpec
 
 @Composable
@@ -492,13 +513,15 @@ fun GlassSurface(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(50),
+    shape: Shape = Capsule(),
     tokens: GlassTokens = GlassTokens.pill(),
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
     baseSurfaceColorOverride: Color? = null,
     domain: GlassBackdropDomain = GlassBackdropDomain.ChromeCombined,
     debugLabel: String = "GlassSurface",
+    bottomLitTint: Boolean = false,
+    bottomLitTintFloor: Float = 0.20f,
     content: @Composable () -> Unit
 ) {
     val glassBackdrop = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
@@ -566,7 +589,11 @@ fun GlassSurface(
             shape = { shape },
             effectFrame = effectFrame,
             onDrawSurface = {
-                drawRect(surfaceColor)
+                if (bottomLitTint) {
+                    drawBottomLitGlassTint(surfaceColor, topTintFloor = bottomLitTintFloor)
+                } else {
+                    drawRect(surfaceColor)
+                }
                 if (lightGlass) {
                     drawRect(Color.White.copy(alpha = 0.014f + 0.018f * pressProgress), blendMode = BlendMode.Screen)
                 } else {
@@ -612,7 +639,7 @@ fun GlassPill(
         backdrop = backdrop,
         config = config,
         modifier = modifier,
-        shape = RoundedCornerShape(50),
+        shape = Capsule(),
         tokens = GlassTokens.pill(),
         selected = selected,
         onClick = onClick,
@@ -634,7 +661,7 @@ fun GlassLens(
     val quality = LocalGlassQuality.current
     val lightGlass = glassUsesLightStyle(config)
     val surfaceColor = if (lightGlass) Color.Black.copy(alpha = 0.07f * quality) else Color.White.copy(alpha = 0.08f * quality)
-    val shape = RoundedCornerShape(50)
+    val shape = Capsule()
     val material = remember { GlassMaterialSpec.lens() }
     val descriptor = rememberGlassSurfaceDescriptor(
         debugLabel = "GlassLens",
@@ -688,7 +715,7 @@ fun GlassDialogSurface(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(26.dp),
+    shape: Shape = RoundedRectangle(26.dp),
     content: @Composable () -> Unit
 ) {
     GlassSurface(
@@ -707,11 +734,26 @@ internal fun courseCardGlassEffectFrame(
     tokens: GlassMaterialSpec,
     liveBlur: Float,
     quality: Float,
-    hasWallpaper: Boolean
-): GlassEffectFrame = GlassEffectFrame(
+    hasWallpaper: Boolean,
+    refractionStrength: Float = 0.5f
+): GlassEffectFrame {
+    val refraction = refractionStrength.coerceIn(0f, 1f)
+    // 以滑块三个点 0 / 默认 0.5 / 1 重新映射：乘子在 0.5~1.5 间线性变化，
+    // 中点 f(0.5)=1.0 与原基准值一致，两端调节范围明显放大。
+    val lensShapeFactor = 0.5f + refraction
+    return GlassEffectFrame(
     blur = liveBlur.coerceIn(0f, LiquidCourseCardBlurMax).dp * quality,
-    lensHeight = tokens.lensHeight * quality * (if (hasWallpaper) 1f else 0.78f),
-    lensAmount = tokens.lensAmount * quality * (if (hasWallpaper) 1f else 1.35f),
+    lensHeight = if (refraction <= 0f) {
+        0.dp
+    } else {
+        tokens.lensHeight * quality * (if (hasWallpaper) 1f else 0.78f) * lensShapeFactor
+    },
+    lensAmount = if (refraction <= 0f) {
+        0.dp
+    } else {
+        tokens.lensAmount * quality * (if (hasWallpaper) 1f else 1.35f) *
+            lensShapeFactor
+    },
     useVibrancy = tokens.useVibrancy,
     depthEffect = tokens.depthEffect,
     chromaticAberration = tokens.chromaticAberration,
@@ -728,7 +770,164 @@ internal fun courseCardGlassEffectFrame(
         radius = 5.dp,
         alpha = tokens.innerShadowAlpha
     )
-)
+    )
+}
+
+private fun DrawScope.drawBottomLitGlassTint(
+    color: Color,
+    topTintFloor: Float = 0.20f,
+    expanded: Boolean = false
+) {
+    val top = topTintFloor.coerceIn(0f, 0.72f)
+    val firstLiftY = if (expanded) 0.68f else 0.82f
+    val brightBandY = if (expanded) 0.82f else 0.90f
+    val rimY = if (expanded) 0.92f else 0.96f
+    drawRect(
+        brush = Brush.verticalGradient(
+            colorStops = arrayOf(
+                0f to color.copy(alpha = color.alpha * top),
+                (if (expanded) 0.48f else 0.62f) to color.copy(alpha = color.alpha * top),
+                firstLiftY to color.copy(alpha = color.alpha * maxOf(top, 0.48f)),
+                brightBandY to color.copy(alpha = color.alpha * maxOf(top, 0.84f)),
+                rimY to color.copy(alpha = color.alpha * maxOf(top, 0.88f)),
+                1f to color
+            ),
+            endY = size.height
+        )
+    )
+}
+
+internal fun Modifier.verticalGlassAccent(
+    accentColor: Color,
+    shape: Shape,
+    lightGlass: Boolean,
+    intensity: Float = 1f,
+    expanded: Boolean = false
+): Modifier = this
+            .clip(shape)
+            .drawBehind {
+                // Perceptual response keeps the middle of the slider useful without allowing the
+                // sampled wallpaper brightness to dictate the light-source strength.
+                val lightStrength = sqrt(intensity.coerceIn(0f, 1f))
+                val colorStartY = if (expanded) 0.66f else 0.86f
+                val colorLiftY = if (expanded) 0.80f else 0.92f
+                val colorRimY = if (expanded) 0.92f else 0.97f
+                val whiteStartY = if (expanded) 0.72f else 0.89f
+                val whiteLiftY = if (expanded) 0.88f else 0.96f
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Black.copy(alpha = if (lightGlass) 0.014f else 0.022f),
+                            0.18f to Color.Black.copy(alpha = if (lightGlass) 0.010f else 0.016f),
+                            0.32f to Color.Black.copy(alpha = if (lightGlass) 0.006f else 0.009f),
+                            0.46f to Color.Transparent,
+                            1f to Color.Transparent
+                        ),
+                        endY = size.height
+                    )
+                )
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Transparent,
+                            colorStartY to Color.Transparent,
+                            colorLiftY to accentColor.copy(alpha = 0.040f * lightStrength),
+                            colorRimY to accentColor.copy(
+                                alpha = (if (lightGlass) 0.18f else 0.21f) * lightStrength
+                            ),
+                            1f to accentColor.copy(
+                                alpha = (if (lightGlass) 0.30f else 0.34f) * lightStrength
+                            )
+                        ),
+                        endY = size.height
+                    ),
+                    blendMode = BlendMode.Plus
+                )
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Transparent,
+                            whiteStartY to Color.Transparent,
+                            whiteLiftY to Color.White.copy(alpha = 0.042f * lightStrength),
+                            1f to Color.White.copy(alpha = 0.082f * lightStrength)
+                        ),
+                        endY = size.height
+                    )
+                )
+            }
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0f to Color.White.copy(alpha = if (lightGlass) 0.28f else 0.16f),
+                        0.28f to Color.Transparent,
+                        (if (expanded) 0.80f else 0.94f) to Color.Transparent,
+                        1f to Color.White.copy(
+                            alpha = 0.20f * sqrt(intensity.coerceIn(0f, 1f))
+                        )
+                    )
+                ),
+                shape = shape
+            )
+
+@Composable
+internal fun VerticalGlassAccentOverlay(
+    accentColor: Color,
+    shape: Shape,
+    lightGlass: Boolean,
+    intensity: Float = 1f,
+    expanded: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier.verticalGlassAccent(
+            accentColor = accentColor,
+            shape = shape,
+            lightGlass = lightGlass,
+            intensity = intensity,
+            expanded = expanded
+        )
+    )
+}
+
+private val StatusCapsuleBlue = Color(0xFF0A84FF)
+
+/** Shared blue status material for the day and week headers. */
+@Composable
+fun BlueStatusGlassPill(
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val shape = Capsule()
+    Box(modifier = modifier) {
+        GlassSurface(
+            backdrop = backdrop,
+            config = config,
+            shape = shape,
+            tokens = GlassTokens.pill().copy(
+                blur = 4.dp,
+                surfaceAlpha = 0.68f,
+                highlightAlpha = 0.10f,
+                innerShadowAlpha = 0.10f
+            ),
+            baseSurfaceColorOverride = StatusCapsuleBlue,
+            bottomLitTint = true,
+            bottomLitTintFloor = 0.44f,
+            modifier = Modifier.matchParentSize()
+        ) {}
+        VerticalGlassAccentOverlay(
+            accentColor = StatusCapsuleBlue,
+            shape = shape,
+            lightGlass = glassUsesLightStyle(config),
+            intensity = 0.86f,
+            expanded = true,
+            modifier = Modifier.matchParentSize()
+        )
+        content()
+    }
+}
 
 @Composable
 fun CourseGlassCard(
@@ -736,12 +935,13 @@ fun CourseGlassCard(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     course: CourseEntity? = null,
-    shape: Shape = RoundedCornerShape(12.dp),
+    shape: Shape = RoundedRectangle(12.dp),
     blurOverride: Float? = null,
     renderSurface: Boolean = true,
     mountMaterial: Boolean = true,
     backdropSampleScale: Float = 1f,
     sampledShape: Shape? = null,
+    expandedOutlineLight: Boolean = false,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
@@ -755,8 +955,17 @@ fun CourseGlassCard(
     val renderFlatOcclusionFallback =
         occlusionPhase == CourseGlassOcclusionPhase.Suspended || materialCrossfadeActive
     val previewState = LocalPersonalizationPreview.current
-    val glassBackdrop = if (config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
-    val simpleBlurBackdrop = if (!config.courseCardGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
+    val glassBackdrop = if (
+        config.courseCardGlassEnabled &&
+        config.hasAnyWallpaper() &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    ) backdrop else null
+    val simpleBlurBackdrop = if (
+        !config.courseCardGlassEnabled &&
+        config.courseCardGaussianBlurEnabled &&
+        config.hasAnyWallpaper() &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    ) backdrop else null
     val useGlass = glassBackdrop != null
     val quality = LocalGlassQuality.current
     val clickInteractionSource = remember { MutableInteractionSource() }
@@ -766,11 +975,17 @@ fun CourseGlassCard(
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
     val liveLiquidBlur = blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur
+    val liveRefractionStrength = previewState?.cardRefractionStrength
+        ?: config.courseCardRefractionStrength
+    val outlineLightEnabled = config.courseCardGlassEnabled &&
+        config.courseCardOutlineLightEnabled &&
+        config.hasAnyWallpaper()
     val liquidEffectFrame = courseCardGlassEffectFrame(
         tokens = tokens,
         liveBlur = liveLiquidBlur,
         quality = quality,
-        hasWallpaper = hasWallpaper
+        hasWallpaper = hasWallpaper,
+        refractionStrength = liveRefractionStrength
     )
     val liquidDescriptor = rememberGlassSurfaceDescriptor(
         debugLabel = "CourseGlassCard",
@@ -797,11 +1012,19 @@ fun CourseGlassCard(
     val decorationEffectFrame = liquidEffectFrame.decorationOnly()
     val liquidSurfaceDraw: DrawScope.() -> Unit = {
         val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
-        drawRect(
-            baseColor.copy(
-                alpha = courseGlassTintAlpha(liveAlpha, quality, hasWallpaper)
-            )
+        val brightnessAttenuation = courseCardBrightnessAttenuation(
+            config.wallpaperBrightness,
+            outlineLightEnabled
         )
+        val tintStrength = if (outlineLightEnabled) 0.75f else liveAlpha
+        val tintAlpha = courseGlassTintAlpha(tintStrength, quality, hasWallpaper) *
+            brightnessAttenuation
+        val tint = baseColor.copy(alpha = tintAlpha)
+        if (outlineLightEnabled) {
+            drawBottomLitGlassTint(tint, expanded = expandedOutlineLight)
+        } else {
+            drawRect(tint)
+        }
         drawRect(
             Color.White.copy(alpha = if (lightGlass) 0.012f else 0.008f),
             blendMode = BlendMode.Screen
@@ -862,11 +1085,24 @@ fun CourseGlassCard(
                             quality = quality,
                             hasWallpaper = hasWallpaper
                         )
-                        drawRect(
-                            baseColor.copy(
-                                alpha = courseGlassFlatFallbackAlpha(flatAlpha, glassProgress)
+                        // Outline-light cards keep the morph/flat-occlusion sheet colourless so the
+                        // bottom-lit material lights up when it re-takes over the crossfade.
+                        if (outlineLightEnabled) {
+                            drawRect(
+                                Color.White.copy(
+                                    alpha = courseGlassFlatFallbackAlpha(
+                                        flatAlpha * 0.55f,
+                                        glassProgress
+                                    )
+                                )
                             )
-                        )
+                        } else {
+                            drawRect(
+                                baseColor.copy(
+                                    alpha = courseGlassFlatFallbackAlpha(flatAlpha, glassProgress)
+                                )
+                            )
+                        }
                     }
             )
         }
@@ -937,7 +1173,26 @@ fun CourseGlassCard(
                 .clip(shape)
                 .drawBehind {
                     val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
-                    drawRect(baseColor.copy(alpha = liveAlpha.coerceIn(0f, 1f).coerceAtLeast(0.86f)))
+                    val alpha = liveAlpha.coerceIn(0f, 1f)
+                    drawRect(
+                        baseColor.copy(
+                            alpha = if (
+                                !config.courseCardGlassEnabled &&
+                                !config.courseCardGaussianBlurEnabled &&
+                                hasWallpaper
+                            ) {
+                                // 纯纯色卡片：透明度拉满时也不能完全消失，保留可辨识底座
+                                alpha.coerceAtLeast(0.35f)
+                            } else if (
+                                !config.courseCardGlassEnabled &&
+                                !config.courseCardGaussianBlurEnabled
+                            ) {
+                                alpha.coerceAtLeast(0.92f)
+                            } else {
+                                alpha.coerceAtLeast(0.86f)
+                            }
+                        )
+                    )
                 }
         }
         Box(materialAlphaModifier.then(surfaceModifier))
@@ -959,6 +1214,24 @@ fun CourseGlassCard(
                         onDrawBackdrop = { _ -> },
                         onDrawSurface = liquidSurfaceDraw
                     )
+            )
+        }
+        // Full-resolution additive inner light, independent of the sampled blur/lens. The base
+        // tint fades toward the top while the brighter bottom light spreads with smooth falloff.
+        if (outlineLightEnabled) {
+            VerticalGlassAccentOverlay(
+                accentColor = baseColor,
+                shape = shape,
+                lightGlass = lightGlass,
+                intensity = (previewState?.cardAlpha ?: config.cardAlpha) *
+                    courseCardBrightnessAttenuation(
+                        config.wallpaperBrightness,
+                        outlineLightEnabled = true
+                    ),
+                expanded = expandedOutlineLight,
+                modifier = Modifier
+                    .matchParentSize()
+                    .then(materialAlphaModifier)
             )
         }
         content()

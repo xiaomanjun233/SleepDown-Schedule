@@ -46,7 +46,6 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -67,10 +66,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.Capsule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -96,6 +97,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
@@ -134,9 +136,10 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
+import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-private val CourseManagementCardShape = RoundedCornerShape(20.dp)
+private val CourseManagementCardShape = RoundedRectangle(20.dp)
 
 @Composable
 internal fun CourseManagementColorProvider(
@@ -411,7 +414,7 @@ internal fun ManagedCourseListCardContent(
                 Modifier
                     .width(3.dp)
                     .height(24.dp)
-                    .clip(RoundedCornerShape(50))
+                    .clip(Capsule())
                     .background(if (showCourseColor) cardColor else Color.Transparent)
             )
             Text(
@@ -484,7 +487,7 @@ internal fun HomeMenuActivitySourceFallback(
                         Modifier
                             .width(3.dp)
                             .height(24.dp)
-                            .clip(RoundedCornerShape(50))
+                            .clip(Capsule())
                             .background(
                                 if (index == highlightedRowIndex) foreground.copy(alpha = 0.34f)
                                 else Color.Transparent
@@ -535,6 +538,7 @@ internal fun CourseManagementDetailPage(
     }
     var pickerRequest by remember { mutableStateOf<CourseEditorPickerRequest?>(null) }
     var pickerVisible by remember { mutableStateOf(false) }
+    var colorPickerVisible by remember { mutableStateOf(false) }
     var showSaveChangesDialog by remember(group.key) { mutableStateOf(false) }
     var validationMessage by remember(group.key) { mutableStateOf<String?>(null) }
     var pendingDelete by remember(group.key) { mutableStateOf<PendingArrangementDelete?>(null) }
@@ -634,7 +638,9 @@ internal fun CourseManagementDetailPage(
                 role = DialogButtonRole.Confirm,
                 iconRes = R.drawable.ic_add_course,
                 roundIcon = true,
-                blurRadius = 10.dp
+                blurRadius = 10.dp,
+                shadowEnabled = !appUsesDarkTheme(state.config),
+                shadowStyle = LightTopBarButtonShadow
             )
         }
     ) { cardBackdrop ->
@@ -675,6 +681,8 @@ internal fun CourseManagementDetailPage(
                     onNameChange = { name = it },
                     selectedColor = selectedColor,
                     onColorSelected = { selectedColor = it },
+                    onOpenColorPicker = { colorPickerVisible = true },
+                    backdrop = cardBackdrop,
                     config = state.config
                 )
             }
@@ -741,6 +749,20 @@ internal fun CourseManagementDetailPage(
                 }
             )
         }
+        CourseColorPicker(
+            show = colorPickerVisible,
+            selectedColorArgb = selectedColor,
+            automaticColorArgb = courseCardBaseColor(
+                state.config,
+                group.representative.copy(customColorArgb = null)
+            ).toArgb().toLong() and 0xFFFFFFFFL,
+            backdrop = pickerBackdrop,
+            config = state.config,
+            renderInRootScaffold = true,
+            onDismissRequest = { colorPickerVisible = false },
+            onDismissFinished = {},
+            onColorSelected = { selectedColor = it }
+        )
         if (showSaveChangesDialog) {
             val canSave = arrangements.isEmpty() || name.trim().isNotBlank()
             LiquidAlertDialog(
@@ -857,6 +879,8 @@ private fun CourseIdentityCard(
     onNameChange: (String) -> Unit,
     selectedColor: Long?,
     onColorSelected: (Long?) -> Unit,
+    onOpenColorPicker: () -> Unit,
+    backdrop: Backdrop?,
     config: ScheduleConfigEntity
 ) {
     CourseManagementSettingsSection(title = "课程信息") {
@@ -874,40 +898,13 @@ private fun CourseIdentityCard(
                 insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
             )
             val palette = LocalCourseCardPalette.current.ifEmpty { DefaultCourseCardPalette }
-            FlowRow(
+            val visiblePalette = palette.take(4)
+            Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    Modifier.size(34.dp).clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .then(
-                            if (selectedColor == null) {
-                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .clickable { onColorSelected(null) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (selectedColor == null) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_check),
-                            contentDescription = "已选择自动课程颜色",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.align(Alignment.TopEnd).padding(2.dp).size(11.dp)
-                        )
-                    }
-                    Icon(
-                        painter = painterResource(R.drawable.ic_course_color_auto),
-                        contentDescription = "自动课程颜色",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-                palette.take(6).forEach { argb ->
+                visiblePalette.forEach { argb ->
                     val selected = selectedColor == argb
                     Box(
                         Modifier
@@ -916,14 +913,14 @@ private fun CourseIdentityCard(
                                 scaleX = if (selected) 1.12f else 1f
                                 scaleY = if (selected) 1.12f else 1f
                             }
-                            .clip(RoundedCornerShape(50))
+                            .clip(Capsule())
                             .background(Color(argb.toInt()))
                             .then(
                                 if (selected) {
                                     Modifier.border(
                                         2.dp,
                                         if (Color(argb.toInt()).luminance() > 0.55f) Color.Black else Color.White,
-                                        RoundedCornerShape(50)
+                                        Capsule()
                                     )
                                 } else {
                                     Modifier
@@ -941,6 +938,12 @@ private fun CourseIdentityCard(
                         }
                     }
                 }
+                CourseColorPaletteButton(
+                    backdrop = backdrop,
+                    selected = selectedColor != null && selectedColor !in visiblePalette,
+                    onClick = onOpenColorPicker,
+                    size = 34.dp
+                )
             }
         }
     }
@@ -964,12 +967,15 @@ private fun CourseArrangementEditorCard(
             value = "周${weekdayLabel(course.weekday)}",
             onClick = {
                 onOpenPicker(
-                    CourseEditorPickerRequest.Wheel(
+                    CourseEditorPickerRequest.Grid(
                         title = "选择上课星期",
                         labels = (1..7).map { "周${weekdayLabel(it)}" },
-                        startIndex = (course.weekday - 1).coerceIn(0, 6),
-                        onConfirm = { selected, _ ->
-                            onCourseChange(course.copy(weekday = selected + 1))
+                        selectedIndices = buildSet { add((course.weekday - 1).coerceIn(0, 6)) },
+                        preferredColumns = 7,
+                        onConfirm = { set ->
+                            set.minOrNull()?.let { selected ->
+                                onCourseChange(course.copy(weekday = selected + 1))
+                            }
                         }
                     )
                 )
@@ -1276,7 +1282,6 @@ private fun CourseManagementWeekChoice(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val shape = RoundedCornerShape(12.dp)
     val baseColor = if (selected) {
         MaterialTheme.colorScheme.primary
     } else {
@@ -1294,8 +1299,7 @@ private fun CourseManagementWeekChoice(
     )
     Box(
         modifier = modifier
-            .clip(shape)
-            .background(surfaceColor)
+            .squircleSurface(color = surfaceColor, cornerRadius = 12.dp)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -1415,7 +1419,7 @@ private fun SwipeDeleteArrangementCard(
             }
         Box(
             deleteModifier
-                .clip(RoundedCornerShape(50))
+                .clip(Capsule())
                 .background(Color(0xFFFF3B30))
                 .clickable(onClick = ::requestDelete),
             contentAlignment = Alignment.Center

@@ -8,26 +8,50 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.time.LocalTime
 
 class CourseAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == NotificationScheduler.ACTION_REFRESH_COURSE_ALARMS) {
+            val pending = goAsync()
+            val app = context.applicationContext as CourseScheduleApp
+            app.applicationScope.launch(Dispatchers.IO) {
+                try {
+                    val snapshot = app.repository.activeSnapshot()
+                    NotificationScheduler.refreshToday(
+                        context = app,
+                        courses = snapshot.courses,
+                        config = snapshot.config,
+                        periods = snapshot.periods,
+                        forceReschedule = true
+                    )
+                } finally {
+                    pending.finish()
+                }
+            }
+            return
+        }
         NotificationScheduler.withShortWakeLock(context, "course_alarm") {
             NotificationScheduler.createChannel(context)
-            val name = intent.getStringExtra("courseName") ?: "课程"
-            val location = intent.getStringExtra("location").orEmpty()
-            val timeText = intent.getStringExtra("timeText").orEmpty()
+            val payload = NotificationScheduler.payloadFromIntent(intent)
+            val name = payload?.name ?: intent.getStringExtra("courseName") ?: "课程"
+            val location = payload?.location ?: intent.getStringExtra("location").orEmpty()
+            val timeText = payload?.timeText ?: intent.getStringExtra("timeText").orEmpty()
             val mode = runCatching { NotificationMode.valueOf(intent.getStringExtra("notificationMode") ?: NotificationMode.STANDARD.name) }.getOrDefault(NotificationMode.STANDARD)
-            val showActions = intent.getBooleanExtra("liveUpdateActionsEnabled", true)
-            val chipTextMode = runCatching { LiveUpdateChipTextMode.valueOf(intent.getStringExtra("liveUpdateChipTextMode") ?: LiveUpdateChipTextMode.LOCATION.name) }.getOrDefault(LiveUpdateChipTextMode.LOCATION)
-            val muteKey = intent.getStringExtra("muteKey").orEmpty()
-            val muteUntil = intent.getStringExtra("muteUntil").orEmpty()
             val startTime = runCatching { LocalTime.parse(timeText.substringBefore("-").trim()) }.getOrNull()
-            if (mode == NotificationMode.LIVE_UPDATE && startTime != null && !LocalTime.now().isBefore(startTime)) {
+            if (
+                mode == NotificationMode.LIVE_UPDATE &&
+                payload?.segments.isNullOrEmpty() &&
+                startTime != null &&
+                !LocalTime.now().isBefore(startTime)
+            ) {
                 Log.d("SleepDownLiveUpdate", "skip alarm live update: course already started name=$name, start=$startTime")
                 return@withShortWakeLock
             }
             if (!NotificationScheduler.canPostNotifications(context)) {
+                Log.w("SleepDownLiveUpdate", "skip alarm: notification delivery unavailable")
                 return@withShortWakeLock
             }
             val notification = if (mode == NotificationMode.LIVE_UPDATE) {
@@ -41,17 +65,19 @@ class CourseAlarmReceiver : BroadcastReceiver() {
                     .build()
             }
             if (mode == NotificationMode.LIVE_UPDATE) {
-                Log.d("SleepDownLiveUpdate", "alarm receiver live update: course=$name, chip=$chipTextMode")
-                NotificationScheduler.startLiveUpdateService(
-                    context = context,
-                    name = name,
-                    timeText = timeText,
-                    location = location,
-                    showActions = showActions,
-                    muteKey = muteKey,
-                    muteUntil = muteUntil,
-                    chipTextMode = chipTextMode
-                )
+                val livePayload = payload ?: return@withShortWakeLock
+                if (livePayload.shouldStop()) {
+                    Log.d("SleepDownLiveUpdate", "alarm boundary reached payload expiry key=${livePayload.muteKey}")
+                    NotificationManagerCompat.from(context).cancel(NotificationScheduler.liveUpdateId())
+                    NotificationScheduler.stopLiveUpdateService(context)
+                    return@withShortWakeLock
+                }
+                if (NotificationScheduler.isPayloadMuted(context, livePayload)) {
+                    Log.d("SleepDownLiveUpdate", "skip muted alarm payload key=${livePayload.muteKey}")
+                    return@withShortWakeLock
+                }
+                Log.d("SleepDownLiveUpdate", "alarm receiver live update: kind=${livePayload.kind}, name=$name")
+                NotificationScheduler.startLiveUpdateService(context, livePayload)
             } else {
                 val notificationId = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
                 try {

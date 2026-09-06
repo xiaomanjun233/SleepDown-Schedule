@@ -59,12 +59,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.Capsule
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -317,7 +319,7 @@ fun ScheduleManagerScreen(
                 centeredProfile.name,
                 modifier = Modifier
                     .padding(horizontal = 112.dp)
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedRectangle(18.dp))
                     .clickable { renameCandidate = centeredProfile },
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium,
@@ -440,7 +442,7 @@ fun ScheduleManagerScreen(
                 Box(
                     modifier = Modifier
                         .size(dotSize)
-                        .clip(RoundedCornerShape(50))
+                        .clip(Capsule())
                         .background(Color.White.copy(alpha = dotAlpha))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
@@ -656,7 +658,7 @@ fun ScheduleCarouselCard(
         animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f),
         label = "schedule-delete-overlay"
     )
-    val shape = RoundedCornerShape(34.dp)
+    val shape = RoundedRectangle(34.dp)
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -749,7 +751,7 @@ fun ScheduleCarouselCard(
                 Box(
                     modifier = Modifier
                         .size(66.dp)
-                        .clip(RoundedCornerShape(50))
+                        .clip(Capsule())
                         .background(Color(0xFFFF453A).copy(alpha = 0.88f))
                         .clickable(onClick = onDeleteClick),
                     contentAlignment = Alignment.Center
@@ -792,6 +794,29 @@ fun ScheduleHomeSnapshotPreview(
     }
     val cardColor = previewBaseColor.copy(alpha = if (config.courseCardGlassEnabled) 0.66f else config.cardAlpha)
     val textColor = homeForegroundColor(config)
+    val previewPalette = remember(
+        config.courseCardColorMode,
+        config.cardColorArgb,
+        config.courseCardPalette,
+        config.defaultWallpaperStyle,
+        wallpaperBitmap
+    ) {
+        resolvedCourseCardPalette(
+            config,
+            if (config.defaultWallpaperStyle == DefaultWallpaperStyle.NONE && wallpaperBitmap == null) {
+                DefaultCourseCardPalette
+            } else {
+                emptyList()
+            }
+        )
+    }
+    val previewAssignments = remember(courses, previewPalette, config.courseCardColorMode) {
+        buildCourseCardColorAssignments(
+            courses,
+            previewPalette,
+            tonalFamily = config.courseCardColorMode == CourseCardColorMode.GRADIENT
+        )
+    }
     Box(modifier = modifier.background(if (appUsesDarkTheme(config)) Color(0xFF050505) else Color.White)) {
         if (wallpaperBitmap != null) {
             Image(
@@ -801,6 +826,12 @@ fun ScheduleHomeSnapshotPreview(
                 contentScale = ContentScale.Crop
             )
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (appUsesDarkTheme(config)) 0.20f else 0.04f)))
+        } else if (config.defaultWallpaperStyle == DefaultWallpaperStyle.NONE) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(if (appUsesDarkTheme(config)) Color(0xFF111111) else Color.White)
+            )
         } else {
             Box(
                 Modifier
@@ -825,19 +856,24 @@ fun ScheduleHomeSnapshotPreview(
                 }
                 .padding(horizontal = 6.dp, vertical = 10.dp)
         ) {
-            StaticWeekSnapshotGrid(
-                state = previewState,
-                displayWeek = week,
-                cardColor = cardColor,
-                textColor = textColor,
-                modifier = Modifier.weight(1f)
-            )
+            CompositionLocalProvider(
+                LocalCourseCardPalette provides previewPalette,
+                LocalCourseCardColorAssignments provides previewAssignments
+            ) {
+                StaticWeekSnapshotGrid(
+                    state = previewState,
+                    displayWeek = week,
+                    cardColor = cardColor,
+                    textColor = textColor,
+                    modifier = Modifier.weight(1f)
+                )
+            }
             if (selected) {
                 Spacer(Modifier.height(8.dp))
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
-                        .clip(RoundedCornerShape(50))
+                        .clip(Capsule())
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.82f))
                         .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
@@ -905,7 +941,7 @@ fun StaticWeekSnapshotGrid(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(50))
+                    .clip(Capsule())
                     .background(Color.White.copy(alpha = if (appUsesDarkTheme(state.config)) 0.12f else 0.42f)),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -980,7 +1016,7 @@ private fun SnapshotRoundButton(label: String, textColor: Color) {
     Box(
         modifier = Modifier
             .size(24.dp)
-            .clip(RoundedCornerShape(50))
+            .clip(Capsule())
             .background(Color.White.copy(alpha = 0.22f)),
         contentAlignment = Alignment.Center
     ) {
@@ -1054,7 +1090,7 @@ fun SnapshotCourseBlock(
         config = config,
         course = course,
         modifier = modifier,
-        shape = RoundedCornerShape(7.dp)
+        shape = RoundedRectangle(7.dp)
     ) {
         val textColor = readableOn(courseCardBaseColor(config, course))
         BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 3.dp, vertical = 2.dp)) {
@@ -1107,7 +1143,7 @@ fun ScheduleRenameDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedRectangle(18.dp))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.70f))
                     .padding(horizontal = 14.dp, vertical = 12.dp)
             ) {

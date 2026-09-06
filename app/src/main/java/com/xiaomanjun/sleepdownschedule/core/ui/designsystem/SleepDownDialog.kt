@@ -30,7 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.DpSize
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidPanel
+import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedCornerStyle
 import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.Capsule
@@ -108,7 +109,7 @@ fun LiquidDialogSurface(
         ).coerceAtLeast(280.dp)
     val dialogWidth = (windowSize.width * 0.92f).coerceAtMost(SleepDownDesignTokens.Dialog.MaxWidth)
     val dialogMaxHeight = (safeHeight * 0.82f).coerceAtMost(SleepDownDesignTokens.Dialog.MaxHeight)
-    val shape = RoundedCornerShape(SleepDownDesignTokens.Dialog.ContainerCorner)
+    val shape = RoundedRectangle(SleepDownDesignTokens.Dialog.ContainerCorner)
     // Most full dialogs own an opaque-enough material layer and therefore follow the app theme.
     // Home destinations can opt into the sampled glass domain when the wallpaper remains the
     // visible material behind the whole form.
@@ -300,11 +301,12 @@ private fun LiquidAlertContent(
     // Alerts own their material tint, so their foreground must follow that stable surface rather
     // than the wallpaper behind the dim layer.
     val foreground = sleepDownPanelForegroundColor(config)
-    // One- and two-action alerts share the accepted single-row action layout. Tighten that whole
-    // family through the copy band only; action geometry and bottom/side insets stay unchanged.
+    // One- and two-action alerts share the accepted single-row action layout. Only their
+    // single-line copy path tightens; action geometry and bottom/side insets stay unchanged.
     var messageLineCount by remember(message) { mutableStateOf(0) }
     val messageSingleLine = messageLineCount == 1
     val compact = actions.size <= 2
+    val compactSingleLine = compact && messageSingleLine
     val copyLift = if (messageLineCount == 2) {
         -SleepDownDesignTokens.CenteredDialog.ThreeLineAlertTextLift
     } else {
@@ -312,8 +314,10 @@ private fun LiquidAlertContent(
     }
     Column(
         modifier = modifier.padding(
-            top = (if (compact) {
+            top = (if (compactSingleLine) {
                 SleepDownDesignTokens.CenteredDialog.CompactAlertTopInset
+            } else if (compact) {
+                SleepDownDesignTokens.CenteredDialog.CompactMultilineAlertTopInset
             } else {
                 SleepDownDesignTokens.CenteredDialog.AlertTopInset
             }) -
@@ -333,8 +337,10 @@ private fun LiquidAlertContent(
         )
         Spacer(
             Modifier.height(
-                if (compact) {
+                if (compactSingleLine) {
                     SleepDownDesignTokens.CenteredDialog.CompactTitleContentSpacing
+                } else if (compact) {
+                    SleepDownDesignTokens.CenteredDialog.CompactMultilineTitleContentSpacing
                 } else {
                     SleepDownDesignTokens.CenteredDialog.TitleContentSpacing
                 }
@@ -606,7 +612,9 @@ fun DialogLiquidButton(
     monochromeNeutral: Boolean = false,
     lightStyleOverride: Boolean? = null,
     highContrast: Boolean = false,
-    roundIcon: Boolean = false
+    roundIcon: Boolean = false,
+    shadowEnabled: Boolean = true,
+    shadowStyle: Shadow = Shadow.Default
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val useMonochromeNeutral = role == DialogButtonRole.Neutral && monochromeNeutral
@@ -649,7 +657,9 @@ fun DialogLiquidButton(
             blurRadius = blurRadius,
             lensHeight = 16.dp,
             lensAmount = 24.dp,
-            chromaticAberration = false
+            chromaticAberration = false,
+            shadowEnabled = shadowEnabled,
+            shadowStyle = shadowStyle
         ) {
             resolvedIconRes?.let {
                 Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
@@ -668,7 +678,7 @@ fun DialogLiquidButton(
     } else {
         Row(
             modifier = (if (useRoundIcon) modifier.size(42.dp) else modifier.height(40.dp))
-                .clip(RoundedCornerShape(50))
+                .clip(Capsule())
                 .background(
                     surfaceColor.copy(
                         alpha = surfaceColor.alpha.coerceAtLeast(
@@ -728,7 +738,7 @@ fun DialogCapsuleField(
         cursorBrush = SolidColor(textColor),
         modifier = modifier
             .clip(
-                RoundedCornerShape(
+                RoundedRectangle(
                     cornerRadius ?: if (minLines == 1) {
                         SleepDownDesignTokens.Field.SingleLineCorner
                     } else {

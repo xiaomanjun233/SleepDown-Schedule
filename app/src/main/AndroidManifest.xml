@@ -190,6 +190,7 @@
             android:name=".EduImportActivity"
             android:exported="false"
             android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
             android:parentActivityName=".EduSchoolSelectActivity" />
         <activity
             android:name=".AiEduImportProgressActivity"
@@ -232,6 +233,10 @@
         </service>
         <service
             android:name=".DayAgentForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <service
+            android:name=".AiImportForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
         <receiver
@@ -294,6 +299,7 @@
                 <action android:name="android.intent.action.DATE_CHANGED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
     </application>
