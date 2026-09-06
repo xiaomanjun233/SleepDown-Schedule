@@ -409,9 +409,9 @@ internal object WidgetBackgroundRenderer {
             source.height().coerceAtLeast(1)
         )
         val target = RectF(0f, 0f, output.width.toFloat(), output.height.toFloat())
-        val fillPath = Path().apply {
-            addRoundRect(target, cornerRadiusX, cornerRadiusY, Path.Direction.CW)
-        }
+        val fillPath = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.continuousRoundedRectPath(
+            target, cornerRadiusX, cornerRadiusY
+        )
         val canvas = Canvas(output)
         canvas.withClip(fillPath) {
             drawBitmap(extraBlur, source, target, filteredPaint())
@@ -425,14 +425,11 @@ internal object WidgetBackgroundRenderer {
         }
         val outlineInset = (0.55f * minOf(sx, sy)).coerceAtLeast(0.5f)
         val outlineRegion = RectF(target).apply { inset(outlineInset, outlineInset) }
-        val outlinePath = Path().apply {
-            addRoundRect(
+        val outlinePath = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.continuousRoundedRectPath(
                 outlineRegion,
                 (cornerRadiusX - outlineInset).coerceAtLeast(0f),
-                (cornerRadiusY - outlineInset).coerceAtLeast(0f),
-                Path.Direction.CW
+                (cornerRadiusY - outlineInset).coerceAtLeast(0f)
             )
-        }
         drawPresetGlassHighlight(canvas, outlinePath, outlineRegion, sx, sy, darkBackground)
         return output
     }

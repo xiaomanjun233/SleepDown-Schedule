@@ -1,0 +1,11 @@
+# resources/HNPTC/adapters.yaml
+# 湖南邮电职业技术学院（湘邮教学管理平台，正方 V6 系教务）
+# 状态：草稿未验证。课表页 DOM 结构需真实账号登录后确认。
+adapters:
+  - adapter_id: "HNPTC_01"
+    adapter_name: "湖南邮电职业技术学院正方教务"
+    category: "BACHELOR_AND_ASSOCIATE"
+    asset_js_path: "hnptc_01.js"
+    import_url: "http://jx.189jxt.com:10081/"
+    maintainer: "SleepDown"
+    description: "湖南邮电职业技术学院湘邮教学管理平台课表导入（正方V6）。草稿未验证，请登录进入学生个人课表后点击导入，如有误请提交issue"

@@ -73,7 +73,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.UnevenRoundedRectangle
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -845,7 +846,7 @@ private fun AgentOperationLiquidButton(
         Box(
             modifier = modifier
                 .height(42.dp)
-                .clip(RoundedCornerShape(50))
+                .clip(Capsule())
                 .background(background.copy(alpha = if (applied) 0.46f else 0.94f))
                 .clickable(enabled = !applied && enabled, onClick = onClick),
             contentAlignment = Alignment.Center
@@ -927,7 +928,9 @@ private fun DayAgentCardVisualContent(
             .verticalGlassAccent(
                 accentColor = activityAccent,
                 shape = shape,
-                lightGlass = !visual.cardIsDark
+                lightGlass = !visual.cardIsDark,
+                intensity = 1f,
+                expanded = true
             )
             .padding(horizontal = 16.dp, vertical = if (visual.collapsed) 10.dp else 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1444,7 +1447,7 @@ private fun DayAgentConversationDialog(
                     backdrop = backdrop,
                     config = state.config,
                     modifier = Modifier.matchParentSize(),
-                    shape = RoundedCornerShape(32.dp),
+                    shape = RoundedRectangle(32.dp),
                     // Keep the expanded conversation shell visually identical to the compact
                     // home card. Passing the resolved tokens also preserves the card's light/dark
                     // wallpaper treatment instead of maintaining a second drifting parameter set.
@@ -1568,7 +1571,7 @@ private fun DayAgentConversationDialog(
                                                   modifier = Modifier
                                                       .width(176.dp)
                                                       .height(112.dp)
-                                                      .clip(RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp))
+                                                      .clip(UnevenRoundedRectangle(14.dp, 14.dp, 4.dp, 14.dp))
                                               )
                                           }
                                           if (userContent.text.isNotBlank()) {
@@ -1577,7 +1580,7 @@ private fun DayAgentConversationDialog(
                                                   modifier = Modifier
                                                       .background(
                                                           Color(0xFF168CFF).copy(alpha = 0.88f),
-                                                          RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
+                                                          UnevenRoundedRectangle(18.dp, 18.dp, 4.dp, 18.dp)
                                                       )
                                                       .padding(horizontal = 12.dp, vertical = 8.dp),
                                                   color = Color.White,
@@ -2252,7 +2255,7 @@ private fun AgentAttachmentLiquidButton(
             backdrop = null,
             config = config,
             modifier = modifier.height(48.dp),
-            shape = RoundedCornerShape(50),
+            shape = Capsule(),
             tokens = GlassTokens.dialog(intensity = 1f).copy(
                 blur = 16.dp,
                 surfaceAlpha = if (appUsesDarkTheme(config)) 0.08f else 0.14f,

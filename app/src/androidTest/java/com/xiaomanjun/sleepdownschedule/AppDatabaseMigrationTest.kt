@@ -21,6 +21,18 @@ class AppDatabaseMigrationTest {
     )
 
     @Test
+    fun migrate38To39AddsCourseCardMaterialControls() {
+        helper.createDatabase(TEST_DATABASE, 38).close()
+
+        helper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            APP_DATABASE_VERSION,
+            true,
+            *APP_DATABASE_MIGRATIONS.toTypedArray()
+        ).close()
+    }
+
+    @Test
     fun migrate36To37PreservesCoursesAndAddsExactTimeAndColorColumns() {
         helper.createDatabase(TEST_DATABASE, 36).use { database ->
             database.execSQL(

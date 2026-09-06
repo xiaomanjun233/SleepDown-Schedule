@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
+
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 
@@ -31,7 +33,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.Capsule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -182,7 +185,7 @@ internal fun WallpaperEditorOverlay(
                 .size(cardWidth, cardHeight)
                 .graphicsLayer {
                     shadowElevation = 30.dp.toPx() * p
-                    shape = RoundedCornerShape(corner)
+                    shape = RoundedRectangle(corner)
                     clip = true
                 }
                 .background(Color(0xFF1C1C1E)),
@@ -267,7 +270,7 @@ internal fun WallpaperHeaderButton(
             contentPadding = PaddingValues(horizontal = 16.dp)
         ) { Text(text, color = Color.White, style = MaterialTheme.typography.labelLarge) }
     } else {
-        Surface(modifier = Modifier.size(86.dp, 40.dp), shape = RoundedCornerShape(50), color = surface, enabled = enabled, onClick = onClick) {
+        Surface(modifier = Modifier.size(86.dp, 40.dp), shape = Capsule(), color = surface, enabled = enabled, onClick = onClick) {
             Box(contentAlignment = Alignment.Center) { Text(text, color = Color.White) }
         }
     }
@@ -285,7 +288,7 @@ private fun WallpaperRoundOrientationButton(
         Canvas(Modifier.size(22.dp)) {
             val width = if (portrait) size.width * 0.52f else size.width * 0.84f
             val height = if (portrait) size.height * 0.84f else size.height * 0.52f
-            drawRoundRect(
+            drawContinuousRoundRect(
                 color = Color.White,
                 topLeft = Offset((size.width - width) / 2f, (size.height - height) / 2f),
                 size = androidx.compose.ui.geometry.Size(width, height),
@@ -307,7 +310,7 @@ private fun WallpaperRoundOrientationButton(
             lensAmount = 44.dp
         ) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { icon() } }
     } else {
-        Surface(modifier = Modifier.size(52.dp), shape = RoundedCornerShape(50), color = surface, onClick = onClick) {
+        Surface(modifier = Modifier.size(52.dp), shape = Capsule(), color = surface, onClick = onClick) {
             Box(contentAlignment = Alignment.Center) { icon() }
         }
     }

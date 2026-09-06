@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
+
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
@@ -8,6 +10,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
 
 import com.xiaomanjun.sleepdownschedule.core.performance.*
+import com.xiaomanjun.sleepdownschedule.core.ui.text.AutoFitSingleLineText
 import com.xiaomanjun.sleepdownschedule.domain.course.*
 
 import android.Manifest
@@ -144,7 +147,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.Capsule
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
@@ -685,7 +688,7 @@ internal fun SinglePillWeekScheduleScreen(
                                     val isCurrent = currentPeriod?.periodIndex == period.periodIndex
                                     Box(
                                         modifier = if (isCurrent) Modifier
-                                            .background(ComposeColor(0xFF0A84FF), RoundedCornerShape(5.dp))
+                                            .background(ComposeColor(0xFF0A84FF), RoundedRectangle(5.dp))
                                             .padding(horizontal = 4.dp, vertical = 1.dp)
                                         else Modifier,
                                         contentAlignment = Alignment.Center
@@ -1114,7 +1117,7 @@ private fun WeekCourseOverlayCardContent(course: CourseEntity, config: ScheduleC
             else -> 2.5.dp
         }
         val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
-        val tabletFontBoost = if (widthDp >= 120f) 1.10f else 1f
+        val tabletFontBoost = if (widthDp >= 120f) 1.18f else 1f
         val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale
         val courseFontScale = ((previewFontScale ?: config.courseCardFontScale) * tabletFontBoost)
             .coerceIn(0.80f, 1.35f)
@@ -1390,13 +1393,18 @@ internal fun BoundlessWeekdayHeaderRow(
                 .fillMaxHeight(),
             contentAlignment = Alignment.Center
         ) {
-            Text(
+            AutoFitSingleLineText(
                 text = "第${displayWeek}周",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
                 color = textColor,
-                textAlign = TextAlign.Center,
-                maxLines = 1
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center
+                ),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 1.dp),
+                alignment = Alignment.Center,
+                candidateFontSizes = listOf(14.sp, 13.sp, 12.sp, 11.sp, 10.sp)
             )
         }
         val displayedPage = (displayWeek - 1).coerceIn(0, config.totalWeeks.coerceAtLeast(1) - 1)
@@ -1542,7 +1550,7 @@ private fun WeekdayHeaderLabels(
                                 } else {
                                     0f
                                 }
-                                drawRoundRect(
+                                drawContinuousRoundRect(
                                     color = indicatorColor,
                                     topLeft = Offset(
                                         horizontalInset - edgeExtension,
@@ -1569,33 +1577,13 @@ private fun WeekdayHeaderLabels(
                 // to the other days (same texts, fonts, spacing and centering) — only the color
                 // switches to white so it reads inside the blue glass container.
                 if (showTodayCapsule) {
-                    val todayCapsuleShape = RoundedRectangle(50.dp)
-                    val todayCapsuleColor = ComposeColor(0xFF0A84FF)
-                    Box(
+                    BlueStatusGlassPill(
+                        backdrop = backdrop,
+                        config = config,
                         modifier = Modifier
                             .widthIn(min = if (weekdays.size >= 6) 64.dp else 92.dp)
                             .heightIn(min = 34.dp)
-                    ) {
-                        GlassSurface(
-                            backdrop = backdrop,
-                            config = config,
-                            shape = todayCapsuleShape,
-                            tokens = GlassTokens.pill().copy(
-                                blur = 4.dp,
-                                surfaceAlpha = 0.64f,
-                                highlightAlpha = 0.10f,
-                                innerShadowAlpha = 0.10f
-                            ),
-                            baseSurfaceColorOverride = todayCapsuleColor,
-                            modifier = Modifier.matchParentSize()
-                        ) {}
-                        VerticalGlassAccentOverlay(
-                            accentColor = todayCapsuleColor,
-                            shape = todayCapsuleShape,
-                            lightGlass = glassUsesLightStyle(config),
-                            modifier = Modifier.matchParentSize()
-                        )
-                    }
+                    ) {}
                 }
                 Column(
                     modifier = Modifier.padding(vertical = 2.dp, horizontal = 1.dp),
@@ -1636,7 +1624,7 @@ fun WeekHeaderPill(backdrop: Backdrop?, config: ScheduleConfigEntity, selected: 
         backdrop = backdrop,
         config = config,
         modifier = Modifier.fillMaxSize(),
-        shape = RoundedCornerShape(50),
+        shape = Capsule(),
         tokens = homeHeaderGlassTokens(
             lightGlass = glassUsesLightStyle(config),
             blurScale = config.homeChromeBlurScale
@@ -1764,7 +1752,9 @@ fun WeekDayColumn(
         tokens = tokens,
         liveBlur = liveBlur,
         quality = quality,
-        hasWallpaper = hasWallpaper
+        hasWallpaper = hasWallpaper,
+        refractionStrength = previewState?.cardRefractionStrength
+            ?: config.courseCardRefractionStrength
     )
     val courseBackdropSampleScale = adaptiveCourseGlassSampleScale(
         composedCardCount = composedCourseCardCount,
@@ -1786,6 +1776,7 @@ fun WeekDayColumn(
         !pageGroupingActive &&
         backdrop != null &&
         config.courseCardGlassEnabled &&
+        config.hasAnyWallpaper() &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
         startupPhase == StartupPhase.FullQuality &&
         !editMode &&
@@ -2187,7 +2178,9 @@ fun WeekCourseColumnsLayer(
         tokens = tokens,
         liveBlur = previewState?.cardBlur ?: config.courseCardBlur,
         quality = quality,
-        hasWallpaper = config.hasAnyWallpaper()
+        hasWallpaper = config.hasAnyWallpaper(),
+        refractionStrength = previewState?.cardRefractionStrength
+            ?: config.courseCardRefractionStrength
     )
     val pageBackdropSampleScale = adaptiveCourseGlassSampleScale(
         composedCardCount = courses.size,
@@ -3903,7 +3896,7 @@ fun WeekCourseBlock(
             }
             val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
             val fontScaleCompensation = density.fontScale.coerceAtLeast(1f)
-            val tabletFontBoost = if (gridColumnWidth >= 120.dp) 1.10f else 1f
+            val tabletFontBoost = if (gridColumnWidth >= 120.dp) 1.18f else 1f
             val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale
             val courseFontScale = ((previewFontScale ?: config.courseCardFontScale) * tabletFontBoost)
                 .coerceIn(0.80f, 1.35f)
@@ -4057,7 +4050,7 @@ fun WeekCourseBlock(
                             scaleY = dismissScale
                             alpha = 1f - pillDismissProgress
                         },
-                    shape = RoundedCornerShape(50),
+                    shape = Capsule(),
                     tokens = GlassTokens.pill(intensity = 0.86f).copy(
                         surfaceAlpha = 0.32f,
                         shadowAlpha = 0.18f,
@@ -4139,7 +4132,7 @@ fun WeekCourseBlock(
                     backdrop = activeCardBackdrop,
                     config = config,
                     modifier = Modifier.fillMaxSize(),
-                    shape = RoundedCornerShape(50),
+                    shape = Capsule(),
                     tokens = GlassTokens.pill(intensity = 0.82f).copy(
                         surfaceAlpha = 0.36f,
                         shadowAlpha = 0.18f,
@@ -4154,7 +4147,7 @@ fun WeekCourseBlock(
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .clip(RoundedCornerShape(50))
+                            .clip(Capsule())
                             .background(ComposeColor(0xFFFF1F2D).copy(alpha = 0.48f))
                     )
                     Box(
@@ -4162,7 +4155,7 @@ fun WeekCourseBlock(
                             .align(Alignment.Center)
                             .width(10.dp)
                             .height(2.dp)
-                            .clip(RoundedCornerShape(50))
+                            .clip(Capsule())
                             .background(ComposeColor.White)
                     )
                 }
@@ -4261,3 +4254,4 @@ internal fun androidx.compose.ui.text.TextStyle.scaledCourseCardStyle(scale: Flo
     val scaledLineHeight = if (lineHeight == TextUnit.Unspecified) lineHeight else (lineHeight.value * safeScale).sp
     return copy(fontSize = scaledFontSize, lineHeight = scaledLineHeight)
 }
+

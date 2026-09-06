@@ -13,10 +13,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.BackdropEffectScope
 import com.kyant.backdrop.effects.runtimeShaderEffect
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
@@ -100,12 +102,12 @@ fun Modifier.progressiveBackdropBlur(
             materialRole = GlassMaterialRole.SimpleBlur,
             sceneKey = "progressive-backdrop-blur"
         )
-        sleepDownPlainGlassSurface(
-            backdrop = backdrop,
-            descriptor = descriptor,
-            material = material,
-            shape = { RectangleShape },
-            effects = {
+        val blurShapeBlock: () -> Shape = remember { { RectangleShape } }
+        val blurEffects: BackdropEffectScope.() -> Unit = remember(
+            blurRadius, direction, tintColor, tintIntensity,
+            topMaskFadeStart, topMaskFadeEnd, topTintFadeStart, topTintFadeEnd
+        ) {
+            {
                 blur(blurRadius.toPx())
                 runtimeShaderEffect(
                     "ProgressiveBackdropBlur_${direction.name}",
@@ -121,6 +123,13 @@ fun Modifier.progressiveBackdropBlur(
                     setFloatUniform("tintFadeEnd", topTintFadeEnd.coerceAtLeast(topTintFadeStart + 0.01f))
                 }
             }
+        }
+        sleepDownPlainGlassSurface(
+            backdrop = backdrop,
+            descriptor = descriptor,
+            material = material,
+            shape = blurShapeBlock,
+            effects = blurEffects
         )
     } else {
         if (direction == ProgressiveBlurDirection.RailThreeWay) {

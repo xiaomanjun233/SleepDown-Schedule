@@ -692,7 +692,7 @@ internal fun HomeMenuDestinationOverlayHost(
         }
         val destinationShape = remember(frame, density) { DeferredDestinationShape(frame, density) }
         val sourceMenuShape = remember {
-            androidx.compose.foundation.shape.RoundedCornerShape(HomeAddMenuTargetCornerDp.dp)
+            com.kyant.shapes.RoundedRectangle(HomeAddMenuTargetCornerDp.dp)
         }
         val targetWidth = with(density) { target.width.toDp() }
         val targetHeight = with(density) { target.height.toDp() }

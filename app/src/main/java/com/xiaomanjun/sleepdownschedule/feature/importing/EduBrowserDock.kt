@@ -26,7 +26,8 @@ import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.Capsule
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -79,6 +80,7 @@ import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.sleepDownPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidCascadingPopup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidMenuItem
+import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.platformMotionBlurRenderEffect
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
@@ -127,6 +129,7 @@ internal fun EduBrowserDock(
     modifier: Modifier = Modifier
 ) {
     val foreground = sleepDownPanelForegroundColor(config)
+    val isLargeScreen = rememberHomeAdaptiveMetrics().isLargeScreen
     val density = LocalDensity.current
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -237,7 +240,8 @@ internal fun EduBrowserDock(
 
     BoxWithConstraints(
         modifier = modifier
-            .fillMaxWidth()
+            // 大屏下操作网址 dock 居中并缩短到屏幕一半宽度
+            .fillMaxWidth(if (isLargeScreen) 0.5f else 1f)
             .height(BrowserDockExpandedHeight + historyPanelHeight * historyExpansionProgress),
         contentAlignment = Alignment.Center
     ) {
@@ -286,12 +290,7 @@ internal fun EduBrowserDock(
                     highlightEnabled = true,
                     isInteractive = true,
                     highlightRadiusMultiplier = 2.2f,
-                    shape = RoundedCornerShape(
-                        topStart = dockCorner,
-                        topEnd = dockCorner,
-                        bottomStart = dockCorner,
-                        bottomEnd = dockCorner
-                    ),
+                    shape = com.kyant.shapes.RoundedRectangle(dockCorner),
                     clipToBounds = false,
                     clickTargetEnabled = false,
                     pressExpansion = 1.5.dp,
@@ -342,7 +341,7 @@ internal fun EduBrowserDock(
                                     color = foreground.copy(alpha = 0.62f),
                                     style = MaterialTheme.typography.labelMedium,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(50))
+                                        .clip(Capsule())
                                         .clickable(
                                             interactionSource = remember { MutableInteractionSource() },
                                             indication = null
@@ -355,7 +354,7 @@ internal fun EduBrowserDock(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(48.dp)
-                                        .clip(RoundedCornerShape(14.dp))
+                                        .clip(RoundedRectangle(14.dp))
                                         .clickable(
                                             interactionSource = remember(entry.id) { MutableInteractionSource() },
                                             indication = null

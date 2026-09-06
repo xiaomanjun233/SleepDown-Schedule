@@ -32,7 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.CornerSize
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
@@ -52,8 +52,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.BlendMode
@@ -98,6 +96,7 @@ import com.xiaomanjun.sleepdownschedule.glass.LiquidMotionSample
 import com.xiaomanjun.sleepdownschedule.glass.LiquidProgressKinematics
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.PI
 import kotlin.math.abs
@@ -126,6 +125,11 @@ private val BackgroundZoomInertialEasing = CubicBezierEasing(0.30f, 0.0f, 0.20f,
 // reintroduce the shrunken-thumbnail look; 1.0 removes the sense of the content growing.
 private const val CourseEditorContentSettleScale = 0.94f
 private const val CourseEditorPreparedFrameCount = 2
+// Each row settles over 340ms; 15ms staggering keeps the full reveal compact at 520ms.
+internal const val CourseEditorFormRevealDurationMillis = 520
+private val CourseEditorRowRevealEasing = CubicBezierEasing(0.22f, 0f, 0.30f, 1f)
+// 需要逐行飞入的行数：固定标题栏 + 表单行（课程名称/教师/地点/星期/节次/周次/单双周/颜色/备注/删除/错误）。
+internal const val CourseEditorFormRowCount = 12
 
 internal fun courseEditorContentReadyForMotion(
     rootWidth: Int,
@@ -211,14 +215,10 @@ internal class CourseEditorMorphCornerShape(
         bottomEnd: Float,
         bottomStart: Float,
         layoutDirection: LayoutDirection
-    ): Outline = Outline.Rounded(
-        RoundRect(
-            left = 0f,
-            top = 0f,
-            right = size.width,
-            bottom = size.height,
-            cornerRadius = CornerRadius(radiusX, radiusY)
-        )
+    ): Outline = Outline.Generic(
+        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.continuousRoundedRectPath(
+            android.graphics.RectF(0f, 0f, size.width, size.height), radiusX, radiusY
+        ).asComposePath()
     )
 
     override fun copy(
@@ -306,6 +306,9 @@ internal fun CourseEditorContainerOverlayHost(
                             easing = LinearEasing
                         )
                     )
+                    // Content may mount as soon as the shell finishes; background depth
+                    // continues independently and must not delay the Open handoff.
+                    updatePhase(CourseEditorOverlayPhase.Open)
                 }
                 // The background depth (blur + zoom) trails the card on a longer, gentler
                 // ease-out so it keeps settling after the card has opened — the inertial pull
@@ -321,7 +324,6 @@ internal fun CourseEditorContainerOverlayHost(
                     )
                 }
             }
-            updatePhase(CourseEditorOverlayPhase.Open)
         } else if (renderedRequest != null) {
             updatePhase(CourseEditorOverlayPhase.Closing)
             coroutineScope {
@@ -669,6 +671,45 @@ private fun CourseEditorScaledContentLayer(
     var pagerPresentation by remember(formData, course) {
         mutableStateOf<CourseEditorPagerPresentation?>(null)
     }
+    // Keep the heavy form unmounted throughout Opening. Open follows the shell completion,
+    // independently of the trailing background animation, and mounts the form immediately.
+    // 载入：顶栏先出现，向下逐行推进；每行从下方淡入、放大并上移到位。
+    // 关闭时卸载表单内容，并回放一帧已卸载表单的空壳，避免输入框残留。
+    var formMounted by remember(formData, course) { mutableStateOf(false) }
+    // Closing 需要录制一帧“表单已卸载”的空壳用于收回动画回放；打开新表单时重置。
+    val formClosingShellRecorded = remember(formData, course) { AtomicBoolean(false) }
+    val formStagger = remember(formData, course) { Animatable(0f) }
+    LaunchedEffect(phase, formData, course) {
+        if (phase == CourseEditorOverlayPhase.Closing) {
+            formMounted = false
+            return@LaunchedEffect
+        }
+        if (phase == CourseEditorOverlayPhase.Opening) {
+            formClosingShellRecorded.set(false)
+        }
+        if (phase == CourseEditorOverlayPhase.Open) formMounted = true
+    }
+    // Keep the reveal alive across Opening -> Open; phase changes must not cancel it.
+    LaunchedEffect(formMounted, formData, course) {
+        formStagger.snapTo(0f)
+        if (formMounted) {
+            formStagger.animateTo(
+                1f,
+                tween(CourseEditorFormRevealDurationMillis, easing = LinearEasing)
+            )
+        }
+    }
+    // Top-to-bottom order, with overlapping, independently eased upward entrances.
+    val courseEditorFormRowEntrance: (Int) -> Float = { rowIndex ->
+        if (!formMounted) {
+            1f
+        } else {
+            val delayMillis = rowIndex.coerceIn(0, CourseEditorFormRowCount) * 15f
+            val t = ((formStagger.value * CourseEditorFormRevealDurationMillis - delayMillis) / 340f)
+                .coerceIn(0f, 1f)
+            CourseEditorRowRevealEasing.transform(t)
+        }
+    }
     /*
      * Container transform: the form keeps its real layout size and the animated shell's clip
      * reveals a window onto it, so every frame shows correctly proportioned content.
@@ -737,8 +778,15 @@ private fun CourseEditorScaledContentLayer(
                 modifier = Modifier
                     .fillMaxSize()
                 .drawWithContent {
+                    // Closing：表单已卸载（formMounted=false 生效）后的首个绘制帧录制一次
+                    // 空壳，供收回动画回放，避免输入框在收回过程中残留。
+                    val formClosingShellRecord =
+                        phase == CourseEditorOverlayPhase.Closing &&
+                            !formMounted &&
+                            formClosingShellRecorded.compareAndSet(false, true)
                     if (phase == CourseEditorOverlayPhase.Preparing ||
-                        phase == CourseEditorOverlayPhase.Open
+                        phase == CourseEditorOverlayPhase.Open ||
+                        formClosingShellRecord
                     ) {
                         editorContentLayer.record {
                             this@drawWithContent.drawContent()
@@ -757,27 +805,32 @@ private fun CourseEditorScaledContentLayer(
                         // The form keeps its real target-size layout, but Opening/Closing replay
                         // the prepared GPU layer. Text fields, pickers and their backdrop consumers
                         // no longer re-record while the shell's clip and position change.
+                        // On Closing the form is unmounted first (formMounted = false), so the
+                        // replayed shell is clean and no input field lingers during the collapse.
                         drawLayer(editorContentLayer)
                     }
                 }
             ) {
-                CompositionLocalProvider(LocalContentColor provides textColor) {
-                    NormalizedCourseEditorScreen(
-                        formData = formData,
-                        initialCourse = course,
-                        onCancel = onDismissRequest,
-                        onSave = {},
-                        onSaveGroup = onSave,
-                        onDelete = {},
-                        onDeleteGroup = onDelete,
-                        backdrop = backdrop,
-                        renderPagerIndicator = false,
-                        onPagerPresentationChange = { presentation ->
-                            if (pagerPresentation != presentation) {
-                                pagerPresentation = presentation
+                if (formMounted) {
+                    CompositionLocalProvider(LocalContentColor provides textColor) {
+                        NormalizedCourseEditorScreen(
+                            formData = formData,
+                            initialCourse = course,
+                            onCancel = onDismissRequest,
+                            onSave = {},
+                            onSaveGroup = onSave,
+                            onDelete = {},
+                            onDeleteGroup = onDelete,
+                            backdrop = backdrop,
+                            renderPagerIndicator = false,
+                            rowEntrance = courseEditorFormRowEntrance,
+                            onPagerPresentationChange = { presentation ->
+                                if (pagerPresentation != presentation) {
+                                    pagerPresentation = presentation
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
 
@@ -904,7 +957,7 @@ private fun CourseEditorWeekSourceContent(
         }
         val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
         val fontScaleCompensation = density.fontScale.coerceAtLeast(1f)
-        val tabletFontBoost = if (maxWidth >= 120.dp) 1.10f else 1f
+        val tabletFontBoost = if (maxWidth >= 120.dp) 1.18f else 1f
         val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale
         val courseFontScale = ((previewFontScale ?: config.courseCardFontScale) * tabletFontBoost)
             .coerceIn(0.80f, 1.35f)
@@ -1236,3 +1289,4 @@ internal fun legacyCourseEditorMorphSpec(
         )
     }
 }
+

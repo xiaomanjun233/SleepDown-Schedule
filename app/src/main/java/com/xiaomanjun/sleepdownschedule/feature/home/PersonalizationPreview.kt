@@ -25,6 +25,8 @@ internal class PersonalizationPreviewState {
         private set
     var cardBlur by mutableStateOf<Float?>(null)
         private set
+    var cardRefractionStrength by mutableStateOf<Float?>(null)
+        private set
     var cardFontScale by mutableStateOf<Float?>(null)
         private set
     var weekCardCornerProgress by mutableStateOf<Float?>(null)
@@ -36,6 +38,7 @@ internal class PersonalizationPreviewState {
             PersonalizeWallpaperBrightnessSlider -> wallpaperBrightness = candidate.wallpaperBrightness
             PersonalizeCardAlphaSlider -> cardAlpha = candidate.cardAlpha
             PersonalizeCardBlurSlider -> cardBlur = candidate.courseCardBlur
+            PersonalizeCardRefractionSlider -> cardRefractionStrength = candidate.courseCardRefractionStrength
             PersonalizeCardFontSlider -> cardFontScale = candidate.courseCardFontScale
             PersonalizeWeekCornerSlider -> weekCardCornerProgress = candidate.weekCardCornerProgress
         }
@@ -47,6 +50,7 @@ internal class PersonalizationPreviewState {
             PersonalizeWallpaperBrightnessSlider -> wallpaperBrightness = null
             PersonalizeCardAlphaSlider -> cardAlpha = null
             PersonalizeCardBlurSlider -> cardBlur = null
+            PersonalizeCardRefractionSlider -> cardRefractionStrength = null
             PersonalizeCardFontSlider -> cardFontScale = null
             PersonalizeWeekCornerSlider -> weekCardCornerProgress = null
         }
@@ -57,6 +61,7 @@ internal class PersonalizationPreviewState {
         wallpaperBrightness = null
         cardAlpha = null
         cardBlur = null
+        cardRefractionStrength = null
         cardFontScale = null
         weekCardCornerProgress = null
     }

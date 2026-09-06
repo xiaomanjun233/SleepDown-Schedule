@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.widget.providers
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
+
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
@@ -317,35 +319,9 @@ private fun centeredTextBaseline(rect: RectF, paint: Paint): Float =
     rect.centerY() - (paint.fontMetrics.ascent + paint.fontMetrics.descent) / 2f
 
 private fun continuousRoundedRectPath(rect: RectF, radius: Float): Path {
-    val r = minOf(radius, rect.width() / 2f, rect.height() / 2f).coerceAtLeast(0f)
-    if (r <= 0f) return Path().apply { addRect(rect, Path.Direction.CW) }
-    val path = Path()
-    val samples = 10
-    fun superellipseComponent(value: Double): Float {
-        val magnitude = sqrt(abs(value)).toFloat()
-        return if (value < 0.0) -magnitude else magnitude
-    }
-    fun corner(centerX: Float, centerY: Float, startAngle: Double, endAngle: Double) {
-        repeat(samples) { index ->
-            val progress = (index + 1).toDouble() / samples.toDouble()
-            val angle = startAngle + (endAngle - startAngle) * progress
-            path.lineTo(
-                centerX + r * superellipseComponent(cos(angle)),
-                centerY + r * superellipseComponent(sin(angle))
-            )
-        }
-    }
-    path.moveTo(rect.left + r, rect.top)
-    path.lineTo(rect.right - r, rect.top)
-    corner(rect.right - r, rect.top + r, -PI / 2.0, 0.0)
-    path.lineTo(rect.right, rect.bottom - r)
-    corner(rect.right - r, rect.bottom - r, 0.0, PI / 2.0)
-    path.lineTo(rect.left + r, rect.bottom)
-    corner(rect.left + r, rect.bottom - r, PI / 2.0, PI)
-    path.lineTo(rect.left, rect.top + r)
-    corner(rect.left + r, rect.top + r, PI, PI * 1.5)
-    path.close()
-    return path
+    return com.xiaomanjun.sleepdownschedule.core.ui.designsystem.continuousRoundedRectPath(
+        rect, radius, radius
+    )
 }
 
 private fun ellipsizedWidgetText(text: String, paint: TextPaint, width: Float): String =
@@ -366,13 +342,8 @@ private fun drawNeutralGlassSurface(
     dark: Boolean,
     strong: Boolean = false,
     showOutline: Boolean = true,
-    continuousCorners: Boolean = false
 ) {
-    val path = if (continuousCorners) {
-        continuousRoundedRectPath(rect, radius)
-    } else {
-        Path().apply { addRoundRect(rect, radius, radius, Path.Direction.CW) }
-    }
+    val path = continuousRoundedRectPath(rect, radius)
     canvas.withClip(path) {
         blurred?.let { drawBitmap(it, 0f, 0f, null) }
         drawColor(
@@ -399,14 +370,9 @@ private fun drawCourseGlassSurface(
     state: AppState,
     courseColor: Int,
     showOutline: Boolean = true,
-    continuousCorners: Boolean = false,
     forceOpaque: Boolean = false
 ) {
-    val path = if (continuousCorners) {
-        continuousRoundedRectPath(rect, radius)
-    } else {
-        Path().apply { addRoundRect(rect, radius, radius, Path.Direction.CW) }
-    }
+    val path = continuousRoundedRectPath(rect, radius)
     if (forceOpaque) {
         canvas.drawPath(
             path,
@@ -776,7 +742,7 @@ internal object TodayTomorrowWidgetRenderer {
                 dayHeaderTop + u(22f)
             )
             val chipColor = if (index == 0) surface.accent else Color.rgb(122, 92, 255)
-            canvas.drawRoundRect(
+            canvas.drawContinuousRoundRect(
                 chipRect,
                 u(7f),
                 u(7f),
@@ -895,7 +861,7 @@ internal object TodayTomorrowWidgetRenderer {
                     rowRect.left + u(5f) + indicatorWidth,
                     rowRect.bottom - u(6f)
                 )
-                canvas.drawRoundRect(
+                canvas.drawContinuousRoundRect(
                     indicatorRect,
                     indicatorWidth / 2f,
                     indicatorWidth / 2f,
@@ -1741,7 +1707,6 @@ internal object WeekScheduleWidgetRenderer {
             surface.dark,
             strong = true,
             showOutline = weekWidgetPresetOutlineEnabled(surface.custom != null),
-            continuousCorners = true
         )
         if (periodWindow.count <= 0 || weekdays.isEmpty()) return
 
@@ -1827,7 +1792,6 @@ internal object WeekScheduleWidgetRenderer {
                         state,
                         WidgetCourseColors.color(state.config, segment.course, courseColors),
                         showOutline = weekWidgetPresetOutlineEnabled(surface.custom != null),
-                        continuousCorners = true,
                         forceOpaque = surface.custom == null
                     )
                 }
@@ -1916,7 +1880,6 @@ internal object WeekScheduleWidgetRenderer {
             surface.dark,
             strong = true,
             showOutline = weekWidgetPresetOutlineEnabled(surface.custom != null),
-            continuousCorners = true
         )
 
         val innerLeftDp = padding + 6f
@@ -2041,7 +2004,7 @@ internal object WeekScheduleWidgetRenderer {
                     labelRect.centerX() + u(8f),
                     labelRect.centerY() + u(8f)
                 )
-                canvas.drawRoundRect(
+                canvas.drawContinuousRoundRect(
                     pill,
                     u(6f),
                     u(6f),
@@ -2105,7 +2068,6 @@ internal object WeekScheduleWidgetRenderer {
                         state,
                         courseColor,
                         showOutline = weekWidgetPresetOutlineEnabled(surface.custom != null),
-                        continuousCorners = true
                     )
 
                     val courseTextColor = if (state.config.courseCardGlassEnabled) {

@@ -39,7 +39,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.CornerSize
-import androidx.compose.foundation.shape.RoundedCornerShape
+
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +54,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -94,6 +95,8 @@ import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.backdrop.catalog.components.LiquidButton
+import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
+import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
@@ -130,9 +133,9 @@ import kotlin.math.sign
 import kotlin.math.sin
 
 internal const val HomeAnchoredMorphOpenDurationMillis = 430
-internal const val HomePersonalizeMorphOpenDurationMillis = ThreeDotMenuMotion.OpenDurationMillis
+internal const val HomePersonalizeMorphOpenDurationMillis = 340
 internal const val HomeAnchoredMorphCloseDurationMillis = 360
-internal const val HomePersonalizeMorphCloseDurationMillis = ThreeDotMenuMotion.CloseDurationMillis
+internal const val HomePersonalizeMorphCloseDurationMillis = 220
 internal const val HomeAnchoredOpenSettleStartFraction = 0.82f
 internal const val HomeAnchoredMorphPinchFraction = 0.28f
 internal const val HomeAnchoredMorphClosePinchFraction = 0.08f
@@ -1317,12 +1320,16 @@ internal fun HomeAnchoredMorphOverlayHost(
             latestOnSourceFollowThrough(geometry.value.rect)
         }
         val shape = remember(geometry, density) {
-            DeferredHomeMorphShape(geometry, continuous = false, density = density)
+            DeferredHomeMorphShape(geometry, continuous = true, density = density)
         }
         val settledSurfaceShape = remember {
-            RoundedCornerShape(HomeAddMenuTargetCornerDp.dp)
+            RoundedRectangle(HomeAddMenuTargetCornerDp.dp)
         }
         val sourcePressedScale = shown.sourcePressedScale.coerceIn(1f, 1.16f)
+        val menuInteractionScope = rememberCoroutineScope()
+        val menuInteraction = remember(menuInteractionScope) {
+            InteractiveHighlight(animationScope = menuInteractionScope)
+        }
         val maxContentBlurPx = with(density) { 5.dp.toPx() }
         var outsideDragHighlightedIndex by remember(shown.kind) { mutableIntStateOf(-1) }
         val outsideDragHaptic = LocalHapticFeedback.current
@@ -1447,6 +1454,8 @@ internal fun HomeAnchoredMorphOverlayHost(
                     clip = homeAddMenuShellClipEnabled(motionState.phase)
                     this.shape = shape
                 }
+                .liquidButtonVisualTransform(menuInteraction, pressExpansion = 0.dp, dragExpansion = 20.dp)
+                .then(menuInteraction.gestureModifier)
                 .layout { measurable, _ ->
                     // Measure the heavy glass subtree once at its final target size. The animated
                     // shell changes its reported size and clips the child around the shell center.
@@ -1560,7 +1569,7 @@ private class DeferredHomeMorphShape(
         layoutDirection: LayoutDirection
     ): Outline {
         val corner = (geometry.value.cornerRadiusPx / density.density.coerceAtLeast(0.001f)).dp
-        val shape = if (continuous) RoundedRectangle(corner) else RoundedCornerShape(corner)
+        val shape = RoundedRectangle(corner)
         return shape.createOutline(size, layoutDirection, density)
     }
 
@@ -1788,22 +1797,9 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
             }
         }
     }
-    val showAura by remember(
-        progressiveBackdropBlurProgress,
-        backdrop,
-        adaptiveMetrics.isLargeScreen,
-        warmupBackdropEffects
-    ) {
-        derivedStateOf {
-            adaptiveMetrics.isLargeScreen &&
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                backdrop != null &&
-                (warmupBackdropEffects || progressiveBackdropBlurProgress > 0.005f)
-        }
-    }
-    val showStableProgressiveBackdrop = useStableProgressiveSurface &&
-        (warmupBackdropEffects || geometry.value.surfaceAlpha > 0.005f) &&
-        (warmupBackdropEffects || progressiveBackdropBlurProgress > 0.005f)
+    val showAura = false
+
+    val showStableProgressiveBackdrop = false
     val shape = remember(geometry, density) {
         DeferredHomeMorphShape(geometry, continuous = true, density = density)
     }
@@ -1945,15 +1941,12 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
             targetWidth = targetWidth,
             targetHeight = targetHeight,
             shape = shape,
-            progressiveBlur = adaptiveMetrics.isLargeScreen,
-            renderProgressiveBackdropPass = !useStableProgressiveSurface,
+            progressiveBlur = false,
+            renderProgressiveBackdropPass = false,
             warmupBackdropEffects = warmupBackdropEffects,
             surfaceAlphaProvider = {
-                geometry.value.surfaceAlpha * if (adaptiveMetrics.isLargeScreen) {
-                    1f
-                } else {
-                    1f - latestPreviewProgress.value.coerceIn(0f, 1f)
-                }
+                geometry.value.surfaceAlpha *
+                    (1f - latestPreviewProgress.value.coerceIn(0f, 1f))
             },
             contentAlphaProvider = { geometry.value.contentAlpha },
             contentBlurRadiusPxProvider = {

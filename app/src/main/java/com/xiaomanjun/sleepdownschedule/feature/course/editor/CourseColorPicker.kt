@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.Capsule
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -98,7 +98,7 @@ internal fun CourseColorPicker(
                         val selected = pendingColor == colorArgb
                         Surface(
                             modifier = Modifier.size(36.dp),
-                            shape = RoundedCornerShape(50),
+                            shape = Capsule(),
                             color = Color(colorArgb.toInt()),
                             border = BorderStroke(
                                 if (selected) 3.dp else 1.dp,
@@ -194,7 +194,7 @@ internal fun CourseColorPaletteButton(
     } else {
         Surface(
             modifier = modifier.size(size),
-            shape = RoundedCornerShape(50),
+            shape = Capsule(),
             color = surfaceColor,
             onClick = onClick
         ) {

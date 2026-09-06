@@ -29,7 +29,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.CornerSize
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
+import androidx.compose.ui.graphics.addOutline
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
@@ -189,12 +191,9 @@ internal fun MorphSnapshotBackground(
                         val outside = Path().apply {
                             fillType = PathFillType.EvenOdd
                             addRect(Rect(0f, 0f, size.width, size.height))
-                            addRoundRect(
-                                RoundRect(
-                                    rect = Rect(0f, 0f, size.width, size.height),
-                                    cornerRadius = CornerRadius(radiusPx, radiusPx)
-                                )
-                            )
+                            addOutline(RoundedRectangle(radiusPx.toDp()).createOutline(
+                                size, layoutDirection, this@drawWithContent
+                            ))
                         }
                         drawPath(outside, Color.Black, blendMode = BlendMode.Clear)
 
@@ -203,7 +202,7 @@ internal fun MorphSnapshotBackground(
                         repeat(featherSteps) { index ->
                             val linear = 1f - index / featherSteps.toFloat()
                             val remaining = linear * linear * (3f - 2f * linear)
-                            drawRoundRect(
+                            drawContinuousRoundRect(
                                 color = Color.Black.copy(alpha = 0.115f),
                                 cornerRadius = CornerRadius(radiusPx, radiusPx),
                                 style = Stroke(width = featherPx * 2f * remaining),

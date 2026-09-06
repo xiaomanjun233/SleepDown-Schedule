@@ -161,7 +161,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.shape.RoundedCornerShape
+
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
@@ -991,7 +991,7 @@ private fun AiManualImportDialogContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(22.dp))
+                    .clip(RoundedRectangle(22.dp))
                     .background(ComposeColor.Black.copy(alpha = if (dialogLightStyle) 0.035f else 0.18f))
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1010,7 +1010,7 @@ private fun AiManualImportDialogContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(22.dp))
+                    .clip(RoundedRectangle(22.dp))
                     .background(ComposeColor.Black.copy(alpha = if (dialogLightStyle) 0.035f else 0.18f))
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1137,7 +1137,7 @@ private fun AiManualImportDialogContent(
                             Box(
                                 Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(18.dp))
+                                    .clip(RoundedRectangle(18.dp))
                                     .background(textColor.copy(alpha = 0.055f))
                                     .onGloballyPositioned { entryBounds = it.boundsInWindow() }
                                     .clickable(
@@ -1237,7 +1237,7 @@ fun DonateSettingsScreen(
                 contentDescription = "微信赞赏码",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(28.dp)),
+                    .clip(RoundedRectangle(28.dp)),
                 contentScale = ContentScale.FillWidth
             )
         }
@@ -1898,7 +1898,7 @@ private fun EduAlphabetRailDock(
                                         letter,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clip(RoundedCornerShape(50))
+                                            .clip(Capsule())
                                             .clickable(
                                                 interactionSource = remember { MutableInteractionSource() },
                                                 indication = null
@@ -2052,6 +2052,7 @@ fun SchoolSearchField(
     entranceProgress: Float = 1f,
     modifier: Modifier = Modifier
 ) {
+    val isLargeScreen = rememberHomeAdaptiveMetrics().isLargeScreen
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val foreground = sleepDownPanelForegroundColor(config)
@@ -2183,7 +2184,11 @@ fun SchoolSearchField(
         val showAction = focused || splitProgress > 0.001f
         val actionWidth = 82.dp * splitProgress
         val actionGap = 8.dp * splitProgress
-        val visualDockWidth = (maxWidth - horizontalInset * 2f).coerceAtLeast(120.dp)
+        val visualDockWidth = if (isLargeScreen) {
+            (maxWidth * 0.5f).coerceAtLeast(260.dp)
+        } else {
+            (maxWidth - horizontalInset * 2f).coerceAtLeast(120.dp)
+        }
         val fieldWidth = (visualDockWidth - actionWidth - actionGap).coerceAtLeast(120.dp)
         // LiquidButton's press value is a vertical expansion, so a wide capsule grows farther
         // horizontally than 1.5dp. Reserve that real scale range plus the pointer translation.
@@ -2209,6 +2214,12 @@ fun SchoolSearchField(
         val renderEnvelopeBottomOffset =
             (bottomOffset - EduSearchVerticalOverscan).coerceAtLeast(0.dp)
         val actionLabel = if (value.isBlank()) "取消" else "搜索"
+        // 大屏下整个底部 dock 居中，action slot 相对居中后的 field slot 定位。
+        val actionSlotOffsetX = if (isLargeScreen) {
+            (maxWidth - fieldWidth) / 2 + fieldWidth + actionGap - actionRenderOverscan
+        } else {
+            horizontalInset + fieldWidth + actionGap - actionRenderOverscan
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -2216,11 +2227,11 @@ fun SchoolSearchField(
         ) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
+                    .align(if (isLargeScreen) Alignment.BottomCenter else Alignment.BottomStart)
                     .width(fieldSlotWidth)
                     .height(renderEnvelopeHeight)
                     .offset(
-                        x = horizontalInset - fieldRenderOverscan,
+                        x = if (isLargeScreen) 0.dp else horizontalInset - fieldRenderOverscan,
                         y = -renderEnvelopeBottomOffset + entranceTranslation
                     )
                     .graphicsLayer {
@@ -2293,7 +2304,7 @@ fun SchoolSearchField(
                         .width(actionSlotWidth)
                     .height(renderEnvelopeHeight)
                     .offset(
-                            x = horizontalInset + fieldWidth + actionGap - actionRenderOverscan,
+                            x = actionSlotOffsetX,
                             y = -renderEnvelopeBottomOffset + entranceTranslation
                         )
                         .graphicsLayer {
@@ -2913,6 +2924,7 @@ private fun EduImportGuideMorphOverlay(
     onExpand: () -> Unit,
     onCollapse: () -> Unit
 ) {
+    val isLargeScreen = rememberHomeAdaptiveMetrics().isLargeScreen
     val density = LocalDensity.current
     val view = LocalView.current
     val window = (view.context as? ComponentActivity)?.window
@@ -3076,12 +3088,17 @@ private fun EduImportGuideMorphOverlay(
         val expandedSafeInset = 8.dp
         val guideHeaderHeight = maxOf(statusBarHeight, 38.dp)
         val guideContentTopPadding = (guideHeaderHeight - 6.dp).coerceAtLeast(32.dp)
-        val expandedWidth = (maxWidth - expandedSafeInset * 2f).coerceAtLeast(collapsedWidth)
+        val expandedWidth = if (isLargeScreen) {
+            (maxWidth * 0.5f).coerceAtLeast(collapsedWidth)
+        } else {
+            (maxWidth - expandedSafeInset * 2f).coerceAtLeast(collapsedWidth)
+        }
         val expandedHeight = (guideHeaderHeight + 126.dp)
             .coerceAtMost((maxHeight - expandedSafeInset * 2f).coerceAtLeast(collapsedHeight))
         val cardWidth = collapsedWidth + (expandedWidth - collapsedWidth) * geometryProgress
         val cardHeight = collapsedHeight + (expandedHeight - collapsedHeight) * geometryProgress
-        val cardLeft = collapsedLeft + (expandedSafeInset - collapsedLeft) * geometryProgress
+        val expandedLeft = (maxWidth - expandedWidth) / 2f
+        val cardLeft = collapsedLeft + (expandedLeft - collapsedLeft) * geometryProgress
         val cardTop = collapsedTop + (expandedSafeInset - collapsedTop) * geometryProgress
 
         fun roundedCornerRadius(position: Int): Dp? {
@@ -3322,7 +3339,7 @@ private fun EduImportGuideMorphOverlay(
                                 }
                                 .width(38.dp)
                                 .height(4.dp)
-                                .clip(RoundedCornerShape(50))
+                                .clip(Capsule())
                                 .background(foreground.copy(alpha = 0.34f))
                         )
                     }
@@ -4304,7 +4321,7 @@ private fun AiImportChatPreview(
                     Box(
                         modifier = Modifier
                             .size(30.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedRectangle(10.dp))
                             .background(ComposeColor(0xFF0A84FF)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -4425,7 +4442,7 @@ private fun AiEduRevisionComposer(
     onValueChange: (String) -> Unit,
     onSend: () -> Unit
 ) {
-    val shape = RoundedCornerShape(28.dp)
+    val shape = RoundedRectangle(28.dp)
     val content: @Composable BoxScope.() -> Unit = {
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),

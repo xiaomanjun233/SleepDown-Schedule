@@ -66,7 +66,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.Capsule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -135,9 +136,10 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
+import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-private val CourseManagementCardShape = RoundedCornerShape(20.dp)
+private val CourseManagementCardShape = RoundedRectangle(20.dp)
 
 @Composable
 internal fun CourseManagementColorProvider(
@@ -412,7 +414,7 @@ internal fun ManagedCourseListCardContent(
                 Modifier
                     .width(3.dp)
                     .height(24.dp)
-                    .clip(RoundedCornerShape(50))
+                    .clip(Capsule())
                     .background(if (showCourseColor) cardColor else Color.Transparent)
             )
             Text(
@@ -485,7 +487,7 @@ internal fun HomeMenuActivitySourceFallback(
                         Modifier
                             .width(3.dp)
                             .height(24.dp)
-                            .clip(RoundedCornerShape(50))
+                            .clip(Capsule())
                             .background(
                                 if (index == highlightedRowIndex) foreground.copy(alpha = 0.34f)
                                 else Color.Transparent
@@ -911,14 +913,14 @@ private fun CourseIdentityCard(
                                 scaleX = if (selected) 1.12f else 1f
                                 scaleY = if (selected) 1.12f else 1f
                             }
-                            .clip(RoundedCornerShape(50))
+                            .clip(Capsule())
                             .background(Color(argb.toInt()))
                             .then(
                                 if (selected) {
                                     Modifier.border(
                                         2.dp,
                                         if (Color(argb.toInt()).luminance() > 0.55f) Color.Black else Color.White,
-                                        RoundedCornerShape(50)
+                                        Capsule()
                                     )
                                 } else {
                                     Modifier
@@ -965,12 +967,15 @@ private fun CourseArrangementEditorCard(
             value = "周${weekdayLabel(course.weekday)}",
             onClick = {
                 onOpenPicker(
-                    CourseEditorPickerRequest.Wheel(
+                    CourseEditorPickerRequest.Grid(
                         title = "选择上课星期",
                         labels = (1..7).map { "周${weekdayLabel(it)}" },
-                        startIndex = (course.weekday - 1).coerceIn(0, 6),
-                        onConfirm = { selected, _ ->
-                            onCourseChange(course.copy(weekday = selected + 1))
+                        selectedIndices = buildSet { add((course.weekday - 1).coerceIn(0, 6)) },
+                        preferredColumns = 7,
+                        onConfirm = { set ->
+                            set.minOrNull()?.let { selected ->
+                                onCourseChange(course.copy(weekday = selected + 1))
+                            }
                         }
                     )
                 )
@@ -1277,7 +1282,6 @@ private fun CourseManagementWeekChoice(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val shape = RoundedCornerShape(12.dp)
     val baseColor = if (selected) {
         MaterialTheme.colorScheme.primary
     } else {
@@ -1295,8 +1299,7 @@ private fun CourseManagementWeekChoice(
     )
     Box(
         modifier = modifier
-            .clip(shape)
-            .background(surfaceColor)
+            .squircleSurface(color = surfaceColor, cornerRadius = 12.dp)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -1416,7 +1419,7 @@ private fun SwipeDeleteArrangementCard(
             }
         Box(
             deleteModifier
-                .clip(RoundedCornerShape(50))
+                .clip(Capsule())
                 .background(Color(0xFFFF3B30))
                 .clickable(onClick = ::requestDelete),
             contentAlignment = Alignment.Center

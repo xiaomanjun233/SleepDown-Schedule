@@ -172,6 +172,7 @@ fun CourseScheduleTheme(
     val blueContainer = Color(0xFFD6E9FF)
     val darkBlueContainer = Color(0xFF003A66)
     MaterialTheme(
+        shapes = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownContinuousShapes,
         colorScheme = if (darkTheme) {
             darkColorScheme(
                 primary = blue,

@@ -152,7 +152,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.Capsule
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
@@ -620,7 +620,7 @@ fun HomeModePill(backdrop: Backdrop?, config: ScheduleConfigEntity, iconRes: Int
     val pressed by interactionSource.collectIsPressedAsState()
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
+            .clip(Capsule())
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
             .height(34.dp)
             .width(52.dp),
@@ -1068,7 +1068,8 @@ fun HomeBackdropFallback(noWallpaper: Boolean = true) {
 
     Canvas(Modifier.fillMaxSize()) {
         if (noWallpaper) {
-            drawRect(if (dark) ComposeColor(0xFF111111) else ComposeColor.White)
+            // 无壁纸时背景带一点点灰，深浅色模式都调
+            drawRect(if (dark) ComposeColor(0xFF18181C) else ComposeColor(0xFFF1F1F3))
             return@Canvas
         }
         drawRect(colors.background)
@@ -1319,7 +1320,7 @@ fun WallpaperColorSamplerScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(420.dp)
-                .clip(RoundedCornerShape(22.dp))
+                .clip(RoundedRectangle(22.dp))
                 .background(if (appUsesDarkTheme(config)) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
                 .onSizeChanged { previewSize = it }
                 .pointerInput(bitmap, previewSize) {
@@ -1349,7 +1350,7 @@ fun WallpaperColorSamplerScreen(
                     .align(Alignment.BottomEnd)
                     .padding(12.dp)
                     .size(46.dp),
-                shape = RoundedCornerShape(50),
+                shape = Capsule(),
                 color = sampledComposeColor,
                 border = BorderStroke(2.dp, readableOn(sampledComposeColor).copy(alpha = 0.72f))
             ) {}
@@ -1363,7 +1364,7 @@ fun WallpaperColorSamplerScreen(
                 val selected = sampledColor == color
                 Surface(
                     modifier = Modifier.size(34.dp),
-                    shape = RoundedCornerShape(50),
+                    shape = Capsule(),
                     color = ComposeColor(color.toInt()),
                     border = BorderStroke(
                         if (selected) 2.dp else 1.dp,
@@ -1883,17 +1884,9 @@ private fun DayStatusGlassPill(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier
 ) {
-    GlassSurface(
+    BlueStatusGlassPill(
         backdrop = backdrop,
         config = config,
-        shape = RoundedRectangle(50.dp),
-        tokens = GlassTokens.pill().copy(
-            blur = 4.dp,
-            surfaceAlpha = 0.72f,
-            highlightAlpha = 0.10f,
-            innerShadowAlpha = 0.10f
-        ),
-        baseSurfaceColorOverride = ComposeColor(0xFF0A84FF),
         modifier = modifier
     ) {
         Box(
@@ -1985,7 +1978,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
             backdrop = backdrop,
             config = config,
             modifier = Modifier.wrapContentWidth(),
-            shape = RoundedCornerShape(50),
+            shape = Capsule(),
             tokens = GlassTokens.pill(intensity = 0.75f),
             baseSurfaceColorOverride = if (glassUsesLightStyle(config)) HomeLightGlassSurfaceColor else null
         ) {
@@ -2096,14 +2089,15 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         visible = editId != course.id,
         sharedScope = sharedScope,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp)
+        shape = RoundedRectangle(24.dp)
     ) { sharedModifier ->
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
         course = course,
         modifier = sharedModifier.then(entranceModifier),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedRectangle(24.dp),
+        expandedOutlineLight = true,
         onClick = if (onClick != null) ({ onClick(ownBounds) }) else null
     ) {
         DayCourseCardTextContent(
@@ -2131,7 +2125,7 @@ fun ImportPreviewCourseCard(
         config = config,
         course = course,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedRectangle(16.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(course.name, style = MaterialTheme.typography.titleMedium, color = textColor)

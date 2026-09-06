@@ -602,6 +602,20 @@ private val MIGRATION_37_38 = object : Migration(37, 38) {
     }
 }
 
+private val MIGRATION_38_39 = object : Migration(38, 39) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("schedule_config", "courseCardOutlineLightEnabled")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN courseCardOutlineLightEnabled INTEGER NOT NULL DEFAULT 1")
+        }
+        if (!db.hasColumn("schedule_config", "courseCardRefractionStrength")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN courseCardRefractionStrength REAL NOT NULL DEFAULT 0.5")
+        }
+        if (!db.hasColumn("schedule_config", "courseCardGaussianBlurEnabled")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN courseCardGaussianBlurEnabled INTEGER NOT NULL DEFAULT 1")
+        }
+    }
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -639,7 +653,8 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_34_35,
     MIGRATION_35_36,
     MIGRATION_36_37,
-    MIGRATION_37_38
+    MIGRATION_37_38,
+    MIGRATION_38_39
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {

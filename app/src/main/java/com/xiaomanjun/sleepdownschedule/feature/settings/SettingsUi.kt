@@ -156,7 +156,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.Capsule
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
@@ -650,7 +650,7 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
                 },
                 minLines = 6,
                 maxLines = 10,
-                shape = RoundedCornerShape(24.dp)
+                shape = RoundedRectangle(24.dp)
             )
             Text(
                 "${memoryDraft.length}/1200",
@@ -1348,7 +1348,7 @@ private fun AiCompatibleModelsEditor(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 112.dp, max = 220.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedRectangle(14.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f))
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             maxLines = 10
@@ -1552,7 +1552,7 @@ fun SettingsDefaultWallpaperRow(
 
 @Composable
 private fun SettingsFallbackChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(50)
+    val shape = Capsule()
     Box(
         modifier = Modifier
             .clip(shape)
@@ -1579,7 +1579,7 @@ fun SettingsGroup(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val miuixLayout = LocalGlassMiuixEnabled.current
-    val shape = RoundedCornerShape(if (miuixLayout) 24.dp else 30.dp)
+    val shape = RoundedRectangle(if (miuixLayout) 24.dp else 30.dp)
     val darkTheme = appUsesDarkTheme(config)
     val contentColor = if (darkTheme) ComposeColor.White else ComposeColor(0xFF111111)
     if (miuixLayout) {
@@ -1647,7 +1647,7 @@ fun SettingsNavigationRow(
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(50))
+                            .clip(Capsule())
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
                             .padding(horizontal = 9.dp, vertical = 4.dp)
                     )
@@ -1686,7 +1686,7 @@ fun SettingsNavigationRow(
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(50))
+                    .clip(Capsule())
                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
                     .padding(horizontal = 9.dp, vertical = 4.dp)
             )
@@ -2002,7 +2002,7 @@ private fun SettingsWeekViewStyleRow(
         title = "周视图模式",
         backdrop = backdrop,
         config = config,
-        summary = "无界模式让星期日期融入顶栏，课程可滚到顶部",
+        summary = "无界模式会隐藏原来的表头、周切换按钮，页面更沉浸",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 220.dp,
@@ -2856,7 +2856,7 @@ fun SettingsActionButton(
         Text(
             label,
             modifier = modifier
-                .clip(RoundedCornerShape(50))
+                .clip(Capsule())
                 .background(
                     tint.copy(
                         alpha = when {
@@ -3074,7 +3074,7 @@ fun ScheduleSettingsContent(
                         SettingsDivider()
                         SettingsToggleRow(
                             title = "上课中实时活动",
-                            subtitle = "关闭后课程开始时会直接结束实时活动，不再显示课间或下课提醒。",
+                            subtitle = "开启后会用实时活动提醒距离最近课间还有多久",
                             checked = livePreferences.duringClassEnabled,
                             backdrop = backdrop,
                             enabled = notificationsEnabled,
@@ -3087,7 +3087,7 @@ fun ScheduleSettingsContent(
                         SettingsDivider()
                         SettingsToggleRow(
                             title = "课间提醒",
-                            subtitle = "课间显示下一节的具体上课时间；关闭后只保留下课提醒。",
+                            subtitle = "开启后会在课间用实时活动提醒你还有多久上课",
                             checked = livePreferences.breakStatusEnabled,
                             backdrop = backdrop,
                             enabled = notificationsEnabled && livePreferences.duringClassEnabled,
@@ -3106,7 +3106,7 @@ fun ScheduleSettingsContent(
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                         SettingsToggleRow(
                             title = "睡前提醒",
-                            subtitle = "第二天有课时，提醒检查并设置闹钟。",
+                            subtitle = "第二天有课时，在你设置的时间提醒你",
                             checked = livePreferences.tomorrowReminderEnabled,
                             backdrop = backdrop,
                             enabled = notificationsEnabled,
@@ -3167,7 +3167,14 @@ fun ScheduleSettingsContent(
                         SettingsActionButton(
                             "打开后台运行设置",
                             backdrop,
-                            onClick = { openBatteryOptimizationSettings(appContext) },
+                            onClick = {
+                                // 系统后台入口各不相同，统一打开本应用的权限管理页
+                                val intent = Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", appContext.packageName, null)
+                                )
+                                appContext.startActivity(intent)
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             monochrome = true
                         )
@@ -3600,7 +3607,7 @@ private fun PeriodTimelineSeparator(label: String, tint: ComposeColor) {
         Text(
             text = label,
             modifier = Modifier
-                .clip(RoundedCornerShape(50))
+                .clip(Capsule())
                 .background(tint.copy(alpha = 0.18f))
                 .padding(horizontal = 11.dp, vertical = 5.dp),
             color = tint,
@@ -3642,7 +3649,7 @@ private fun PeriodEditorActionButton(
         Box(
             modifier = modifier
                 .height(44.dp)
-                .clip(RoundedCornerShape(50))
+                .clip(Capsule())
                 .background(surface)
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center

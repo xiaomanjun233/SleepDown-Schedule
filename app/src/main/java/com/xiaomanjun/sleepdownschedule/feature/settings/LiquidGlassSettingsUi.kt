@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
+
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.*
@@ -203,27 +205,27 @@ private fun GlassBlurEndpointIcon(
         val backOffset = Offset(x = 1.dp.toPx(), y = 2.dp.toPx())
         val frontOffset = Offset(x = size.width * 0.30f, y = size.height * 0.30f)
         if (filled) {
-            drawRoundRect(
+            drawContinuousRoundRect(
                 color = color.copy(alpha = 0.42f),
                 topLeft = backOffset,
                 size = panelSize,
                 cornerRadius = CornerRadius(radius)
             )
-            drawRoundRect(
+            drawContinuousRoundRect(
                 color = color.copy(alpha = 0.82f),
                 topLeft = frontOffset,
                 size = panelSize,
                 cornerRadius = CornerRadius(radius)
             )
         } else {
-            drawRoundRect(
+            drawContinuousRoundRect(
                 color = color.copy(alpha = 0.60f),
                 topLeft = backOffset,
                 size = panelSize,
                 cornerRadius = CornerRadius(radius),
                 style = Stroke(strokeWidth)
             )
-            drawRoundRect(
+            drawContinuousRoundRect(
                 color = color.copy(alpha = 0.86f),
                 topLeft = frontOffset,
                 size = panelSize,

@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -127,7 +127,7 @@ private class DetailMorphClipShape(
                 (screenCornerRadiusPx - sourceCornerRadiusPx) * state.progress
         }
         val compensatedRadiusDp = (radiusPx / state.scale / density.density).dp
-        return RoundedCornerShape(compensatedRadiusDp).createOutline(
+        return RoundedRectangle(compensatedRadiusDp).createOutline(
             size = Size(
                 width = screenWidth,
                 height = state.clipBottom.coerceAtLeast(1f)
@@ -285,7 +285,7 @@ fun DetailScheduleMorphOverlay(
                     val bgScale = backgroundScale.value
                     scaleX = bgScale
                     scaleY = bgScale
-                    shape = RoundedCornerShape(20.dp)
+                    shape = RoundedRectangle(20.dp)
                     clip = bgScale < 0.999f
                     val blurProgress = ((1f - bgScale) / (1f - 0.92f)).coerceIn(0f, 1f)
                     val blurPx = (blurProgress * 6f).coerceIn(0f, 6f) * density.density
@@ -341,7 +341,7 @@ fun DetailScheduleMorphOverlay(
                         .align(Alignment.TopStart)
                         .fillMaxWidth()
                         .graphicsLayer {
-                            shape = RoundedCornerShape(sourceSnapshotCorner)
+                            shape = RoundedRectangle(sourceSnapshotCorner)
                             clip = true
                         }
                         .graphicsLayer { alpha = values.sourceSnapshotAlpha },

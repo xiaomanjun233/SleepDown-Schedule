@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -165,7 +165,7 @@ private class AnchoredDetailClipShape(
             (screenCornerRadiusPx - sourceCornerRadiusPx) * current.progress
         val compensatedRadius =
             (radiusPx / current.scale.coerceAtLeast(0.001f) / density.density).dp
-        return RoundedCornerShape(compensatedRadius).createOutline(
+        return RoundedRectangle(compensatedRadius).createOutline(
             size = androidx.compose.ui.geometry.Size(
                 screenWidth,
                 current.clipBottom.coerceAtLeast(1f)
@@ -971,7 +971,7 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
             )
             .graphicsLayer {
                 clip = !fullOpenEndpoint
-                shape = RoundedCornerShape(with(density) { geometry.cornerRadiusPx.toDp() })
+                shape = RoundedRectangle(with(density) { geometry.cornerRadiusPx.toDp() })
                 compositingStrategy = if (fullOpenEndpoint) {
                     CompositingStrategy.Auto
                 } else {
@@ -994,7 +994,7 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
                         alpha = geometry.sourceAlpha
                         scaleX = geometry.sourceScale
                         scaleY = geometry.sourceScale
-                        shape = RoundedCornerShape(sourceCornerRadius)
+                        shape = RoundedRectangle(sourceCornerRadius)
                         clip = true
                     }
             ) {
@@ -1150,7 +1150,7 @@ private fun BoxScope.AnchoredSettingsStyleMorph(
                             .height(with(density) { initialClipBottom.toDp() })
                             .graphicsLayer {
                                 alpha = values.sourceAlpha
-                                shape = RoundedCornerShape(
+                                shape = RoundedRectangle(
                                     sourceCornerRadius / initialScale
                                 )
                                 clip = true

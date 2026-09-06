@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -80,7 +80,7 @@ private fun AgentMarkdownTable(table: AgentMarkdownRenderBlock.Table, color: Col
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(0.6.dp, borderColor, RoundedCornerShape(10.dp))
+            .border(0.6.dp, borderColor, RoundedRectangle(10.dp))
     ) {
         AgentMarkdownTableRow(table.header, columnCount, color, style, header = true)
         table.rows.forEach { row ->

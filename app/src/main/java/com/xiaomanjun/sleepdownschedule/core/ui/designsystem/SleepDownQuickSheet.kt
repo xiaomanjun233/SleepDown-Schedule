@@ -25,7 +25,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
+
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -365,12 +365,12 @@ internal fun Modifier.quickSheetBackdropModifier(
     centered: Boolean = false
 ): Modifier {
     val shape = when {
-        inner -> RoundedCornerShape(SleepDownDesignTokens.QuickSheet.InnerCorner)
+        inner -> RoundedRectangle(SleepDownDesignTokens.QuickSheet.InnerCorner)
         centered -> RoundedRectangle(
             cornerRadius = SleepDownDesignTokens.CenteredDialog.Corner,
             style = RoundedCornerStyle.Continuous
         )
-        else -> RoundedCornerShape(
+        else -> com.kyant.shapes.UnevenRoundedRectangle(
             topStart = SleepDownDesignTokens.QuickSheet.BottomCorner,
             topEnd = SleepDownDesignTokens.QuickSheet.BottomCorner
         )

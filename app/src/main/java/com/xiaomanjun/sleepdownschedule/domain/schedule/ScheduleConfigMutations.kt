@@ -118,6 +118,21 @@ internal fun ScheduleConfigEntity.withChangesFrom(
             updated.courseCardGlassEnabled,
             courseCardGlassEnabled
         ),
+        courseCardOutlineLightEnabled = changed(
+            original.courseCardOutlineLightEnabled,
+            updated.courseCardOutlineLightEnabled,
+            courseCardOutlineLightEnabled
+        ),
+        courseCardRefractionStrength = changed(
+            original.courseCardRefractionStrength,
+            updated.courseCardRefractionStrength,
+            courseCardRefractionStrength
+        ),
+        courseCardGaussianBlurEnabled = changed(
+            original.courseCardGaussianBlurEnabled,
+            updated.courseCardGaussianBlurEnabled,
+            courseCardGaussianBlurEnabled
+        ),
         courseCardFontScale = changed(
             original.courseCardFontScale,
             updated.courseCardFontScale,
@@ -267,6 +282,9 @@ internal fun ScheduleConfigEntity.withPersonalizationFrom(
     cardAlpha = updated.cardAlpha,
     courseCardBlur = updated.courseCardBlur,
     courseCardGlassEnabled = updated.courseCardGlassEnabled,
+    courseCardOutlineLightEnabled = updated.courseCardOutlineLightEnabled,
+    courseCardRefractionStrength = updated.courseCardRefractionStrength,
+    courseCardGaussianBlurEnabled = updated.courseCardGaussianBlurEnabled,
     courseCardFontScale = updated.courseCardFontScale,
     courseCardColorMode = updated.courseCardColorMode,
     courseCardPalette = updated.courseCardPalette,

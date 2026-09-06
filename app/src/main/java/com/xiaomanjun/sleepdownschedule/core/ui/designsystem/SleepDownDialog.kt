@@ -30,7 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -109,7 +109,7 @@ fun LiquidDialogSurface(
         ).coerceAtLeast(280.dp)
     val dialogWidth = (windowSize.width * 0.92f).coerceAtMost(SleepDownDesignTokens.Dialog.MaxWidth)
     val dialogMaxHeight = (safeHeight * 0.82f).coerceAtMost(SleepDownDesignTokens.Dialog.MaxHeight)
-    val shape = RoundedCornerShape(SleepDownDesignTokens.Dialog.ContainerCorner)
+    val shape = RoundedRectangle(SleepDownDesignTokens.Dialog.ContainerCorner)
     // Most full dialogs own an opaque-enough material layer and therefore follow the app theme.
     // Home destinations can opt into the sampled glass domain when the wallpaper remains the
     // visible material behind the whole form.
@@ -678,7 +678,7 @@ fun DialogLiquidButton(
     } else {
         Row(
             modifier = (if (useRoundIcon) modifier.size(42.dp) else modifier.height(40.dp))
-                .clip(RoundedCornerShape(50))
+                .clip(Capsule())
                 .background(
                     surfaceColor.copy(
                         alpha = surfaceColor.alpha.coerceAtLeast(
@@ -738,7 +738,7 @@ fun DialogCapsuleField(
         cursorBrush = SolidColor(textColor),
         modifier = modifier
             .clip(
-                RoundedCornerShape(
+                RoundedRectangle(
                     cornerRadius ?: if (minLines == 1) {
                         SleepDownDesignTokens.Field.SingleLineCorner
                     } else {

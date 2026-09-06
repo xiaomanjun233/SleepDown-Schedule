@@ -17,7 +17,7 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -143,7 +143,7 @@ private fun Modifier.miuixCascadingPopupSurface(
         // Backdrop's lens shader requires a CornerBasedShape. A zero-radius rounded rect is
         // pixel-identical to RectangleShape while satisfying that runtime contract; Miuix still
         // owns the animated primary/secondary clip paths outside this material layer.
-        shape = { RoundedCornerShape(0.dp) },
+        shape = { RoundedRectangle(0.dp) },
         effectFrame = GlassEffectFrame(
             blur = effectiveBlur,
             lensHeight = lensHeight,

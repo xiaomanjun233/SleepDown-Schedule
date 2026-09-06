@@ -65,7 +65,9 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.UnevenRoundedRectangle
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -637,7 +639,7 @@ private fun AiEduConversationTurnSummary(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedRectangle(16.dp))
             .background(textColor.copy(alpha = 0.055f))
             .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -938,7 +940,7 @@ internal fun AiEduHistorySwipeRow(
                     Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp)
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(RoundedRectangle(18.dp))
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.42f))
                         .onGloballyPositioned { cardBounds = it.boundsInWindow() }
                 ) {
@@ -1012,7 +1014,7 @@ private fun AiEduUserMessage(
                             }
                         },
                     accent = Color(0xFF8E8E93),
-                    shape = RoundedCornerShape(20.dp)
+                    shape = RoundedRectangle(20.dp)
                 ) {
                     AiEduAttachmentCardContent(attachment = attachment, textColor = textColor)
                 }
@@ -1029,7 +1031,7 @@ private fun AiEduUserMessage(
             modifier = Modifier
                 .fillMaxWidth(0.86f)
                 .wrapContentWidth(Alignment.End)
-                .clip(RoundedCornerShape(22.dp, 22.dp, 6.dp, 22.dp))
+                .clip(UnevenRoundedRectangle(22.dp, 22.dp, 6.dp, 22.dp))
                 .background(Color(0xFF0A84FF))
         ) {
             Text(
@@ -1095,7 +1097,7 @@ private fun AiEduAttachmentThumbnail(
     }
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedRectangle(12.dp))
             .background(Color(0xFF0A84FF).copy(alpha = 0.12f)),
         contentAlignment = Alignment.Center
     ) {
@@ -1227,11 +1229,11 @@ private fun AiEduAttachmentMorphOverlay(
             )
             .graphicsLayer {
                 clip = !fullyOpen
-                shape = RoundedCornerShape(with(density) { renderedCornerRadiusPx.toDp() })
+                shape = RoundedRectangle(with(density) { renderedCornerRadiusPx.toDp() })
             }
             .background(
                 color = shellColor,
-                shape = RoundedCornerShape(with(density) { renderedCornerRadiusPx.toDp() })
+                shape = RoundedRectangle(with(density) { renderedCornerRadiusPx.toDp() })
             )
             .clickable(enabled = false) {}
     ) {
@@ -1270,7 +1272,7 @@ private fun AiEduAttachmentMorphOverlay(
                     renderEffect = platformMotionBlurRenderEffect(contentMotionBlurPx)
                 },
             accent = Color(0xFF8E8E93),
-            shape = RoundedCornerShape(0.dp)
+            shape = RoundedRectangle(0.dp)
         ) {
             Column(
                 Modifier
@@ -1351,7 +1353,7 @@ private fun AiEduPreviewImage(image: RenderedPageImage, description: String) {
         Image(
             bitmap = it,
             contentDescription = description,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),
+            modifier = Modifier.fillMaxWidth().clip(RoundedRectangle(20.dp)),
             contentScale = ContentScale.FillWidth
         )
     }
@@ -1416,7 +1418,7 @@ private fun AiEduConversationComposer(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 10.dp),
-        shape = if (attachmentVisible) RoundedCornerShape(26.dp) else RoundedCornerShape(50),
+        shape = if (attachmentVisible) RoundedRectangle(26.dp) else Capsule(),
         accent = Color(0xFF8E8E93)
     ) {
         Column(
@@ -1502,7 +1504,7 @@ private fun AiEduLiquidPanel(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     accent: Color,
-    shape: Shape = RoundedCornerShape(28.dp),
+    shape: Shape = RoundedRectangle(28.dp),
     content: @Composable BoxScope.() -> Unit
 ) {
     val lightStyle = glassUsesLightStyle(config)

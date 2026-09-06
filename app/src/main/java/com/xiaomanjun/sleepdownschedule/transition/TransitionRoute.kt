@@ -5,6 +5,8 @@ import com.xiaomanjun.sleepdownschedule.R
 /** Stable wire identifiers used in Intents and structured transition diagnostics. */
 enum class TransitionRouteId(val wireName: String) {
     HomeToCourseManagement("home_to_course_management"),
+    TabletHomeToCourseManagement("tablet_home_to_course_management"),
+    TabletHomeToEduImport("tablet_home_to_edu_import"),
     CourseManagementToDetail("course_management_to_detail"),
     ManualImportToHistory("manual_import_to_history"),
     AiProgressToHistory("ai_progress_to_history"),
@@ -203,6 +205,16 @@ object TransitionRouteCatalog {
         TransitionRouteSpec(
             TransitionRouteId.SchoolSelectToEduImport,
             "$PackageName.EduImportActivity",
+            LegacyTransitionProfile.PlatformDefault
+        ),
+        TransitionRouteSpec(
+            TransitionRouteId.TabletHomeToCourseManagement,
+            "$PackageName.CourseManagementActivity",
+            LegacyTransitionProfile.PlatformDefault
+        ),
+        TransitionRouteSpec(
+            TransitionRouteId.TabletHomeToEduImport,
+            "$PackageName.EduSchoolSelectActivity",
             LegacyTransitionProfile.PlatformDefault
         ),
         TransitionRouteSpec(

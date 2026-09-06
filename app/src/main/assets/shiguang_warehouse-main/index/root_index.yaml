@@ -118,6 +118,12 @@ schools:
     initial: "H"
     resource_folder: "HNVCC"
 
+  # SleepDown 新增：湖南邮电职业技术学院（湘邮教学管理平台，正方 V6 系教务）
+  - id: "HNPTC"
+    name: "湖南邮电职业技术学院"
+    initial: "H"
+    resource_folder: "HNPTC"
+
   - id: "IMUT"
     name: "内蒙古工业大学"
     initial: "N"
