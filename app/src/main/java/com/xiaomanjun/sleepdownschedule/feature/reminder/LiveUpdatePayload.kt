@@ -64,6 +64,18 @@ internal data class LiveUpdatePayload(
         else -> startAtMillis()?.let { nowMillis >= it } ?: false
     }
 
+    fun refreshBoundaries(): List<Long> = buildList {
+        if (duringClassEnabled && !isPreview()) {
+            segments.forEach {
+                add(it.startAtMillis)
+                add(it.endAtMillis)
+            }
+        } else {
+            startAtMillis()?.let { add(it) }
+        }
+        if (expiresAtMillis > 0L) add(expiresAtMillis)
+    }.distinct().sorted()
+
     fun statusAt(nowMillis: Long = System.currentTimeMillis()): LiveUpdateStatus {
         if (kind == LiveUpdateKind.TOMORROW) {
             return LiveUpdateStatus(

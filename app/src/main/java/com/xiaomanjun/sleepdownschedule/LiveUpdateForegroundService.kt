@@ -19,7 +19,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class LiveUpdateForegroundService : Service() {
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // Serialize the optional refresh with service start/stop and event-driven notification updates.
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var refreshJob: Job? = null
     private var activePayload: LiveUpdatePayload? = null
 
@@ -41,6 +42,7 @@ class LiveUpdateForegroundService : Service() {
                 if (notification != null && payload != null) {
                     activePayload = payload
                     storePayload(payload)
+                    NotificationScheduler.logLiveUpdateIcon(this, notification)
                     startForeground(NotificationScheduler.liveUpdateId(), notification)
                     startMinuteRefreshLoop()
                     Log.d("SleepDownLiveUpdate", "foreground service started")
@@ -71,6 +73,7 @@ class LiveUpdateForegroundService : Service() {
                         .cancel(NotificationScheduler.liveUpdateId())
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
+                    NotificationScheduler.requestRefresh(this@LiveUpdateForegroundService)
                     break
                 }
                 if (!NotificationScheduler.canPostNotifications(this@LiveUpdateForegroundService)) {
@@ -81,9 +84,11 @@ class LiveUpdateForegroundService : Service() {
                     break
                 }
                 try {
+                    val notification = payload.buildNotification(this@LiveUpdateForegroundService)
+                    NotificationScheduler.logLiveUpdateIcon(this@LiveUpdateForegroundService, notification)
                     NotificationManagerCompat.from(this@LiveUpdateForegroundService).notify(
                         NotificationScheduler.liveUpdateId(),
-                        payload.buildNotification(this@LiveUpdateForegroundService)
+                        notification
                     )
                 } catch (securityException: SecurityException) {
                     Log.w("SleepDownLiveUpdate", "stop live update: notification permission revoked", securityException)

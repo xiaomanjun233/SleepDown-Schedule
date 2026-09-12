@@ -11,6 +11,8 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.LocalCourseEditorFlightRegistry
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorWeekGrid
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
@@ -366,13 +368,17 @@ internal fun SinglePillWeekScheduleScreen(
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
     val now = LocalTime.now()
     val currentPeriod = currentTimelinePeriod(state.periods, now)
-    val weekBuckets = remember(state.courses, displayWeek) {
-        weekCourseBuckets(state.courses, displayWeek)
+    // Keep one computed bucket per visited week, shared by the rail, supplements and Pager.
+    // Data replacement invalidates the cache; swiping back reuses the same immutable lists.
+    val weekBucketCache = remember(state.courses) { mutableMapOf<Int, WeekCourseBuckets>() }
+    fun bucketsForWeek(week: Int) = weekBucketCache.getOrPut(week) {
+        weekCourseBuckets(state.courses, week)
     }
+    val weekBuckets = bucketsForWeek(displayWeek)
     val visibleCourses = weekBuckets.visibleCourses
     val supplementaryRowCount = remember(state.courses, state.periods, displayWeek) {
         (displayWeek - 1..displayWeek + 1).maxOf { week ->
-            weekCourseBuckets(state.courses, week).visibleCourses
+            bucketsForWeek(week).visibleCourses
                 .filter { courseNeedsSupplementaryWeekRow(it, state.periods) }
                 .groupingBy { it.weekday }.eachCount().values.maxOrNull() ?: 0
         }
@@ -434,32 +440,16 @@ internal fun SinglePillWeekScheduleScreen(
         initialPage = (displayWeek - 1).coerceAtLeast(0),
         pageCount = { state.config.totalWeeks.coerceAtLeast(1) }
     )
-    LaunchedEffect(pagerState.settledPage, state.config.totalWeeks) {
-        val settledWeek = (pagerState.settledPage + 1).coerceIn(1, state.config.totalWeeks.coerceAtLeast(1))
-        if (settledWeek != displayWeek) {
-            gestureCommittedWeek = settledWeek
-            onSwipeWeek(settledWeek - displayWeek)
-        }
-    }
-    LaunchedEffect(pagerState, displayWeek, state.config.totalWeeks) {
-        snapshotFlow {
-            Triple(
-                pagerState.isScrollInProgress,
-                pagerState.settledPage,
-                pagerState.currentPage + pagerState.currentPageOffsetFraction
-            )
-        }.distinctUntilChanged().collect { (scrolling, settledPage, pagePosition) ->
-            if (!scrolling) return@collect
-            val delta = pagePosition - settledPage
-            val desiredPage = when {
-                delta >= 0.75f -> settledPage + 1
-                delta <= -0.75f -> settledPage - 1
-                else -> settledPage
-            }.coerceIn(0, state.config.totalWeeks.coerceAtLeast(1) - 1)
-            val desiredWeek = desiredPage + 1
-            if (desiredWeek != displayWeek) {
-                gestureCommittedWeek = desiredWeek
-                onSwipeWeek(desiredWeek - displayWeek)
+    val latestDisplayWeek by rememberUpdatedState(displayWeek)
+    val latestSwipeWeek by rememberUpdatedState(onSwipeWeek)
+    LaunchedEffect(pagerState, state.config.totalWeeks) {
+        // Observe page commits outside composition, as in Nexio. Publishing at 75% of a
+        // swipe rebuilt home buckets, glass groups and rail layout during the last frames.
+        snapshotFlow { pagerState.settledPage }.distinctUntilChanged().collect { page ->
+            val settledWeek = (page + 1).coerceIn(1, state.config.totalWeeks.coerceAtLeast(1))
+            if (settledWeek != latestDisplayWeek) {
+                gestureCommittedWeek = settledWeek
+                latestSwipeWeek(settledWeek - latestDisplayWeek)
             }
         }
     }
@@ -482,7 +472,7 @@ internal fun SinglePillWeekScheduleScreen(
         }
         if (direction != 0) {
             val oldWeek = previousDisplayWeek
-            val oldBuckets = weekCourseBuckets(state.courses, oldWeek)
+            val oldBuckets = bucketsForWeek(oldWeek)
             outgoingCourses.value = oldBuckets.visibleCourses
             outgoingWeekdays.value = visibleWeekdaysForBuckets(oldBuckets, state.config.hideEmptyWeekends)
             outgoingWeekKey.intValue = oldWeek
@@ -797,9 +787,7 @@ internal fun SinglePillWeekScheduleScreen(
                             key = { it }
                         ) { page ->
                             val pageWeek = page + 1
-                            val pageBuckets = remember(state.courses, pageWeek) {
-                                weekCourseBuckets(state.courses, pageWeek)
-                            }
+                            val pageBuckets = bucketsForWeek(pageWeek)
                             val pageCourses = pageBuckets.visibleCourses
                             val pageWeekdays = remember(pageBuckets, state.config.hideEmptyWeekends) {
                                 visibleWeekdaysForBuckets(pageBuckets, state.config.hideEmptyWeekends)
@@ -1688,8 +1676,9 @@ private fun renderedWeekSegments(
 }
 
 @Composable
-fun WeekDayColumn(
+private fun WeekDayColumn(
     courses: List<CourseEntity>,
+    renderedSegments: List<WeekRenderedSegment>,
     periods: List<PeriodEntity>,
     cardHeight: Dp,
     cardColor: ComposeColor,
@@ -1732,20 +1721,6 @@ fun WeekDayColumn(
 ) {
     val density = LocalDensity.current
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
-    val conflictGroups = remember(courses, periodIndexes, periods) {
-        buildWeekConflictGroups(courses, periodIndexes, periods)
-    }
-    val renderedSegments = remember(
-        conflictGroups,
-        conflictFocusCourseId,
-        conflictFocusCourseKey
-    ) {
-        renderedWeekSegments(
-            conflictGroups = conflictGroups,
-            conflictFocusCourseId = conflictFocusCourseId,
-            conflictFocusCourseKey = conflictFocusCourseKey
-        )
-    }
     val courseGlassRestorePlan = LocalCourseGlassRestorePlan.current
     val courseBackdropSampleScale = adaptiveCourseGlassSampleScale(
         composedCardCount = composedCourseCardCount,
@@ -1916,6 +1891,11 @@ fun WeekCourseColumnsLayer(
     onCourseClick: (CourseEntity, Rect?) -> Unit
 ) {
     val density = LocalDensity.current
+    val flightRegistry = LocalCourseEditorFlightRegistry.current
+    val flightLayoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
+    DisposableEffect(flightRegistry, editWeek) {
+        onDispose { flightRegistry?.remove(editWeek) }
+    }
     val supplementaryCoursesByDay = remember(courses, periods) {
         courses.filter { courseNeedsSupplementaryWeekRow(it, periods) }
             .sortedBy { it.customStartTime }.groupBy { it.weekday }
@@ -1971,6 +1951,16 @@ fun WeekCourseColumnsLayer(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
+            .onGloballyPositioned { coordinates ->
+                if (!outgoing && flightRegistry?.frozen == false) {
+                    flightRegistry.record(editWeek, CourseEditorWeekGrid(
+                        coordinates.localToRoot(Offset.Zero), coordinates.size.width.toFloat(),
+                        with(density) { cardHeight.toPx() }, with(density) { 4.dp.toPx() },
+                        periodIndexes, editScrollState, editScrollState?.value ?: 0,
+                        flightLayoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl
+                    ))
+                }
+            }
             .graphicsLayer {
                 clip = false
                 translationX = layerOffset.value + gestureOffset()
@@ -1989,6 +1979,7 @@ fun WeekCourseColumnsLayer(
                 ) {
                     WeekDayColumn(
                         courses = coursesByWeekday[day].orEmpty(),
+                        renderedSegments = renderedSegmentsByDay[day].orEmpty(),
                         periods = periods,
                         cardHeight = cardHeight,
                         cardColor = cardColor,
@@ -2202,16 +2193,16 @@ internal fun weekEditNeighborRippleTransform(
 ): WeekEditNeighborRippleTransform {
     val safeRadius = radiusPx.coerceAtLeast(1f)
     val distanceRatio = (distancePx / safeRadius).coerceIn(0f, 1f)
-    val delayedStart = distanceRatio * 0.28f
+    // Adjacent cards respond at contact; only the outer rings wait for wave propagation.
+    val delayedStart = ((distanceRatio - 0.30f) / 0.70f).coerceAtLeast(0f) * 0.28f
     val arrival = (progress.coerceIn(0f, 1f) - delayedStart) / (1f - delayedStart)
     if (distanceRatio >= 1f || arrival <= 0f || arrival >= 1f) {
         return WeekEditNeighborRippleTransform(0f, 1f, 0f)
     }
     val safeArrival = arrival.coerceIn(0f, 1f)
-    // The squared sine envelope has zero slope at both boundaries. Combined with exponential
-    // damping it gives the neighbouring cards a real acceleration/deceleration curve instead of
-    // letting a linear remaining-time multiplier cut the second bounce off abruptly.
-    val smoothEnvelope = sin(Math.PI.toFloat() * safeArrival).pow(2f)
+    // Both the envelope and wave start/end at zero, so their product settles smoothly without
+    // the squared envelope's long, almost invisible onset after the card has already landed.
+    val smoothEnvelope = sin(Math.PI.toFloat() * safeArrival)
     val distanceAttenuation = (1f - distanceRatio).pow(0.72f)
     val damping = exp(-1.15f * safeArrival)
     val attenuation = distanceAttenuation * smoothEnvelope * damping
@@ -2717,18 +2708,18 @@ private class WeekEditOverlayController(
                 overlayLift.animateTo(
                     0f,
                     spring(dampingRatio = 0.66f, stiffness = 360f)
-                )
+                ) {
+                    // First contact with the grid plane is the impact frame. Waiting for all
+                    // position/height springs to settle delays the wave through their rebound.
+                    if (value <= 0f && !landingRippleStarted) {
+                        landingRippleStarted = true
+                        startLandingRipple(pendingLandingCenter, pendingLandingRadius)
+                    }
+                }
             }
             xJob.join()
             yJob.join()
             heightJob.join()
-            if (!landingRippleStarted) {
-                landingRippleStarted = true
-                startLandingRipple(
-                    center = pendingLandingCenter,
-                    radius = pendingLandingRadius
-                )
-            }
             rotationJob.join()
             liftJob.join()
             scaleJob.join()
@@ -2774,10 +2765,10 @@ private class WeekEditOverlayController(
     }
 
     private fun startLandingRipple(center: Offset, radius: Float) {
-        landingRippleCenter = center
-        landingRippleRadius = radius.coerceAtLeast(1f)
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             landingRippleAnimation.snapTo(0f)
+            landingRippleCenter = center
+            landingRippleRadius = radius.coerceAtLeast(1f)
             landingRippleAnimation.animateTo(
                 1f,
                 tween(durationMillis = 900, easing = LinearEasing)
@@ -3118,6 +3109,8 @@ fun WeekCourseBlock(
     // mode must not cancel the finger that is about to move the course.
     val bodyGestureModifier = Modifier.pointerInput(customTimeLocked, course.id, editWeek, currentSpan) {
         awaitEachGesture {
+            // Claim the card contact before the outer blank-area detector sees it. Pager
+            // scrolling still observes this down and wins once it consumes movement/slop.
             val down = awaitFirstDown()
             down.consume()
             val longPress = awaitLongPressOrCancellation(down.id)

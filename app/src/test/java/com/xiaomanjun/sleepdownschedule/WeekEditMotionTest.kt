@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.feature.home.week.*
+import com.xiaomanjun.sleepdownschedule.feature.home.day.occurrenceOverrideKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -112,6 +114,16 @@ class WeekEditMotionTest {
         assertEquals(0f, landed.liftFactor, 0.001f)
         assertTrue(overshoot.scale < 1f)
         assertTrue(overshoot.liftFactor < 0f)
+    }
+
+    @Test
+    fun adjacentCardsRespondWithinTheFirstTwo120HzFramesAfterContact() {
+        val near = weekEditNeighborRippleTransform(100f, 400f, 2f / 120f / 0.9f)
+        val far = weekEditNeighborRippleTransform(300f, 400f, 2f / 120f / 0.9f)
+
+        assertTrue(kotlin.math.abs(near.scale - 1f) > 0.001f)
+        assertEquals(1f, far.scale, 0.0001f)
+        assertEquals(1f, weekEditNeighborRippleTransform(100f, 400f, 0f).scale, 0f)
     }
 
     @Test

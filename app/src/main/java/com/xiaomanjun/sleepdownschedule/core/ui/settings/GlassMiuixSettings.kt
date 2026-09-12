@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -448,6 +449,7 @@ private fun SettingsGradientTopBar(
     content: @Composable () -> Unit
 ) {
     val tintColor = if (glassUsesLightStyle(config)) Color.White else Color(0xFF111111)
+    val webTransition = LocalLegacyProgressiveBlur.current
     val blurModifier = if (enabled) {
         Modifier.progressiveBackdropBlur(
             backdrop = backdrop,
@@ -455,14 +457,14 @@ private fun SettingsGradientTopBar(
             blurRadius = 12.dp,
             tintIntensity = 0.18f,
             direction = ProgressiveBlurDirection.TopToBottom,
-            topMaskFadeStart = 0.68f,
-            topMaskFadeEnd = 1.14f,
-            topTintFadeStart = 0.58f,
-            topTintFadeEnd = 1.10f,
+            topMaskFadeStart = if (webTransition) 0.35f else 0.68f,
+            topMaskFadeEnd = if (webTransition) 1f else 1.14f,
+            topTintFadeStart = if (webTransition) 0.28f else 0.58f,
+            topTintFadeEnd = if (webTransition) 1f else 1.10f,
             fallbackTintStops = listOf(
                 0f to tintColor.copy(alpha = 0.42f),
                 0.68f to tintColor.copy(alpha = 0.18f),
-                1f to tintColor.copy(alpha = 0.04f)
+                1f to tintColor.copy(alpha = if (webTransition) 0f else 0.04f)
             )
         )
     } else {
@@ -471,9 +473,24 @@ private fun SettingsGradientTopBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .then(blurModifier)
+            .then(if (webTransition) Modifier else blurModifier)
             .graphicsLayer { clip = false }
     ) {
+        if (webTransition && enabled) {
+            Box(
+                Modifier.matchParentSize()
+                    .layout { measurable, constraints ->
+                        // Extend only the existing blur consumer, keeping the actual toolbar and
+                        // WebView layout fixed. Its alpha reaches zero before the drawing ends.
+                        val extendedHeight = constraints.maxHeight + 48.dp.roundToPx()
+                        val placeable = measurable.measure(
+                            constraints.copy(minHeight = extendedHeight, maxHeight = extendedHeight)
+                        )
+                        layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, 0) }
+                    }
+                    .then(blurModifier)
+            )
+        }
         content()
     }
 }

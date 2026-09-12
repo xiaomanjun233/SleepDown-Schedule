@@ -59,7 +59,8 @@ fun LiquidToggle(
     selected: () -> Boolean,
     onSelect: (Boolean) -> Unit,
     backdrop: Backdrop,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     val isLightTheme = !isSystemInDarkTheme()
     val accentColor =
@@ -71,19 +72,23 @@ fun LiquidToggle(
 
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
-    val dragWidth = with(density) { 20f.dp.toPx() }
+    val trackWidth = if (compact) 52.dp else 64.dp
+    val trackHeight = if (compact) 24.dp else 28.dp
+    val thumbWidth = if (compact) 32.dp else 40.dp
+    val thumbHeight = if (compact) 20.dp else 24.dp
+    val dragWidth = with(density) { (trackWidth - thumbWidth - 4.dp).toPx() }
     val animationScope = rememberCoroutineScope()
     var didDrag by remember { mutableStateOf(false) }
     var fraction by remember { mutableFloatStateOf(if (selected()) 1f else 0f) }
     var targetSelected by remember { mutableStateOf(selected()) }
-    val dampedDragAnimation = remember(animationScope) {
+    val dampedDragAnimation = remember(animationScope, compact, dragWidth, isLtr) {
         DampedDragAnimation(
             animationScope = animationScope,
             initialValue = fraction,
             valueRange = 0f..1f,
             visibilityThreshold = 0.001f,
             initialScale = 1f,
-            pressedScale = 1.5f,
+            pressedScale = if (compact) 1.2f else 1.5f,
             onDragStarted = {},
             onDragStopped = {
                 if (didDrag) {
@@ -164,7 +169,7 @@ fun LiquidToggle(
                     val fraction = dampedDragAnimation.value
                     drawRect(lerp(trackColor, accentColor, fraction))
                 }
-                .size(64f.dp, 28f.dp)
+                .size(trackWidth, trackHeight)
         )
 
         Box(
@@ -239,7 +244,7 @@ fun LiquidToggle(
                         drawRect(Color.White.copy(alpha = 1f - progress))
                     }
                 )
-                .size(40f.dp, 24f.dp)
+                .size(thumbWidth, thumbHeight)
         )
     }
 }

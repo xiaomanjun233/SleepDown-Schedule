@@ -1538,28 +1538,7 @@ internal fun DayScheduleScreen(
         onDispose { onAgentPagerSettledChange(false) }
     }
 
-    LaunchedEffect(pagerState, displayDate) {
-        snapshotFlow {
-            Triple(
-                pagerState.isScrollInProgress,
-                pagerState.settledPage,
-                pagerState.currentPage + pagerState.currentPageOffsetFraction
-            )
-        }.distinctUntilChanged().collect { (scrolling, settledPage, pagePosition) ->
-            if (!scrolling || programmaticDayScroll) return@collect
-            val delta = pagePosition - settledPage
-            val desiredPage = when {
-                delta >= 0.75f -> settledPage + 1
-                delta <= -0.75f -> settledPage - 1
-                else -> settledPage
-            }.coerceIn(0, centerPage * 2)
-            val desiredDate = clampToNavigationRange(dateForPage(desiredPage))
-            if (desiredDate != displayDate) {
-                gestureCommittedDate = desiredDate
-                onSwipeDay(ChronoUnit.DAYS.between(displayDate, desiredDate).toInt())
-            }
-        }
-    }
+    // Commit only settled pages. Publishing at 75% rebuilt the date's cards while flinging.
     LaunchedEffect(pagerState.settledPage) {
         if (programmaticDayScroll) return@LaunchedEffect
         val settledDate = dateForPage(pagerState.settledPage)

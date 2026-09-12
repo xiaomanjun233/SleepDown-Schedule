@@ -114,6 +114,11 @@ class ScheduleViewModel(
         repository.addCourses(courses)
     }
 
+    fun copyCourses(courses: List<CourseEntity>, onResult: (Boolean) -> Unit) =
+        launchCourseMutation(onSuccess = { onResult(true) }, onFailure = { onResult(false) }) {
+            repository.addCourses(courses)
+        }
+
     fun updateCourse(course: CourseEntity) = launchCourseMutation("课程已更新") {
         repository.updateCourse(course)
     }
@@ -167,6 +172,7 @@ class ScheduleViewModel(
     private fun launchCourseMutation(
         successMessage: String? = null,
         onSuccess: (() -> Unit)? = null,
+        onFailure: (() -> Unit)? = null,
         mutation: suspend () -> Unit
     ) = viewModelScope.launch {
         try {
@@ -179,6 +185,7 @@ class ScheduleViewModel(
         } catch (error: Throwable) {
             Log.w("ScheduleViewModel", "Course mutation rejected", error)
             snackbar.value = error.message ?: "课程操作失败，请重试"
+            onFailure?.invoke()
         }
     }
 

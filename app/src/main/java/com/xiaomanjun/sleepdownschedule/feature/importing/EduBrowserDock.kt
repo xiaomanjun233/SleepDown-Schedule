@@ -631,7 +631,7 @@ internal fun EduBrowserDock(
                 ))
                 add(SleepDownLiquidMenuItem(
                     key = "edu-web-mode",
-                    text = if (desktopMode) "切换为手机网页" else "切换为电脑网页",
+                    text = if (desktopMode) "切换为手机版" else "切换为电脑版",
                     iconRes = R.drawable.ic_web_mode,
                     onClick = {
                         moreMenuVisible = false

@@ -310,12 +310,15 @@ internal fun Modifier.centeredDialogBackgroundBlur(
     val blurModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && backdrop != null) {
         Modifier
             .graphicsLayer { alpha = animationProgress.value.coerceIn(0f, 1f) }
-            .sleepDownPlainGlassSurface(
+            .sleepDownGlassSurface(
                 backdrop = backdrop,
                 descriptor = descriptor,
                 material = material,
                 shape = { RectangleShape },
-                effects = { blur(blurRadius.toPx()) }
+                // A full-window blur was still running at native resolution on this route.
+                // Use the same sampled material path as editors; dim remains full resolution.
+                effectFrame = GlassEffectFrame(blur = blurRadius),
+                backdropSampleScale = 0.5f
             )
     } else {
         Modifier
@@ -449,6 +452,8 @@ internal fun Modifier.quickSheetBackdropModifier(
         descriptor = descriptor,
         material = material,
         shape = { shape },
+        backdropSampleScale = if (centered) 0.5f else 1f,
+        cacheDecorations = centered,
         effectFrame = GlassEffectFrame(
             blur = effectiveBlurRadius,
             lensHeight = lensHeight,

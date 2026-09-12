@@ -586,8 +586,7 @@ sealed interface HomeDialog {
     data object EduImport : HomeDialog
     data class ConfirmImport(val draft: ImportDraft, val returnDialog: HomeDialog? = ImportSchedule) : HomeDialog
     data class EditWallpaper(val uri: Uri, val entrySnapshot: Bitmap?) : HomeDialog
-    data class EditCourse(val course: CourseEntity?, val targetWeek: Int? = null,
-        val copyDraft: CourseEntity? = null) : HomeDialog
+    data class EditCourse(val course: CourseEntity?, val targetWeek: Int? = null) : HomeDialog
     data class ApplyCourseEdit(val original: CourseEntity, val edited: CourseEntity, val targetWeek: Int) : HomeDialog
     data class ConfirmCourseConflicts(
         val original: CourseEntity,
@@ -811,14 +810,19 @@ fun CourseScheduleAppUi(
     var pendingCourseGroupDelete by remember { mutableStateOf<List<CourseEntity>>(emptyList()) }
     var courseEditorRenderedCourseId by remember { mutableStateOf<Long?>(null) }
     val courseEditorMotionState = rememberCourseEditorMotionState()
+    val courseEditorFlightRegistry = remember { CourseEditorFlightRegistry() }
     val courseEditorOverlayPhase = courseEditorMotionState.phase
-    fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?) {
+    fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?, copyDraft: CourseEntity? = null) {
         if (courseEditorRequest != null) return
+        val sourceGrid = targetWeek?.let(courseEditorFlightRegistry::grid)
+        courseEditorFlightRegistry.frozen = true
         courseEditorRequest = CourseEditorOverlayRequest(
             course = course,
             targetWeek = targetWeek,
             sourceBoundsInRoot = sourceBounds,
-            sourceIsDayCard = homeMode != HomeMode.Week && sourceBounds != null
+            sourceIsDayCard = homeMode != HomeMode.Week && sourceBounds != null,
+            copyDraft = copyDraft,
+            sourceGrid = sourceGrid
         )
     }
     fun closeCourseEditor() {
@@ -836,11 +840,8 @@ fun CourseScheduleAppUi(
             homeDialogVisible = true
         } else if (renderedHomeDialog != null) {
             homeDialogVisible = false
-            // The centered copy editor owns its exit completion, including interrupted motion.
-            if ((renderedHomeDialog as? HomeDialog.EditCourse)?.copyDraft == null) {
-                delay(320)
-                renderedHomeDialog = null
-            }
+            delay(320)
+            renderedHomeDialog = null
         }
     }
     val homeAnchoredMorphState = rememberHomeAnchoredMorphState()
@@ -873,7 +874,12 @@ fun CourseScheduleAppUi(
     var pendingHomeAnchoredOverlay by remember { mutableStateOf<HomeAnchoredOverlayKind?>(null) }
     var pendingHomeAnchoredSourceScale by remember { mutableFloatStateOf(1f) }
     var showScheduleEntryPill by remember { mutableStateOf(false) }
-    val editingCourseId: Long? = courseEditorRequest?.course?.id ?: courseEditorRenderedCourseId
+    val landingCourse = courseEditorMotionState.closingCourseOverride
+    val editingCourseId: Long? = if (landingCourse != null) {
+        state.courses.firstOrNull {
+            it.copy(id = 0, weeks = landingCourse.weeks, weekParity = landingCourse.weekParity) == landingCourse.copy(id = 0)
+        }?.id
+    } else courseEditorRequest?.course?.id ?: courseEditorRenderedCourseId
     val activeHomeAnchoredOverlay =
         homeAnchoredOverlayRequest?.kind ?: homeAnchoredMorphState.renderedKind
     val destinationTransitionActive =
@@ -2299,6 +2305,7 @@ fun CourseScheduleAppUi(
             sharedCourseBackdrop.takeIf { useSharedCourseBackdrop },
         LocalSharedTransitionScope provides activeSharedTransitionScope,
         LocalEditingCourseId provides editingCourseId,
+        LocalCourseEditorFlightRegistry provides courseEditorFlightRegistry,
         LocalStartupPhase provides startupPhase,
         LocalGlassQuality provides glassQuality,
         LocalStartupEntranceSpec provides startupEntranceSpec,
@@ -2331,7 +2338,10 @@ fun CourseScheduleAppUi(
                     config = visualState.config,
                     backdrop = centeredDialogSceneBackdrop,
                     cardBackdrop = backgroundBackdrop,
-                    onCopy = { draft -> homeDialog = HomeDialog.EditCourse(null, copyDraft = draft) },
+                    onEdit = { source -> openCourseEditor(source.course, source.week, source.bounds) },
+                    onCopy = { source, draft ->
+                        openCourseEditor(source.course, source.week, source.bounds, copyDraft = draft)
+                    },
                     onRemove = { course, week ->
                         pendingCourseGroupDelete = emptyList()
                         homeDialog = HomeDialog.ApplyCourseDelete(course, week)
@@ -2490,6 +2500,7 @@ fun CourseScheduleAppUi(
         // liquid sampling coordinates aligned without blurring the foreground panel itself.
         HomeBackgroundZoomLayer(
             zoom = homeOverlayBackgroundZoom,
+            dimProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.progress.value) },
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
@@ -2613,7 +2624,7 @@ fun CourseScheduleAppUi(
                                     homeMode == HomeMode.Week &&
                                     weekViewStyle == WeekViewStyle.BOUNDLESS
                                 ) {
-                                    homeAdaptiveMetrics.topGradientHeight
+                                    boundlessHomeTopGradientHeight(homeAdaptiveMetrics)
                                 } else if (homeMode == HomeMode.Week) {
                                     // 普通周视图用独立的顶栏模糊：不包含无界模式表头那段高度
                                     (homeAdaptiveMetrics.topOverlayHeight -
@@ -2621,6 +2632,9 @@ fun CourseScheduleAppUi(
                                 } else {
                                     homeAdaptiveMetrics.topOverlayHeight
                                 },
+                                fullBlurHeight = if (homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS) {
+                                    homeAdaptiveMetrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 4.dp
+                                } else 0.dp,
                                 modifier = Modifier
                             )
                         }
@@ -3442,6 +3456,8 @@ fun CourseScheduleAppUi(
             PersonalizePanel(
                 modifier = panelModifier.semantics { testTag = "benchmark_personalize_panel" },
                 drawSurface = false,
+                rowEntranceActive = homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Opening ||
+                    homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Open,
                 state = visualState,
                 backdrop = homeAnchoredOverlayBackdrop,
                 mode = homeMode,
@@ -3824,6 +3840,38 @@ fun CourseScheduleAppUi(
             modifier = Modifier.zIndex(100f),
             awaitOpeningGate = { awaitCourseGlassOpeningGate(routeEligible = true) },
             onDismissRequest = { closeCourseEditor() },
+            onCopy = { courses, onResult ->
+                val sourceRequest = courseEditorRequest
+                viewModel.copyCourses(courses) { success ->
+                    onResult(success)
+                    if (success && courseEditorRequest === sourceRequest) {
+                        val destination = courses.first()
+                        appScope.launch {
+                            val visibleWeeks = destination.weeks.filter {
+                                weekCourseBuckets(listOf(destination), it).visibleCourses.isNotEmpty()
+                            }
+                            val destinationWeek = sourceRequest?.targetWeek?.takeIf { it in visibleWeeks }
+                                ?: visibleWeeks.firstOrNull() ?: homeDisplayWeek
+                            val targetBuckets = weekCourseBuckets(state.courses + courses, destinationWeek)
+                            val weekdays = visibleWeekdaysForBuckets(targetBuckets, state.config.hideEmptyWeekends)
+                            val destinationBounds = sourceRequest?.sourceGrid?.reveal(destination, weekdays)
+                                ?: sourceRequest?.sourceBoundsInRoot?.let { source ->
+                                    courseEditorWeekLandingBounds(
+                                        source, sourceRequest.course, destination,
+                                        state.periods.map { it.periodIndex },
+                                        with(density) { weekCardHeight.dp.toPx() },
+                                        with(density) { 4.dp.toPx() }
+                                    )
+                                }
+                            if (courseEditorRequest === sourceRequest) {
+                                homeDisplayWeek = destinationWeek
+                                courseEditorMotionState.retractTo(destinationBounds, destination)
+                                closeCourseEditor()
+                            }
+                        }
+                    }
+                }
+            },
             onSave = { originals, editedCourses, targetWeek ->
                 val original = originals.singleOrNull()
                 val edited = editedCourses.singleOrNull()
@@ -3878,7 +3926,10 @@ fun CourseScheduleAppUi(
                 )
             },
             motionState = courseEditorMotionState,
-            onRenderedCourseIdChange = { courseEditorRenderedCourseId = it },
+            onRenderedCourseIdChange = {
+                courseEditorRenderedCourseId = it
+                if (it == null) courseEditorFlightRegistry.frozen = false
+            },
             onPhaseChange = {}
         )
 
@@ -3966,22 +4017,7 @@ fun CourseScheduleAppUi(
     // Dialog-based dialogs for all other types (including EditCourse without a source card)
     renderedHomeDialog?.let { dialog ->
         if (dialog !is HomeDialog.EditWallpaper && (dialog !is HomeDialog.EditCourse || dialog.course == null)) {
-        if (dialog is HomeDialog.EditCourse && dialog.copyDraft != null) {
-            CopiedCourseEditorOverlay(
-                show = homeDialogVisible,
-                draft = dialog.copyDraft,
-                state = state,
-                backdrop = homeDialogBackdrop,
-                onDismissRequest = { dismissHomeDialog() },
-                onDismissFinished = {
-                    if (homeDialog == null && renderedHomeDialog == dialog) renderedHomeDialog = null
-                },
-                onSave = { courses ->
-                    viewModel.addCourses(courses.map { it.copy(id = 0, scheduleId = dialog.copyDraft.scheduleId) })
-                    dismissHomeDialog()
-                }
-            )
-        } else if (dialog is HomeDialog.ApplyCourseEdit) {
+        if (dialog is HomeDialog.ApplyCourseEdit) {
             ApplyCourseEditDialog(
                 original = dialog.original,
                 edited = dialog.edited,
@@ -4210,12 +4246,7 @@ fun CourseScheduleAppUi(
                             NormalizedCourseEditorScreen(
                                 state = state,
                                 initialCourse = dialog.course,
-                                copyDraft = dialog.copyDraft,
                                 onCancel = { dismissHomeDialog() },
-                                onSaveCourses = if (dialog.copyDraft != null) { courses ->
-                                    viewModel.addCourses(courses.map { it.copy(id = 0, scheduleId = dialog.copyDraft.scheduleId) })
-                                    dismissHomeDialog()
-                                } else null,
                                 onSave = {
                                     if (dialog.course == null) {
                                         viewModel.addCourse(it)
@@ -4413,6 +4444,7 @@ fun CourseScheduleAppUi(
 @Composable
 private fun HomeBackgroundZoomLayer(
     zoom: () -> Float,
+    dimProgress: () -> Float,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -4420,6 +4452,13 @@ private fun HomeBackgroundZoomLayer(
         modifier = modifier
             .fillMaxSize()
             .clipToBounds()
+            .drawWithContent {
+                drawContent()
+                // Draw after the blurred/zoomed home, outside its cached sampling layers.
+                // One shared scrim avoids stacking darkness when an overlay hands off to another.
+                val dimAlpha = 0.08f * dimProgress().coerceIn(0f, 1f)
+                if (dimAlpha > 0f) drawRect(ComposeColor.Black.copy(alpha = dimAlpha))
+            }
             .graphicsLayer {
                 val currentZoom = zoom()
                 scaleX = currentZoom
@@ -4454,7 +4493,7 @@ private fun HomeBackgroundBlurLayer(
     val frozenRecordKey = remember { AtomicReference<Any?>(null) }
     val frozenRecordSize = remember { AtomicReference(IntSize.Zero) }
     val sampleScale = HomeFrozenBlurSampleScale
-    val maximumBlurPx = with(density) { 12.dp.toPx() }
+    val maximumBlurPx = with(density) { 22.dp.toPx() }
     val frozenBlurEffects = remember(maximumBlurPx, sampleScale) {
         List(HomeLiveBlurStepCount + 1) { index ->
             if (index == 0) null else {
@@ -4563,9 +4602,9 @@ private fun rootTopBarLayoutHeight(
         Screen.Home -> {
             val metrics = rememberHomeAdaptiveMetrics()
             if (boundlessWeekHeader) {
-                // 无界表头作为顶栏延伸，容器必须容纳 statusBar + 66dp 顶栏 + 46dp 表头，
-                // 否则大屏（topOverlayHeight 上限 132dp）会裁掉表头下半截。
-                metrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 4.dp
+                // Measure the whole visual gradient envelope, not just the header: otherwise
+                // the parent's maximum height truncates the blur before its fade-out tail.
+                boundlessHomeTopGradientHeight(metrics)
             } else {
                 metrics.topOverlayHeight
             }
@@ -4752,12 +4791,18 @@ fun settingsVisualConfig(config: ScheduleConfigEntity): ScheduleConfigEntity {
     )
 }
 
+// Size the tail from the actual header, rather than keeping the old 230dp minimum that
+// spreads full-strength header blur too far into the first courses on compact windows.
+private fun boundlessHomeTopGradientHeight(metrics: HomeAdaptiveMetrics): Dp =
+    metrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 36.dp
+
 @Composable
 fun HomeTopGradientBlur(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     modifier: Modifier = Modifier,
-    height: Dp = HomeTopOverlayHeight
+    height: Dp = HomeTopOverlayHeight,
+    fullBlurHeight: Dp = 0.dp
 ) {
     val lightGlass = glassUsesLightStyle(config)
     val tintColor = if (lightGlass) HomeLightGlassGradientColor else ComposeColor(0xFF111111)
@@ -4771,9 +4816,9 @@ fun HomeTopGradientBlur(
             // brush (the runtime shader path is driven by tintIntensity = 0).
             tintIntensity = 0f,
             direction = ProgressiveBlurDirection.TopToBottom,
-            // Keep the blur mostly flat (~7dp) over the whole top zone, extending past the weekday
-            // title text and the week header band; only below that does it fade out quickly. A long
-            // plateau with a short tail reads as one soft chrome gradient instead of fast steps.
+            // The Nexio radius curve needs its own plateau; alpha-mask parameters alone do not
+            // stop the blur radius from shrinking before the boundless weekday/date header.
+            radiusFadeStart = (fullBlurHeight.value / height.value).coerceIn(0f, 0.95f),
             topMaskFadeStart = 0.85f,
             topMaskFadeEnd = 1f,
             fallbackTintStops = listOf(
@@ -5290,6 +5335,7 @@ data class AddMenuAction(
     val label: String,
     val imageVector: ImageVector? = null,
     val iconTint: ComposeColor? = null,
+    val textTint: ComposeColor? = null,
     val onClick: () -> Unit
 )
 
@@ -5345,7 +5391,7 @@ fun AddMenuLiquidItem(
                     action.label,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = baseText,
+                    color = action.textTint ?: baseText,
                     maxLines = 1,
                     softWrap = false,
                     textAlign = TextAlign.Start
@@ -5718,6 +5764,7 @@ private fun PersonalizeValueSlider(
     ) {
         PersonalizeSliderLabel(displayValue, label)
         LiquidControlSlider(
+            compactThumb = true,
             value = value,
             onValueChange = onCommit,
             valueRange = valueRange,
@@ -6330,6 +6377,7 @@ private fun WallpaperPaletteSampler(
 fun PersonalizePanel(
     modifier: Modifier = Modifier,
     drawSurface: Boolean = true,
+    rowEntranceActive: Boolean = true,
     state: AppState,
     backdrop: Backdrop?,
     mode: HomeMode,
@@ -6347,9 +6395,11 @@ fun PersonalizePanel(
     val rowReveal = remember { Animatable(0f) }
     val rowDensity = LocalDensity.current
     val rowEasing = remember { CubicBezierEasing(0.22f, 0f, 0.30f, 1f) }
-    LaunchedEffect(Unit) {
-        withFrameNanos { }
-        rowReveal.animateTo(1f, tween(580, easing = LinearEasing))
+    LaunchedEffect(rowEntranceActive) {
+        if (rowEntranceActive) {
+            withFrameNanos { }
+            rowReveal.animateTo(1f, tween(580, easing = LinearEasing))
+        }
     }
     fun Modifier.rowEntrance(index: Int): Modifier = graphicsLayer {
         val t = ((rowReveal.value * 580f - index * 15f) / 340f).coerceIn(0f, 1f)
@@ -6433,11 +6483,11 @@ fun PersonalizePanel(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedRectangle(18.dp))
                 .background(
                     ComposeColor.Black.copy(
                         alpha = 0.10f * (1f - previewProgress.coerceIn(0f, 1f))
-                    )
+                    ),
+                    shape = RoundedRectangle(18.dp)
                 )
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -6565,6 +6615,7 @@ fun PersonalizePanel(
                                     scale = weekCardHeightScale,
                                     minimumScale = weekCardHeightScaleFloor
                                 ),
+                                compactThumb = true,
                                 onValueChange = {
                                     onWeekCardHeightScale(
                                         weekCardHeightScaleFromSlider(
@@ -6859,6 +6910,7 @@ fun PersonalizePanel(
                     Text("课程卡片液态玻璃", style = MaterialTheme.typography.labelLarge)
                     LiquidControlToggle(
                         checked = state.config.courseCardGlassEnabled && !glassLocked,
+                        compact = true,
                         onCheckedChange = {
                             onUpdateConfig(
                                 PersonalizeCardGlassChange,
@@ -6892,6 +6944,7 @@ fun PersonalizePanel(
                         Text("质感轮廓光", style = MaterialTheme.typography.labelLarge)
                         LiquidControlToggle(
                             checked = state.config.courseCardOutlineLightEnabled,
+                            compact = true,
                             onCheckedChange = {
                                 onUpdateConfig(
                                     PersonalizeCardOutlineLightChange,
@@ -6913,6 +6966,7 @@ fun PersonalizePanel(
                         Text("课程卡片高斯模糊", style = MaterialTheme.typography.labelLarge)
                         LiquidControlToggle(
                             checked = state.config.courseCardGaussianBlurEnabled && !glassLocked,
+                            compact = true,
                             onCheckedChange = {
                                 onUpdateConfig(
                                     PersonalizeCardGaussianBlurChange,
@@ -7494,6 +7548,7 @@ open class EduImportActivityHost : ComponentActivity() {
             )
             CourseScheduleTheme(config = state.config) {
                 if (pendingDraft == null) {
+                    CompositionLocalProvider(LocalLegacyProgressiveBlur provides true) {
                     DetailActivityScaffold(
                         title = adapter?.school?.name ?: "教务导入",
                         config = state.config,
@@ -7523,6 +7578,7 @@ open class EduImportActivityHost : ComponentActivity() {
                                 onParsed = { draft -> pendingDraft = draft }
                             )
                         }
+                    }
                     }
                 } else {
                     val previewDraft = checkNotNull(pendingDraft)
@@ -7571,7 +7627,8 @@ fun LiquidControlSlider(
     snapValue: Float? = null,
     onSliderTouchActiveChange: (Boolean) -> Unit = {},
     visibilityThreshold: Float = 0.01f,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    compactThumb: Boolean = false
 ) {
     val haptic = LocalHapticFeedback.current
     val previewDispatchScope = rememberCoroutineScope()
@@ -7650,6 +7707,7 @@ fun LiquidControlSlider(
                 visibilityThreshold = visibilityThreshold,
                 backdrop = backdrop,
                 snapValue = safeSnapValue,
+                compactThumb = compactThumb,
                 modifier = Modifier.fillMaxWidth()
             )
         } else {
@@ -7723,7 +7781,8 @@ fun LiquidControlToggle(
     onCheckedChange: (Boolean) -> Unit,
     backdrop: Backdrop?,
     enabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     val alpha = if (enabled) 1f else 0.40f
     if (backdrop != null) {
@@ -7731,13 +7790,18 @@ fun LiquidControlToggle(
             selected = { checked },
             onSelect = { if (enabled) onCheckedChange(it) },
             backdrop = backdrop,
+            compact = compact,
             modifier = modifier.graphicsLayer { this.alpha = alpha }
         )
     } else {
         Switch(
             checked = checked,
             onCheckedChange = { if (enabled) onCheckedChange(it) },
-            modifier = modifier.graphicsLayer { this.alpha = alpha }
+            modifier = modifier.graphicsLayer {
+                this.alpha = alpha
+                scaleX = if (compact) 0.8f else 1f
+                scaleY = if (compact) 0.8f else 1f
+            }
         )
     }
 }

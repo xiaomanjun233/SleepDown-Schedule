@@ -99,6 +99,27 @@ fun currentIconResId(
     }
 }
 
+/** Fixed full-color PNGs for SystemUI, independent of launcher/night resource resolution. */
+fun currentLiveUpdateIconResId(context: Context): Int {
+    val dark = when (AppIconManager.currentMode(context)) {
+        AppIconMode.LIGHT -> false
+        AppIconMode.DARK -> true
+        AppIconMode.FOLLOW_DARK_MODE -> AppIconManager.currentDarkTheme(context)
+    }
+    return when (AppIconManager.currentStyle(context)) {
+        AppIconStyle.MINIMAL -> if (dark) {
+            com.xiaomanjun.sleepdownschedule.R.drawable.ic_live_update_minimal_dark
+        } else {
+            com.xiaomanjun.sleepdownschedule.R.drawable.ic_live_update_minimal_light
+        }
+        AppIconStyle.KANBAN -> if (dark) {
+            com.xiaomanjun.sleepdownschedule.R.drawable.ic_live_update_kanban_dark
+        } else {
+            com.xiaomanjun.sleepdownschedule.R.drawable.ic_live_update_kanban_light
+        }
+    }
+}
+
 object AppIconManager {
     private const val PreferencesName = "app_icon_preferences"
     private const val ModeKey = "mode"

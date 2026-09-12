@@ -84,6 +84,8 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionGeometry
 import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionLayer
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
 import com.xiaomanjun.sleepdownschedule.glass.stableContentOffsetInEnvelope
 import kotlinx.coroutines.coroutineScope
@@ -458,6 +460,10 @@ internal fun HomeMenuDestinationOverlayHost(
     var collapseHandedOff by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val destinationContentLayer = rememberGraphicsLayer()
+    val destinationSurfaceBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.DialogBridge,
+        providerId = "home-destination-shell"
+    )
     val destinationContentRecorded = remember { AtomicBoolean(false) }
     val destinationClosingRecorded = remember { AtomicBoolean(false) }
     val latestDismiss by rememberUpdatedState(onDismissRequest)
@@ -843,7 +849,7 @@ internal fun HomeMenuDestinationOverlayHost(
             if (backdrop != null) {
                 LiquidPanel(
                     backdrop = backdrop,
-                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                    modifier = Modifier.fillMaxSize().glassBackdropProducer(destinationSurfaceBackdrop).graphicsLayer {
                         alpha = frame.value.destinationSurfaceAlpha
                     },
                     shape = destinationShape,
@@ -852,7 +858,8 @@ internal fun HomeMenuDestinationOverlayHost(
                     } else {
                         Color(0xFF121212).copy(alpha = 0.30f)
                     },
-                    blurRadius = 10.dp,
+                    blurRadius = 22.dp,
+                    backdropSampleScale = 0.5f,
                     lensHeight = 12.dp,
                     lensAmount = 16.dp
                 ) { }
@@ -861,6 +868,7 @@ internal fun HomeMenuDestinationOverlayHost(
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = frame.value.destinationSurfaceAlpha }
+                        .glassBackdropProducer(destinationSurfaceBackdrop)
                         .background(
                             if (appUsesDarkTheme(state.config)) Color(0xFF1C1C1E) else Color.White
                         )
@@ -953,7 +961,7 @@ internal fun HomeMenuDestinationOverlayHost(
                                 onSave = {},
                             onSaveCourses = onAddCourses,
                             onDelete = {},
-                            backdrop = backdrop,
+                            backdrop = destinationSurfaceBackdrop,
                             // This destination itself lives inside the root centered-dialog
                                 // producer. Rendering its picker in this nested Scaffold would put
                                 // the consumer back inside the producer it samples and create a

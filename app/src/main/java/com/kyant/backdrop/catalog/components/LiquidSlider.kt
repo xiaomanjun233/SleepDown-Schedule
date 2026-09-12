@@ -182,7 +182,8 @@ private class LiquidSliderMotionState(
     initialValue: Float,
     private val valueRange: ClosedFloatingPointRange<Float>,
     private val visibilityThreshold: Float,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val pressedScale: Float
 ) {
     private val valueSpec = spring<Float>(1f, 1000f, visibilityThreshold)
     private val velocitySpec = spring<Float>(0.5f, 300f, 0.05f)
@@ -302,8 +303,8 @@ private class LiquidSliderMotionState(
 
     private fun press() {
         scope.launch { pressProgress.animateTo(1f, pressSpec) }
-        scope.launch { scaleX.animateTo(1.5f, scaleXSpec) }
-        scope.launch { scaleY.animateTo(1.5f, scaleYSpec) }
+        scope.launch { scaleX.animateTo(pressedScale, scaleXSpec) }
+        scope.launch { scaleY.animateTo(pressedScale, scaleYSpec) }
     }
 
     private fun release() {
@@ -328,7 +329,8 @@ fun LiquidSlider(
     visibilityThreshold: Float,
     backdrop: Backdrop,
     snapValue: Float? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compactThumb: Boolean = false
 ) {
     val isLightTheme = !isSystemInDarkTheme()
     val accentColor = if (isLightTheme) Color(0xFF0088FF) else Color(0xFF0091FF)
@@ -342,8 +344,9 @@ fun LiquidSlider(
     val currentPreviewMode by rememberUpdatedState(onPreviewModeChange)
     val currentCommit by rememberUpdatedState(onCommit)
     val currentValue by rememberUpdatedState(value)
-    val motion = remember(valueRange, visibilityThreshold) {
-        LiquidSliderMotionState(currentValue(), valueRange, visibilityThreshold, scope)
+    val pressedScale = if (compactThumb) 1.2f else 1.5f
+    val motion = remember(valueRange, visibilityThreshold, pressedScale) {
+        LiquidSliderMotionState(currentValue(), valueRange, visibilityThreshold, scope, pressedScale)
     }
     val previewDispatcher = remember(scope) { FramePreviewDispatcher(scope) }
     val material = remember {
@@ -386,7 +389,7 @@ fun LiquidSlider(
     ) {
         val trackWidth = constraints.maxWidth.toFloat()
         val density = LocalDensity.current
-        val thumbInsetPx = with(density) { 10.dp.toPx() }
+        val thumbInsetPx = with(density) { (if (compactThumb) 16.dp else 10.dp).toPx() }
         val thumbHitRadiusPx = with(density) { 18.dp.toPx() }
         val dragThresholdPx = with(density) { 4.dp.toPx() }
         val snapHitRadiusPx = with(density) { 12.dp.toPx() }
@@ -542,7 +545,7 @@ fun LiquidSlider(
                             backdrop,
                             rememberBackdrop(trackBackdrop) { drawBackdrop ->
                                 val progress = motion.pressProgress.value
-                                scale(lerp(2f / 3f, 1f, progress), lerp(0f, 1f, progress)) {
+                                scale(lerp(1f / pressedScale, 1f, progress), lerp(0f, 1f, progress)) {
                                     drawBackdrop()
                                 }
                             }
@@ -560,8 +563,8 @@ fun LiquidSlider(
                         highlightOverride = {
                             val progress = motion.pressProgress.value
                             Highlight.Ambient.copy(
-                                width = Highlight.Ambient.width / 1.5f,
-                                blurRadius = Highlight.Ambient.blurRadius / 1.5f,
+                                width = Highlight.Ambient.width / pressedScale,
+                                blurRadius = Highlight.Ambient.blurRadius / pressedScale,
                                 alpha = progress * 0.45f
                             )
                         },
@@ -581,7 +584,8 @@ fun LiquidSlider(
                             drawRect(Color.White.copy(alpha = 1f - motion.pressProgress.value))
                         }
                     )
-                    .size(40.dp, 24.dp)
+                    // Keep the 36dp gesture track; only the visible thumb becomes smaller.
+                    .size(if (compactThumb) 34.dp else 40.dp, if (compactThumb) 22.dp else 24.dp)
             )
         }
     }

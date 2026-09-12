@@ -206,46 +206,6 @@ class HomeMotionPerformancePolicyTest {
         )
     }
 
-    @Test
-    fun courseEditorWaitsForOneRecordedShellFrame() {
-        assertFalse(
-            courseEditorContentReadyForMotion(
-                rootWidth = 1080,
-                rootHeight = 2400,
-                contentLaidOut = true,
-                recordedFrameCount = 0
-            )
-        )
-        assertTrue(
-            courseEditorContentReadyForMotion(
-                rootWidth = 1080,
-                rootHeight = 2400,
-                contentLaidOut = true,
-                recordedFrameCount = 1
-            )
-        )
-    }
-
-    @Test
-    fun courseEditorNeverStartsBeforeTargetLayout() {
-        assertFalse(
-            courseEditorContentReadyForMotion(
-                rootWidth = 1080,
-                rootHeight = 2400,
-                contentLaidOut = false,
-                recordedFrameCount = 3
-            )
-        )
-        assertFalse(
-            courseEditorContentReadyForMotion(
-                rootWidth = 0,
-                rootHeight = 2400,
-                contentLaidOut = true,
-                recordedFrameCount = 3
-            )
-        )
-    }
-
     private fun reuse(
         mode: HomeMode,
         overlayActive: Boolean,
