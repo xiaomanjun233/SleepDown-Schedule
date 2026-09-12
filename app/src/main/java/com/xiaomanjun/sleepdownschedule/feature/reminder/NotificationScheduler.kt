@@ -26,8 +26,12 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -49,6 +53,7 @@ object NotificationScheduler {
     private const val SCHEDULE_HORIZON_DAYS = 8L
     private const val EVENT_COURSE = "course"
     private const val EVENT_TOMORROW = "tomorrow"
+    private val refreshMutex = Mutex()
     val ACTION_CANCEL_LIVE_UPDATE = "${BuildConfig.APPLICATION_ID}.action.CANCEL_LIVE_UPDATE"
     val ACTION_TOGGLE_DND = "${BuildConfig.APPLICATION_ID}.action.TOGGLE_DND"
     val ACTION_START_LIVE_UPDATE_SERVICE = "${BuildConfig.APPLICATION_ID}.action.START_LIVE_UPDATE_SERVICE"
@@ -90,10 +95,11 @@ object NotificationScheduler {
         config: ScheduleConfigEntity,
         periods: List<PeriodEntity>,
         forceReschedule: Boolean = false
-    ) {
+    ) = refreshMutex.withLock {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val liveUpdatePreferences = LiveUpdatePreferences.read(context)
-        val signature = scheduleSignature(courses, config, periods, liveUpdatePreferences = liveUpdatePreferences)
+        val signature = scheduleSignature(courses, config, periods, liveUpdatePreferences = liveUpdatePreferences) +
+            "|exact=${canScheduleExactCourseAlarms(context)}"
         val todayIsInTerm = scheduleWeekForDateOrNull(
             config,
             LocalDate.now()
@@ -104,7 +110,12 @@ object NotificationScheduler {
             scheduleToday(context, courses, config, periods, liveUpdatePreferences)
             prefs.edit {putString(KEY_SCHEDULE_SIGNATURE, signature)}
         }
-        checkImmediateLiveUpdate(context, courses, config, periods)
+        LiveUpdateRecoveryWorker.updateSchedule(
+            context, config.notificationsEnabled && config.notificationMode == NotificationMode.LIVE_UPDATE
+        )
+        withContext(Dispatchers.Main.immediate) {
+            checkImmediateLiveUpdate(context, courses, config, periods)
+        }
     }
 
     internal suspend fun scheduleToday(
@@ -159,10 +170,8 @@ object NotificationScheduler {
                         )
                     }
                 }
-                if (config.notificationMode == NotificationMode.LIVE_UPDATE && liveUpdatePreferences.duringClassEnabled) {
-                    payload.segments
-                        .flatMap { listOf(it.startAtMillis, it.endAtMillis) }
-                        .distinct()
+                if (config.notificationMode == NotificationMode.LIVE_UPDATE) {
+                    payload.refreshBoundaries()
                         .filter { it > now }
                         .forEachIndexed { index, trigger ->
                             schedulePayloadAlarm(
@@ -191,8 +200,8 @@ object NotificationScheduler {
                     periods = periods,
                     zone = scheduleZone
                 )
+                val payload = tomorrowPayload(scheduleDate, dayCourses, periods, trigger, scheduleZone)
                 if (trigger > now) {
-                    val payload = tomorrowPayload(scheduleDate, dayCourses, periods, trigger, scheduleZone)
                     schedulePayloadAlarm(
                         context = context,
                         alarmManager = alarmManager,
@@ -203,6 +212,8 @@ object NotificationScheduler {
                         event = EVENT_TOMORROW,
                         scheduledKeys = scheduledKeys
                     )
+                }
+                if (payload.expiresAtMillis > now) {
                     schedulePayloadAlarm(
                         context = context,
                         alarmManager = alarmManager,
@@ -259,8 +270,9 @@ object NotificationScheduler {
             }
         val periodPart = periods.joinToString(";") { "${it.periodIndex},${it.startTime},${it.endTime}" }
         return listOf(
-            "continuous-course-sessions-v2",
+            "live-update-boundaries-v3",
             today.toString(),
+            ZoneId.systemDefault().id,
             config.totalWeeks,
             config.currentWeek,
             config.termStartDate.orEmpty(),
@@ -713,7 +725,7 @@ object NotificationScheduler {
         )
         val builder = android.app.Notification.Builder(context, CHANNEL_ID)
         builder
-            .setSmallIcon(com.xiaomanjun.sleepdownschedule.core.identity.currentIconResId(context))
+            .setSmallIcon(com.xiaomanjun.sleepdownschedule.core.identity.currentLiveUpdateIconResId(context))
             .setContentTitle(titleText)
             .setContentText(bodyText)
             .setStyle(android.app.Notification.BigTextStyle().bigText(expandedText))
@@ -1064,21 +1076,22 @@ object NotificationScheduler {
         if (!canPostNotifications(context)) return
         val manager = context.getSystemService(NotificationManager::class.java)
         val active = manager.activeNotifications.firstOrNull { it.id == LIVE_UPDATE_ID } ?: return
-        val icon = com.xiaomanjun.sleepdownschedule.core.identity.currentIconResId(context)
-        if (active.notification.smallIcon?.resId == icon) return
+        val icon = com.xiaomanjun.sleepdownschedule.core.identity.currentLiveUpdateIconResId(context)
+        val submittedIcon = active.notification.smallIcon
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            submittedIcon?.type == Icon.TYPE_RESOURCE && submittedIcon.resId == icon &&
+            submittedIcon.resPackage == context.packageName
+        ) return
         val updated = android.app.Notification.Builder.recoverBuilder(context, active.notification)
             .setSmallIcon(icon)
             .setOnlyAlertOnce(true)
             .build()
+        logLiveUpdateIcon(context, updated)
         manager.notify(active.tag, active.id, updated)
     }
 
     private fun refreshVisibleLiveUpdate(context: Context) {
-        val app = context.applicationContext as? CourseScheduleApp ?: return
-        app.applicationScope.launch(Dispatchers.IO) {
-            val snapshot = app.repository.activeSnapshot()
-            checkImmediateLiveUpdate(context, snapshot.courses, snapshot.config, snapshot.periods)
-        }
+        requestRefresh(context)
     }
 
     fun startLiveUpdateService(
@@ -1107,6 +1120,15 @@ object NotificationScheduler {
 
     internal fun startLiveUpdateService(context: Context, payload: LiveUpdatePayload) {
         val notification = liveUpdateNotification(context, payload)
+        // Submit while the event receiver still holds its wake lock. Delivery must not wait
+        // for the FGS (or its optional minute loop) to be scheduled by an OEM background policy.
+        if (!canPostNotifications(context)) return
+        try {
+            postLiveUpdateNotification(context, notification)
+        } catch (error: SecurityException) {
+            Log.w(TAG, "live update rejected: notification permission revoked", error)
+            return
+        }
         val intent = Intent(context, LiveUpdateForegroundService::class.java)
             .setAction(ACTION_START_LIVE_UPDATE_SERVICE)
             .putExtra(EXTRA_LIVE_UPDATE_NOTIFICATION, notification)
@@ -1115,22 +1137,28 @@ object NotificationScheduler {
             ContextCompat.startForegroundService(context, intent)
             Log.d(TAG, "startForegroundService requested kind=${payload.kind} key=${payload.muteKey}")
         }.onFailure {
-            Log.w(TAG, "startForegroundService failed, fallback notify: ${it.javaClass.simpleName}: ${it.message}")
-            if (!canPostNotifications(context)) {
-                Log.w(TAG, "fallback notify skipped: notification permission missing")
-                return@onFailure
-            }
-            runCatching {
-                postLiveUpdateNotification(context, notification)
-            }.onFailure { notifyError ->
-                Log.w(TAG, "fallback notify failed: ${notifyError.javaClass.simpleName}: ${notifyError.message}")
-            }
+            Log.w(TAG, "minute refresh service unavailable; event notification already posted", it)
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun postLiveUpdateNotification(context: Context, notification: Notification) {
+        logLiveUpdateIcon(context, notification)
         NotificationManagerCompat.from(context).notify(LIVE_UPDATE_ID, notification)
+    }
+
+    internal fun logLiveUpdateIcon(context: Context, notification: Notification) {
+        val icon = notification.smallIcon
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            Log.d(TAG, "smallIcon=$icon, appPackage=${context.packageName}")
+            return
+        }
+        val isResource = icon?.type == Icon.TYPE_RESOURCE
+        val resId = if (isResource) icon?.resId else null
+        val resourcePackage = if (isResource) icon?.resPackage else null
+        val resource = resId?.let { runCatching { context.resources.getResourceName(it) }.getOrNull() }
+        Log.d(TAG, "smallIcon type=${icon?.type}, resId=$resId, resPackage=$resourcePackage, " +
+            "resource=$resource, appPackage=${context.packageName}")
     }
 
     internal fun canPostNotifications(context: Context): Boolean {
@@ -1184,16 +1212,24 @@ object NotificationScheduler {
     }
 
     fun requestReschedule(context: Context) {
-        val app = context.applicationContext as? CourseScheduleApp ?: return
-        app.applicationScope.launch(Dispatchers.IO) {
-            val snapshot = app.repository.activeSnapshot()
-            refreshToday(
-                context = app,
-                courses = snapshot.courses,
-                config = snapshot.config,
-                periods = snapshot.periods,
-                forceReschedule = true
-            )
+        requestRefresh(context, forceReschedule = true)
+    }
+
+    fun requestRefresh(context: Context, forceReschedule: Boolean = false, onComplete: () -> Unit = {}) {
+        val app = context.applicationContext as CourseScheduleApp
+        // Acquire before the receiver returns; goAsync alone does not keep the CPU awake.
+        app.applicationScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                withShortWakeLock(app, "live_update_refresh") {
+                    withContext(Dispatchers.IO) {
+                        if (forceReschedule) app.repository.ensureDefaults()
+                        val snapshot = app.repository.activeSnapshot()
+                        refreshToday(app, snapshot.courses, snapshot.config, snapshot.periods, forceReschedule)
+                    }
+                }
+            } finally {
+                onComplete()
+            }
         }
     }
 

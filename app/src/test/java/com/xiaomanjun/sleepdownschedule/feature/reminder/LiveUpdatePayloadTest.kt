@@ -39,6 +39,21 @@ class LiveUpdatePayloadTest {
     )
 
     @Test
+    fun refreshAlarmsCoverEveryClassBoundaryEvenWhenBreakDisplayIsDisabled() {
+        val expected = listOf(firstStart, firstEnd, secondStart, secondEnd)
+        assertEquals(expected, coursePayload().refreshBoundaries())
+        assertEquals(expected, coursePayload(breakStatusEnabled = false).refreshBoundaries())
+    }
+
+    @Test
+    fun preparationOnlyReminderHasAnAlarmToStopAtClassStart() {
+        val payload = coursePayload().copy(duringClassEnabled = false)
+        assertEquals(listOf(firstStart, secondEnd), payload.refreshBoundaries())
+        assertFalse(payload.shouldStop(firstStart - 1))
+        assertTrue(payload.shouldStop(firstStart))
+    }
+
+    @Test
     fun courseStateMovesFromPreparationThroughClassBreakAndFinish() {
         val payload = coursePayload()
 

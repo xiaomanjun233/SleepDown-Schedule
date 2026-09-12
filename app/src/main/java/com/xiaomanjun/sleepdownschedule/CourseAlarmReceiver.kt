@@ -8,28 +8,19 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import java.time.LocalTime
 
 class CourseAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == NotificationScheduler.ACTION_REFRESH_COURSE_ALARMS) {
+        if (intent.action == NotificationScheduler.ACTION_REFRESH_COURSE_ALARMS ||
+            intent.action == Intent.ACTION_SCREEN_ON || intent.action == Intent.ACTION_USER_PRESENT
+        ) {
             val pending = goAsync()
-            val app = context.applicationContext as CourseScheduleApp
-            app.applicationScope.launch(Dispatchers.IO) {
-                try {
-                    val snapshot = app.repository.activeSnapshot()
-                    NotificationScheduler.refreshToday(
-                        context = app,
-                        courses = snapshot.courses,
-                        config = snapshot.config,
-                        periods = snapshot.periods,
-                        forceReschedule = true
-                    )
-                } finally {
-                    pending.finish()
-                }
+            NotificationScheduler.requestRefresh(
+                context,
+                forceReschedule = intent.action == NotificationScheduler.ACTION_REFRESH_COURSE_ALARMS
+            ) {
+                pending.finish()
             }
             return
         }
@@ -44,14 +35,8 @@ class CourseAlarmReceiver : BroadcastReceiver() {
                 // Alarm delivery order is not guaranteed. Re-select from current data so an older
                 // session's end/retry cannot replace or cancel the course that is now in class.
                 val pending = goAsync()
-                val app = context.applicationContext as CourseScheduleApp
-                app.applicationScope.launch(Dispatchers.IO) {
-                    try {
-                        val snapshot = app.repository.activeSnapshot()
-                        NotificationScheduler.checkImmediateLiveUpdate(app, snapshot.courses, snapshot.config, snapshot.periods)
-                    } finally {
-                        pending.finish()
-                    }
+                NotificationScheduler.requestRefresh(context) {
+                    pending.finish()
                 }
                 return@withShortWakeLock
             }
