@@ -3,6 +3,8 @@ package com.kyant.backdrop
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.GraphicsLayerScope
@@ -275,9 +277,11 @@ private class DrawBackdropNode(
         compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
     }
 
-    // Position is draw-node state, not application state. Pager movement only needs a redraw;
-    // publishing a Snapshot write per consumer adds notification work for every scroll frame.
-    private var layoutCoordinates: LayoutCoordinates? = null
+    // This layout/draw node places its content in an inner layer. invalidateDraw() alone can
+    // dirty the outer coordinator while that layer keeps replaying its old sample. Observe
+    // coordinates from draw so movement invalidates the layer that actually records the glass.
+    // LayoutCoordinates mutates in place, so assigning the same instance must still notify it.
+    private var layoutCoordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
 
     private var padding by mutableFloatStateOf(0f)
 
@@ -394,6 +398,8 @@ private class DrawBackdropNode(
         // layout callback follows. The retained GraphicsLayer still references child RenderNodes:
         // suppressing only the parent's drawContent does not stop their own invalidations.
         shapeProvider.options.coordinatesFrozen()
+        // Keep the draw observation even when a frozen sample skips the recording block.
+        layoutCoordinates
         if (!shapeProvider.options.enabled()) return drawContent()
         val bounds = shapeProvider.options.bounds()
         val sampleScale = shapeProvider.options.sampleScale
@@ -431,15 +437,13 @@ private class DrawBackdropNode(
                 // Always accept a new node; retained scene contents keep their recorded position.
                 // Moving foreground cards still resample the live wallpaper at every position.
                 if (!shapeProvider.options.coordinatesFrozen() || layoutCoordinates !== coordinates) {
-                    layoutCoordinates = coordinates
                     invalidateSampleRecording()
-                    invalidateDraw()
+                    layoutCoordinates = coordinates
                 }
             } else {
                 if (layoutCoordinates != null) {
-                    layoutCoordinates = null
                     invalidateSampleRecording()
-                    invalidateDraw()
+                    layoutCoordinates = null
                 }
             }
             exportedBackdrop?.layerCoordinates = coordinates
