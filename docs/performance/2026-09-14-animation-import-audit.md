@@ -43,3 +43,15 @@
 - 导入和动态圆角的 19 项定向用例、Backdrop 的 6 项现有及新增用例通过。应用测试使用临时 init script 限定编译源，因为仓库旧测试最初存在已删除 API 和包路径引用；未运行应用全套测试。
 - 追加的复制中心选点、滚动坐标更新通过 `compileGithubReleaseKotlin`；旧测试清理后 `compileGithubDebugUnitTestKotlin` 通过（只编译，没有执行应用全套测试）。未重新运行已通过且未受影响的用例。
 - 未安装或重新发布，未执行实机帧时间对照，不报告 FPS 提升幅度。
+
+## Beta2 滚动采样修正
+
+首次 Beta2 安装后，用户实机反馈玻璃内部背景停留在原位置，不随滑动改变。检查发现 `DrawBackdropNode` 同时负责布局和绘制，并通过 `placeWithLayer` 放置内部内容；普通坐标字段加外层 `invalidateDraw()` 不能替代实际录制层的状态观察。已撤回该替换，恢复绘制阶段观察的坐标 State 及 `neverEqualPolicy`，同一个可变 LayoutCoordinates 实例也能通知更新；冻结期仍跳过坐标发布，且保留按场景标识复用采样的优化。
+
+实现依据对照 AndroidX 的 [DrawModifierNode](https://github.com/androidx/androidx/blob/androidx-main/compose/ui/ui/src/commonMain/kotlin/androidx/compose/ui/node/DrawModifierNode.kt) 与 [节点协调器选择](https://github.com/androidx/androidx/blob/androidx-main/compose/ui/ui/src/commonMain/kotlin/androidx/compose/ui/node/DelegatableNode.kt)，修正限定在现有消费节点，没有通过重建组件或整棵子树刷新补偿。
+
+- 修正提交：`cc9d94f`；版本仍为 `1.2.6_beta2` / `33`。
+- `assembleGithubRelease` 成功，保留 R8、资源压缩、lintVital 和签名；未运行无关测试套件。
+- APK v2 签名校验通过，SHA-256：`D405A2108733E13461998AA90764176A6DC5EDFDEA8017EFBD1EAB272E007E34`。
+- 按用户要求解除 PLJ110 的 WSL USB 共享，Windows ADB 识别正常；通过 Windows 覆盖安装返回 `Success`，保留既有数据。
+- 未自动启动应用；修正版的滑动视觉效果与帧时间尚未做实机对照。
