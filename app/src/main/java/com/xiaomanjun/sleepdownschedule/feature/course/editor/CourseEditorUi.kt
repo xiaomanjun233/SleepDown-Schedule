@@ -1648,6 +1648,7 @@ internal fun CourseEditorPickerOverlay(
                                     range = range,
                                     visibleItemCount = 3,
                                     label = { it.toString().padStart(2, '0') + if (index % 2 == 0) "时" else "分" },
+                                    wrapAround = index % 2 == 1,
                                     colors = pickerColors,
                                     textStyle = pickerTextStyle,
                                     modifier = Modifier.weight(1f)
