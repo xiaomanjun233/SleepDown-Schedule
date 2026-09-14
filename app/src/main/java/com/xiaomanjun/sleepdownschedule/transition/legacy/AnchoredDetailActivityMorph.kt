@@ -24,6 +24,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import com.xiaomanjun.sleepdownschedule.glass.DeferredGlassRoundedRectangle
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen
+import androidx.compose.ui.unit.constrainWidth
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -375,7 +382,7 @@ internal fun AnchoredDetailActivityMorph(
                 backdrop = snapshotBackdrop.takeIf {
                     backgroundSnapshot != null && (!bypassLegacyOpening || closing)
                 },
-                progress = renderedProgress(),
+                progressProvider = renderedProgress,
                 closing = closing,
                 destinationFirstOpening = usesDestinationFirstOpening,
                 onClose = ::close,
@@ -407,7 +414,7 @@ internal fun AnchoredDetailActivityMorph(
                 rootSize = rootSize,
                 sourceCornerRadius = sourceCornerRadius,
                 sourceSnapshot = sourceSnapshot.takeIf { !bypassLegacyOpening || closing },
-                progress = renderedProgress(),
+                progressProvider = renderedProgress,
                 closing = closing,
                 onClose = ::close,
                 sourceContent = sourceContent,
@@ -432,7 +439,7 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
     sourceSnapshot: Bitmap?,
     collapseSnapshot: Bitmap?,
     backdrop: Backdrop?,
-    progress: Float,
+    progressProvider: () -> Float,
     closing: Boolean,
     destinationFirstOpening: Boolean,
     onClose: () -> Unit,
@@ -444,77 +451,120 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
     val full = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
     val source = sourceBounds ?: full
     val collapse = collapseBounds ?: source
-    val p = progress.coerceIn(0f, 1f)
+    val latestProgress = rememberUpdatedState(progressProvider)
+    val p by remember { derivedStateOf { latestProgress.value().coerceIn(0f, 1f) } }
     val activityDarkSurface =
         androidx.compose.material3.MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val geometry = homeMenuDestinationTrajectoryGeometry(
-        sourceBoundsInRoot = source,
-        collapseBoundsInRoot = collapse,
-        target = full,
-        rawProgress = p,
-        closing = closing,
-        // The Activity receives the real bounds from the source window. Use the exact corner
-        // radii supplied by that source instead of the in-process menu defaults; otherwise the
-        // first handoff clips the source high-light edge before the destination takes ownership.
-        menuCornerRadiusPx = with(density) { sourceCornerRadius.toPx() },
-        buttonCornerRadiusPx = with(density) { collapseCornerRadius.toPx() },
-        pinchDiameterPx = with(density) { 18.dp.toPx() },
-        minimumDropPx = with(density) { 12.dp.toPx() },
-        maximumDropPx = with(density) { adaptiveMetrics.animationArc.toPx() },
-        maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() + 16.dp.toPx() },
-        targetCornerRadiusPx = 0f
-    )
-    val fullOpenEndpoint = !detailMorphUsesTransientClip(p, closing)
-    val renderedCornerRadiusPx = homeMenuDestinationRenderedCornerRadiusPx(
-        geometry = geometry,
-        rawProgress = p,
-        isFullScreen = true,
-        closing = closing,
-        sourceCornerRadiusPx = with(density) { sourceCornerRadius.toPx() },
-        collapseCornerRadiusPx = with(density) { collapseCornerRadius.toPx() },
-        middleCornerRadiusPx = with(density) { 46.dp.toPx() }
-    )
-    val sourceAlpha = when {
-        closing || destinationFirstOpening -> 0f
-        else -> 1f - anchoredDestinationSmoothStep(0.035f, 0.20f, p)
+    val geometry by remember(source, collapse, full, closing, density, adaptiveMetrics, sourceCornerRadius, collapseCornerRadius) {
+        derivedStateOf {
+            homeMenuDestinationTrajectoryGeometry(
+                sourceBoundsInRoot = source,
+                collapseBoundsInRoot = collapse,
+                target = full,
+                rawProgress = p,
+                closing = closing,
+                // The Activity receives the real bounds from the source window. Use the exact corner
+                // radii supplied by that source instead of the in-process menu defaults; otherwise the
+                // first handoff clips the source high-light edge before the destination takes ownership.
+                menuCornerRadiusPx = with(density) { sourceCornerRadius.toPx() },
+                buttonCornerRadiusPx = with(density) { collapseCornerRadius.toPx() },
+                pinchDiameterPx = with(density) { 18.dp.toPx() },
+                minimumDropPx = with(density) { 12.dp.toPx() },
+                maximumDropPx = with(density) { adaptiveMetrics.animationArc.toPx() },
+                maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() + 16.dp.toPx() },
+                targetCornerRadiusPx = 0f
+            )
+        }
     }
-    val collapseAlpha = if (closing && collapseSnapshot != null) {
-        1f - anchoredDestinationSmoothStep(0.06f, 0.18f, p)
-    } else {
-        0f
+    val fullOpenEndpoint by remember(closing) {
+        derivedStateOf { !detailMorphUsesTransientClip(p, closing) }
     }
-    val destinationAlpha = if (destinationFirstOpening && !closing) {
-        1f
-    } else {
-        homeMenuDestinationContentAlpha(
-            rawProgress = p,
-            isFullScreen = true,
-            closing = closing
-        )
+    val renderedCornerRadiusPx by remember(source, collapse, full, closing, density, sourceCornerRadius, collapseCornerRadius, adaptiveMetrics) {
+        derivedStateOf {
+            homeMenuDestinationRenderedCornerRadiusPx(
+                geometry = geometry,
+                rawProgress = p,
+                isFullScreen = true,
+                closing = closing,
+                sourceCornerRadiusPx = with(density) { sourceCornerRadius.toPx() },
+                collapseCornerRadiusPx = with(density) { collapseCornerRadius.toPx() },
+                middleCornerRadiusPx = with(density) { 46.dp.toPx() }
+            )
+        }
+    }
+    val sourceAlpha by remember(closing, destinationFirstOpening) {
+        derivedStateOf {
+            when {
+                closing || destinationFirstOpening -> 0f
+                else -> 1f - anchoredDestinationSmoothStep(0.035f, 0.20f, p)
+            }
+        }
+    }
+    val collapseAlpha by remember(closing, collapseSnapshot) {
+        derivedStateOf {
+            if (closing && collapseSnapshot != null) {
+                1f - anchoredDestinationSmoothStep(0.06f, 0.18f, p)
+            } else {
+                0f
+            }
+        }
+    }
+    val destinationAlpha by remember(closing, destinationFirstOpening) {
+        derivedStateOf {
+            if (destinationFirstOpening && !closing) {
+                1f
+            } else {
+                homeMenuDestinationContentAlpha(
+                    rawProgress = p,
+                    isFullScreen = true,
+                    closing = closing
+                )
+            }
+        }
     }
     // Course management uses the same destination geometry as Edu import, but its entry begins
     // with the already-composed destination clipped inside the source shell. The original menu is
     // hidden before the Activity starts, so replaying it here causes the visible button/menu blink.
-    val destinationSurfaceAlpha = if (destinationFirstOpening && !closing) 1f else 1f - sourceAlpha
+    val destinationSurfaceAlpha by remember(closing, destinationFirstOpening) {
+        derivedStateOf { if (destinationFirstOpening && !closing) 1f else 1f - sourceAlpha }
+    }
     val maxContentBlurPx = with(density) { 5.dp.toPx() }
-    val destinationBlurMix = if (destinationFirstOpening && !closing) {
-        0f
-    } else if (closing) {
-        val closeElapsed = 1f - p
-        anchoredDestinationSmoothStep(0.48f, 0.84f, closeElapsed)
-    } else {
-        homeMenuDestinationOpeningContentBlurMix(
-            rawProgress = p,
-            isFullScreen = true
-        )
+    val destinationBlurMix by remember(closing, destinationFirstOpening) {
+        derivedStateOf {
+            if (destinationFirstOpening && !closing) {
+                0f
+            } else if (closing) {
+                val closeElapsed = 1f - p
+                anchoredDestinationSmoothStep(0.48f, 0.84f, closeElapsed)
+            } else {
+                homeMenuDestinationOpeningContentBlurMix(
+                    rawProgress = p,
+                    isFullScreen = true
+                )
+            }
+        }
     }
     val destinationContentLayer = rememberGraphicsLayer()
-    val destinationContentRecorded = remember { AtomicBoolean(false) }
-    val destinationClosingRecorded = remember { AtomicBoolean(false) }
+    val destinationContentRecorded = remember(rootSize, density, sourceBounds) { AtomicBoolean(false) }
+    val destinationClosingRecorded = remember(rootSize, density, closing) { AtomicBoolean(false) }
     // Keep the Activity handoff on the same continuous rounded-rectangle family as the
     // in-process HomeMenuDestination shell. A platform RoundedCornerShape has a different
     // curvature and visibly crops the source highlight at the handoff even with the same radius.
-    val shellShape = RoundedRectangle(with(density) { renderedCornerRadiusPx.toDp() })
+    val latestCorner = rememberUpdatedState { renderedCornerRadiusPx }
+    val shellShape = remember(density.density) {
+        DeferredGlassRoundedRectangle({ latestCorner.value() }, density.density)
+    }
+    val showSource by remember(closing, destinationFirstOpening) { derivedStateOf { sourceAlpha > 0.001f } }
+    val showCollapse by remember(closing, collapseSnapshot) { derivedStateOf { collapseAlpha > 0.001f } }
+    val showBlur by remember(closing, destinationFirstOpening) {
+        derivedStateOf { !fullOpenEndpoint && destinationBlurMix > 0.001f }
+    }
+    val freezeContentCoordinates = remember(closing, destinationContentRecorded, destinationClosingRecorded) {
+        {
+            !fullOpenEndpoint && if (closing) destinationClosingRecorded.get()
+            else destinationContentRecorded.get()
+        }
+    }
 
     Box(
         Modifier
@@ -579,7 +629,7 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                     .background(destinationSurfaceColor)
             )
         }
-        if (sourceAlpha > 0.001f) {
+        if (showSource) {
             Box(
                 modifier = Modifier
                     .offset {
@@ -588,10 +638,13 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                             ((rootSize.height - geometry.rect.height) / 2f).roundToInt()
                         )
                     }
-                    .size(
-                        with(density) { geometry.rect.width.toDp() },
-                        with(density) { geometry.rect.height.toDp() }
-                    )
+                    .layout { measurable, constraints ->
+                        val rect = geometry.rect
+                        val width = constraints.constrainWidth(rect.width.roundToInt().coerceAtLeast(1))
+                        val height = constraints.constrainHeight(rect.height.roundToInt().coerceAtLeast(1))
+                        val placeable = measurable.measure(Constraints.fixed(width, height))
+                        layout(width, height) { placeable.place(0, 0) }
+                    }
                     .graphicsLayer {
                         alpha = sourceAlpha
                         renderEffect = if (p < 0.999f) {
@@ -616,7 +669,7 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                 }
             }
         }
-        if (collapseAlpha > 0.001f && collapseSnapshot != null) {
+        if (showCollapse && collapseSnapshot != null) {
             Box(
                 modifier = Modifier
                     .offset {
@@ -677,9 +730,11 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                         alpha = destinationAlpha * (1f - destinationBlurMix)
                     }
             ) {
-                content(onClose)
+                CompositionLocalProvider(LocalGlassCoordinatesFrozen provides freezeContentCoordinates) {
+                    content(onClose)
+                }
             }
-            if (!fullOpenEndpoint && destinationBlurMix > 0.001f) {
+            if (showBlur) {
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -932,7 +987,7 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
     rootSize: IntSize,
     sourceCornerRadius: Dp,
     sourceSnapshot: Bitmap?,
-    progress: Float,
+    progressProvider: () -> Float,
     closing: Boolean,
     onClose: () -> Unit,
     sourceContent: @Composable BoxScope.() -> Unit,
@@ -942,10 +997,12 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
     val full = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
     val source = sourceBounds ?: full
     val targetCornerRadiusPx = deviceScreenCornerRadiusPx()
-    val geometry = homeAnchoredMorphGeometry(
+    val latestProgress = rememberUpdatedState(progressProvider)
+    val geometry by remember(source, full, closing, sourceCornerRadius, density, targetCornerRadiusPx) {
+        derivedStateOf { homeAnchoredMorphGeometry(
         source = source,
         target = full,
-        rawProgress = progress,
+        rawProgress = latestProgress.value(),
         closing = closing,
         sourceCornerRadiusPx = with(density) { sourceCornerRadius.toPx() },
         pinchDiameterPx = with(density) { 22.dp.toPx() },
@@ -954,12 +1011,18 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
         maximumArcPx = with(density) { 48.dp.toPx() },
         targetCornerRadiusPx = targetCornerRadiusPx,
         motionStyle = HomeMorphEasingStyle.Legacy
-    )
-    val fullOpenEndpoint = !detailMorphUsesTransientClip(progress, closing)
+    ) }
+    }
+    val fullOpenEndpoint by remember(closing) {
+        derivedStateOf { !detailMorphUsesTransientClip(latestProgress.value(), closing) }
+    }
+    val showSource by remember(source, full, closing, sourceCornerRadius, density, targetCornerRadiusPx) {
+        derivedStateOf { geometry.sourceAlpha > 0.001f }
+    }
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.24f * geometry.expansionProgress))
+            .drawBehind { drawRect(Color.Black.copy(alpha = 0.24f * geometry.expansionProgress)) }
             .pointerInput(closing) {
                 awaitPointerEventScope {
                     while (true) awaitPointerEvent().changes.forEach { it.consume() }
@@ -971,10 +1034,13 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
             .offset {
                 IntOffset(geometry.rect.left.roundToInt(), geometry.rect.top.roundToInt())
             }
-            .size(
-                with(density) { geometry.rect.width.toDp() },
-                with(density) { geometry.rect.height.toDp() }
-            )
+            .layout { measurable, constraints ->
+                val rect = geometry.rect
+                val width = constraints.constrainWidth(rect.width.roundToInt().coerceAtLeast(1))
+                val height = constraints.constrainHeight(rect.height.roundToInt().coerceAtLeast(1))
+                val placeable = measurable.measure(Constraints.fixed(width, height))
+                layout(width, height) { placeable.place(0, 0) }
+            }
             .graphicsLayer {
                 clip = !fullOpenEndpoint
                 shape = RoundedRectangle(with(density) { geometry.cornerRadiusPx.toDp() })
@@ -992,7 +1058,7 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
                 }
             }
     ) {
-        if (geometry.sourceAlpha > 0.001f) {
+        if (showSource) {
             Box(
                 Modifier
                     .fillMaxSize()

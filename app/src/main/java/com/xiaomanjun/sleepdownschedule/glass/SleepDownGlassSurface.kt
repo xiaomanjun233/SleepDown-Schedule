@@ -40,6 +40,8 @@ private val LiveGlassCoordinates: () -> Boolean = { false }
 
 /** Only a retained underlay supplies this predicate; foreground glass keeps sampling its motion. */
 internal val LocalGlassCoordinatesFrozen = compositionLocalOf { LiveGlassCoordinates }
+private val NoGlassSampleRecordKey: () -> Any? = { null }
+internal val LocalGlassSampleRecordKey = compositionLocalOf { NoGlassSampleRecordKey }
 private val DefaultLayerBackdropDraw: ContentDrawScope.() -> Unit = { drawContent() }
 private val DefaultGlassBackdropDraw: DrawScope.(DrawScope.() -> Unit) -> Unit = { drawBackdrop ->
     drawBackdrop()
@@ -186,6 +188,7 @@ fun Modifier.sleepDownGlassSurface(
     // Read the flag in the draw node, not composition. Freeze/resume must retain existing
     // materials, effects and node identities rather than rebuild every course surface.
     val currentCoordinatesFrozen = rememberUpdatedState(LocalGlassCoordinatesFrozen.current)
+    val currentSampleRecordKey = rememberUpdatedState(LocalGlassSampleRecordKey.current)
     val renderOptions = remember(sampleBackdrop, allocationPaddingPx, cacheDecorations, backdropSampleScale) {
         com.kyant.backdrop.BackdropRenderOptions(
             enabled = { currentRenderEnabled.value.invoke() },
@@ -195,7 +198,8 @@ fun Modifier.sleepDownGlassSurface(
             effectKey = { currentEffectInputKey.value },
             cacheDecorations = cacheDecorations,
             sampleScale = backdropSampleScale,
-            coordinatesFrozen = { currentCoordinatesFrozen.value.invoke() }
+            coordinatesFrozen = { currentCoordinatesFrozen.value.invoke() },
+            sampleRecordKey = { currentSampleRecordKey.value.invoke() }
         )
     }
     val diagnosticSceneState = sceneState?.takeIf { it.diagnosticsEnabled }
@@ -394,9 +398,11 @@ fun Modifier.sleepDownPlainGlassSurface(
     val currentShape = rememberUpdatedState(shape)
     val currentEffects = rememberUpdatedState(effects)
     val currentCoordinatesFrozen = rememberUpdatedState(LocalGlassCoordinatesFrozen.current)
+    val currentSampleRecordKey = rememberUpdatedState(LocalGlassSampleRecordKey.current)
     val renderOptions = remember {
         com.kyant.backdrop.BackdropRenderOptions(
-            coordinatesFrozen = { currentCoordinatesFrozen.value.invoke() }
+            coordinatesFrozen = { currentCoordinatesFrozen.value.invoke() },
+            sampleRecordKey = { currentSampleRecordKey.value.invoke() }
         )
     }
     val diagnosticSceneState = sceneState?.takeIf { it.diagnosticsEnabled }

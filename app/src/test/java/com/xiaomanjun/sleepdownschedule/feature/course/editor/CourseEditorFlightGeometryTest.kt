@@ -10,6 +10,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CourseEditorFlightGeometryTest {
+    @Test fun deferredEditorCornerTracksMotionAndSamplingDensity() {
+        var radius = 112f
+        val shape = CourseEditorMorphCornerShape(112f, 112f, sourceDensity = 3.5f,
+            radiusProvider = { radius })
+        val size = Size(700f, 1200f)
+        assertEquals(112f, shape.topStart.toPx(size, Density(3.5f)), 0.001f)
+        assertEquals(56f, shape.topStart.toPx(size * 0.5f, Density(1.75f)), 0.001f)
+        radius = 70f
+        assertEquals(70f, shape.topStart.toPx(size, Density(3.5f)), 0.001f)
+        assertEquals(35f, shape.topStart.toPx(size * 0.5f, Density(1.75f)), 0.001f)
+    }
+
     @Test fun closeKeepsOpeningOrientationAndSettlesAtBothEndpoints() {
         for (delta in listOf(-400f, 400f)) {
             for (step in 0..100) {

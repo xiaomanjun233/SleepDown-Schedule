@@ -14,7 +14,9 @@ class BackdropRenderOptions(
     /** Sampling resolution only; layout, clipping and decorations remain at full resolution. */
     val sampleScale: Float = 1f,
     /** A retained scene may suppress position-only invalidation while its outer layer moves. */
-    val coordinatesFrozen: () -> Boolean = { false }
+    val coordinatesFrozen: () -> Boolean = { false },
+    /** Complete scene identity; only a frozen, matching scene may reuse a sampled recording. */
+    val sampleRecordKey: () -> Any? = { null }
 ) {
     companion object {
         val Default = BackdropRenderOptions()

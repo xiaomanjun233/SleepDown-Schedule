@@ -2,6 +2,8 @@
 package com.kyant.backdrop.internal
 
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
@@ -26,7 +28,7 @@ internal class ShapeProvider(
 
     private var _shape: Shape? = null
     private var _bounds: Rect? = null
-    private var _outline: Outline? = null
+    private var _outline: State<Outline>? = null
     private var _size: Size = Size.Unspecified
     private var _layoutDirection: LayoutDirection? = null
     private var _density: Float? = null
@@ -56,18 +58,22 @@ internal class ShapeProvider(
                 _size = size
                 _layoutDirection = layoutDirection
                 _density = density.density
-                _outline = if (bounds == null) {
-                    shape.createOutline(size, layoutDirection, density)
-                } else {
-                    Outline.Generic(Path().apply {
-                        addPath(Path().apply {
-                            addOutline(shape.createOutline(bounds.size, layoutDirection, density))
-                        }, bounds.topLeft)
-                    })
+                // A stable Shape may read animation state itself. Observe that state even when
+                // host size and Shape identity stay fixed; static outlines remain cached.
+                _outline = derivedStateOf {
+                    if (bounds == null) {
+                        shape.createOutline(size, layoutDirection, density)
+                    } else {
+                        Outline.Generic(Path().apply {
+                            addPath(Path().apply {
+                                addOutline(shape.createOutline(bounds.size, layoutDirection, density))
+                            }, bounds.topLeft)
+                        })
+                    }
                 }
             }
 
-            return _outline!!
+            return _outline!!.value
         }
     }
 }

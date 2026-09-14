@@ -1631,6 +1631,7 @@ fun CourseScheduleAppUi(
     }
     val currentHomeCoordinatesFreeze = rememberUpdatedState(homeBackgroundFreezeActive)
     val currentHomeCaptureFrameKey = rememberUpdatedState(homeCaptureFrameKey)
+    val homeGlassSampleRecordKey = remember { { currentHomeCaptureFrameKey.value } }
     val freezeHomeGlassCoordinates = remember {
         {
             currentHomeCoordinatesFreeze.value &&
@@ -2349,7 +2350,8 @@ fun CourseScheduleAppUi(
         CompositionLocalProvider(
             LocalHomeBackgroundFrozen provides homeBackgroundFreezeActive,
             com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen provides
-                freezeHomeGlassCoordinates
+                freezeHomeGlassCoordinates,
+            com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey provides homeGlassSampleRecordKey
         ) {
         Scaffold(
             containerColor = ComposeColor.Transparent,

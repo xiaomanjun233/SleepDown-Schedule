@@ -52,6 +52,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -75,6 +76,11 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.constrainWidth
+import androidx.compose.ui.unit.constrainHeight
+import com.xiaomanjun.sleepdownschedule.glass.DeferredGlassCornerSize
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -199,7 +205,10 @@ internal class CourseEditorMorphCornerShape(
     private val radiusY: Float,
     private val taper: Float = 0f,
     private val sourceDensity: Float = 1f,
-    topStart: CornerSize = CornerSize((minOf(radiusX, radiusY) / sourceDensity).dp),
+    private val radiusProvider: (() -> Float)? = null,
+    private val taperProvider: (() -> Float)? = null,
+    topStart: CornerSize = radiusProvider?.let { DeferredGlassCornerSize(sourceDensity, it) }
+        ?: CornerSize((minOf(radiusX, radiusY) / sourceDensity).dp),
     topEnd: CornerSize = topStart,
     bottomEnd: CornerSize = topStart,
     bottomStart: CornerSize = topStart
@@ -212,12 +221,14 @@ internal class CourseEditorMorphCornerShape(
         bottomStart: Float,
         layoutDirection: LayoutDirection
     ): Outline {
-        val base = RoundedRectangle(topStart.dp).createOutline(size, layoutDirection, Density(1f))
-        if (taper == 0f) return base
+        val base = RoundedRectangle(topStart.dp)
+            .createOutline(size, layoutDirection, Density(1f))
+        val currentTaper = taperProvider?.invoke() ?: taper
+        if (currentTaper == 0f) return base
         val path = Path().apply { addOutline(base) }.asAndroidPath()
-        if (taper != 0f && size.width > 0f && size.height > 0f) {
+        if (size.width > 0f && size.height > 0f) {
             path.transform(Matrix().apply {
-                setValues(courseEditorTaperTransform(size.width, size.height, taper))
+                setValues(courseEditorTaperTransform(size.width, size.height, currentTaper))
             })
         }
         return Outline.Generic(path.asComposePath())
@@ -233,6 +244,8 @@ internal class CourseEditorMorphCornerShape(
         radiusY = radiusY,
         taper = taper,
         sourceDensity = sourceDensity,
+        radiusProvider = radiusProvider,
+        taperProvider = taperProvider,
         topStart = topStart,
         topEnd = topEnd,
         bottomEnd = bottomEnd,
@@ -240,7 +253,8 @@ internal class CourseEditorMorphCornerShape(
     )
 }
 
-private fun Modifier.courseEditorContentTaper(taper: Float): Modifier = drawWithCache {
+private fun Modifier.courseEditorContentTaper(taperProvider: () -> Float): Modifier = drawWithCache {
+    val taper = taperProvider()
     val transform = if (taper == 0f) null else Matrix().apply {
         setValues(courseEditorTaperTransform(size.width, size.height, taper))
     }
@@ -504,7 +518,6 @@ internal fun CourseEditorContainerOverlayHost(
             hasSourceTransform = hasSourceTransform
         )
     }
-    val rawProgress = progress.value.coerceIn(0f, 1f)
     val materialEnvelope = remember(morphSpec, sourceRect, targetRect) {
         // A tapered shell cannot be represented by the fixed envelope's rounded-rectangle SDF.
         if (!GlassMotionExperiments.fixedMorph || hasSourceTransform) null else {
@@ -524,33 +537,38 @@ internal fun CourseEditorContainerOverlayHost(
         overlayPhase == CourseEditorOverlayPhase.Disposing
     val shellCourse = if (closingMorph) motionState.closingCourseOverride ?: shownRequest.course
         else shownRequest.course
-    val morphFrame = morphSpec.frame(
-        LiquidMorphInput(
-            source = sourceRect,
-            target = targetRect,
-            rawProgress = rawProgress,
-            direction = if (closingMorph) {
-                LiquidMorphDirection.Closing
-            } else {
-                LiquidMorphDirection.Opening
-            },
-            backdropScale = motionState.backgroundZoom.value,
-            backdropBlurPx = with(density) {
-                22.dp.toPx() * homeOverlayDepthProgress(motionState.backgroundZoom.value)
-            },
-            useCachedBackdrop = overlayPhase == CourseEditorOverlayPhase.Preparing ||
-                overlayPhase == CourseEditorOverlayPhase.Opening ||
-                overlayPhase == CourseEditorOverlayPhase.Closing ||
-                overlayPhase == CourseEditorOverlayPhase.Disposing
-        )
-    )
-    val sizeProgress = morphFrame.shapeProgress
-    val animatedRect = morphFrame.rect
-    val materialGeometry = rememberUpdatedState(GlassTransitionGeometry(animatedRect,
-        with(density) { morphFrame.cornerRadiusPx.coerceIn(6.dp.toPx(), 36.dp.toPx()) }))
+    val frameState = remember(morphSpec, sourceRect, targetRect, closingMorph, overlayPhase, density, motionState) {
+        derivedStateOf {
+            morphSpec.frame(
+                LiquidMorphInput(
+                    source = sourceRect,
+                    target = targetRect,
+                    rawProgress = progress.value.coerceIn(0f, 1f),
+                    direction = if (closingMorph) LiquidMorphDirection.Closing else LiquidMorphDirection.Opening,
+                    backdropScale = motionState.backgroundZoom.value,
+                    backdropBlurPx = with(density) {
+                        22.dp.toPx() * homeOverlayDepthProgress(motionState.backgroundZoom.value)
+                    },
+                    useCachedBackdrop = overlayPhase == CourseEditorOverlayPhase.Preparing ||
+                        overlayPhase == CourseEditorOverlayPhase.Opening ||
+                        overlayPhase == CourseEditorOverlayPhase.Closing ||
+                        overlayPhase == CourseEditorOverlayPhase.Disposing
+                )
+            )
+        }
+    }
+    val morphFrame by frameState
+    val materialGeometry = remember(frameState, density) {
+        derivedStateOf {
+            GlassTransitionGeometry(
+                morphFrame.rect,
+                with(density) { morphFrame.cornerRadiusPx.coerceIn(6.dp.toPx(), 36.dp.toPx()) }
+            )
+        }
+    }
     val fixedMaterialEligible = config.courseCardGlassEnabled && config.hasAnyWallpaper() &&
         backdrop != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-    val materialAllocation = remember(materialEnvelope, overlayPhase, config.courseCardBlur, density.density, fixedMaterialEligible) {
+    val materialAllocation = remember(materialEnvelope, materialGeometry, overlayPhase, config.courseCardBlur, density.density, fixedMaterialEligible) {
         if (materialEnvelope == null || overlayPhase == CourseEditorOverlayPhase.Open ||
             !fixedMaterialEligible) null else {
             GlassMorphAllocation(materialEnvelope, { materialGeometry.value },
@@ -559,42 +577,63 @@ internal fun CourseEditorContainerOverlayHost(
     }
     val animatedModifier = Modifier
         .offset {
+            val animatedRect = morphFrame.rect
             IntOffset(
                 animatedRect.left.roundToInt(),
                 animatedRect.top.roundToInt()
             )
         }
-        .size(
-            width = with(density) { animatedRect.width.toDp() },
-            height = with(density) { animatedRect.height.toDp() }
-        )
-    val corner = with(density) {
-        morphFrame.cornerRadiusPx
-            .coerceIn(6.dp.toPx(), 36.dp.toPx())
-            .toDp()
+        .layout { measurable, constraints ->
+            val rect = morphFrame.rect
+            val width = constraints.constrainWidth(rect.width.roundToInt().coerceAtLeast(1))
+            val height = constraints.constrainHeight(rect.height.roundToInt().coerceAtLeast(1))
+            val placeable = measurable.measure(Constraints.fixed(width, height))
+            layout(width, height) { placeable.place(0, 0) }
+        }
+    val corner = remember(frameState, density) {
+        derivedStateOf {
+            with(density) { morphFrame.cornerRadiusPx.coerceIn(6.dp.toPx(), 36.dp.toPx()).toDp() }
+        }
     }
     // A copy can land elsewhere, but its upper/lower taper still follows the opening source.
     val openingSource = validSourceRect(shownRequest.sourceBoundsInRoot, rootSize)
-    val taper = if (openingSource != null && (overlayPhase == CourseEditorOverlayPhase.Opening || closingMorph)) {
-        courseEditorOpeningTaper(rawProgress, openingSource.center.y - targetRect.center.y,
-            targetRect.height, closing = closingMorph)
-    } else 0f
+    val taper = remember(openingSource, targetRect, overlayPhase, closingMorph, progress) {
+        derivedStateOf {
+            if (openingSource != null && (overlayPhase == CourseEditorOverlayPhase.Opening || closingMorph)) {
+                courseEditorOpeningTaper(
+                    progress.value.coerceIn(0f, 1f),
+                    openingSource.center.y - targetRect.center.y,
+                    targetRect.height,
+                    closing = closingMorph
+                )
+            } else 0f
+        }
+    }
     val shellShape = remember(corner, density.density, taper) {
         with(density) {
-            CourseEditorMorphCornerShape(corner.toPx(), corner.toPx(), taper, sourceDensity = density.density)
+            CourseEditorMorphCornerShape(
+                32.dp.toPx(), 32.dp.toPx(), sourceDensity = density.density,
+                radiusProvider = { corner.value.toPx() }, taperProvider = { taper.value }
+            )
         }
     }
     val morphSurfaceAlpha = 1f
-    val sourceCoverAlpha = if (hasSourceTransform) {
-        when (overlayPhase) {
-            CourseEditorOverlayPhase.Preparing,
-            CourseEditorOverlayPhase.Opening -> morphFrame.content.sourceAlpha
-            CourseEditorOverlayPhase.Closing,
-            CourseEditorOverlayPhase.Disposing -> morphFrame.content.sourceAlpha
-            else -> 0f
+    val sourceCoverAlpha = remember(frameState, hasSourceTransform, overlayPhase) {
+        derivedStateOf {
+            if (hasSourceTransform) {
+                when (overlayPhase) {
+                    CourseEditorOverlayPhase.Preparing,
+                    CourseEditorOverlayPhase.Opening,
+                    CourseEditorOverlayPhase.Closing,
+                    CourseEditorOverlayPhase.Disposing -> morphFrame.content.sourceAlpha
+                    else -> 0f
+                }
+            } else 0f
         }
-    } else 0f
-    val sourceContentBlurPx = morphFrame.content.sourceBlurPx
+    }
+    val showSourceCover by remember(sourceCoverAlpha) {
+        derivedStateOf { sourceCoverAlpha.value > 0.001f }
+    }
     val editorFormBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Content,
         providerId = "course-editor-shell"
@@ -623,7 +662,7 @@ internal fun CourseEditorContainerOverlayHost(
             config = config,
             course = shellCourse,
             shape = shellShape,
-            progress = sizeProgress,
+            progressProvider = { morphFrame.shapeProgress },
             alpha = morphSurfaceAlpha,
             surfaceBackdrop = editorFormBackdrop,
             modifier = if (materialAllocation == null) animatedModifier else Modifier.glassMorphHost(materialAllocation),
@@ -634,12 +673,12 @@ internal fun CourseEditorContainerOverlayHost(
                     .fillMaxSize()
                     .then(if (materialAllocation != null) Modifier.glassMorphContent(materialAllocation) else Modifier)
                     .clip(shellShape)
-                    .courseEditorContentTaper(taper)
+                    .courseEditorContentTaper { taper.value }
             ) {
                 if (request != null && editorContentMounted && overlayPhase == CourseEditorOverlayPhase.Open) {
                     CourseEditorFormLayer(
                         targetRect = targetRect,
-                        corner = corner,
+                        corner = corner.value,
                         textColor = textColor,
                         formData = formData,
                         course = shownRequest.course,
@@ -650,7 +689,7 @@ internal fun CourseEditorContainerOverlayHost(
                         onDelete = deleteEditedCourse
                     )
                 }
-                if (sourceCoverAlpha > 0.001f) {
+                if (showSourceCover) {
                     CourseEditorSourceShell(
                         course = shellCourse,
                         backdrop = backdrop,
@@ -660,8 +699,8 @@ internal fun CourseEditorContainerOverlayHost(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                alpha = sourceCoverAlpha
-                                val blurPx = sourceContentBlurPx
+                                alpha = sourceCoverAlpha.value
+                                val blurPx = morphFrame.content.sourceBlurPx
                                 compositingStrategy = CompositingStrategy.Offscreen
                                 renderEffect = platformBlurRenderEffect(blurPx)
                             }
@@ -779,7 +818,7 @@ private fun CourseEditorAnimatedContainer(
     config: ScheduleConfigEntity,
     course: CourseEntity,
     shape: androidx.compose.ui.graphics.Shape,
-    progress: Float,
+    progressProvider: () -> Float,
     alpha: Float,
     surfaceBackdrop: LayerBackdrop,
     modifier: Modifier = Modifier,
@@ -787,11 +826,13 @@ private fun CourseEditorAnimatedContainer(
     content: @Composable () -> Unit
 ) {
     val finalDialogBlur = 22f
-    val editorBlur = interpolateFloat(
-        config.courseCardBlur,
-        finalDialogBlur,
-        smoothStep(0.62f, 1f, progress)
-    )
+    val currentProgress = rememberUpdatedState(progressProvider)
+    val editorBlur by remember(config.courseCardBlur) {
+        derivedStateOf {
+            interpolateFloat(config.courseCardBlur, finalDialogBlur,
+                smoothStep(0.62f, 1f, currentProgress.value.invoke()))
+        }
+    }
     CourseGlassCard(
         backdrop = backdrop,
         config = config,

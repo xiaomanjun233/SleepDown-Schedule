@@ -1685,10 +1685,12 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
     val stableInsetEligible = backdrop != null &&
         adaptiveMetrics.isLargeScreen &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-    val progressiveEnvelopeRequested = stableInsetEligible &&
+    val showAura = false
+    val showStableProgressiveBackdrop = false
+    val progressiveEnvelopeRequested = showStableProgressiveBackdrop && stableInsetEligible &&
         glassSceneState?.rendererFor(progressiveEnvelopeDescriptor) ==
         GlassRendererKind.StableEnvelopeExperimental
-    val auraEnvelopeRequested = stableInsetEligible &&
+    val auraEnvelopeRequested = showAura && stableInsetEligible &&
         glassSceneState?.rendererFor(auraEnvelopeDescriptor) ==
         GlassRendererKind.StableEnvelopeExperimental
     val auraLeftFeatherMaximumPx = with(density) { 104.dp.toPx() }
@@ -1816,9 +1818,6 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
             }
         }
     }
-    val showAura = false
-
-    val showStableProgressiveBackdrop = false
     val taper = remember(motionState, sourceBounds, targetRect) {
         derivedStateOf {
             if (motionState.phase == HomeAnchoredOverlayPhase.Opening ||
