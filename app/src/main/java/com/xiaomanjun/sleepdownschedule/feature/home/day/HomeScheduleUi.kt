@@ -507,6 +507,7 @@ fun HomeDateTitle(
     beforeScheduleTerm: Boolean,
     afterScheduleTerm: Boolean,
     showReturnToCurrentWeekHint: Boolean,
+    showWeather: Boolean = false,
     onReturnCurrent: () -> Unit
 ) {
     val color = homeForegroundColor(state.config)
@@ -516,22 +517,27 @@ fun HomeDateTitle(
             .clickable(interactionSource = interactionSource, indication = null, onClick = onReturnCurrent),
         verticalArrangement = Arrangement.Center
     ) {
-        HomeReadableText(
-            when {
-                beforeScheduleTerm -> "当前暂未开学"
-                afterScheduleTerm -> "学期已结束"
-                showReturnToCurrentWeekHint -> "点击此处回到本周"
-                else -> "第${displayWeek}周"
-            },
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontSize = 16.sp,
-                lineHeight = 18.sp
-            ),
-            fontWeight = FontWeight.Medium,
-            color = color.copy(alpha = 0.68f),
-            maxLines = 1,
-            softWrap = false
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            HomeReadableText(
+                when {
+                    beforeScheduleTerm -> "当前暂未开学"
+                    afterScheduleTerm -> "学期已结束"
+                    showReturnToCurrentWeekHint -> "点击此处回到本周"
+                    else -> "第${displayWeek}周"
+                },
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 16.sp,
+                    lineHeight = 18.sp
+                ),
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f, fill = false),
+                color = color.copy(alpha = 0.68f),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (showWeather) com.xiaomanjun.sleepdownschedule.feature.home.week.WeekHeaderWeather(color.copy(alpha = 0.68f))
+        }
         HomeReadableText(
             if (showTwoDays) {
                 val nextDate = displayDate.plusDays(1)
