@@ -1594,8 +1594,7 @@ fun CourseScheduleAppUi(
         homeDisplayDate,
         editingCourseId,
         activeHomeAnchoredOverlay,
-        addButtonHidden,
-        homeMenuSourceHidden
+        addButtonHidden
     ) {
         buildString {
             append(System.identityHashCode(homeBackgroundSession)).append('|')
@@ -1612,10 +1611,8 @@ fun CourseScheduleAppUi(
                 .append('|').append(editingCourseId)
                 .append('|').append(activeHomeAnchoredOverlay)
                 .append('|').append(addButtonHidden)
-                // Source handoff hides the first-level menu without changing the schedule data.
-                // Include it in the capture key so the clean background is actually re-recorded
-                // after the hidden frame, rather than reusing the menu-containing texture.
-                .append('|').append(homeMenuSourceHidden)
+            // Menus are sibling consumers outside this recorder. Hiding the source menu during
+            // handoff changes no Home pixels and must not recapture the scene during Opening.
         }
     }
     val useFrozenHomeMorphBlur: () -> Boolean = {
@@ -1631,6 +1628,14 @@ fun CourseScheduleAppUi(
             cachedFrameKey = lastRecordedHomeFrameKey.get(),
             currentFrameKey = homeCaptureFrameKey
         )
+    }
+    val currentHomeCoordinatesFreeze = rememberUpdatedState(homeBackgroundFreezeActive)
+    val currentHomeCaptureFrameKey = rememberUpdatedState(homeCaptureFrameKey)
+    val freezeHomeGlassCoordinates = remember {
+        {
+            currentHomeCoordinatesFreeze.value &&
+                lastRecordedHomeFrameKey.get() == currentHomeCaptureFrameKey.value
+        }
     }
     val substantialHomeAnchoredCoverage =
         activeHomeAnchoredOverlay == HomeAnchoredOverlayKind.Personalize &&
@@ -2341,7 +2346,11 @@ fun CourseScheduleAppUi(
                     }
                 }
         ) {
-        CompositionLocalProvider(LocalHomeBackgroundFrozen provides homeBackgroundFreezeActive) {
+        CompositionLocalProvider(
+            LocalHomeBackgroundFrozen provides homeBackgroundFreezeActive,
+            com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen provides
+                freezeHomeGlassCoordinates
+        ) {
         Scaffold(
             containerColor = ComposeColor.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),

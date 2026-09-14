@@ -373,6 +373,10 @@ private class DrawBackdropNode(
     }
 
     override fun ContentDrawScope.draw() {
+        // Observe freeze/resume here, so resume refreshes the existing sample once even if no
+        // layout callback follows. The retained GraphicsLayer still references child RenderNodes:
+        // suppressing only the parent's drawContent does not stop their own invalidations.
+        shapeProvider.options.coordinatesFrozen()
         if (!shapeProvider.options.enabled()) return drawContent()
         val bounds = shapeProvider.options.bounds()
         val sampleScale = shapeProvider.options.sampleScale
@@ -407,7 +411,13 @@ private class DrawBackdropNode(
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
         if (coordinates.isAttached) {
             if (backdrop.isCoordinatesDependent) {
-                layoutCoordinates = coordinates
+                // LayoutCoordinates is mutable. Reassigning it with neverEqualPolicy on every
+                // outer zoom/menu layout dirtied each frozen card's sample and cached ancestor.
+                // Always accept a new node, but retain an existing node's recorded coordinates
+                // through motion. Model, size, effect and source changes still invalidate normally.
+                if (!shapeProvider.options.coordinatesFrozen() || layoutCoordinates !== coordinates) {
+                    layoutCoordinates = coordinates
+                }
             } else {
                 if (layoutCoordinates != null) {
                     layoutCoordinates = null

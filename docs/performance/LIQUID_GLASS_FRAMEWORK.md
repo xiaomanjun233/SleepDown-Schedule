@@ -17,6 +17,8 @@
 
 ## 上游约束与本地决策
 
+三点菜单后续优化：冻结状态现在也约束背景玻璃内部的位置通知，菜单交接不再使首页缓存无效；菜单实际内容在 Preparing 准备，源菜单副本及悬浮控件的动画值避免在组合阶段读取。具体边界、3 项缓存测试及缺少实机对照的限制见 [三点菜单与冻结位置更新](2026-09-14-menu-freeze-coordinates.md)。
+
 - 官方 [`DrawBackdropModifier`](https://github.com/Kyant0/AndroidLiquidGlass/blob/2.0.0/backdrop/src/commonMain/kotlin/com/kyant/backdrop/DrawBackdropModifier.kt)会为每个 `drawBackdrop` consumer 建立自己的效果/GraphicsLayer 路径；共享 provider 不等于合并 consumer。大量同时可见玻璃的退化与 [Issue #41](https://github.com/Kyant0/AndroidLiquidGlass/issues/41) 的 32 个对象案例一致，因此本地先统计 consumer layer 和 offscreen pixels，而不是误把 provider 复用当成全部优化。
 - 独立 Popup Window 的采样坐标问题仍按 [Issue #91](https://github.com/Kyant0/AndroidLiquidGlass/issues/91) 处理：业务 Popup 保持 Activity 根 overlay/既有屏幕坐标补偿，不新建无法对齐的窗口级 provider。
 - 多 shape lens 与稳定 envelope 的限制见下方实验后端。当前降采样场景包括课程卡、课程/导入编辑器、个性化及中心弹窗，见 [Beta5 跟进](2026-09-12-beta5-lifecycle-gestures.md)。只降低 backdrop/blur/lens 纹理；布局、文字、点击、tint、高光、阴影和边缘继续全分辨率。其它场景需按具体性能问题评估，不全局降低质量。

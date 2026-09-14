@@ -1036,7 +1036,6 @@ internal fun HomeMenuDestinationOverlayHost(
                         .graphicsLayer { clip = false }
                         .zIndex(1000f)
                 ) {
-                    val destinationAlpha = frame.value.destinationContentAlpha
                     Box(
                         Modifier
                             .fillMaxSize()
@@ -1048,7 +1047,7 @@ internal fun HomeMenuDestinationOverlayHost(
                                 alpha = if (isFullScreen &&
                                     motionState.phase != HomeAnchoredOverlayPhase.Closing
                                 ) {
-                                    destinationAlpha
+                                    frame.value.destinationContentAlpha
                                 } else {
                                     1f
                                 }

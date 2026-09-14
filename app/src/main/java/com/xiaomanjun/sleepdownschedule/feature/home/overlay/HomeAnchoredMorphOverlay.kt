@@ -135,6 +135,7 @@ import com.xiaomanjun.sleepdownschedule.glass.sleepDownPlainGlassSurface
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.max
@@ -1076,6 +1077,7 @@ internal fun HomeAnchoredMorphOverlayHost(
 ) {
     var renderedRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
     var panelContentPrepared by remember { mutableStateOf(false) }
+    val addMenuSurfacePrepared = remember { AtomicBoolean(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val latestOnDismissRequest by rememberUpdatedState(onDismissRequest)
     val latestOnAddMenuBoundsChanged by rememberUpdatedState(onAddMenuBoundsChanged)
@@ -1086,6 +1088,7 @@ internal fun HomeAnchoredMorphOverlayHost(
     LaunchedEffect(request, adaptiveMetrics.profile) {
         if (request != null) {
             renderedRequest = request
+            addMenuSurfacePrepared.set(false)
             panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize
             motionState.renderedKind = request.kind
             motionState.phase = HomeAnchoredOverlayPhase.Preparing
@@ -1098,6 +1101,15 @@ internal fun HomeAnchoredMorphOverlayHost(
             }
             // Personalization opens only its shell; form layout cannot gate this animation.
             latestAwaitOpeningGate()
+            if (request.kind == HomeAnchoredOverlayKind.Add) {
+                // Prepare the actual retained panel in the existing gate. Do not mount its
+                // text/blur/lens tree at the first non-zero alpha in the moving animation.
+                var surfaceFrames = 0
+                while (!addMenuSurfacePrepared.get() && surfaceFrames < 3) {
+                    withFrameNanos { }
+                    surfaceFrames++
+                }
+            }
             motionState.phase = HomeAnchoredOverlayPhase.Opening
             coroutineScope {
                 launch {
@@ -1491,6 +1503,9 @@ internal fun HomeAnchoredMorphOverlayHost(
                         )
                 },
                 externalHighlightedIndex = outsideDragHighlightedIndex,
+                retainSurface = true,
+                warmupSurface = motionState.phase == HomeAnchoredOverlayPhase.Preparing,
+                onSurfaceDrawn = { addMenuSurfacePrepared.set(true) },
                 interactive = motionState.phase == HomeAnchoredOverlayPhase.Opening ||
                     motionState.phase == HomeAnchoredOverlayPhase.Open,
                 shape = settledSurfaceShape,
@@ -2482,6 +2497,9 @@ internal fun HomeAddMenuMorphPanel(
     contentAlphaProvider: () -> Float,
     contentBlurRadiusPxProvider: () -> Float = { 0f },
     externalHighlightedIndex: Int = -1,
+    retainSurface: Boolean = false,
+    warmupSurface: Boolean = false,
+    onSurfaceDrawn: () -> Unit = {},
     interactive: Boolean,
     shape: Shape,
     modifier: Modifier,
@@ -2507,8 +2525,8 @@ internal fun HomeAddMenuMorphPanel(
     }
     val lightGlass = glassUsesLightStyle(config)
     val textColor = glassForegroundColor(config)
-    val showSurface by remember(surfaceAlphaProvider, backdrop) {
-        derivedStateOf { backdrop == null || surfaceAlphaProvider() > 0.005f }
+    val showSurface by remember(retainSurface, surfaceAlphaProvider, backdrop) {
+        derivedStateOf { retainSurface || backdrop == null || surfaceAlphaProvider() > 0.005f }
     }
 
     fun hitIndex(y: Float): Int {
@@ -2699,15 +2717,25 @@ internal fun HomeAddMenuMorphPanel(
         if (showSurface) {
             val surfaceModifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = surfaceAlphaProvider() }
+                .graphicsLayer {
+                    val surfaceAlpha = surfaceAlphaProvider()
+                    alpha = if (warmupSurface) maxOf(0.001f, surfaceAlpha) else surfaceAlpha
+                }
+                .drawWithContent {
+                    drawContent()
+                    onSurfaceDrawn()
+                }
             if (backdrop != null) {
                 LiquidButton(
                     onClick = {},
                     backdrop = backdrop,
                     modifier = surfaceModifier,
-                    isInteractive = interactive,
+                    // Keep the same visual modifier nodes throughout the retained menu session.
+                    // The host and unified action gesture still gate input by the actual phase.
+                    isInteractive = retainSurface || interactive,
                     clickTargetEnabled = false,
-                    height = with(density) { targetSizeProvider().height.toDp() },
+                    // fillMaxSize already fixes the surface dimensions. Reading the animated
+                    // target here used to recompose the entire source menu during handoff.
                     contentPadding = PaddingValues(0.dp),
                     blurRadius = 8.dp,
                     lensHeight = 12.dp,

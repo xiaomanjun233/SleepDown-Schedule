@@ -45,6 +45,11 @@ never be shared across consumers. Unsupported custom export is rejected, not sil
 
 ## Host regression tests
 
+On 2026-09-14, `BackdropRenderOptions.coordinatesFrozen` adds an opt-in position-notification
+gate for retained underlays. It keeps the existing sample, effects and decoration nodes alive;
+new coordinate nodes, model/effect changes and size changes still refresh normally. Reading the
+flag in draw also invalidates once on resume. Foreground consumers keep the default live behavior.
+
 `SharedBlurBackdrop` shares the wallpaper prefix across course cards. The 2026-09-10 alignment
 uses NexioSchedule commit `2971759ed3bb7b16ef13e639fba5dbf2a6a9cb2d` as its reference:
 [DrawBackdropModifier](https://github.com/HaoZai000/NexioSchedule/blob/2971759ed3bb7b16ef13e639fba5dbf2a6a9cb2d/app/src/main/java/com/kyant/backdrop/DrawBackdropModifier.kt),
