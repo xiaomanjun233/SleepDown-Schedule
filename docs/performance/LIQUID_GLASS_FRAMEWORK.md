@@ -4,6 +4,8 @@
 
 ## 当前结论
 
+- 9 月 14 日后续排查扩展到课程编辑器、菜单目的页与跨 Activity Liquid 路线：动画进度延后读取、录制内容的玻璃坐标冻结，以及冻结首页消费端已有采样层的复用。动态轮廓缓存同步修正为跟随几何状态失效；已关闭的个性化材质通道不再计算无用包络。范围、限制与定向验证见 [动画与导入排查](2026-09-14-animation-import-audit.md)。
+
 - Backdrop 已在独立提交 `eab3059` 从 `2.0.0-alpha03` 升级到正式版 `2.0.0`，`shapes` 保持 `1.2.0`。Kotlin、Compose 和 Serialization 插件无需联动升级。
 - 源码渲染后端仍可按单个不合格场景回退到 `KyantReference`。现有 blur、lens、色散、tint、highlight、shadow、inner shadow、Shape、内容绘制顺序和交互参数未删减；大面积玻璃优化已进入正式配置并保持常开。
 - 全项目不再由业务代码直接创建、组合或挂载 `LayerBackdrop`，也不再散落调用 `drawBackdrop` / `drawPlainBackdrop`；这些调用集中在 `glass/SleepDownGlassSurface.kt`。`ScaledBackdrop` 仍是 Backdrop 坐标转换接口实现，不是额外消费者。
