@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing.progress
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,7 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiEduImportProgressSession
+import kotlinx.coroutines.flow.collectLatest
 
 @Composable
 internal fun AiImportReasoningPanel(taskId: String, textColor: Color) {
@@ -32,10 +35,14 @@ internal fun AiImportReasoningPanel(taskId: String, textColor: Color) {
     val live by AiEduImportProgressSession.liveReasoning.collectAsStateWithLifecycle()
     val text = live.text.takeIf { live.taskId == taskId }.orEmpty()
     val scroll = rememberScrollState()
-    LaunchedEffect(text) {
-        val followLatest = scroll.value >= scroll.maxValue && !scroll.isScrollInProgress
-        withFrameNanos { }
-        if (followLatest && !scroll.isScrollInProgress) scroll.scrollTo(scroll.maxValue)
+    LaunchedEffect(taskId, text) {
+        // Follow every new chunk and the measured height it produces. Comparing the old scroll
+        // offset with the newly grown maxValue incorrectly stopped following on the first wrap.
+        snapshotFlow { scroll.maxValue }.collectLatest { bottom ->
+            if (bottom != Int.MAX_VALUE) {
+                scroll.animateScrollTo(bottom, animationSpec = tween(80, easing = LinearEasing))
+            }
+        }
     }
     Column(
         Modifier.fillMaxWidth().clip(RoundedRectangle(20.dp))
