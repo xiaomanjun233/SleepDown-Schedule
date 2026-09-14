@@ -31,11 +31,12 @@ object AiImportTaskManager {
         settings: AiImportSettings,
         scheduleConfig: ScheduleConfigEntity,
         initialProgress: AiEduImportProgress
-    ): String = startTask(context, initialProgress, scheduleConfig, settings) { onHttpPhase ->
+    ): String = startTask(context, initialProgress, scheduleConfig, settings) { onHttpPhase, onReasoningUpdate ->
         AiScheduleImportService(context.applicationContext).parseScheduleFile(
             file = file,
             settings = settings,
-            onHttpPhase = onHttpPhase
+            onHttpPhase = onHttpPhase,
+            onReasoningUpdate = onReasoningUpdate
         )
     }
 
@@ -46,12 +47,13 @@ object AiImportTaskManager {
         settings: AiImportSettings,
         scheduleConfig: ScheduleConfigEntity,
         initialProgress: AiEduImportProgress
-    ): String = startTask(context, initialProgress, scheduleConfig, settings) { onHttpPhase ->
+    ): String = startTask(context, initialProgress, scheduleConfig, settings) { onHttpPhase, onReasoningUpdate ->
         AiScheduleImportService(context.applicationContext).parseScheduleText(
             text = text,
             sourceName = sourceName,
             settings = settings,
-            onHttpPhase = onHttpPhase
+            onHttpPhase = onHttpPhase,
+            onReasoningUpdate = onReasoningUpdate
         )
     }
 
@@ -64,14 +66,15 @@ object AiImportTaskManager {
         settings: AiImportSettings,
         scheduleConfig: ScheduleConfigEntity,
         initialProgress: AiEduImportProgress
-    ): String = startTask(context, initialProgress, scheduleConfig, settings) { onHttpPhase ->
+    ): String = startTask(context, initialProgress, scheduleConfig, settings) { onHttpPhase, onReasoningUpdate ->
         AiScheduleImportService(context.applicationContext).parseScheduleCapturedPage(
             text = text,
             screenshots = screenshots,
             sourceName = sourceName,
             warnings = warnings,
             settings = settings,
-            onHttpPhase = onHttpPhase
+            onHttpPhase = onHttpPhase,
+            onReasoningUpdate = onReasoningUpdate
         )
     }
 
@@ -124,7 +127,7 @@ object AiImportTaskManager {
         initialProgress: AiEduImportProgress,
         scheduleConfig: ScheduleConfigEntity,
         settings: AiImportSettings,
-        request: suspend ((AiImportHttpPhase) -> Unit) -> Result<AiScheduleImportResult>
+        request: suspend ((AiImportHttpPhase) -> Unit, (String) -> Unit) -> Result<AiScheduleImportResult>
     ): String {
         val appContext = context.applicationContext
         val taskId = UUID.randomUUID().toString()
@@ -195,11 +198,11 @@ object AiImportTaskManager {
         taskId: String,
         scheduleConfig: ScheduleConfigEntity,
         settings: AiImportSettings,
-        request: suspend ((AiImportHttpPhase) -> Unit) -> Result<AiScheduleImportResult>
+        request: suspend ((AiImportHttpPhase) -> Unit, (String) -> Unit) -> Result<AiScheduleImportResult>
     ) = coroutineScope {
         appendMainStep(taskId, context, "正在整理输入", "正在整理课程材料，准备发送给 AI。")
         var summaryTicker: Job? = null
-        val result = request { phase ->
+        val onHttpPhase: (AiImportHttpPhase) -> Unit = { phase ->
             when (phase) {
                 AiImportHttpPhase.BODY_WRITE_START ->
                     appendMainStep(taskId, context, "正在上传材料", "正在上传课表材料。")
@@ -225,6 +228,8 @@ object AiImportTaskManager {
                 else -> Unit
             }
         }
+        val onReasoningUpdate = AiEduImportProgressSession.beginReasoning(taskId)
+        val result = request(onHttpPhase, onReasoningUpdate)
         summaryTicker?.cancel()
         val aiResult = result.getOrElse { error ->
             finishFailure(context, taskId, error, "AI 请求失败")
@@ -257,7 +262,8 @@ object AiImportTaskManager {
                         if (phase == AiImportHttpPhase.BODY_WRITE_END) {
                             updateMicroStatus(taskId, "修复请求已发送，正在等待模型返回 JSON。")
                         }
-                    }
+                    },
+                    onReasoningUpdate = AiEduImportProgressSession.beginReasoning(taskId)
                 ).onSuccess { repairResult ->
                     update(taskId) { progress ->
                         progress.copy(
@@ -325,7 +331,8 @@ object AiImportTaskManager {
             }
         }
         val result = AiScheduleImportService(context)
-            .reviseSchedule(baseDraft, instruction, baseProgress, settings, onHttpPhase)
+            .reviseSchedule(baseDraft, instruction, baseProgress, settings, onHttpPhase,
+                AiEduImportProgressSession.beginReasoning(taskId))
             .getOrElse { error ->
                 summaryTicker?.cancel()
                 finishFailure(context, taskId, error, "AI 修改请求失败")

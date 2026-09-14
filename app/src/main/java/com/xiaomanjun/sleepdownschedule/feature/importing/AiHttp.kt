@@ -335,6 +335,7 @@ private fun postChatCompletionStreaming(
                 .also { trace.mark(AiImportHttpPhase.STREAM_END) }
         } else {
             val accumulator = ChatCompletionSseAccumulator()
+            val reasoningPublisher = AiReasoningStreamPublisher(requestContext.onReasoningUpdate)
             var firstEvent = true
             BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).useLines { lines ->
                 lines.forEach { line ->
@@ -347,9 +348,11 @@ private fun postChatCompletionStreaming(
                         trace.mark(AiImportHttpPhase.FIRST_EVENT)
                     }
                     accumulator.consume(payload)
+                    reasoningPublisher.publish(accumulator.reasoning)
                 }
             }
             trace.mark(AiImportHttpPhase.STREAM_END)
+            reasoningPublisher.publish(accumulator.reasoning, force = true)
             accumulator.toCompletionJson()
         }
     } catch (throwable: Throwable) {
@@ -407,6 +410,7 @@ private fun postResponsesStreaming(
                 .also { trace.mark(AiImportHttpPhase.STREAM_END) }
         } else {
             val accumulator = ResponsesSseAccumulator()
+            val reasoningPublisher = AiReasoningStreamPublisher(requestContext.onReasoningUpdate)
             var firstEvent = true
             BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).useLines { lines ->
                 lines.forEach { line ->
@@ -419,9 +423,11 @@ private fun postResponsesStreaming(
                         trace.mark(AiImportHttpPhase.FIRST_EVENT)
                     }
                     accumulator.consume(payload)
+                    reasoningPublisher.publish(accumulator.reasoning)
                 }
             }
             trace.mark(AiImportHttpPhase.STREAM_END)
+            reasoningPublisher.publish(accumulator.reasoning, force = true)
             accumulator.toResponseJson()
         }
     } catch (throwable: Throwable) {
@@ -430,6 +436,24 @@ private fun postResponsesStreaming(
         throw IllegalStateException(formatAiNetworkError(url, throwable), throwable)
     } finally {
         connection.disconnect()
+    }
+}
+
+/** Publish a bounded reading window at most ten times per second; parsing retains the full result. */
+internal class AiReasoningStreamPublisher(
+    private val onUpdate: ((String) -> Unit)?,
+    private val nanoTime: () -> Long = System::nanoTime
+) {
+    private var lastPublishedAt: Long? = null
+    private var lastLength = 0
+
+    fun publish(reasoning: CharSequence, force: Boolean = false) {
+        if (onUpdate == null || reasoning.isEmpty() || reasoning.length == lastLength) return
+        val now = nanoTime()
+        if (!force && lastPublishedAt?.let { now - it < 100_000_000L } == true) return
+        lastPublishedAt = now
+        lastLength = reasoning.length
+        onUpdate(reasoning.takeLast(4_000).toString())
     }
 }
 
@@ -536,7 +560,7 @@ internal class ResponsesSseAccumulator {
     private val outputItems = linkedMapOf<String, JsonObject>()
     private val functionCalls = linkedMapOf<String, ResponsesFunctionCallAccumulator>()
     private val outputText = StringBuilder()
-    private val reasoning = StringBuilder()
+    val reasoning = StringBuilder()
     private var sawEvent = false
 
     fun consume(payload: String) {

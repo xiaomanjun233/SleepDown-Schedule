@@ -506,8 +506,15 @@ internal fun AiEduImportProgressPage(
                         )
                     }
                 }
-                val summary = current.liveSummary.ifBlank { current.reasoningOutput }
-                if (summary.isNotBlank()) item {
+                if (current.requestSent && !current.finished && current.error == null && !current.awaitingConfirmation) {
+                    item(key = "live-model-reasoning") {
+                        AiImportReasoningPanel(taskId = current.taskId, textColor = textColor)
+                    }
+                }
+                val summary = current.reasoningOutput.ifBlank {
+                    current.liveSummary.takeIf { current.finished || current.awaitingConfirmation }.orEmpty()
+                }
+                if (summary.isNotBlank()) item(key = "model-summary") {
                     AiEduModelSummary(summary = summary, textColor = textColor)
                 }
                 if (current.steps.isNotEmpty()) item {
@@ -646,20 +653,30 @@ private fun AiEduConversationTurnSummary(
     ) {
         Text("第 $index 轮修改", color = textColor.copy(alpha = 0.64f), style = MaterialTheme.typography.labelMedium)
         Text(turn.userPrompt, color = textColor, style = MaterialTheme.typography.bodyMedium, maxLines = 3)
-        Text(summary, color = textColor.copy(alpha = 0.70f), style = MaterialTheme.typography.bodySmall, maxLines = 5)
+        AiEduModelSummary(summary, textColor)
     }
 }
 
 @Composable
 private fun AiEduModelSummary(summary: String, textColor: Color) {
+    var expanded by androidx.compose.runtime.saveable.rememberSaveable(summary) { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text("模型摘要", color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
-        Text(summary, color = textColor.copy(alpha = 0.86f), style = MaterialTheme.typography.bodyMedium)
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("模型摘要", color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
+            Text(if (expanded) "收起" else "展开", color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
+        }
+        androidx.compose.animation.AnimatedVisibility(expanded) {
+            Text(summary, color = textColor.copy(alpha = 0.86f), style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
 
