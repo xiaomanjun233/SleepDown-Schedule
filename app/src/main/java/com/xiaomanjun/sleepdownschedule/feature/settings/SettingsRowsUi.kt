@@ -1259,6 +1259,7 @@ fun SettingsInfoRow(title: String, body: String) {
 internal val LocalCollapsibleSettingsInfoRows = compositionLocalOf { false }
 
 private val changelogReleaseDates = mapOf(
+    "1.2.6_beta2" to "2026-09-14",
     "1.2.6_beta1" to "2026-09-14",
     "1.2.5" to "2026-09-14",
     "1.2.3" to "2026-09-01",

@@ -9152,6 +9152,17 @@ fun ChangelogSettingsScreen(
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
                 SettingsInfoRow(
+                    "1.2.6_beta2",
+                    "继续打磨玻璃界面、弹窗展开与页面返回动画，优化课表左右滑动，让熟悉的光影与动效更轻盈。\n" +
+                        "复制课程时，卡片中心会更贴近点击位置，落点预览更加直观，自定义时间课程同样适用。\n" +
+                        "WakeUp 口令导入支持自动整理重叠节次，减少因作息时间重叠导致的导入失败，整理结果可在导入预览中确认。\n" +
+                        "分钟选择支持首尾循环，滑过 59 即可继续选择 0，调整时间更顺手。\n" +
+                        "周视图在周数旁新增天气图标与气温，查看课表时也能顺便了解天气。\n" +
+                        "AI 导入新增实时思考展示区，使用支持的模型时可随进度查看思考内容；模型摘要默认折叠，让结果更清爽。\n" +
+                        "取消升级后自动弹出的无界模式介绍，打开应用即可继续查看课表。"
+                )
+                SettingsDivider()
+                SettingsInfoRow(
                     "1.2.6_beta1",
                     "优化应用稳定性，提高应用流畅度"
                 )
