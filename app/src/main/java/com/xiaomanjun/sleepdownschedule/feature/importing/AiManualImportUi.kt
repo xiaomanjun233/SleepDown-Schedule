@@ -264,7 +264,12 @@ fun NormalizedAiManualImportScreen(
             onInteractionRequest = { manualBridgeInteraction = it }
         )
         manualToolBridge = bridge
-        bridge.beginTask(state.config, state.periods, initialPromptAnswer = request.input)
+        bridge.beginTask(
+            state.config,
+            state.periods,
+            initialPromptAnswer = request.input,
+            mergeOverlappingTimeSlots = request.adapterId.equals("WakeUp", ignoreCase = true)
+        )
         var scriptStarted = false
         target = WebView(context).apply {
             settings.javaScriptEnabled = true

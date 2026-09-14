@@ -1200,7 +1200,12 @@ private fun EduImportBrowserScreen(
             runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
                 .onSuccess { script ->
                     bridge.bindWebView(target)
-                    bridge.beginTask(state.config, state.periods)
+                    bridge.beginTask(
+                        state.config,
+                        state.periods,
+                        mergeOverlappingTimeSlots = adapter.school.id == "GLOBAL_TOOLS" &&
+                            adapter.adapterId.equals("WakeUp", ignoreCase = true)
+                    )
                     target.injectShiguangRuntime(desktopMode)
                     onMessage("正在执行拾光官方适配器")
                     target.evaluateJavascript(script, null)

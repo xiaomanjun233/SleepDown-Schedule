@@ -38,9 +38,10 @@ internal class ShiguangBridgeHost(
     fun beginTask(
         config: ScheduleConfigEntity,
         periods: List<PeriodEntity>,
-        initialPromptAnswer: String? = null
+        initialPromptAnswer: String? = null,
+        mergeOverlappingTimeSlots: Boolean = false
     ) {
-        session.begin(config, periods)
+        session.begin(config, periods, mergeOverlappingTimeSlots)
         this.initialPromptAnswer = initialPromptAnswer
     }
 
