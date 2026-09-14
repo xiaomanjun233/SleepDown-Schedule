@@ -9175,6 +9175,11 @@ fun ChangelogSettingsScreen(
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
                 SettingsInfoRow(
+                    "1.2.6_beta1",
+                    "优化应用稳定性，提高应用流畅度"
+                )
+                SettingsDivider()
+                SettingsInfoRow(
                     "1.2.5",
                         "长按课程即可打开快捷菜单，编辑单节课、进入快速编辑模式、复制或移除，都更顺手。继续拖动即可移动课程，调整时长的操作也更加清晰。\n" +
                         "全新课程复制体验：选择本周或全部上课周后，直接回到课表选择目标位置，先预览，再点一次确认。顶部玻璃提示胶囊随操作展开，遇到课程冲突时及时提醒；确认后，课程副本从原位置飞向新位置，以回弹与涟漪落地。\n" +

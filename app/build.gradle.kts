@@ -65,8 +65,8 @@ android {
         applicationId = "com.xiaomanjun.sleepdownschedule"
         minSdk = 26
         targetSdk = 36
-        versionCode = 32
-        versionName = "1.2.5"
+        versionCode = 33
+        versionName = "1.2.6_beta1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SLEEPDOWN_API_BASE_URL", "\"https://api.sleepdownschedule.cn\"")
         buildConfigField(
