@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule
 
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportTaskManager
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -11,7 +12,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.graphics.drawable.Icon
 import android.os.IBinder
 import android.os.Process
 import android.os.SystemClock
@@ -188,8 +188,7 @@ class AiImportForegroundService : Service() {
             status: String
         ): Notification {
             val builder = Notification.Builder(context, RUNNING_CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher_light)
-                .setLargeIcon(Icon.createWithResource(context, R.mipmap.ic_launcher_light))
+                .applyAppNotificationIcon(context)
                 .setContentTitle("SleepDown · AI 导入")
                 .setContentText(status.ifBlank { "正在整理输入" })
                 .setContentIntent(progressPendingIntent(context, taskId, 8401))
@@ -197,7 +196,6 @@ class AiImportForegroundService : Service() {
                 .setOnlyAlertOnce(true)
                 .setShowWhen(false)
                 .setCategory(Notification.CATEGORY_SERVICE)
-                .setColor(0xFF0A84FF.toInt())
                 .requestPromotedOngoing("AI导入中")
             return builder.build()
                 .also { notification ->
@@ -218,8 +216,7 @@ class AiImportForegroundService : Service() {
             courseCount: Int
         ): Notification {
             return Notification.Builder(context, RESULT_CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher_light)
-                .setLargeIcon(Icon.createWithResource(context, R.mipmap.ic_launcher_light))
+                .applyAppNotificationIcon(context)
                 .setContentTitle("课表解析完成 · 发现 ${courseCount} 门课程")
                 .setContentText("点击查看导入预览")
                 .setContentIntent(progressPendingIntent(context, taskId, 8402))
@@ -228,7 +225,6 @@ class AiImportForegroundService : Service() {
                 .setOnlyAlertOnce(true)
                 .setShowWhen(false)
                 .setCategory(Notification.CATEGORY_STATUS)
-                .setColor(0xFF0A84FF.toInt())
                 .requestPromotedOngoing("待查看")
                 .build()
         }
@@ -239,7 +235,7 @@ class AiImportForegroundService : Service() {
             message: String
         ): Notification =
             Notification.Builder(context, RESULT_CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_agent_thinking)
+                .applyAppNotificationIcon(context)
                 .setContentTitle("AI 导入未完成")
                 .setContentText(message.ifBlank { "点击查看任务详情" })
                 .setContentIntent(progressPendingIntent(context, taskId, 8403))

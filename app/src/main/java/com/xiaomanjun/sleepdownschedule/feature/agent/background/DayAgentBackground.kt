@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.agent.background
 
+import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 
@@ -262,7 +263,7 @@ open class DayAgentForegroundServiceHost : Service() {
 
     private fun runningNotification(): Notification {
         return Notification.Builder(this, RUNNING_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_agent_thinking)
+            .applyAppNotificationIcon(this)
             .setContentTitle("今日助手")
             .setContentText("模型思考中")
             .setContentIntent(openAppPendingIntent(7301))
@@ -270,25 +271,23 @@ open class DayAgentForegroundServiceHost : Service() {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_SERVICE)
-            .setColor(0xFF0A84FF.toInt())
             .requestPromotedOngoing("思考中")
             .build()
     }
 
     private fun completedNotification(): Notification =
         Notification.Builder(this, RESULT_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_agent_thinking)
+            .applyAppNotificationIcon(this)
             .setContentTitle("今日助手已回复")
             .setContentText("点击返回应用继续对话")
             .setContentIntent(openAppPendingIntent(7302))
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_MESSAGE)
-            .setColor(0xFF0A84FF.toInt())
             .build()
 
     private fun failedNotification(message: String): Notification =
         Notification.Builder(this, RESULT_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_agent_thinking)
+            .applyAppNotificationIcon(this)
             .setContentTitle("今日助手回复失败")
             .setContentText(message.ifBlank { "点击返回应用重试" })
             .setContentIntent(openAppPendingIntent(7303))

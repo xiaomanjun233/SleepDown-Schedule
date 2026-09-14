@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.update
 import com.xiaomanjun.sleepdownschedule.*
 
 import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
+import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -450,7 +451,7 @@ class UpdateDownloadForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val builder = Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .applyAppNotificationIcon(this)
             .setContentTitle("正在下载更新")
             .setContentText(if (progress == null) name else "$name · $progress%")
             .setContentIntent(openApp)
@@ -496,7 +497,7 @@ class UpdateDownloadForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .applyAppNotificationIcon(this)
             .setContentTitle("更新下载完成")
             .setContentText("点击安装 $name")
             .setContentIntent(install)
@@ -518,7 +519,7 @@ class UpdateDownloadForegroundService : Service() {
 
     private fun failedNotification(name: String, message: String): Notification =
         Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_download)
+            .applyAppNotificationIcon(this)
             .setContentTitle("更新下载失败")
             .setContentText("$name · $message")
             .setAutoCancel(true)

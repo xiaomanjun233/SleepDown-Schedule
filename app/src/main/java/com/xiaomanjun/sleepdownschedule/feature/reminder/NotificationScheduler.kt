@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.reminder
 
+import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
+import com.xiaomanjun.sleepdownschedule.core.identity.refreshAppNotificationIcons
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseReminderSessions
 
@@ -729,7 +731,7 @@ object NotificationScheduler {
         )
         val builder = android.app.Notification.Builder(context, CHANNEL_ID)
         builder
-            .setSmallIcon(com.xiaomanjun.sleepdownschedule.core.identity.currentLiveUpdateIconResId(context))
+            .applyAppNotificationIcon(context)
             .setContentTitle(titleText)
             .setContentText(bodyText)
             .setStyle(android.app.Notification.BigTextStyle().bigText(expandedText))
@@ -1071,21 +1073,7 @@ object NotificationScheduler {
     }
 
     fun refreshLiveUpdateIcon(context: Context) {
-        if (!canPostNotifications(context)) return
-        val manager = context.getSystemService(NotificationManager::class.java)
-        val active = manager.activeNotifications.firstOrNull { it.id == LIVE_UPDATE_ID } ?: return
-        val icon = com.xiaomanjun.sleepdownschedule.core.identity.currentLiveUpdateIconResId(context)
-        val submittedIcon = active.notification.smallIcon
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
-            submittedIcon?.type == Icon.TYPE_RESOURCE && submittedIcon.resId == icon &&
-            submittedIcon.resPackage == context.packageName
-        ) return
-        val updated = android.app.Notification.Builder.recoverBuilder(context, active.notification)
-            .setSmallIcon(icon)
-            .setOnlyAlertOnce(true)
-            .build()
-        logLiveUpdateIcon(context, updated)
-        manager.notify(active.tag, active.id, updated)
+        refreshAppNotificationIcons(context)
     }
 
     private fun refreshVisibleLiveUpdate(context: Context) {

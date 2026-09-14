@@ -223,7 +223,7 @@ object AppIconManager {
                 setAliasEnabled(packageManager, context, alias, enabled = false)
             }
         setAliasEnabled(packageManager, context, desired, enabled = true)
-        com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler.refreshLiveUpdateIcon(context)
+        refreshAppNotificationIcons(context)
         val iconResId = currentIconResId(context)
         if (lastAppliedIconResId != iconResId) {
             lastAppliedIconResId = iconResId
