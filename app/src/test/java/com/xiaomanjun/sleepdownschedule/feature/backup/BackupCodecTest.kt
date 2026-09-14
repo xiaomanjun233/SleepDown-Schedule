@@ -446,7 +446,7 @@ class BackupCodecTest {
             ),
             preferences = BackupPreferences(
                 preferencesVersion = BackupFormatV1.PREFERENCES_VERSION,
-                appIcon = BackupAppIconPreferences("FOLLOW_DARK_MODE", true, false),
+                appIcon = BackupAppIconPreferences(mode = "FOLLOW_DARK_MODE", followsSystemDarkMode = true, darkTheme = false),
                 dayAgent = BackupDayAgentPreferences(
                     hasDecision = true,
                     enabled = true,

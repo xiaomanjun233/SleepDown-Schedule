@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.shouldInterceptSettingsBack
+
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Test

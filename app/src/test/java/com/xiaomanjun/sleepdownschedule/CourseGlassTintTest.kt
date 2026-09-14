@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.glass.ui.courseGlassTintAlpha
+import com.xiaomanjun.sleepdownschedule.glass.ui.courseSimpleBlurTintAlpha
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
