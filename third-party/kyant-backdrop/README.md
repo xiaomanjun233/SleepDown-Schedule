@@ -61,6 +61,11 @@ Only a host with a complete frozen scene identity may supply this key.
 still update their clipping when animation state changes. Static shapes keep cached outlines.
 `DynamicOutlineCacheTest` covers both behaviors without requiring a GPU.
 
+Pager/scroll consumer coordinates now remain node-local and call `invalidateDraw()` directly.
+Moving glass still samples the current wallpaper position every frame, while avoiding one
+Snapshot-state write and its notification fan-out per consumer. No sampling resolution, blur,
+lens or decoration quality is reduced. Exported backdrop coordinates keep their published state.
+
 `SharedBlurBackdrop` shares the wallpaper prefix across course cards. The 2026-09-10 alignment
 uses NexioSchedule commit `2971759ed3bb7b16ef13e639fba5dbf2a6a9cb2d` as its reference:
 [DrawBackdropModifier](https://github.com/HaoZai000/NexioSchedule/blob/2971759ed3bb7b16ef13e639fba5dbf2a6a9cb2d/app/src/main/java/com/kyant/backdrop/DrawBackdropModifier.kt),

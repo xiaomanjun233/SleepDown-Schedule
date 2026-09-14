@@ -3,8 +3,6 @@ package com.kyant.backdrop
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.GraphicsLayerScope
@@ -277,7 +275,9 @@ private class DrawBackdropNode(
         compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
     }
 
-    private var layoutCoordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
+    // Position is draw-node state, not application state. Pager movement only needs a redraw;
+    // publishing a Snapshot write per consumer adds notification work for every scroll frame.
+    private var layoutCoordinates: LayoutCoordinates? = null
 
     private var padding by mutableFloatStateOf(0f)
 
@@ -428,16 +428,18 @@ private class DrawBackdropNode(
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
         if (coordinates.isAttached) {
             if (backdrop.isCoordinatesDependent) {
-                // LayoutCoordinates is mutable. Reassigning it with neverEqualPolicy on every
-                // outer zoom/menu layout dirtied each frozen card's sample and cached ancestor.
-                // Always accept a new node, but retain an existing node's recorded coordinates
-                // through motion. Model, size, effect and source changes still invalidate normally.
+                // Always accept a new node; retained scene contents keep their recorded position.
+                // Moving foreground cards still resample the live wallpaper at every position.
                 if (!shapeProvider.options.coordinatesFrozen() || layoutCoordinates !== coordinates) {
                     layoutCoordinates = coordinates
+                    invalidateSampleRecording()
+                    invalidateDraw()
                 }
             } else {
                 if (layoutCoordinates != null) {
                     layoutCoordinates = null
+                    invalidateSampleRecording()
+                    invalidateDraw()
                 }
             }
             exportedBackdrop?.layerCoordinates = coordinates
