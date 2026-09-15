@@ -673,7 +673,6 @@ private suspend fun captureDetailMorphWindowSnapshot(
     }
 }
 
-private var splashEntranceDone = false
 internal val LocalEditingCourseId = compositionLocalOf<Long?> { null }
 internal val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope?> { null }
 @Volatile
@@ -1269,45 +1268,14 @@ fun CourseScheduleAppUi(
     val latestVisualState = rememberUpdatedState(visualState)
     val latestWallpaperImages = rememberUpdatedState(wallpaperImages)
     val latestAllSchedulesState = rememberUpdatedState(allSchedulesState)
-    val startupAnimationsEnabled = remember(context) { animationsEnabled(context) }
-
-    var startupPhase by remember {
-        mutableStateOf(if (splashEntranceDone || !startupAnimationsEnabled) StartupPhase.FullQuality else StartupPhase.Loading)
-    }
-    LaunchedEffect(state.loaded, wallpaperLoadFinished, startupAnimationsEnabled) {
+    val startupPhase = StartupPhase.FullQuality
+    LaunchedEffect(state.loaded, wallpaperLoadFinished) {
         if (!state.loaded || !wallpaperLoadFinished) return@LaunchedEffect
-        if (startupPhase == StartupPhase.Loading && !startupAnimationsEnabled) {
-            splashEntranceDone = true
-            startupPhase = StartupPhase.FullQuality
-        }
-        // Let the ready bitmap participate in a complete Compose frame before
-        // releasing MainActivity's first-draw gate.
+        // Release the first-draw gate only after the wallpaper and stationary home share a frame.
         withFrameNanos { }
         if (!startupContentReported) {
             startupContentReported = true
             latestOnStartupContentReady.value()
-        }
-        // Show the already-rendered wallpaper for a brief beat, then let the
-        // home elements fly in. This keeps the entrance readable without
-        // bringing back the old loading mask or circular reveal.
-        if (startupPhase == StartupPhase.Loading && startupAnimationsEnabled) {
-            delay(140)
-            startupPhase = StartupPhase.Entrance
-        }
-    }
-    LaunchedEffect(startupPhase, startupAnimationsEnabled) {
-        if (!startupAnimationsEnabled) {
-            splashEntranceDone = true
-            startupPhase = StartupPhase.FullQuality
-            return@LaunchedEffect
-        }
-        if (startupPhase == StartupPhase.Entrance) {
-            splashEntranceDone = false
-            delay(820)
-            startupPhase = StartupPhase.Settle
-            delay(180)
-            splashEntranceDone = true
-            startupPhase = StartupPhase.FullQuality
         }
     }
     LaunchedEffect(
@@ -1376,9 +1344,6 @@ fun CourseScheduleAppUi(
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening -> "CourseEditorOpen"
         courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Disposing -> "CourseEditorClose"
-        startupPhase == StartupPhase.Reveal -> "StartupReveal"
-        startupPhase == StartupPhase.Entrance -> "HomeFlyInEntrance"
-        startupPhase == StartupPhase.Settle -> "HomeFlyInEntrance"
         homeDialogVisible -> "DialogOpen"
         else -> "Idle"
     }
@@ -1394,14 +1359,9 @@ fun CourseScheduleAppUi(
     val startupEntranceSpec = rememberStartupEntranceSpec(
         phase = startupPhase,
         courseCount = state.courses.size,
-        animationsEnabled = startupAnimationsEnabled
+        animationsEnabled = false
     )
-    StartupPerformanceBoost(
-        startupPhase == StartupPhase.Reveal ||
-            startupPhase == StartupPhase.Entrance ||
-            startupPhase == StartupPhase.Settle ||
-            homeDialogVisible
-    )
+    StartupPerformanceBoost(homeDialogVisible)
     PerformanceAnimationState(startupAnimation, startupAnimation != "Idle")
     GlassPerformanceDiagnostics(glassSceneState, startupAnimation)
     RefreshCadenceDiagnostics(
