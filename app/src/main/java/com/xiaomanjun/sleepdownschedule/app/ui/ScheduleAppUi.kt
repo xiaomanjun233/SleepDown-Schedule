@@ -9112,6 +9112,17 @@ fun ChangelogSettingsScreen(
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
                 SettingsInfoRow(
+                    "1.2.6_beta3",
+                    "重做详细节次编辑：统一新建与调整作息入口，分两步确认节数、分段起点、课程时长和课间时长。\n" +
+                    "课程与课间以独立卡片呈现，支持逐分钟拖拽和刻度振动；彩色时长与随段滚动的比例轴同步更新，调整时保持页面位置。\n" +
+                    "首节延后会带动本时段后续课程顺延；遇到分段边界只压缩最后一节，前面缩短腾出空间后会恢复原有时长。\n" +
+                    "分段内有空余时间即可添加课程，并自动补齐课间；删除节次需确认且可补回，课间至少保留一分钟。\n" +
+                    "加快编辑界面进出，添加与删除加入原地缩放；放大课间标题和课程时间，分钟数与单位并排显示，统一选择器布局与切换动画。\n" +
+                    "上课与课间状态切换时先显示新的实时活动，再撤下旧活动，让状态变化更及时。\n" +
+                    "移除首页首次打开时的飞入动画，内容就绪后直接呈现。"
+                )
+                SettingsDivider()
+                SettingsInfoRow(
                     "1.2.6_beta2",
                     "继续打磨玻璃界面、弹窗展开与页面返回动画，优化课表左右滑动，让熟悉的光影与动效更轻盈。\n" +
                         "复制课程时，卡片中心会更贴近点击位置，落点预览更加直观，自定义时间课程同样适用。\n" +
