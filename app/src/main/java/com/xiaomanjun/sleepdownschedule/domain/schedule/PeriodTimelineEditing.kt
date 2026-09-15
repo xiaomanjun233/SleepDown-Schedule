@@ -341,22 +341,6 @@ internal fun insertTimelinePeriod(session: PeriodTimelineSession, vacancyId: Int
     }, uncompressedLastMinutes = session.uncompressedLastMinutes - part)
 }
 
-/** A trailing break belongs to a temporarily vacant slot until that lesson is reinserted. */
-internal fun resizeTimelineVacancyBreak(session: PeriodTimelineSession, vacancyId: Int, requestedMinutes: Int): PeriodTimelineSession {
-    val vacancy = session.vacancies.firstOrNull { it.id == vacancyId } ?: return session
-    val removed = vacancy.removedTimes.getValue(session.draft.activeSchemeId)
-    val previous = session.active.times.lastOrNull { it.periodIndex in session.config.periodRange(vacancy.part) } ?: return session
-    val end = requireNotNull(parseMinuteOfDay(previous.endTime))
-    val duration = requireNotNull(parseMinuteOfDay(removed.endTime)) - requireNotNull(parseMinuteOfDay(removed.startTime))
-    val maximum = timelinePartBoundary(session.config, session.active, vacancy.part) - duration - end
-    if (maximum < 1) return session
-    val start = end + requestedMinutes.coerceIn(1, maximum)
-    return session.copy(vacancies = session.vacancies.map {
-        if (it.id != vacancyId) it else it.copy(removedTimes = it.removedTimes + (session.draft.activeSchemeId to
-            removed.copy(startTime = timelineMinuteText(start), endTime = timelineMinuteText(start + duration))))
-    })
-}
-
 internal fun ScheduleConfigEntity.withTimelineCount(part: PeriodDayPart, count: Int) = when (part) {
     PeriodDayPart.MORNING -> copy(morningPeriodCount = count)
     PeriodDayPart.NOON -> copy(noonPeriodCount = count)

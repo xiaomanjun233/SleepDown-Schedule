@@ -435,7 +435,7 @@ fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdro
     if (LocalGlassMiuixEnabled.current) {
         GlassMiuixInteractivePreference(
             title = title,
-            summary = subtitle,
+            summary = subtitle.takeIf { it.isNotBlank() },
             controlWidth = 64.dp,
             controlHeight = 28.dp,
             enabled = enabled
@@ -451,7 +451,7 @@ fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdro
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(76.dp)
+            .height(if (subtitle.isBlank()) 56.dp else 76.dp)
             .graphicsLayer(alpha = if (enabled) 1f else 0.48f)
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -463,7 +463,7 @@ fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdro
             verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)
         ) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.width(12.dp))
         if (enabled) {

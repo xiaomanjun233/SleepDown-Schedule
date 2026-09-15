@@ -1,8 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -113,23 +111,22 @@ internal fun PeriodSchemeCreationWizard(
         contentForState = { displayed ->
             val shownPage = displayed as CreationPickerPage
             Column(verticalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.QuickSheet.PickerContentSpacing)) {
-                Column(Modifier.heightIn(max = if (shownPage == CreationPickerPage.FORM) 240.dp else 340.dp)
-                    .then(if (shownPage == CreationPickerPage.FORM) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
+                Column {
                     when (shownPage) {
                         CreationPickerPage.FORM -> {
                             Text("第 1 步 · 节数与分段", fontSize = 12.sp,
                                 color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.66f))
                             SettingsTextFieldRow("作息名称", name, { name = it; error = null })
                             val split = PeriodDayPart.AFTERNOON in enabledParts
-                            SettingsToggleRow("上午 / 下午分段", "分别安排各时段的节数和起点", split, backdrop) {
+                            SettingsToggleRow("上午 / 下午分段", "", split, backdrop) {
                                 changeParts(if (it) enabledParts + setOf(PeriodDayPart.MORNING, PeriodDayPart.AFTERNOON)
                                     else setOf(PeriodDayPart.MORNING))
                             }
                             if (split) {
-                                SettingsToggleRow("启用中午分段", "为中午课程单独设置时间", PeriodDayPart.NOON in enabledParts, backdrop) {
+                                SettingsToggleRow("启用中午分段", "", PeriodDayPart.NOON in enabledParts, backdrop) {
                                     changeParts(if (it) enabledParts + PeriodDayPart.NOON else enabledParts - PeriodDayPart.NOON)
                                 }
-                                SettingsToggleRow("启用晚上分段", "为晚上课程单独设置时间", PeriodDayPart.EVENING in enabledParts, backdrop) {
+                                SettingsToggleRow("启用晚上分段", "", PeriodDayPart.EVENING in enabledParts, backdrop) {
                                     changeParts(if (it) enabledParts + PeriodDayPart.EVENING else enabledParts - PeriodDayPart.EVENING)
                                 }
                             }
