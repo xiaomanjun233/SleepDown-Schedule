@@ -66,7 +66,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 33
-        versionName = "1.2.6_beta3"
+        versionName = "1.2.6_beta4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SLEEPDOWN_API_BASE_URL", "\"https://api.sleepdownschedule.cn\"")
         buildConfigField(

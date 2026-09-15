@@ -9100,6 +9100,15 @@ fun ChangelogSettingsScreen(
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
                 SettingsInfoRow(
+                    "1.2.6_beta4",
+                    "修复首页启动时残留的切换动画，直接显示已加载的默认视图和当前周；首张壁纸也直接呈现。\n" +
+                    "节次编辑右侧时间轴逐张对齐课程与课间卡片，跳过“添加节次”按钮区域，拖拽调整后保持对应。\n" +
+                    "新建作息第一页取消固定高度和内部滚动，精简分段说明，让名称、分段开关、节数与起点设置完整显示。\n" +
+                    "删除中间节次后，课间占位平滑展开；删除末节时一并收起前一个课间，补回课程时自动补齐。\n" +
+                    "退出节次编辑时新增保存确认，可选择保存、不保存或继续编辑。"
+                )
+                SettingsDivider()
+                SettingsInfoRow(
                     "1.2.6_beta3",
                     "重做详细节次编辑：统一新建与调整作息入口，分两步确认节数、分段起点、课程时长和课间时长。\n" +
                     "课程与课间以独立卡片呈现，支持逐分钟拖拽和刻度振动；彩色时长与随段滚动的比例轴同步更新，调整时保持页面位置。\n" +
