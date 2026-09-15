@@ -7,7 +7,6 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.util.Log
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +31,7 @@ class LiveUpdateForegroundService : Service() {
                 clearStoredPayload()
                 refreshJob?.cancel()
                 stopForeground(STOP_FOREGROUND_REMOVE)
+                NotificationScheduler.cancelLiveUpdateNotifications(this)
                 stopSelf()
             }
             else -> {
@@ -43,8 +43,7 @@ class LiveUpdateForegroundService : Service() {
                 if (notification != null && payload != null) {
                     activePayload = payload
                     storePayload(payload)
-                    NotificationScheduler.logLiveUpdateIcon(this, notification)
-                    startForeground(NotificationScheduler.liveUpdateId(), notification)
+                    NotificationScheduler.postLiveUpdateNotification(this, notification) { id, value -> startForeground(id, value) }
                     startRefreshLoop(renderedAtMillis)
                     Log.d("SleepDownLiveUpdate", "foreground service started")
                 } else {
@@ -73,9 +72,8 @@ class LiveUpdateForegroundService : Service() {
                 val payload = activePayload ?: break
                 if (payload.shouldStop()) {
                     clearStoredPayload()
-                    NotificationManagerCompat.from(this@LiveUpdateForegroundService)
-                        .cancel(NotificationScheduler.liveUpdateId())
                     stopForeground(STOP_FOREGROUND_REMOVE)
+                    NotificationScheduler.cancelLiveUpdateNotifications(this@LiveUpdateForegroundService)
                     stopSelf()
                     NotificationScheduler.requestRefresh(this@LiveUpdateForegroundService)
                     break
@@ -91,11 +89,9 @@ class LiveUpdateForegroundService : Service() {
                     if (!firstFrame) {
                         renderedAtMillis = System.currentTimeMillis()
                         val notification = payload.buildNotification(this@LiveUpdateForegroundService)
-                        NotificationScheduler.logLiveUpdateIcon(this@LiveUpdateForegroundService, notification)
-                        NotificationManagerCompat.from(this@LiveUpdateForegroundService).notify(
-                            NotificationScheduler.liveUpdateId(),
-                            notification
-                        )
+                        NotificationScheduler.postLiveUpdateNotification(this@LiveUpdateForegroundService, notification) { id, value ->
+                            startForeground(id, value)
+                        }
                     }
                 } catch (securityException: SecurityException) {
                     Log.w("SleepDownLiveUpdate", "stop live update: notification permission revoked", securityException)

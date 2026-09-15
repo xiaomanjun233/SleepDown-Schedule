@@ -68,7 +68,7 @@ class CourseAlarmReceiver : BroadcastReceiver() {
                 val livePayload = payload ?: return@withShortWakeLock
                 if (livePayload.shouldStop()) {
                     Log.d("SleepDownLiveUpdate", "alarm boundary reached payload expiry key=${livePayload.muteKey}")
-                    NotificationManagerCompat.from(context).cancel(NotificationScheduler.liveUpdateId())
+                    NotificationScheduler.cancelLiveUpdateNotifications(context)
                     NotificationScheduler.stopLiveUpdateService(context)
                     return@withShortWakeLock
                 }

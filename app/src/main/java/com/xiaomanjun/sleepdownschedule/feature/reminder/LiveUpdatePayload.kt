@@ -49,6 +49,12 @@ internal data class LiveUpdatePayload(
 
     fun startAtMillis(): Long? = segments.firstOrNull()?.startAtMillis
 
+    /** Minute ticks share an identity; a class/break boundary gets a fresh notification. */
+    fun notificationIdentityAt(nowMillis: Long): String {
+        val status = statusAt(nowMillis)
+        return "$kind|$muteKey|$muteUntil|${status.phase}|${status.nextTransitionAtMillis}"
+    }
+
     fun endAtMillis(): Long? = segments.lastOrNull()?.endAtMillis
 
     fun startTime(): LocalTime? = startAtMillis()?.let(::localTimeAt)

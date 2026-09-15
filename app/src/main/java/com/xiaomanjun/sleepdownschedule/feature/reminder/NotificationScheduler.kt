@@ -53,6 +53,9 @@ object NotificationScheduler {
     private const val KEY_DND_RULE_MIGRATED = "dnd_rule_migrated"
     private const val DND_RULE_NAME = "SleepDown 课程勿扰"
     private const val LIVE_UPDATE_ID = 20260522
+    private const val LIVE_UPDATE_ALTERNATE_ID = 20260523
+    private const val EXTRA_LIVE_UPDATE_IDENTITY = "sleepdown.live_update_identity"
+    private val liveUpdatePostLock = Any()
     private const val SCHEDULE_HORIZON_DAYS = 8L
     private const val EVENT_COURSE = "course"
     private const val EVENT_TOMORROW = "tomorrow"
@@ -322,13 +325,13 @@ object NotificationScheduler {
         }
         if (!config.notificationsEnabled || config.notificationMode != NotificationMode.LIVE_UPDATE) {
             Log.d(TAG, "skip immediate live update: disabled or mode=${config.notificationMode}")
-            NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
+            cancelLiveUpdateNotifications(context)
             stopLiveUpdateService(context)
             return
         }
         if (!canPostNotifications(context)) {
             Log.w(TAG, "skip immediate live update: notification delivery unavailable")
-            NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
+            cancelLiveUpdateNotifications(context)
             stopLiveUpdateService(context)
             return
         }
@@ -350,13 +353,13 @@ object NotificationScheduler {
             )
         if (activePayload == null) {
             Log.d(TAG, "skip immediate live update: no active course or tomorrow reminder")
-            NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
+            cancelLiveUpdateNotifications(context)
             stopLiveUpdateService(context)
             return
         }
         if (isMutedForPayload(context, activePayload, nowMillis)) {
             Log.d(TAG, "skip immediate live update: muted key=${activePayload.muteKey}")
-            NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
+            cancelLiveUpdateNotifications(context)
             stopLiveUpdateService(context)
             return
         }
@@ -696,6 +699,7 @@ object NotificationScheduler {
     internal fun liveUpdateNotification(context: Context, payload: LiveUpdatePayload): android.app.Notification {
         val nowMillis = System.currentTimeMillis()
         val status = payload.statusAt(nowMillis)
+        val notificationIdentity = payload.notificationIdentityAt(nowMillis)
         val placeText = payload.location.ifBlank { "未设置地点" }
         val shortText = when {
             payload.kind == LiveUpdateKind.TOMORROW -> "明日${payload.tomorrowCourseCount}门"
@@ -837,6 +841,7 @@ object NotificationScheduler {
                 .invoke(builder, shortText.toString())
         }
         builder.extras.putCharSequence("android.shortCriticalText", shortText)
+        builder.extras.putString(EXTRA_LIVE_UPDATE_IDENTITY, notificationIdentity)
         return builder.build().also { notification ->
             val promotable = runCatching {
                 notification.javaClass
@@ -945,7 +950,7 @@ object NotificationScheduler {
                     .putString(KEY_MUTED_UNTIL, muteUntil)
                 }
         }
-        NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
+        cancelLiveUpdateNotifications(context)
         stopLiveUpdateService(context)
     }
 
@@ -1128,9 +1133,31 @@ object NotificationScheduler {
     }
 
     @SuppressLint("MissingPermission")
-    private fun postLiveUpdateNotification(context: Context, notification: Notification) {
+    internal fun postLiveUpdateNotification(
+        context: Context,
+        notification: Notification,
+        attachForeground: ((Int, Notification) -> Unit)? = null
+    ) = synchronized(liveUpdatePostLock) {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return@synchronized
+        val active = manager.activeNotifications.filter {
+            it.id == LIVE_UPDATE_ID || it.id == LIVE_UPDATE_ALTERNATE_ID
+        }.sortedByDescending { it.postTime }
+        val identity = notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY).orEmpty()
+        val id = liveUpdateNotificationSlot(
+            active.map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
+            identity, LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID
+        )
         logLiveUpdateIcon(context, notification)
-        NotificationManagerCompat.from(context).notify(LIVE_UPDATE_ID, notification)
+        // Post first. Reattach the running foreground service before removing its former slot.
+        manager.notify(id, notification)
+        attachForeground?.invoke(id, notification)
+        listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID).filter { it != id }.forEach(manager::cancel)
+    }
+
+    internal fun cancelLiveUpdateNotifications(context: Context) = synchronized(liveUpdatePostLock) {
+        val manager = NotificationManagerCompat.from(context)
+        manager.cancel(LIVE_UPDATE_ID)
+        manager.cancel(LIVE_UPDATE_ALTERNATE_ID)
     }
 
     internal fun logLiveUpdateIcon(context: Context, notification: Notification) {
