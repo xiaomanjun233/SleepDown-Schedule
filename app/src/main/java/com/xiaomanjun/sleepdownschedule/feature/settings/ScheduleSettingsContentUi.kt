@@ -1,7 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.*

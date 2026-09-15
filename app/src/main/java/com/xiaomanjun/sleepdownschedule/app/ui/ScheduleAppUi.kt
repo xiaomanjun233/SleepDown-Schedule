@@ -3,7 +3,6 @@ package com.xiaomanjun.sleepdownschedule.app.ui
 import androidx.compose.animation.core.LinearEasing
 
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.app.state.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
@@ -759,9 +758,8 @@ fun CourseScheduleAppUi(
     var settingsExitInterceptionRequired by remember { mutableStateOf(false) }
     var settingsExitRequest by remember { mutableIntStateOf(0) }
     var pendingSettingsExitAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    var homeMode by remember { mutableStateOf(state.config.defaultHomeMode.toHomeMode()) }
-    LaunchedEffect(state.config.defaultHomeMode) {
-        homeMode = state.config.defaultHomeMode.toHomeMode()
+    var homeMode by remember(state.loaded, state.config.defaultHomeMode) {
+        mutableStateOf(state.config.defaultHomeMode.toHomeMode())
     }
     var homeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     val aiHistorySelection by AiEduImportProgressSession.historySelection.collectAsStateWithLifecycle()
@@ -1356,11 +1354,6 @@ fun CourseScheduleAppUi(
     LaunchedEffect(glassRenderPhase) {
         glassSceneState.synchronizePhase(glassRenderPhase)
     }
-    val startupEntranceSpec = rememberStartupEntranceSpec(
-        phase = startupPhase,
-        courseCount = state.courses.size,
-        animationsEnabled = false
-    )
     StartupPerformanceBoost(homeDialogVisible)
     PerformanceAnimationState(startupAnimation, startupAnimation != "Idle")
     GlassPerformanceDiagnostics(glassSceneState, startupAnimation)
@@ -1468,11 +1461,12 @@ fun CourseScheduleAppUi(
     val homeCurrentWeek = effectiveCurrentWeek(visualState.config)
     val beforeScheduleTerm = isBeforeScheduleTerm(visualState.config, todayDate)
     val afterScheduleTerm = isAfterScheduleTerm(visualState.config, todayDate)
-    var homeDisplayWeek by remember(visualState.config.id) { mutableIntStateOf(1) }
+    var homeDisplayWeek by remember(visualState.config.id, visualState.loaded) {
+        mutableIntStateOf(if (beforeScheduleTerm) 1 else homeCurrentWeek)
+    }
     var pendingConflictCourseId by remember(visualState.config.id) { mutableStateOf<Long?>(null) }
     var pendingConflictCourseKey by remember(visualState.config.id) { mutableStateOf<String?>(null) }
     var pendingConflictWeeks by remember(visualState.config.id) { mutableStateOf<List<Int>>(emptyList()) }
-    var homeWeekInitialized by remember(visualState.config.id) { mutableStateOf(false) }
     var homeDisplayDate by remember(visualState.config.id) { mutableStateOf(todayDate) }
     LaunchedEffect(
         state.loaded,
@@ -1487,11 +1481,6 @@ fun CourseScheduleAppUi(
     LaunchedEffect(visualState.loaded, visualState.config.id, visualState.config.totalWeeks, homeCurrentWeek, visualState.config.autoCurrentWeek, beforeScheduleTerm) {
         if (!visualState.loaded) return@LaunchedEffect
         val currentTargetWeek = if (beforeScheduleTerm) 1 else homeCurrentWeek
-        if (!homeWeekInitialized) {
-            homeDisplayWeek = currentTargetWeek
-            homeWeekInitialized = true
-            return@LaunchedEffect
-        }
         homeDisplayWeek = homeDisplayWeek.coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1))
         if (visualState.config.autoCurrentWeek) homeDisplayWeek = currentTargetWeek
     }
@@ -2065,7 +2054,6 @@ fun CourseScheduleAppUi(
         LocalCourseEditorFlightRegistry provides courseEditorFlightRegistry,
         LocalStartupPhase provides startupPhase,
         LocalGlassQuality provides glassQuality,
-        LocalStartupEntranceSpec provides startupEntranceSpec,
         LocalAdaptiveGlass provides adaptiveGlassState,
         LocalHomeReadability provides homeReadabilityContext,
         LocalCourseCardPalette provides homeCoursePalette,
@@ -2498,7 +2486,7 @@ fun CourseScheduleAppUi(
                     ContentEntranceContainer(phase = startupPhase, modifier = Modifier.weight(1f)) {
                         when (screen) {
                             Screen.Home -> {
-                                 HomeScreen(
+                                 if (visualState.loaded) HomeScreen(
                                      state = visualState,
                                      agentState = agentVisualState,
                                      personalizationPreviewState = personalizationPreviewState,

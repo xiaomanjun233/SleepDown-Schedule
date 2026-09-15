@@ -4,7 +4,6 @@ import androidx.compose.runtime.SideEffect
 import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseCardText
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
@@ -884,6 +883,14 @@ internal fun HomeWallpaper(
             targetBlurredBitmap != visibleBlurredBitmap ||
             targetReducedBitmap != visibleReducedBitmap
         ) {
+            // The first ready wallpaper participates in the first-draw gate without a fade.
+            if (visibleBitmap == null) {
+                visibleBitmap = targetBitmap
+                visibleBlurredBitmap = targetBlurredBitmap
+                visibleReducedBitmap = targetReducedBitmap
+                crossfadeTarget = 1f
+                return@LaunchedEffect
+            }
             previousBitmap = visibleBitmap
             previousBlurredBitmap = visibleBlurredBitmap
             previousReducedBitmap = visibleReducedBitmap
@@ -1722,7 +1729,6 @@ internal fun DayScheduleScreen(
                             backdrop,
                             state.config,
                             onCourseClick,
-                            entranceIndex = dayCourses.indexOf(course).coerceAtLeast(0),
                             simultaneousCount = simultaneousCount,
                             tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f
                         )
@@ -1766,7 +1772,6 @@ internal fun DayScheduleScreen(
                                 backdrop = backdrop,
                                 config = state.config,
                                 onCourseClick = onCourseClick,
-                                entranceIndex = dayCourses.size + index,
                                 simultaneousCount = simultaneousCount,
                                 tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f
                             )
@@ -1950,7 +1955,7 @@ private fun DayPartHeader(
 }
 
 @Composable
-fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, entranceIndex: Int = 0, simultaneousCount: Int = 1, tabletFontScale: Float = 1f) {
+fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, simultaneousCount: Int = 1, tabletFontScale: Float = 1f) {
     val resolvedCardColor = courseCardBaseColor(config, course)
     val timePillColor = deepenColor(resolvedCardColor, 0.16f)
     val glassContentColor = LocalAdaptiveGlass.current.contentColor
@@ -1979,7 +1984,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                 )
             }
         }
-        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config, onClick = { sourceBounds -> onCourseClick(course, currentWeek, sourceBounds) }, entranceIndex = entranceIndex, tabletFontScale = tabletFontScale, displayedWeek = currentWeek)
+        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config, onClick = { sourceBounds -> onCourseClick(course, currentWeek, sourceBounds) }, tabletFontScale = tabletFontScale, displayedWeek = currentWeek)
     }
 }
 
@@ -2034,7 +2039,7 @@ internal fun DayCourseCardTextContent(
 }
 
 @Composable
-fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f, displayedWeek: Int? = null) {
+fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f, displayedWeek: Int? = null) {
     val resolvedCardColor = if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
@@ -2044,28 +2049,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
     val editId = LocalEditingCourseId.current
     val startupPhase = LocalStartupPhase.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && enableSharedTransition && course.id > 0L) LocalSharedTransitionScope.current else null
-    val startIndex = entranceIndex ?: 0
-    val entranceOrigin = if (startIndex % 2 == 0) {
-        if (startIndex < 2) StartupFlyOrigin.Left else StartupFlyOrigin.BottomLeft
-    } else {
-        if (startIndex < 2) StartupFlyOrigin.Right else StartupFlyOrigin.BottomRight
-    }
-    val entranceModifier = Modifier
-        .then(
-            if (entranceIndex != null) {
-                Modifier.startupFlyIn(
-                    key = "day_${course.id}_${startIndex}",
-                    index = startIndex,
-                    totalCount = 36,
-                    origin = entranceOrigin,
-                    intensity = if (startIndex < 2) 0.68f else 0.95f,
-                    delayFactor = 0.12f,
-                    alphaStart = 0f
-                )
-            } else {
-                Modifier
-            }
-        )
+    val boundsModifier = Modifier
         .onGloballyPositioned { coordinates ->
             ownBounds[0] = coordinates.boundsInRoot()
         }
@@ -2080,7 +2064,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         backdrop = backdrop,
         config = config,
         course = course,
-        modifier = sharedModifier.then(entranceModifier).then(
+        modifier = sharedModifier.then(boundsModifier).then(
             if (displayedWeek != null) Modifier.courseRemovalMotion(course, displayedWeek, resolvedCardColor) else Modifier
         ),
         shape = RoundedRectangle(24.dp),

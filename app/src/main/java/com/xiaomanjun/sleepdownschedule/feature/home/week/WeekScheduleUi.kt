@@ -5,7 +5,6 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.courseNeedsSupplementary
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
@@ -2974,13 +2973,7 @@ fun WeekCourseBlock(
     val tailDirection = if (weekMotionOutgoing) -weekMotionDirection else weekMotionDirection
     val tailBase = with(density) { (32.dp + ((periodIndex - 1).coerceAtLeast(0).coerceAtMost(9) * 9f).dp + (stackIndex * 16f).dp).toPx() }
     val startupPhase = LocalStartupPhase.current
-    val startupOrigin = startupOriginForWeekCard(
-        dayIndex = dayIndex,
-        periodIndex = periodIndex,
-        weekdayCount = 7,
-        periodCount = periods.size
-    )
-    val startupIndex = ((periodIndex - 1).coerceAtLeast(0) * 7 + (dayIndex - 1).coerceAtLeast(0)) * 2 + stackIndex
+    val editControlOrder = ((periodIndex - 1).coerceAtLeast(0) * 7 + (dayIndex - 1).coerceAtLeast(0)) * 2 + stackIndex
     // Position changes on every pager/vertical-scroll frame but does not affect composition.
     // Keep the latest anchor in a non-observable holder so scrolling N cards cannot schedule N
     // recompositions; only a real width change updates the small measured-width state below.
@@ -3213,16 +3206,6 @@ fun WeekCourseBlock(
     val baseModifier = Modifier
         .fillMaxWidth()
         .height(height)
-    val startupModifier = Modifier
-        .startupFlyIn(
-            key = "week_${course.id}_${dayIndex}_${periodIndex}_${stackIndex}",
-            index = startupIndex,
-            totalCount = periods.size * 7 * 2,
-            origin = startupOrigin,
-            intensity = if (startupOrigin == StartupFlyOrigin.Center) 0.62f else 1f,
-            delayFactor = 0.12f,
-            alphaStart = 0f
-        )
     val realLandingLiftPx = with(density) { 8.dp.toPx() }
     val tailModifier = Modifier
         .graphicsLayer {
@@ -3297,7 +3280,6 @@ fun WeekCourseBlock(
     ) { sharedModifier ->
         Box(
             modifier = sharedModifier
-                .then(startupModifier)
                 .then(tailModifier)
                 .courseRemovalMotion(course, editWeek, courseCardBaseColor(config, course))
                 .then(bodyGestureModifier)
@@ -3694,7 +3676,7 @@ fun WeekCourseBlock(
                         scaleY = handoffScale
                     }
                     .zIndex(7f),
-                enter = fadeIn(tween(125, delayMillis = (startupIndex % 7) * 9)) +
+                enter = fadeIn(tween(125, delayMillis = (editControlOrder % 7) * 9)) +
                     scaleIn(
                         animationSpec = spring(dampingRatio = 0.54f, stiffness = 520f),
                         initialScale = 0.28f,
@@ -3806,7 +3788,7 @@ fun WeekCourseBlock(
                         scaleY = handoffScale
                     }
                     .zIndex(6f),
-                enter = fadeIn(tween(135, delayMillis = 45 + (startupIndex % 7) * 8)) +
+                enter = fadeIn(tween(135, delayMillis = 45 + (editControlOrder % 7) * 8)) +
                     scaleIn(
                         animationSpec = spring(dampingRatio = 0.52f, stiffness = 470f),
                         initialScale = 0.32f,
