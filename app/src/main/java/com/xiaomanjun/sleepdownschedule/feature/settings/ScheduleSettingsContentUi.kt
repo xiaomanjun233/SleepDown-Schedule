@@ -401,377 +401,41 @@ fun ScheduleSettingsContentFixed(
     error: String?,
     topPadding: Dp = detailContentTopPadding()
 ) {
-    var longBreaks by remember { mutableStateOf(emptyList<Pair<Int, Int>>()) }
-    var showLongBreakEditor by remember { mutableStateOf(false) }
-    var editingLongBreakIndex by remember { mutableIntStateOf(-1) }
-    var lbAfter by remember { mutableIntStateOf(1) }
-    var lbMinutes by remember { mutableIntStateOf(15) }
-    // 节次时间编辑（四列时间选择器）
-    var showPeriodTimePicker by remember { mutableStateOf(false) }
-    var editingPeriodIndex by remember { mutableIntStateOf(-1) }
-    var pickerStartHour by remember { mutableIntStateOf(8) }
-    var pickerStartMinute by remember { mutableIntStateOf(0) }
-    var pickerEndHour by remember { mutableIntStateOf(8) }
-    var pickerEndMinute by remember { mutableIntStateOf(45) }
-    val currentPeriods by rememberUpdatedState(periods)
-    val currentLongBreaks by rememberUpdatedState(longBreaks)
-    var showAutoMatchConfirm by remember { mutableStateOf(false) }
-    val onAutoMatchAction = {
-        val cd = classDurationMinutes.toIntOrNull()
-        val bd = breakDurationMinutes.toIntOrNull()
-        if (cd != null && bd != null) {
-            onPeriodsChange(autoMatchPeriodTimes(periods, cd, bd, longBreaks))
+
+    val draftConfig = state.config.copy(
+        morningPeriodCount = morningPeriodCount,
+        noonPeriodCount = noonPeriodCount,
+        afternoonPeriodCount = afternoonPeriodCount,
+        eveningPeriodCount = eveningPeriodCount
+    )
+    val termSettings: @Composable () -> Unit = {
+        SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+            SettingsTextFieldRow("总周数", totalWeeks, { onTotalWeeksChange(it.filter(Char::isDigit)) }, KeyboardType.Number)
+            SettingsDivider()
+            SettingsTextFieldRow("当前周", currentWeek, { onCurrentWeekChange(it.filter(Char::isDigit)) }, KeyboardType.Number, enabled = !autoCurrentWeek)
+            SettingsDivider()
+            SettingsToggleRow("自动计算当前周", detectedWeekDescription, autoCurrentWeek, backdrop, onCheckedChange = onAutoCurrentWeekChange)
+            SettingsDivider()
+            SettingsToggleRow("隐藏空周末", "当前周周六、周日没有课程时自动收起周末列", hideEmptyWeekends, backdrop, onCheckedChange = onHideEmptyWeekendsChange)
+            SettingsDivider()
+            SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
         }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
-    LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = DockScrollPadding),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsTextFieldRow("总周数", totalWeeks, { onTotalWeeksChange(it.filter(Char::isDigit)) }, KeyboardType.Number)
-                SettingsDivider()
-                SettingsTextFieldRow("当前周", currentWeek, { onCurrentWeekChange(it.filter(Char::isDigit)) }, KeyboardType.Number, enabled = !autoCurrentWeek)
-                SettingsDivider()
-                SettingsToggleRow(
-                    title = "自动计算当前周",
-                    subtitle = detectedWeekDescription,
-                    checked = autoCurrentWeek,
-                    backdrop = backdrop,
-                    onCheckedChange = onAutoCurrentWeekChange
-                )
-                SettingsDivider()
-                SettingsToggleRow(
-                    title = "隐藏空周末",
-                    subtitle = "当前周周六、周日没有课程时自动收起周末列",
-                    checked = hideEmptyWeekends,
-                    backdrop = backdrop,
-                    onCheckedChange = onHideEmptyWeekendsChange
-                )
-                SettingsDivider()
-                SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
-            }
-        }
-        item { Text("节次时间", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
-        if (schemeDraft != null) {
-            item(key = "period-scheme-editor") {
-                PeriodSchemeEditor(
-                    state = state,
-                    backdrop = backdrop,
-                    config = state.config.copy(
-                        morningPeriodCount = morningPeriodCount,
-                        noonPeriodCount = noonPeriodCount,
-                        afternoonPeriodCount = afternoonPeriodCount,
-                        eveningPeriodCount = eveningPeriodCount
-                    ),
-                    draft = schemeDraft,
-                    onDraftChange = onSchemeDraftChange,
-                    onCountsChange = onPeriodCountsChange
-                )
-            }
-        }
-        if (schemeDraft == null) {
-        // 上方卡片：课时/课间/自动匹配/大课间
-        item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsTextFieldRow("单节课分钟数", classDurationMinutes, { onClassDurationMinutesChange(it.filter(Char::isDigit)) }, KeyboardType.Number)
-                SettingsDivider()
-                SettingsTextFieldRow("课间分钟数", breakDurationMinutes, { onBreakDurationMinutesChange(it.filter(Char::isDigit)) }, KeyboardType.Number)
-                SettingsDivider()
-                Row(
-                    modifier = Modifier.fillMaxWidth().height(58.dp).padding(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("自动匹配", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium, modifier = Modifier.offset(y = 1.dp))
-                    if (backdrop != null) {
-                        LiquidButton(
-                            onClick = { showAutoMatchConfirm = true },
-                            backdrop = backdrop,
-                            modifier = Modifier.height(34.dp),
-                            height = 34.dp,
-                            surfaceColor = ComposeColor(0xFF0A84FF).copy(alpha = 0.88f),
-                            tint = ComposeColor(0xFF0A84FF),
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            blurRadius = 4.dp,
-                            lensHeight = 12.dp,
-                            lensAmount = 16.dp,
-                            chromaticAberration = false
-                        ) {
-                            Text("自动匹配", color = ComposeColor.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                        }
-                    } else {
-                        SettingsActionButton("自动匹配", null, onClick = { showAutoMatchConfirm = true })
-                    }
-                }
-                // 大课间列表
-                if (longBreaks.isNotEmpty()) {
-                    longBreaks.forEachIndexed { idx, (after, mins) ->
-                        SettingsDivider()
-                        SettingsPickerValueRow(
-                            "大课间",
-                            "第 $after 节后 · ${mins} 分钟",
-                            onClick = {
-                                editingLongBreakIndex = idx
-                                lbAfter = after
-                                lbMinutes = mins
-                                showLongBreakEditor = true
-                            }
-                        )
-                    }
-                }
-                SettingsDivider()
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (backdrop != null) {
-                        LiquidButton(
-                            onClick = {
-                                lbAfter = (periods.maxOfOrNull { it.periodIndex } ?: 2).coerceAtLeast(1)
-                                lbMinutes = 15
-                                editingLongBreakIndex = -1
-                                showLongBreakEditor = true
-                            },
-                            backdrop = backdrop,
-                            modifier = Modifier.weight(1f).height(42.dp),
-                            height = 42.dp,
-                            surfaceColor = ComposeColor(0xFF0A84FF).copy(alpha = 0.88f),
-                            tint = ComposeColor(0xFF0A84FF),
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            blurRadius = 4.dp,
-                            lensHeight = 12.dp,
-                            lensAmount = 16.dp,
-                            chromaticAberration = false
-                        ) {
-                            Text("+ 大课间", color = ComposeColor.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                        }
-                    } else {
-                        SettingsActionButton("+ 大课间", null, onClick = {
-                            lbAfter = (periods.maxOfOrNull { it.periodIndex } ?: 2).coerceAtLeast(1)
-                            lbMinutes = 15
-                            editingLongBreakIndex = -1
-                            showLongBreakEditor = true
-                        }, modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-        // 下方卡片：节次时间线
-        item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                periods.sortedBy { it.periodIndex }.forEachIndexed { idx, period ->
-                    if (idx > 0) SettingsDivider()
-                    SettingsPickerValueRow(
-                        "第 ${period.periodIndex} 节",
-                        "${period.startTime} - ${period.endTime}",
-                        onClick = {
-                            editingPeriodIndex = period.periodIndex
-                            val start = runCatching { ScheduleImportParser.parseTimeForUi(period.startTime) }.getOrNull() ?: LocalTime.of(8, 0)
-                            val end = runCatching { ScheduleImportParser.parseTimeForUi(period.endTime) }.getOrNull() ?: LocalTime.of(8, 45)
-                            pickerStartHour = start.hour
-                            pickerStartMinute = start.minute
-                            pickerEndHour = end.hour
-                            pickerEndMinute = end.minute
-                            showPeriodTimePicker = true
-                        }
-                    )
-                }
-                SettingsDivider()
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (backdrop != null) {
-                        LiquidButton(
-                            onClick = {
-                                val next = (periods.maxOfOrNull { it.periodIndex } ?: 0) + 1
-                                onPeriodsChange(periods + PeriodEntity(next, "08:00", "08:45"))
-                            },
-                            backdrop = backdrop,
-                            modifier = Modifier.weight(1f).height(42.dp),
-                            height = 42.dp,
-                            surfaceColor = ComposeColor(0xFF0A84FF).copy(alpha = 0.88f),
-                            tint = ComposeColor(0xFF0A84FF),
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            blurRadius = 4.dp,
-                            lensHeight = 12.dp,
-                            lensAmount = 16.dp,
-                            chromaticAberration = false
-                        ) {
-                            Text("+ 节次", color = ComposeColor.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                        }
-                    } else {
-                        SettingsActionButton("+ 节次", null, onClick = {
-                            val next = (periods.maxOfOrNull { it.periodIndex } ?: 0) + 1
-                            onPeriodsChange(periods + PeriodEntity(next, "08:00", "08:45"))
-                        }, modifier = Modifier.weight(1f))
-                    }
-                    if (backdrop != null) {
-                        LiquidButton(
-                            onClick = {
-                                if (periods.isNotEmpty()) onPeriodsChange(periods.dropLast(1))
-                            },
-                            backdrop = backdrop,
-                            modifier = Modifier.weight(1f).height(42.dp),
-                            height = 42.dp,
-                            surfaceColor = ComposeColor(0xFFFF453A).copy(alpha = 0.88f),
-                            tint = ComposeColor(0xFFFF453A),
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            blurRadius = 4.dp,
-                            lensHeight = 12.dp,
-                            lensAmount = 16.dp,
-                            chromaticAberration = false
-                        ) {
-                            Text("删除末节", color = ComposeColor.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                        }
-                    } else {
-                        SettingsActionButton("删除末节", null, onClick = {
-                            if (periods.isNotEmpty()) onPeriodsChange(periods.dropLast(1))
-                        }, modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-        }
-        error?.let {
-            item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 4.dp)) }
-        }
-    }
-    // 节次时间编辑弹窗（四列时间选择器）
-    val periodPickerBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
-    SleepDownPickerDialog(
-        show = showPeriodTimePicker,
-        title = "编辑第 ${editingPeriodIndex} 节时间",
-        onDismissRequest = { showPeriodTimePicker = false },
-        backdrop = periodPickerBackdrop,
-        config = state.config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
-    ) {
-        val compactPickerStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(fontSize = 22.sp)
-        val sortedPeriods = currentPeriods.sortedBy { it.periodIndex }
-        val editingPosition = sortedPeriods.indexOfFirst { it.periodIndex == editingPeriodIndex }
-        val pickerBounds = periodTimePickerBounds(
-            previousEnd = sortedPeriods.getOrNull(editingPosition - 1)?.endTime,
-            nextStart = sortedPeriods.getOrNull(editingPosition + 1)?.startTime
+    if (schemeDraft != null) {
+        PeriodSchemeEditor(
+            state, backdrop, draftConfig, schemeDraft,
+            onSchemeDraftChange, onPeriodCountsChange, topPadding,
+            leadingContent = termSettings
         )
-        ConstrainedPeriodTimePickers(
-            startMinute = pickerStartHour * 60 + pickerStartMinute,
-            endMinute = pickerEndHour * 60 + pickerEndMinute,
-            bounds = pickerBounds,
-            onSelectionChange = { selection ->
-                pickerStartHour = selection.startMinute / 60
-                pickerStartMinute = selection.startMinute % 60
-                pickerEndHour = selection.endMinute / 60
-                pickerEndMinute = selection.endMinute % 60
-            },
-            textStyle = compactPickerStyle,
-            showSectionLabels = false,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)) {
-            QuickSheetLiquidAction(
-                "取消", true, periodPickerBackdrop, state.config,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) { showPeriodTimePicker = false }
-            QuickSheetLiquidAction(
-                "删除", true, periodPickerBackdrop, state.config, destructive = true,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
-                onPeriodsChange(currentPeriods.filter { it.periodIndex != editingPeriodIndex })
-                showPeriodTimePicker = false
-            }
-            QuickSheetLiquidAction(
-                "确定", true, periodPickerBackdrop, state.config, primary = true,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
-                val selection = constrainPeriodTimeSelection(
-                    pickerStartHour * 60 + pickerStartMinute,
-                    pickerEndHour * 60 + pickerEndMinute,
-                    pickerBounds
-                )
-                val startStr = "%02d:%02d".format(selection.startMinute / 60, selection.startMinute % 60)
-                val endStr = "%02d:%02d".format(selection.endMinute / 60, selection.endMinute % 60)
-                onPeriodsChange(currentPeriods.map {
-                    if (it.periodIndex == editingPeriodIndex) it.copy(startTime = startStr, endTime = endStr) else it
-                })
-                showPeriodTimePicker = false
-            }
+    } else {
+        LazyColumn(
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = DockScrollPadding),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item { termSettings() }
+            item { Text("正在读取作息…", modifier = Modifier.padding(20.dp)) }
         }
-    }
-    // 大课间编辑弹窗
-    val lbPickerBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
-    SleepDownPickerDialog(
-        show = showLongBreakEditor,
-        title = "编辑大课间",
-        onDismissRequest = { showLongBreakEditor = false },
-        backdrop = lbPickerBackdrop,
-        config = state.config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
-    ) {
-        Text("大课间位置", style = MaterialTheme.typography.titleSmall, color = LocalContentColor.current, modifier = Modifier.padding(horizontal = 8.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            top.yukonga.miuix.kmp.basic.NumberPicker(
-                value = lbAfter,
-                onValueChange = { lbAfter = it },
-                range = 1..(periods.maxOfOrNull { it.periodIndex } ?: 12).coerceAtLeast(1),
-                visibleItemCount = 3,
-                label = { "第${it}节后" },
-                modifier = Modifier.weight(1f)
-            )
-            top.yukonga.miuix.kmp.basic.NumberPicker(
-                value = lbMinutes,
-                onValueChange = { lbMinutes = it },
-                range = 5..60,
-                visibleItemCount = 3,
-                label = { "${it}分钟" },
-                modifier = Modifier.weight(1f)
-            )
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)) {
-            QuickSheetLiquidAction(
-                "取消", true, lbPickerBackdrop, state.config,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) { showLongBreakEditor = false }
-            QuickSheetLiquidAction(
-                "删除", true, lbPickerBackdrop, state.config, destructive = true,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
-                if (editingLongBreakIndex >= 0) {
-                    longBreaks = longBreaks.toMutableList().also { it.removeAt(editingLongBreakIndex) }
-                }
-                showLongBreakEditor = false
-            }
-            QuickSheetLiquidAction(
-                "确定", true, lbPickerBackdrop, state.config, primary = true,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
-                val list = longBreaks.toMutableList()
-                if (editingLongBreakIndex >= 0) {
-                    list[editingLongBreakIndex] = lbAfter to lbMinutes
-                } else {
-                    list.add(lbAfter to lbMinutes)
-                }
-                longBreaks = list
-                showLongBreakEditor = false
-            }
-        }
-    }
-    if (showAutoMatchConfirm) {
-        LiquidAlertDialog(
-            title = "确认自动匹配",
-            message = "自动匹配将基于第一节课的开始时间和课时/课间设置重新计算所有节次时间，手动修改的节次会被覆盖。是否继续？",
-            actions = listOf(
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = { showAutoMatchConfirm = false }),
-                LiquidAlertAction("确定", LiquidAlertActionStyle.Primary, onClick = {
-                    onAutoMatchAction()
-                    showAutoMatchConfirm = false
-                })
-            ),
-            backdrop = backdrop,
-            config = state.config,
-            onDismissRequest = { showAutoMatchConfirm = false }
-        )
     }
 }
 

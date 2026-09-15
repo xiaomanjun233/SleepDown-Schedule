@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.constrainPeriodTimeSelection
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
@@ -986,49 +987,9 @@ fun SettingsTimePickerRow(
         config = config,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
     ) {
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val pickerContentColor = LocalContentColor.current
-                val compact = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.15f
-                val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
-                    color = pickerContentColor,
-                    fontSize = if (compact) 23.sp else 28.sp
-                )
-                val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
-                    selectedTextColor = pickerContentColor,
-                    unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
-                    disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
-                    disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)
-                ) {
-                    top.yukonga.miuix.kmp.basic.NumberPicker(
-                        value = selectedHour,
-                        onValueChange = { hour ->
-                            val minute = pickerMinute.coerceIn(minuteRangeForHour(hour, safeMinimum, safeMaximum))
-                            pickerHour = hour
-                            pickerMinute = minute
-                        },
-                        range = (safeMinimum / 60)..(safeMaximum / 60),
-                        visibleItemCount = 3,
-                        label = { "%02d时".format(it) },
-                        colors = pickerColors,
-                        textStyle = pickerTextStyle,
-                        modifier = Modifier.weight(1f)
-                    )
-                    top.yukonga.miuix.kmp.basic.NumberPicker(
-                        value = selectedMinute % 60,
-                        onValueChange = { pickerMinute = it },
-                        range = allowedMinuteRange,
-                        wrapAround = allowedMinuteRange == 0..59,
-                        visibleItemCount = 3,
-                        label = { "%02d分".format(it) },
-                        colors = pickerColors,
-                        textStyle = pickerTextStyle,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+            SettingsTimePickerContent(selectedMinute, safeMinimum..safeMaximum) {
+                pickerHour = it / 60
+                pickerMinute = it % 60
             }
             Row(
                 Modifier.fillMaxWidth(),
@@ -1077,25 +1038,7 @@ internal fun SettingsMinutePickerRow(
         config = config,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
     ) {
-        val pickerContentColor = LocalContentColor.current
-        top.yukonga.miuix.kmp.basic.NumberPicker(
-            value = pickerValue,
-            onValueChange = { pickerValue = it },
-            range = range,
-            visibleItemCount = 3,
-            label = { "${it}分钟" },
-            colors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
-                selectedTextColor = pickerContentColor,
-                unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
-                disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
-                disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
-            ),
-            textStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
-                color = pickerContentColor,
-                fontSize = 28.sp
-            ),
-            modifier = Modifier.fillMaxWidth()
-        )
+        SettingsMinutePickerContent(pickerValue, { pickerValue = it }, range)
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
@@ -1115,6 +1058,86 @@ internal fun SettingsMinutePickerRow(
     }
 }
 
+/** Shared by settings rows and the period editor; typography and wheel geometry stay identical. */
+@Composable
+internal fun SettingsTimePickerContent(
+    value: Int, range: IntRange, modifier: Modifier = Modifier, onValueChange: (Int) -> Unit
+) {
+    val safeMinimum = range.first.coerceIn(0, LastMinuteOfDay)
+    val safeMaximum = range.last.coerceIn(safeMinimum, LastMinuteOfDay)
+    val selectedMinute = value.coerceIn(safeMinimum, safeMaximum)
+    val selectedHour = selectedMinute / 60
+    val allowedMinuteRange = minuteRangeForHour(selectedHour, safeMinimum, safeMaximum)
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+                val pickerContentColor = LocalContentColor.current
+                val compact = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.15f
+                val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                    color = pickerContentColor,
+                    fontSize = if (compact) 23.sp else 28.sp
+                )
+                val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
+                    selectedTextColor = pickerContentColor,
+                    unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
+                    disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
+                    disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)
+                ) {
+                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                        value = selectedHour,
+                        onValueChange = { hour ->
+                            val minute = (selectedMinute % 60).coerceIn(minuteRangeForHour(hour, safeMinimum, safeMaximum))
+                            onValueChange(hour * 60 + minute)
+                        },
+                        range = (safeMinimum / 60)..(safeMaximum / 60),
+                        visibleItemCount = 3,
+                        label = { "%02d时".format(it) },
+                        colors = pickerColors,
+                        textStyle = pickerTextStyle,
+                        modifier = Modifier.weight(1f)
+                    )
+                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                        value = selectedMinute % 60,
+                        onValueChange = { onValueChange(selectedHour * 60 + it) },
+                        range = allowedMinuteRange,
+                        wrapAround = allowedMinuteRange == 0..59,
+                        visibleItemCount = 3,
+                        label = { "%02d分".format(it) },
+                        colors = pickerColors,
+                        textStyle = pickerTextStyle,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+}
+
+@Composable
+internal fun SettingsMinutePickerContent(
+    value: Int, onValueChange: (Int) -> Unit, range: IntRange, modifier: Modifier = Modifier
+) {
+        val pickerContentColor = LocalContentColor.current
+        top.yukonga.miuix.kmp.basic.NumberPicker(
+            value = value.coerceIn(range),
+            onValueChange = onValueChange,
+            range = range,
+            visibleItemCount = 3,
+            label = { "${it}分钟" },
+            colors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
+                selectedTextColor = pickerContentColor,
+                unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
+                disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
+                disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
+            ),
+            textStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                color = pickerContentColor,
+                fontSize = 28.sp
+            ),
+            modifier = modifier.fillMaxWidth()
+        )
+}
+
 private fun minuteRangeForHour(hour: Int, minimumMinute: Int, maximumMinute: Int): IntRange {
     val lower = if (hour == minimumMinute / 60) minimumMinute % 60 else 0
     val upper = if (hour == maximumMinute / 60) maximumMinute % 60 else 59
@@ -1129,16 +1152,25 @@ internal fun ConstrainedPeriodTimePickers(
     onSelectionChange: (PeriodTimeSelection) -> Unit,
     textStyle: TextStyle,
     showSectionLabels: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    minimumDurationMinutes: Int = 1
 ) {
-    val selection = constrainPeriodTimeSelection(startMinute, endMinute, bounds)
+    val foreground = LocalContentColor.current
+    val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
+        selectedTextColor = foreground,
+        unselectedTextColor = foreground.copy(alpha = 0.34f),
+        disabledSelectedTextColor = foreground.copy(alpha = 0.55f),
+        disabledUnselectedTextColor = foreground.copy(alpha = 0.22f)
+    )
+    val duration = minimumDurationMinutes.coerceIn(1, (bounds.maximumEndMinute - bounds.minimumStartMinute).coerceAtLeast(1))
+    val selection = constrainPeriodTimeSelection(startMinute, endMinute, bounds, minimumDurationMinutes = duration)
     LaunchedEffect(selection, startMinute, endMinute) {
         if (selection.startMinute != startMinute || selection.endMinute != endMinute) {
             onSelectionChange(selection)
         }
     }
-    val latestStart = selection.endMinute - 1
-    val earliestEnd = selection.startMinute + 1
+    val latestStart = selection.endMinute - duration
+    val earliestEnd = selection.startMinute + duration
     val startHour = selection.startMinute / 60
     val endHour = selection.endMinute / 60
     val startMinuteRange = minuteRangeForHour(startHour, bounds.minimumStartMinute, latestStart)
@@ -1150,7 +1182,8 @@ internal fun ConstrainedPeriodTimePickers(
                 candidate,
                 selection.endMinute,
                 bounds,
-                PeriodTimeSelectionAnchor.START
+                PeriodTimeSelectionAnchor.START,
+                minimumDurationMinutes = duration
             )
         )
     }
@@ -1161,7 +1194,8 @@ internal fun ConstrainedPeriodTimePickers(
                 selection.startMinute,
                 candidate,
                 bounds,
-                PeriodTimeSelectionAnchor.END
+                PeriodTimeSelectionAnchor.END,
+                minimumDurationMinutes = duration
             )
         )
     }
@@ -1182,7 +1216,8 @@ internal fun ConstrainedPeriodTimePickers(
                     range = (bounds.minimumStartMinute / 60)..(latestStart / 60),
                     visibleItemCount = 3,
                     label = { "%02d时".format(it) },
-                    textStyle = textStyle,
+                    textStyle = textStyle.copy(color = foreground),
+                    colors = pickerColors,
                     modifier = Modifier.weight(1f)
                 )
                 top.yukonga.miuix.kmp.basic.NumberPicker(
@@ -1192,7 +1227,8 @@ internal fun ConstrainedPeriodTimePickers(
                     wrapAround = startMinuteRange == 0..59,
                     visibleItemCount = 3,
                     label = { "%02d分".format(it) },
-                    textStyle = textStyle,
+                    textStyle = textStyle.copy(color = foreground),
+                    colors = pickerColors,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -1212,7 +1248,8 @@ internal fun ConstrainedPeriodTimePickers(
                     range = (earliestEnd / 60)..(bounds.maximumEndMinute / 60),
                     visibleItemCount = 3,
                     label = { "%02d时".format(it) },
-                    textStyle = textStyle,
+                    textStyle = textStyle.copy(color = foreground),
+                    colors = pickerColors,
                     modifier = Modifier.weight(1f)
                 )
                 top.yukonga.miuix.kmp.basic.NumberPicker(
@@ -1222,7 +1259,8 @@ internal fun ConstrainedPeriodTimePickers(
                     wrapAround = endMinuteRange == 0..59,
                     visibleItemCount = 3,
                     label = { "%02d分".format(it) },
-                    textStyle = textStyle,
+                    textStyle = textStyle.copy(color = foreground),
+                    colors = pickerColors,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -1259,6 +1297,7 @@ fun SettingsInfoRow(title: String, body: String) {
 internal val LocalCollapsibleSettingsInfoRows = compositionLocalOf { false }
 
 private val changelogReleaseDates = mapOf(
+    "1.2.6_beta3" to "2026-09-15",
     "1.2.6_beta2" to "2026-09-14",
     "1.2.6_beta1" to "2026-09-14",
     "1.2.5" to "2026-09-14",

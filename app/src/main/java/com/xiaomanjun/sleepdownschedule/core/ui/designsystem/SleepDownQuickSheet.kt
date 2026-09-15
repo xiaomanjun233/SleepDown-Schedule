@@ -128,6 +128,7 @@ fun SleepDownPickerDialog(
     blurRadius: Dp = 28.dp,
     titleAction: (@Composable () -> Unit)? = null,
     contentTransitionKey: Any? = null,
+    contentForState: (@Composable ColumnScope.(Any?) -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val visuals = rememberCenteredDialogVisuals(
@@ -214,9 +215,9 @@ fun SleepDownPickerDialog(
                     CenteredDialogContentTransition(
                         targetState = contentTransitionKey,
                         label = "picker-dialog-content"
-                    ) {
+                    ) { displayedState ->
                         Column(verticalArrangement = Arrangement.spacedBy(contentSpacing)) {
-                            content()
+                            if (contentForState != null) contentForState(displayedState) else content()
                         }
                     }
                 }

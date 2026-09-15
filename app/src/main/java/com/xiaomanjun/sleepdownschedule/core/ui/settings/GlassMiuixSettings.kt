@@ -61,6 +61,8 @@ import top.yukonga.miuix.kmp.theme.lightColorScheme
 internal val LocalGlassMiuixEnabled = compositionLocalOf { false }
 internal val LocalGlassSettingsContentTopPadding = compositionLocalOf<Dp?> { null }
 internal val LocalSettingsPopupBackdrop = compositionLocalOf<Backdrop?> { null }
+// A page can temporarily move its chrome away while an in-place editor owns navigation.
+internal val LocalSettingsEditorProgress = compositionLocalOf<androidx.compose.runtime.MutableFloatState?> { null }
 
 /** Root-level sibling host for controls that must float outside the scroll/card subtree. */
 internal class DetailActivityFloatingOverlayHost {
@@ -320,6 +322,8 @@ internal fun GlassMiuixDetailActivityScaffold(
     }
     val compactTopBarHeight = stableStatusBarTop +
         SleepDownDesignTokens.SecondaryPage.CompactTopBarHeight
+    val editorProgress = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val editorUnderlayBlur = remember(density) { platformMotionBlurRenderEffect(with(density) { 10.dp.toPx() }) }
     val dialogSceneBackdrop = rememberCenteredDialogSceneBackdrop("settings-detail-dialog-scene")
     // Reuse a host supplied by the activity transition/home overlay when present. This keeps a
     // destination search dock outside the transition shell and the page/card clipping chain.
@@ -332,6 +336,7 @@ internal fun GlassMiuixDetailActivityScaffold(
             LocalCenteredDialogSceneBackdrop provides dialogSceneBackdrop,
             LocalCenteredDialogRenderInRootScaffold provides false,
             LocalSettingsPopupBackdrop provides dialogSceneBackdrop,
+            LocalSettingsEditorProgress provides editorProgress,
             LocalDetailActivityFloatingOverlayHost provides floatingOverlayHost
         ) {
         Box(
@@ -358,7 +363,21 @@ internal fun GlassMiuixDetailActivityScaffold(
                         Modifier
                             .fillMaxWidth()
                             .then(if (compactTopBar) Modifier.height(compactTopBarHeight) else Modifier)
-                            .graphicsLayer { clip = false }
+                            .layout { measurable, constraints ->
+                                val placeable = measurable.measure(constraints)
+                                layout(placeable.width, placeable.height) {
+                                    // Preserve scaffold insets while removing the hidden header from hit testing.
+                                    if (editorProgress.floatValue < 1f) placeable.placeRelative(0, 0)
+                                }
+                            }
+                            .graphicsLayer {
+                                clip = false
+                                translationY = 28.dp.toPx() * editorProgress.floatValue
+                                scaleX = 1f - 0.04f * editorProgress.floatValue
+                                scaleY = scaleX
+                                alpha = 1f - editorProgress.floatValue
+                                renderEffect = if (editorProgress.floatValue > 0f && editorProgress.floatValue < 1f) editorUnderlayBlur else null
+                            }
                     ) {
                         if (topBarVisible) {
                             SettingsGradientTopBar(

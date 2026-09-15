@@ -118,22 +118,24 @@ internal fun constrainPeriodTimeSelection(
     startMinute: Int,
     endMinute: Int,
     bounds: PeriodTimePickerBounds,
-    anchor: PeriodTimeSelectionAnchor = PeriodTimeSelectionAnchor.NONE
+    anchor: PeriodTimeSelectionAnchor = PeriodTimeSelectionAnchor.NONE,
+    minimumDurationMinutes: Int = 1
 ): PeriodTimeSelection {
     val minimumStart = bounds.minimumStartMinute.coerceIn(0, LastMinuteOfDay - 1)
     val maximumEnd = bounds.maximumEndMinute.coerceIn(minimumStart + 1, LastMinuteOfDay)
+    val duration = minimumDurationMinutes.coerceIn(1, maximumEnd - minimumStart)
     return when (anchor) {
         PeriodTimeSelectionAnchor.START -> {
-            val safeEnd = endMinute.coerceIn(minimumStart + 1, maximumEnd)
-            PeriodTimeSelection(startMinute.coerceIn(minimumStart, safeEnd - 1), safeEnd)
+            val safeEnd = endMinute.coerceIn(minimumStart + duration, maximumEnd)
+            PeriodTimeSelection(startMinute.coerceIn(minimumStart, safeEnd - duration), safeEnd)
         }
         PeriodTimeSelectionAnchor.END -> {
-            val safeStart = startMinute.coerceIn(minimumStart, maximumEnd - 1)
-            PeriodTimeSelection(safeStart, endMinute.coerceIn(safeStart + 1, maximumEnd))
+            val safeStart = startMinute.coerceIn(minimumStart, maximumEnd - duration)
+            PeriodTimeSelection(safeStart, endMinute.coerceIn(safeStart + duration, maximumEnd))
         }
         PeriodTimeSelectionAnchor.NONE -> {
-            val safeStart = startMinute.coerceIn(minimumStart, maximumEnd - 1)
-            PeriodTimeSelection(safeStart, endMinute.coerceIn(safeStart + 1, maximumEnd))
+            val safeStart = startMinute.coerceIn(minimumStart, maximumEnd - duration)
+            PeriodTimeSelection(safeStart, endMinute.coerceIn(safeStart + duration, maximumEnd))
         }
     }
 }

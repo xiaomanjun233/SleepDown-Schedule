@@ -1931,25 +1931,14 @@ private fun DayPartHeader(
         val end = courses.mapNotNull { courseEndTime(it, periods) }.maxOrNull()
         if (start != null && end != null) "$start–$end" else null
     }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
+    SleepDownTimeSectionDivider(textColor = textColor, label = {
         HomeReadableText(
             text = dayPartLabel(part),
             style = MaterialTheme.typography.titleSmall,
             color = textColor,
             fontWeight = FontWeight.SemiBold
         )
-        Box(
-            Modifier
-                .weight(1f)
-                .height(1.dp)
-                .background(textColor.copy(alpha = 0.18f))
-        )
+    }, time = {
         timeRange?.let {
             HomeReadableText(
                 text = it,
@@ -1957,7 +1946,7 @@ private fun DayPartHeader(
                 color = textColor.copy(alpha = 0.66f)
             )
         }
-    }
+    })
 }
 
 @Composable
