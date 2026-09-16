@@ -174,6 +174,8 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
@@ -773,6 +775,10 @@ fun CourseScheduleAppUi(
     var renderedHomeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     var homeDialogVisible by remember { mutableStateOf(false) }
     val appScope = rememberCoroutineScope()
+    val homeAssistant = remember(appScope) { HomeAssistantState(appScope) }
+    var assistantImportUri by remember { mutableStateOf<Uri?>(null) }
+    val assistantHaptic = LocalHapticFeedback.current
+    var assistantHapticSent by remember { mutableStateOf(false) }
 
     var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var pendingCourseGroupEdit by remember { mutableStateOf<PendingCourseGroupEdit?>(null) }
@@ -894,7 +900,8 @@ fun CourseScheduleAppUi(
     val homeBackgroundOverlayActive =
         homeAnchoredOverlayRequest != null || homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ||
             destinationTransitionActive || courseEditorRequest != null ||
-            courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle || courseShortcuts.request != null
+            courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle || courseShortcuts.request != null ||
+            homeAssistant.stage == HomeAssistantStage.Conversation
     val homeBackgroundFreezeActive = shouldUseFrozenHomeMorphBlur(
         screenIsHome = screen is Screen.Home,
         previewActive = personalizationPreviewActive,
@@ -952,6 +959,7 @@ fun CourseScheduleAppUi(
     val windowContainerSize = LocalWindowInfo.current.containerSize
     val density = LocalDensity.current
     val homeAdaptiveMetrics = rememberHomeAdaptiveMetrics()
+    val homeDeviceCornerPx = com.xiaomanjun.sleepdownschedule.core.ui.interaction.deviceScreenCornerRadiusPx()
 
     LaunchedEffect(
         pendingHomeAnchoredOverlay,
@@ -1238,10 +1246,11 @@ fun CourseScheduleAppUi(
             if (homeStatusBarDarkIcons) luminance >= 0.46f else luminance >= 0.56f
         } ?: !appDarkTheme
     }
-    LaunchedEffect(screen, homeStatusBarDarkIcons, appDarkTheme, context) {
+    LaunchedEffect(screen, homeStatusBarDarkIcons, appDarkTheme, context, homeAssistant.visible) {
         val window = context.findActivity()?.window ?: return@LaunchedEffect
         window.setStatusBarDarkIcons(
-            darkIcons = if (screen is Screen.Home) homeStatusBarDarkIcons else !appDarkTheme
+            darkIcons = if (screen is Screen.Home && homeAssistant.visible) false
+                else if (screen is Screen.Home) homeStatusBarDarkIcons else !appDarkTheme
         )
     }
     val expectedWallpaperRenderKey = homeWallpaperRenderKey(
@@ -2043,7 +2052,103 @@ fun CourseScheduleAppUi(
     }
     val useSharedCourseBackdrop = screen is Screen.Home && visualState.config.courseCardGlassEnabled &&
         wallpaperImages.source != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val handleHomeAgentAction: AgentActionHandler = {
+        plan: AgentPlan,
+        onResult: (AgentPlanExecutionResult) -> Unit ->
+        val actions = plan.actions
+        val action = actions.singleOrNull()
+        val courseActions = actions.filter {
+            it.type == AgentValidatedActionType.ADD ||
+                it.type == AgentValidatedActionType.UPDATE ||
+                it.type == AgentValidatedActionType.DELETE
+        }
+         val settingActions = actions.filter {
+             it.type == AgentValidatedActionType.SET_SETTING ||
+                 it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS
+        }
+        when {
+            courseActions.size == actions.size && actions.isNotEmpty() ->
+                viewModel.executeAgentPlan(actions, onResult)
+            settingActions.size == actions.size && actions.isNotEmpty() ->
+                viewModel.executeAgentSettingPlan(actions, onResult)
+            action == null -> onResult(
+                AgentPlanExecutionResult(
+                    success = false,
+                    preview = null,
+                    verified = false,
+                    message = "课程操作与页面或设置操作不能在同一事务中执行"
+                )
+            )
+            else -> when (action.type) {
+            AgentValidatedActionType.ADD,
+            AgentValidatedActionType.UPDATE,
+            AgentValidatedActionType.DELETE ->
+                viewModel.executeAgentPlan(actions, onResult)
+            AgentValidatedActionType.OPEN_SETTINGS -> {
+                if (action.settingsPage == "PERSONALIZATION") {
+                    openHomeAnchoredOverlay(HomeAnchoredOverlayKind.Personalize)
+                } else agentSettingsPage(action.settingsPage)?.let { page ->
+                    val intent = Intent(context, SettingsDetailActivity::class.java)
+                        .putExtra(SettingsDetailPageExtra, page.name)
+                    if (page == SettingsPage.Schedule) {
+                        intent.putExtra(ScheduleCustomizeIdExtra, state.config.id)
+                    }
+                    context.openRegisteredActivity(
+                        TransitionRouteId.HomeToSettingsDetail,
+                        intent
+                    )
+                }
+                onResult(
+                    AgentPlanExecutionResult(
+                        success = true,
+                        preview = null,
+                        verified = true,
+                        message = "页面已打开"
+                    )
+                )
+            }
+            AgentValidatedActionType.SET_SETTING -> {
+                when {
+                    action.settingKey == "SCHEDULE_NAME" -> action.settingValue
+                        ?.let { name -> viewModel.renameSchedule(state.config.id, name) }
+                    AgentSettingRegistry.isPreferenceSetting(action.settingKey) -> {
+                        AgentSettingRegistry.applyPreference(
+                            context,
+                            action.settingKey,
+                            action.settingValue
+                        )
+                    }
+                    AgentSettingRegistry.isPeriodTimeSetting(action.settingKey) -> {
+                        AgentSettingRegistry.applyPeriodTime(
+                            state.periods,
+                            action.settingKey,
+                            action.settingValue
+                        )?.let { updatedPeriods ->
+                            viewModel.saveConfig(state.config, updatedPeriods)
+                        }
+                    }
+                    else -> AgentSettingRegistry.apply(
+                        state.config,
+                        action.settingKey,
+                        action.settingValue
+                    )?.let(viewModel::savePersonalization)
+                }
+                onResult(
+                    AgentPlanExecutionResult(
+                        success = true,
+                        preview = null,
+                        verified = false,
+                        message = "设置修改已提交"
+                    )
+                )
+            }
+            AgentValidatedActionType.SET_PERIOD_SETTINGS ->
+                viewModel.executeAgentSettingPlan(actions, onResult)
+        }
+        }
+    }
     CompositionLocalProvider(
+        LocalHomeAssistant provides homeAssistant,
         LocalCourseShortcuts provides courseShortcuts,
         LocalCourseCopy provides courseCopy,
         LocalCourseRemoval provides courseRemoval,
@@ -2066,16 +2171,48 @@ fun CourseScheduleAppUi(
     // popup in the scaffold's later sibling host, so a dialog consumer can never be recorded by
     // the LayerBackdrop it samples.
     top.yukonga.miuix.kmp.basic.Scaffold(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().assistantPullGesture(
+            enabled = screen is Screen.Home && homeMode == HomeMode.Week && state.loaded && !homeAssistant.visible,
+            canStart = { position ->
+                position.y > with(density) { homeAdaptiveMetrics.safeTop.toPx() } &&
+                    homeAssistant.canPullAt(position) &&
+                    !homeContentUnderTopBar && !homeAssistant.editing && !homeBackgroundOverlayActive && !courseCopy.active &&
+                    renderedHomeDialog == null && !jumpWeekDialogMounted &&
+                    pickerState.phase is CustomizeUiState.Home &&
+                    dayAgentBackgroundMotionState.progress.value < 0.001f &&
+                    (!DayAgentPreferences.hasDecision(context) || DayAgentPreferences.isEnabled(context))
+            },
+            onStart = { assistantHapticSent = false; homeAssistant.beginPull() },
+            onDistance = {
+                if (homeAssistant.pull(it, density.density) && !assistantHapticSent) {
+                    assistantHapticSent = true
+                    assistantHaptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+            },
+            onRelease = { homeAssistant.release(it && homeAssistant.armed) }
+        ),
         underlayModifier = Modifier
             .fillMaxSize()
-            .then(if (courseShortcuts.request != null || courseCopy.active) {
+            .then(if (courseShortcuts.request != null || courseCopy.active || homeAssistant.visible) {
                 Modifier.glassBackdropProducer(centeredDialogSceneBackdrop)
             } else {
                 Modifier.centeredDialogSceneProducer(centeredDialogSceneBackdrop)
             }),
         popupHost = {
             Box(Modifier.fillMaxSize()) {
+                HomeAssistantHost(
+                    controller = homeAssistant,
+                    state = state,
+                    available = screen is Screen.Home && homeMode == HomeMode.Week && state.loaded,
+                    remindersAllowed = homeMode == HomeMode.Week && !homeAssistant.editing &&
+                        !homeBackgroundOverlayActive && !courseCopy.active && renderedHomeDialog == null &&
+                        !jumpWeekDialogMounted && pickerState.phase is CustomizeUiState.Home &&
+                        dayAgentBackgroundMotionState.progress.value < 0.001f,
+                    backdrop = centeredDialogSceneBackdrop,
+                    backgroundMotion = dayAgentBackgroundMotionState,
+                    onAgentAction = handleHomeAgentAction,
+                    onImportFile = { uri -> assistantImportUri = uri; homeDialog = HomeDialog.ImportSchedule }
+                )
                 CourseCopyOverlay(courseCopy, visualState.config, centeredDialogSceneBackdrop, backgroundBackdrop)
                 CourseShortcutOverlay(
                     controller = courseShortcuts,
@@ -2235,13 +2372,16 @@ fun CourseScheduleAppUi(
                 .fillMaxSize()
                 .clipToBounds()
                 .graphicsLayer {
+                    translationY = if (homeAssistant.pullingHome) homeAssistant.pullPixels else 0f
+                    shape = RoundedRectangle(homeDeviceCornerPx.toDp())
+                    clip = translationY != 0f
                     val zoom = dayAgentBackgroundMotionState.backgroundZoom.value
                     val depthProgress =
                         ((1f - zoom) / (1f - DayAgentBackgroundZoomRestScale)).coerceIn(0f, 1f)
                     scaleX = zoom
                     scaleY = zoom
-                    val blurPx = with(density) { 12.dp.toPx() } * depthProgress
-                    renderEffect = if (depthProgress > 0.001f) {
+                    val blurPx = if (homeAssistant.visible) 0f else with(density) { 12.dp.toPx() } * depthProgress
+                    renderEffect = if (blurPx > 0.001f) {
                         BlurEffect(blurPx, blurPx, TileMode.Clamp)
                     } else null
                 }
@@ -2528,101 +2668,7 @@ fun CourseScheduleAppUi(
                                         openCourseEditor(course, week, sourceBounds)
                                     },
                                     onAddCourse = viewModel::addCourse,
-                                    onAgentAction = {
-                                        plan: AgentPlan,
-                                        onResult: (AgentPlanExecutionResult) -> Unit ->
-                                        val actions = plan.actions
-                                        val action = actions.singleOrNull()
-                                        val courseActions = actions.filter {
-                                            it.type == AgentValidatedActionType.ADD ||
-                                                it.type == AgentValidatedActionType.UPDATE ||
-                                                it.type == AgentValidatedActionType.DELETE
-                                        }
-                                         val settingActions = actions.filter {
-                                             it.type == AgentValidatedActionType.SET_SETTING ||
-                                                 it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS
-                                        }
-                                        when {
-                                            courseActions.size == actions.size && actions.isNotEmpty() ->
-                                                viewModel.executeAgentPlan(actions, onResult)
-                                            settingActions.size == actions.size && actions.isNotEmpty() ->
-                                                viewModel.executeAgentSettingPlan(actions, onResult)
-                                            action == null -> onResult(
-                                                AgentPlanExecutionResult(
-                                                    success = false,
-                                                    preview = null,
-                                                    verified = false,
-                                                    message = "课程操作与页面或设置操作不能在同一事务中执行"
-                                                )
-                                            )
-                                            else -> when (action.type) {
-                                            AgentValidatedActionType.ADD,
-                                            AgentValidatedActionType.UPDATE,
-                                            AgentValidatedActionType.DELETE ->
-                                                viewModel.executeAgentPlan(actions, onResult)
-                                            AgentValidatedActionType.OPEN_SETTINGS -> {
-                                                if (action.settingsPage == "PERSONALIZATION") {
-                                                    openHomeAnchoredOverlay(HomeAnchoredOverlayKind.Personalize)
-                                                } else agentSettingsPage(action.settingsPage)?.let { page ->
-                                                    val intent = Intent(context, SettingsDetailActivity::class.java)
-                                                        .putExtra(SettingsDetailPageExtra, page.name)
-                                                    if (page == SettingsPage.Schedule) {
-                                                        intent.putExtra(ScheduleCustomizeIdExtra, state.config.id)
-                                                    }
-                                                    context.openRegisteredActivity(
-                                                        TransitionRouteId.HomeToSettingsDetail,
-                                                        intent
-                                                    )
-                                                }
-                                                onResult(
-                                                    AgentPlanExecutionResult(
-                                                        success = true,
-                                                        preview = null,
-                                                        verified = true,
-                                                        message = "页面已打开"
-                                                    )
-                                                )
-                                            }
-                                            AgentValidatedActionType.SET_SETTING -> {
-                                                when {
-                                                    action.settingKey == "SCHEDULE_NAME" -> action.settingValue
-                                                        ?.let { name -> viewModel.renameSchedule(state.config.id, name) }
-                                                    AgentSettingRegistry.isPreferenceSetting(action.settingKey) -> {
-                                                        AgentSettingRegistry.applyPreference(
-                                                            context,
-                                                            action.settingKey,
-                                                            action.settingValue
-                                                        )
-                                                    }
-                                                    AgentSettingRegistry.isPeriodTimeSetting(action.settingKey) -> {
-                                                        AgentSettingRegistry.applyPeriodTime(
-                                                            state.periods,
-                                                            action.settingKey,
-                                                            action.settingValue
-                                                        )?.let { updatedPeriods ->
-                                                            viewModel.saveConfig(state.config, updatedPeriods)
-                                                        }
-                                                    }
-                                                    else -> AgentSettingRegistry.apply(
-                                                        state.config,
-                                                        action.settingKey,
-                                                        action.settingValue
-                                                    )?.let(viewModel::savePersonalization)
-                                                }
-                                                onResult(
-                                                    AgentPlanExecutionResult(
-                                                        success = true,
-                                                        preview = null,
-                                                        verified = false,
-                                                        message = "设置修改已提交"
-                                                    )
-                                                )
-                                            }
-                                            AgentValidatedActionType.SET_PERIOD_SETTINGS ->
-                                                viewModel.executeAgentSettingPlan(actions, onResult)
-                                        }
-                                        }
-                                    },
+                                    onAgentAction = handleHomeAgentAction,
                                     onUpdateCourseSingleWeek = viewModel::updateCourseSingleWeek,
                                     conflictFocusCourseId = pendingConflictCourseId
                                         ?.takeIf { homeDisplayWeek in pendingConflictWeeks },
@@ -3948,6 +3994,8 @@ fun CourseScheduleAppUi(
                     HomeDialog.ImportSchedule -> NormalizedAiManualImportScreen(
                         state = state,
                         backdrop = homeDialogBackdrop,
+                        initialFileUri = assistantImportUri,
+                        onInitialFileConsumed = { assistantImportUri = null },
                         onCancel = { dismissHomeDialog() },
                         onParsed = { homeDialog = HomeDialog.ConfirmImport(it, returnDialog = null) }
                     )
@@ -4520,7 +4568,7 @@ fun HomeTopGradientBlur(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun AppTopBar(
     screen: Screen,
@@ -4549,7 +4597,7 @@ internal fun AppTopBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .statusBarsPadding()
+                .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
                 .height(66.dp)
                 .graphicsLayer { clip = false }
         ) {
@@ -4590,6 +4638,7 @@ internal fun AppTopBar(
                     .align(Alignment.CenterEnd)
                     // Match Material TopAppBar's 4dp action inset plus the existing row inset.
                     .padding(top = 2.dp, end = 8.dp)
+                    .excludeHomeAssistantPull()
                     .graphicsLayer { clip = false },
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -4618,7 +4667,7 @@ internal fun AppTopBar(
         return
     }
     TopAppBar(
-        modifier = Modifier.statusBarsPadding().height(66.dp),
+        modifier = Modifier.windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility).height(66.dp),
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = ComposeColor.Transparent,
             scrolledContainerColor = ComposeColor.Transparent,
@@ -5136,7 +5185,7 @@ fun FloatingDock(
                     onTabSelected = { index -> if (index == 0) onHome() else onConfig() },
                     backdrop = backdrop,
                     tabsCount = 2,
-                    modifier = Modifier.width(140.dp),
+                    modifier = Modifier.width(140.dp).excludeHomeAssistantPull(),
                     containerHeight = 54.dp,
                     indicatorHeight = 46.dp,
                     blurRadius = homeChromeBlur(1.3.dp, config),
@@ -5165,7 +5214,7 @@ fun FloatingDock(
                 }
             }
         } else {
-            GlassPill(backdrop = null, config = config, modifier = Modifier.width(140.dp)) {
+            GlassPill(backdrop = null, config = config, modifier = Modifier.width(140.dp).excludeHomeAssistantPull()) {
                 Row(modifier = Modifier.height(54.dp).padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     DockItem(selected is Screen.Home, null, config, R.drawable.ic_courses, "课程", onHome)
                     DockItem(selected is Screen.Config, null, config, R.drawable.ic_settings, "设置", onConfig)
@@ -9099,6 +9148,17 @@ fun ChangelogSettingsScreen(
             item(key = "about-changelog") {
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
+                SettingsInfoRow(
+                    "1.2.6_beta5",
+                    "周视图新增下拉助手：课程滚到顶部后，继续下拉即可打开输入胶囊并自动弹出键盘；从按钮上开始下拉不会误触发。\n" +
+                    "发送后胶囊随回答内容向下展开，保留轻透玻璃底部；下拉横条进入完整对话，上划可关闭，消息记录与原今日助手共享。\n" +
+                    "课程开始前 30 分钟、前 15 分钟和开始时显示今日助手提醒卡，下拉可直接进入完整对话。\n" +
+                    "助手支持从完整对话中选择课表文件，继续使用原有导入预览与确认流程。\n" +
+                    "调整回答字号、发送键与顶栏按钮位置，缩小四周留白；平板会话居中显示，占屏幕一半宽度。\n" +
+                    "日视图助手与完整对话顶部加入渐变模糊，进出完整对话更加平顺；展开完成后取消圆角和描边，首页仅下拉过程中进行圆角裁切。\n" +
+                    "优化胶囊触摸和收回摄像头的衔接，保留教务导入灵动岛的反馈特效；教务岛缩小时继续隐藏状态栏。"
+                )
+                SettingsDivider()
                 SettingsInfoRow(
                     "1.2.6_beta4",
                     "修复首页启动时残留的切换动画，直接显示已加载的默认视图和当前周；首张壁纸也直接呈现。\n" +

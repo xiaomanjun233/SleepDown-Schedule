@@ -13,6 +13,9 @@ import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import android.annotation.SuppressLint
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -27,10 +30,8 @@ import android.os.Message
 import android.util.Log
 import android.view.MotionEvent
 import android.view.ViewGroup
-import androidx.core.view.WindowCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import android.webkit.CookieManager
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
@@ -45,12 +46,10 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -96,10 +95,12 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
@@ -427,6 +428,7 @@ private fun eduImportIslandStatus(rawStatus: String?): String? {
 @Composable
 private fun EduImportGuideMorphOverlay(
     adapter: EduAdapter,
+    config: ScheduleConfigEntity,
     backdrop: Backdrop,
     visible: Boolean,
     expanded: Boolean,
@@ -437,19 +439,21 @@ private fun EduImportGuideMorphOverlay(
     val isLargeScreen = rememberHomeAdaptiveMetrics().isLargeScreen
     val density = LocalDensity.current
     val view = LocalView.current
-    val window = (view.context as? ComponentActivity)?.window
-    val originalCutoutMode = remember(window) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            window?.attributes?.layoutInDisplayCutoutMode
-        } else {
-            null
-        }
-    }
-    val morphProgress = remember(adapter) { Animatable(0f) }
+    com.xiaomanjun.sleepdownschedule.core.ui.interaction.TopAssistantSystemBars(hidden = visible)
+    val islandMotion = rememberTopAssistantMotion()
+    val islandInteraction = remember { MutableInteractionSource() }
+    val islandPressed by islandInteraction.collectIsPressedAsState()
+    val islandPressAmount by animateFloatAsState(
+        targetValue = if (islandPressed && visible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (islandPressed) 100 else 280,
+            easing = if (islandPressed) CubicBezierEasing(0.18f, 0.76f, 0.20f, 1f)
+                else CubicBezierEasing(0.20f, 1.18f, 0.28f, 1f)
+        ),
+        label = "edu-island-press"
+    )
     val openMorphEasing = remember { CubicBezierEasing(0.20f, 0.48f, 0.18f, 1f) }
     val closeMorphEasing = remember { CubicBezierEasing(0.32f, 0f, 0.22f, 1f) }
-    val reboundMorphEasing = remember { CubicBezierEasing(0.30f, 0f, 0.24f, 1f) }
-    val settleMorphEasing = remember { CubicBezierEasing(0.34f, 0f, 0.30f, 1f) }
     var handleDragY by remember(adapter) { mutableFloatStateOf(0f) }
     val visibleAlpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
@@ -459,65 +463,8 @@ private fun EduImportGuideMorphOverlay(
         ),
         label = "edu-import-guide-visible"
     )
-    LaunchedEffect(window, view, visible) {
-        val targetWindow = window ?: return@LaunchedEffect
-        val controller = WindowCompat.getInsetsController(targetWindow, view)
-        if (visible) {
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.statusBars())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val attributes = targetWindow.attributes
-                attributes.layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                } else {
-                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
-                targetWindow.attributes = attributes
-            }
-        } else {
-            controller.show(WindowInsetsCompat.Type.statusBars())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && originalCutoutMode != null) {
-                val attributes = targetWindow.attributes
-                attributes.layoutInDisplayCutoutMode = originalCutoutMode
-                targetWindow.attributes = attributes
-            }
-        }
-    }
-    DisposableEffect(window, view, originalCutoutMode) {
-        onDispose {
-            val targetWindow = window ?: return@onDispose
-            WindowCompat.getInsetsController(targetWindow, view)
-                .show(WindowInsetsCompat.Type.statusBars())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && originalCutoutMode != null) {
-                val attributes = targetWindow.attributes
-                attributes.layoutInDisplayCutoutMode = originalCutoutMode
-                targetWindow.attributes = attributes
-            }
-        }
-    }
     LaunchedEffect(visible, expanded) {
-        val target = if (visible && expanded) 1f else 0f
-        val start = morphProgress.value
-        val travel = abs(target - start)
-        if (travel <= 0.0005f) {
-            morphProgress.snapTo(target)
-            return@LaunchedEffect
-        }
-        val opening = target > start
-        val fullDurationMillis = if (opening) 620 else 560
-        val duration = (fullDurationMillis * travel.coerceIn(0.38f, 1f)).roundToInt()
-        val reboundAt = (duration * 0.74f).roundToInt()
-        val settleAt = (duration * 0.90f).roundToInt()
-        morphProgress.animateTo(
-            targetValue = target,
-            animationSpec = keyframes {
-                durationMillis = duration
-                start at 0 using if (opening) openMorphEasing else closeMorphEasing
-                (if (opening) 1.016f else -0.014f) at reboundAt using reboundMorphEasing
-                (if (opening) 0.997f else 0.003f) at settleAt using settleMorphEasing
-            }
-        )
+        islandMotion.animateTo(if (visible && expanded) 1f else 0f)
     }
     val activeStatus = statusText?.trim()?.takeIf { it.isNotEmpty() }
     val collapsedStatus = remember(activeStatus) { activeStatus?.take(7) ?: "导入中" }
@@ -538,7 +485,8 @@ private fun EduImportGuideMorphOverlay(
             onCollapse()
         }
     }
-    val geometryProgress = morphProgress.value.coerceIn(-0.02f, 1.02f)
+    val geometryProgress = islandMotion.drop.value.coerceIn(-0.04f, 1.04f)
+    val widthProgress = islandMotion.spread.value.coerceIn(-0.04f, 1.04f)
     val synchronizedProgress = geometryProgress.coerceIn(0f, 1f)
     val foreground = ComposeColor.White
     val contentMotionBlurPx =
@@ -605,10 +553,10 @@ private fun EduImportGuideMorphOverlay(
         }
         val expandedHeight = (guideHeaderHeight + 126.dp)
             .coerceAtMost((maxHeight - expandedSafeInset * 2f).coerceAtLeast(collapsedHeight))
-        val cardWidth = collapsedWidth + (expandedWidth - collapsedWidth) * geometryProgress
+        val cardWidth = collapsedWidth + (expandedWidth - collapsedWidth) * widthProgress
         val cardHeight = collapsedHeight + (expandedHeight - collapsedHeight) * geometryProgress
         val expandedLeft = (maxWidth - expandedWidth) / 2f
-        val cardLeft = collapsedLeft + (expandedLeft - collapsedLeft) * geometryProgress
+        val cardLeft = collapsedLeft + (expandedLeft - collapsedLeft) * widthProgress
         val cardTop = collapsedTop + (expandedSafeInset - collapsedTop) * geometryProgress
 
         fun roundedCornerRadius(position: Int): Dp? {
@@ -635,9 +583,11 @@ private fun EduImportGuideMorphOverlay(
         val collapsedContentAlpha = 1f - synchronizedProgress
         val handleCollapseThreshold = with(density) { 18.dp.toPx() }
 
-        LiquidButton(
-            onClick = { if (!expanded) onExpand() },
+        TopAssistantSurface(
             backdrop = backdrop,
+            config = config,
+            shape = cardShape,
+            glow = expanded,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .offset(x = cardLeft, y = cardTop)
@@ -645,61 +595,26 @@ private fun EduImportGuideMorphOverlay(
                 .height(cardHeight)
                 .graphicsLayer {
                     alpha = visibleAlpha
-                    clip = false
-                },
-            isInteractive = visible,
-            clickTargetEnabled = visible,
-            height = cardHeight,
-            contentPadding = PaddingValues(0.dp),
-            blurRadius = 10.dp,
-            lensHeight = 24.dp + 6.dp * synchronizedProgress,
-            lensAmount = 42.dp + 8.dp * synchronizedProgress,
-            chromaticAberration = true,
-            surfaceColor = ComposeColor.Black.copy(alpha = 0.68f - 0.42f * synchronizedProgress),
-            shadowEnabled = false,
-            highlightEnabled = true,
-            shape = cardShape,
-            clipToBounds = false,
-            pressExpansion = 3.dp
+                    val growth = 6.dp.toPx() * islandPressAmount
+                    scaleX = 1f + growth / size.width.coerceAtLeast(1f)
+                    scaleY = 1f + growth / size.height.coerceAtLeast(1f)
+                }
+                .drawWithContent {
+                    drawContent()
+                    if (islandPressAmount > 0f) drawOutline(
+                        cardShape.createOutline(size, layoutDirection, this),
+                        ComposeColor.White.copy(alpha = 0.06f * islandPressAmount.coerceIn(0f, 1f))
+                    )
+                }
+                .clickable(interactionSource = islandInteraction, indication = null, enabled = visible) {
+                    if (!expanded) onExpand()
+                }
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(cardShape)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = 0.34f + 0.66f * synchronizedProgress }
-                        .background(
-                            Brush.verticalGradient(
-                                0f to ComposeColor.Black.copy(alpha = 0.98f),
-                                0.28f to ComposeColor.Black.copy(alpha = 0.84f),
-                                0.48f to ComposeColor.Black.copy(alpha = 0.54f),
-                                0.72f to ComposeColor.Black.copy(alpha = 0.14f),
-                                1f to ComposeColor.Black.copy(alpha = 0.03f)
-                            )
-                        )
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = 1f - synchronizedProgress }
-                        .background(
-                            Brush.horizontalGradient(
-                                colors = listOf(
-                                    ComposeColor.White.copy(alpha = 0.10f),
-                                    ComposeColor.Black.copy(alpha = 0.88f),
-                                    ComposeColor.Black.copy(alpha = 0.88f),
-                                    ComposeColor.White.copy(alpha = 0.10f)
-                                )
-                            )
-                        )
-                )
+            Box(Modifier.fillMaxSize().clip(cardShape)) {
                 Row(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxWidth()
+                        .align(Alignment.TopStart)
+                        .fixedAssistantContentSize(collapsedWidth, collapsedHeight)
                         .padding(horizontal = 13.dp)
                         .graphicsLayer {
                             alpha = collapsedContentAlpha
@@ -733,18 +648,10 @@ private fun EduImportGuideMorphOverlay(
 
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fixedAssistantContentSize(expandedWidth, expandedHeight)
                         .graphicsLayer {
                             alpha = expandedContentAlpha
                             translationY = (1f - expandedContentAlpha) * 6.dp.toPx()
-                            scaleX = 0.98f + 0.02f * expandedContentAlpha
-                            scaleY = 0.98f + 0.02f * expandedContentAlpha
-                            compositingStrategy = if (contentMotionBlurPx > 0.01f) {
-                                CompositingStrategy.Offscreen
-                            } else {
-                                CompositingStrategy.Auto
-                            }
-                            renderEffect = platformMotionBlurRenderEffect(contentMotionBlurPx)
                         }
                         .padding(
                             start = 18.dp,
@@ -1524,6 +1431,7 @@ private fun EduImportBrowserScreen(
             @Composable {
                 EduImportGuideMorphOverlay(
                     adapter = adapter,
+                    config = state.config,
                     backdrop = buttonBackdrop,
                     visible = currentGuideVisible.value,
                     expanded = currentGuideExpanded.value,
@@ -1696,6 +1604,7 @@ private fun EduImportBrowserScreen(
         if (!importGuideMountedAtRoot) {
             EduImportGuideMorphOverlay(
                 adapter = adapter,
+                config = state.config,
                 backdrop = buttonBackdrop,
                 visible = importGuideVisible,
                 expanded = importGuideExpanded,

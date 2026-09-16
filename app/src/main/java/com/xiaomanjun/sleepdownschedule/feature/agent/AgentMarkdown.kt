@@ -41,7 +41,7 @@ private sealed interface AgentMarkdownRenderBlock {
 }
 
 @Composable
-fun AgentMarkdownText(markdown: String, color: Color, style: TextStyle) {
+fun AgentMarkdownText(markdown: String, color: Color, style: TextStyle, spacious: Boolean = false) {
     // Compile both block structure and inline spans once per message. Previously the block list
     // was remembered, but every Text rebuilt its AnnotatedString whenever an ancestor recomposed.
     val blocks = remember(markdown) {
@@ -59,7 +59,7 @@ fun AgentMarkdownText(markdown: String, color: Color, style: TextStyle) {
             }
         }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(if (spacious) 14.dp else 7.dp)) {
         blocks.forEach { block ->
             when (block) {
                 is AgentMarkdownRenderBlock.Paragraph -> Text(block.text, color = color, style = style)
@@ -67,15 +67,29 @@ fun AgentMarkdownText(markdown: String, color: Color, style: TextStyle) {
                     Text("•", color = color, style = style)
                     Text(block.text, modifier = Modifier.weight(1f), color = color, style = style)
                 }
-                is AgentMarkdownRenderBlock.Table -> AgentMarkdownTable(block, color, style)
+                is AgentMarkdownRenderBlock.Table -> AgentMarkdownTable(block, color, style, spacious)
             }
         }
     }
 }
 
 @Composable
-private fun AgentMarkdownTable(table: AgentMarkdownRenderBlock.Table, color: Color, style: TextStyle) {
+private fun AgentMarkdownTable(table: AgentMarkdownRenderBlock.Table, color: Color, style: TextStyle, spacious: Boolean) {
     val columnCount = table.header.size.coerceAtLeast(1)
+    if (spacious) {
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            AgentMarkdownTableRow(table.header, columnCount, color, style, header = true, spacious = true)
+            table.rows.forEachIndexed { index, row ->
+                Box(Modifier.fillMaxWidth().then(
+                    if (index % 2 == 0) Modifier.background(color.copy(alpha = 0.055f), RoundedRectangle(8.dp))
+                    else Modifier
+                )) {
+                    AgentMarkdownTableRow(row, columnCount, color, style, header = false, spacious = true)
+                }
+            }
+        }
+        return
+    }
     val borderColor = color.copy(alpha = 0.22f)
     Column(
         modifier = Modifier
@@ -96,18 +110,19 @@ private fun AgentMarkdownTableRow(
     columnCount: Int,
     color: Color,
     style: TextStyle,
-    header: Boolean
+    header: Boolean,
+    spacious: Boolean = false
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (header) Modifier.background(color.copy(alpha = 0.08f)) else Modifier)
+            .then(if (header && !spacious) Modifier.background(color.copy(alpha = 0.08f)) else Modifier)
     ) {
         repeat(columnCount) { index ->
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 8.dp, vertical = 7.dp)
+                    .padding(horizontal = if (spacious) 10.dp else 8.dp, vertical = if (spacious) 12.dp else 7.dp)
             ) {
                 Text(
                     text = cells.getOrNull(index) ?: AnnotatedString(""),

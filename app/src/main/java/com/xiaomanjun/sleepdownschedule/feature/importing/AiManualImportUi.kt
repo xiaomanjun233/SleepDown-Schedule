@@ -164,6 +164,8 @@ fun NormalizedAiManualImportScreen(
     backdrop: Backdrop?,
     onCancel: () -> Unit,
     captureHistoryBackground: suspend () -> AiImportHistoryBackgroundCapture? = { null },
+    initialFileUri: Uri? = null,
+    onInitialFileConsumed: () -> Unit = {},
     onParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
@@ -326,8 +328,7 @@ fun NormalizedAiManualImportScreen(
                 .onFailure { error = it.message ?: "ICS 文件读取失败" }
         }
     }
-    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) launcher@{ uri ->
-        if (uri == null) return@launcher
+    fun prepareImportFile(uri: Uri) {
         val settings = AiImportSettingsStore.load(context)
         aiSettings = settings
         selectedFileName = null
@@ -339,7 +340,9 @@ fun NormalizedAiManualImportScreen(
                 .onSuccess fileLoaded@{ file ->
                     selectedFileName = file.displayName
                     if (file.isIcs) {
-                        error = "请在“导入 ICS”栏选择日历文件"
+                        IcsScheduleCodec.parse(file.bytes, state.config)
+                            .onSuccess(onParsed)
+                            .onFailure { error = it.message ?: "ICS 解析失败" }
                         aiParsing = false
                         return@fileLoaded
                     }
@@ -440,6 +443,15 @@ fun NormalizedAiManualImportScreen(
                         )
                     )
                 }
+        }
+    }
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(::prepareImportFile)
+    }
+    LaunchedEffect(initialFileUri) {
+        initialFileUri?.let { uri ->
+            onInitialFileConsumed()
+            prepareImportFile(uri)
         }
     }
     fun parseDraft() {

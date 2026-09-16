@@ -1334,27 +1334,8 @@ private fun aiAttachmentPreviewSmoothStep(start: Float, end: Float, value: Float
 }
 
 @Composable
-internal fun deviceScreenCornerRadiusPx(): Float {
-    val view = LocalView.current
-    val density = LocalDensity.current
-    val fallback = with(density) { 32.dp.toPx() }
-    return remember(view, density.density) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            listOf(
-                RoundedCorner.POSITION_TOP_LEFT,
-                RoundedCorner.POSITION_TOP_RIGHT,
-                RoundedCorner.POSITION_BOTTOM_LEFT,
-                RoundedCorner.POSITION_BOTTOM_RIGHT
-            ).mapNotNull { position -> view.rootWindowInsets?.getRoundedCorner(position)?.radius }
-                .maxOrNull()
-                ?.toFloat()
-                ?.takeIf { it > 0f }
-                ?: fallback
-        } else {
-            fallback
-        }
-    }
-}
+internal fun deviceScreenCornerRadiusPx(): Float =
+    com.xiaomanjun.sleepdownschedule.core.ui.interaction.deviceScreenCornerRadiusPx()
 
 @Composable
 private fun AiEduPreviewImage(image: RenderedPageImage, description: String) {

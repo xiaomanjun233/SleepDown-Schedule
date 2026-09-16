@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import com.xiaomanjun.sleepdownschedule.feature.agent.excludeHomeAssistantPull
+
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseNeedsSupplementaryWeekRow
 
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
@@ -1312,6 +1314,7 @@ fun WeekSwitchButton(direction: Int, config: ScheduleConfigEntity, backdrop: Bac
             backdrop = backdrop,
             modifier = Modifier
                 .size(34.dp)
+                .excludeHomeAssistantPull()
                 .graphicsLayer(alpha = if (enabled) 1f else 0.35f),
             isInteractive = enabled,
             surfaceColor = surfaceColor.copy(alpha = homeChromeGlassSurfaceAlpha(lightGlass)),
@@ -1335,7 +1338,7 @@ fun WeekSwitchButton(direction: Int, config: ScheduleConfigEntity, backdrop: Bac
         GlassPill(
             backdrop = null,
             config = config,
-            modifier = Modifier.size(34.dp).graphicsLayer(alpha = if (enabled) 1f else 0.35f),
+            modifier = Modifier.size(34.dp).excludeHomeAssistantPull().graphicsLayer(alpha = if (enabled) 1f else 0.35f),
             onClick = if (enabled) onClick else null
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

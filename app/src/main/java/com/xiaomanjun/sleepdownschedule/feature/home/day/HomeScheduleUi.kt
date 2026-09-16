@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
+import com.xiaomanjun.sleepdownschedule.feature.agent.excludeHomeAssistantPull
+
 import androidx.compose.runtime.SideEffect
 import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseCardText
 
@@ -513,6 +515,7 @@ fun HomeDateTitle(
     val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
+            .excludeHomeAssistantPull()
             .clickable(interactionSource = interactionSource, indication = null, onClick = onReturnCurrent),
         verticalArrangement = Arrangement.Center
     ) {
@@ -700,6 +703,9 @@ internal fun HomeScreen(
     }
     val textColor = homeForegroundColor(state.config)
     var weekEditMode by remember(state.config.id) { mutableStateOf(false) }
+    val homeAssistant = com.xiaomanjun.sleepdownschedule.feature.agent.LocalHomeAssistant.current
+    SideEffect { homeAssistant?.editing = weekEditMode }
+    DisposableEffect(homeAssistant) { onDispose { homeAssistant?.editing = false } }
     val copyPlacementActive = LocalCourseCopy.current?.active == true
     LaunchedEffect(copyPlacementActive) {
         if (copyPlacementActive) weekEditMode = false

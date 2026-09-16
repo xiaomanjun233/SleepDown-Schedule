@@ -5,6 +5,7 @@ package com.kyant.backdrop.catalog.utils
 import android.graphics.RuntimeShader
 import android.os.Build
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
@@ -33,13 +34,10 @@ class InteractiveHighlight(
     val acceptsGesture: (size: Size, offset: Offset) -> Boolean = { _, _ -> true },
     val ambientAlpha: Float = 0.08f,
     val spotAlpha: Float = 0.15f,
-    val fallbackAlpha: Float = 0.25f
+    val fallbackAlpha: Float = 0.25f,
+    private val pressProgressAnimationSpec: FiniteAnimationSpec<Float> = spring(0.5f, 300f, 0.001f),
+    private val positionAnimationSpec: FiniteAnimationSpec<Offset> = spring(0.5f, 300f, Offset.VisibilityThreshold)
 ) {
-
-    private val pressProgressAnimationSpec =
-        spring(0.5f, 300f, 0.001f)
-    private val positionAnimationSpec =
-        spring(0.5f, 300f, Offset.VisibilityThreshold)
 
     private val pressProgressAnimation =
         Animatable(0f, 0.001f)
