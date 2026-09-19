@@ -105,6 +105,8 @@ import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
 import top.yukonga.miuix.kmp.basic.SmallTitle as MiuixSmallTitle
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.basic.ArrowRight
 import top.yukonga.miuix.kmp.preference.ArrowPreference as MiuixArrowPreference
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
@@ -444,6 +446,22 @@ fun SettingsNavigationRow(
         }
         Text(">", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/**
+ * The unified forward indicator every row uses when it opens a secondary surface. Rows that cannot
+ * be a plain [SettingsNavigationRow] still reuse this exact Miuix arrow so the affordance matches.
+ */
+@Composable
+internal fun SettingsForwardIndicator(modifier: Modifier = Modifier) {
+    Image(
+        modifier = modifier.size(width = 10.dp, height = 16.dp),
+        imageVector = MiuixIcons.Basic.ArrowRight,
+        contentDescription = null,
+        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
+            top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurfaceVariantActions
+        )
+    )
 }
 
 @Composable

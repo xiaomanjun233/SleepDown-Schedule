@@ -363,11 +363,7 @@ private fun AdjustmentRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Text(
-            ">",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        SettingsForwardIndicator()
     }
 }
 
