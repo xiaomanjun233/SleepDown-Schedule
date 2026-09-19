@@ -344,6 +344,7 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteCatalog
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
 import com.xiaomanjun.sleepdownschedule.transition.transitionRouteIdOrNull
+import com.xiaomanjun.sleepdownschedule.domain.schedule.formatScheduleDate
 import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -488,7 +489,7 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.LiquidGlass -> "液态玻璃"
     SettingsPage.Widgets -> "小组件设置"
     SettingsPage.AiImport -> "AI 设置"
-    SettingsPage.DayAgent -> "今日助手"
+    SettingsPage.DayAgent -> "AI助理"
     SettingsPage.Schedule -> "课表详细设置"
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
@@ -1061,6 +1062,29 @@ fun CourseScheduleAppUi(
     }
     var pendingImportedSetupId by remember(context) {
         mutableStateOf(PendingImportSetupStore.consume(context))
+    }
+    // Daily "a holiday is coming" prompt. It asks at most once a day, stays quiet for holidays the
+    // user already planned, and never competes with the agreement/notice surfaces.
+    var upcomingHoliday by remember { mutableStateOf<UpcomingHoliday?>(null) }
+    val latestHomeConfig by rememberUpdatedState(state.config)
+    val latestHomePeriods by rememberUpdatedState(state.periods)
+    val holidayAdjustmentsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.getStringExtra(ScheduleAdjustmentsActivity.ArrangementsExtra)?.let { value ->
+                viewModel.saveConfig(
+                    latestHomeConfig.copy(scheduleAdjustmentsJson = value),
+                    latestHomePeriods
+                )
+            }
+        }
+    }
+    LaunchedEffect(remoteExperience, state.loaded, state.config.id, state.config.scheduleAdjustmentsJson) {
+        if (!state.loaded) return@LaunchedEffect
+        if (remoteExperience.agreement != null || remoteExperience.notice != null) return@LaunchedEffect
+        val holiday = HolidayReminder.upcomingHoliday(context, state.config) ?: return@LaunchedEffect
+        if (HolidayReminder.claimDailyPrompt(context)) upcomingHoliday = holiday
     }
     LaunchedEffect(aiFinalImportRequest) {
         aiFinalImportRequest?.let { request ->
@@ -2180,6 +2204,7 @@ fun CourseScheduleAppUi(
                     renderedHomeDialog == null && !jumpWeekDialogMounted &&
                     pickerState.phase is CustomizeUiState.Home &&
                     dayAgentBackgroundMotionState.progress.value < 0.001f &&
+                    DayAgentPreferences.isWeekAssistantEnabled(context) &&
                     (!DayAgentPreferences.hasDecision(context) || DayAgentPreferences.isEnabled(context))
             },
             onStart = { assistantHapticSent = false; homeAssistant.beginPull() },
@@ -3663,7 +3688,7 @@ fun CourseScheduleAppUi(
     if (showManagedFreeAiOffer) {
         LiquidAlertDialog(
             title = "启用每日免费 AI？",
-            message = "SleepDown 为尚未配置模型服务的用户提供每日免费 AI 额度，可用于今日助手、AI 对话和 AI 教务导入。固定使用 gpt-5.6-luna 与 Responses 接口，可随时在 AI 设置中切换或关闭。",
+            message = "SleepDown 为尚未配置模型服务的用户提供每日免费 AI 额度，可用于AI助理、AI 对话和 AI 教务导入。固定使用 gpt-5.6-luna 与 Responses 接口，可随时在 AI 设置中切换或关闭。",
             actions = listOf(
                 LiquidAlertAction("暂不启用", LiquidAlertActionStyle.Secondary) {
                     AiImportSettingsStore.declineManagedFreeAi(context)
@@ -3720,6 +3745,41 @@ fun CourseScheduleAppUi(
                 SleepDownRemoteConfig.markNoticeShown(context, notice)
             }
         )
+    }
+
+    if (remoteExperience.agreement == null && remoteExperience.notice == null) {
+        upcomingHoliday?.let { holiday ->
+            LiquidAlertDialog(
+                title = "临近${holiday.name}",
+                message = buildString {
+                    append("${holiday.name}假期 ")
+                    append(formatScheduleDate(holiday.start))
+                    if (holiday.end != holiday.start) append(" – ${formatScheduleDate(holiday.end)}")
+                    append("，是否现在设置调休课表？")
+                    append("停课当天的课程会保留为灰色卡片，补课日按原课程日期上课。")
+                },
+                actions = listOf(
+                    LiquidAlertAction("稍后再说", LiquidAlertActionStyle.Secondary) {
+                        upcomingHoliday = null
+                    },
+                    LiquidAlertAction("去设置", LiquidAlertActionStyle.Primary) {
+                        upcomingHoliday = null
+                        context.openRegisteredActivity(
+                            TransitionRouteId.SettingsToScheduleAdjustments,
+                            ScheduleAdjustmentsActivity.intent(
+                                context,
+                                latestHomeConfig,
+                                latestHomeConfig.scheduleAdjustmentsJson
+                            ),
+                            launchActivity = { holidayAdjustmentsLauncher.launch(it) }
+                        )
+                    }
+                ),
+                backdrop = chromeBackdrop,
+                config = state.config,
+                onDismissRequest = { upcomingHoliday = null }
+            )
+        }
     }
 
     (renderedHomeDialog as? HomeDialog.EditWallpaper)?.let { dialog ->
@@ -4689,7 +4749,7 @@ internal fun AppTopBar(
                         SettingsPage.LiquidGlass -> "液态玻璃"
                         SettingsPage.Widgets -> "小组件设置"
                         SettingsPage.AiImport -> "AI 设置"
-                        SettingsPage.DayAgent -> "今日助手"
+                        SettingsPage.DayAgent -> "AI助理"
                         SettingsPage.Schedule -> "课表详细设置"
                         SettingsPage.Notifications -> "通知设置"
                         SettingsPage.ScheduleManager -> "课表设置"
@@ -7583,7 +7643,7 @@ fun SettingsScreen(
     onUpdateConfig: (ScheduleConfigEntity) -> Unit,
     onUpdateGeneralConfig: (ScheduleConfigEntity) -> Unit = onUpdateConfig,
     onUpdateHomeChromeBlurScale: (Float) -> Unit,
-    onPreviewLiveUpdate: () -> Unit,
+    onPreviewLiveUpdate: (ScheduleConfigEntity) -> Unit,
     onCreateSchedule: (String) -> Unit = {},
     onActivateSchedule: (Int, (() -> Unit)?) -> Unit = { _, _ -> },
     onRenameSchedule: (Int, String) -> Unit = { _, _ -> },
@@ -7833,7 +7893,7 @@ private fun SettingsPageContent(
     onUpdateConfig: (ScheduleConfigEntity) -> Unit,
     onUpdateGeneralConfig: (ScheduleConfigEntity) -> Unit,
     onUpdateHomeChromeBlurScale: (Float) -> Unit,
-    onPreviewLiveUpdate: () -> Unit,
+    onPreviewLiveUpdate: (ScheduleConfigEntity) -> Unit,
     onCreateSchedule: (String) -> Unit,
     onActivateSchedule: (Int, (() -> Unit)?) -> Unit,
     onRenameSchedule: (Int, String) -> Unit,
@@ -8130,7 +8190,7 @@ fun SettingsRootScreen(
                     )
                     SettingsDivider()
                     SettingsNavigationRow(
-                        "今日助手",
+                        "AI助理",
                         "管理日视图助手、天气与预警。",
                         selected = selectedPage == SettingsPage.DayAgent,
                         onClick = { onPageChange(SettingsPage.DayAgent) }
@@ -8527,7 +8587,7 @@ fun AboutSettingsScreen(state: AppState, backdrop: Backdrop?) {
                     SettingsDivider()
                     SettingsInfoRow(
                         "会回答，也会动手，但最后由你做主",
-                        "今日助手可以查询课程和空闲时间；涉及课程或设置修改时，会先说明要改什么，再等你确认。"
+                        "AI助理可以查询课程和空闲时间；涉及课程或设置修改时，会先说明要改什么，再等你确认。"
                     )
                     SettingsDivider()
                     SettingsInfoRow(
@@ -9102,7 +9162,7 @@ fun ChangelogSettingsScreen(
             item(key = "about-feature-assistant") {
                 AboutFeatureCard(
                     imageRes = R.drawable.about_feature_assistant,
-                    eyebrow = "今日助手",
+                    eyebrow = "AI助理",
                     title = "会回答，也会动手，但最后由你做主"
                 )
             }
@@ -9148,6 +9208,17 @@ fun ChangelogSettingsScreen(
             item(key = "about-changelog") {
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
+                SettingsInfoRow(
+                    "1.2.6_beta6",
+                    "新增「调休课表」：在课表详细设置里设置停课日与补课日，也可以按年份在线获取法定节假日与调休安排，自动匹配补课日期，先预览再采用。\n" +
+                    "点按某条调休安排会弹出居中面板，直接选择停课或补课，并在面板里挑选调休日期与原课程日期；左滑删除，删除前再确认一次。\n" +
+                    "停课当天的课程变成灰色卡片，保留在课表里但不可点开编辑；补课日按原课程日期正常显示。调休影响的周末不再强制显示，只有当天确实有课才显示。\n" +
+                    "每天第一次打开课表时，如果距离下一个法定假期在 14 天内，会提示假期日期并询问是否设置调休课表；已经设置过的假期不再提醒。\n" +
+                    "停课日不再弹出上课提醒或实时活动，桌面小组件也只显示真正上课的课程。\n" +
+                    "「今日助手」更名为「AI助理」，并新增「周视图AI助理」开关。\n" +
+                    "通知设置与课表详细设置统一使用公共小标题样式；「测试实时活动」改为底部居中悬浮胶囊，并真实反映实时活动按钮开关。"
+                )
+                SettingsDivider()
                 SettingsInfoRow(
                     "1.2.6_beta5",
                     "周视图新增下拉助手：课程滚到顶部后，继续下拉即可打开输入胶囊并自动弹出键盘；从按钮上开始下拉不会误触发。\n" +

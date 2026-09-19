@@ -14,8 +14,6 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import android.annotation.SuppressLint
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -100,7 +98,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
@@ -441,17 +438,6 @@ private fun EduImportGuideMorphOverlay(
     val view = LocalView.current
     com.xiaomanjun.sleepdownschedule.core.ui.interaction.TopAssistantSystemBars(hidden = visible)
     val islandMotion = rememberTopAssistantMotion()
-    val islandInteraction = remember { MutableInteractionSource() }
-    val islandPressed by islandInteraction.collectIsPressedAsState()
-    val islandPressAmount by animateFloatAsState(
-        targetValue = if (islandPressed && visible) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (islandPressed) 100 else 280,
-            easing = if (islandPressed) CubicBezierEasing(0.18f, 0.76f, 0.20f, 1f)
-                else CubicBezierEasing(0.20f, 1.18f, 0.28f, 1f)
-        ),
-        label = "edu-island-press"
-    )
     val openMorphEasing = remember { CubicBezierEasing(0.20f, 0.48f, 0.18f, 1f) }
     val closeMorphEasing = remember { CubicBezierEasing(0.32f, 0f, 0.22f, 1f) }
     var handleDragY by remember(adapter) { mutableFloatStateOf(0f) }
@@ -583,33 +569,21 @@ private fun EduImportGuideMorphOverlay(
         val collapsedContentAlpha = 1f - synchronizedProgress
         val handleCollapseThreshold = with(density) { 18.dp.toPx() }
 
-        TopAssistantSurface(
-            backdrop = backdrop,
-            config = config,
-            shape = cardShape,
-            glow = expanded,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .offset(x = cardLeft, y = cardTop)
-                .width(cardWidth)
-                .height(cardHeight)
-                .graphicsLayer {
-                    alpha = visibleAlpha
-                    val growth = 6.dp.toPx() * islandPressAmount
-                    scaleX = 1f + growth / size.width.coerceAtLeast(1f)
-                    scaleY = 1f + growth / size.height.coerceAtLeast(1f)
-                }
-                .drawWithContent {
-                    drawContent()
-                    if (islandPressAmount > 0f) drawOutline(
-                        cardShape.createOutline(size, layoutDirection, this),
-                        ComposeColor.White.copy(alpha = 0.06f * islandPressAmount.coerceIn(0f, 1f))
-                    )
-                }
-                .clickable(interactionSource = islandInteraction, indication = null, enabled = visible) {
-                    if (!expanded) onExpand()
-                }
+        LiquidButton(
+            onClick = { if (!expanded) onExpand() }, backdrop = backdrop,
+            modifier = Modifier.align(Alignment.TopStart)
+                .offset(x = cardLeft, y = cardTop).width(cardWidth).height(cardHeight)
+                .graphicsLayer { alpha = visibleAlpha; clip = false },
+            isInteractive = visible, clickTargetEnabled = visible,
+            height = cardHeight, contentPadding = PaddingValues(0.dp),
+            blurRadius = 10.dp, lensHeight = 24.dp + 6.dp * synchronizedProgress,
+            lensAmount = 42.dp + 8.dp * synchronizedProgress, chromaticAberration = true,
+            surfaceColor = ComposeColor.Black.copy(alpha = 0.68f - 0.42f * synchronizedProgress),
+            shadowEnabled = false, highlightEnabled = true,
+            shape = cardShape, clipToBounds = false, pressExpansion = 3.dp
         ) {
+            TopAssistantSurface(backdrop, config, cardShape, modifier = Modifier.fillMaxSize(),
+                glow = expanded, materialEnabled = false) {
             Box(Modifier.fillMaxSize().clip(cardShape)) {
                 Row(
                     modifier = Modifier
@@ -756,6 +730,7 @@ private fun EduImportGuideMorphOverlay(
                         )
                     }
                 }
+            }
             }
         }
     }

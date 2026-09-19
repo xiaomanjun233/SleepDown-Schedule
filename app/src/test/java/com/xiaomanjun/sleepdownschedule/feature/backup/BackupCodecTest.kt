@@ -25,6 +25,31 @@ import java.util.zip.CRC32
 
 class BackupCodecTest {
     @Test
+    fun roundTripIncludesAdjustmentsAndWeekAssistantPreference() {
+        val source = fixtureArchive()
+        val adjustments = com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments(listOf(
+            com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustment("2026-10-10", "2026-10-05", "补课")
+        ))
+        val updated = source.copy(
+            data = source.data.copy(schedules = source.data.schedules.map {
+                it.copy(config = it.config.copy(scheduleAdjustmentsJson = adjustments))
+            }),
+            preferences = source.preferences.copy(dayAgent = source.preferences.dayAgent?.copy(weekAssistantEnabled = false))
+        )
+        val restored = BackupCodec.decode(BackupCodec.encode(updated))
+        assertEquals(adjustments, restored.data.schedules.first().config.scheduleAdjustmentsJson)
+        assertEquals(updated.preferences.dayAgent, restored.preferences.dayAgent)
+        assertFalse(requireNotNull(restored.preferences.dayAgent).weekAssistantEnabled)
+    }
+
+    @Test
+    fun olderConfigWithoutAdjustmentFieldDefaultsToUnchangedSchedule() {
+        val serialized = BackupJson.encodeToString(fixtureConfig("asset_550e8400-e29b-41d4-a716-446655440000"))
+        val old = serialized.replace(Regex(",?\\\"scheduleAdjustmentsJson\\\":\\\"\\\""), "")
+        assertEquals("", BackupJson.decodeFromString<BackupScheduleConfig>(old).scheduleAdjustmentsJson)
+    }
+
+    @Test
     fun emptyArchiveRoundTripsWithoutImplicitDefaults() {
         val source = BackupArchive(
             metadata = BackupSourceMetadata(

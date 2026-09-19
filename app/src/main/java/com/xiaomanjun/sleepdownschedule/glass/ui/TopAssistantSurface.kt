@@ -20,6 +20,9 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
+import com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation
+import com.xiaomanjun.sleepdownschedule.glass.insetShapeFor
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.layout
@@ -130,9 +133,14 @@ internal fun TopAssistantSurface(
     modifier: Modifier = Modifier,
     glow: Boolean = false,
     edgeEffectsEnabled: Boolean = true,
+    refractionEnabled: Boolean = true,
     opaqueHeaderHeight: Dp = 0.dp,
     bottomShadeAlpha: Float = 0.04f,
     interactiveHighlight: InteractiveHighlight? = null,
+    morphAllocation: GlassMorphAllocation? = null,
+    shapeProvider: (() -> Shape)? = null,
+    surfaceFrame: (() -> Pair<Dp, Float>)? = null,
+    materialEnabled: Boolean = true,
     content: @Composable BoxScope.() -> Unit = {}
 ) {
     Box(
@@ -151,25 +159,33 @@ internal fun TopAssistantSurface(
             }
         } else Modifier)
     ) {
-        GlassSurface(
+        if (materialEnabled) GlassSurface(
             backdrop = backdrop,
             config = config,
             modifier = Modifier.matchParentSize(),
             shape = shape,
+            shapeProvider = shapeProvider,
+            morphAllocation = morphAllocation,
             baseSurfaceColorOverride = Color.Black,
             tokens = GlassTokens.dialog(1f).copy(
                 blur = 12.dp, surfaceAlpha = 0.12f, lensHeight = 24.dp, lensAmount = 42.dp,
                 chromaticAberration = false, highlightAlpha = 0.08f, shadowAlpha = 0f
-            ).let { tokens -> if (edgeEffectsEnabled) tokens else tokens.copy(
+            ).let { tokens -> if (refractionEnabled) tokens else tokens.copy(lensHeight = 0.dp, lensAmount = 0.dp, depthEffect = false)
+            }.let { tokens -> if (edgeEffectsEnabled) tokens else tokens.copy(
                 lensHeight = 0.dp, lensAmount = 0.dp, borderAlpha = 0f, highlightAlpha = 0f,
                 innerShadowAlpha = 0f, depthEffect = false
             ) },
             debugLabel = "TopAssistantSurface"
         ) {}
         Box(
-            Modifier.fillMaxSize().clip(shape).drawWithCache {
-                val header = opaqueHeaderHeight.toPx().coerceIn(0f, size.height)
-                val bottomShade = bottomShadeAlpha.coerceIn(0f, 1f)
+            Modifier.fillMaxSize().then(if (morphAllocation == null) Modifier.clip(shape) else Modifier.graphicsLayer {
+                this.shape = morphAllocation.envelope.insetShapeFor(morphAllocation.geometry())
+                clip = true
+            }).drawWithCache {
+                val bounds = morphAllocation?.localBounds() ?: Rect(Offset.Zero, size)
+                val frame = surfaceFrame?.invoke()
+                val header = (frame?.first ?: opaqueHeaderHeight).toPx().coerceIn(0f, bounds.height)
+                val bottomShade = (frame?.second ?: bottomShadeAlpha).coerceIn(0f, 1f)
                 fun shade(alpha: Float) = Color.Black.copy(alpha = alpha + (1f - alpha) * bottomShade)
                 val shade = Brush.verticalGradient(
                     0f to shade(0.98f),
@@ -177,10 +193,10 @@ internal fun TopAssistantSurface(
                     0.58f to shade(0.66f),
                     0.82f to shade(0.18f),
                     1f to shade(0f),
-                    startY = header,
-                    endY = maxOf(header + 1f, size.height)
+                    startY = bounds.top + header,
+                    endY = maxOf(bounds.top + header + 1f, bounds.bottom)
                 )
-                onDrawBehind { drawRect(shade) }
+                onDrawBehind { drawRect(shade, bounds.topLeft, bounds.size) }
             }.then(if (glow) Modifier.drawWithCache {
                 val radius = size.width * 0.70f
                 val cyan = Brush.radialGradient(

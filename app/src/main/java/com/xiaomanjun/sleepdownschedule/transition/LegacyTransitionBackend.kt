@@ -15,13 +15,16 @@ internal class LegacyTransitionBackend : TransitionBackend {
     override suspend fun open(request: TransitionOpenRequest): TransitionBackendOpenResult =
         openImmediate(request)
 
-    fun openImmediate(request: TransitionOpenRequest): TransitionBackendOpenResult {
+    fun openImmediate(
+        request: TransitionOpenRequest,
+        launchActivity: (android.content.Intent) -> Unit = { request.activity.startActivity(it) }
+    ): TransitionBackendOpenResult {
         // A business-owned cover may bridge asynchronous native registration. Legacy owns its
         // own source placeholder, so exchange the two synchronously before starting the Activity.
         TransitionPayloadStore.handoffOpeningSource(request.session.id)
         val placeholder = request.attachAnchoredSourcePlaceholder()
         return runCatching {
-            request.activity.startActivity(request.intent)
+            launchActivity(request.intent)
             when (val profile = request.route.legacyProfile) {
                 is LegacyTransitionProfile.Anchored -> {
                     @Suppress("DEPRECATION")

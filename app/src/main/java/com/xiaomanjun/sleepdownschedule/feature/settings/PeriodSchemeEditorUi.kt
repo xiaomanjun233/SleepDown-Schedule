@@ -115,8 +115,9 @@ private fun timelineBlocks(config: ScheduleConfigEntity, active: PeriodSchemeDra
             add(TimelineBlock(time.periodIndex, part, start, end))
             val next = times.getOrNull(position + 1)
             if (next != null && next.periodIndex in config.periodRange(part)) {
-                val nextStart = parseMinuteOfDay(next.startTime) ?: end
-                if (nextStart > end) add(TimelineBlock(time.periodIndex, part, end, nextStart, true))
+                // Keep a zero-minute break in the timeline so two back-to-back lessons stay editable.
+                val nextStart = parseMinuteOfDay(next.startTime)
+                if (nextStart != null && nextStart >= end) add(TimelineBlock(time.periodIndex, part, end, nextStart, true))
             }
         }
     }
@@ -276,54 +277,58 @@ internal fun PeriodSchemeEditor(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             leadingContent()
-            Text("作息安排", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
-            SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
-                SleepDownLiquidDropdownPreference(
-                    items = draft.schemes.map { it.scheme.name },
-                    selectedIndex = draft.schemes.indexOf(active).coerceAtLeast(0),
-                    title = "当前作息", backdrop = backdrop, config = state.config,
-                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                    maxHeight = 318.dp, onExpandedChange = {},
-                    onSelectedIndexChange = { index ->
-                        draft.schemes.getOrNull(index)?.let { onDraftChange(draft.copy(activeSchemeId = it.scheme.id)) }
+            GlassPreferenceSection("作息安排") {
+                SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
+                    SleepDownLiquidDropdownPreference(
+                        items = draft.schemes.map { it.scheme.name },
+                        selectedIndex = draft.schemes.indexOf(active).coerceAtLeast(0),
+                        title = "当前作息", backdrop = backdrop, config = state.config,
+                        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                        maxHeight = 318.dp, onExpandedChange = {},
+                        onSelectedIndexChange = { index ->
+                            draft.schemes.getOrNull(index)?.let { onDraftChange(draft.copy(activeSchemeId = it.scheme.id)) }
+                        }
+                    )
+                    SettingsDivider()
+                    SettingsTextFieldRow("作息名称", active.scheme.name, { name ->
+                        onDraftChange(draft.copy(schemes = draft.schemes.map {
+                            if (it == active) it.copy(scheme = it.scheme.copy(name = name)) else it
+                        }))
+                    })
+                    if (draft.schemes.size > 1) Row(Modifier.fillMaxWidth().padding(14.dp)) {
+                        DialogLiquidButton(backdrop, "删除作息", { showDeleteScheme = true }, monochromeNeutral = true)
                     }
-                )
-                SettingsDivider()
-                SettingsTextFieldRow("作息名称", active.scheme.name, { name ->
-                    onDraftChange(draft.copy(schemes = draft.schemes.map {
-                        if (it == active) it.copy(scheme = it.scheme.copy(name = name)) else it
-                    }))
-                })
-                if (draft.schemes.size > 1) Row(Modifier.fillMaxWidth().padding(14.dp)) {
-                    DialogLiquidButton(backdrop, "删除作息", { showDeleteScheme = true }, monochromeNeutral = true)
                 }
             }
-            Row(Modifier.fillMaxWidth().padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("详细节次", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                DialogLiquidButton(backdrop, "编辑", { showChoice = true }, role = DialogButtonRole.Confirm,
-                    modifier = Modifier.onGloballyPositioned { if (session == null) actionSource = it.timelineBoundsInRoot() }
-                        .graphicsLayer { alpha = if (editorLaidOut) 0f else 1f })
-            }
-            SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
-                val lessons = summary.filterNot { it.isBreak }
-                lessons.forEachIndexed { position, block ->
-                    key(block.key) {
-                        if (position > 0) {
-                            val previous = lessons[position - 1]
-                            val gap = summary.firstOrNull { it.isBreak && it.period == previous.period }
-                            Box(Modifier.fillMaxWidth()) {
-                                when {
-                                    previous.part != block.part -> PeriodTimelineSeparator("${block.part.timelineLabel()}时段", TimelineCourseColor)
-                                    gap != null && gap.minutes != active.scheme.breakDurationMinutes -> PeriodTimelineSeparator("课间 · ${gap.minutes}分钟", TimelineBreakColor)
-                                    else -> SettingsDivider()
+            Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    GlassPreferenceCategory("详细节次", modifier = Modifier.weight(1f))
+                    DialogLiquidButton(backdrop, "编辑", { showChoice = true }, role = DialogButtonRole.Confirm,
+                        modifier = Modifier.onGloballyPositioned { if (session == null) actionSource = it.timelineBoundsInRoot() }
+                            .graphicsLayer { alpha = if (editorLaidOut) 0f else 1f })
+                }
+                SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
+                    val lessons = summary.filterNot { it.isBreak }
+                    lessons.forEachIndexed { position, block ->
+                        key(block.key) {
+                            if (position > 0) {
+                                val previous = lessons[position - 1]
+                                val gap = summary.firstOrNull { it.isBreak && it.period == previous.period }
+                                Box(Modifier.fillMaxWidth()) {
+                                    when {
+                                        previous.part != block.part -> PeriodTimelineSeparator("${block.part.timelineLabel()}时段", TimelineCourseColor)
+                                        gap != null && gap.minutes != active.scheme.breakDurationMinutes ->
+                                            PeriodTimelineSeparator(if (gap.minutes == 0) "连课" else "课间 · ${gap.minutes}分钟", TimelineBreakColor)
+                                        else -> SettingsDivider()
+                                    }
                                 }
                             }
+                            SettingsPickerValueRow(block.title, "${timelineMinuteText(block.start)} - ${timelineMinuteText(block.end)}",
+                                onClick = {
+                                    enter(PeriodTimelineSession(config, draft).updateActive(active.materializeForTimeline(config)))
+                                    requestedBlock = block
+                                })
                         }
-                        SettingsPickerValueRow(block.title, "${timelineMinuteText(block.start)} - ${timelineMinuteText(block.end)}",
-                            onClick = {
-                                enter(PeriodTimelineSession(config, draft).updateActive(active.materializeForTimeline(config)))
-                                requestedBlock = block
-                            })
                     }
                 }
             }
@@ -759,7 +764,8 @@ private fun TimelineBlockPicker(
                         val maximumSession = resizeTimelineEntry(candidate, current, LastMinuteOfDay)
                         val maximum = timelineBlocks(maximumSession.config, maximumSession.active, includeLeading = true)
                             .firstOrNull { it.key == block.key }?.minutes ?: current.minutes
-                        val minimum = if (block.isBreak) 1 else minimumTimelineLessonMinutes(candidate.config, candidate.active, block.period)
+                        // 0 keeps the break absent so two lessons stay back to back.
+                        val minimum = if (block.isBreak) 0 else minimumTimelineLessonMinutes(candidate.config, candidate.active, block.period)
                         SettingsMinutePickerContent(selected, { selected = it }, minimum..maxOf(minimum, maximum))
                     }
                 }

@@ -23,11 +23,15 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +42,8 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -63,17 +69,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
@@ -83,6 +95,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -96,9 +109,12 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference as MiuixArrowPreference
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalTime
+import kotlin.math.abs
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 
 @Composable
@@ -886,57 +902,11 @@ fun SettingsDatePickerRow(
         config = config,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
     ) {
-        val maxDay = java.time.YearMonth.of(pickerYear, pickerMonth).lengthOfMonth()
-        LaunchedEffect(maxDay) {
-            if (pickerDay > maxDay) pickerDay = maxDay
-        }
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val fontScale = LocalDensity.current.fontScale
-            // NumberPicker defaults to MIUIX title1. Three equal columns make a four digit year
-            // ellipsize on narrow dialogs or when display/font scaling is raised. Keep the picker
-            // readable without changing the dialog width: reserve more width for the year and cap
-            // only this dense numeric control's effective size at the extreme DPI combinations.
-            val compactPicker = maxWidth < 300.dp || fontScale > 1.12f
-            val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
-                fontSize = when {
-                    maxWidth < 270.dp || fontScale > 1.32f -> 21.sp
-                    compactPicker -> 24.sp
-                    else -> 28.sp
-                }
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(if (compactPicker) 4.dp else 8.dp)
-            ) {
-                top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = pickerYear,
-                    onValueChange = { pickerYear = it },
-                    range = 2000..2100,
-                    visibleItemCount = 3,
-                    label = { "${it}年" },
-                    textStyle = pickerTextStyle,
-                    modifier = Modifier.weight(if (compactPicker) 1.65f else 1.5f)
-                )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = pickerMonth,
-                    onValueChange = { pickerMonth = it },
-                    range = 1..12,
-                    visibleItemCount = 3,
-                    label = { "${it}月" },
-                    textStyle = pickerTextStyle,
-                    modifier = Modifier.weight(1f)
-                )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = pickerDay.coerceAtMost(maxDay),
-                    onValueChange = { pickerDay = it },
-                    range = 1..maxDay,
-                    visibleItemCount = 3,
-                    label = { "${it}日" },
-                    textStyle = pickerTextStyle,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
+        SettingsDatePickerContent(
+            year = pickerYear, month = pickerMonth, day = pickerDay,
+            onYearChange = { pickerYear = it }, onMonthChange = { pickerMonth = it },
+            onDayChange = { pickerDay = it }
+        )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)) {
             QuickSheetLiquidAction(
                 "取消", true, popupBackdrop, config,
@@ -946,9 +916,77 @@ fun SettingsDatePickerRow(
                 "确定", true, popupBackdrop, config, primary = true,
                 modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
             ) {
+                val maxDay = java.time.YearMonth.of(pickerYear, pickerMonth).lengthOfMonth()
                 onValueChange(formatScheduleDate(LocalDate.of(pickerYear, pickerMonth, pickerDay.coerceAtMost(maxDay))))
                 showPicker = false
             }
+        }
+    }
+}
+
+/**
+ * Shared year/month/day wheels. Kept separate from the row so a centered dialog can host the same
+ * control as one of its pages instead of stacking a second dialog on top of itself.
+ */
+@Composable
+internal fun SettingsDatePickerContent(
+    year: Int,
+    month: Int,
+    day: Int,
+    onYearChange: (Int) -> Unit,
+    onMonthChange: (Int) -> Unit,
+    onDayChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val maxDay = java.time.YearMonth.of(year, month).lengthOfMonth()
+    LaunchedEffect(maxDay) {
+        if (day > maxDay) onDayChange(maxDay)
+    }
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val fontScale = LocalDensity.current.fontScale
+        // NumberPicker defaults to MIUIX title1. Three equal columns make a four digit year
+        // ellipsize on narrow dialogs or when display/font scaling is raised. Keep the picker
+        // readable without changing the dialog width: reserve more width for the year and cap
+        // only this dense numeric control's effective size at the extreme DPI combinations.
+        val compactPicker = maxWidth < 300.dp || fontScale > 1.12f
+        val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+            fontSize = when {
+                maxWidth < 270.dp || fontScale > 1.32f -> 21.sp
+                compactPicker -> 24.sp
+                else -> 28.sp
+            }
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(if (compactPicker) 4.dp else 8.dp)
+        ) {
+            top.yukonga.miuix.kmp.basic.NumberPicker(
+                value = year,
+                onValueChange = onYearChange,
+                range = 2000..2100,
+                visibleItemCount = 3,
+                label = { "${it}年" },
+                textStyle = pickerTextStyle,
+                modifier = Modifier.weight(if (compactPicker) 1.65f else 1.5f)
+            )
+            top.yukonga.miuix.kmp.basic.NumberPicker(
+                value = month,
+                onValueChange = onMonthChange,
+                range = 1..12,
+                visibleItemCount = 3,
+                label = { "${it}月" },
+                textStyle = pickerTextStyle,
+                modifier = Modifier.weight(1f)
+            )
+            top.yukonga.miuix.kmp.basic.NumberPicker(
+                value = day.coerceAtMost(maxDay),
+                onValueChange = onDayChange,
+                range = 1..maxDay,
+                visibleItemCount = 3,
+                label = { "${it}日" },
+                textStyle = pickerTextStyle,
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
@@ -1653,6 +1691,107 @@ fun SettingsActionButton(
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold
         )
+    }
+}
+
+/**
+ * Swipe a settings row left to reveal a delete action. The gesture, threshold haptics, elastic
+ * action growth and spring settle follow the AI import history row; deleting is only requested so
+ * the caller can confirm it first, and the row springs back while the dialog is up.
+ */
+@Composable
+internal fun SettingsSwipeDeleteRow(
+    rowKey: Any?,
+    onRequestDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val offset = remember(rowKey) { Animatable(0f) }
+    var revealCrossed by remember(rowKey) { mutableStateOf(false) }
+    var deleteCrossed by remember(rowKey) { mutableStateOf(false) }
+    var widthPx by remember { mutableStateOf(1f) }
+    val actionWidthPx = with(density) { 60.dp.toPx() }
+    val actionGapPx = with(density) { 12.dp.toPx() }
+    val revealPx = actionWidthPx + actionGapPx
+    val deleteTriggerPx = maxOf(revealPx + with(density) { 132.dp.toPx() }, widthPx * 0.72f)
+        .coerceAtMost(widthPx * 0.86f)
+    val maximumDragPx = (widthPx - with(density) { 16.dp.toPx() }).coerceAtLeast(revealPx)
+    val settleSpring = spring<Float>(dampingRatio = 0.52f, stiffness = 420f)
+    fun requestDelete() {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        revealCrossed = false
+        deleteCrossed = false
+        scope.launch { offset.animateTo(0f, settleSpring) }
+        onRequestDelete()
+    }
+    val dragDistance = (-offset.value).coerceAtLeast(0f)
+    val revealProgress = (dragDistance / revealPx).coerceIn(0f, 1f)
+    val stretch = ((dragDistance - revealPx) / (deleteTriggerPx - revealPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
+    val actionWidth = actionWidthPx +
+        (widthPx - with(density) { 32.dp.toPx() } - actionWidthPx).coerceAtLeast(0f) * stretch
+    val visibleActionWidth = minOf(actionWidth, (dragDistance - actionGapPx).coerceAtLeast(actionWidthPx))
+    Box(modifier.fillMaxWidth().onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }) {
+        Box(Modifier.matchParentSize(), contentAlignment = Alignment.CenterEnd) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .width(with(density) { visibleActionWidth.toDp() })
+                    .padding(end = 16.dp)
+                    .graphicsLayer {
+                        alpha = revealProgress
+                        transformOrigin = TransformOrigin(1f, 0.5f)
+                    }
+                    .clip(RoundedRectangle(15.dp))
+                    .background(ComposeColor(0xFFFF3B30))
+                    .clickable(onClick = ::requestDelete),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.ic_delete_history),
+                    contentDescription = "删除",
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(offset.value.roundToInt(), 0) }
+                .pointerInput(rowKey, widthPx) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = drag@{ change, dragAmount ->
+                            change.consume()
+                            val next = (offset.value + dragAmount).coerceIn(-maximumDragPx, 0f)
+                            val revealNow = abs(next) >= revealPx * 0.48f
+                            if (revealNow != revealCrossed) {
+                                revealCrossed = revealNow
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                            scope.launch { offset.snapTo(next) }
+                            if (abs(next) >= deleteTriggerPx && !deleteCrossed) {
+                                deleteCrossed = true
+                                requestDelete()
+                            }
+                        },
+                        onDragEnd = {
+                            scope.launch {
+                                val target = if (abs(offset.value) >= revealPx * 0.48f) -revealPx else 0f
+                                revealCrossed = target < 0f
+                                deleteCrossed = false
+                                offset.animateTo(target, settleSpring)
+                            }
+                        },
+                        onDragCancel = {
+                            revealCrossed = false
+                            deleteCrossed = false
+                            scope.launch { offset.animateTo(0f, settleSpring) }
+                        }
+                    )
+                }
+        ) { content() }
     }
 }
 

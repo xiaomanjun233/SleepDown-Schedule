@@ -80,7 +80,9 @@ internal fun HomeAssistantHost(
     var clockVersion by remember { mutableIntStateOf(0) }
     var now by remember { mutableStateOf(LocalDateTime.now()) }
     val preferencesVersion by DayAgentPreferences.changes.collectAsStateWithLifecycle(0L)
-    val enabled = remember(preferencesVersion) { DayAgentPreferences.isEnabled(context) }
+    val enabled = remember(preferencesVersion) {
+        DayAgentPreferences.isEnabled(context) && DayAgentPreferences.isWeekAssistantEnabled(context)
+    }
     val decided = remember(preferencesVersion) { DayAgentPreferences.hasDecision(context) }
     val weatherEnabled = remember(preferencesVersion) { DayAgentPreferences.isWeatherEnabled(context) }
     val repository = remember(context) { DayAgentRepository(context.applicationContext) }
@@ -180,7 +182,7 @@ internal fun HomeAssistantHost(
 
     if (controller.stage == HomeAssistantStage.Conversation && !decided) {
         LiquidAlertDialog(
-            title = "启用今日助手？",
+            title = "启用AI助理？",
             message = "下拉首页即可与助手对话。课程提醒与倒计时在本机计算，对话和文件解析使用你选择的 AI 服务。",
             actions = listOf(
                 LiquidAlertAction("暂不启用", LiquidAlertActionStyle.Secondary) {

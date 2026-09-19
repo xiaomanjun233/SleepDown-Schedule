@@ -531,6 +531,8 @@ fun GlassSurface(
     debugLabel: String = "GlassSurface",
     bottomLitTint: Boolean = false,
     bottomLitTintFloor: Float = 0.20f,
+    shapeProvider: (() -> Shape)? = null,
+    morphAllocation: com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation? = null,
     content: @Composable () -> Unit
 ) {
     val glassBackdrop = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
@@ -595,8 +597,10 @@ fun GlassSurface(
             backdrop = glassBackdrop,
             descriptor = descriptor,
             material = tokens,
-            shape = { shape },
+            shape = shapeProvider ?: { shape },
             effectFrame = effectFrame,
+            renderBounds = { morphAllocation?.localBounds() },
+            allocationPaddingPx = morphAllocation?.paddingPx,
             onDrawSurface = {
                 if (bottomLitTint) {
                     drawBottomLitGlassTint(surfaceColor, topTintFloor = bottomLitTintFloor)
@@ -613,7 +617,10 @@ fun GlassSurface(
         )
     } else {
         modifier
-            .clip(shape)
+            .then(if (morphAllocation == null) Modifier.clip(shape) else Modifier.graphicsLayer {
+                this.shape = morphAllocation.envelope.insetShapeFor(morphAllocation.geometry())
+                clip = true
+            })
             .background(surfaceColor.copy(alpha = surfaceColor.alpha.coerceAtLeast(0.86f)))
             .graphicsLayer {
                 val scale = 1f + 0.04f * pressProgress
@@ -963,6 +970,7 @@ fun BlueStatusGlassPill(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
+    accentColor: Color = StatusCapsuleBlue,
     content: @Composable () -> Unit
 ) {
     val shape = Capsule()
@@ -977,13 +985,13 @@ fun BlueStatusGlassPill(
                 highlightAlpha = 0.10f,
                 innerShadowAlpha = 0.10f
             ),
-            baseSurfaceColorOverride = StatusCapsuleBlue,
+            baseSurfaceColorOverride = accentColor,
             bottomLitTint = true,
             bottomLitTintFloor = 0.44f,
             modifier = Modifier.matchParentSize()
         ) {}
         VerticalGlassAccentOverlay(
-            accentColor = StatusCapsuleBlue,
+            accentColor = accentColor,
             shape = shape,
             lightGlass = glassUsesLightStyle(config),
             intensity = 0.86f,

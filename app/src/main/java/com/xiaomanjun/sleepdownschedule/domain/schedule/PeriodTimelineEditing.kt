@@ -175,7 +175,8 @@ internal fun resizeTimelineBlock(
     val boundary = timelinePartBoundary(config, materialized, part)
     val lastStart = requireNotNull(parseMinuteOfDay(last.startTime))
     val lastDuration = requireNotNull(parseMinuteOfDay(last.endTime)) - lastStart
-    val minimum = if (isBreak) 1 else minimumTimelineLessonMinutes(config, materialized, periodIndex)
+    // A zero-minute break keeps two lessons back to back, so it is a valid target.
+    val minimum = if (isBreak) 0 else minimumTimelineLessonMinutes(config, materialized, periodIndex)
     val lastMinimum = minimumTimelineLessonMinutes(config, materialized, last.periodIndex)
     fun fits(duration: Int): Boolean {
         if (last.periodIndex == periodIndex && !isBreak) return start + duration <= boundary

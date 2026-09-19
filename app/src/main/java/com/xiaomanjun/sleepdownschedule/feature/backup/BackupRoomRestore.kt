@@ -156,6 +156,7 @@ object BackupRoomRestoreMapper {
                     "defaultWallpaperStyle"
                 ),
                 hideEmptyWeekends = config.hideEmptyWeekends,
+                scheduleAdjustmentsJson = config.scheduleAdjustmentsJson,
                 dockAlignment = strictBackupEnum<DockAlignment>(config.dockAlignment, "dockAlignment"),
                 defaultHomeMode = strictBackupEnum<HomeStartMode>(config.defaultHomeMode, "defaultHomeMode"),
                 liveUpdateActionsEnabled = config.liveUpdateActionsEnabled,

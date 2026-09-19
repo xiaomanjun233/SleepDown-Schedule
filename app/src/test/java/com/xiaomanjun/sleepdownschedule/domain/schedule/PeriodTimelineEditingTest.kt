@@ -24,10 +24,10 @@ class PeriodTimelineEditingTest {
         assertNull(validateResolvedPeriodTimes(changed.times))
     }
 
-    @Test fun breakCannotBeRemovedAndStopsAtOneMinute() {
+    @Test fun breakCanBeRemovedAndStopsAtZeroMinute() {
         val changed = resizeTimelineBlock(config, original, 1, true, 0)
-        assertEquals("08:46", changed.times[1].startTime)
-        assertEquals("09:31", changed.times[1].endTime)
+        assertEquals("08:45", changed.times[1].startTime)
+        assertEquals("09:30", changed.times[1].endTime)
         assertEquals(original.times[2], changed.times[2])
         assertNull(validateResolvedPeriodTimes(changed.times))
     }

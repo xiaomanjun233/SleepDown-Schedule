@@ -371,13 +371,20 @@ internal fun SinglePillWeekScheduleScreen(
     val currentPeriod = currentTimelinePeriod(state.periods, now)
     // Keep one computed bucket per visited week, shared by the rail, supplements and Pager.
     // Data replacement invalidates the cache; swiping back reuses the same immutable lists.
-    val weekBucketCache = remember(state.courses) { mutableMapOf<Int, WeekCourseBuckets>() }
+    val weekBucketCache = remember(state.courses, state.config, today) { mutableMapOf<Int, WeekCourseBuckets>() }
     fun bucketsForWeek(week: Int) = weekBucketCache.getOrPut(week) {
-        weekCourseBuckets(state.courses, week)
+        weekCourseBuckets(state.courses, week, state.config, today)
+    }
+    fun openOccurrence(course: CourseEntity, week: Int, bounds: Rect?) {
+        val original = state.courses.firstOrNull { it.id == course.id } ?: course
+        val date = scheduleWeekStartDate(state.config, week, today).plusDays((course.weekday - 1).toLong())
+        val source = com.xiaomanjun.sleepdownschedule.domain.schedule.teachingDateForSchedule(state.config, date)
+        val sourceWeek = source?.let { com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate(state.config, it, today) } ?: week
+        onCourseClick(original, sourceWeek, bounds)
     }
     val weekBuckets = bucketsForWeek(displayWeek)
     val visibleCourses = weekBuckets.visibleCourses
-    val supplementaryRowCount = remember(state.courses, state.periods, displayWeek) {
+    val supplementaryRowCount = remember(state.courses, state.periods, state.config, displayWeek) {
         (displayWeek - 1..displayWeek + 1).maxOf { week ->
             bucketsForWeek(week).visibleCourses
                 .filter { courseNeedsSupplementaryWeekRow(it, state.periods) }
@@ -766,7 +773,7 @@ internal fun SinglePillWeekScheduleScreen(
                             editWeek = outgoingWeekKey.intValue,
                             allWeekCourses = oldCourses,
                             editScrollState = scrollState,
-                            onCourseClick = { course, sourceBounds -> onCourseClick(course, outgoingWeekKey.intValue, sourceBounds) }
+                            onCourseClick = { course, sourceBounds -> openOccurrence(course, outgoingWeekKey.intValue, sourceBounds) }
                             )
                         }
                         val pagerZeroOffset = remember { Animatable(0f) }
@@ -841,6 +848,10 @@ internal fun SinglePillWeekScheduleScreen(
                                 onFinishMoveOverlay = { velocity ->
                                     weekEditOverlay.finishMove(
                                         velocity = velocity,
+                                        canMoveToWeekday = { day ->
+                                            com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(state.config,
+                                                scheduleWeekStartDate(state.config, pageWeek).plusDays((day - 1).toLong())) == null
+                                        },
                                         onUpdateCourseSingleWeek = onUpdateCourseSingleWeek
                                     )
                                 },
@@ -853,7 +864,7 @@ internal fun SinglePillWeekScheduleScreen(
                                 },
                                 onCancelWeekEditOverlay = weekEditOverlay::cancelGesture,
                                 onCourseClick = { course, sourceBounds ->
-                                    onCourseClick(course, pageWeek, sourceBounds)
+                                    openOccurrence(course, pageWeek, sourceBounds)
                                 }
                             )
                         }
@@ -1408,8 +1419,8 @@ internal fun BoundlessWeekdayHeaderRow(
             )
         }
         val displayedPage = (displayWeek - 1).coerceIn(0, config.totalWeeks.coerceAtLeast(1) - 1)
-        val displayedWeekdays = remember(courses, displayedPage, config.hideEmptyWeekends) {
-            val buckets = weekCourseBuckets(courses, displayedPage + 1)
+        val displayedWeekdays = remember(courses, displayedPage, config, today) {
+            val buckets = weekCourseBuckets(courses, displayedPage + 1, config, today)
             visibleWeekdaysForBuckets(buckets, config.hideEmptyWeekends)
         }
         WeekdayHeaderLabels(
@@ -1456,14 +1467,14 @@ private fun WeekPagerHeaderLabels(
     }
 
     fun weekdaysForPage(page: Int): List<Int> {
-        val buckets = weekCourseBuckets(courses, page + 1)
+        val buckets = weekCourseBuckets(courses, page + 1, config, today)
         return visibleWeekdaysForBuckets(buckets, config.hideEmptyWeekends)
     }
 
-    val currentWeekdays = remember(courses, currentPage, config.hideEmptyWeekends) {
+    val currentWeekdays = remember(courses, currentPage, config, today) {
         weekdaysForPage(currentPage)
     }
-    val adjacentWeekdays = remember(courses, adjacentPage, config.hideEmptyWeekends) {
+    val adjacentWeekdays = remember(courses, adjacentPage, config, today) {
         weekdaysForPage(adjacentPage)
     }
     val offsetVisible by remember(pagerState) {
@@ -1489,6 +1500,7 @@ private fun WeekPagerHeaderLabels(
                         textColor = textColor,
                         endPadding = endPadding,
                         todayStyle = todayStyle,
+                        config = config,
                         modifier = Modifier.graphicsLayer {
                             translationX = ((page - pagerState.currentPage) -
                                 pagerState.currentPageOffsetFraction) * widthPx
@@ -1498,7 +1510,7 @@ private fun WeekPagerHeaderLabels(
             }
         } else {
             val displayedPage = (displayWeek - 1).coerceIn(0, maxPage)
-            val displayedWeekdays = remember(courses, displayedPage, config.hideEmptyWeekends) {
+            val displayedWeekdays = remember(courses, displayedPage, config, today) {
                 weekdaysForPage(displayedPage)
             }
             WeekdayHeaderLabels(
@@ -1507,7 +1519,8 @@ private fun WeekPagerHeaderLabels(
                 today = today,
                 textColor = textColor,
                 endPadding = endPadding,
-                todayStyle = todayStyle
+                todayStyle = todayStyle,
+                config = config
             )
         }
     }
@@ -1536,9 +1549,11 @@ private fun WeekdayHeaderLabels(
             val date = weekStart.plusDays((day - 1).toLong())
             val isToday = date == today
             val extendsToHeaderEnd = isToday && index == weekdays.lastIndex
-            val indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+            val adjusted = config != null && com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config, date) != null
+            val indicatorColor = (if (adjusted) ComposeColor(0xFFFFB928) else MaterialTheme.colorScheme.primary).copy(alpha = 0.22f)
             val lightweightToday = isToday && todayStyle == WeekdayTodayStyle.LIGHTWEIGHT
             val showTodayCapsule = lightweightToday && backdrop != null && config != null
+            val capsuleTextColor = if (adjusted) ComposeColor(0xFF392900) else ComposeColor.White
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -1587,6 +1602,7 @@ private fun WeekdayHeaderLabels(
                     BlueStatusGlassPill(
                         backdrop = backdrop,
                         config = config,
+                        accentColor = if (adjusted) ComposeColor(0xFFFFB928) else ComposeColor(0xFF0A84FF),
                         modifier = Modifier
                             .widthIn(min = if (weekdays.size >= 6) 64.dp else 92.dp)
                             .heightIn(min = 34.dp)
@@ -1602,7 +1618,7 @@ private fun WeekdayHeaderLabels(
                         fontSize = if (enlargeWeekdayLabels) 13.sp else 11.sp,
                         lineHeight = if (enlargeWeekdayLabels) 14.sp else 12.sp,
                         fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
-                        color = if (showTodayCapsule) ComposeColor.White else textColor,
+                        color = if (showTodayCapsule) capsuleTextColor else textColor,
                         textAlign = TextAlign.Center,
                         maxLines = 1
                     )
@@ -1612,7 +1628,7 @@ private fun WeekdayHeaderLabels(
                         lineHeight = if (enlargeWeekdayLabels) 12.sp else 10.sp,
                         fontWeight = FontWeight.Medium,
                         color = if (showTodayCapsule) {
-                            ComposeColor.White.copy(alpha = 0.92f)
+                            capsuleTextColor.copy(alpha = 0.92f)
                         } else {
                             textColor.copy(alpha = 0.72f)
                         },
@@ -1701,6 +1717,8 @@ private fun WeekDayColumn(
     layerOffset: Animatable<Float, AnimationVector1D>? = null,
     layerTravel: Float = 1f,
     editMode: Boolean = false,
+    editingAllowed: Boolean = true,
+    muted: Boolean = false,
     editWeek: Int = 1,
     allWeekCourses: List<CourseEntity> = emptyList(),
     weekdayCount: Int = 7,
@@ -1806,6 +1824,8 @@ private fun WeekDayColumn(
                     onResolveConflict = { moved ->
                         onResolveCourseConflict(segment.course, moved)
                     },
+                    editingAllowed = editingAllowed,
+                    muted = muted,
                     editMode = editMode,
                     editWeek = editWeek,
                     allWeekCourses = allWeekCourses,
@@ -1904,10 +1924,18 @@ fun WeekCourseColumnsLayer(
     val selectCopyPosition: (Offset) -> Unit = { point ->
         val grid = flightRegistry?.grid(editWeek)
         if (courseCopy != null && grid != null && copyPicking) {
-            when (courseCopyGridTap(courseCopy, editWeek, grid, weekdays, periods, point)) {
-                CourseCopyTap.Selected -> copyHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                CourseCopyTap.Confirmed -> copyHaptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                CourseCopyTap.Rejected -> Unit
+            val physicalColumn = if (grid.width > 0f && point.x >= 0f && point.x < grid.width)
+                (point.x * weekdays.size / grid.width).toInt() else -1
+            val day = weekdays.getOrNull(if (grid.rightToLeft) weekdays.lastIndex - physicalColumn else physicalColumn)
+            if (day != null && com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config,
+                    scheduleWeekStartDate(config, editWeek).plusDays((day - 1).toLong())) != null) {
+                courseCopy.reject("调休日请在原课程日期复制课程")
+            } else {
+                when (courseCopyGridTap(courseCopy, editWeek, grid, weekdays, periods, point)) {
+                    CourseCopyTap.Selected -> copyHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    CourseCopyTap.Confirmed -> copyHaptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    CourseCopyTap.Rejected -> Unit
+                }
             }
         }
     }
@@ -1995,6 +2023,12 @@ fun WeekCourseColumnsLayer(
         Row(modifier = Modifier.fillMaxWidth()) {
             weekdays.forEachIndexed { columnIndex, day ->
                 val shortcutPivotX = courseShortcutPivot(columnIndex, weekdays.size, layoutDirection)
+                val dayAdjustment = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config,
+                    scheduleWeekStartDate(config, editWeek).plusDays((day - 1).toLong()))
+                val adjustedDay = dayAdjustment != null
+                // Days off keep their regular cards on screen, greyed and read-only.
+                val cancelledDay = adjustedDay && dayAdjustment.sourceDate == null
+                val enterDayEditMode = { if (!adjustedDay) onEnterEditMode() }
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -2022,12 +2056,14 @@ fun WeekCourseColumnsLayer(
                         periodRowHeight = cardHeight,
                         layerOffset = layerOffset,
                         layerTravel = travel,
-                        editMode = editMode,
+                        editMode = editMode && !adjustedDay,
+                        editingAllowed = !adjustedDay,
+                        muted = cancelledDay,
                         editWeek = editWeek,
                         allWeekCourses = allWeekCourses,
                         weekdayCount = weekdays.size,
                         editScrollState = editScrollState,
-                        onEnterEditMode = onEnterEditMode,
+                        onEnterEditMode = enterDayEditMode,
                         onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
                         conflictFocusCourseId = conflictFocusCourseId,
                         conflictFocusCourseKey = conflictFocusCourseKey,
@@ -2070,9 +2106,11 @@ fun WeekCourseColumnsLayer(
                                     cardColor = cardColor, backdrop = backdrop, floatingBackdrop = floatingBackdrop,
                                     config = config, dayIndex = day, gridColumnWidth = dayColumnWidth,
                                     shortcutPivotX = shortcutPivotX,
-                                    stackIndex = index, editMode = editMode, editWeek = editWeek,
+                                    stackIndex = index, editMode = editMode && !adjustedDay, editWeek = editWeek,
+                                    editingAllowed = !adjustedDay,
+                                    muted = cancelledDay,
                                     allWeekCourses = allWeekCourses, editScrollState = editScrollState,
-                                    onEnterEditMode = onEnterEditMode,
+                                    onEnterEditMode = enterDayEditMode,
                                     onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
                                     onCourseClick = onCourseClick
                                 )
@@ -2540,6 +2578,7 @@ private class WeekEditOverlayController(
 
     fun finishMove(
         velocity: Velocity,
+        canMoveToWeekday: (Int) -> Boolean = { true },
         onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit
     ) {
         val activeRequest = request ?: return
@@ -2557,7 +2596,7 @@ private class WeekEditOverlayController(
             weekdayCount = activeRequest.weekdayCount
         )
         val edited = activeRequest.course.copy(weekday = target.weekday, periods = target.periods)
-        val canSave = target.valid &&
+        val canSave = target.valid && canMoveToWeekday(target.weekday) &&
             !hasWeekCourseEditConflict(activeRequest.course, edited, activeRequest.weekCourses, activeRequest.editWeek) &&
             (edited.weekday != activeRequest.course.weekday || edited.periods != activeRequest.course.periods)
         val targetX = if (canSave) (target.weekday - activeRequest.dayIndex) * activeRequest.gridColumnWidthPx else 0f
@@ -2942,6 +2981,9 @@ fun WeekCourseBlock(
     conflictUnderlyingSpan: Int = 0,
     onResolveConflict: (CourseEntity) -> Unit = {},
     editMode: Boolean = false,
+    editingAllowed: Boolean = true,
+    /** A cancelled adjustment day: the card stays on screen as a greyed, non-interactive reminder. */
+    muted: Boolean = false,
     editWeek: Int = 1,
     allWeekCourses: List<CourseEntity> = emptyList(),
     weekdayCount: Int = 7,
@@ -3085,6 +3127,7 @@ fun WeekCourseBlock(
         mode: WeekEditOverlayMode,
         pointerInSource: Offset
     ): WeekEditOverlayRequest? {
+        if (!editingAllowed) return null
         val bounds = ownBoundsRef[0] ?: return null
         return WeekEditOverlayRequest(
             mode = mode,
@@ -3127,7 +3170,7 @@ fun WeekCourseBlock(
     val shortcuts = LocalCourseShortcuts.current
     val currentEditMode by rememberUpdatedState(editMode)
     val openShortcut by rememberUpdatedState<() -> Unit> {
-        ownBoundsRef[0]?.let { bounds ->
+        if (editingAllowed) ownBoundsRef[0]?.let { bounds ->
             shortcuts?.open(CourseShortcutRequest(course, editWeek, bounds,
                 with(density) { cardCorner.toPx() }, shortcutPivotX, onEnterEditMode))
         }
@@ -3146,7 +3189,8 @@ fun WeekCourseBlock(
     val finishBodyDrag by rememberUpdatedState(onFinishMoveOverlay)
     val cancelBodyDrag by rememberUpdatedState(onCancelWeekEditOverlay)
     val clickBody by rememberUpdatedState<() -> Unit> {
-        if (copyMotion?.active != true) onCourseClick(course, ownBoundsRef[0])
+        // Adjustment days render virtual occurrences: they must never open the course editor.
+        if (copyMotion?.active != true && editingAllowed) onCourseClick(course, ownBoundsRef[0])
     }
     // Editing is read through updated state, never a pointerInput key: switching into edit
     // mode must not cancel the finger that is about to move the course.
@@ -3287,7 +3331,7 @@ fun WeekCourseBlock(
                 .courseRemovalMotion(course, editWeek, courseCardBaseColor(config, course))
                 .then(bodyGestureModifier)
                 .semantics {
-                    if (copyMotion?.active != true) {
+                    if (copyMotion?.active != true && editingAllowed) {
                         onClick("查看课程") { clickBody(); true }
                         onLongClick("课程快捷操作") { openShortcut(); true }
                     }
@@ -3591,6 +3635,17 @@ fun WeekCourseBlock(
                 }
             }
             }
+            }
+            if (muted) {
+                // One neutral wash over the finished card so a cancelled occurrence reads as a
+                // disabled placeholder instead of a real lesson.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(displayedHeight)
+                        .clip(cardShape)
+                        .background(MutedCourseScrim)
+                )
             }
             if (conflictWarning && !editMode && !customTimeLocked) {
                 val pillDismissProgress = conflictPillDismiss.value.coerceIn(0f, 1f)

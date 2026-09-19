@@ -144,7 +144,7 @@ fun DetailScheduleMorphOverlay(
     detailState: AppState,
     onMorphStateChange: (DetailMorphState) -> Unit,
     onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
-    onPreviewLiveUpdate: () -> Unit,
+    onPreviewLiveUpdate: (ScheduleConfigEntity) -> Unit,
     onFinished: () -> Unit,
     modifier: Modifier = Modifier
 ) {

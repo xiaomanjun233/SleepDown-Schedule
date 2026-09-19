@@ -142,11 +142,12 @@ object ActivityTransitionCoordinator {
         launchLegacy(legacyRequest)
     }
 
-    /** Synchronous entry for routes whose catalog policy can never select a native backend. */
+    /** Non-native routes can use an Activity Result launcher while keeping the catalog policy. */
     fun openImmediate(
         activity: Activity,
         routeId: TransitionRouteId,
-        intent: android.content.Intent
+        intent: android.content.Intent,
+        launchActivity: ((android.content.Intent) -> Unit)? = null
     ): TransitionLaunchResult {
         val route = TransitionRouteCatalog.get(routeId)
         require(route.nativePolicy == TransitionNativePolicy.Never) {
@@ -160,7 +161,7 @@ object ActivityTransitionCoordinator {
         intent.putTransitionIdentity(session)
         val request = TransitionOpenRequest(activity, intent, route, session, null)
         session.moveTo(TransitionSessionState.LegacyRunning)
-        return when (val result = legacyBackend.openImmediate(request)) {
+        return when (val result = legacyBackend.openImmediate(request, launchActivity ?: { activity.startActivity(it) })) {
             TransitionBackendOpenResult.Started -> {
                 session.moveTo(TransitionSessionState.Open)
                 TransitionPayloadStore.remove(session.id)
@@ -301,14 +302,15 @@ object ActivityTransitionCoordinator {
 /** Context-safe convenience for catalog routes that are guaranteed to use a non-native backend. */
 fun Context.openRegisteredActivity(
     routeId: TransitionRouteId,
-    intent: android.content.Intent
+    intent: android.content.Intent,
+    launchActivity: ((android.content.Intent) -> Unit)? = null
 ): TransitionLaunchResult? {
     val activity = findTransitionActivity()
     if (activity == null) {
-        startActivity(intent)
+        if (launchActivity != null) launchActivity(intent) else startActivity(intent)
         return null
     }
-    return ActivityTransitionCoordinator.openImmediate(activity, routeId, intent)
+    return ActivityTransitionCoordinator.openImmediate(activity, routeId, intent, launchActivity)
 }
 
 private tailrec fun Context.findTransitionActivity(): Activity? = when (this) {

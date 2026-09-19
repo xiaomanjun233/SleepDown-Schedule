@@ -624,6 +624,14 @@ private val MIGRATION_39_40 = object : Migration(39, 40) {
     }
 }
 
+private val MIGRATION_40_41 = object : Migration(40, 41) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("schedule_config", "scheduleAdjustmentsJson")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN scheduleAdjustmentsJson TEXT NOT NULL DEFAULT ''")
+        }
+    }
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -663,7 +671,8 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_36_37,
     MIGRATION_37_38,
     MIGRATION_38_39,
-    MIGRATION_39_40
+    MIGRATION_39_40,
+    MIGRATION_40_41
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -853,6 +862,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "darkMode", "INTEGER NOT NULL DEFAULT 0")
     ensureSqliteColumn(db, "schedule_config", "defaultWallpaperStyle", "TEXT NOT NULL DEFAULT 'KANBAN'")
     ensureSqliteColumn(db, "schedule_config", "hideEmptyWeekends", "INTEGER NOT NULL DEFAULT 0")
+    ensureSqliteColumn(db, "schedule_config", "scheduleAdjustmentsJson", "TEXT NOT NULL DEFAULT ''")
     ensureSqliteColumn(db, "schedule_config", "dockAlignment", "TEXT NOT NULL DEFAULT 'LEFT'")
     ensureSqliteColumn(db, "schedule_config", "defaultHomeMode", "TEXT NOT NULL DEFAULT 'WEEK'")
     ensureSqliteColumn(db, "schedule_config", "liveUpdateActionsEnabled", "INTEGER NOT NULL DEFAULT 1")
@@ -884,7 +894,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
             classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates,
-            morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount
+            morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount, scheduleAdjustmentsJson
         )
         SELECT
             id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek, termState,
@@ -902,7 +912,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
             classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates,
-            morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount
+            morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount, scheduleAdjustmentsJson
         FROM schedule_config
         """.trimIndent()
     )
@@ -957,6 +967,7 @@ private fun scheduleConfigCreateSql(table: String): String =
         darkMode INTEGER NOT NULL,
         defaultWallpaperStyle TEXT NOT NULL,
         hideEmptyWeekends INTEGER NOT NULL,
+        scheduleAdjustmentsJson TEXT NOT NULL DEFAULT '',
         dockAlignment TEXT NOT NULL,
         defaultHomeMode TEXT NOT NULL,
         liveUpdateActionsEnabled INTEGER NOT NULL,

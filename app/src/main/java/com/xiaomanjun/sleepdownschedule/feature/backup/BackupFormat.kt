@@ -243,7 +243,8 @@ data class BackupScheduleConfig(
     val hideFromRecents: Boolean,
     val autoCheckUpdates: Boolean,
     val homeChromeBlurScale: Float = DefaultHomeChromeBlurScale,
-    val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale
+    val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale,
+    val scheduleAdjustmentsJson: String = ""
 )
 
 @Serializable
@@ -364,7 +365,8 @@ data class BackupDayAgentPreferences(
     val memoryTurnDay: String?,
     val memoryTurnCount: Int,
     val memoryLastAgentUpdateDay: String?,
-    val appliedActionsBySchedule: Map<String, List<String>> = emptyMap()
+    val appliedActionsBySchedule: Map<String, List<String>> = emptyMap(),
+    val weekAssistantEnabled: Boolean = true
 )
 
 @Serializable

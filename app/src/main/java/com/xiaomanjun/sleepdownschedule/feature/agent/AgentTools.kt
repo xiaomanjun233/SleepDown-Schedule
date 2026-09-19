@@ -455,6 +455,10 @@ internal fun extractAgentToolPrelude(content: String): String {
 private fun agentOverviewResult(facts: DayAgentFacts): String = buildString {
     val weekday = weekdayLabel(facts.date.dayOfWeek.toChineseWeekday())
     appendLine("日期=${facts.date} 星期$weekday；当前时间=${facts.now.toLocalTime()}")
+    if (facts.todayIsAdjusted) appendLine(
+        facts.currentTeachingDate?.let { "今日调休：补原 $it 第 ${facts.currentTeachingWeek} 周的课程；调整今日课程使用原课程日期和教学周。" }
+            ?: "今日调休：停课。"
+    )
     val teachingWeek = if (facts.termState in setOf(ScheduleTermState.MANUAL, ScheduleTermState.ACTIVE)) {
         facts.currentWeek.toString()
     } else {
@@ -503,7 +507,8 @@ private fun agentWeekResult(facts: DayAgentFacts): String = buildString {
     } else {
         append(
             facts.week.joinToString("\n") { item ->
-                "${item.date} ${item.start}-${item.end} ${agentCourseLine(item.course)}"
+                "${item.date} ${item.start}-${item.end} ${agentCourseLine(item.course)}" +
+                    if (item.originalDate != null) "（调休：原 ${item.originalDate} 第 ${item.teachingWeek} 周）" else ""
             }.ifBlank { "本周无课" }
         )
     }

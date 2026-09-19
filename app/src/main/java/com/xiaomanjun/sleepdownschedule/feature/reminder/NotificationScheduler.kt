@@ -669,9 +669,9 @@ object NotificationScheduler {
             name = "高等数学",
             timeText = timeText,
             location = "教学楼 A101",
-            // A preview must always be dismissible even when the user has
-            // disabled optional actions for real course reminders.
-            showActions = true,
+            // Mirror the real course reminder so the preview proves whether the action buttons are
+            // hidden. The preview keeps its own mute key, so it stays cancellable from the app.
+            showActions = config.liveUpdateActionsEnabled,
             muteKey = "preview:${now.toInstant().toEpochMilli()}",
             muteUntil = startMillis.toString(),
             chipTextMode = config.liveUpdateChipTextMode,

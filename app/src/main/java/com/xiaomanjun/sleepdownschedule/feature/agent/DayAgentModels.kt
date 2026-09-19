@@ -26,7 +26,9 @@ data class AgentCourseSlot(
     val course: CourseEntity,
     val date: LocalDate,
     val start: LocalTime,
-    val end: LocalTime
+    val end: LocalTime,
+    val originalDate: LocalDate? = null,
+    val teachingWeek: Int? = null
 )
 
 data class AgentImageAttachment(
@@ -76,7 +78,10 @@ data class DayAgentFacts(
     val settingSnapshot: Map<String, String> = emptyMap(),
     val semesterCourses: List<CourseEntity> = emptyList(),
     val periodSchemes: List<AgentPeriodSchemeSnapshot> = emptyList(),
-    val activePeriodSchemeId: Long? = null
+    val activePeriodSchemeId: Long? = null,
+    val currentTeachingDate: LocalDate? = date,
+    val currentTeachingWeek: Int = currentWeek,
+    val todayIsAdjusted: Boolean = false
 )
 
 data class AgentPeriodSchemeSnapshot(
@@ -228,16 +233,25 @@ fun buildDayAgentFacts(
     val schedulePeriods = periods.filter { it.scheduleId == config.id }
     val termState = derivedScheduleTermState(config, date)
     val termStatus = scheduleTermStatusDescription(config, date)
+    val currentTeachingDate = com.xiaomanjun.sleepdownschedule.domain.schedule.teachingDateForSchedule(config, date)
     val currentWeek = effectiveCurrentWeek(config, date)
+    val currentTeachingWeek = if (currentTeachingDate != null && currentTeachingDate != date)
+        com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate(config, currentTeachingDate)
+            ?: effectiveCurrentWeek(config, date) else effectiveCurrentWeek(config, date)
     fun slotsFor(targetDate: LocalDate): List<AgentCourseSlot> {
-        val week = scheduleWeekForDateOrNull(config, targetDate) ?: return emptyList()
-        val weekday = targetDate.dayOfWeek.value
+        if (scheduleWeekForDateOrNull(config, targetDate) == null) return emptyList()
+        val teachingDate = com.xiaomanjun.sleepdownschedule.domain.schedule.teachingDateForSchedule(config, targetDate) ?: return emptyList()
+        val week = (if (teachingDate != targetDate)
+            com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate(config, teachingDate)
+            else scheduleWeekForDateOrNull(config, targetDate)) ?: return emptyList()
+        val weekday = teachingDate.dayOfWeek.value
         return scheduleCourses.asSequence()
             .filter { it.weekday == weekday && week in it.weeks && parityMatches(it.weekParity, week) }
             .mapNotNull { course ->
                 val start = courseStartTime(course, schedulePeriods)
                 val end = courseEndTime(course, schedulePeriods)
-                if (start == null || end == null) null else AgentCourseSlot(course, targetDate, start, end)
+                if (start == null || end == null) null else AgentCourseSlot(course, targetDate, start, end,
+                    teachingDate.takeIf { it != targetDate }, week)
             }
             .sortedBy { it.start }
             .toList()
@@ -249,9 +263,9 @@ fun buildDayAgentFacts(
     val week = (0L..6L).flatMap { offset -> slotsFor(weekStart.plusDays(offset)) }
     val source = buildString {
         append(config.id).append('|').append(date).append('|').append(termState).append(':')
-            .append(currentWeek).append('|')
+            .append(currentWeek).append('|').append(config.scheduleAdjustmentsJson).append('|')
         week.forEach { slot ->
-            append(slot.course.id).append(':').append(slot.course.name).append(':')
+            append(slot.date).append(':').append(slot.course.id).append(':').append(slot.course.name).append(':')
             append(slot.start).append('-').append(slot.end).append(':')
             append(slot.course.location.orEmpty()).append('|')
         }
@@ -268,6 +282,9 @@ fun buildDayAgentFacts(
         totalWeeks = config.totalWeeks,
         scheduleId = config.id,
         currentWeek = currentWeek,
+        currentTeachingDate = currentTeachingDate,
+        currentTeachingWeek = currentTeachingWeek,
+        todayIsAdjusted = currentTeachingDate != date,
         termState = termState,
         termStatus = termStatus,
         settingSnapshot = AgentSettingRegistry.snapshot(config, scheduleName, settingContext, date),
@@ -312,24 +329,26 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
                 base = null,
                 facts = facts,
                 validPeriods = validPeriods,
-                scope = draft.scope
+                scope = draft.scope,
+                targetWeek = currentCourseActionWeek(facts, null, draft.course?.weekday)
             )?.let { course ->
                 actions += AgentValidatedAction(
                     AgentValidatedActionType.ADD,
                     edited = course.copy(id = 0, scheduleId = facts.scheduleId),
                     scope = draft.scope,
-                    targetWeek = facts.currentWeek,
+                    targetWeek = currentCourseActionWeek(facts, null, draft.course?.weekday),
                     summary = draft.summary.ifBlank { "添加 ${course.name}" }
                 )
             }
             AgentActionType.UPDATE_COURSE -> knownCourses[draft.courseId]?.let { original ->
-                validateAgentCoursePatch(draft.course, original, facts, validPeriods, draft.scope)?.let { edited ->
+                val targetWeek = currentCourseActionWeek(facts, original)
+                validateAgentCoursePatch(draft.course, original, facts, validPeriods, draft.scope, targetWeek)?.let { edited ->
                     actions += AgentValidatedAction(
                         AgentValidatedActionType.UPDATE,
                         original = original,
                         edited = edited.copy(id = original.id, scheduleId = facts.scheduleId),
                         scope = draft.scope,
-                        targetWeek = facts.currentWeek,
+                        targetWeek = targetWeek,
                         summary = draft.summary.ifBlank { "修改 ${original.name}" }
                     )
                 }
@@ -339,7 +358,7 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
                     AgentValidatedActionType.DELETE,
                     original = original,
                     scope = draft.scope,
-                    targetWeek = facts.currentWeek,
+                    targetWeek = currentCourseActionWeek(facts, original),
                     summary = draft.summary.ifBlank { "删除 ${original.name}" }
                 )
             }
@@ -431,12 +450,22 @@ private fun normalizeLooseAgentActionJson(raw: String): String {
     return normalized
 }
 
+private fun currentCourseActionWeek(facts: DayAgentFacts, course: CourseEntity?, weekday: Int? = null): Int {
+    if (!facts.todayIsAdjusted) return facts.currentWeek
+    val teachingDate = facts.currentTeachingDate ?: return facts.currentWeek
+    if (teachingDate == facts.date) return facts.currentWeek
+    val isTodaySource = if (course != null) facts.today.any { it.course.id == course.id }
+        else weekday == teachingDate.dayOfWeek.value
+    return if (isTodaySource) facts.currentTeachingWeek else facts.currentWeek
+}
+
 private fun validateAgentCoursePatch(
     patch: AgentCoursePatch?,
     base: CourseEntity?,
     facts: DayAgentFacts,
     validPeriods: Set<Int>,
-    scope: AgentActionScope
+    scope: AgentActionScope,
+    targetWeek: Int = facts.currentWeek
 ): CourseEntity? {
     patch ?: return null
     val name = patch.name?.trim()?.takeIf { it.isNotBlank() } ?: base?.name ?: return null
@@ -446,7 +475,7 @@ private fun validateAgentCoursePatch(
     val weeks = when {
         requestedWeeks.isNotEmpty() -> requestedWeeks
         base != null -> base.weeks
-        scope == AgentActionScope.CURRENT_WEEK -> listOf(facts.currentWeek)
+        scope == AgentActionScope.CURRENT_WEEK -> listOf(targetWeek)
         else -> (1..facts.totalWeeks).toList()
     }.distinct().sorted().filter { it in 1..facts.totalWeeks }
     if (weekday !in 1..7 || periods.isEmpty() || weeks.isEmpty()) return null

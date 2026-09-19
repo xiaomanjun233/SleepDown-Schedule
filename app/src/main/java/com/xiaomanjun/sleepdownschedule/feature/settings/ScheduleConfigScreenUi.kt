@@ -43,7 +43,7 @@ fun ScheduleConfigScreen(
     backdrop: Backdrop?,
     section: SettingsSection,
     onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
-    onPreviewLiveUpdate: () -> Unit,
+    onPreviewLiveUpdate: (ScheduleConfigEntity) -> Unit,
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
     onExitInterceptionChange: (Boolean) -> Unit = {}
@@ -62,6 +62,7 @@ fun ScheduleConfigScreen(
     var liveUpdateActionsEnabled by remember { mutableStateOf(state.config.liveUpdateActionsEnabled) }
     var autoCurrentWeek by remember { mutableStateOf(state.config.autoCurrentWeek) }
     var hideEmptyWeekends by remember { mutableStateOf(state.config.hideEmptyWeekends) }
+    var scheduleAdjustmentsJson by remember { mutableStateOf(state.config.scheduleAdjustmentsJson) }
     var termStartDate by remember { mutableStateOf(state.config.termStartDate.orEmpty()) }
     var classDurationMinutes by remember { mutableStateOf(state.config.classDurationMinutes.toString()) }
     var breakDurationMinutes by remember { mutableStateOf(state.config.breakDurationMinutes.toString()) }
@@ -95,6 +96,7 @@ fun ScheduleConfigScreen(
         liveUpdateActionsEnabled = state.config.liveUpdateActionsEnabled
         autoCurrentWeek = state.config.autoCurrentWeek
         hideEmptyWeekends = state.config.hideEmptyWeekends
+        scheduleAdjustmentsJson = state.config.scheduleAdjustmentsJson
         termStartDate = state.config.termStartDate.orEmpty()
         classDurationMinutes = state.config.classDurationMinutes.toString()
         breakDurationMinutes = state.config.breakDurationMinutes.toString()
@@ -115,6 +117,7 @@ fun ScheduleConfigScreen(
                     currentWeek != lastSavedConfig.currentWeek.toString() ||
                     autoCurrentWeek != lastSavedConfig.autoCurrentWeek ||
                     hideEmptyWeekends != lastSavedConfig.hideEmptyWeekends ||
+                    scheduleAdjustmentsJson != lastSavedConfig.scheduleAdjustmentsJson ||
                     termStartDate != lastSavedConfig.termStartDate.orEmpty() ||
                     classDurationMinutes != lastSavedConfig.classDurationMinutes.toString() ||
                     breakDurationMinutes != lastSavedConfig.breakDurationMinutes.toString() ||
@@ -264,6 +267,7 @@ fun ScheduleConfigScreen(
                 termStartDate = termStartDate.ifBlank { null },
                 autoCurrentWeek = autoCurrentWeek,
                 hideEmptyWeekends = hideEmptyWeekends,
+                scheduleAdjustmentsJson = scheduleAdjustmentsJson,
                 notificationsEnabled = notificationsEnabled,
                 notificationMode = notificationMode,
                 liveUpdateChipTextMode = liveUpdateChipTextMode,
@@ -448,13 +452,15 @@ fun ScheduleConfigScreen(
         detectedWeek = detectedWeek,
         detectedWeekDescription = detectedWeekDescription,
         error = error,
-        onPreviewLiveUpdate = onPreviewLiveUpdate
+        onPreviewLiveUpdate = onPreviewLiveUpdate,
+        scheduleAdjustmentsJson = scheduleAdjustmentsJson,
+        onScheduleAdjustmentsChange = { scheduleAdjustmentsJson = it }
     )
 
     if (showExitSaveConfirm) {
         LiquidAlertDialog(
             title = "保存课表设置？",
-            message = "你修改了节次结构或作息时间。保存完成后才会退出详细设置。",
+            message = "保存课表、作息与调休安排后退出详细设置。",
             actions = listOf(
                 LiquidAlertAction("保存并退出", LiquidAlertActionStyle.Primary) {
                     showExitSaveConfirm = false

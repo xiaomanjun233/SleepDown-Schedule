@@ -21,6 +21,20 @@ class AppDatabaseMigrationTest {
     )
 
     @Test
+    fun migrate40To41AddsEmptyAdjustmentsAndPreservesSchedule() {
+        helper.createDatabase(TEST_DATABASE, 40).use { database ->
+            database.execSQL(legacyConfigInsertSql(40))
+            database.execSQL("INSERT INTO courses (id,name,weekday,periods,weeks,weekParity,scheduleId) VALUES (42,'迁移保留',2,'[1,2]','[1,3]','ODD',7)")
+        }
+        helper.runMigrationsAndValidate(TEST_DATABASE, APP_DATABASE_VERSION, true,
+            *APP_DATABASE_MIGRATIONS.toTypedArray()).use { database ->
+            assertSingleText(database, "SELECT scheduleAdjustmentsJson FROM schedule_config WHERE id=7", "")
+            assertSingleValue(database, "SELECT currentWeek FROM schedule_config WHERE id=7", 6)
+            assertSingleText(database, "SELECT weeks FROM courses WHERE id=42", "[1,3]")
+        }
+    }
+
+    @Test
     fun migrate39To40DefaultsColoredTextOffAndPreservesCourses() {
         helper.createDatabase(TEST_DATABASE, 39).use { database ->
             database.execSQL("""

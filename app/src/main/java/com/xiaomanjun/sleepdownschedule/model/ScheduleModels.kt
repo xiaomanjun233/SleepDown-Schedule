@@ -108,6 +108,7 @@ data class ScheduleConfigEntity(
     val darkMode: Boolean = false,
     val defaultWallpaperStyle: DefaultWallpaperStyle = DefaultWallpaperStyle.NONE,
     val hideEmptyWeekends: Boolean = false,
+    @ColumnInfo(defaultValue = "''") val scheduleAdjustmentsJson: String = "",
     val dockAlignment: DockAlignment = DockAlignment.CENTER,
     val defaultHomeMode: HomeStartMode = HomeStartMode.WEEK,
     val liveUpdateActionsEnabled: Boolean = true,

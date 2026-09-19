@@ -55,9 +55,10 @@ object AgentSettingRegistry {
         AgentSettingDefinition("COURSE_CARD_COLOR_MODE", "课程卡片配色模式", "SOLID/GRADIENT/COLORFUL", "PERSONALIZATION"),
         AgentSettingDefinition("COURSE_CARD_COLOR", "纯色或渐变模式的基准色", "MULTICOLOR或#AARRGGBB", "PERSONALIZATION"),
         AgentSettingDefinition("COURSE_CARD_PALETTE", "彩色模式的算法种子调色板", "AUTO_WALLPAPER或1到4个#AARRGGBB，用逗号分隔", "PERSONALIZATION"),
-        AgentSettingDefinition("DAY_AGENT_ENABLED", "今日助手总开关", "true/false", "DAY_AGENT"),
-        AgentSettingDefinition("DAY_AGENT_WEATHER", "今日助手天气提醒", "true/false", "DAY_AGENT"),
-        AgentSettingDefinition("DAY_AGENT_MEMORY_ENABLED", "今日助手记忆", "true/false", "DAY_AGENT")
+        AgentSettingDefinition("DAY_AGENT_ENABLED", "AI助理总开关", "true/false", "DAY_AGENT"),
+        AgentSettingDefinition("DAY_AGENT_WEEK_ENABLED", "周视图AI助理", "true/false", "DAY_AGENT"),
+        AgentSettingDefinition("DAY_AGENT_WEATHER", "AI助理天气提醒", "true/false", "DAY_AGENT"),
+        AgentSettingDefinition("DAY_AGENT_MEMORY_ENABLED", "AI助理记忆", "true/false", "DAY_AGENT")
     )
 
     fun promptCatalog(
@@ -167,6 +168,7 @@ object AgentSettingRegistry {
         "WALLPAPER_LANDSCAPE_SCALE" to (config.wallpaperLandscapeScale ?: 1f).toString(),
         "WALLPAPER_SOURCE_SIZE" to "${config.wallpaperSourceWidth ?: 0}x${config.wallpaperSourceHeight ?: 0}",
         "DAY_AGENT_ENABLED" to context?.let(DayAgentPreferences::isEnabled).toStringOrUnknown(),
+        "DAY_AGENT_WEEK_ENABLED" to context?.let(DayAgentPreferences::isWeekAssistantEnabled).toStringOrUnknown(),
         "DAY_AGENT_WEATHER" to context?.let(DayAgentPreferences::isWeatherEnabled).toStringOrUnknown(),
         "DAY_AGENT_MEMORY_ENABLED" to context?.let(DayAgentPreferences::isMemoryEnabled).toStringOrUnknown()
     )
@@ -322,6 +324,7 @@ object AgentSettingRegistry {
 
     fun isPreferenceSetting(key: String?): Boolean = key in setOf(
         "DAY_AGENT_ENABLED",
+        "DAY_AGENT_WEEK_ENABLED",
         "DAY_AGENT_WEATHER",
         "DAY_AGENT_MEMORY_ENABLED"
     )
@@ -331,6 +334,10 @@ object AgentSettingRegistry {
         return when (key) {
             "DAY_AGENT_ENABLED" -> {
                 DayAgentPreferences.setEnabled(context, enabled)
+                true
+            }
+            "DAY_AGENT_WEEK_ENABLED" -> {
+                DayAgentPreferences.setWeekAssistantEnabled(context, enabled)
                 true
             }
             "DAY_AGENT_WEATHER" -> {

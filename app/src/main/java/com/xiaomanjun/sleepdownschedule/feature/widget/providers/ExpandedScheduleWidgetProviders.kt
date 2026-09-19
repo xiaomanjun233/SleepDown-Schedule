@@ -1123,7 +1123,10 @@ internal object WeekScheduleWidgetRenderer {
         val displayWeek = scheduleWeekForDateOrNull(state.config, today)
             ?: effectiveCurrentWeek(state.config, today)
         val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-        val weekBuckets = weekCourseBuckets(state.courses, displayWeek)
+        val weekBuckets = weekCourseBuckets(state.courses, displayWeek, state.config, today)
+        // A cancelled day keeps its cards in the app as a greyed reminder, but the widget only
+        // shows classes that actually take place.
+        val widgetCourses = weekBuckets.visibleCourses.filter { it.weekday !in weekBuckets.cancelledWeekdays }
         val weekdays = visibleWeekdaysForBuckets(weekBuckets, state.config.hideEmptyWeekends)
         val dark = MiuixTodayWidgetRenderer.usesDarkTheme(context, state.config)
         val surface = createExpandedWidgetSurface(
@@ -1154,7 +1157,7 @@ internal object WeekScheduleWidgetRenderer {
             weekStart = weekStart,
             today = today,
             weekdays = weekdays,
-            visibleCourses = weekBuckets.visibleCourses,
+            visibleCourses = widgetCourses,
             surface = surface,
             metrics = metrics,
             periodWindow = surfacePeriodWindow,
@@ -1191,7 +1194,7 @@ internal object WeekScheduleWidgetRenderer {
                     today = today,
                     now = now,
                     weekdays = weekdays,
-                    visibleCourses = weekBuckets.visibleCourses,
+                    visibleCourses = widgetCourses,
                     surface = surface,
                     metrics = metrics,
                     courseColors = courseColors
@@ -1206,7 +1209,7 @@ internal object WeekScheduleWidgetRenderer {
                     today = today,
                     now = now,
                     weekdays = weekdays,
-                    visibleCourses = weekBuckets.visibleCourses,
+                    visibleCourses = widgetCourses,
                     surface = surface,
                     metrics = metrics,
                     periodWindow = periodWindow,

@@ -145,7 +145,7 @@ fun BackupRestoreSettingsScreen(
                     BackupGuidePage(
                         R.drawable.ic_material_settings_backup_restore,
                         "个性化设置",
-                        "保存卡片样式、深色模式、首页、课程提醒、今日助手、AI 服务选项和小组件样式。",
+                        "保存卡片样式、深色模式、首页、课程提醒、AI助理、AI 服务选项和小组件样式。",
                         tint = Color(0xFF8C78E8)
                     ),
                     BackupGuidePage(

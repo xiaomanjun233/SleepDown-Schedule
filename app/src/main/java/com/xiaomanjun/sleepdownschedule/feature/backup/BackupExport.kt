@@ -251,6 +251,7 @@ object BackupExportMapper {
                 darkMode = config.darkMode,
                 defaultWallpaperStyle = config.defaultWallpaperStyle.name,
                 hideEmptyWeekends = config.hideEmptyWeekends,
+                scheduleAdjustmentsJson = config.scheduleAdjustmentsJson,
                 dockAlignment = config.dockAlignment.name,
                 defaultHomeMode = config.defaultHomeMode.name,
                 liveUpdateActionsEnabled = config.liveUpdateActionsEnabled,

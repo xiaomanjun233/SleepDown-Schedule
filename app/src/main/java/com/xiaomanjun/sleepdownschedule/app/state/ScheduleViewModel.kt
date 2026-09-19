@@ -640,10 +640,10 @@ class ScheduleViewModel(
         snackbar.value = null
     }
 
-    fun previewLiveUpdate() = viewModelScope.launch {
-        val snapshot = repository.activeSnapshot()
-        NotificationScheduler.showLiveUpdatePreview(app, snapshot.config)
-        val minutes = snapshot.config.notificationLeadMinutes.coerceIn(1, 30)
+    /** Previews the draft settings so the result proves the current switches, not the saved ones. */
+    fun previewLiveUpdate(config: ScheduleConfigEntity) = viewModelScope.launch {
+        NotificationScheduler.showLiveUpdatePreview(app, config)
+        val minutes = config.notificationLeadMinutes.coerceIn(1, 30)
         snackbar.value = "已启动测试实时活动（${minutes}分钟倒计时）"
     }
 
