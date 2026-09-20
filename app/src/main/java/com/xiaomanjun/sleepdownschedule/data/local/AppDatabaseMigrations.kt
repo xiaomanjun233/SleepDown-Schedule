@@ -616,6 +616,22 @@ private val MIGRATION_38_39 = object : Migration(38, 39) {
     }
 }
 
+private val MIGRATION_39_40 = object : Migration(39, 40) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("schedule_config", "courseCardColoredTextEnabled")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN courseCardColoredTextEnabled INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+}
+
+private val MIGRATION_40_41 = object : Migration(40, 41) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("schedule_config", "scheduleAdjustmentsJson")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN scheduleAdjustmentsJson TEXT NOT NULL DEFAULT ''")
+        }
+    }
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -654,7 +670,9 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_35_36,
     MIGRATION_36_37,
     MIGRATION_37_38,
-    MIGRATION_38_39
+    MIGRATION_38_39,
+    MIGRATION_39_40,
+    MIGRATION_40_41
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -824,6 +842,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "cardAlpha", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "courseCardBlur", "REAL NOT NULL DEFAULT 18")
     ensureSqliteColumn(db, "schedule_config", "courseCardGlassEnabled", "INTEGER NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "courseCardColoredTextEnabled", "INTEGER NOT NULL DEFAULT 0")
     ensureSqliteColumn(db, "schedule_config", "courseCardFontScale", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "courseCardColorMode", "TEXT NOT NULL DEFAULT 'SOLID'")
     ensureSqliteColumn(db, "schedule_config", "courseCardPalette", "TEXT NOT NULL DEFAULT ''")
@@ -843,6 +862,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "darkMode", "INTEGER NOT NULL DEFAULT 0")
     ensureSqliteColumn(db, "schedule_config", "defaultWallpaperStyle", "TEXT NOT NULL DEFAULT 'KANBAN'")
     ensureSqliteColumn(db, "schedule_config", "hideEmptyWeekends", "INTEGER NOT NULL DEFAULT 0")
+    ensureSqliteColumn(db, "schedule_config", "scheduleAdjustmentsJson", "TEXT NOT NULL DEFAULT ''")
     ensureSqliteColumn(db, "schedule_config", "dockAlignment", "TEXT NOT NULL DEFAULT 'LEFT'")
     ensureSqliteColumn(db, "schedule_config", "defaultHomeMode", "TEXT NOT NULL DEFAULT 'WEEK'")
     ensureSqliteColumn(db, "schedule_config", "liveUpdateActionsEnabled", "INTEGER NOT NULL DEFAULT 1")
@@ -865,6 +885,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             wallpaperLandscapeCenterX, wallpaperLandscapeCenterY, wallpaperLandscapeScale,
             wallpaperSourceWidth, wallpaperSourceHeight,
             cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale,
+            courseCardColoredTextEnabled,
             courseCardColorMode, courseCardPalette,
             alternateCardColorArgb, alternateCardAlpha, alternateCourseCardBlur, alternateCourseCardFontScale,
             alternateCourseCardColorMode, alternateCourseCardPalette,
@@ -873,7 +894,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
             classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates,
-            morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount
+            morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount, scheduleAdjustmentsJson
         )
         SELECT
             id, totalWeeks, currentWeek, notificationLeadMinutes, termStartDate, autoCurrentWeek, termState,
@@ -882,6 +903,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             wallpaperLandscapeCenterX, wallpaperLandscapeCenterY, wallpaperLandscapeScale,
             wallpaperSourceWidth, wallpaperSourceHeight,
             cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale,
+            courseCardColoredTextEnabled,
             courseCardColorMode, courseCardPalette,
             alternateCardColorArgb, alternateCardAlpha, alternateCourseCardBlur, alternateCourseCardFontScale,
             alternateCourseCardColorMode, alternateCourseCardPalette,
@@ -890,7 +912,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
             classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates,
-            morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount
+            morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount, scheduleAdjustmentsJson
         FROM schedule_config
         """.trimIndent()
     )
@@ -926,6 +948,7 @@ private fun scheduleConfigCreateSql(table: String): String =
         courseCardBlur REAL NOT NULL,
         courseCardGlassEnabled INTEGER NOT NULL,
         courseCardFontScale REAL NOT NULL,
+        courseCardColoredTextEnabled INTEGER NOT NULL DEFAULT 0,
         courseCardColorMode TEXT NOT NULL DEFAULT 'SOLID',
         courseCardPalette TEXT NOT NULL DEFAULT '',
         alternateCardColorArgb INTEGER NOT NULL DEFAULT 4293516543,
@@ -944,6 +967,7 @@ private fun scheduleConfigCreateSql(table: String): String =
         darkMode INTEGER NOT NULL,
         defaultWallpaperStyle TEXT NOT NULL,
         hideEmptyWeekends INTEGER NOT NULL,
+        scheduleAdjustmentsJson TEXT NOT NULL DEFAULT '',
         dockAlignment TEXT NOT NULL,
         defaultHomeMode TEXT NOT NULL,
         liveUpdateActionsEnabled INTEGER NOT NULL,

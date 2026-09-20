@@ -9,6 +9,9 @@ import com.xiaomanjun.sleepdownschedule.feature.home.weekCardHeightScaleFromSlid
 import com.xiaomanjun.sleepdownschedule.feature.home.weekCardHeightSliderFromScale
 
 import android.content.Context
+import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
+import com.xiaomanjun.sleepdownschedule.core.identity.AppIconMode
+import com.xiaomanjun.sleepdownschedule.core.identity.AppIconStyle
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -55,24 +58,53 @@ object AgentSettingRegistry {
         AgentSettingDefinition("COURSE_CARD_COLOR_MODE", "课程卡片配色模式", "SOLID/GRADIENT/COLORFUL", "PERSONALIZATION"),
         AgentSettingDefinition("COURSE_CARD_COLOR", "纯色或渐变模式的基准色", "MULTICOLOR或#AARRGGBB", "PERSONALIZATION"),
         AgentSettingDefinition("COURSE_CARD_PALETTE", "彩色模式的算法种子调色板", "AUTO_WALLPAPER或1到4个#AARRGGBB，用逗号分隔", "PERSONALIZATION"),
-        AgentSettingDefinition("DAY_AGENT_ENABLED", "今日助手总开关", "true/false", "DAY_AGENT"),
-        AgentSettingDefinition("DAY_AGENT_WEATHER", "今日助手天气提醒", "true/false", "DAY_AGENT"),
-        AgentSettingDefinition("DAY_AGENT_MEMORY_ENABLED", "今日助手记忆", "true/false", "DAY_AGENT")
+        AgentSettingDefinition("COURSE_CARD_OUTLINE_LIGHT", "课程卡片浅色描边", "true/false", "PERSONALIZATION"),
+        AgentSettingDefinition("COURSE_CARD_REFRACTION", "课程卡片折射强度", "0..1小数", "PERSONALIZATION"),
+        AgentSettingDefinition("COURSE_CARD_GAUSSIAN_BLUR", "课程卡片高斯模糊", "true/false", "PERSONALIZATION"),
+        AgentSettingDefinition("COURSE_CARD_COLORED_TEXT", "课程卡片彩色文字", "true/false", "PERSONALIZATION"),
+        AgentSettingDefinition("HOME_CHROME_BLUR_SCALE", "首页玻璃模糊倍数", "0..2小数", "PERSONALIZATION"),
+        AgentSettingDefinition("HOME_CHROME_SAMPLING_SCALE", "首页玻璃采样倍数", "0..2小数", "PERSONALIZATION"),
+        AgentSettingDefinition("APP_ICON_STYLE", "应用图标风格", "MINIMAL/KANBAN", "GENERAL"),
+        AgentSettingDefinition("APP_ICON_MODE", "应用图标深浅", "LIGHT/DARK/FOLLOW_DARK_MODE", "GENERAL"),
+        AgentSettingDefinition("DAY_AGENT_ENABLED", "AI助理总开关", "true/false", "DAY_AGENT"),
+        AgentSettingDefinition("DAY_AGENT_WEEK_ENABLED", "周视图AI助理", "true/false", "DAY_AGENT"),
+        AgentSettingDefinition("DAY_AGENT_WEATHER", "AI助理天气提醒", "true/false", "DAY_AGENT"),
+        AgentSettingDefinition("DAY_AGENT_MEMORY_ENABLED", "AI助理记忆", "true/false", "DAY_AGENT")
     )
 
+    /**
+     * Keys that write the same underlying state. Every alias is still accepted so existing prompts
+     * and models keep working, but the catalog names the canonical key and the execution layer
+     * rejects a plan that sets two keys of one group to conflicting values. Without this, the
+     * stored result depended on the order of the JSON array.
+     */
+    val canonicalGroups: List<Set<String>> = listOf(
+        setOf("NOTIFICATION_MODE", "REALTIME_ACTIVITY"),
+        setOf("COURSE_CARD_COLOR", "COURSE_CARD_COLOR_MODE", "COURSE_CARD_PALETTE")
+    )
+
+    private val aliasKeyOf: Map<String, String> = canonicalGroups
+        .flatMap { group -> group.drop(1).map { it to group.first() } }
+        .toMap()
+
+    /** Returns the first overlapping group written by more than one key of [keys]. */
+    fun conflictingGroup(keys: List<String>): Set<String>? =
+        keys.groupingBy { it }.eachCount().entries.firstOrNull { it.value > 1 }?.let { setOf(it.key) }
+            ?: canonicalGroups.firstOrNull { group -> keys.count { it in group } > 1 }
+
     fun promptCatalog(
-        periods: List<PeriodEntity> = emptyList(),
         currentValues: Map<String, String> = emptyMap()
     ): String = buildString {
         appendLine("读取成功：以下是当前课表与应用的完整可访问设置快照。")
         appendLine("普通字段可用 SET_SETTING 提交；节次拓扑与作息方案用 SET_PERIOD_SETTINGS 提交。")
+        appendLine("列：键|说明|可选值|当前|页面。UNKNOWN 表示未读取。")
         definitions.forEach { definition ->
-            val current = currentValues[definition.key]
-                ?.let { "；当前=$it" }
+            val alias = aliasKeyOf[definition.key]
+                ?.let { canonical -> "；等价别名=$canonical（同一计划内只用一个）" }
                 .orEmpty()
             appendLine(
-                "- ${definition.key}: ${definition.description}；" +
-                    "可选值=${definition.acceptedValues}$current；页面=${definition.page}"
+                    "${definition.key}|${definition.description}|${definition.acceptedValues}|" +
+                    "${currentValues[definition.key] ?: "UNKNOWN"}|${definition.page}$alias"
             )
         }
         val structuredKeys = listOf(
@@ -95,13 +127,9 @@ object AgentSettingRegistry {
         structuredKeys.forEach { (key, label) ->
             appendLine("- $key: $label；当前=${currentValues[key] ?: "UNKNOWN"}")
         }
-        if (periods.isNotEmpty()) {
-            appendLine("当前课表节次时间表（可直接修改）：")
-            periods.sortedBy { it.periodIndex }.forEach { period ->
-                appendLine("- PERIOD_${period.periodIndex}_TIME: 第${period.periodIndex}节；值=HH:mm-HH:mm；当前=${period.startTime}-${period.endTime}；页面=SCHEDULE")
-            }
-            appendLine("同时修改多节时，为每个 PERIOD_n_TIME 分别输出一条 SET_SETTING；不得产生重叠或结束早于开始的时间。")
-        }
+        // 逐节精确时间只由 GET_PERIODS 提供；这里重复输出会让模型在一条计划里同时依赖两份
+        // 可能不同步的节次事实，因此只保留一条指向性说明。
+        appendLine("逐节精确时间请读取 GET_PERIODS（SET_SETTING 的 PERIOD_n_TIME 键需以其为准）。")
         appendLine("用户使用‘更高/更低/更模糊/亮一点’等相对表达时，根据当前值计算一个幅度克制的绝对值。")
         appendLine("彩色调色板只是稳定课程配色算法的种子，不能承诺四种颜色按课程顺序轮转或直接绑定某门课程。")
         appendLine("查询个性化设置时直接使用以上真实值回答。只有选择新的壁纸文件、重新裁切图片、API Key 或系统权限等无法由 JSON 表达的交互，才使用 OPEN_SETTINGS。")
@@ -149,6 +177,14 @@ object AgentSettingRegistry {
         "WEEK_CARD_CORNER_PERCENT" to (config.weekCardCornerProgress.coerceIn(0f, 1f) * 100f).toInt().toString(),
         "COURSE_CARD_COLOR_MODE" to config.courseCardColorMode.name,
         "COURSE_CARD_COLOR" to if (config.courseCardColorMode == CourseCardColorMode.COLORFUL) "MULTICOLOR" else "#%08X".format(config.cardColorArgb),
+        "COURSE_CARD_OUTLINE_LIGHT" to config.courseCardOutlineLightEnabled.toString(),
+        "COURSE_CARD_REFRACTION" to config.courseCardRefractionStrength.toString(),
+        "COURSE_CARD_GAUSSIAN_BLUR" to config.courseCardGaussianBlurEnabled.toString(),
+        "COURSE_CARD_COLORED_TEXT" to config.courseCardColoredTextEnabled.toString(),
+        "HOME_CHROME_BLUR_SCALE" to config.homeChromeBlurScale.toString(),
+        "HOME_CHROME_SAMPLING_SCALE" to config.homeChromeSamplingScale.toString(),
+        "APP_ICON_STYLE" to (context?.let { AppIconManager.currentStyle(it).name } ?: "UNKNOWN"),
+        "APP_ICON_MODE" to (context?.let { AppIconManager.currentMode(it).name } ?: "UNKNOWN"),
         "COURSE_CARD_PALETTE" to decodeCourseCardPalette(config.courseCardPalette)
             .takeIf { it.isNotEmpty() }
             ?.joinToString(",") { "#%08X".format(it) }
@@ -167,6 +203,7 @@ object AgentSettingRegistry {
         "WALLPAPER_LANDSCAPE_SCALE" to (config.wallpaperLandscapeScale ?: 1f).toString(),
         "WALLPAPER_SOURCE_SIZE" to "${config.wallpaperSourceWidth ?: 0}x${config.wallpaperSourceHeight ?: 0}",
         "DAY_AGENT_ENABLED" to context?.let(DayAgentPreferences::isEnabled).toStringOrUnknown(),
+        "DAY_AGENT_WEEK_ENABLED" to context?.let(DayAgentPreferences::isWeekAssistantEnabled).toStringOrUnknown(),
         "DAY_AGENT_WEATHER" to context?.let(DayAgentPreferences::isWeatherEnabled).toStringOrUnknown(),
         "DAY_AGENT_MEMORY_ENABLED" to context?.let(DayAgentPreferences::isMemoryEnabled).toStringOrUnknown()
     )
@@ -188,6 +225,12 @@ object AgentSettingRegistry {
             "WALLPAPER_BRIGHTNESS_PERCENT" -> raw.floatIn(35f, 100f)
              "COURSE_CARD_FONT_PERCENT" -> raw.floatIn(80f, 135f)
              "WEEK_CARD_HEIGHT_PERCENT", "WEEK_CARD_CORNER_PERCENT" -> raw.floatIn(0f, 100f)
+            "COURSE_CARD_REFRACTION", "HOME_CHROME_BLUR_SCALE", "HOME_CHROME_SAMPLING_SCALE" ->
+                raw.floatIn(0f, 2f)
+            "APP_ICON_STYLE" -> raw.uppercase().takeIf { it in setOf("MINIMAL", "KANBAN") }
+            "APP_ICON_MODE" -> raw.uppercase().takeIf {
+                it in setOf("LIGHT", "DARK", "FOLLOW_DARK_MODE")
+            }
             "COURSE_CARD_COLOR" -> normalizeColor(raw)
             "COURSE_CARD_PALETTE" -> normalizeCoursePalette(raw)
             "COURSE_CARD_COLOR_MODE" -> raw.uppercase().takeIf {
@@ -290,6 +333,24 @@ object AgentSettingRegistry {
         "COURSE_CARD_COLOR_MODE" -> enumValueOrNull<CourseCardColorMode>(value)?.let {
             config.copy(courseCardColorMode = it)
         }
+        "COURSE_CARD_OUTLINE_LIGHT" -> value.agentBoolean()?.let {
+            config.copy(courseCardOutlineLightEnabled = it)
+        }
+        "COURSE_CARD_REFRACTION" -> value?.toFloatOrNull()?.let {
+            config.copy(courseCardRefractionStrength = it)
+        }
+        "COURSE_CARD_GAUSSIAN_BLUR" -> value.agentBoolean()?.let {
+            config.copy(courseCardGaussianBlurEnabled = it)
+        }
+        "COURSE_CARD_COLORED_TEXT" -> value.agentBoolean()?.let {
+            config.copy(courseCardColoredTextEnabled = it)
+        }
+        "HOME_CHROME_BLUR_SCALE" -> value?.toFloatOrNull()?.let {
+            config.copy(homeChromeBlurScale = it)
+        }
+        "HOME_CHROME_SAMPLING_SCALE" -> value?.toFloatOrNull()?.let {
+            config.copy(homeChromeSamplingScale = it)
+        }
         "COURSE_CARD_COLOR" -> value?.let { parseColor(it) }?.let { color ->
             if (color == MulticolorCourseCardArgb) {
                 config.copy(courseCardColorMode = CourseCardColorMode.COLORFUL)
@@ -322,15 +383,45 @@ object AgentSettingRegistry {
 
     fun isPreferenceSetting(key: String?): Boolean = key in setOf(
         "DAY_AGENT_ENABLED",
+        "DAY_AGENT_WEEK_ENABLED",
         "DAY_AGENT_WEATHER",
         "DAY_AGENT_MEMORY_ENABLED"
     )
+
+    /**
+     * Icon style/mode live in their own SharedPreferences and must not be written through
+     * [apply] or [applyPreference]: the latter verifies with a lowercase comparison that would
+     * reject the uppercase enum names these keys use.
+     */
+    fun isAppIconSetting(key: String?): Boolean = key in setOf("APP_ICON_STYLE", "APP_ICON_MODE")
+
+    fun applyAppIcon(context: Context, key: String?, value: String?): Boolean = when (key) {
+        "APP_ICON_STYLE" -> runCatching { AppIconStyle.valueOf(value.orEmpty()) }
+            .getOrNull()
+            ?.let { AppIconManager.setStyle(context, it); true }
+            ?: false
+        "APP_ICON_MODE" -> runCatching { AppIconMode.valueOf(value.orEmpty()) }
+            .getOrNull()
+            ?.let { AppIconManager.setMode(context, it); true }
+            ?: false
+        else -> false
+    }
+
+    fun currentAppIconValue(context: Context, key: String?): String? = when (key) {
+        "APP_ICON_STYLE" -> AppIconManager.currentStyle(context).name
+        "APP_ICON_MODE" -> AppIconManager.currentMode(context).name
+        else -> null
+    }
 
     fun applyPreference(context: Context, key: String?, value: String?): Boolean {
         val enabled = value.agentBoolean() ?: return false
         return when (key) {
             "DAY_AGENT_ENABLED" -> {
                 DayAgentPreferences.setEnabled(context, enabled)
+                true
+            }
+            "DAY_AGENT_WEEK_ENABLED" -> {
+                DayAgentPreferences.setWeekAssistantEnabled(context, enabled)
                 true
             }
             "DAY_AGENT_WEATHER" -> {

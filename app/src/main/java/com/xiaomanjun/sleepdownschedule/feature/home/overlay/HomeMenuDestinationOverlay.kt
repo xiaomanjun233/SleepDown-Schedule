@@ -84,6 +84,8 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionGeometry
 import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionLayer
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
 import com.xiaomanjun.sleepdownschedule.glass.stableContentOffsetInEnvelope
 import kotlinx.coroutines.coroutineScope
@@ -148,7 +150,9 @@ private data class HomeMenuDestinationFrame(
 private class DeferredDestinationShape(
     private val frame: State<HomeMenuDestinationFrame>,
     private val density: Density,
-    topStart: CornerSize = CornerSize(0f),
+    topStart: CornerSize = com.xiaomanjun.sleepdownschedule.glass.DeferredGlassCornerSize(density.density) {
+        frame.value.renderedCornerRadiusPx
+    },
     topEnd: CornerSize = topStart,
     bottomEnd: CornerSize = topStart,
     bottomStart: CornerSize = topStart
@@ -161,10 +165,7 @@ private class DeferredDestinationShape(
         bottomStart: Float,
         layoutDirection: LayoutDirection
     ): Outline {
-        val corner = (
-            frame.value.renderedCornerRadiusPx / density.density.coerceAtLeast(0.001f)
-            ).coerceAtLeast(0f).dp
-        return RoundedRectangle(corner).createOutline(size, layoutDirection, density)
+        return RoundedRectangle(topStart.dp).createOutline(size, layoutDirection, Density(1f))
     }
 
     override fun copy(
@@ -458,8 +459,24 @@ internal fun HomeMenuDestinationOverlayHost(
     var collapseHandedOff by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val destinationContentLayer = rememberGraphicsLayer()
-    val destinationContentRecorded = remember { AtomicBoolean(false) }
-    val destinationClosingRecorded = remember { AtomicBoolean(false) }
+    val destinationSurfaceBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.DialogBridge,
+        providerId = "home-destination-shell"
+    )
+    val destinationDensity = androidx.compose.ui.platform.LocalDensity.current
+    val destinationContentRecorded = remember(rootSize, destinationDensity) { AtomicBoolean(false) }
+    val destinationClosingRecorded = remember(rootSize, destinationDensity) { AtomicBoolean(false) }
+    val freezeDestinationCoordinates = remember(motionState, destinationContentRecorded, destinationClosingRecorded) {
+        {
+            when (motionState.phase) {
+                HomeAnchoredOverlayPhase.Preparing,
+                HomeAnchoredOverlayPhase.Opening -> destinationContentRecorded.get()
+                HomeAnchoredOverlayPhase.Closing,
+                HomeAnchoredOverlayPhase.Disposing -> destinationClosingRecorded.get()
+                else -> false
+            }
+        }
+    }
     val latestDismiss by rememberUpdatedState(onDismissRequest)
     val latestSourceHandoff by rememberUpdatedState(onSourceHandoff)
     val latestCollapseHandoff by rememberUpdatedState(onCollapseHandoff)
@@ -843,7 +860,7 @@ internal fun HomeMenuDestinationOverlayHost(
             if (backdrop != null) {
                 LiquidPanel(
                     backdrop = backdrop,
-                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                    modifier = Modifier.fillMaxSize().glassBackdropProducer(destinationSurfaceBackdrop).graphicsLayer {
                         alpha = frame.value.destinationSurfaceAlpha
                     },
                     shape = destinationShape,
@@ -852,7 +869,8 @@ internal fun HomeMenuDestinationOverlayHost(
                     } else {
                         Color(0xFF121212).copy(alpha = 0.30f)
                     },
-                    blurRadius = 10.dp,
+                    blurRadius = 22.dp,
+                    backdropSampleScale = 0.5f,
                     lensHeight = 12.dp,
                     lensAmount = 16.dp
                 ) { }
@@ -861,6 +879,7 @@ internal fun HomeMenuDestinationOverlayHost(
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = frame.value.destinationSurfaceAlpha }
+                        .glassBackdropProducer(destinationSurfaceBackdrop)
                         .background(
                             if (appUsesDarkTheme(state.config)) Color(0xFF1C1C1E) else Color.White
                         )
@@ -940,45 +959,49 @@ internal fun HomeMenuDestinationOverlayHost(
                             alpha = current.destinationContentAlpha * (1f - current.destinationBlurMix)
                         }
                 ) {
-                    when (shown.kind) {
-                        HomeMenuDestinationKind.AddCourse -> top.yukonga.miuix.kmp.basic.Scaffold(
-                            modifier = Modifier.fillMaxSize(),
-                            containerColor = Color.Transparent,
-                            contentWindowInsets = WindowInsets(0, 0, 0, 0)
-                        ) {
-                            NormalizedCourseEditorScreen(
+                    CompositionLocalProvider(
+                        com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen provides freezeDestinationCoordinates
+                    ) {
+                        when (shown.kind) {
+                            HomeMenuDestinationKind.AddCourse -> top.yukonga.miuix.kmp.basic.Scaffold(
+                                modifier = Modifier.fillMaxSize(),
+                                containerColor = Color.Transparent,
+                                contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                            ) {
+                                NormalizedCourseEditorScreen(
+                                    state = state,
+                                    initialCourse = null,
+                                    onCancel = { latestDismiss() },
+                                    onSave = {},
+                                onSaveCourses = onAddCourses,
+                                onDelete = {},
+                                backdrop = destinationSurfaceBackdrop,
+                                // This destination itself lives inside the root centered-dialog
+                                    // producer. Rendering its picker in this nested Scaffold would put
+                                    // the consumer back inside the producer it samples and create a
+                                    // RenderNode cycle. The home root host is the first sibling outside
+                                    // that producer and is therefore the authoritative picker host.
+                                    pickerRenderInRootScaffold = true
+                                )
+                            }
+                            HomeMenuDestinationKind.ManualImport -> NormalizedAiManualImportScreen(
                                 state = state,
-                                initialCourse = null,
+                                backdrop = backdrop,
                                 onCancel = { latestDismiss() },
-                                onSave = {},
-                            onSaveCourses = onAddCourses,
-                            onDelete = {},
-                            backdrop = backdrop,
-                            // This destination itself lives inside the root centered-dialog
-                                // producer. Rendering its picker in this nested Scaffold would put
-                                // the consumer back inside the producer it samples and create a
-                                // RenderNode cycle. The home root host is the first sibling outside
-                                // that producer and is therefore the authoritative picker host.
-                                pickerRenderInRootScaffold = true
+                                captureHistoryBackground = captureHistoryBackground,
+                                onParsed = onManualImportParsed
                             )
-                        }
-                        HomeMenuDestinationKind.ManualImport -> NormalizedAiManualImportScreen(
-                            state = state,
-                            backdrop = backdrop,
-                            onCancel = { latestDismiss() },
-                            captureHistoryBackground = captureHistoryBackground,
-                            onParsed = onManualImportParsed
-                        )
-                        HomeMenuDestinationKind.EduImport -> DetailActivityScaffold(
-                            title = "选择学校",
-                            config = state.config,
-                            onBack = { latestDismiss() }
-                        ) { schoolBackdrop ->
-                            EduSchoolPickerScreen(
-                                state = state,
-                                backdrop = schoolBackdrop,
-                                onSelect = onEduAdapterSelected
-                            )
+                            HomeMenuDestinationKind.EduImport -> DetailActivityScaffold(
+                                title = "选择学校",
+                                config = state.config,
+                                onBack = { latestDismiss() }
+                            ) { schoolBackdrop ->
+                                EduSchoolPickerScreen(
+                                    state = state,
+                                    backdrop = schoolBackdrop,
+                                    onSelect = onEduAdapterSelected
+                                )
+                            }
                         }
                     }
                 }
@@ -1028,7 +1051,6 @@ internal fun HomeMenuDestinationOverlayHost(
                         .graphicsLayer { clip = false }
                         .zIndex(1000f)
                 ) {
-                    val destinationAlpha = frame.value.destinationContentAlpha
                     Box(
                         Modifier
                             .fillMaxSize()
@@ -1040,7 +1062,7 @@ internal fun HomeMenuDestinationOverlayHost(
                                 alpha = if (isFullScreen &&
                                     motionState.phase != HomeAnchoredOverlayPhase.Closing
                                 ) {
-                                    destinationAlpha
+                                    frame.value.destinationContentAlpha
                                 } else {
                                     1f
                                 }

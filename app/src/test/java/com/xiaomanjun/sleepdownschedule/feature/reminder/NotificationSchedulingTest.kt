@@ -5,11 +5,62 @@ import com.xiaomanjun.sleepdownschedule.*
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NotificationSchedulingTest {
+    @Test
+    fun lateNightPreviewRemainsVisibleUntilTomorrowInsteadOfExpiringImmediately() {
+        val zone = ZoneId.of("Asia/Shanghai")
+        val now = LocalDate.of(2026, 9, 12).atTime(23, 44, 2).atZone(zone)
+        val payload = NotificationScheduler.liveUpdatePreviewPayload(
+            defaultConfig().copy(notificationLeadMinutes = 30), now
+        )
+        val start = LocalDate.of(2026, 9, 13).atTime(0, 14).atZone(zone).toInstant().toEpochMilli()
+        val end = LocalDate.of(2026, 9, 13).atTime(0, 59).atZone(zone).toInstant().toEpochMilli()
+
+        assertEquals(listOf(LiveUpdateSegment(start, end)), payload.segments)
+        assertEquals("00:14 - 00:59", payload.timeText)
+        assertEquals(start, payload.expiresAtMillis)
+        assertFalse(payload.shouldStop(now.toInstant().toEpochMilli()))
+        assertEquals(30, payload.statusAt(now.toInstant().toEpochMilli()).minutesToTransition)
+        assertFalse(payload.shouldStop(start - 1))
+        assertTrue(payload.shouldStop(start))
+    }
+
+    @Test
+    fun previewWhoseEndCrossesMidnightStillHasAValidCountdown() {
+        val now = ZonedDateTime.parse("2026-09-12T23:40:10+08:00[Asia/Shanghai]")
+        val payload = NotificationScheduler.liveUpdatePreviewPayload(
+            defaultConfig().copy(notificationLeadMinutes = 10), now
+        )
+        val segment = payload.segments.single()
+
+        assertEquals("23:50 - 00:35", payload.timeText)
+        assertEquals(45 * 60_000L, segment.endAtMillis - segment.startAtMillis)
+        assertEquals(10, payload.statusAt(now.toInstant().toEpochMilli()).minutesToTransition)
+        assertFalse(payload.shouldStop(now.toInstant().toEpochMilli()))
+    }
+
+    @Test
+    fun previewAtYearBoundaryClampsZeroLeadAndRetainsFutureExpiry() {
+        val now = ZonedDateTime.parse("2026-12-31T23:59:59+08:00[Asia/Shanghai]")
+        val payload = NotificationScheduler.liveUpdatePreviewPayload(
+            defaultConfig().copy(notificationLeadMinutes = 0), now
+        )
+        val start = ZonedDateTime.parse("2027-01-01T00:00:00+08:00[Asia/Shanghai]")
+            .toInstant().toEpochMilli()
+
+        assertEquals(start, payload.expiresAtMillis)
+        assertEquals("00:00 - 00:45", payload.timeText)
+        assertFalse(payload.shouldStop(now.toInstant().toEpochMilli()))
+        assertEquals(1, payload.statusAt(now.toInstant().toEpochMilli()).minutesToTransition)
+    }
+
     @Test
     fun triggerEpochUsesProvidedSystemZoneAndClampsNegativeLeadTime() {
         val date = LocalDate.of(2026, 9, 2)

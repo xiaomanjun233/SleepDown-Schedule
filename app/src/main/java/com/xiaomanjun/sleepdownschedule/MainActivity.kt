@@ -1,9 +1,8 @@
 package com.xiaomanjun.sleepdownschedule
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.app.state.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
 
 import android.app.ActivityManager
 import android.content.Context

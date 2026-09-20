@@ -14,6 +14,7 @@ enum class TransitionRouteId(val wireName: String) {
     HomeToSettingsDetail("home_to_settings_detail"),
     QuickSheetToSettingsDetail("quick_sheet_to_settings_detail"),
     SettingsToSettingsDetail("settings_to_settings_detail"),
+    SettingsToScheduleAdjustments("settings_to_schedule_adjustments"),
     ScheduleManagerToSettingsDetail("schedule_manager_to_settings_detail"),
     HomeToEduImport("home_to_edu_import"),
     SchoolSelectToEduImport("school_select_to_edu_import"),
@@ -174,6 +175,11 @@ object TransitionRouteCatalog {
         TransitionRouteSpec(
             TransitionRouteId.SettingsToSettingsDetail,
             "$PackageName.SettingsDetailActivity",
+            LegacyTransitionProfile.PlatformDefault
+        ),
+        TransitionRouteSpec(
+            TransitionRouteId.SettingsToScheduleAdjustments,
+            "$PackageName.feature.settings.ScheduleAdjustmentsActivity",
             LegacyTransitionProfile.PlatformDefault
         ),
         TransitionRouteSpec(

@@ -11,19 +11,19 @@ import org.junit.Test
 
 class HomeMotionPerformancePolicyTest {
     @Test
-    fun matchingWeekFrameIsReusedWhileOverlayIsActive() {
-        assertTrue(reuse(mode = HomeMode.Week, overlayActive = true))
+    fun matchingHomeFrameIsReusedWhileOverlayIsActive() {
+        assertTrue(reuse(overlayActive = true))
     }
 
     @Test
-    fun dayModeAndIdleWeekStayLive() {
-        assertFalse(reuse(mode = HomeMode.Day, overlayActive = true))
-        assertFalse(reuse(mode = HomeMode.Week, overlayActive = false))
+    fun idleHomeStaysLive() {
+        assertTrue(reuse(overlayActive = true))
+        assertFalse(reuse(overlayActive = false))
     }
 
     @Test
     fun personalizationPreviewAlwaysUsesLiveHome() {
-        assertFalse(reuse(mode = HomeMode.Week, overlayActive = true, previewActive = true))
+        assertFalse(reuse(overlayActive = true, previewActive = true))
         assertFalse(
             shouldUseFrozenWeekHomeBlur(
                 screenIsHome = true,
@@ -36,8 +36,8 @@ class HomeMotionPerformancePolicyTest {
 
     @Test
     fun staleScheduleOrFrameIsNeverReused() {
-        assertFalse(reuse(mode = HomeMode.Week, overlayActive = true, cachedScheduleId = 8))
-        assertFalse(reuse(mode = HomeMode.Week, overlayActive = true, cachedFrameKey = "old"))
+        assertFalse(reuse(overlayActive = true, cachedScheduleId = 8))
+        assertFalse(reuse(overlayActive = true, cachedFrameKey = "old"))
     }
 
     @Test
@@ -146,30 +146,16 @@ class HomeMotionPerformancePolicyTest {
     }
 
     @Test
-    fun closingReturnsToFullResolutionBeforeBlurReachesClearEndpoint() {
+    fun frozenBlurRevealsOriginalPixelsContinuouslyAtClearEndpoint() {
         assertEquals(3, quantizeHomeBackgroundBlurStep(0.07f, closing = false))
         assertEquals(2, quantizeHomeBackgroundBlurStep(0.07f, closing = true))
-        assertFalse(
-            shouldUseFullResolutionClosingBlur(
-                frozenHomeScene = true,
-                closing = false,
-                blurProgress = 0.2f
-            )
-        )
-        assertFalse(
-            shouldUseFullResolutionClosingBlur(
-                frozenHomeScene = true,
-                closing = true,
-                blurProgress = HomeClosingFullResolutionBlurHandoffProgress + 0.01f
-            )
-        )
-        assertTrue(
-            shouldUseFullResolutionClosingBlur(
-                frozenHomeScene = true,
-                closing = true,
-                blurProgress = HomeClosingFullResolutionBlurHandoffProgress
-            )
-        )
+        val handoff = HomeFrozenBlurMinimumStep.toFloat() / HomeLiveBlurStepCount
+        assertEquals(0f, homeFrozenBlurAlpha(0f), 0.0001f)
+        assertEquals(0.5f, homeFrozenBlurAlpha(handoff / 2f), 0.0001f)
+        assertEquals(1f, homeFrozenBlurAlpha(handoff), 0.0001f)
+        assertEquals(1f, homeFrozenBlurAlpha(1f), 0.0001f)
+        assertEquals(0f, homeFrozenBlurAlpha(-1f), 0.0001f)
+        assertEquals(1f, homeFrozenBlurAlpha(2f), 0.0001f)
     }
 
     @Test
@@ -206,55 +192,13 @@ class HomeMotionPerformancePolicyTest {
         )
     }
 
-    @Test
-    fun courseEditorWaitsForOneRecordedShellFrame() {
-        assertFalse(
-            courseEditorContentReadyForMotion(
-                rootWidth = 1080,
-                rootHeight = 2400,
-                contentLaidOut = true,
-                recordedFrameCount = 0
-            )
-        )
-        assertTrue(
-            courseEditorContentReadyForMotion(
-                rootWidth = 1080,
-                rootHeight = 2400,
-                contentLaidOut = true,
-                recordedFrameCount = 1
-            )
-        )
-    }
-
-    @Test
-    fun courseEditorNeverStartsBeforeTargetLayout() {
-        assertFalse(
-            courseEditorContentReadyForMotion(
-                rootWidth = 1080,
-                rootHeight = 2400,
-                contentLaidOut = false,
-                recordedFrameCount = 3
-            )
-        )
-        assertFalse(
-            courseEditorContentReadyForMotion(
-                rootWidth = 0,
-                rootHeight = 2400,
-                contentLaidOut = true,
-                recordedFrameCount = 3
-            )
-        )
-    }
-
     private fun reuse(
-        mode: HomeMode,
         overlayActive: Boolean,
         previewActive: Boolean = false,
         cachedScheduleId: Int = 7,
         cachedFrameKey: String = "frame"
-    ): Boolean = shouldReuseWeekHomeSurface(
+    ): Boolean = shouldReuseHomeSurface(
         screenIsHome = true,
-        homeMode = mode,
         previewActive = previewActive,
         overlayActive = overlayActive,
         cachedScheduleId = cachedScheduleId,

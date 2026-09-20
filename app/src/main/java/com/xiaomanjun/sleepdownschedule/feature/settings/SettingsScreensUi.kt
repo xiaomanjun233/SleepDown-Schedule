@@ -1,7 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.*
@@ -288,6 +287,7 @@ fun AiImportSettingsScreen(
 fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
     val context = LocalContext.current
     var enabled by remember { mutableStateOf(DayAgentPreferences.isEnabled(context)) }
+    var weekAssistantEnabled by remember { mutableStateOf(DayAgentPreferences.isWeekAssistantEnabled(context)) }
     var weatherEnabled by remember { mutableStateOf(DayAgentPreferences.isWeatherEnabled(context)) }
     var memoryEnabled by remember { mutableStateOf(DayAgentPreferences.isMemoryEnabled(context)) }
     var memoryText by remember { mutableStateOf(DayAgentPreferences.memory(context)) }
@@ -303,21 +303,33 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
         contentBottomPadding = DockScrollPadding
     ) {
         item {
-            GlassPreferenceSection("今日助手") {
+            GlassPreferenceSection("AI助理") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsInfoRow(
-                        "今日助手",
-                        "仅在日视图的今天显示，集中展示课程状态、倒计时、天气与预警；点击卡片可进入助手对话。"
+                        "AI助理",
+                        "日视图展示今日安排；周视图下拉进入对话，在课前与开始时提醒。两个入口共享消息记录。"
                     )
                     SettingsDivider()
                     SettingsToggleRow(
-                        title = "启用今日助手",
+                        title = "启用AI助理",
                         subtitle = "显示课程、空档、天气与问答入口。",
                         checked = enabled,
                         backdrop = backdrop,
                         onCheckedChange = {
                             enabled = it
                             DayAgentPreferences.setEnabled(context, it)
+                        }
+                    )
+                    SettingsDivider()
+                    SettingsToggleRow(
+                        title = "周视图AI助理",
+                        subtitle = "启用首页下拉对话与课程节点提醒。",
+                        checked = weekAssistantEnabled,
+                        backdrop = backdrop,
+                        enabled = enabled,
+                        onCheckedChange = {
+                            weekAssistantEnabled = it
+                            DayAgentPreferences.setWeekAssistantEnabled(context, it)
                         }
                     )
                     SettingsDivider()
@@ -792,7 +804,7 @@ fun AiImportSettingsSection(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
         SettingsInfoRow(
             "AI 设置",
-            "配置今日助手、AI 对话、教务课表解析等智能功能共用的模型服务。API Key 按服务商分别加密保存在本机，不会写入课表数据库或诊断日志。选择“无”可停用所有联网 AI 能力，本地课表功能不受影响。"
+            "配置AI助理、AI 对话、教务课表解析等智能功能共用的模型服务。API Key 按服务商分别加密保存在本机，不会写入课表数据库或诊断日志。选择“无”可停用所有联网 AI 能力，本地课表功能不受影响。"
         )
         AiProviderPickerRow(
             value = if (isCustomProvider) customProviderDisplayName else selectedPreset.displayName,
@@ -809,7 +821,7 @@ fun AiImportSettingsSection(
             SettingsDivider()
             SettingsInfoRow(
                 "AI 功能已停用",
-                "今日助手将使用本地时间与课程模板，AI 对话和 AI 教务解析入口不会发起模型请求。已保存的其他服务商 Key 会保留，重新选择后可继续使用。"
+                "AI助理将使用本地时间与课程模板，AI 对话和 AI 教务解析入口不会发起模型请求。已保存的其他服务商 Key 会保留，重新选择后可继续使用。"
             )
         }
                 }
@@ -925,7 +937,7 @@ fun AiImportSettingsSection(
         SettingsToggleRow(
             title = "Responses API",
             subtitle = if (modelSupportsResponses) {
-                "开启后 AI 导入与今日助手的所有请求统一使用 /responses。"
+                "开启后 AI 导入与AI助理的所有请求统一使用 /responses。"
             } else {
                 "当前模型没有已知的 Responses 能力，将继续使用 Chat Completions。"
             },
@@ -955,7 +967,7 @@ fun AiImportSettingsSection(
         if (isCustomProvider) {
             SettingsToggleRow(
                 title = "文件上传",
-                subtitle = "允许今日助手向该兼容接口发送图片附件。",
+                subtitle = "允许AI助理向该兼容接口发送图片附件。",
                 checked = supportsFileUpload,
                 backdrop = backdrop,
                 onCheckedChange = {

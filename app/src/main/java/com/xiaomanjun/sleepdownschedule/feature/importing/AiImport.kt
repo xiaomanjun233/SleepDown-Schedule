@@ -31,7 +31,8 @@ class AiScheduleImportService(private val context: Context) {
     suspend fun parseScheduleFile(
         file: AiImportFile,
         settings: AiImportSettings,
-        onHttpPhase: (AiImportHttpPhase) -> Unit
+        onHttpPhase: (AiImportHttpPhase) -> Unit,
+        onReasoningUpdate: (String) -> Unit = {}
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
@@ -45,7 +46,8 @@ class AiScheduleImportService(private val context: Context) {
                 val networkContext = input.networkContext(
                     context,
                     if (file.isImage) "IMAGE" else "FILE",
-                    onHttpPhase
+                    onHttpPhase,
+                    onReasoningUpdate = onReasoningUpdate
                 )
                 val result = when {
                     config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
@@ -65,7 +67,8 @@ class AiScheduleImportService(private val context: Context) {
         text: String,
         sourceName: String,
         settings: AiImportSettings,
-        onHttpPhase: (AiImportHttpPhase) -> Unit
+        onHttpPhase: (AiImportHttpPhase) -> Unit,
+        onReasoningUpdate: (String) -> Unit = {}
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
@@ -76,7 +79,7 @@ class AiScheduleImportService(private val context: Context) {
                 require(cleaned.count { !it.isWhitespace() } >= 40) { "当前页面可提取文本太少，请确认已经进入课表页面" }
                 val config = settings.toProviderConfig().normalizedForRequest()
                 val input = AiScheduleInput.ExtractedText(cleaned, sourceName)
-                val networkContext = input.networkContext(context, "TEXT", onHttpPhase)
+                val networkContext = input.networkContext(context, "TEXT", onHttpPhase, onReasoningUpdate = onReasoningUpdate)
                 val result = when {
                     config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
                     else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext)
@@ -97,7 +100,8 @@ class AiScheduleImportService(private val context: Context) {
         sourceName: String,
         warnings: List<String>,
         settings: AiImportSettings,
-        onHttpPhase: (AiImportHttpPhase) -> Unit
+        onHttpPhase: (AiImportHttpPhase) -> Unit,
+        onReasoningUpdate: (String) -> Unit = {}
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
@@ -122,7 +126,8 @@ class AiScheduleImportService(private val context: Context) {
                     context,
                     inputType = "CAPTURED_PAGE",
                     onHttpPhase = onHttpPhase,
-                    screenshotCount = screenshots.size
+                    screenshotCount = screenshots.size,
+                    onReasoningUpdate = onReasoningUpdate
                 )
                 val result = when {
                     config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
@@ -147,7 +152,8 @@ class AiScheduleImportService(private val context: Context) {
         output: String,
         failure: AiImportParseFailure,
         settings: AiImportSettings,
-        onHttpPhase: (AiImportHttpPhase) -> Unit = {}
+        onHttpPhase: (AiImportHttpPhase) -> Unit = {},
+        onReasoningUpdate: (String) -> Unit = {}
     ): Result<AiScheduleImportResult> = withContext(Dispatchers.IO) {
         runCatching {
             require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
@@ -156,7 +162,7 @@ class AiScheduleImportService(private val context: Context) {
             val config = settings.toProviderConfig().normalizedForRequest()
             val repairPrompt = AiImportRepairManager.buildRepairPrompt(output, failure)
             val input = AiScheduleInput.ExtractedText(repairPrompt, "上轮 AI JSON")
-            val networkContext = input.networkContext(context, "REPAIR", onHttpPhase)
+            val networkContext = input.networkContext(context, "REPAIR", onHttpPhase, onReasoningUpdate = onReasoningUpdate)
             val result = when {
                 config.endpointStyle == AiEndpointStyle.RESPONSES ->
                     OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
@@ -176,7 +182,8 @@ class AiScheduleImportService(private val context: Context) {
         instruction: String,
         history: AiEduImportProgress,
         settings: AiImportSettings,
-        onHttpPhase: (AiImportHttpPhase) -> Unit = {}
+        onHttpPhase: (AiImportHttpPhase) -> Unit = {},
+        onReasoningUpdate: (String) -> Unit = {}
     ): Result<AiScheduleImportResult> = withContext(Dispatchers.IO) {
         runCatching {
             require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
@@ -189,6 +196,7 @@ class AiScheduleImportService(private val context: Context) {
                 imageCount = history.screenshotPreviews.size,
                 screenshotCount = history.screenshotPreviews.size,
                 onPhase = onHttpPhase,
+                onReasoningUpdate = onReasoningUpdate,
                 processImportanceProvider = { currentAiProcessImportance(context) }
             )
             val result = when {
@@ -211,7 +219,8 @@ private fun AiScheduleInput.networkContext(
     context: Context,
     inputType: String,
     onHttpPhase: (AiImportHttpPhase) -> Unit,
-    screenshotCount: Int = 0
+    screenshotCount: Int = 0,
+    onReasoningUpdate: (String) -> Unit = {}
 ): AiImportNetworkContext = AiImportNetworkContext(
     inputType = inputType,
     imageCount = when (this) {
@@ -222,6 +231,7 @@ private fun AiScheduleInput.networkContext(
     },
     screenshotCount = screenshotCount,
     onPhase = onHttpPhase,
+    onReasoningUpdate = onReasoningUpdate,
     processImportanceProvider = { currentAiProcessImportance(context) }
 )
 

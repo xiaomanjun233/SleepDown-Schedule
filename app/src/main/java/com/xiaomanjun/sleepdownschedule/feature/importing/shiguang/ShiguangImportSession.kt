@@ -51,8 +51,14 @@ internal class ShiguangImportSession {
     private var courses: List<ShiguangCoursePayload>? = null
     private var courseConfig: ShiguangCourseConfigPayload? = null
     private var timeSlots: List<ShiguangTimeSlotPayload>? = null
+    private var mergeOverlappingTimeSlots = false
+    private var sectionMapping: Map<Int, Int>? = null
 
-    fun begin(config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
+    fun begin(
+        config: ScheduleConfigEntity,
+        periods: List<PeriodEntity>,
+        mergeOverlappingTimeSlots: Boolean = false
+    ) {
         synchronized(lock) {
             active = true
             baseConfig = config
@@ -60,6 +66,8 @@ internal class ShiguangImportSession {
             courses = null
             courseConfig = null
             timeSlots = null
+            this.mergeOverlappingTimeSlots = mergeOverlappingTimeSlots
+            sectionMapping = null
         }
     }
 
@@ -101,14 +109,21 @@ internal class ShiguangImportSession {
             val start = parseTime(slot.startTime, "第 ${slot.number} 节 startTime")
             val end = parseTime(slot.endTime, "第 ${slot.number} 节 endTime")
             require(start < end) { "第 ${slot.number} 节结束时间必须晚于开始时间" }
-            if (index > 0) {
-                val previousEnd = parseTime(sorted[index - 1].endTime, "第 ${slot.number - 1} 节 endTime")
-                require(start >= previousEnd) { "时间段配置存在重叠" }
-            }
         }
         synchronized(lock) {
             require(active) { "当前没有正在执行的拾光导入任务" }
-            timeSlots = parsed
+            if (mergeOverlappingTimeSlots) {
+                val normalized = mergeWakeUpTimeSlots(sorted)
+                timeSlots = normalized.slots
+                sectionMapping = normalized.sectionMapping
+            } else {
+                sorted.zipWithNext().forEach { (previous, next) ->
+                    require(parseTime(next.startTime, "startTime") >= parseTime(previous.endTime, "endTime")) {
+                        "时间段配置存在重叠"
+                    }
+                }
+                timeSlots = sorted
+            }
         }
     }
 
@@ -121,7 +136,8 @@ internal class ShiguangImportSession {
                 basePeriods = basePeriods,
                 courses = courses ?: error("适配器未提交课程数据"),
                 courseConfig = courseConfig,
-                timeSlots = timeSlots
+                timeSlots = timeSlots,
+                sectionMapping = sectionMapping
             )
         }
         return snapshot.toDraft()
@@ -157,7 +173,8 @@ internal class ShiguangImportSession {
         val basePeriods: List<PeriodEntity>,
         val courses: List<ShiguangCoursePayload>,
         val courseConfig: ShiguangCourseConfigPayload?,
-        val timeSlots: List<ShiguangTimeSlotPayload>?
+        val timeSlots: List<ShiguangTimeSlotPayload>?,
+        val sectionMapping: Map<Int, Int>?
     ) {
         fun toDraft(): ImportDraft {
             val mappedPeriods = timeSlots?.map { slot ->
@@ -169,7 +186,12 @@ internal class ShiguangImportSession {
                 val periods = if (course.isCustomTime) {
                     course.customTimePeriodIndexes(mappedPeriods)
                 } else {
-                    course.sectionRangeOrNull()?.toList().orEmpty()
+                    course.sectionRangeOrNull()?.map { originalSection ->
+                        if (sectionMapping == null) originalSection
+                        else requireNotNull(sectionMapping[originalSection]) {
+                            "第 ${index + 1} 门课程引用了不存在的节次"
+                        }
+                    }?.distinct()?.sorted().orEmpty()
                 }
                 if (!course.isCustomTime) {
                     require(periods.isNotEmpty()) { "第 ${index + 1} 门课程缺少节次范围" }

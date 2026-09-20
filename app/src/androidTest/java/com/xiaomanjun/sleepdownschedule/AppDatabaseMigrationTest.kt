@@ -21,6 +21,55 @@ class AppDatabaseMigrationTest {
     )
 
     @Test
+    fun migrate40To41AddsEmptyAdjustmentsAndPreservesSchedule() {
+        helper.createDatabase(TEST_DATABASE, 40).use { database ->
+            database.execSQL(legacyConfigInsertSql(40))
+            database.execSQL("INSERT INTO courses (id,name,weekday,periods,weeks,weekParity,scheduleId) VALUES (42,'迁移保留',2,'[1,2]','[1,3]','ODD',7)")
+        }
+        helper.runMigrationsAndValidate(TEST_DATABASE, APP_DATABASE_VERSION, true,
+            *APP_DATABASE_MIGRATIONS.toTypedArray()).use { database ->
+            assertSingleText(database, "SELECT scheduleAdjustmentsJson FROM schedule_config WHERE id=7", "")
+            assertSingleValue(database, "SELECT currentWeek FROM schedule_config WHERE id=7", 6)
+            assertSingleText(database, "SELECT weeks FROM courses WHERE id=42", "[1,3]")
+        }
+    }
+
+    @Test
+    fun migrate39To40DefaultsColoredTextOffAndPreservesCourses() {
+        helper.createDatabase(TEST_DATABASE, 39).use { database ->
+            database.execSQL("""
+                INSERT INTO courses (id, name, weekday, periods, weeks, weekParity, scheduleId)
+                VALUES (42, '迁移保留', 2, '[1,2]', '[1,3]', 'ODD', 7)
+            """.trimIndent())
+            database.execSQL("""
+                INSERT INTO schedule_config (
+                    id, totalWeeks, currentWeek, notificationLeadMinutes,
+                    autoCurrentWeek, notificationsEnabled, notificationMode,
+                    wallpaperBlur, wallpaperBrightness, cardColorArgb, cardAlpha,
+                    courseCardBlur, courseCardGlassEnabled, courseCardFontScale,
+                    homeTextLight, followSystemDarkMode, darkMode, defaultWallpaperStyle,
+                    hideEmptyWeekends, dockAlignment, defaultHomeMode,
+                    liveUpdateActionsEnabled, liveUpdateChipTextMode,
+                    classDurationMinutes, breakDurationMinutes, hideFromRecents, autoCheckUpdates
+                ) VALUES (
+                    7, 20, 3, 10, 0, 1, 'STANDARD', 0, 1, 4281558681, 0.7,
+                    18, 1, 1, 0, 1, 0, 'NONE', 0, 'CENTER', 'WEEK', 1, 'LOCATION', 45, 10, 0, 1
+                )
+            """.trimIndent())
+        }
+        helper.runMigrationsAndValidate(
+            TEST_DATABASE, APP_DATABASE_VERSION, true, *APP_DATABASE_MIGRATIONS.toTypedArray()
+        ).use { database ->
+            assertSingleValue(database, "SELECT courseCardColoredTextEnabled FROM schedule_config WHERE id=7", 0)
+            assertSingleText(database, "SELECT name FROM courses WHERE id=42", "迁移保留")
+            assertSingleText(database, "SELECT weeks FROM courses WHERE id=42", "[1,3]")
+            database.execSQL("UPDATE schedule_config SET courseCardColoredTextEnabled=1 WHERE id=7")
+            assertSingleValue(database, "SELECT courseCardColoredTextEnabled FROM schedule_config WHERE id=7", 1)
+            assertSingleFloat(database, "SELECT cardAlpha FROM schedule_config WHERE id=7", 0.7f)
+        }
+    }
+
+    @Test
     fun migrate38To39AddsCourseCardMaterialControls() {
         helper.createDatabase(TEST_DATABASE, 38).close()
 

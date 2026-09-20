@@ -41,6 +41,7 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.highlight.HighlightElement
 import com.kyant.backdrop.internal.ShapeProvider
 import com.kyant.backdrop.internal.recordLayer
+import com.kyant.backdrop.internal.BackdropRecordingCache
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.InnerShadowElement
 import com.kyant.backdrop.shadow.Shadow
@@ -184,6 +185,7 @@ private class DrawBackdropElement(
     }
 
     override fun update(node: DrawBackdropNode) {
+        node.invalidateSampleRecording()
         val effectsChanged = node.shapeProvider != shapeProvider || node.effects != effects
         node.backdrop = backdrop
         if (node.shapeProvider != shapeProvider) node.shapeProvider = shapeProvider
@@ -265,6 +267,7 @@ private class DrawBackdropNode(
 
     private var graphicsLayer: GraphicsLayer? = null
     private val layerDiagnostics = BackdropLayerDiagnostics("Sample")
+    private val sampleRecordingCache = BackdropRecordingCache()
     private var lastEffectKey: Any? = null
     private var lastEffectShape: Shape? = null
 
@@ -274,6 +277,10 @@ private class DrawBackdropNode(
         compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
     }
 
+    // This layout/draw node places its content in an inner layer. invalidateDraw() alone can
+    // dirty the outer coordinator while that layer keeps replaying its old sample. Observe
+    // coordinates from draw so movement invalidates the layer that actually records the glass.
+    // LayoutCoordinates mutates in place, so assigning the same instance must still notify it.
     private var layoutCoordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
 
     private var padding by mutableFloatStateOf(0f)
@@ -308,51 +315,65 @@ private class DrawBackdropNode(
             val allocationPadding = shapeProvider.options.allocationPadding ?: padding
             require(allocationPadding >= padding) { "Fixed allocation must cover effect padding" }
 
-            val shared = backdrop as? SharedBlurBackdrop
-            val sharedLayer = shared?.layer
-            val sourceCoordinates = shared?.source?.layerCoordinates
-            val cardCoordinates = layoutCoordinates
-            val directSharedSample = sharedLayer != null && shared?.sampleScale == sampleScale &&
-                sourceCoordinates?.isAttached == true && cardCoordinates?.isAttached == true &&
-                layerBlock == null && shapeProvider.options.bounds() == null && exportedBackdrop == null
-            if (directSharedSample) {
-                // Nexio 2971759: shared wallpaper and card buffer use the same resolution.
-                // Translate directly in sampled pixels, then apply this card's lens. Avoid the
-                // expand-source -> shrink-consumer pair used by the generic Backdrop interface.
-                val source = checkNotNull(sourceCoordinates)
-                val card = checkNotNull(cardCoordinates)
-                val offset = try { source.localPositionOf(card) } catch (_: IllegalArgumentException) {
-                    card.positionInWindow() - source.positionInWindow()
-                }
-                recordLayer(
-                    layer,
-                    size = IntSize(
-                        (size.width * sampleScale + allocationPadding * 2).roundToInt().coerceAtLeast(1),
-                        (size.height * sampleScale + allocationPadding * 2).roundToInt().coerceAtLeast(1)
+            val recordKey = shapeProvider.options.sampleRecordKey()
+            val recordingSize = IntSize(
+                if (sampleScale == 1f) size.width.toInt() + allocationPadding.toInt() * 2
+                else ceil(size.width * sampleScale + allocationPadding * 2).toInt(),
+                if (sampleScale == 1f) size.height.toInt() + allocationPadding.toInt() * 2
+                else ceil(size.height * sampleScale + allocationPadding * 2).toInt()
+            )
+            val reuseSample = shapeProvider.options.coordinatesFrozen() &&
+                !sampleRecordingCache.needsRecord(recordKey, recordingSize, density, fontScale, layoutDirection)
+            if (!reuseSample) {
+                val shared = backdrop as? SharedBlurBackdrop
+                val sharedLayer = shared?.layer
+                val sourceCoordinates = shared?.source?.layerCoordinates
+                val cardCoordinates = layoutCoordinates
+                val directSharedSample = sharedLayer != null && shared?.sampleScale == sampleScale &&
+                    sourceCoordinates?.isAttached == true && cardCoordinates?.isAttached == true &&
+                    layerBlock == null && shapeProvider.options.bounds() == null && exportedBackdrop == null
+                if (directSharedSample) {
+                    // Nexio 2971759: shared wallpaper and card buffer use the same resolution.
+                    // Translate directly in sampled pixels, then apply this card's lens. Avoid the
+                    // expand-source -> shrink-consumer pair used by the generic Backdrop interface.
+                    val source = checkNotNull(sourceCoordinates)
+                    val card = checkNotNull(cardCoordinates)
+                    val offset = try { source.localPositionOf(card) } catch (_: IllegalArgumentException) {
+                        card.positionInWindow() - source.positionInWindow()
+                    }
+                    recordLayer(
+                        layer,
+                        size = IntSize(
+                            (size.width * sampleScale + allocationPadding * 2).roundToInt().coerceAtLeast(1),
+                            (size.height * sampleScale + allocationPadding * 2).roundToInt().coerceAtLeast(1)
+                        )
+                    ) {
+                        val canvas = drawContext.canvas
+                        canvas.save()
+                        canvas.translate(-offset.x * sampleScale + padding, -offset.y * sampleScale + padding)
+                        onDrawBackdrop { drawLayer(checkNotNull(sharedLayer)) }
+                        canvas.restore()
+                    }
+                    BackdropDiagnostics.event("Sample.SharedDirect")
+                } else {
+                    recordLayer(
+                        layer,
+                        size = IntSize(
+                            if (sampleScale == 1f) size.width.toInt() + allocationPadding.toInt() * 2
+                            else ceil(size.width * sampleScale + allocationPadding * 2).toInt(),
+                            if (sampleScale == 1f) size.height.toInt() + allocationPadding.toInt() * 2
+                            else ceil(size.height * sampleScale + allocationPadding * 2).toInt()
+                        ),
+                        block = recordBackdropBlock
                     )
-                ) {
-                    val canvas = drawContext.canvas
-                    canvas.save()
-                    canvas.translate(-offset.x * sampleScale + padding, -offset.y * sampleScale + padding)
-                    onDrawBackdrop { drawLayer(checkNotNull(sharedLayer)) }
-                    canvas.restore()
                 }
-                BackdropDiagnostics.event("Sample.SharedDirect")
-            } else {
-                recordLayer(
-                    layer,
-                    size = IntSize(
-                        if (sampleScale == 1f) size.width.toInt() + allocationPadding.toInt() * 2
-                        else ceil(size.width * sampleScale + allocationPadding * 2).toInt(),
-                        if (sampleScale == 1f) size.height.toInt() + allocationPadding.toInt() * 2
-                        else ceil(size.height * sampleScale + allocationPadding * 2).toInt()
-                    ),
-                    block = recordBackdropBlock
-                )
-            }
 
+                layerDiagnostics.recorded(layer.size)
+                sampleRecordingCache.recorded(recordKey, recordingSize, density, fontScale, layoutDirection)
+            } else {
+                BackdropDiagnostics.event("Sample.FrozenReuse")
+            }
             layer.topLeft = IntOffset.Zero
-            layerDiagnostics.recorded(layer.size)
             drawContext.canvas.save()
             drawContext.canvas.scale(1f / sampleScale, 1f / sampleScale)
             val drawPadding = if (sampleScale == 1f) padding.toInt().toFloat() else padding
@@ -373,6 +394,12 @@ private class DrawBackdropNode(
     }
 
     override fun ContentDrawScope.draw() {
+        // Observe freeze/resume here, so resume refreshes the existing sample once even if no
+        // layout callback follows. The retained GraphicsLayer still references child RenderNodes:
+        // suppressing only the parent's drawContent does not stop their own invalidations.
+        shapeProvider.options.coordinatesFrozen()
+        // Keep the draw observation even when a frozen sample skips the recording block.
+        layoutCoordinates
         if (!shapeProvider.options.enabled()) return drawContent()
         val bounds = shapeProvider.options.bounds()
         val sampleScale = shapeProvider.options.sampleScale
@@ -407,9 +434,15 @@ private class DrawBackdropNode(
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
         if (coordinates.isAttached) {
             if (backdrop.isCoordinatesDependent) {
-                layoutCoordinates = coordinates
+                // Always accept a new node; retained scene contents keep their recorded position.
+                // Moving foreground cards still resample the live wallpaper at every position.
+                if (!shapeProvider.options.coordinatesFrozen() || layoutCoordinates !== coordinates) {
+                    invalidateSampleRecording()
+                    layoutCoordinates = coordinates
+                }
             } else {
                 if (layoutCoordinates != null) {
+                    invalidateSampleRecording()
                     layoutCoordinates = null
                 }
             }
@@ -440,6 +473,7 @@ private class DrawBackdropNode(
     }
 
     private fun updateEffects(geometryChanged: Boolean = false) {
+        if (geometryChanged) invalidateSampleRecording()
         if (!shapeProvider.options.enabled() || !shapeProvider.options.sampleBackdrop || !isRenderEffectSupported()) return
 
         val effectKey = shapeProvider.options.effectKey()
@@ -460,6 +494,7 @@ private class DrawBackdropNode(
         val context = requireGraphicsContext()
         if (shapeProvider.options.sampleBackdrop) {
             if (graphicsLayer == null) {
+                invalidateSampleRecording()
                 graphicsLayer = context.createGraphicsLayer()
                 lastEffectKey = null
                 lastEffectShape = null
@@ -480,6 +515,7 @@ private class DrawBackdropNode(
     }
 
     override fun onDetach() {
+        invalidateSampleRecording()
         val graphicsContext = requireGraphicsContext()
         graphicsLayer?.let { layer ->
             graphicsContext.releaseGraphicsLayer(layer)
@@ -492,5 +528,9 @@ private class DrawBackdropNode(
         lastEffectShape = null
         layoutCoordinates = null
         exportedBackdrop?.layerCoordinates = null
+    }
+
+    fun invalidateSampleRecording() {
+        sampleRecordingCache.clear()
     }
 }

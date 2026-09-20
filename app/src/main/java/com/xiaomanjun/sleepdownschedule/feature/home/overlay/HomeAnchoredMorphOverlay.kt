@@ -15,6 +15,8 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
 import com.xiaomanjun.sleepdownschedule.feature.home.week.*
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorOpeningTaper
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorTaperTransform
 
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -78,6 +80,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
@@ -131,6 +135,7 @@ import com.xiaomanjun.sleepdownschedule.glass.sleepDownPlainGlassSurface
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.max
@@ -1072,6 +1077,7 @@ internal fun HomeAnchoredMorphOverlayHost(
 ) {
     var renderedRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
     var panelContentPrepared by remember { mutableStateOf(false) }
+    val addMenuSurfacePrepared = remember { AtomicBoolean(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val latestOnDismissRequest by rememberUpdatedState(onDismissRequest)
     val latestOnAddMenuBoundsChanged by rememberUpdatedState(onAddMenuBoundsChanged)
@@ -1082,6 +1088,7 @@ internal fun HomeAnchoredMorphOverlayHost(
     LaunchedEffect(request, adaptiveMetrics.profile) {
         if (request != null) {
             renderedRequest = request
+            addMenuSurfacePrepared.set(false)
             panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize
             motionState.renderedKind = request.kind
             motionState.phase = HomeAnchoredOverlayPhase.Preparing
@@ -1092,8 +1099,17 @@ internal fun HomeAnchoredMorphOverlayHost(
                 withFrameNanos { }
                 waitedFrames++
             }
-            // Personalization opens as a shell. Mount its form only after geometry settles.
+            // Personalization opens only its shell; form layout cannot gate this animation.
             latestAwaitOpeningGate()
+            if (request.kind == HomeAnchoredOverlayKind.Add) {
+                // Prepare the actual retained panel in the existing gate. Do not mount its
+                // text/blur/lens tree at the first non-zero alpha in the moving animation.
+                var surfaceFrames = 0
+                while (!addMenuSurfacePrepared.get() && surfaceFrames < 3) {
+                    withFrameNanos { }
+                    surfaceFrames++
+                }
+            }
             motionState.phase = HomeAnchoredOverlayPhase.Opening
             coroutineScope {
                 launch {
@@ -1125,6 +1141,8 @@ internal fun HomeAnchoredMorphOverlayHost(
                 }
             }
             motionState.phase = HomeAnchoredOverlayPhase.Open
+            // Present the settled shell before building the personalization controls.
+            if (request.kind == HomeAnchoredOverlayKind.Personalize) withFrameNanos { }
             panelContentPrepared = true
         } else if (renderedRequest != null) {
             if (suppressClose) {
@@ -1139,6 +1157,9 @@ internal fun HomeAnchoredMorphOverlayHost(
                 motionState.phase = HomeAnchoredOverlayPhase.Idle
                 latestOnSilentDisposed()
             } else {
+                if (renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize) {
+                    panelContentPrepared = false
+                }
                 motionState.phase = HomeAnchoredOverlayPhase.Closing
                 coroutineScope {
                     launch {
@@ -1482,6 +1503,9 @@ internal fun HomeAnchoredMorphOverlayHost(
                         )
                 },
                 externalHighlightedIndex = outsideDragHighlightedIndex,
+                retainSurface = true,
+                warmupSurface = motionState.phase == HomeAnchoredOverlayPhase.Preparing,
+                onSurfaceDrawn = { addMenuSurfacePrepared.set(true) },
                 interactive = motionState.phase == HomeAnchoredOverlayPhase.Opening ||
                     motionState.phase == HomeAnchoredOverlayPhase.Open,
                 shape = settledSurfaceShape,
@@ -1542,6 +1566,7 @@ private class DeferredHomeMorphShape(
     private val geometry: State<HomeAnchoredMorphGeometry>,
     private val continuous: Boolean,
     private val density: Density,
+    private val taper: State<Float>? = null,
     topStart: CornerSize = CornerSize(0f),
     topEnd: CornerSize = topStart,
     bottomEnd: CornerSize = topStart,
@@ -1557,7 +1582,14 @@ private class DeferredHomeMorphShape(
     ): Outline {
         val corner = (geometry.value.cornerRadiusPx / density.density.coerceAtLeast(0.001f)).dp
         val shape = RoundedRectangle(corner)
-        return shape.createOutline(size, layoutDirection, density)
+        val base = shape.createOutline(size, layoutDirection, density)
+        val amount = taper?.value ?: 0f
+        if (amount == 0f) return base
+        val path = androidx.compose.ui.graphics.Path().apply { addOutline(base) }
+        path.asAndroidPath().transform(android.graphics.Matrix().apply {
+            setValues(courseEditorTaperTransform(size.width, size.height, amount))
+        })
+        return Outline.Generic(path)
     }
 
     override fun copy(
@@ -1569,6 +1601,7 @@ private class DeferredHomeMorphShape(
         geometry = geometry,
         continuous = continuous,
         density = density,
+        taper = taper,
         topStart = topStart,
         topEnd = topEnd,
         bottomEnd = bottomEnd,
@@ -1652,10 +1685,12 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
     val stableInsetEligible = backdrop != null &&
         adaptiveMetrics.isLargeScreen &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-    val progressiveEnvelopeRequested = stableInsetEligible &&
+    val showAura = false
+    val showStableProgressiveBackdrop = false
+    val progressiveEnvelopeRequested = showStableProgressiveBackdrop && stableInsetEligible &&
         glassSceneState?.rendererFor(progressiveEnvelopeDescriptor) ==
         GlassRendererKind.StableEnvelopeExperimental
-    val auraEnvelopeRequested = stableInsetEligible &&
+    val auraEnvelopeRequested = showAura && stableInsetEligible &&
         glassSceneState?.rendererFor(auraEnvelopeDescriptor) ==
         GlassRendererKind.StableEnvelopeExperimental
     val auraLeftFeatherMaximumPx = with(density) { 104.dp.toPx() }
@@ -1783,11 +1818,18 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
             }
         }
     }
-    val showAura = false
-
-    val showStableProgressiveBackdrop = false
-    val shape = remember(geometry, density) {
-        DeferredHomeMorphShape(geometry, continuous = true, density = density)
+    val taper = remember(motionState, sourceBounds, targetRect) {
+        derivedStateOf {
+            if (motionState.phase == HomeAnchoredOverlayPhase.Opening ||
+                motionState.phase == HomeAnchoredOverlayPhase.Closing) {
+                courseEditorOpeningTaper(motionState.progress.value,
+                    sourceBounds.center.y - targetRect.center.y, targetRect.height,
+                    closing = motionState.phase == HomeAnchoredOverlayPhase.Closing)
+            } else 0f
+        }
+    }
+    val shape = remember(geometry, density, taper) {
+        DeferredHomeMorphShape(geometry, continuous = true, density = density, taper = taper)
     }
     val fixedAllocation = remember(stableProgressiveEnvelope, motionState.phase, backdrop) {
         if (!GlassMotionExperiments.fixedMorph || backdrop == null ||
@@ -1798,9 +1840,9 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
     val maxContentBlurPx = with(density) { 5.dp.toPx() }
     val formReveal = remember { Animatable(0f) }
     val showForm = contentMounted && motionState.phase == HomeAnchoredOverlayPhase.Open
-    LaunchedEffect(showForm) {
-        formReveal.snapTo(0f)
-        if (showForm) formReveal.animateTo(1f, tween(220))
+    val revealForm = showForm && motionState.phase == HomeAnchoredOverlayPhase.Open
+    LaunchedEffect(revealForm) {
+        formReveal.animateTo(if (revealForm) 1f else 0f, tween(220))
     }
     val targetWidth = with(density) { targetRect.width.toDp() }
     val targetHeight = with(density) { targetRect.height.toDp() }
@@ -2087,6 +2129,8 @@ private fun DeferredHomePersonalizeMorphPanel(
                             .graphicsLayer { alpha = surfaceAlphaProvider() },
                         shape = shape,
                         surfaceColor = surfaceColor,
+                        blurRadius = 22.dp,
+                        backdropSampleScale = 0.5f,
                         lensHeight = 16.dp,
                         lensAmount = 24.dp
                     ) { }
@@ -2452,12 +2496,16 @@ internal fun HomeAddMenuMorphPanel(
     contentAlphaProvider: () -> Float,
     contentBlurRadiusPxProvider: () -> Float = { 0f },
     externalHighlightedIndex: Int = -1,
+    retainSurface: Boolean = false,
+    warmupSurface: Boolean = false,
+    onSurfaceDrawn: () -> Unit = {},
     interactive: Boolean,
     shape: Shape,
     modifier: Modifier,
     showModeSwitch: Boolean = true,
     actionItemHeight: Dp = HomeAddMenuActionItemHeightDp.dp,
-    compactActions: Boolean = false
+    compactActions: Boolean = false,
+    shadowEnabled: Boolean = true
 ) {
     var highlightedIndex by remember { mutableIntStateOf(-1) }
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -2476,8 +2524,8 @@ internal fun HomeAddMenuMorphPanel(
     }
     val lightGlass = glassUsesLightStyle(config)
     val textColor = glassForegroundColor(config)
-    val showSurface by remember(surfaceAlphaProvider, backdrop) {
-        derivedStateOf { backdrop == null || surfaceAlphaProvider() > 0.005f }
+    val showSurface by remember(retainSurface, surfaceAlphaProvider, backdrop) {
+        derivedStateOf { retainSurface || backdrop == null || surfaceAlphaProvider() > 0.005f }
     }
 
     fun hitIndex(y: Float): Int {
@@ -2668,20 +2716,30 @@ internal fun HomeAddMenuMorphPanel(
         if (showSurface) {
             val surfaceModifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = surfaceAlphaProvider() }
+                .graphicsLayer {
+                    val surfaceAlpha = surfaceAlphaProvider()
+                    alpha = if (warmupSurface) maxOf(0.001f, surfaceAlpha) else surfaceAlpha
+                }
+                .drawWithContent {
+                    drawContent()
+                    onSurfaceDrawn()
+                }
             if (backdrop != null) {
                 LiquidButton(
                     onClick = {},
                     backdrop = backdrop,
                     modifier = surfaceModifier,
-                    isInteractive = interactive,
+                    // Keep the same visual modifier nodes throughout the retained menu session.
+                    // The host and unified action gesture still gate input by the actual phase.
+                    isInteractive = retainSurface || interactive,
                     clickTargetEnabled = false,
-                    height = with(density) { targetSizeProvider().height.toDp() },
+                    // fillMaxSize already fixes the surface dimensions. Reading the animated
+                    // target here used to recompose the entire source menu during handoff.
                     contentPadding = PaddingValues(0.dp),
                     blurRadius = 8.dp,
                     lensHeight = 12.dp,
                     lensAmount = 24.dp,
-                    shadowEnabled = true,
+                    shadowEnabled = shadowEnabled,
                     pressExpansion = if (compactActions) 1.5.dp else 3.dp,
                     highlightRadiusMultiplier = 0.65f,
                     shape = shape,

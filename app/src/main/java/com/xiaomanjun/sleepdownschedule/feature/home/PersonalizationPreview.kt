@@ -9,6 +9,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 
+/** Explicit appearance edits may refresh a frozen scene without replacing its course inputs. */
+internal fun AppState.withPersonalizationConfig(candidate: ScheduleConfigEntity?): AppState =
+    if (candidate != null && candidate.id == config.id && candidate != config) {
+        copy(config = candidate)
+    } else {
+        this
+    }
+
 /**
  * Lightweight, transient values used while a personalization slider is being dragged.
  *

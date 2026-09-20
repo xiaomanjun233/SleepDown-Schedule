@@ -9,8 +9,8 @@
     <string name="widget_today_tomorrow_description">同时显示今天与明天的课程安排</string>
     <string name="widget_week_schedule_name">周视图课程表</string>
     <string name="widget_week_schedule_description">可拉伸的本周课程表</string>
-    <string name="widget_today_assistant_name">今日助手</string>
-    <string name="widget_today_assistant_description">今日助手实时课程、天气与预警</string>
+    <string name="widget_today_assistant_name">AI助理</string>
+    <string name="widget_today_assistant_description">AI助理实时课程、天气与预警</string>
     <string name="widget_refresh_symbol">&#x21BB;</string>
     <string name="widget_refresh_description">刷新课程</string>
     <string name="widget_preview_next_course">下节课</string>

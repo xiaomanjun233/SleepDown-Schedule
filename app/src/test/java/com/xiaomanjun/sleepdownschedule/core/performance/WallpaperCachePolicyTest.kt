@@ -12,6 +12,32 @@ import java.io.File
 
 @Suppress("DEPRECATION")
 class WallpaperCachePolicyTest {
+    @Test fun oldPrivateStoragePrefixKeepsRestoredWallpaper() {
+        val restored = File("/data/user/10/app/files/wallpaper/restored.webp")
+        val unused = File("/data/user/10/app/files/wallpaper/unused.webp")
+        assertEquals(setOf(unused), unreferencedWallpaperFiles(
+            listOf("file:///data/user/0/app/files/wallpaper/restored.webp"), listOf(restored, unused)))
+    }
+
+    @Test fun pendingNewWallpaperIsNotCleanedBeforeItsConfigurationIsSaved() {
+        val file = kotlin.io.path.createTempFile("wallpaper", ".webp").toFile()
+        try {
+            val now = System.currentTimeMillis()
+            assertFalse(wallpaperFileReadyForCleanup(file, now))
+            file.setLastModified(now - 25 * 60 * 60 * 1000L)
+            assertTrue(wallpaperFileReadyForCleanup(file, now))
+        } finally { file.delete() }
+    }
+
+    @Test fun restoredFileCanBeLoadedFromCurrentPrivateDirectory() {
+        val directory = kotlin.io.path.createTempDirectory("wallpaper-restore").toFile()
+        val wallpaper = File(directory, "wallpaper").apply { mkdir() }
+        val restored = File(wallpaper, "restored.webp").apply { writeText("test") }
+        try {
+            assertEquals(restored, resolveManagedWallpaperFile(directory,
+                "file:///data/user/0/old.app/files/wallpaper/restored.webp"))
+        } finally { restored.delete(); wallpaper.delete(); directory.delete() }
+    }
     @Test
     fun normalMemoryLevelsKeepTheCache() {
         assertFalse(shouldClearHomeWallpaperCaches(ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE))

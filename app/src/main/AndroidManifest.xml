@@ -188,6 +188,12 @@
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".MainActivity" />
         <activity
+            android:name=".feature.settings.ScheduleAdjustmentsActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".SettingsDetailActivity" />
+        <activity
             android:name=".ScheduleManagerActivity"
             android:exported="false"
             android:theme="@style/AppTheme"

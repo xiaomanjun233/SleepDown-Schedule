@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.agent.background
 
+import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 
@@ -262,34 +263,32 @@ open class DayAgentForegroundServiceHost : Service() {
 
     private fun runningNotification(): Notification {
         return Notification.Builder(this, RUNNING_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_agent_thinking)
-            .setContentTitle("今日助手")
+            .applyAppNotificationIcon(this)
+            .setContentTitle("AI助理")
             .setContentText("模型思考中")
             .setContentIntent(openAppPendingIntent(7301))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_SERVICE)
-            .setColor(0xFF0A84FF.toInt())
             .requestPromotedOngoing("思考中")
             .build()
     }
 
     private fun completedNotification(): Notification =
         Notification.Builder(this, RESULT_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_agent_thinking)
-            .setContentTitle("今日助手已回复")
+            .applyAppNotificationIcon(this)
+            .setContentTitle("AI助理已回复")
             .setContentText("点击返回应用继续对话")
             .setContentIntent(openAppPendingIntent(7302))
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_MESSAGE)
-            .setColor(0xFF0A84FF.toInt())
             .build()
 
     private fun failedNotification(message: String): Notification =
         Notification.Builder(this, RESULT_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_agent_thinking)
-            .setContentTitle("今日助手回复失败")
+            .applyAppNotificationIcon(this)
+            .setContentTitle("AI助理回复失败")
             .setContentText(message.ifBlank { "点击返回应用重试" })
             .setContentIntent(openAppPendingIntent(7303))
             .setAutoCancel(true)
@@ -306,7 +305,7 @@ open class DayAgentForegroundServiceHost : Service() {
             listOf(
                 NotificationChannel(
                     RUNNING_CHANNEL_ID,
-                    "今日助手运行状态",
+                    "AI助理运行状态",
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
                     description = "模型回复生成期间显示实时状态"
@@ -314,7 +313,7 @@ open class DayAgentForegroundServiceHost : Service() {
                 },
                 NotificationChannel(
                     RESULT_CHANNEL_ID,
-                    "今日助手回复",
+                    "AI助理回复",
                     NotificationManager.IMPORTANCE_DEFAULT
                 ).apply {
                     description = "模型完成回复后提醒返回应用"

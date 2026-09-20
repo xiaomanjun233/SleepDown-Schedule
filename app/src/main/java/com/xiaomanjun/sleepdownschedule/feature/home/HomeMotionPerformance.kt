@@ -11,14 +11,14 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
- * AOSP's GPU blur pipeline downsamples before applying the blur kernel. Half resolution cuts the
- * full-screen sample surface to one quarter while remaining visually lossless under a 12dp blur.
+ * Keep one half-resolution blur surface throughout the frozen transition. Its area is one
+ * quarter of the source; the clear endpoint is drawn from the original full-resolution scene.
  */
 internal const val HomeFrozenBlurSampleScale = 0.5f
 
 /**
- * Prebuilt background effects. 32 levels keep the final full-screen blur release below a 0.4dp
- * visual increment without returning to per-frame RenderEffect allocation.
+ * Prebuilt background effects. 32 levels bound radius changes to about 0.7dp at the 22dp maximum
+ * without constructing new Compose RenderEffect descriptors on every animation frame.
  */
 internal const val HomeLiveBlurStepCount = 32
 
@@ -26,12 +26,16 @@ internal const val HomeLiveBlurStepCount = 32
 internal const val HomeNonClosingBlurStepCount = 12
 
 /**
- * During Closing, leave the half-resolution blur while several dp of blur can still conceal the
- * resolution handoff. The remaining fade uses the already-recorded full-resolution home layer.
+ * Below roughly 2dp (3 / 32 of the 22dp maximum), reveal the original scene under a fixed small
+ * blur. This avoids both an upsampled clear frame and allocating a full-resolution blur target
+ * in the middle of Closing. Opening uses the same continuous handoff in reverse.
  */
-internal const val HomeClosingFullResolutionBlurHandoffProgress = 0.42f
+internal const val HomeFrozenBlurMinimumStep = 3
 
-/** Opening reaches the full blur early enough to cover the material-node handoff. */
+internal fun homeFrozenBlurAlpha(blurProgress: Float): Float =
+    (blurProgress * HomeLiveBlurStepCount / HomeFrozenBlurMinimumStep).coerceIn(0f, 1f)
+
+/** Opening reaches full blur early while keeping the original course materials mounted. */
 internal const val HomeOpeningBlurFullProgress = 0.38f
 
 /** Lets Closing release blur earlier while preserving zero velocity at both endpoints. */
@@ -76,15 +80,6 @@ internal fun stagedHomeOverlayBlurProgress(
     return maxOf(legacy, staged).coerceIn(0f, 1f)
 }
 
-internal fun shouldUseFullResolutionClosingBlur(
-    frozenHomeScene: Boolean,
-    closing: Boolean,
-    blurProgress: Float
-): Boolean =
-    frozenHomeScene &&
-        closing &&
-        blurProgress.coerceIn(0f, 1f) <= HomeClosingFullResolutionBlurHandoffProgress
-
 internal fun quantizeHomeBackgroundBlurStep(
     blurProgress: Float,
     closing: Boolean
@@ -113,9 +108,8 @@ private fun smootherStep(value: Float): Float {
  * Decides whether the already-recorded home GPU layer can safely stand in for the live week tree.
  * Preview interactions deliberately bypass the cache so sliders still update the real schedule.
  */
-internal fun shouldReuseWeekHomeSurface(
+internal fun shouldReuseHomeSurface(
     screenIsHome: Boolean,
-    homeMode: HomeMode,
     previewActive: Boolean,
     overlayActive: Boolean,
     cachedScheduleId: Int,
@@ -123,9 +117,8 @@ internal fun shouldReuseWeekHomeSurface(
     cachedFrameKey: String?,
     currentFrameKey: String
 ): Boolean =
-    shouldUseFrozenWeekHomeBlur(
+    shouldUseFrozenHomeMorphBlur(
         screenIsHome = screenIsHome,
-        homeMode = homeMode,
         previewActive = previewActive,
         overlayActive = overlayActive
     ) &&

@@ -13,11 +13,11 @@ import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import android.annotation.SuppressLint
+import androidx.compose.foundation.clickable
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Canvas as AndroidCanvas
 import android.net.Uri
 import android.net.http.SslError
 import android.provider.Settings
@@ -28,10 +28,8 @@ import android.os.Message
 import android.util.Log
 import android.view.MotionEvent
 import android.view.ViewGroup
-import androidx.core.view.WindowCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import android.webkit.CookieManager
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
@@ -46,14 +44,12 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -96,13 +92,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
@@ -115,7 +111,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.viewinterop.AndroidView
@@ -125,7 +120,6 @@ import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
-import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.Capsule
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -402,20 +396,6 @@ private fun aiEduRequestPreview(settings: AiImportSettings, pageTextLength: Int)
     }
 }
 
-private fun eduDesktopUserAgent(context: Context): String {
-    val current = WebSettings.getDefaultUserAgent(context)
-    val webKit = Regex("AppleWebKit/[^\\s]+", RegexOption.IGNORE_CASE).find(current)?.value
-    val chromium = Regex("(?:Chrome|Chromium)/[0-9.]+", RegexOption.IGNORE_CASE).find(current)?.value
-    val safari = Regex("Safari/[^\\s]+", RegexOption.IGNORE_CASE).find(current)?.value
-    if (webKit == null || chromium == null || safari == null) {
-        return current
-            .replaceFirst(Regex("\\([^)]*\\)"), "(X11; Linux x86_64)")
-            .replace("; wv", "")
-            .replace(" Mobile ", " ")
-    }
-    return "Mozilla/5.0 (X11; Linux x86_64) $webKit (KHTML, like Gecko) $chromium $safari"
-}
-
 private fun eduImportIslandStatus(rawStatus: String?): String? {
     val status = rawStatus?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     val lowercase = status.lowercase(Locale.ROOT)
@@ -445,6 +425,7 @@ private fun eduImportIslandStatus(rawStatus: String?): String? {
 @Composable
 private fun EduImportGuideMorphOverlay(
     adapter: EduAdapter,
+    config: ScheduleConfigEntity,
     backdrop: Backdrop,
     visible: Boolean,
     expanded: Boolean,
@@ -455,19 +436,10 @@ private fun EduImportGuideMorphOverlay(
     val isLargeScreen = rememberHomeAdaptiveMetrics().isLargeScreen
     val density = LocalDensity.current
     val view = LocalView.current
-    val window = (view.context as? ComponentActivity)?.window
-    val originalCutoutMode = remember(window) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            window?.attributes?.layoutInDisplayCutoutMode
-        } else {
-            null
-        }
-    }
-    val morphProgress = remember(adapter) { Animatable(0f) }
+    com.xiaomanjun.sleepdownschedule.core.ui.interaction.TopAssistantSystemBars(hidden = visible)
+    val islandMotion = rememberTopAssistantMotion()
     val openMorphEasing = remember { CubicBezierEasing(0.20f, 0.48f, 0.18f, 1f) }
     val closeMorphEasing = remember { CubicBezierEasing(0.32f, 0f, 0.22f, 1f) }
-    val reboundMorphEasing = remember { CubicBezierEasing(0.30f, 0f, 0.24f, 1f) }
-    val settleMorphEasing = remember { CubicBezierEasing(0.34f, 0f, 0.30f, 1f) }
     var handleDragY by remember(adapter) { mutableFloatStateOf(0f) }
     val visibleAlpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
@@ -477,65 +449,8 @@ private fun EduImportGuideMorphOverlay(
         ),
         label = "edu-import-guide-visible"
     )
-    LaunchedEffect(window, view, visible) {
-        val targetWindow = window ?: return@LaunchedEffect
-        val controller = WindowCompat.getInsetsController(targetWindow, view)
-        if (visible) {
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.statusBars())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val attributes = targetWindow.attributes
-                attributes.layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                } else {
-                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
-                targetWindow.attributes = attributes
-            }
-        } else {
-            controller.show(WindowInsetsCompat.Type.statusBars())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && originalCutoutMode != null) {
-                val attributes = targetWindow.attributes
-                attributes.layoutInDisplayCutoutMode = originalCutoutMode
-                targetWindow.attributes = attributes
-            }
-        }
-    }
-    DisposableEffect(window, view, originalCutoutMode) {
-        onDispose {
-            val targetWindow = window ?: return@onDispose
-            WindowCompat.getInsetsController(targetWindow, view)
-                .show(WindowInsetsCompat.Type.statusBars())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && originalCutoutMode != null) {
-                val attributes = targetWindow.attributes
-                attributes.layoutInDisplayCutoutMode = originalCutoutMode
-                targetWindow.attributes = attributes
-            }
-        }
-    }
     LaunchedEffect(visible, expanded) {
-        val target = if (visible && expanded) 1f else 0f
-        val start = morphProgress.value
-        val travel = abs(target - start)
-        if (travel <= 0.0005f) {
-            morphProgress.snapTo(target)
-            return@LaunchedEffect
-        }
-        val opening = target > start
-        val fullDurationMillis = if (opening) 620 else 560
-        val duration = (fullDurationMillis * travel.coerceIn(0.38f, 1f)).roundToInt()
-        val reboundAt = (duration * 0.74f).roundToInt()
-        val settleAt = (duration * 0.90f).roundToInt()
-        morphProgress.animateTo(
-            targetValue = target,
-            animationSpec = keyframes {
-                durationMillis = duration
-                start at 0 using if (opening) openMorphEasing else closeMorphEasing
-                (if (opening) 1.016f else -0.014f) at reboundAt using reboundMorphEasing
-                (if (opening) 0.997f else 0.003f) at settleAt using settleMorphEasing
-            }
-        )
+        islandMotion.animateTo(if (visible && expanded) 1f else 0f)
     }
     val activeStatus = statusText?.trim()?.takeIf { it.isNotEmpty() }
     val collapsedStatus = remember(activeStatus) { activeStatus?.take(7) ?: "导入中" }
@@ -556,7 +471,8 @@ private fun EduImportGuideMorphOverlay(
             onCollapse()
         }
     }
-    val geometryProgress = morphProgress.value.coerceIn(-0.02f, 1.02f)
+    val geometryProgress = islandMotion.drop.value.coerceIn(-0.04f, 1.04f)
+    val widthProgress = islandMotion.spread.value.coerceIn(-0.04f, 1.04f)
     val synchronizedProgress = geometryProgress.coerceIn(0f, 1f)
     val foreground = ComposeColor.White
     val contentMotionBlurPx =
@@ -623,10 +539,10 @@ private fun EduImportGuideMorphOverlay(
         }
         val expandedHeight = (guideHeaderHeight + 126.dp)
             .coerceAtMost((maxHeight - expandedSafeInset * 2f).coerceAtLeast(collapsedHeight))
-        val cardWidth = collapsedWidth + (expandedWidth - collapsedWidth) * geometryProgress
+        val cardWidth = collapsedWidth + (expandedWidth - collapsedWidth) * widthProgress
         val cardHeight = collapsedHeight + (expandedHeight - collapsedHeight) * geometryProgress
         val expandedLeft = (maxWidth - expandedWidth) / 2f
-        val cardLeft = collapsedLeft + (expandedLeft - collapsedLeft) * geometryProgress
+        val cardLeft = collapsedLeft + (expandedLeft - collapsedLeft) * widthProgress
         val cardTop = collapsedTop + (expandedSafeInset - collapsedTop) * geometryProgress
 
         fun roundedCornerRadius(position: Int): Dp? {
@@ -654,75 +570,25 @@ private fun EduImportGuideMorphOverlay(
         val handleCollapseThreshold = with(density) { 18.dp.toPx() }
 
         LiquidButton(
-            onClick = { if (!expanded) onExpand() },
-            backdrop = backdrop,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .offset(x = cardLeft, y = cardTop)
-                .width(cardWidth)
-                .height(cardHeight)
-                .graphicsLayer {
-                    alpha = visibleAlpha
-                    clip = false
-                },
-            isInteractive = visible,
-            clickTargetEnabled = visible,
-            height = cardHeight,
-            contentPadding = PaddingValues(0.dp),
-            blurRadius = 10.dp,
-            lensHeight = 24.dp + 6.dp * synchronizedProgress,
-            lensAmount = 42.dp + 8.dp * synchronizedProgress,
-            chromaticAberration = true,
+            onClick = { if (!expanded) onExpand() }, backdrop = backdrop,
+            modifier = Modifier.align(Alignment.TopStart)
+                .offset(x = cardLeft, y = cardTop).width(cardWidth).height(cardHeight)
+                .graphicsLayer { alpha = visibleAlpha; clip = false },
+            isInteractive = visible, clickTargetEnabled = visible,
+            height = cardHeight, contentPadding = PaddingValues(0.dp),
+            blurRadius = 10.dp, lensHeight = 24.dp + 6.dp * synchronizedProgress,
+            lensAmount = 42.dp + 8.dp * synchronizedProgress, chromaticAberration = true,
             surfaceColor = ComposeColor.Black.copy(alpha = 0.68f - 0.42f * synchronizedProgress),
-            shadowEnabled = true,
-            shadowStyle = Shadow(
-                radius = 22.dp,
-                offset = DpOffset(0.dp, 8.dp),
-                color = ComposeColor.Black.copy(alpha = 0.34f)
-            ),
-            highlightEnabled = true,
-            shape = cardShape,
-            clipToBounds = false,
-            pressExpansion = 3.dp
+            shadowEnabled = false, highlightEnabled = true,
+            shape = cardShape, clipToBounds = false, pressExpansion = 3.dp
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(cardShape)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = 0.34f + 0.66f * synchronizedProgress }
-                        .background(
-                            Brush.verticalGradient(
-                                0f to ComposeColor.Black.copy(alpha = 0.98f),
-                                0.28f to ComposeColor.Black.copy(alpha = 0.84f),
-                                0.48f to ComposeColor.Black.copy(alpha = 0.54f),
-                                0.72f to ComposeColor.Black.copy(alpha = 0.14f),
-                                1f to ComposeColor.Black.copy(alpha = 0.03f)
-                            )
-                        )
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = 1f - synchronizedProgress }
-                        .background(
-                            Brush.horizontalGradient(
-                                colors = listOf(
-                                    ComposeColor.White.copy(alpha = 0.10f),
-                                    ComposeColor.Black.copy(alpha = 0.88f),
-                                    ComposeColor.Black.copy(alpha = 0.88f),
-                                    ComposeColor.White.copy(alpha = 0.10f)
-                                )
-                            )
-                        )
-                )
+            TopAssistantSurface(backdrop, config, cardShape, modifier = Modifier.fillMaxSize(),
+                glow = expanded, materialEnabled = false) {
+            Box(Modifier.fillMaxSize().clip(cardShape)) {
                 Row(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxWidth()
+                        .align(Alignment.TopStart)
+                        .fixedAssistantContentSize(collapsedWidth, collapsedHeight)
                         .padding(horizontal = 13.dp)
                         .graphicsLayer {
                             alpha = collapsedContentAlpha
@@ -756,18 +622,10 @@ private fun EduImportGuideMorphOverlay(
 
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fixedAssistantContentSize(expandedWidth, expandedHeight)
                         .graphicsLayer {
                             alpha = expandedContentAlpha
                             translationY = (1f - expandedContentAlpha) * 6.dp.toPx()
-                            scaleX = 0.98f + 0.02f * expandedContentAlpha
-                            scaleY = 0.98f + 0.02f * expandedContentAlpha
-                            compositingStrategy = if (contentMotionBlurPx > 0.01f) {
-                                CompositingStrategy.Offscreen
-                            } else {
-                                CompositingStrategy.Auto
-                            }
-                            renderEffect = platformMotionBlurRenderEffect(contentMotionBlurPx)
                         }
                         .padding(
                             start = 18.dp,
@@ -873,6 +731,7 @@ private fun EduImportGuideMorphOverlay(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -905,9 +764,15 @@ private fun EduImportBrowserScreen(
     var isScreenCapturing by remember { mutableStateOf(false) }
     var screenCaptureStatus by remember { mutableStateOf<String?>(null) }
     var popupWebView by remember(adapter) { mutableStateOf<WebView?>(null) }
+    val webCompatDelegates = remember(adapter) { mutableMapOf<WebView, WebCompatDelegate>() }
     var webViewGeneration by remember(adapter) { mutableIntStateOf(0) }
     var rendererRestoreUrl by remember(adapter) { mutableStateOf<String?>(null) }
-    var webTopEdgeBitmap by remember(adapter) { mutableStateOf<Bitmap?>(null) }
+    var webTopEdgeColor by remember(adapter) { mutableStateOf<ComposeColor?>(null) }
+    val webTopThemeColor = animateColorAsState(
+        targetValue = webTopEdgeColor ?: MaterialTheme.colorScheme.background,
+        animationSpec = tween(160),
+        label = "web-header-theme"
+    )
     var importGuideVisible by remember(adapter) { mutableStateOf(false) }
     var importGuideExpanded by remember(adapter) { mutableStateOf(false) }
     var webGestureActive by remember(adapter) { mutableStateOf(false) }
@@ -921,8 +786,17 @@ private fun EduImportBrowserScreen(
             emptyList()
         }
     }
-    val topEdgeSampleHandler = remember(adapter) { Handler(Looper.getMainLooper()) }
-    val topEdgeSampleToken = remember(adapter) { Any() }
+    val visibleWebView = rememberUpdatedState(popupWebView ?: webView)
+    val sampleHeightPx = with(LocalDensity.current) { 48.dp.roundToPx() }
+    val topEdgeSampler = remember(adapter, sampleHeightPx) {
+        WebTopEdgeSampler(sampleHeightPx, { visibleWebView.value }) {
+            webTopEdgeColor = ComposeColor(it)
+        }
+    }
+    DisposableEffect(topEdgeSampler) {
+        onDispose { topEdgeSampler.dispose() }
+    }
+    val currentTopEdgeSampler = rememberUpdatedState(topEdgeSampler)
     val requestInterceptor = remember(adapter) { ShiguangWebRequestInterceptor() }
     val taskProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     LaunchedEffect(taskProgress?.taskId, taskProgress?.finished) {
@@ -938,21 +812,8 @@ private fun EduImportBrowserScreen(
         normalizeEduUrl(addressText)
     }
 
-    fun scheduleWebTopEdgeSample(target: WebView) {
-        topEdgeSampleHandler.removeCallbacksAndMessages(topEdgeSampleToken)
-        topEdgeSampleHandler.postAtTime(
-            {
-                val width = target.width
-                if (width > 0 && target.height > 0) {
-                    Bitmap.createBitmap(width, 1, Bitmap.Config.ARGB_8888).also { bitmap ->
-                        target.draw(AndroidCanvas(bitmap))
-                        webTopEdgeBitmap = bitmap
-                    }
-                }
-            },
-            topEdgeSampleToken,
-            android.os.SystemClock.uptimeMillis() + 48L
-        )
+    fun scheduleWebTopEdgeSample() {
+        currentTopEdgeSampler.value.schedule()
     }
 
     fun loadAddress() {
@@ -1221,7 +1082,12 @@ private fun EduImportBrowserScreen(
             runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
                 .onSuccess { script ->
                     bridge.bindWebView(target)
-                    bridge.beginTask(state.config, state.periods)
+                    bridge.beginTask(
+                        state.config,
+                        state.periods,
+                        mergeOverlappingTimeSlots = adapter.school.id == "GLOBAL_TOOLS" &&
+                            adapter.adapterId.equals("WakeUp", ignoreCase = true)
+                    )
                     target.injectShiguangRuntime(desktopMode)
                     onMessage("正在执行拾光官方适配器")
                     target.evaluateJavascript(script, null)
@@ -1235,26 +1101,13 @@ private fun EduImportBrowserScreen(
         canGoForward = target?.canGoForward() == true
     }
 
-    fun applyEduWebMode(target: WebView, desktop: Boolean) {
-        with(target.settings) {
-            userAgentString = if (desktop) {
-                eduDesktopUserAgent(context)
-            } else {
-                null
-            }
-            useWideViewPort = true
-            // Keep Chromium's overview layout in both modes. Desktop identity still comes from the
-            // current system WebView UA, while the initial page is allowed to fit the real host
-            // width instead of exposing only the upper-left part of fixed-width teaching sites.
-            loadWithOverviewMode = true
-            layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
-            textZoom = 100
-        }
-        target.setInitialScale(0)
+    fun releaseWebCompat(target: WebView, rendererGone: Boolean = false) {
+        webCompatDelegates.remove(target)?.dispose(rendererGone)
     }
 
     fun closePopupWebView() {
         popupWebView?.let { popup ->
+            releaseWebCompat(popup)
             popup.uninstallShiguangRuntime()
             (popup.parent as? ViewGroup)?.removeView(popup)
             popup.releaseSleepDownWebView(clearResourceCache = false)
@@ -1265,7 +1118,7 @@ private fun EduImportBrowserScreen(
             addressText = primary.url.orEmpty().ifBlank { currentUrl }
             onUrlChange(addressText)
             updateNavigationState(primary)
-            scheduleWebTopEdgeSample(primary)
+            scheduleWebTopEdgeSample()
         }
     }
 
@@ -1298,7 +1151,9 @@ private fun EduImportBrowserScreen(
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            // Keep Nexio's normal window renderer. The Compose sampling boundary below isolates
+            // Chromium from repeated backdrop replay without forcing a second WebView layer.
+            setLayerType(android.view.View.LAYER_TYPE_NONE, null)
             setOnTouchListener { _, event ->
                 webGestureActive = when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> true
@@ -1308,22 +1163,20 @@ private fun EduImportBrowserScreen(
                 false
             }
             setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
-                scheduleWebTopEdgeSample(this)
+                scheduleWebTopEdgeSample()
                 if (webGestureActive && kotlin.math.abs(scrollY - oldScrollY) > 1) {
                     importGuideExpanded = false
                     dockHistoryExpanded = false
                 }
             }
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
+            addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                    scheduleWebTopEdgeSample()
+                }
+            }
             settings.databaseEnabled = true
             configureEduImportSecurity()
             enableSystemCredentialAutofill()
-            settings.useWideViewPort = true
-            settings.loadWithOverviewMode = true
-            settings.setSupportZoom(true)
-            settings.builtInZoomControls = true
-            settings.displayZoomControls = false
             settings.javaScriptCanOpenWindowsAutomatically = true
             settings.setSupportMultipleWindows(!isPopup)
             // Match Shiguang: legacy HTTPS teaching pages may load their JS loader over HTTP.
@@ -1332,7 +1185,8 @@ private fun EduImportBrowserScreen(
             isHorizontalScrollBarEnabled = true
             isVerticalScrollBarEnabled = true
             overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            applyEduWebMode(this, desktopMode)
+            val compatDelegate = WebCompatDelegate(this, desktopMode)
+            webCompatDelegates[this] = compatDelegate
             CookieManager.getInstance().apply {
                 setAcceptCookie(true)
                 setAcceptThirdPartyCookies(this@webView, true)
@@ -1352,8 +1206,9 @@ private fun EduImportBrowserScreen(
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    compatDelegate.onPageFinished()
                     view?.injectShiguangRuntime(desktopMode)
-                    view?.let(::scheduleWebTopEdgeSample)
+                    scheduleWebTopEdgeSample()
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
                     if (visiblePage) updateNavigationState(view)
                     val pageUri = runCatching { Uri.parse(url) }.getOrNull()
@@ -1378,6 +1233,11 @@ private fun EduImportBrowserScreen(
                         loginHistory = EduLoginHistoryStore.load(context)
                         CookieManager.getInstance().flush()
                     }
+                }
+
+                override fun onPageCommitVisible(view: WebView?, url: String?) {
+                    super.onPageCommitVisible(view, url)
+                    scheduleWebTopEdgeSample()
                 }
 
                 override fun shouldInterceptRequest(
@@ -1435,10 +1295,12 @@ private fun EduImportBrowserScreen(
                     val restoreUrl = view?.url?.takeIf { it.isNotBlank() }
                         ?: addressText.takeIf { it.isNotBlank() }
                         ?: currentUrl
+                    view?.let { releaseWebCompat(it, rendererGone = true) }
                     view?.uninstallShiguangRuntime()
                     (view?.parent as? ViewGroup)?.removeView(view)
                     view?.destroy()
                     popupWebView?.takeIf { it !== view }?.let { popup ->
+                        releaseWebCompat(popup)
                         popup.uninstallShiguangRuntime()
                         (popup.parent as? ViewGroup)?.removeView(popup)
                         popup.destroy()
@@ -1446,6 +1308,7 @@ private fun EduImportBrowserScreen(
                     popupWebView = null
                     if (isPopup) {
                         webView?.let { primary ->
+                            releaseWebCompat(primary)
                             primary.uninstallShiguangRuntime()
                             (primary.parent as? ViewGroup)?.removeView(primary)
                             primary.destroy()
@@ -1506,7 +1369,7 @@ private fun EduImportBrowserScreen(
             bridge.bindWebView(this)
             updateNavigationState(this)
             val initialUrl = rendererRestoreUrl ?: normalizedUrl
-            if (initialUrl.isNotBlank()) loadUrl(initialUrl)
+            if (initialUrl.isNotBlank()) webCompatDelegates.getValue(this).loadInitialUrl(initialUrl)
         }
     }
 
@@ -1515,7 +1378,8 @@ private fun EduImportBrowserScreen(
     }
     DisposableEffect(Unit) {
         onDispose {
-            topEdgeSampleHandler.removeCallbacksAndMessages(topEdgeSampleToken)
+            webCompatDelegates.values.forEach { it.dispose() }
+            webCompatDelegates.clear()
             popupWebView?.let { popup ->
                 popup.uninstallShiguangRuntime()
                 (popup.parent as? ViewGroup)?.removeView(popup)
@@ -1542,6 +1406,7 @@ private fun EduImportBrowserScreen(
             @Composable {
                 EduImportGuideMorphOverlay(
                     adapter = adapter,
+                    config = state.config,
                     backdrop = buttonBackdrop,
                     visible = currentGuideVisible.value,
                     expanded = currentGuideExpanded.value,
@@ -1568,9 +1433,9 @@ private fun EduImportBrowserScreen(
     val importGuideMountedAtRoot = floatingOverlayHost != null &&
         floatingOverlayHost.content === floatingImportGuide
 
-    // Keep the WebView at its natural position below the compact bar. A one-pixel sample of the
-    // current WebView top edge is stretched only through the producer's top-bar region, so the
-    // gradient glass keeps the page color without moving or clipping the page header itself.
+    // Keep WebView at its natural position. The multi-row theme fills the toolbar and feathers
+    // into the page, so its color never ends at a hard horizontal boundary. The existing separate
+    // toolbar blur consumer samples this producer; no extra WebView capture or blur pass is added.
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
@@ -1590,16 +1455,11 @@ private fun EduImportBrowserScreen(
                     }
                 }
         ) {
-            webTopEdgeBitmap?.let { edge ->
-                Image(
-                    bitmap = edge.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(topPadding),
-                    contentScale = ContentScale.FillBounds
-                )
-            }
+            Box(
+                Modifier.fillMaxWidth().height(topPadding).drawBehind {
+                    drawRect(webTopThemeColor.value)
+                }
+            )
             key(webViewGeneration) {
                 AndroidView(
                     modifier = Modifier
@@ -1613,6 +1473,7 @@ private fun EduImportBrowserScreen(
                     // loadUrl from recomposition.
                     update = {},
                     onRelease = { released ->
+                        releaseWebCompat(released)
                         if (released === webView) {
                             onWebView(null)
                             bridge.bindWebView(null)
@@ -1634,6 +1495,7 @@ private fun EduImportBrowserScreen(
                         factory = { popup },
                         update = {},
                         onRelease = { released ->
+                            releaseWebCompat(released)
                             if (released === popupWebView) {
                                 popupWebView = null
                                 released.uninstallShiguangRuntime()
@@ -1642,6 +1504,22 @@ private fun EduImportBrowserScreen(
                         }
                     )
                 }
+            }
+            if (topPadding > 0.dp) {
+                Box(
+                    Modifier.fillMaxWidth().padding(top = topPadding).height(28.dp).drawBehind {
+                        val theme = webTopThemeColor.value
+                        drawRect(
+                            Brush.verticalGradient(
+                                0f to theme,
+                                0.2f to theme.copy(alpha = theme.alpha * 0.90f),
+                                0.5f to theme.copy(alpha = theme.alpha * 0.50f),
+                                0.8f to theme.copy(alpha = theme.alpha * 0.10f),
+                                1f to theme.copy(alpha = 0f)
+                            )
+                        )
+                    }
+                )
             }
         }
 
@@ -1679,13 +1557,7 @@ private fun EduImportBrowserScreen(
                 },
                 onToggleDesktopMode = {
                     desktopMode = !desktopMode
-                    (popupWebView ?: webView)?.let { target ->
-                        // Changing UA during an active load makes WebView restart that load itself.
-                        // Stop first, apply the complete mode, then perform one explicit reload.
-                        target.stopLoading()
-                        applyEduWebMode(target, desktopMode)
-                        target.reload()
-                    }
+                    webCompatDelegates.values.toList().forEach { it.setDesktopMode(desktopMode) }
                 },
                 historyEntries = dockHistoryEntries,
                 historyExpanded = dockHistoryExpanded,
@@ -1707,6 +1579,7 @@ private fun EduImportBrowserScreen(
         if (!importGuideMountedAtRoot) {
             EduImportGuideMorphOverlay(
                 adapter = adapter,
+                config = state.config,
                 backdrop = buttonBackdrop,
                 visible = importGuideVisible,
                 expanded = importGuideExpanded,

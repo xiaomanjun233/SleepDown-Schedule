@@ -113,6 +113,7 @@ object BackupRoomRestoreMapper {
                 courseCardOutlineLightEnabled = config.courseCardOutlineLightEnabled,
                 courseCardRefractionStrength = config.courseCardRefractionStrength.coerceIn(0f, 1f),
                 courseCardGaussianBlurEnabled = config.courseCardGaussianBlurEnabled,
+                courseCardColoredTextEnabled = config.courseCardColoredTextEnabled,
                 courseCardFontScale = config.courseCardFontScale,
                 courseCardColorMode = if (
                     config.cardColorArgb == MulticolorCourseCardArgb &&
@@ -155,6 +156,7 @@ object BackupRoomRestoreMapper {
                     "defaultWallpaperStyle"
                 ),
                 hideEmptyWeekends = config.hideEmptyWeekends,
+                scheduleAdjustmentsJson = config.scheduleAdjustmentsJson,
                 dockAlignment = strictBackupEnum<DockAlignment>(config.dockAlignment, "dockAlignment"),
                 defaultHomeMode = strictBackupEnum<HomeStartMode>(config.defaultHomeMode, "defaultHomeMode"),
                 liveUpdateActionsEnabled = config.liveUpdateActionsEnabled,

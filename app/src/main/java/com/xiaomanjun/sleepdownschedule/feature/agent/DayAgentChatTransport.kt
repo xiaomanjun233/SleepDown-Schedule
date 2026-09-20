@@ -11,8 +11,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -20,9 +18,7 @@ private val AgentChatJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 internal fun AiImportSettings.usesOfficialOpenAiEndpoint(): Boolean =
     profile.id == AiProviderPresets.openAI.id &&
-        normalizeAiBaseUrlForProvider(profile.id, profile.baseUrl)
-            .trimEnd('/')
-            .equals("https://api.openai.com/v1", ignoreCase = true)
+        isOfficialOpenAIBaseUrl(normalizeAiBaseUrlForProvider(profile.id, profile.baseUrl))
 
 internal fun AiImportSettings.usesDeepSeekChatEndpoint(): Boolean =
     profile.id == AiProviderPresets.deepSeek.id ||
@@ -73,31 +69,24 @@ internal class DayAgentChatTransport {
             } else {
                 val result = StringBuilder()
                 var hasFinalContent = false
-                BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).useLines { lines ->
-                    lines.forEach { line ->
-                        if (!line.startsWith("data:")) return@forEach
-                        val data = line.removePrefix("data:").trim()
-                        if (data == "[DONE]" || data.isBlank()) return@forEach
-                        val event = runCatching {
-                            AgentChatJson.parseToJsonElement(data).jsonObject
-                        }.getOrNull() ?: return@forEach
-                        val usage = agentTokenUsage(event)
-                        if (!usage.isEmpty) onUsage(usage)
-                        val content = runCatching {
-                            val choice = event["choices"]
-                                ?.jsonArray
-                                ?.firstOrNull()
-                                ?.jsonObject
-                                ?: return@runCatching ""
-                            val streamed = choice["delta"]?.jsonObject
-                            agentTextFromJson(streamed?.get("content"))
-                                .ifBlank { agentTextFromJson(choice["text"]) }
-                        }.getOrNull().orEmpty()
-                        if (content.isNotEmpty()) {
-                            hasFinalContent = true
-                            result.append(content)
-                            onDelta(content)
-                        }
+                connection.forEachSseDataLine { data ->
+                    val event = parseSseJsonObject(data) ?: return@forEachSseDataLine
+                    val usage = agentTokenUsage(event)
+                    if (!usage.isEmpty) onUsage(usage)
+                    val content = runCatching {
+                        val choice = event["choices"]
+                            ?.jsonArray
+                            ?.firstOrNull()
+                            ?.jsonObject
+                            ?: return@runCatching ""
+                        val streamed = choice["delta"]?.jsonObject
+                        agentTextFromJson(streamed?.get("content"))
+                            .ifBlank { agentTextFromJson(choice["text"]) }
+                    }.getOrNull().orEmpty()
+                    if (content.isNotEmpty()) {
+                        hasFinalContent = true
+                        result.append(content)
+                        onDelta(content)
                     }
                 }
                 if (!hasFinalContent) throw MissingAgentBodyException()
@@ -181,21 +170,13 @@ internal class DayAgentChatTransport {
         } else {
             normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl).trimEnd('/')
         }
-        val connection = URL(
-            if (path.isEmpty()) base else "$base/$path"
-        ).openConnection() as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.connectTimeout = 30_000
-        // Streaming providers may legitimately pause while reasoning. This is an inactivity
-        // timeout, not a total request deadline; keep it long enough for those pauses.
-        connection.readTimeout = 600_000
-        connection.doOutput = true
-        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-        if (settings.profile.authType == AiAuthType.CustomHeader) {
-            connection.setRequestProperty("api-key", settings.apiKey)
-        } else {
-            connection.setRequestProperty("Authorization", "Bearer ${settings.apiKey}")
-        }
+        val connection = openAiPostConnection(
+            url = if (path.isEmpty()) base else "$base/$path",
+            apiKey = settings.apiKey,
+            authType = settings.profile.authType,
+            contentType = "application/json; charset=utf-8",
+            accept = null
+        )
         connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
         return connection
     }

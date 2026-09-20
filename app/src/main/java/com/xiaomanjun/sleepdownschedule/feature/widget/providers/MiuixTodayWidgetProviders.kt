@@ -936,11 +936,7 @@ internal object MiuixTodayWidgetRenderer {
     }
 
     internal fun coursesForDate(state: AppState, date: LocalDate): List<CourseEntity> {
-        val weekday = date.dayOfWeek.toChineseWeekday()
-        val week = scheduleWeekForDateOrNull(state.config, date) ?: return emptyList()
-        return state.courses
-            .filter { it.weekday == weekday && week in it.weeks && parityMatches(it.weekParity, week) }
-            .sortedBy { courseStartTime(it, state.periods) ?: LocalTime.MAX }
+        return com.xiaomanjun.sleepdownschedule.domain.schedule.coursesForDate(state, date)
     }
 
     internal fun usesDarkTheme(context: Context, config: ScheduleConfigEntity): Boolean {

@@ -29,6 +29,8 @@ enum class AgentToolName {
     GET_SEMESTER_SCHEDULE,
     GET_PERIODS,
     GET_SETTINGS,
+    GET_SCHEDULE_ADJUSTMENTS,
+    GET_SCHEDULES,
     UPDATE_MEMORY
 }
 
@@ -75,6 +77,10 @@ internal fun AgentToolName.runStatus(): AgentRunStatus = when (this) {
         AgentRunStatus(AgentRunStatusIcon.PERIOD, "读取节次时间")
     AgentToolName.GET_SETTINGS ->
         AgentRunStatus(AgentRunStatusIcon.SETTINGS, "读取应用设置")
+    AgentToolName.GET_SCHEDULE_ADJUSTMENTS ->
+        AgentRunStatus(AgentRunStatusIcon.SCHEDULE, "读取调休安排")
+    AgentToolName.GET_SCHEDULES ->
+        AgentRunStatus(AgentRunStatusIcon.SETTINGS, "读取课表列表")
     AgentToolName.UPDATE_MEMORY ->
         AgentRunStatus(AgentRunStatusIcon.SETTINGS, "更新助手记忆")
 }
@@ -131,6 +137,16 @@ internal fun agentToolDefinitions(
     if (AgentToolName.GET_SETTINGS !in excludedTools) add(agentToolDefinition(
         AgentToolName.GET_SETTINGS,
         "可访问设置的键、类型、范围和当前值；回答或修改设置前读取。",
+        strict = strictFunctions
+    ))
+    if (AgentToolName.GET_SCHEDULE_ADJUSTMENTS !in excludedTools) add(agentToolDefinition(
+        AgentToolName.GET_SCHEDULE_ADJUSTMENTS,
+        "读取当前课表已保存的停课日期、补课日期及原课程日期。用户问调休是哪几天、哪天补哪天时，用结果直接回答；也供修改前读取完整调休表。查询无需打开设置。",
+        strict = strictFunctions
+    ))
+    if (AgentToolName.GET_SCHEDULES !in excludedTools) add(agentToolDefinition(
+        AgentToolName.GET_SCHEDULES,
+        "全部课表（含 ID、名称、是否当前使用）；多课表切换、删除或创建后读取。",
         strict = strictFunctions
     ))
     if (includeMemoryTool && AgentToolName.UPDATE_MEMORY !in excludedTools) {
@@ -343,9 +359,11 @@ internal fun executeAgentReadTools(
                     AgentToolName.GET_PERIODS -> agentPeriodResult(scopedFacts)
                     AgentToolName.GET_SETTINGS ->
                         AgentSettingRegistry.promptCatalog(
-                            periods = scopedFacts.periodDefinitions,
                             currentValues = scopedFacts.settingSnapshot
                         )
+                    AgentToolName.GET_SCHEDULE_ADJUSTMENTS ->
+                        agentAdjustmentsResult(scopedFacts)
+                    AgentToolName.GET_SCHEDULES -> agentSchedulesResult(scopedFacts)
                     AgentToolName.UPDATE_MEMORY ->
                         "记忆更新只能由助手会话层处理"
                 }
@@ -455,6 +473,10 @@ internal fun extractAgentToolPrelude(content: String): String {
 private fun agentOverviewResult(facts: DayAgentFacts): String = buildString {
     val weekday = weekdayLabel(facts.date.dayOfWeek.toChineseWeekday())
     appendLine("日期=${facts.date} 星期$weekday；当前时间=${facts.now.toLocalTime()}")
+    if (facts.todayIsAdjusted) appendLine(
+        facts.currentTeachingDate?.let { "今日调休：补原 $it 第 ${facts.currentTeachingWeek} 周的课程；调整今日课程使用原课程日期和教学周。" }
+            ?: "今日调休：停课。"
+    )
     val teachingWeek = if (facts.termState in setOf(ScheduleTermState.MANUAL, ScheduleTermState.ACTIVE)) {
         facts.currentWeek.toString()
     } else {
@@ -503,7 +525,8 @@ private fun agentWeekResult(facts: DayAgentFacts): String = buildString {
     } else {
         append(
             facts.week.joinToString("\n") { item ->
-                "${item.date} ${item.start}-${item.end} ${agentCourseLine(item.course)}"
+                "${item.date} ${item.start}-${item.end} ${agentCourseLine(item.course)}" +
+                    if (item.originalDate != null) "（调休：原 ${item.originalDate} 第 ${item.teachingWeek} 周）" else ""
             }.ifBlank { "本周无课" }
         )
     }
@@ -555,6 +578,36 @@ private fun agentPeriodResult(facts: DayAgentFacts): String =
             }
         }
     }.trim()
+
+/** 调休表：date（调休/放假日），sourceDate（补课来源日，可为空），label。 */
+private fun agentAdjustmentsResult(facts: DayAgentFacts): String = buildString {
+    appendLine("当前课表已保存的调休安排。直接向用户说明停课日期、补课日期及原课程日期，无需导航：")
+    if (facts.scheduleAdjustments.isEmpty()) {
+        append("当前课表没有保存调休安排；这不代表学校或法定日历没有调休，不能编造日期。")
+    } else {
+        facts.scheduleAdjustments.forEach { adjustment ->
+            appendLine(
+                "- ${if (adjustment.sourceDate == null) "停课" else "补课"} date=${adjustment.date}" +
+                    adjustment.sourceDate?.let { "；sourceDate=$it（上该日课程）" }.orEmpty() +
+                    "；label=${adjustment.label.ifBlank { "（无说明）" }}"
+            )
+        }
+    }
+}
+
+/** 全部课表；isActive 表示当前正在使用的课表。 */
+private fun agentSchedulesResult(facts: DayAgentFacts): String = buildString {
+    if (facts.schedules.isEmpty()) {
+        append("课表ID=${facts.scheduleId}（名称未提供）")
+    } else {
+        facts.schedules.forEach { schedule ->
+            appendLine(
+                "- id=${schedule.id}；名称=${schedule.name}；当前使用=${schedule.isActive}"
+            )
+        }
+        trimEnd()
+    }
+}
 
 private fun agentCourseLine(course: CourseEntity): String =
     "ID=${course.id} ${course.name}；星期=${course.weekday}；节次=${course.periods.joinToString(",")}" +

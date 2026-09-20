@@ -45,6 +45,29 @@ never be shared across consumers. Unsupported custom export is rejected, not sil
 
 ## Host regression tests
 
+On 2026-09-14, `BackdropRenderOptions.coordinatesFrozen` adds an opt-in position-notification
+gate for retained underlays. It keeps the existing sample, effects and decoration nodes alive;
+new coordinate nodes, model/effect changes and size changes still refresh normally. Reading the
+flag in draw also invalidates once on resume. Foreground consumers keep the default live behavior.
+
+The follow-up adds `sampleRecordKey`, an opt-in completed sample-recording identity. Reuse requires
+both `coordinatesFrozen()` and a matching non-null key, size, density, font scale and layout
+direction. Live draws still record; modifier/effect geometry updates and node replacement clear
+the cached identity. This keeps the existing sampling layer and RenderEffect ownership, with no
+new bitmap or GraphicsLayer. `Sample.FrozenReuse` counts avoided recordings, not GPU frame time.
+Only a host with a complete frozen scene identity may supply this key.
+
+`ShapeProvider` retains outlines through a derived state so dynamic shapes at fixed host sizes
+still update their clipping when animation state changes. Static shapes keep cached outlines.
+`DynamicOutlineCacheTest` covers both behaviors without requiring a GPU.
+
+The Beta2 attempt to replace coordinate Snapshot notifications with `invalidateDraw()` was
+withdrawn after moving glass retained its old sample on-device. This node also places content
+with an inner layer; invalidating its outer coordinator alone does not refresh that recording.
+Coordinates again use draw-observed state with `neverEqualPolicy`, because LayoutCoordinates
+mutates in place. Frozen underlays still suppress position notifications and reuse matching
+samples; live scrolling restores the original sampling updates without changing visual quality.
+
 `SharedBlurBackdrop` shares the wallpaper prefix across course cards. The 2026-09-10 alignment
 uses NexioSchedule commit `2971759ed3bb7b16ef13e639fba5dbf2a6a9cb2d` as its reference:
 [DrawBackdropModifier](https://github.com/HaoZai000/NexioSchedule/blob/2971759ed3bb7b16ef13e639fba5dbf2a6a9cb2d/app/src/main/java/com/kyant/backdrop/DrawBackdropModifier.kt),

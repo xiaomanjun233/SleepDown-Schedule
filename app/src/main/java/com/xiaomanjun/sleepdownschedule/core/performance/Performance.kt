@@ -1,6 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.core.performance
 
-import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 
 import com.xiaomanjun.sleepdownschedule.*

@@ -39,6 +39,8 @@ class CourseShortcutTest {
         anchors.zip(listOf(0f, 0.5f, 1f)).forEach { (anchor, pivot) ->
             val result = courseShortcutPlacement(anchor, available, 220f, 108f, 12f, pivot)
             assertEquals(pivot, result.pivotX, 0f)
+            assertFalse(result.belowAnchor)
+            assertEquals(1f, result.pivotY, 0f)
             assertEquals(anchor.top - 12f, result.bounds.bottom, 0.001f)
             assertEquals(anchor.left + anchor.width * pivot,
                 result.bounds.left + result.bounds.width * pivot, 0.001f)
@@ -50,8 +52,24 @@ class CourseShortcutTest {
         val result = courseShortcutPlacement(Rect(170f, 45f, 190f, 95f), available, 330f, 156f, 12f, 1f)
         assertEquals(available.left, result.bounds.left, 0f)
         assertEquals(available.right, result.bounds.right, 0f)
-        assertEquals(available.top, result.bounds.top, 0f)
+        assertEquals(107f, result.bounds.top, 0f)
+        assertTrue(result.belowAnchor)
+        assertEquals(0f, result.pivotY, 0f)
         assertTrue(result.bounds.bottom <= available.bottom)
+    }
+
+    @Test fun topRowOpensBelowForEveryHorizontalOrigin() {
+        val available = Rect(8f, 24f, 892f, 900f)
+        val anchor = Rect(410f, 50f, 490f, 150f)
+        for (pivot in listOf(0f, 0.5f, 1f)) {
+            val result = courseShortcutPlacement(anchor, available, 220f, 176f, 12f, pivot)
+            assertEquals(anchor.bottom + 12f, result.bounds.top, 0f)
+            assertEquals(pivot, result.pivotX, 0f)
+            assertEquals(0f, result.pivotY, 0f)
+        }
+        val smallWindow = Rect(8f, 24f, 200f, 174f)
+        val result = courseShortcutPlacement(anchor, smallWindow, 220f, 176f, 12f, 0.5f)
+        assertEquals(smallWindow, result.bounds)
     }
 
     @Test fun editActionWaitsForMenuToRetract() = runBlocking {
@@ -67,6 +85,22 @@ class CourseShortcutTest {
         assertTrue(entered)
         assertNull(controller.request)
         assertEquals(0f, controller.progress.value, 0f)
+    }
+
+    @Test fun pressSinksBeforeMenuThenLiftAndMenuAdvanceTogether() = runBlocking {
+        val clock = BroadcastFrameClock()
+        val controller = CourseShortcutController(CoroutineScope(coroutineContext + clock))
+        controller.open(CourseShortcutRequest(course, 3, Rect(0f, 200f, 80f, 300f), 12f, 0.5f) {})
+        var sawPress = false
+        var sawSharedLift = false
+        repeat(90) { frame ->
+            clock.sendFrame(frame * 8_333_333L)
+            yield()
+            if (controller.cardScale.value < 0.995f && controller.progress.value == 0f) sawPress = true
+            if (controller.cardScale.value > 1f && controller.progress.value > 0f) sawSharedLift = true
+        }
+        assertTrue(sawPress)
+        assertTrue(sawSharedLift)
     }
 
     @Test fun dragTakeoverCancelsPendingMenuAction() = runBlocking {

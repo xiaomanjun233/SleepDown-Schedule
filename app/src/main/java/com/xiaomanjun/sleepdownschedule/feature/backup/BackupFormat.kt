@@ -212,6 +212,7 @@ data class BackupScheduleConfig(
     val courseCardOutlineLightEnabled: Boolean = true,
     val courseCardRefractionStrength: Float = 0.5f,
     val courseCardGaussianBlurEnabled: Boolean = true,
+    val courseCardColoredTextEnabled: Boolean = false,
     val courseCardFontScale: Float,
     val courseCardColorMode: String = "SOLID",
     val courseCardPalette: String = "",
@@ -242,7 +243,8 @@ data class BackupScheduleConfig(
     val hideFromRecents: Boolean,
     val autoCheckUpdates: Boolean,
     val homeChromeBlurScale: Float = DefaultHomeChromeBlurScale,
-    val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale
+    val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale,
+    val scheduleAdjustmentsJson: String = ""
 )
 
 @Serializable
@@ -363,7 +365,8 @@ data class BackupDayAgentPreferences(
     val memoryTurnDay: String?,
     val memoryTurnCount: Int,
     val memoryLastAgentUpdateDay: String?,
-    val appliedActionsBySchedule: Map<String, List<String>> = emptyMap()
+    val appliedActionsBySchedule: Map<String, List<String>> = emptyMap(),
+    val weekAssistantEnabled: Boolean = true
 )
 
 @Serializable

@@ -39,6 +39,63 @@ class LiveUpdatePayloadTest {
     )
 
     @Test
+    fun refreshAlarmsCoverEveryClassBoundaryEvenWhenBreakDisplayIsDisabled() {
+        val expected = listOf(firstStart, firstEnd, secondStart, secondEnd)
+        assertEquals(expected, coursePayload().refreshBoundaries())
+        assertEquals(expected, coursePayload(breakStatusEnabled = false).refreshBoundaries())
+    }
+
+    @Test
+    fun preparationOnlyReminderHasAnAlarmToStopAtClassStart() {
+        val payload = coursePayload().copy(duringClassEnabled = false)
+        assertEquals(listOf(firstStart, secondEnd), payload.refreshBoundaries())
+        assertFalse(payload.shouldStop(firstStart - 1))
+        assertTrue(payload.shouldStop(firstStart))
+    }
+
+    @Test
+    fun preparationRefreshesWhenTheDisplayedMinuteChanges() {
+        assertEquals(epoch(7, 51), coursePayload().nextRefreshAtMillis(epoch(7, 50)))
+        val payload = coursePayload().copy(segments = listOf(
+            LiveUpdateSegment(firstStart + 30_000L, firstEnd)
+        ))
+        val before = epoch(7, 50)
+        val next = requireNotNull(payload.nextRefreshAtMillis(before))
+        assertEquals(before + 30_000L, next)
+        assertEquals(11, payload.statusAt(next - 1L).minutesToTransition)
+        assertEquals(10, payload.statusAt(next).minutesToTransition)
+        // A late callback computes from current time instead of replaying missed minutes.
+        assertEquals(before + 90_000L, payload.nextRefreshAtMillis(next + 40_000L))
+    }
+
+    @Test
+    fun secondPrecisionClassAndBreakBoundariesPreemptTheProgressTick() {
+        val start = firstStart + 30_000L
+        val end = firstEnd + 15_000L
+        val resume = firstEnd + 45_000L
+        val payload = coursePayload().copy(segments = listOf(
+            LiveUpdateSegment(start, end),
+            LiveUpdateSegment(resume, secondEnd)
+        ))
+        assertEquals(start, payload.nextRefreshAtMillis(firstStart))
+        assertEquals(epoch(8, 1) + 15_000L, payload.nextRefreshAtMillis(start))
+        assertEquals(end, payload.nextRefreshAtMillis(firstEnd))
+        assertEquals(LiveUpdatePhase.BREAK, payload.statusAt(end).phase)
+        assertEquals(resume, payload.nextRefreshAtMillis(end))
+        assertEquals(LiveUpdatePhase.IN_CLASS, payload.statusAt(resume).phase)
+    }
+
+    @Test
+    fun expiryPreemptsRefreshAndFinishedPayloadHasNoFurtherTick() {
+        val expiry = epoch(8, 20) + 15_000L
+        val payload = coursePayload().copy(expiresAtMillis = expiry)
+        assertEquals(expiry, payload.nextRefreshAtMillis(expiry - 10_000L))
+        assertNull(payload.nextRefreshAtMillis(expiry))
+        assertNull(coursePayload().copy(duringClassEnabled = false).nextRefreshAtMillis(firstStart))
+        assertNull(coursePayload().nextRefreshAtMillis(secondEnd))
+    }
+
+    @Test
     fun courseStateMovesFromPreparationThroughClassBreakAndFinish() {
         val payload = coursePayload()
 

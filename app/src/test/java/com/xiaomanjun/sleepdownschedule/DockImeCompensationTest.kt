@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.app.ui.dockImeCompensationPx
+
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

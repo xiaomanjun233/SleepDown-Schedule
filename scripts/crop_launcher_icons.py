@@ -2,6 +2,8 @@
 
 Run from any directory with Pillow installed. Original paintings stay unchanged.
 Coordinates are normalized to the 1254px originals, shared by light/dark pairs.
+Only fixed light/dark mipmaps are generated. Follow-mode mipmap[-night] bitmap
+XMLs and the notification aliases in values/app_icon_aliases.xml share them.
 """
 from pathlib import Path
 import math
@@ -49,12 +51,6 @@ def main():
             cards.append(icon)
             for density, size in SIZES.items():
                 save(icon, RES / f"mipmap-{density}", stem + ("_dark" if dark else "_light"), size)
-                folder = RES / f"mipmap-{'night-' if dark else ''}{density}"
-                save(icon, folder, stem, size)
-                if stem == "ic_launcher":
-                    save(icon, folder, "ic_launcher_round", size)
-            if stem == "ic_launcher":
-                save(icon, RES / ("drawable-night" if dark else "drawable"), "ic_launcher_preview", 128)
     preview = Image.new("RGB", (960, 288), "#888893")
     for index, icon in enumerate(cards):
         scaled = icon.resize((192, 192), Image.Resampling.LANCZOS)

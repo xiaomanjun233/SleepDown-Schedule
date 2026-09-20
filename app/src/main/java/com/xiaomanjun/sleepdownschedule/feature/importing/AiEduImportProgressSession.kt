@@ -109,6 +109,22 @@ object AiEduImportProgressSession {
     private val _progress = MutableStateFlow<AiEduImportProgress?>(null)
 
     val progress: StateFlow<AiEduImportProgress?> = _progress.asStateFlow()
+    private var reasoningGeneration = 0L
+    private val _liveReasoning = MutableStateFlow(AiImportLiveReasoning())
+    internal val liveReasoning: StateFlow<AiImportLiveReasoning> = _liveReasoning.asStateFlow()
+
+    internal fun beginReasoning(taskId: String): (String) -> Unit = synchronized(lock) {
+        val generation = ++reasoningGeneration
+        _liveReasoning.value = AiImportLiveReasoning(taskId)
+        return@synchronized { text: String ->
+            synchronized(lock) {
+                val current = _progress.value
+                if (generation == reasoningGeneration && current?.taskId == taskId && !current.finished) {
+                    _liveReasoning.value = AiImportLiveReasoning(taskId, text)
+                }
+            }
+        }
+    }
     private val _historySelection = MutableStateFlow<ImportDraft?>(null)
     val historySelection: StateFlow<ImportDraft?> = _historySelection.asStateFlow()
     private val _previewDraft = MutableStateFlow<ImportDraft?>(null)
@@ -123,6 +139,10 @@ object AiEduImportProgressSession {
 
     fun update(progress: AiEduImportProgress?) {
         synchronized(lock) {
+            if (progress?.taskId != _progress.value?.taskId || progress == null) {
+                reasoningGeneration++
+                _liveReasoning.value = AiImportLiveReasoning()
+            }
             _progress.value = progress
             if (progress?.awaitingConfirmation == true && !progress.requestSent) {
                 _previewDraft.value = null
@@ -196,6 +216,8 @@ object AiEduImportProgressSession {
         onCancel = null
     }
 }
+
+internal data class AiImportLiveReasoning(val taskId: String = "", val text: String = "")
 
 data class AiEduFinalImportRequest(
     val draft: ImportDraft,

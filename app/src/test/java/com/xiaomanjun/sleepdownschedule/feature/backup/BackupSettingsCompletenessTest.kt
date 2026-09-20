@@ -11,6 +11,24 @@ import org.junit.Test
 
 class BackupSettingsCompletenessTest {
     @Test
+    fun olderBackupWithoutColoredTextKeepsTheOriginalAppearance() {
+        val archive = BackupExportMapper.toArchive(
+            metadata = metadata(),
+            snapshot = BackupRoomSnapshot(
+                schedules = listOf(ScheduleProfileEntity(7, "旧备份", true)),
+                configs = listOf(defaultConfig(7))
+            ),
+            preferences = BackupPreferences(preferencesVersion = BackupFormatV1.PREFERENCES_VERSION)
+        )
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true }
+        val serialized = json.encodeToJsonElement(BackupScheduleConfig.serializer(), archive.data.schedules.single().config)
+            as kotlinx.serialization.json.JsonObject
+        val oldFields = kotlinx.serialization.json.JsonObject(serialized.filterKeys { it != "courseCardColoredTextEnabled" })
+        val restored = json.decodeFromJsonElement(BackupScheduleConfig.serializer(), oldFields)
+        assertEquals(false, restored.courseCardColoredTextEnabled)
+    }
+
+    @Test
     fun everyPortableRoomFieldAcrossAllNineTablesHasAProtocolCounterpart() {
         assertPortableFields(
             ScheduleProfileEntity::class.java,
@@ -114,6 +132,7 @@ class BackupSettingsCompletenessTest {
             courseCardOutlineLightEnabled = false,
             courseCardRefractionStrength = 0.71f,
             courseCardGaussianBlurEnabled = false,
+            courseCardColoredTextEnabled = true,
             courseCardFontScale = 1.18f,
             courseCardColorMode = CourseCardColorMode.GRADIENT,
             courseCardPalette = "FF123456,FF345678",

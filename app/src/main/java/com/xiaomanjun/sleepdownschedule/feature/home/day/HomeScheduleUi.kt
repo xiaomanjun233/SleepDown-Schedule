@@ -1,9 +1,11 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
+import com.xiaomanjun.sleepdownschedule.feature.agent.excludeHomeAssistantPull
+
 import androidx.compose.runtime.SideEffect
+import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseCardText
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
@@ -11,6 +13,8 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.background.*
 import com.xiaomanjun.sleepdownschedule.feature.home.week.*
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseCopy
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.courseRemovalMotion
 
 import com.xiaomanjun.sleepdownschedule.core.performance.*
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
@@ -446,10 +450,13 @@ fun HomeReadableText(
     overflow: TextOverflow = TextOverflow.Clip
 ) {
     val readability = LocalHomeReadability.current
+    val backgroundFrozen = LocalHomeBackgroundFrozen.current
     var readabilityShadow by remember(readability.bitmap, readability.config, readability.rootSize, color) {
         mutableStateOf(HomeReadabilityShadow.None)
     }
     val measuredModifier = modifier.onGloballyPositioned { coordinates ->
+        // Background zoom must not resample wallpaper pixels or restyle frozen labels.
+        if (backgroundFrozen) return@onGloballyPositioned
         val next = regionTextShadow(
             readability,
             coordinates.boundsInRoot(),
@@ -501,31 +508,38 @@ fun HomeDateTitle(
     beforeScheduleTerm: Boolean,
     afterScheduleTerm: Boolean,
     showReturnToCurrentWeekHint: Boolean,
+    showWeather: Boolean = false,
     onReturnCurrent: () -> Unit
 ) {
     val color = homeForegroundColor(state.config)
     val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
+            .excludeHomeAssistantPull()
             .clickable(interactionSource = interactionSource, indication = null, onClick = onReturnCurrent),
         verticalArrangement = Arrangement.Center
     ) {
-        HomeReadableText(
-            when {
-                beforeScheduleTerm -> "当前暂未开学"
-                afterScheduleTerm -> "学期已结束"
-                showReturnToCurrentWeekHint -> "点击此处回到本周"
-                else -> "第${displayWeek}周"
-            },
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontSize = 16.sp,
-                lineHeight = 18.sp
-            ),
-            fontWeight = FontWeight.Medium,
-            color = color.copy(alpha = 0.68f),
-            maxLines = 1,
-            softWrap = false
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            HomeReadableText(
+                when {
+                    beforeScheduleTerm -> "当前暂未开学"
+                    afterScheduleTerm -> "学期已结束"
+                    showReturnToCurrentWeekHint -> "点击此处回到本周"
+                    else -> "第${displayWeek}周"
+                },
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 16.sp,
+                    lineHeight = 18.sp
+                ),
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f, fill = false),
+                color = color.copy(alpha = 0.68f),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (showWeather) com.xiaomanjun.sleepdownschedule.feature.home.week.WeekHeaderWeather(color.copy(alpha = 0.68f))
+        }
         HomeReadableText(
             if (showTwoDays) {
                 val nextDate = displayDate.plusDays(1)
@@ -689,8 +703,12 @@ internal fun HomeScreen(
     }
     val textColor = homeForegroundColor(state.config)
     var weekEditMode by remember(state.config.id) { mutableStateOf(false) }
-    var pendingSingleWeekDelete by remember(state.config.id) {
-        mutableStateOf<Pair<CourseEntity, Int>?>(null)
+    val homeAssistant = com.xiaomanjun.sleepdownschedule.feature.agent.LocalHomeAssistant.current
+    SideEffect { homeAssistant?.editing = weekEditMode }
+    DisposableEffect(homeAssistant) { onDispose { homeAssistant?.editing = false } }
+    val copyPlacementActive = LocalCourseCopy.current?.active == true
+    LaunchedEffect(copyPlacementActive) {
+        if (copyPlacementActive) weekEditMode = false
     }
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -705,14 +723,12 @@ internal fun HomeScreen(
             // edit session before it opens so returning to Home recreates the long-press entry
             // path instead of leaving the root pointer input in its edit-mode tap-only branch.
             weekEditMode = false
-            pendingSingleWeekDelete = null
         }
     }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 weekEditMode = false
-                pendingSingleWeekDelete = null
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -818,9 +834,7 @@ internal fun HomeScreen(
                             conflictFocusCourseId = conflictFocusCourseId,
                             conflictFocusCourseKey = conflictFocusCourseKey,
                             onResolveCourseConflict = onResolveCourseConflict,
-                            onDeleteCourseSingleWeek = { course, week ->
-                                pendingSingleWeekDelete = course to week
-                            },
+                            onDeleteCourseSingleWeek = onDeleteCourseSingleWeek,
                             onCourseClick = { course, week, sourceBounds ->
                                 onCourseClick(course, week, sourceBounds)
                             }
@@ -828,24 +842,6 @@ internal fun HomeScreen(
                     }
                 }
             }
-        }
-        pendingSingleWeekDelete?.let { (course, week) ->
-            LiquidAlertDialog(
-                title = "删除单周课程",
-                message = "确定删除第${week}周的“${course.name}”吗？只会删除当前周这一次，不会删除其它周的同名课程。",
-                actions = listOf(
-                    LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) {
-                        pendingSingleWeekDelete = null
-                    },
-                    LiquidAlertAction("确认删除", LiquidAlertActionStyle.Destructive) {
-                        pendingSingleWeekDelete = null
-                        onDeleteCourseSingleWeek(course, week)
-                    }
-                ),
-                backdrop = backdrop,
-                config = state.config,
-                onDismissRequest = { pendingSingleWeekDelete = null }
-            )
         }
     }
 }
@@ -893,6 +889,14 @@ internal fun HomeWallpaper(
             targetBlurredBitmap != visibleBlurredBitmap ||
             targetReducedBitmap != visibleReducedBitmap
         ) {
+            // The first ready wallpaper participates in the first-draw gate without a fade.
+            if (visibleBitmap == null) {
+                visibleBitmap = targetBitmap
+                visibleBlurredBitmap = targetBlurredBitmap
+                visibleReducedBitmap = targetReducedBitmap
+                crossfadeTarget = 1f
+                return@LaunchedEffect
+            }
             previousBitmap = visibleBitmap
             previousBlurredBitmap = visibleBlurredBitmap
             previousReducedBitmap = visibleReducedBitmap
@@ -1260,8 +1264,14 @@ internal fun coursesVisibleInWeek(courses: List<CourseEntity>, week: Int): List<
 internal data class WeekCourseBuckets(
     val visibleCourses: List<CourseEntity>,
     val byWeekday: Map<Int, List<CourseEntity>>,
-    val weekendHasCourse: Boolean
+    val weekendHasCourse: Boolean,
+    /** Days taken off by an adjustment: their regular cards stay visible but read-only and greyed. */
+    val cancelledWeekdays: Set<Int> = emptySet(),
+    /** Days that host lessons moved from another date: shown normally, but never edited in place. */
+    val makeupWeekdays: Set<Int> = emptySet()
 )
+
+/** Neutral wash that marks a course occurrence as an adjustment placeholder instead of a real class. */
 
 internal val SchoolWeekdays = (1..5).toList()
 internal val FullWeekdays = (1..7).toList()
@@ -1272,6 +1282,43 @@ internal fun weekCourseBuckets(courses: List<CourseEntity>, week: Int): WeekCour
         visibleCourses = visibleCourses,
         byWeekday = visibleCourses.groupBy { it.weekday },
         weekendHasCourse = visibleCourses.any { it.weekday == 6 || it.weekday == 7 }
+    )
+}
+
+/** Date adjustments affect rendered occurrences, never the stored weekday/weeks. */
+internal fun weekCourseBuckets(
+    courses: List<CourseEntity>, week: Int, config: ScheduleConfigEntity, today: LocalDate = LocalDate.now()
+): WeekCourseBuckets {
+    if (config.scheduleAdjustmentsJson.isBlank()) return weekCourseBuckets(courses, week)
+    val start = scheduleWeekStartDate(config, week, today)
+    val adjustments = com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(config.scheduleAdjustmentsJson).associateBy { it.date }
+    val regular = coursesVisibleInWeek(courses, week)
+    val cancelled = mutableSetOf<Int>()
+    val makeup = mutableSetOf<Int>()
+    val visible = (1..7).flatMap { weekday ->
+        val adjustment = adjustments[start.plusDays((weekday - 1).toLong()).toString()]
+        if (adjustment == null) {
+            regular.filter { it.weekday == weekday }
+        } else if (adjustment.sourceDate == null) {
+            // The day is off. Keep the regular cards so the timetable still shows what was planned,
+            // and let the views grey them out while editing still resolves the original course.
+            cancelled += weekday
+            regular.filter { it.weekday == weekday }
+        } else {
+            makeup += weekday
+            val origin = LocalDate.parse(adjustment.sourceDate)
+            val originWeek = com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate(config, origin, today)
+            if (originWeek == null) emptyList() else coursesVisibleInWeek(courses, originWeek)
+                .filter { it.weekday == origin.dayOfWeek.value }.map { it.copy(weekday = weekday) }
+        }
+    }
+    return WeekCourseBuckets(
+        visibleCourses = visible,
+        byWeekday = visible.groupBy { it.weekday },
+        // Cancelled classes must not make an otherwise empty weekend claim to have courses.
+        weekendHasCourse = visible.any { it.weekday >= 6 && it.weekday !in cancelled },
+        cancelledWeekdays = cancelled,
+        makeupWeekdays = makeup
     )
 }
 
@@ -1538,28 +1585,7 @@ internal fun DayScheduleScreen(
         onDispose { onAgentPagerSettledChange(false) }
     }
 
-    LaunchedEffect(pagerState, displayDate) {
-        snapshotFlow {
-            Triple(
-                pagerState.isScrollInProgress,
-                pagerState.settledPage,
-                pagerState.currentPage + pagerState.currentPageOffsetFraction
-            )
-        }.distinctUntilChanged().collect { (scrolling, settledPage, pagePosition) ->
-            if (!scrolling || programmaticDayScroll) return@collect
-            val delta = pagePosition - settledPage
-            val desiredPage = when {
-                delta >= 0.75f -> settledPage + 1
-                delta <= -0.75f -> settledPage - 1
-                else -> settledPage
-            }.coerceIn(0, centerPage * 2)
-            val desiredDate = clampToNavigationRange(dateForPage(desiredPage))
-            if (desiredDate != displayDate) {
-                gestureCommittedDate = desiredDate
-                onSwipeDay(ChronoUnit.DAYS.between(displayDate, desiredDate).toInt())
-            }
-        }
-    }
+    // Commit only settled pages. Publishing at 75% rebuilt the date's cards while flinging.
     LaunchedEffect(pagerState.settledPage) {
         if (programmaticDayScroll) return@LaunchedEffect
         val settledDate = dateForPage(pagerState.settledPage)
@@ -1613,10 +1639,22 @@ internal fun DayScheduleScreen(
         key = { it }
     ) { page ->
             val targetDate = dateForPage(page)
-            val targetWeekOrNull = scheduleWeekForDateOrNull(state.config, targetDate)
+            val targetAdjustment = remember(state.config.scheduleAdjustmentsJson, targetDate) {
+                com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(state.config, targetDate)
+            }
+            // A day off keeps its regular cards on screen, greyed and read-only.
+            val targetCancelled = targetAdjustment != null && targetAdjustment.sourceDate == null
+            val targetTeachingDate = com.xiaomanjun.sleepdownschedule.domain.schedule.teachingDateForSchedule(state.config, targetDate)
+            val targetWeekOrNull = when {
+                targetCancelled -> scheduleWeekForDateOrNull(state.config, targetDate)
+                else -> targetTeachingDate?.let {
+                    if (it != targetDate) com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate(state.config, it)
+                    else scheduleWeekForDateOrNull(state.config, it)
+                }
+            }
             val targetWeek = targetWeekOrNull ?: effectiveCurrentWeek(state.config, targetDate)
-            val targetWeekday = targetDate.dayOfWeek.toChineseWeekday()
-            val dayCourses = remember(state.courses, state.periods, targetWeekOrNull, targetWeekday) {
+            val targetWeekday = (targetTeachingDate ?: targetDate).dayOfWeek.toChineseWeekday()
+            val dayCourses = remember(state.courses, state.periods, state.config.scheduleAdjustmentsJson, targetWeekOrNull, targetWeekday) {
                 if (targetWeekOrNull == null) emptyList() else weekCourseBuckets(state.courses, targetWeekOrNull)
                     .byWeekday[targetWeekday]
                     .orEmpty()
@@ -1625,7 +1663,10 @@ internal fun DayScheduleScreen(
                             .thenBy { it.name }
                     )
             }
-            val minuteClock by produceState(initialValue = LocalDateTime.now(), page) {
+            val backgroundFrozen = LocalHomeBackgroundFrozen.current
+            val minuteClock by produceState(initialValue = LocalDateTime.now(), page, backgroundFrozen) {
+                if (backgroundFrozen) return@produceState
+                value = LocalDateTime.now()
                 while (true) {
                     val nowMillis = System.currentTimeMillis()
                     delay((60_000L - nowMillis % 60_000L + 100L).coerceAtLeast(1_000L))
@@ -1643,7 +1684,7 @@ internal fun DayScheduleScreen(
                 }
             }
             val isToday = targetDate == minuteClock.toLocalDate()
-            val currentPeriod = if (isToday && targetWeekOrNull != null) {
+            val currentPeriod = if (isToday && targetWeekOrNull != null && !targetCancelled) {
                 currentTimelinePeriod(state.periods, minuteClock.toLocalTime())
             } else null
             val headerContent: @Composable () -> Unit = {
@@ -1678,11 +1719,7 @@ internal fun DayScheduleScreen(
                 }
             }
             val groupedDayCourses = remember(dayCourses, state.config) {
-                PeriodDayPart.entries.mapNotNull { part ->
-                    dayCourses.filter { course -> courseDayPart(state.config, course) == part }
-                        .takeIf { it.isNotEmpty() }
-                        ?.let { part to it }
-                }
+                groupDayCourses(state.config, dayCourses)
             }
             val primaryDayFinished = shouldShowSecondaryDay(
                 displayDayCount = displayDayCount,
@@ -1696,13 +1733,25 @@ internal fun DayScheduleScreen(
                 displayDayCount == 1 && primaryDayFinished -> targetDate.plusDays(1)
                 else -> null
             }
-            val secondaryWeekOrNull = secondaryDate?.let { scheduleWeekForDateOrNull(state.config, it) }
-            val secondaryWeek = secondaryDate?.let { effectiveCurrentWeek(state.config, it) }
+            val secondaryAdjustment = remember(state.config.scheduleAdjustmentsJson, secondaryDate) {
+                secondaryDate?.let { com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(state.config, it) }
+            }
+            val secondaryCancelled = secondaryAdjustment != null && secondaryAdjustment.sourceDate == null
+            val secondaryTeachingDate = if (secondaryCancelled) null else secondaryDate?.let { com.xiaomanjun.sleepdownschedule.domain.schedule.teachingDateForSchedule(state.config, it) }
+            val secondaryWeekOrNull = when {
+                secondaryCancelled -> secondaryDate?.let { scheduleWeekForDateOrNull(state.config, it) }
+                else -> secondaryTeachingDate?.let {
+                    if (it != secondaryDate) com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate(state.config, it)
+                    else scheduleWeekForDateOrNull(state.config, it)
+                }
+            }
+            val secondaryWeek = secondaryWeekOrNull ?: secondaryDate?.let { effectiveCurrentWeek(state.config, it) }
                 ?: targetWeek
-            val secondaryWeekday = secondaryDate?.dayOfWeek?.toChineseWeekday()
+            val secondaryWeekday = (secondaryTeachingDate ?: secondaryDate)?.dayOfWeek?.toChineseWeekday()
             val secondaryCourses = remember(
                 state.courses,
                 state.periods,
+                state.config.scheduleAdjustmentsJson,
                 secondaryWeekOrNull,
                 secondaryWeekday
             ) {
@@ -1719,11 +1768,7 @@ internal fun DayScheduleScreen(
                 }
             }
             val groupedSecondaryCourses = remember(secondaryCourses, state.config) {
-                PeriodDayPart.entries.mapNotNull { part ->
-                    secondaryCourses.filter { course -> courseDayPart(state.config, course) == part }
-                        .takeIf { it.isNotEmpty() }
-                        ?.let { part to it }
-                }
+                groupDayCourses(state.config, secondaryCourses)
             }
             // Two-day mode owns two calendar days, even when the following day is empty. The old
             // course-presence gate made the second day disappear while browsing dates whose next
@@ -1736,7 +1781,7 @@ internal fun DayScheduleScreen(
                     HomeReadableText(if (isToday) "今天没有课程" else "这一天没有课程", color = textColor)
                 }
                 groupedDayCourses.forEach { (part, coursesInPart) ->
-                    item(key = "primary-day-part-$targetDate-${part.name}") {
+                    item(key = "primary-day-part-$targetDate-${part?.name ?: "OTHER"}") {
                         DayPartHeader(
                             part = part,
                             courses = coursesInPart,
@@ -1757,9 +1802,11 @@ internal fun DayScheduleScreen(
                             backdrop,
                             state.config,
                             onCourseClick,
-                            entranceIndex = dayCourses.indexOf(course).coerceAtLeast(0),
                             simultaneousCount = simultaneousCount,
-                            tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f
+                            tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f,
+                            readOnly = targetAdjustment != null,
+                            occurrenceDate = targetDate,
+                            muted = targetCancelled
                         )
                     }
                 }
@@ -1777,7 +1824,7 @@ internal fun DayScheduleScreen(
                         }
                     }
                     groupedSecondaryCourses.forEach { (part, coursesInPart) ->
-                        item(key = "secondary-day-part-$visibleDate-${part.name}") {
+                        item(key = "secondary-day-part-$visibleDate-${part?.name ?: "OTHER"}") {
                             DayPartHeader(
                                 part = part,
                                 courses = coursesInPart,
@@ -1801,9 +1848,11 @@ internal fun DayScheduleScreen(
                                 backdrop = backdrop,
                                 config = state.config,
                                 onCourseClick = onCourseClick,
-                                entranceIndex = dayCourses.size + index,
                                 simultaneousCount = simultaneousCount,
-                                tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f
+                                tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f,
+                                readOnly = secondaryAdjustment != null,
+                                occurrenceDate = visibleDate,
+                                muted = secondaryCancelled
                             )
                         }
                     }
@@ -1885,11 +1934,23 @@ internal fun courseDayPart(
     return PeriodDayPart.entries.firstOrNull { firstPeriod in config.periodRange(it) }
 }
 
-private fun dayPartLabel(part: PeriodDayPart): String = when (part) {
+/** Every course must remain reachable even when its periods have no configured day part. */
+internal fun groupDayCourses(
+    config: ScheduleConfigEntity,
+    courses: List<CourseEntity>
+): List<Pair<PeriodDayPart?, List<CourseEntity>>> {
+    val byPart = courses.groupBy { courseDayPart(config, it) }
+    return (PeriodDayPart.entries + null).mapNotNull { part ->
+        byPart[part]?.let { part to it }
+    }
+}
+
+private fun dayPartLabel(part: PeriodDayPart?): String = when (part) {
     PeriodDayPart.MORNING -> "上午"
     PeriodDayPart.NOON -> "中午"
     PeriodDayPart.AFTERNOON -> "下午"
     PeriodDayPart.EVENING -> "晚上"
+    null -> "其他时间"
 }
 
 @Composable
@@ -1944,7 +2005,7 @@ private fun DayDateSectionHeader(
 
 @Composable
 private fun DayPartHeader(
-    part: PeriodDayPart,
+    part: PeriodDayPart?,
     courses: List<CourseEntity>,
     periods: List<PeriodEntity>,
     textColor: ComposeColor
@@ -1954,25 +2015,14 @@ private fun DayPartHeader(
         val end = courses.mapNotNull { courseEndTime(it, periods) }.maxOrNull()
         if (start != null && end != null) "$start–$end" else null
     }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
+    SleepDownTimeSectionDivider(textColor = textColor, label = {
         HomeReadableText(
             text = dayPartLabel(part),
             style = MaterialTheme.typography.titleSmall,
             color = textColor,
             fontWeight = FontWeight.SemiBold
         )
-        Box(
-            Modifier
-                .weight(1f)
-                .height(1.dp)
-                .background(textColor.copy(alpha = 0.18f))
-        )
+    }, time = {
         timeRange?.let {
             HomeReadableText(
                 text = it,
@@ -1980,12 +2030,13 @@ private fun DayPartHeader(
                 color = textColor.copy(alpha = 0.66f)
             )
         }
-    }
+    })
 }
 
 @Composable
-fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, entranceIndex: Int = 0, simultaneousCount: Int = 1, tabletFontScale: Float = 1f) {
-    val resolvedCardColor = courseCardBaseColor(config, course)
+fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, simultaneousCount: Int = 1, tabletFontScale: Float = 1f, readOnly: Boolean = false, muted: Boolean = false, occurrenceDate: LocalDate? = null) {
+    val adjustedEditor = LocalAdjustedCourseEditor.current
+    val resolvedCardColor = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
     val timePillColor = deepenColor(resolvedCardColor, 0.16f)
     val glassContentColor = LocalAdaptiveGlass.current.contentColor
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2013,7 +2064,12 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                 )
             }
         }
-        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config, onClick = { sourceBounds -> onCourseClick(course, currentWeek, sourceBounds) }, entranceIndex = entranceIndex, tabletFontScale = tabletFontScale)
+        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config,
+            onClick = { sourceBounds ->
+                if (readOnly) occurrenceDate?.let { adjustedEditor?.invoke(course.id, it, sourceBounds) }
+                else onCourseClick(course, currentWeek, sourceBounds)
+            }, tabletFontScale = tabletFontScale, displayedWeek = currentWeek, muted = muted,
+            adjustmentLabel = if (readOnly) { if (muted) "停" else "补" } else null)
     }
 }
 
@@ -2024,8 +2080,13 @@ internal fun DayCourseCardTextContent(
     showTime: Boolean,
     showWeeks: Boolean,
     textColor: ComposeColor,
-    tabletFontScale: Float
+    tabletFontScale: Float,
+    config: ScheduleConfigEntity,
+    muted: Boolean = false
 ) {
+    val themeColor = if (config.courseCardColoredTextEnabled) {
+        if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
+    } else null
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val safeTabletScale = tabletFontScale.coerceAtLeast(1f)
         val titleStyle = MaterialTheme.typography.titleMedium.copy(
@@ -2036,68 +2097,49 @@ internal fun DayCourseCardTextContent(
             fontSize = MaterialTheme.typography.bodyMedium.fontSize * safeTabletScale,
             lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * safeTabletScale
         )
-        Text(course.name, style = titleStyle, color = textColor)
+        CourseCardText(course.name, style = titleStyle, color = textColor, themeColor = themeColor)
         if (showTime) {
-            Text(
+            CourseCardText(
                 courseHomeTimeDetail(course, periods),
+                themeColor = themeColor,
                 style = bodyStyle,
                 color = textColor.copy(alpha = 0.86f)
             )
         }
         if (!course.location.isNullOrBlank()) {
-            Text("地点：" + course.location, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            CourseCardText("地点：" + course.location, style = bodyStyle, color = textColor.copy(alpha = 0.86f), themeColor = themeColor)
         }
         if (!course.teacher.isNullOrBlank()) {
-            Text("教师：" + course.teacher, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            CourseCardText("教师：" + course.teacher, style = bodyStyle, color = textColor.copy(alpha = 0.86f), themeColor = themeColor)
         }
         if (showWeeks) {
-            Text(
+            CourseCardText(
                 "周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity),
+                themeColor = themeColor,
                 style = bodyStyle,
                 color = textColor.copy(alpha = 0.86f)
             )
         }
         if (!course.note.isNullOrBlank()) {
-            Text("备注：" + course.note, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            CourseCardText("备注：" + course.note, style = bodyStyle, color = textColor.copy(alpha = 0.86f), themeColor = themeColor)
         }
     }
 }
 
 @Composable
-fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f) {
-    val resolvedCardColor = if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
+fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f, displayedWeek: Int? = null, muted: Boolean = false, adjustmentLabel: String? = null) {
+    val resolvedCardColor = if (muted) MutedCourseLightColor else if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
         else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor)
         else glassForegroundColor(config)
-    var ownBounds by remember { mutableStateOf<Rect?>(null) }
+    val ownBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
     val editId = LocalEditingCourseId.current
     val startupPhase = LocalStartupPhase.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && enableSharedTransition && course.id > 0L) LocalSharedTransitionScope.current else null
-    val startIndex = entranceIndex ?: 0
-    val entranceOrigin = if (startIndex % 2 == 0) {
-        if (startIndex < 2) StartupFlyOrigin.Left else StartupFlyOrigin.BottomLeft
-    } else {
-        if (startIndex < 2) StartupFlyOrigin.Right else StartupFlyOrigin.BottomRight
-    }
-    val entranceModifier = Modifier
-        .then(
-            if (entranceIndex != null) {
-                Modifier.startupFlyIn(
-                    key = "day_${course.id}_${startIndex}",
-                    index = startIndex,
-                    totalCount = 36,
-                    origin = entranceOrigin,
-                    intensity = if (startIndex < 2) 0.68f else 0.95f,
-                    delayFactor = 0.12f,
-                    alphaStart = 0f
-                )
-            } else {
-                Modifier
-            }
-        )
+    val boundsModifier = Modifier
         .onGloballyPositioned { coordinates ->
-            ownBounds = coordinates.boundsInRoot()
+            ownBounds[0] = coordinates.boundsInRoot()
         }
     CourseBoundsSource(
         courseId = course.id,
@@ -2106,23 +2148,36 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedRectangle(24.dp)
     ) { sharedModifier ->
-    CourseGlassCard(
-        backdrop = backdrop,
-        config = config,
-        course = course,
-        modifier = sharedModifier.then(entranceModifier),
-        shape = RoundedRectangle(24.dp),
-        expandedOutlineLight = true,
-        onClick = if (onClick != null) ({ onClick(ownBounds) }) else null
-    ) {
-        DayCourseCardTextContent(
-            course = course,
-            periods = periods,
-            showTime = showTime,
-            showWeeks = showWeeks,
-            textColor = textColor,
-            tabletFontScale = tabletFontScale
+    Box(
+        modifier = sharedModifier.then(boundsModifier).then(
+            if (displayedWeek != null) Modifier.courseRemovalMotion(course, displayedWeek, resolvedCardColor) else Modifier
         )
+    ) {
+        CourseGlassCard(
+            backdrop = backdrop,
+            config = config,
+            course = course,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedRectangle(24.dp),
+            expandedOutlineLight = true,
+            muted = muted,
+            onClick = if (onClick != null) ({ onClick(ownBounds[0]) }) else null
+        ) {
+            DayCourseCardTextContent(
+                course = course,
+                periods = periods,
+                showTime = showTime,
+                showWeeks = showWeeks,
+                textColor = textColor,
+                tabletFontScale = tabletFontScale,
+                config = config,
+                muted = muted
+            )
+        }
+        adjustmentLabel?.let {
+            CourseAdjustmentBadge(it, backdrop, config,
+                Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-5).dp).zIndex(7f))
+        }
     }
     }
 }

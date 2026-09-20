@@ -26,6 +26,12 @@ object DayAgentPreferences {
 
     fun hasDecision(context: Context): Boolean = prefs(context).getBoolean("has_decision", false)
     fun isEnabled(context: Context): Boolean = prefs(context).getBoolean("enabled", false)
+    fun isWeekAssistantEnabled(context: Context): Boolean = prefs(context).getBoolean("week_assistant_enabled", true)
+
+    fun setWeekAssistantEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean("week_assistant_enabled", enabled) }
+        mutableChanges.value += 1
+    }
     fun isDailyAiEnabled(context: Context): Boolean = prefs(context).getBoolean("daily_ai_enabled", true)
     fun isWeatherEnabled(context: Context): Boolean = prefs(context).getBoolean("weather_enabled", true)
     fun isMemoryEnabled(context: Context): Boolean = prefs(context).getBoolean("memory_enabled", false)
@@ -44,6 +50,7 @@ object DayAgentPreferences {
         return BackupDayAgentPreferences(
             hasDecision = storage.getBoolean("has_decision", false),
             enabled = storage.getBoolean("enabled", false),
+            weekAssistantEnabled = storage.getBoolean("week_assistant_enabled", true),
             dailyAiEnabled = storage.getBoolean("daily_ai_enabled", true),
             weatherEnabled = storage.getBoolean("weather_enabled", true),
             memoryEnabled = storage.getBoolean("memory_enabled", false),
@@ -74,6 +81,7 @@ object DayAgentPreferences {
         editor
             .putBoolean("has_decision", backup.hasDecision)
             .putBoolean("enabled", backup.enabled)
+            .putBoolean("week_assistant_enabled", backup.weekAssistantEnabled)
             .putBoolean("daily_ai_enabled", backup.dailyAiEnabled)
             .putBoolean("weather_enabled", backup.weatherEnabled)
             .putBoolean("memory_enabled", backup.memoryEnabled)

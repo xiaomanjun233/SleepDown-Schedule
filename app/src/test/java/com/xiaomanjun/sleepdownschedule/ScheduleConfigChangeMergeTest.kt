@@ -1,10 +1,30 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.shouldInterceptSettingsBack
+import com.xiaomanjun.sleepdownschedule.domain.schedule.withChangesFrom
+
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ScheduleConfigChangeMergeTest {
+    @Test
+    fun concurrentSettingsSavesPreserveAdjustmentDraftAndOtherChanges() {
+        val original = defaultConfig()
+        val adjustments = "[{\"date\":\"2026-10-01\"}]"
+        val latest = original.copy(darkMode = !original.darkMode)
+        val savedAdjustment = latest.withChangesFrom(original, original.copy(scheduleAdjustmentsJson = adjustments))
+        assertEquals(latest.darkMode, savedAdjustment.darkMode)
+        assertEquals(adjustments, savedAdjustment.scheduleAdjustmentsJson)
+
+        val savedNotifications = savedAdjustment.withChangesFrom(original,
+            original.copy(notificationLeadMinutes = 30))
+        assertEquals(adjustments, savedNotifications.scheduleAdjustmentsJson)
+        assertEquals(latest.darkMode, savedNotifications.darkMode)
+        assertEquals(30, savedNotifications.notificationLeadMinutes)
+    }
+
     @Test
     fun newSchedulesDefaultToCenteredDock() {
         val converters = ScheduleConverters()

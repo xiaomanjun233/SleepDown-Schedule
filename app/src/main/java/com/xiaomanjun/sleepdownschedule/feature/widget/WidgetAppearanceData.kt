@@ -22,7 +22,7 @@ enum class WidgetAppearanceVariant(val key: String, val displayName: String, val
     COURSES_SQUARE("COURSES_SQUARE", "今日课程 2×2", 1f),
     TODAY_TOMORROW("TODAY_TOMORROW", "今明课程 4×2", 2f),
     WEEK_SCHEDULE("WEEK_SCHEDULE", "周视图 4×3", 4f / 3f),
-    TODAY_ASSISTANT("TODAY_ASSISTANT", "今日助手 4×2", 2f);
+    TODAY_ASSISTANT("TODAY_ASSISTANT", "AI助理 4×2", 2f);
 
     companion object {
         fun fromKey(value: String): WidgetAppearanceVariant =

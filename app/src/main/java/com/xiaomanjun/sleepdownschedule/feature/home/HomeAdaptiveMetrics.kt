@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Rect
@@ -202,7 +203,7 @@ internal fun rememberHomeAdaptiveMetrics(): HomeAdaptiveMetrics {
     val density = LocalDensity.current
     val windowSize = currentWindowSizeDp()
     val safeTop = with(density) {
-        WindowInsets.safeDrawing.getTop(this).toDp()
+        maxOf(WindowInsets.safeDrawing.getTop(this), WindowInsets.statusBarsIgnoringVisibility.getTop(this)).toDp()
     }
     val safeBottom = with(density) {
         // Keep all home geometry stable while an Agent Dialog owns the IME. On MIUI,

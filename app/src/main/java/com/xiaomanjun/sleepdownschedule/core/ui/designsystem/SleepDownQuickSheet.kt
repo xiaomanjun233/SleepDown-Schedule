@@ -11,6 +11,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -93,6 +96,7 @@ internal fun <T> CenteredDialogContentTransition(
     targetState: T,
     modifier: Modifier = Modifier,
     label: String = "CenteredDialogContentTransition",
+    smoothResize: Boolean = false,
     content: @Composable (T) -> Unit
 ) {
     AnimatedContent(
@@ -100,7 +104,9 @@ internal fun <T> CenteredDialogContentTransition(
         modifier = modifier,
         transitionSpec = {
             fadeIn(tween(durationMillis = 160, delayMillis = 24)) togetherWith
-                fadeOut(tween(durationMillis = 100)) using SizeTransform(clip = false)
+                fadeOut(tween(durationMillis = 100)) using if (smoothResize) {
+                    SizeTransform(clip = true) { _, _ -> tween(260, easing = FastOutSlowInEasing) }
+                } else SizeTransform(clip = false)
         },
         label = label,
         content = { state -> content(state) }
@@ -128,6 +134,10 @@ fun SleepDownPickerDialog(
     blurRadius: Dp = 28.dp,
     titleAction: (@Composable () -> Unit)? = null,
     contentTransitionKey: Any? = null,
+    contentForState: (@Composable ColumnScope.(Any?) -> Unit)? = null,
+    scrollableContent: Boolean = false,
+    smoothContentResize: Boolean = false,
+    bottomActions: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val visuals = rememberCenteredDialogVisuals(
@@ -208,18 +218,24 @@ fun SleepDownPickerDialog(
                         titleAction?.invoke()
                     }
                 }
+                val bodyModifier = if (scrollableContent) {
+                    Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
+                } else Modifier
                 if (contentTransitionKey == null) {
-                    content()
+                    if (scrollableContent) Column(bodyModifier, content = content) else content()
                 } else {
                     CenteredDialogContentTransition(
                         targetState = contentTransitionKey,
+                        modifier = bodyModifier,
+                        smoothResize = smoothContentResize,
                         label = "picker-dialog-content"
-                    ) {
+                    ) { displayedState ->
                         Column(verticalArrangement = Arrangement.spacedBy(contentSpacing)) {
-                            content()
+                            if (contentForState != null) contentForState(displayedState) else content()
                         }
                     }
                 }
+                bottomActions?.invoke()
             }
         }
     }
@@ -310,12 +326,15 @@ internal fun Modifier.centeredDialogBackgroundBlur(
     val blurModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && backdrop != null) {
         Modifier
             .graphicsLayer { alpha = animationProgress.value.coerceIn(0f, 1f) }
-            .sleepDownPlainGlassSurface(
+            .sleepDownGlassSurface(
                 backdrop = backdrop,
                 descriptor = descriptor,
                 material = material,
                 shape = { RectangleShape },
-                effects = { blur(blurRadius.toPx()) }
+                // A full-window blur was still running at native resolution on this route.
+                // Use the same sampled material path as editors; dim remains full resolution.
+                effectFrame = GlassEffectFrame(blur = blurRadius),
+                backdropSampleScale = 0.5f
             )
     } else {
         Modifier
@@ -449,6 +468,8 @@ internal fun Modifier.quickSheetBackdropModifier(
         descriptor = descriptor,
         material = material,
         shape = { shape },
+        backdropSampleScale = if (centered) 0.5f else 1f,
+        cacheDecorations = centered,
         effectFrame = GlassEffectFrame(
             blur = effectiveBlurRadius,
             lensHeight = lensHeight,

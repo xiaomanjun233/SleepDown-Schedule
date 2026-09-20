@@ -12,7 +12,11 @@ import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 import android.app.ActivityManager
 import android.app.Application
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.res.Configuration
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -56,9 +60,16 @@ class CourseScheduleApp : Application() {
         AppIconManager.applyStoredMode(this)
         SleepDownRemoteConfig.initialize(this, applicationScope)
         ActivityTransitionCoordinator.install(this)
+        ContextCompat.registerReceiver(
+            this,
+            CourseAlarmReceiver(),
+            IntentFilter(Intent.ACTION_SCREEN_ON).apply { addAction(Intent.ACTION_USER_PRESENT) },
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 setTaskExcludedFromRecents(false)
+                NotificationScheduler.requestRefresh(this@CourseScheduleApp)
             }
 
             override fun onStop(owner: LifecycleOwner) {
@@ -107,6 +118,11 @@ class CourseScheduleApp : Application() {
                 }
             }
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        NotificationScheduler.refreshLiveUpdateIcon(this)
     }
 
     override fun onTrimMemory(level: Int) {

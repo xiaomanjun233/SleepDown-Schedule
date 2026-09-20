@@ -506,8 +506,15 @@ internal fun AiEduImportProgressPage(
                         )
                     }
                 }
-                val summary = current.liveSummary.ifBlank { current.reasoningOutput }
-                if (summary.isNotBlank()) item {
+                if (current.requestSent && !current.finished && current.error == null && !current.awaitingConfirmation) {
+                    item(key = "live-model-reasoning") {
+                        AiImportReasoningPanel(taskId = current.taskId, textColor = textColor)
+                    }
+                }
+                val summary = current.reasoningOutput.ifBlank {
+                    current.liveSummary.takeIf { current.finished || current.awaitingConfirmation }.orEmpty()
+                }
+                if (summary.isNotBlank()) item(key = "model-summary") {
                     AiEduModelSummary(summary = summary, textColor = textColor)
                 }
                 if (current.steps.isNotEmpty()) item {
@@ -646,20 +653,30 @@ private fun AiEduConversationTurnSummary(
     ) {
         Text("第 $index 轮修改", color = textColor.copy(alpha = 0.64f), style = MaterialTheme.typography.labelMedium)
         Text(turn.userPrompt, color = textColor, style = MaterialTheme.typography.bodyMedium, maxLines = 3)
-        Text(summary, color = textColor.copy(alpha = 0.70f), style = MaterialTheme.typography.bodySmall, maxLines = 5)
+        AiEduModelSummary(summary, textColor)
     }
 }
 
 @Composable
 private fun AiEduModelSummary(summary: String, textColor: Color) {
+    var expanded by androidx.compose.runtime.saveable.rememberSaveable(summary) { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text("模型摘要", color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
-        Text(summary, color = textColor.copy(alpha = 0.86f), style = MaterialTheme.typography.bodyMedium)
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("模型摘要", color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
+            Text(if (expanded) "收起" else "展开", color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
+        }
+        androidx.compose.animation.AnimatedVisibility(expanded) {
+            Text(summary, color = textColor.copy(alpha = 0.86f), style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
 
@@ -1317,27 +1334,8 @@ private fun aiAttachmentPreviewSmoothStep(start: Float, end: Float, value: Float
 }
 
 @Composable
-internal fun deviceScreenCornerRadiusPx(): Float {
-    val view = LocalView.current
-    val density = LocalDensity.current
-    val fallback = with(density) { 32.dp.toPx() }
-    return remember(view, density.density) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            listOf(
-                RoundedCorner.POSITION_TOP_LEFT,
-                RoundedCorner.POSITION_TOP_RIGHT,
-                RoundedCorner.POSITION_BOTTOM_LEFT,
-                RoundedCorner.POSITION_BOTTOM_RIGHT
-            ).mapNotNull { position -> view.rootWindowInsets?.getRoundedCorner(position)?.radius }
-                .maxOrNull()
-                ?.toFloat()
-                ?.takeIf { it > 0f }
-                ?: fallback
-        } else {
-            fallback
-        }
-    }
-}
+internal fun deviceScreenCornerRadiusPx(): Float =
+    com.xiaomanjun.sleepdownschedule.core.ui.interaction.deviceScreenCornerRadiusPx()
 
 @Composable
 private fun AiEduPreviewImage(image: RenderedPageImage, description: String) {

@@ -6,6 +6,8 @@
 
 同 Activity 的首页弹层、历史详情、课程编辑器、周视图拖拽和 `CustomizeUiState` 仍由原状态机管理。
 
+2026-09-14 的 Legacy 性能跟进将 HomeMenuDestination / Liquid 路线的进度读取下沉到布局和图层，固定内容录制完成后暂停内部玻璃的位置通知；全屏稳定端仍释放转场裁剪。详见 [动画排查记录](performance/2026-09-14-animation-import-audit.md)。
+
 ## 主要入口
 
 - 路线表：`transition/TransitionRoute.kt`

@@ -1,7 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.constrainPeriodTimeSelection
 import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.*
@@ -23,11 +23,17 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import com.kyant.backdrop.shadow.Shadow
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +44,8 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -63,17 +71,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
@@ -83,6 +97,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -92,13 +107,18 @@ import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
 import top.yukonga.miuix.kmp.basic.SmallTitle as MiuixSmallTitle
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.basic.ArrowRight
 import top.yukonga.miuix.kmp.preference.ArrowPreference as MiuixArrowPreference
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalTime
+import kotlin.math.abs
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 
 @Composable
@@ -430,12 +450,28 @@ fun SettingsNavigationRow(
     }
 }
 
+/**
+ * The unified forward indicator every row uses when it opens a secondary surface. Rows that cannot
+ * be a plain [SettingsNavigationRow] still reuse this exact Miuix arrow so the affordance matches.
+ */
+@Composable
+internal fun SettingsForwardIndicator(modifier: Modifier = Modifier) {
+    Image(
+        modifier = modifier.size(width = 10.dp, height = 16.dp),
+        imageVector = MiuixIcons.Basic.ArrowRight,
+        contentDescription = null,
+        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
+            top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurfaceVariantActions
+        )
+    )
+}
+
 @Composable
 fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdrop: Backdrop?, enabled: Boolean = true, onCheckedChange: (Boolean) -> Unit) {
     if (LocalGlassMiuixEnabled.current) {
         GlassMiuixInteractivePreference(
             title = title,
-            summary = subtitle,
+            summary = subtitle.takeIf { it.isNotBlank() },
             controlWidth = 64.dp,
             controlHeight = 28.dp,
             enabled = enabled
@@ -451,7 +487,7 @@ fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdro
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(76.dp)
+            .height(if (subtitle.isBlank()) 56.dp else 76.dp)
             .graphicsLayer(alpha = if (enabled) 1f else 0.48f)
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -463,7 +499,7 @@ fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdro
             verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)
         ) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.width(12.dp))
         if (enabled) {
@@ -886,57 +922,11 @@ fun SettingsDatePickerRow(
         config = config,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
     ) {
-        val maxDay = java.time.YearMonth.of(pickerYear, pickerMonth).lengthOfMonth()
-        LaunchedEffect(maxDay) {
-            if (pickerDay > maxDay) pickerDay = maxDay
-        }
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val fontScale = LocalDensity.current.fontScale
-            // NumberPicker defaults to MIUIX title1. Three equal columns make a four digit year
-            // ellipsize on narrow dialogs or when display/font scaling is raised. Keep the picker
-            // readable without changing the dialog width: reserve more width for the year and cap
-            // only this dense numeric control's effective size at the extreme DPI combinations.
-            val compactPicker = maxWidth < 300.dp || fontScale > 1.12f
-            val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
-                fontSize = when {
-                    maxWidth < 270.dp || fontScale > 1.32f -> 21.sp
-                    compactPicker -> 24.sp
-                    else -> 28.sp
-                }
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(if (compactPicker) 4.dp else 8.dp)
-            ) {
-                top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = pickerYear,
-                    onValueChange = { pickerYear = it },
-                    range = 2000..2100,
-                    visibleItemCount = 3,
-                    label = { "${it}年" },
-                    textStyle = pickerTextStyle,
-                    modifier = Modifier.weight(if (compactPicker) 1.65f else 1.5f)
-                )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = pickerMonth,
-                    onValueChange = { pickerMonth = it },
-                    range = 1..12,
-                    visibleItemCount = 3,
-                    label = { "${it}月" },
-                    textStyle = pickerTextStyle,
-                    modifier = Modifier.weight(1f)
-                )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
-                    value = pickerDay.coerceAtMost(maxDay),
-                    onValueChange = { pickerDay = it },
-                    range = 1..maxDay,
-                    visibleItemCount = 3,
-                    label = { "${it}日" },
-                    textStyle = pickerTextStyle,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
+        SettingsDatePickerContent(
+            year = pickerYear, month = pickerMonth, day = pickerDay,
+            onYearChange = { pickerYear = it }, onMonthChange = { pickerMonth = it },
+            onDayChange = { pickerDay = it }
+        )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)) {
             QuickSheetLiquidAction(
                 "取消", true, popupBackdrop, config,
@@ -946,9 +936,77 @@ fun SettingsDatePickerRow(
                 "确定", true, popupBackdrop, config, primary = true,
                 modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
             ) {
+                val maxDay = java.time.YearMonth.of(pickerYear, pickerMonth).lengthOfMonth()
                 onValueChange(formatScheduleDate(LocalDate.of(pickerYear, pickerMonth, pickerDay.coerceAtMost(maxDay))))
                 showPicker = false
             }
+        }
+    }
+}
+
+/**
+ * Shared year/month/day wheels. Kept separate from the row so a centered dialog can host the same
+ * control as one of its pages instead of stacking a second dialog on top of itself.
+ */
+@Composable
+internal fun SettingsDatePickerContent(
+    year: Int,
+    month: Int,
+    day: Int,
+    onYearChange: (Int) -> Unit,
+    onMonthChange: (Int) -> Unit,
+    onDayChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val maxDay = java.time.YearMonth.of(year, month).lengthOfMonth()
+    LaunchedEffect(maxDay) {
+        if (day > maxDay) onDayChange(maxDay)
+    }
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val fontScale = LocalDensity.current.fontScale
+        // NumberPicker defaults to MIUIX title1. Three equal columns make a four digit year
+        // ellipsize on narrow dialogs or when display/font scaling is raised. Keep the picker
+        // readable without changing the dialog width: reserve more width for the year and cap
+        // only this dense numeric control's effective size at the extreme DPI combinations.
+        val compactPicker = maxWidth < 300.dp || fontScale > 1.12f
+        val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+            fontSize = when {
+                maxWidth < 270.dp || fontScale > 1.32f -> 21.sp
+                compactPicker -> 24.sp
+                else -> 28.sp
+            }
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(if (compactPicker) 4.dp else 8.dp)
+        ) {
+            top.yukonga.miuix.kmp.basic.NumberPicker(
+                value = year,
+                onValueChange = onYearChange,
+                range = 2000..2100,
+                visibleItemCount = 3,
+                label = { "${it}年" },
+                textStyle = pickerTextStyle,
+                modifier = Modifier.weight(if (compactPicker) 1.65f else 1.5f)
+            )
+            top.yukonga.miuix.kmp.basic.NumberPicker(
+                value = month,
+                onValueChange = onMonthChange,
+                range = 1..12,
+                visibleItemCount = 3,
+                label = { "${it}月" },
+                textStyle = pickerTextStyle,
+                modifier = Modifier.weight(1f)
+            )
+            top.yukonga.miuix.kmp.basic.NumberPicker(
+                value = day.coerceAtMost(maxDay),
+                onValueChange = onDayChange,
+                range = 1..maxDay,
+                visibleItemCount = 3,
+                label = { "${it}日" },
+                textStyle = pickerTextStyle,
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
@@ -986,48 +1044,9 @@ fun SettingsTimePickerRow(
         config = config,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
     ) {
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val pickerContentColor = LocalContentColor.current
-                val compact = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.15f
-                val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
-                    color = pickerContentColor,
-                    fontSize = if (compact) 23.sp else 28.sp
-                )
-                val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
-                    selectedTextColor = pickerContentColor,
-                    unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
-                    disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
-                    disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)
-                ) {
-                    top.yukonga.miuix.kmp.basic.NumberPicker(
-                        value = selectedHour,
-                        onValueChange = { hour ->
-                            val minute = pickerMinute.coerceIn(minuteRangeForHour(hour, safeMinimum, safeMaximum))
-                            pickerHour = hour
-                            pickerMinute = minute
-                        },
-                        range = (safeMinimum / 60)..(safeMaximum / 60),
-                        visibleItemCount = 3,
-                        label = { "%02d时".format(it) },
-                        colors = pickerColors,
-                        textStyle = pickerTextStyle,
-                        modifier = Modifier.weight(1f)
-                    )
-                    top.yukonga.miuix.kmp.basic.NumberPicker(
-                        value = selectedMinute % 60,
-                        onValueChange = { pickerMinute = it },
-                        range = allowedMinuteRange,
-                        visibleItemCount = 3,
-                        label = { "%02d分".format(it) },
-                        colors = pickerColors,
-                        textStyle = pickerTextStyle,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+            SettingsTimePickerContent(selectedMinute, safeMinimum..safeMaximum) {
+                pickerHour = it / 60
+                pickerMinute = it % 60
             }
             Row(
                 Modifier.fillMaxWidth(),
@@ -1076,25 +1095,7 @@ internal fun SettingsMinutePickerRow(
         config = config,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
     ) {
-        val pickerContentColor = LocalContentColor.current
-        top.yukonga.miuix.kmp.basic.NumberPicker(
-            value = pickerValue,
-            onValueChange = { pickerValue = it },
-            range = range,
-            visibleItemCount = 3,
-            label = { "${it}分钟" },
-            colors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
-                selectedTextColor = pickerContentColor,
-                unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
-                disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
-                disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
-            ),
-            textStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
-                color = pickerContentColor,
-                fontSize = 28.sp
-            ),
-            modifier = Modifier.fillMaxWidth()
-        )
+        SettingsMinutePickerContent(pickerValue, { pickerValue = it }, range)
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
@@ -1114,6 +1115,86 @@ internal fun SettingsMinutePickerRow(
     }
 }
 
+/** Shared by settings rows and the period editor; typography and wheel geometry stay identical. */
+@Composable
+internal fun SettingsTimePickerContent(
+    value: Int, range: IntRange, modifier: Modifier = Modifier, onValueChange: (Int) -> Unit
+) {
+    val safeMinimum = range.first.coerceIn(0, LastMinuteOfDay)
+    val safeMaximum = range.last.coerceIn(safeMinimum, LastMinuteOfDay)
+    val selectedMinute = value.coerceIn(safeMinimum, safeMaximum)
+    val selectedHour = selectedMinute / 60
+    val allowedMinuteRange = minuteRangeForHour(selectedHour, safeMinimum, safeMaximum)
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+                val pickerContentColor = LocalContentColor.current
+                val compact = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.15f
+                val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                    color = pickerContentColor,
+                    fontSize = if (compact) 23.sp else 28.sp
+                )
+                val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
+                    selectedTextColor = pickerContentColor,
+                    unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
+                    disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
+                    disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)
+                ) {
+                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                        value = selectedHour,
+                        onValueChange = { hour ->
+                            val minute = (selectedMinute % 60).coerceIn(minuteRangeForHour(hour, safeMinimum, safeMaximum))
+                            onValueChange(hour * 60 + minute)
+                        },
+                        range = (safeMinimum / 60)..(safeMaximum / 60),
+                        visibleItemCount = 3,
+                        label = { "%02d时".format(it) },
+                        colors = pickerColors,
+                        textStyle = pickerTextStyle,
+                        modifier = Modifier.weight(1f)
+                    )
+                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                        value = selectedMinute % 60,
+                        onValueChange = { onValueChange(selectedHour * 60 + it) },
+                        range = allowedMinuteRange,
+                        wrapAround = allowedMinuteRange == 0..59,
+                        visibleItemCount = 3,
+                        label = { "%02d分".format(it) },
+                        colors = pickerColors,
+                        textStyle = pickerTextStyle,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+}
+
+@Composable
+internal fun SettingsMinutePickerContent(
+    value: Int, onValueChange: (Int) -> Unit, range: IntRange, modifier: Modifier = Modifier
+) {
+        val pickerContentColor = LocalContentColor.current
+        top.yukonga.miuix.kmp.basic.NumberPicker(
+            value = value.coerceIn(range),
+            onValueChange = onValueChange,
+            range = range,
+            visibleItemCount = 3,
+            label = { "${it}分钟" },
+            colors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
+                selectedTextColor = pickerContentColor,
+                unselectedTextColor = pickerContentColor.copy(alpha = 0.34f),
+                disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
+                disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
+            ),
+            textStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                color = pickerContentColor,
+                fontSize = 28.sp
+            ),
+            modifier = modifier.fillMaxWidth()
+        )
+}
+
 private fun minuteRangeForHour(hour: Int, minimumMinute: Int, maximumMinute: Int): IntRange {
     val lower = if (hour == minimumMinute / 60) minimumMinute % 60 else 0
     val upper = if (hour == maximumMinute / 60) maximumMinute % 60 else 59
@@ -1128,16 +1209,25 @@ internal fun ConstrainedPeriodTimePickers(
     onSelectionChange: (PeriodTimeSelection) -> Unit,
     textStyle: TextStyle,
     showSectionLabels: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    minimumDurationMinutes: Int = 1
 ) {
-    val selection = constrainPeriodTimeSelection(startMinute, endMinute, bounds)
+    val foreground = LocalContentColor.current
+    val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
+        selectedTextColor = foreground,
+        unselectedTextColor = foreground.copy(alpha = 0.34f),
+        disabledSelectedTextColor = foreground.copy(alpha = 0.55f),
+        disabledUnselectedTextColor = foreground.copy(alpha = 0.22f)
+    )
+    val duration = minimumDurationMinutes.coerceIn(1, (bounds.maximumEndMinute - bounds.minimumStartMinute).coerceAtLeast(1))
+    val selection = constrainPeriodTimeSelection(startMinute, endMinute, bounds, minimumDurationMinutes = duration)
     LaunchedEffect(selection, startMinute, endMinute) {
         if (selection.startMinute != startMinute || selection.endMinute != endMinute) {
             onSelectionChange(selection)
         }
     }
-    val latestStart = selection.endMinute - 1
-    val earliestEnd = selection.startMinute + 1
+    val latestStart = selection.endMinute - duration
+    val earliestEnd = selection.startMinute + duration
     val startHour = selection.startMinute / 60
     val endHour = selection.endMinute / 60
     val startMinuteRange = minuteRangeForHour(startHour, bounds.minimumStartMinute, latestStart)
@@ -1149,7 +1239,8 @@ internal fun ConstrainedPeriodTimePickers(
                 candidate,
                 selection.endMinute,
                 bounds,
-                PeriodTimeSelectionAnchor.START
+                PeriodTimeSelectionAnchor.START,
+                minimumDurationMinutes = duration
             )
         )
     }
@@ -1160,7 +1251,8 @@ internal fun ConstrainedPeriodTimePickers(
                 selection.startMinute,
                 candidate,
                 bounds,
-                PeriodTimeSelectionAnchor.END
+                PeriodTimeSelectionAnchor.END,
+                minimumDurationMinutes = duration
             )
         )
     }
@@ -1181,16 +1273,19 @@ internal fun ConstrainedPeriodTimePickers(
                     range = (bounds.minimumStartMinute / 60)..(latestStart / 60),
                     visibleItemCount = 3,
                     label = { "%02d时".format(it) },
-                    textStyle = textStyle,
+                    textStyle = textStyle.copy(color = foreground),
+                    colors = pickerColors,
                     modifier = Modifier.weight(1f)
                 )
                 top.yukonga.miuix.kmp.basic.NumberPicker(
                     value = selection.startMinute % 60,
                     onValueChange = { updateStart(startHour * 60 + it) },
                     range = startMinuteRange,
+                    wrapAround = startMinuteRange == 0..59,
                     visibleItemCount = 3,
                     label = { "%02d分".format(it) },
-                    textStyle = textStyle,
+                    textStyle = textStyle.copy(color = foreground),
+                    colors = pickerColors,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -1210,16 +1305,19 @@ internal fun ConstrainedPeriodTimePickers(
                     range = (earliestEnd / 60)..(bounds.maximumEndMinute / 60),
                     visibleItemCount = 3,
                     label = { "%02d时".format(it) },
-                    textStyle = textStyle,
+                    textStyle = textStyle.copy(color = foreground),
+                    colors = pickerColors,
                     modifier = Modifier.weight(1f)
                 )
                 top.yukonga.miuix.kmp.basic.NumberPicker(
                     value = selection.endMinute % 60,
                     onValueChange = { updateEnd(endHour * 60 + it) },
                     range = endMinuteRange,
+                    wrapAround = endMinuteRange == 0..59,
                     visibleItemCount = 3,
                     label = { "%02d分".format(it) },
-                    textStyle = textStyle,
+                    textStyle = textStyle.copy(color = foreground),
+                    colors = pickerColors,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -1256,6 +1354,14 @@ fun SettingsInfoRow(title: String, body: String) {
 internal val LocalCollapsibleSettingsInfoRows = compositionLocalOf { false }
 
 private val changelogReleaseDates = mapOf(
+    "1.2.6_beta7" to "2026-09-20",
+    "1.2.6_beta6" to "2026-09-19",
+    "1.2.6_beta5" to "2026-09-16",
+    "1.2.6_beta4" to "2026-09-15",
+    "1.2.6_beta3" to "2026-09-15",
+    "1.2.6_beta2" to "2026-09-14",
+    "1.2.6_beta1" to "2026-09-14",
+    "1.2.5" to "2026-09-14",
     "1.2.3" to "2026-09-01",
     "1.2.2" to "2026-08-29",
     "1.2.1" to "2026-08-28",
@@ -1544,7 +1650,8 @@ fun SettingsActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     destructive: Boolean = false,
-    monochrome: Boolean = false
+    monochrome: Boolean = false,
+    glowing: Boolean = false
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val monochromeSurface = if (darkTheme) ComposeColor.Black else ComposeColor.White
@@ -1570,11 +1677,13 @@ fun SettingsActionButton(
                     destructive -> 0.86f
                     monochrome && darkTheme -> 0.58f
                     monochrome -> 0.74f
+                    glowing -> 0.64f
                     else -> 0.84f
                 }
             ),
             contentPadding = PaddingValues(horizontal = 16.dp),
-            blurRadius = 4.dp,
+            shadowStyle = if (glowing) Shadow(radius = 14.dp, color = tint.copy(alpha = 0.26f)) else Shadow.Default,
+            blurRadius = if (glowing) 8.dp else 4.dp,
             lensHeight = 14.dp,
             lensAmount = 18.dp,
             chromaticAberration = false
@@ -1607,6 +1716,119 @@ fun SettingsActionButton(
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold
         )
+    }
+}
+
+/**
+ * Swipe a settings row left to reveal a delete action. The gesture, threshold haptics, elastic
+ * action growth and spring settle follow the AI import history row; deleting is only requested so
+ * the caller can confirm it first, and the row springs back while the dialog is up.
+ */
+@Composable
+internal fun SettingsSwipeDeleteRow(
+    rowKey: Any?,
+    onRequestDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+    softAppearance: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val offset = remember(rowKey) { Animatable(0f) }
+    var revealCrossed by remember(rowKey) { mutableStateOf(false) }
+    var deleteCrossed by remember(rowKey) { mutableStateOf(false) }
+    var widthPx by remember { mutableStateOf(1f) }
+    val actionWidthPx = with(density) { 60.dp.toPx() }
+    val actionGapPx = with(density) { 12.dp.toPx() }
+    val revealPx = actionWidthPx + actionGapPx
+    val deleteTriggerPx = maxOf(revealPx + with(density) { 132.dp.toPx() }, widthPx * 0.72f)
+        .coerceAtMost(widthPx * 0.86f)
+    val maximumDragPx = (widthPx - with(density) { 16.dp.toPx() }).coerceAtLeast(revealPx)
+    val settleSpring = spring<Float>(dampingRatio = 0.52f, stiffness = 420f)
+    fun requestDelete() {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        revealCrossed = false
+        deleteCrossed = false
+        scope.launch { offset.animateTo(0f, settleSpring) }
+        onRequestDelete()
+    }
+    val dragDistance = (-offset.value).coerceAtLeast(0f)
+    val revealProgress = (dragDistance / revealPx).coerceIn(0f, 1f)
+    val stretch = ((dragDistance - revealPx) / (deleteTriggerPx - revealPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
+    val actionWidth = actionWidthPx +
+        (widthPx - with(density) { 32.dp.toPx() } - actionWidthPx).coerceAtLeast(0f) * stretch
+    val visibleActionWidth = minOf(actionWidth, (dragDistance - actionGapPx).coerceAtLeast(actionWidthPx))
+    Box(modifier.fillMaxWidth().onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }) {
+        Box(Modifier.matchParentSize(), contentAlignment = Alignment.CenterEnd) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .width(with(density) { visibleActionWidth.toDp() })
+                    .padding(end = if (softAppearance) 12.dp else 16.dp, top = if (softAppearance) 8.dp else 0.dp,
+                        bottom = if (softAppearance) 8.dp else 0.dp)
+                    .graphicsLayer {
+                        alpha = revealProgress
+                        transformOrigin = TransformOrigin(1f, 0.5f)
+                    }
+                    .clip(RoundedRectangle(15.dp))
+                    .then(if (softAppearance) Modifier
+                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(
+                            ComposeColor(0xFFFF6B61).copy(alpha = 0.22f), ComposeColor(0xFFFF453A).copy(alpha = 0.10f))))
+                        .border(0.7.dp, ComposeColor(0xFFFF665B).copy(alpha = 0.22f), RoundedRectangle(15.dp))
+                        else Modifier.background(ComposeColor(0xFFFF3B30)))
+                    .clickable(onClick = ::requestDelete),
+                contentAlignment = Alignment.Center
+            ) {
+                if (softAppearance) Column(horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Icon(painter = painterResource(R.drawable.ic_delete_history), contentDescription = null,
+                        tint = ComposeColor(0xFFFF453A), modifier = Modifier.size(18.dp))
+                    Text("删除", color = ComposeColor(0xFFFF453A), fontSize = 10.sp, lineHeight = 12.sp,
+                        fontWeight = FontWeight.Medium)
+                } else Image(
+                    painter = painterResource(R.drawable.ic_delete_history),
+                    contentDescription = "删除",
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(offset.value.roundToInt(), 0) }
+                .pointerInput(rowKey, widthPx) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = drag@{ change, dragAmount ->
+                            change.consume()
+                            val next = (offset.value + dragAmount).coerceIn(-maximumDragPx, 0f)
+                            val revealNow = abs(next) >= revealPx * 0.48f
+                            if (revealNow != revealCrossed) {
+                                revealCrossed = revealNow
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                            scope.launch { offset.snapTo(next) }
+                            if (abs(next) >= deleteTriggerPx && !deleteCrossed) {
+                                deleteCrossed = true
+                                requestDelete()
+                            }
+                        },
+                        onDragEnd = {
+                            scope.launch {
+                                val target = if (abs(offset.value) >= revealPx * 0.48f) -revealPx else 0f
+                                revealCrossed = target < 0f
+                                deleteCrossed = false
+                                offset.animateTo(target, settleSpring)
+                            }
+                        },
+                        onDragCancel = {
+                            revealCrossed = false
+                            deleteCrossed = false
+                            scope.launch { offset.animateTo(0f, settleSpring) }
+                        }
+                    )
+                }
+        ) { content() }
     }
 }
 

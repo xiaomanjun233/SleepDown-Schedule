@@ -48,6 +48,27 @@ typealias AgentActionHandler =
 
 internal class AgentPlanRejectedException(message: String) : IllegalStateException(message)
 
+internal fun AgentValidatedAction.sourceWeekSet(): Set<Int> = when (scope) {
+    AgentActionScope.CURRENT_WEEK -> setOf(targetWeek)
+    AgentActionScope.SELECTED_WEEKS -> sourceWeeks.toSet()
+    AgentActionScope.ALL_WEEKS -> original?.weeks.orEmpty().toSet()
+}
+
+internal fun AgentValidatedAction.scopedEditedCourse(): CourseEntity? = edited?.let {
+    if (scope == AgentActionScope.CURRENT_WEEK) it.copy(weeks = listOf(targetWeek)) else it
+}
+
+/** The same stored course can participate in several edits when their source weeks are disjoint. */
+internal fun agentActionsHaveOverlappingCourseScopes(actions: List<AgentValidatedAction>): Boolean =
+    actions.filter { it.original != null }.groupBy { it.original!!.id }.values.any { group ->
+        if (group.size < 2) false
+        else if (group.any { it.scope == AgentActionScope.ALL_WEEKS }) true
+        else {
+            val seen = mutableSetOf<Int>()
+            group.any { action -> action.sourceWeekSet().any { !seen.add(it) } }
+        }
+    }
+
 internal fun previewAgentPlan(
     before: List<CourseEntity>,
     plan: AgentPlan,
@@ -62,19 +83,20 @@ internal fun previewAgentPlan(
                 working += edited.copy(id = temporaryId--)
             }
 
-            AgentValidatedActionType.UPDATE -> {
+            AgentValidatedActionType.UPDATE,
+            AgentValidatedActionType.REPLACE -> {
                 val original = action.original ?: return@forEach
-                val edited = action.edited ?: return@forEach
+                val edited = action.scopedEditedCourse() ?: return@forEach
                 val index = working.indexOfFirst { it.id == original.id }
                 if (index < 0) return@forEach
-                if (action.scope == AgentActionScope.CURRENT_WEEK) {
-                    val remaining = working[index].weeks.filterNot { it == action.targetWeek }
+                if (action.scope != AgentActionScope.ALL_WEEKS) {
+                    val remaining = working[index].weeks.filterNot { it in action.sourceWeekSet() }
                     if (remaining.isEmpty()) working.removeAt(index)
                     else working[index] = working[index].copy(weeks = remaining)
                     // Preserve the logical course id in simulation. This prevents an already
                     // existing conflict from being misclassified as new merely because the
                     // current-week edit will be stored as a physical fragment in Room.
-                    working += edited.copy(id = original.id, weeks = listOf(action.targetWeek))
+                    working += edited.copy(id = original.id)
                 } else {
                     working[index] = edited.copy(id = original.id)
                 }
@@ -84,8 +106,8 @@ internal fun previewAgentPlan(
                 val original = action.original ?: return@forEach
                 val index = working.indexOfFirst { it.id == original.id }
                 if (index < 0) return@forEach
-                if (action.scope == AgentActionScope.CURRENT_WEEK) {
-                    val remaining = working[index].weeks.filterNot { it == action.targetWeek }
+                if (action.scope != AgentActionScope.ALL_WEEKS) {
+                    val remaining = working[index].weeks.filterNot { it in action.sourceWeekSet() }
                     if (remaining.isEmpty()) working.removeAt(index)
                     else working[index] = working[index].copy(weeks = remaining)
                 } else {
@@ -94,8 +116,13 @@ internal fun previewAgentPlan(
             }
 
             AgentValidatedActionType.OPEN_SETTINGS,
+            AgentValidatedActionType.OPEN_IMPORT,
             AgentValidatedActionType.SET_SETTING,
-            AgentValidatedActionType.SET_PERIOD_SETTINGS -> Unit
+            AgentValidatedActionType.SET_PERIOD_SETTINGS,
+            AgentValidatedActionType.SET_ADJUSTMENTS,
+            AgentValidatedActionType.CREATE_SCHEDULE,
+            AgentValidatedActionType.ACTIVATE_SCHEDULE,
+            AgentValidatedActionType.DELETE_SCHEDULE -> Unit
         }
     }
 
@@ -111,6 +138,7 @@ internal fun previewAgentPlan(
     val affectedWeeks = plan.actions.flatMap { action ->
         when (action.scope) {
             AgentActionScope.CURRENT_WEEK -> listOf(action.targetWeek)
+            AgentActionScope.SELECTED_WEEKS -> action.sourceWeeks + action.edited?.weeks.orEmpty()
             AgentActionScope.ALL_WEEKS ->
                 (action.original?.weeks.orEmpty() + action.edited?.weeks.orEmpty())
         }
@@ -128,23 +156,26 @@ internal fun previewAgentPlan(
 
 internal fun verifyAgentPlan(
     actual: List<CourseEntity>,
-    plan: AgentPlan
-): Boolean = plan.actions.all { action ->
+    plan: AgentPlan,
+    before: List<CourseEntity>? = null
+): Boolean {
+    if (before != null) return agentSemanticSchedule(actual) == agentSemanticSchedule(previewAgentPlan(before, plan).after)
+    return plan.actions.all { action ->
     when (action.type) {
         AgentValidatedActionType.ADD -> action.edited?.let { expected ->
             actual.any { it.agentContentEquals(expected) }
         } ?: false
 
-        AgentValidatedActionType.UPDATE -> {
+        AgentValidatedActionType.UPDATE,
+        AgentValidatedActionType.REPLACE -> {
             val original = action.original
             val edited = action.edited
             if (original == null || edited == null) false
-            else if (action.scope == AgentActionScope.CURRENT_WEEK) {
+            else if (action.scope != AgentActionScope.ALL_WEEKS) {
                 actual.any {
-                    action.targetWeek in it.weeks &&
-                        it.agentContentEquals(edited.copy(weeks = listOf(action.targetWeek)))
+                    it.agentContentEquals(action.scopedEditedCourse()!!)
                 } && actual.none {
-                    it.id == original.id && action.targetWeek in it.weeks
+                    it.id == original.id && it.weeks.any { week -> week in action.sourceWeekSet() }
                 }
             } else {
                 actual.firstOrNull { it.id == original.id }?.agentContentEquals(edited) == true
@@ -152,18 +183,30 @@ internal fun verifyAgentPlan(
         }
 
         AgentValidatedActionType.DELETE -> action.original?.let { original ->
-            if (action.scope == AgentActionScope.CURRENT_WEEK) {
-                actual.none { it.id == original.id && action.targetWeek in it.weeks }
+            if (action.scope != AgentActionScope.ALL_WEEKS) {
+                actual.none { it.id == original.id && it.weeks.any { week -> week in action.sourceWeekSet() } }
             } else {
                 actual.none { it.id == original.id }
             }
         } ?: false
 
         AgentValidatedActionType.OPEN_SETTINGS,
+        AgentValidatedActionType.OPEN_IMPORT,
         AgentValidatedActionType.SET_SETTING,
-        AgentValidatedActionType.SET_PERIOD_SETTINGS -> true
+        AgentValidatedActionType.SET_PERIOD_SETTINGS,
+        AgentValidatedActionType.SET_ADJUSTMENTS,
+        AgentValidatedActionType.CREATE_SCHEDULE,
+        AgentValidatedActionType.ACTIVATE_SCHEDULE,
+        AgentValidatedActionType.DELETE_SCHEDULE -> true
     }
 }
+}
+
+/** Fragment merging may retain any physical ID. Compare all content and teaching weeks instead. */
+private fun agentSemanticSchedule(courses: List<CourseEntity>): Map<CourseEntity, Set<Int>> = courses
+    .groupBy { it.copy(id = 0, weeks = emptyList(), periods = it.periods.distinct().sorted(), weekParity = WeekParity.ALL) }
+    .mapValues { (_, rows) -> rows.flatMap { row -> row.weeks.filter { parityMatches(row.weekParity, it) } }.toSet() }
+    .filterValues { it.isNotEmpty() }
 
 private fun CourseEntity.agentContentEquals(other: CourseEntity): Boolean =
     name == other.name &&
@@ -176,6 +219,7 @@ private fun CourseEntity.agentContentEquals(other: CourseEntity): Boolean =
         note == other.note &&
         customStartTime == other.customStartTime &&
         customEndTime == other.customEndTime &&
+        customColorArgb == other.customColorArgb &&
         scheduleId == other.scheduleId
 
 private fun findAgentCourseConflicts(
