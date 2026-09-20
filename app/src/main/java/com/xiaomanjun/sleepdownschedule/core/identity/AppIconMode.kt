@@ -99,7 +99,7 @@ fun currentIconResId(
     }
 }
 
-/** Fixed full-color PNGs for SystemUI, independent of launcher/night resource resolution. */
+/** Fixed full-color drawable aliases for SystemUI, sharing each explicit light/dark PNG. */
 fun currentLiveUpdateIconResId(context: Context): Int {
     val dark = when (AppIconManager.currentMode(context)) {
         AppIconMode.LIGHT -> false

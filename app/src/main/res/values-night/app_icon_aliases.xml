@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item type="mipmap" name="ic_launcher">@mipmap/ic_launcher_dark</item>
+    <item type="mipmap" name="ic_launcher_round">@mipmap/ic_launcher_dark</item>
+    <item type="mipmap" name="ic_launcher_kanban">@mipmap/ic_launcher_kanban_dark</item>
+</resources>
