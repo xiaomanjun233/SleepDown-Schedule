@@ -95,6 +95,7 @@ object ColorOSCourseBridge {
                 .putLong(KEY_LAST_REFRESH_AT, System.currentTimeMillis())
                 .putString(KEY_LAST_REFRESH_REASON, reason)
                 .apply()
+            Log.d(TAG, "Refresh notified reason=$reason")
         }.onFailure { error ->
             Log.w(TAG, "Failed to notify ColorOS course refresh", error)
         }

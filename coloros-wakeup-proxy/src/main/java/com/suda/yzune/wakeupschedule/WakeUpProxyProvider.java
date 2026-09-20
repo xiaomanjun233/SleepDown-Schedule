@@ -79,6 +79,7 @@ public final class WakeUpProxyProvider extends ContentProvider {
                     SystemClock.elapsedRealtime());
             SNAPSHOTS.put(key, fresh);
             Log.d(TAG, "Source query succeeded path=" + uri.getPath()
+                    + " caller=" + getCallingPackage()
                     + " costMs=" + (SystemClock.elapsedRealtime() - startedAt));
             return oneRow(fresh.code, fresh.data);
         }

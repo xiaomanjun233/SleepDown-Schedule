@@ -451,9 +451,9 @@ fun ScheduleSettingsContent(
             title = if (success) "已请求测试流体云" else "流体云测试未就绪",
             message = when {
                 result.officialWakeUpConflict -> "检测到 WakeUp 课程表，实验兼容组件无法同时安装。"
-                !result.proxyIsSleepDown -> "未检测到 SleepDown 实验兼容组件，请先安装 proxy APK。"
-                !result.exportValid -> "当前课程数据导出异常，请打开诊断信息查看详情。"
-                else -> "已发送 refresh 通知。ColorOS 是否生成课程流体云仍需以系统实际查询和展示结果为准。"
+                !result.proxyIsSleepDown -> "请先在通知设置中下载并安装课程组件。"
+                !result.exportValid -> "课程读取失败，请到通知设置中查看问题诊断。"
+                else -> "已创建一条 3 分钟的测试课程，并请系统重新读取。流体云是否出现由 ColorOS 决定。"
             },
             actions = listOf(
                 LiquidAlertAction("完成", LiquidAlertActionStyle.Primary) {

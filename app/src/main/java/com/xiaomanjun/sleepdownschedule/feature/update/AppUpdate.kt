@@ -61,8 +61,14 @@ data class GiteeReleaseInfo(
     val apkName: String?,
     val apkUrl: String?,
     val releaseUrl: String,
-    val prerelease: Boolean
+    val prerelease: Boolean,
+    val packageKind: DownloadPackageKind = DownloadPackageKind.AppUpdate
 )
+
+enum class DownloadPackageKind {
+    AppUpdate,
+    CourseComponent
+}
 
 sealed interface GiteeUpdateCheckResult {
     data class UpdateAvailable(val release: GiteeReleaseInfo) : GiteeUpdateCheckResult
@@ -137,15 +143,7 @@ object GiteeAppUpdater {
                 check(AppDistribution.supportsSelfUpdate) {
                     "当前应用商店发行版不支持应用内 APK 更新"
                 }
-                val releases = mutableListOf<GiteeReleaseInfo>()
-                var page = 1
-                do {
-                    val endpoint = "$GiteeApiBase/repos/$GiteeOwner/$GiteeRepository/releases?page=$page&per_page=100"
-                    val entries = json.parseToJsonElement(readText(endpoint)) as? JsonArray
-                        ?: error("Gitee 返回了无法识别的版本列表")
-                    releases += entries.map { it.jsonObjectOrThrow().toReleaseInfo() }
-                    page++
-                } while (entries.size == 100)
+                val releases = readReleaseObjects().map { it.toReleaseInfo() }
                 val release = selectRelease(releases, includesBeta(context))
                     ?: error("当前更新渠道暂无可用版本")
                 if (isVersionNewer(release.tagName, currentVersionName)) {
@@ -155,6 +153,37 @@ object GiteeAppUpdater {
                 }
             }
         }
+
+    suspend fun findReleaseAsset(
+        expectedNames: Set<String>,
+        displayName: String,
+        packageKind: DownloadPackageKind
+    ): Result<GiteeReleaseInfo> = withContext(Dispatchers.IO) {
+        runCatching {
+            val normalizedNames = expectedNames.mapTo(linkedSetOf()) { it.lowercase() }
+            readReleaseObjects().forEach { release ->
+                val asset = release.releaseAssets().firstOrNull {
+                    it.name.lowercase() in normalizedNames
+                } ?: return@forEach
+                val sourceTag = release.string("tag_name").ifBlank { release.string("name") }
+                require(sourceTag.isNotBlank()) { "Gitee 版本缺少版本标签" }
+                val releasePage = release.string("html_url").ifBlank {
+                    "$GiteeRepositoryUrl/releases/tag/${Uri.encode(sourceTag)}"
+                }
+                return@runCatching GiteeReleaseInfo(
+                    name = displayName,
+                    tagName = "course-component-$sourceTag-${asset.name.hashCode()}",
+                    notes = release.string("body"),
+                    apkName = asset.name,
+                    apkUrl = asset.url,
+                    releaseUrl = releasePage,
+                    prerelease = true,
+                    packageKind = packageKind
+                )
+            }
+            error("暂未找到课程组件，请稍后重试")
+        }
+    }
 
     suspend fun downloadApk(context: Context, release: GiteeReleaseInfo): Result<File> {
         if (!AppDistribution.supportsSelfUpdate) {
@@ -195,6 +224,7 @@ object GiteeAppUpdater {
             .putExtra(UpdateDownloadForegroundService.EXTRA_TAG, release.tagName)
             .putExtra(UpdateDownloadForegroundService.EXTRA_NAME, release.name)
             .putExtra(UpdateDownloadForegroundService.EXTRA_APK_NAME, release.apkName)
+            .putExtra(UpdateDownloadForegroundService.EXTRA_PACKAGE_KIND, release.packageKind.name)
         ContextCompat.startForegroundService(context.applicationContext, intent)
     }
 
@@ -296,6 +326,19 @@ object GiteeAppUpdater {
         )
     }
 
+    private fun readReleaseObjects(): List<JsonObject> {
+        val releases = mutableListOf<JsonObject>()
+        var page = 1
+        do {
+            val endpoint = "$GiteeApiBase/repos/$GiteeOwner/$GiteeRepository/releases?page=$page&per_page=100"
+            val entries = json.parseToJsonElement(readText(endpoint)) as? JsonArray
+                ?: error("Gitee 返回了无法识别的版本列表")
+            releases += entries.map { it.jsonObjectOrThrow() }
+            page++
+        } while (entries.size == 100)
+        return releases
+    }
+
     private fun JsonObject.releaseAssets(): List<ReleaseAsset> {
         val containers = listOfNotNull(this["assets"], this["attach_files"])
         return containers.flatMap { it.collectReleaseAssets() }.distinctBy { it.url }
@@ -389,6 +432,9 @@ class UpdateDownloadForegroundService : Service() {
         val tag = intent.getStringExtra(EXTRA_TAG).orEmpty()
         val name = intent.getStringExtra(EXTRA_NAME).orEmpty().ifBlank { tag }
         val apkName = intent.getStringExtra(EXTRA_APK_NAME)
+        val packageKind = intent.getStringExtra(EXTRA_PACKAGE_KIND)
+            ?.let { runCatching { DownloadPackageKind.valueOf(it) }.getOrNull() }
+            ?: DownloadPackageKind.AppUpdate
         if (url.isBlank() || tag.isBlank()) {
             stopSelf(startId)
             return START_NOT_STICKY
@@ -402,7 +448,7 @@ class UpdateDownloadForegroundService : Service() {
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, progressNotification(name, null))
+        startForeground(NOTIFICATION_ID, progressNotification(name, null, packageKind))
         activeTag = tag
         downloadJob = serviceScope.launch {
             try {
@@ -413,18 +459,18 @@ class UpdateDownloadForegroundService : Service() {
                     val percent = state.progressPercent
                     if (percent != lastPercent || percent == null) {
                         getSystemService(NotificationManager::class.java)
-                            .notify(NOTIFICATION_ID, progressNotification(name, percent))
+                            .notify(NOTIFICATION_ID, progressNotification(name, percent, packageKind))
                         lastPercent = percent
                     }
                 }.fold(
                     onSuccess = { apk ->
                         GiteeAppUpdater.publishDownloadState(UpdateDownloadState.Completed(tag, apk))
-                        finishForeground(completedNotification(name, apk))
+                        finishForeground(completedNotification(name, apk, packageKind))
                     },
                     onFailure = { error ->
                         val message = error.message ?: "更新下载失败"
                         GiteeAppUpdater.publishDownloadState(UpdateDownloadState.Failed(tag, message))
-                        finishForeground(failedNotification(name, message))
+                        finishForeground(failedNotification(name, message, packageKind))
                     }
                 )
             } finally {
@@ -443,7 +489,11 @@ class UpdateDownloadForegroundService : Service() {
         super.onDestroy()
     }
 
-    private fun progressNotification(name: String, progress: Int?): Notification {
+    private fun progressNotification(
+        name: String,
+        progress: Int?,
+        packageKind: DownloadPackageKind
+    ): Notification {
         val openApp = PendingIntent.getActivity(
             this,
             6101,
@@ -452,7 +502,7 @@ class UpdateDownloadForegroundService : Service() {
         )
         val builder = Notification.Builder(this, CHANNEL_ID)
             .applyAppNotificationIcon(this)
-            .setContentTitle("正在下载更新")
+            .setContentTitle(if (packageKind == DownloadPackageKind.CourseComponent) "正在下载课程组件" else "正在下载更新")
             .setContentText(if (progress == null) name else "$name · $progress%")
             .setContentIntent(openApp)
             .setOngoing(true)
@@ -485,7 +535,11 @@ class UpdateDownloadForegroundService : Service() {
             .setProgress(progress ?: 0)
             .setProgressIndeterminate(progress == null)
 
-    private fun completedNotification(name: String, apk: File): Notification {
+    private fun completedNotification(
+        name: String,
+        apk: File,
+        packageKind: DownloadPackageKind
+    ): Notification {
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
         val installIntent = Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, ApkMimeType)
@@ -498,7 +552,7 @@ class UpdateDownloadForegroundService : Service() {
         )
         return Notification.Builder(this, CHANNEL_ID)
             .applyAppNotificationIcon(this)
-            .setContentTitle("更新下载完成")
+            .setContentTitle(if (packageKind == DownloadPackageKind.CourseComponent) "课程组件下载完成" else "更新下载完成")
             .setContentText("点击安装 $name")
             .setContentIntent(install)
             .setOngoing(true)
@@ -517,10 +571,14 @@ class UpdateDownloadForegroundService : Service() {
             .build()
     }
 
-    private fun failedNotification(name: String, message: String): Notification =
+    private fun failedNotification(
+        name: String,
+        message: String,
+        packageKind: DownloadPackageKind
+    ): Notification =
         Notification.Builder(this, CHANNEL_ID)
             .applyAppNotificationIcon(this)
-            .setContentTitle("更新下载失败")
+            .setContentTitle(if (packageKind == DownloadPackageKind.CourseComponent) "课程组件下载失败" else "更新下载失败")
             .setContentText("$name · $message")
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_ERROR)
@@ -556,6 +614,7 @@ class UpdateDownloadForegroundService : Service() {
         const val EXTRA_TAG = "update_tag"
         const val EXTRA_NAME = "update_name"
         const val EXTRA_APK_NAME = "update_apk_name"
+        const val EXTRA_PACKAGE_KIND = "update_package_kind"
         private const val CHANNEL_ID = "app_update_live_progress"
         private const val NOTIFICATION_ID = 20260720
     }

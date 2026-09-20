@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -53,5 +54,22 @@ class ColorOSCourseProviderContractTest {
         assertEquals(expected, ColorOSCourseProviderContract.requestedDate(listOf("course_list", seconds), zone, fallback))
         assertEquals(expected, ColorOSCourseProviderContract.requestedDate(listOf("course_list", millis), zone, fallback))
         assertEquals(fallback, ColorOSCourseProviderContract.requestedDate(listOf("course_list", "bad-date"), zone, fallback))
+    }
+
+    @Test
+    fun testPreviewIsExplicitCurrentDayOnlyAndExpires() {
+        val zone = ZoneId.of("Asia/Shanghai")
+        val now = Instant.parse("2026-09-20T18:10:00Z").toEpochMilli()
+        val expiresAt = now + 3 * 60 * 1_000L
+        val today = LocalDate.of(2026, 9, 21)
+
+        val preview = Json.parseToJsonElement(
+            ColorOSCourseTestPreview.append("[]", today, zone, now, expiresAt)
+        ).jsonArray.single().jsonObject
+
+        assertEquals("SleepDown 流体云测试", preview.getValue("courseName").jsonPrimitive.content)
+        assertEquals("测试课程将在 3 分钟后自动结束", preview.getValue("extra").jsonPrimitive.content)
+        assertEquals("[]", ColorOSCourseTestPreview.append("[]", today.plusDays(1), zone, now, expiresAt))
+        assertEquals("[]", ColorOSCourseTestPreview.append("[]", today, zone, expiresAt, expiresAt))
     }
 }

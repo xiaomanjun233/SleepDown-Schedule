@@ -4,16 +4,25 @@ import android.content.Context
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.model.NotificationMode
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.security.MessageDigest
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 data class ColorOSDeviceStatus(
     val manufacturer: String,
@@ -39,21 +48,17 @@ data class ColorOSCourseDiagnostics(
     val error: String?
 ) {
     fun asText(): String = buildString {
-        appendLine("设备厂商：${device.manufacturer} / ${device.brand}")
-        appendLine("ColorOS / OPlus：${if (device.isColorOSFamily) "是" else "否"}${device.colorOSVersion?.let { "（$it）" }.orEmpty()}")
-        appendLine("兼容组件已安装：${yesNo(proxyInstalled)}")
-        appendLine("SleepDown 实验组件：${yesNo(proxyIsSleepDown)}")
-        appendLine("WakeUp 冲突：${yesNo(officialWakeUpConflict)}")
-        appendLine("WakeUp Provider 可访问：${yesNo(proxyProviderAccessible)}")
-        appendLine("SleepDown Provider 可访问：${yesNo(sourceProviderAccessible)}")
-        appendLine("课程导出：${if (exportValid) "正常（今天 $todayCourseCount 门，明天 $tomorrowCourseCount 门）" else "异常"}")
-        appendLine("最近 refresh：${lastRefreshAt.takeIf { it > 0 } ?: "无"}")
-        appendLine("最近可识别系统查询：${lastSystemQueryAt.takeIf { it > 0 } ?: "无"}")
+        appendLine("设备：${device.manufacturer} ${device.brand}")
+        appendLine("系统支持：${yesNo(device.isColorOSFamily)}${device.colorOSVersion?.let { "（$it）" }.orEmpty()}")
+        appendLine("课程组件：${if (proxyIsSleepDown) "已安装" else if (proxyInstalled) "被其他课程应用占用" else "未安装"}")
+        appendLine("组件连接：${if (proxyProviderAccessible) "正常" else "未连接"}")
+        appendLine("课程读取：${if (exportValid) "正常（今天 $todayCourseCount 门，明天 $tomorrowCourseCount 门）" else "异常"}")
+        appendLine("最近同步：${lastRefreshAt.takeIf { it > 0 } ?: "无"}")
+        appendLine("最近系统读取：${lastSystemQueryAt.takeIf { it > 0 } ?: "无"}")
         if (lastSystemQueryAt > 0) {
-            appendLine("查询方：$lastSystemQueryCaller")
-            appendLine("查询路径：$lastSystemQueryPath")
+            appendLine("读取项目：$lastSystemQueryPath")
         }
-        error?.let { append("错误：$it") }
+        error?.let { append("问题：$it") }
     }
 
     private fun yesNo(value: Boolean) = if (value) "是" else "否"
@@ -61,6 +66,10 @@ data class ColorOSCourseDiagnostics(
 
 object ColorOSCourseExperiment {
     private const val KEY_ENABLED = "experiment_enabled"
+    private const val KEY_TEST_PREVIEW_EXPIRES_AT = "test_preview_expires_at"
+    private const val TEST_PREVIEW_DURATION_MS = 3 * 60 * 1_000L
+    private val previewHandler = Handler(Looper.getMainLooper())
+    private var previewCleanup: Runnable? = null
 
     fun deviceStatus(): ColorOSDeviceStatus {
         val manufacturer = Build.MANUFACTURER.orEmpty()
@@ -85,7 +94,17 @@ object ColorOSCourseExperiment {
 
     fun setEnabled(context: Context, enabled: Boolean): Boolean {
         val accepted = enabled && isAvailable()
-        ColorOSCourseBridge.preferences(context).edit().putBoolean(KEY_ENABLED, accepted).apply()
+        val preferences = ColorOSCourseBridge.preferences(context)
+        preferences.edit().putBoolean(KEY_ENABLED, accepted).apply()
+        if (!accepted) {
+            preferences.edit().remove(KEY_TEST_PREVIEW_EXPIRES_AT).apply()
+            previewCleanup?.let(previewHandler::removeCallbacks)
+            previewCleanup = null
+        }
+        ColorOSCourseBridge.notifyScheduleChanged(
+            context,
+            if (accepted) "experiment_enabled" else "experiment_disabled"
+        )
         return accepted
     }
 
@@ -162,8 +181,41 @@ object ColorOSCourseExperiment {
 
     suspend fun testFluidCloud(context: Context): ColorOSCourseDiagnostics {
         val diagnostics = diagnose(context)
+        if (diagnostics.proxyProviderAccessible && diagnostics.exportValid && isEnabled(context)) {
+            startTestPreview(context)
+        }
         ColorOSCourseBridge.notifyScheduleChanged(context, "manual_test")
         return diagnostics
+    }
+
+    internal fun appendTestPreview(
+        context: Context,
+        json: String,
+        date: LocalDate,
+        zoneId: ZoneId,
+        nowMillis: Long = System.currentTimeMillis()
+    ): String = ColorOSCourseTestPreview.append(
+        json = json,
+        date = date,
+        zoneId = zoneId,
+        nowMillis = nowMillis,
+        expiresAtMillis = ColorOSCourseBridge.preferences(context)
+            .getLong(KEY_TEST_PREVIEW_EXPIRES_AT, 0L)
+    )
+
+    private fun startTestPreview(context: Context) {
+        val appContext = context.applicationContext
+        val expiresAt = System.currentTimeMillis() + TEST_PREVIEW_DURATION_MS
+        ColorOSCourseBridge.preferences(appContext).edit()
+            .putLong(KEY_TEST_PREVIEW_EXPIRES_AT, expiresAt)
+            .apply()
+        previewCleanup?.let(previewHandler::removeCallbacks)
+        previewCleanup = Runnable {
+            ColorOSCourseBridge.preferences(appContext).edit()
+                .remove(KEY_TEST_PREVIEW_EXPIRES_AT)
+                .apply()
+            ColorOSCourseBridge.notifyScheduleChanged(appContext, "test_preview_finished")
+        }.also { previewHandler.postDelayed(it, TEST_PREVIEW_DURATION_MS) }
     }
 
     private fun query(context: Context, uri: android.net.Uri): ProviderRow {
@@ -226,4 +278,38 @@ object ColorOSCourseExperiment {
     }.getOrNull()
 
     private data class ProviderRow(val code: Int, val data: String)
+}
+
+internal object ColorOSCourseTestPreview {
+    private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
+    fun append(
+        json: String,
+        date: LocalDate,
+        zoneId: ZoneId,
+        nowMillis: Long,
+        expiresAtMillis: Long
+    ): String {
+        if (expiresAtMillis <= nowMillis) return json
+        val now = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
+        if (date != now.toLocalDate()) return json
+        val expiresAt = Instant.ofEpochMilli(expiresAtMillis).atZone(zoneId)
+        val existing = runCatching { Json.parseToJsonElement(json).jsonArray }.getOrNull()
+            ?: return json
+        return buildJsonArray {
+            existing.forEach { add(it) }
+            add(buildJsonObject {
+                put("id", 9_000_000_000_000L + expiresAtMillis % 1_000_000L)
+                put("courseName", "SleepDown 流体云测试")
+                put("room", "实验预览")
+                put("teacher", "SleepDown")
+                put("startTime", now.minusSeconds(30).toLocalTime().format(timeFormatter))
+                put("endTime", expiresAt.toLocalTime().format(timeFormatter))
+                put("color", "#ff3f8cff")
+                put("extra", "测试课程将在 3 分钟后自动结束")
+                put("startTimestamp", now.toEpochSecond() - 30L)
+                put("endTimestamp", expiresAt.toEpochSecond())
+            })
+        }.toString()
+    }
 }
