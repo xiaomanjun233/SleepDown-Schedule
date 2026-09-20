@@ -9,6 +9,7 @@ import android.util.Log
 import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.domain.schedule.ColorOSCourseMapper
+import com.xiaomanjun.sleepdownschedule.model.ScheduleProfileEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonArray
@@ -30,7 +31,7 @@ class ColorOSCourseExportProvider : ContentProvider() {
         sortOrder: String?
     ): Cursor? {
         val path = uri.pathSegments.firstOrNull() ?: return null
-        if (path !in supportedPaths) return null
+        if (path !in ColorOSCourseProviderContract.supportedPaths) return null
         val appContext = context?.applicationContext ?: return oneRow(-1, "{}")
         if (callingPackage == ColorOSCourseContract.PROXY_PACKAGE) {
             ColorOSCourseBridge.recordProxyQuery(
@@ -40,22 +41,15 @@ class ColorOSCourseExportProvider : ContentProvider() {
             )
         }
         return when (path) {
-            "has_init" -> oneRow(databaseJson("{\"has_init\":false}") {
+            "has_init" -> oneRow(databaseJson(ColorOSCourseProviderContract.hasInitJson(false)) {
                 val loaded = app().repository.activeSnapshot().loaded
-                "{\"has_init\":$loaded}"
+                ColorOSCourseProviderContract.hasInitJson(loaded)
             })
-            "show_table_id" -> oneRow(databaseJson("{\"table_id\":1}") {
-                "{\"table_id\":${app().repository.activeSnapshot().config.id}}"
+            "show_table_id" -> oneRow(databaseJson(ColorOSCourseProviderContract.showTableIdJson(1)) {
+                ColorOSCourseProviderContract.showTableIdJson(app().repository.activeSnapshot().config.id)
             })
             "table_list" -> oneRow(databaseJson("[]") {
-                buildJsonArray {
-                    app().repository.snapshot().schedules.forEach { schedule ->
-                        add(buildJsonObject {
-                            put("id", schedule.id)
-                            put("tableName", schedule.name)
-                        })
-                    }
-                }.toString()
+                ColorOSCourseProviderContract.tableListJson(app().repository.snapshot().schedules)
             })
             "course_list" -> oneRow(courseJson(uri, tomorrow = false))
             "next_course_list" -> oneRow(courseJson(uri, tomorrow = true))
@@ -65,23 +59,11 @@ class ColorOSCourseExportProvider : ContentProvider() {
 
     private fun courseJson(uri: Uri, tomorrow: Boolean): Pair<Int, String> = databaseJson("[]") {
         val zoneId = ZoneId.systemDefault()
-        val date = requestedDate(uri, zoneId).let { if (tomorrow) it.plusDays(1) else it }
+        val date = ColorOSCourseProviderContract.requestedDate(uri.pathSegments, zoneId)
+            .let { if (tomorrow) it.plusDays(1) else it }
         val result = ColorOSCourseMapper.export(date, app().repository.activeSnapshot(), zoneId)
         context?.let { ColorOSCourseBridge.recordExport(it, result.exportedCount) }
         result.json
-    }
-
-    private fun requestedDate(uri: Uri, zoneId: ZoneId): LocalDate {
-        val suffix = uri.pathSegments.drop(1).lastOrNull() ?: return LocalDate.now(zoneId)
-        if (suffix.any { !it.isDigit() }) return LocalDate.now(zoneId)
-        return runCatching {
-            when (suffix.length) {
-                8 -> LocalDate.parse(suffix, DateTimeFormatter.BASIC_ISO_DATE)
-                10 -> Instant.ofEpochSecond(suffix.toLong()).atZone(zoneId).toLocalDate()
-                13 -> Instant.ofEpochMilli(suffix.toLong()).atZone(zoneId).toLocalDate()
-                else -> LocalDate.now(zoneId)
-            }
-        }.getOrDefault(LocalDate.now(zoneId))
     }
 
     private fun databaseJson(fallback: String, block: suspend () -> String): Pair<Int, String> = try {
@@ -119,13 +101,46 @@ class ColorOSCourseExportProvider : ContentProvider() {
     private companion object {
         const val TAG = "ColorOSCourseExport"
         val columns = arrayOf("code", "data")
-        val supportedPaths = setOf(
-            "has_init",
-            "show_table_id",
-            "table_list",
-            "course_list",
-            "next_course_list"
-        )
         const val PROXY_CALLER_PARAMETER = "sleepdown_proxy_caller"
+    }
+}
+
+internal object ColorOSCourseProviderContract {
+    val supportedPaths = setOf(
+        "has_init",
+        "show_table_id",
+        "table_list",
+        "course_list",
+        "next_course_list"
+    )
+
+    fun hasInitJson(loaded: Boolean): String = "{\"has_init\":$loaded}"
+
+    fun showTableIdJson(tableId: Int): String = "{\"table_id\":$tableId}"
+
+    fun tableListJson(schedules: List<ScheduleProfileEntity>): String = buildJsonArray {
+        schedules.forEach { schedule ->
+            add(buildJsonObject {
+                put("id", schedule.id)
+                put("tableName", schedule.name)
+            })
+        }
+    }.toString()
+
+    fun requestedDate(
+        pathSegments: List<String>,
+        zoneId: ZoneId,
+        today: LocalDate = LocalDate.now(zoneId)
+    ): LocalDate {
+        val suffix = pathSegments.drop(1).lastOrNull() ?: return today
+        if (suffix.any { !it.isDigit() }) return today
+        return runCatching {
+            when (suffix.length) {
+                8 -> LocalDate.parse(suffix, DateTimeFormatter.BASIC_ISO_DATE)
+                10 -> Instant.ofEpochSecond(suffix.toLong()).atZone(zoneId).toLocalDate()
+                13 -> Instant.ofEpochMilli(suffix.toLong()).atZone(zoneId).toLocalDate()
+                else -> today
+            }
+        }.getOrDefault(today)
     }
 }

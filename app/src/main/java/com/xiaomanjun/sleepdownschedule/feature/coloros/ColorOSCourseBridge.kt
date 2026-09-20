@@ -59,7 +59,8 @@ object ColorOSCourseBridge {
 
     internal fun recordProxyQuery(context: Context, path: String, externalCaller: String?) {
         if (externalCaller.isNullOrBlank() || externalCaller == context.packageName ||
-            externalCaller == ColorOSCourseContract.PROXY_PACKAGE
+            externalCaller == ColorOSCourseContract.PROXY_PACKAGE ||
+            externalCaller == "com.android.shell"
         ) return
         preferences(context).edit()
             .putLong(KEY_LAST_PROXY_QUERY_AT, System.currentTimeMillis())
