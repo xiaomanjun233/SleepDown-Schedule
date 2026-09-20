@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <permission
+        android:name="com.xiaomanjun.sleepdownschedule.permission.COLOROS_COURSE_BRIDGE"
+        android:protectionLevel="signature" />
+
+    <uses-permission android:name="com.xiaomanjun.sleepdownschedule.permission.COLOROS_COURSE_BRIDGE" />
+
+    <queries>
+        <package android:name="com.suda.yzune.wakeupschedule" />
+        <provider android:authorities="com.suda.yzune.wakeupschedule.provider" />
+    </queries>
+
+    <application>
+        <provider
+            android:name=".feature.coloros.ColorOSCourseExportProvider"
+            android:authorities="com.xiaomanjun.sleepdownschedule.coloros.course"
+            android:enabled="true"
+            android:exported="true"
+            android:grantUriPermissions="false"
+            android:readPermission="com.xiaomanjun.sleepdownschedule.permission.COLOROS_COURSE_BRIDGE" />
+    </application>
+
+</manifest>
