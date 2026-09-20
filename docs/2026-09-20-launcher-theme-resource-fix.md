@@ -37,4 +37,20 @@ CLASSPATH=/data/local/tmp/sleepdown-icon-probe.dex app_process /system/bin Launc
 - Android 端同一回归检查：Beta6 通过，原版 Beta7 在“跟随模式未使用深色图”断言失败，修复包通过。
 - 首个修复包 6,328,542 字节，比原版 Beta7 增加 1,136 字节，重复资源仍为 0；仍保留此前的包体精简效果。
 
-最终重发产物与两端校验结果在完成后记录。
+## 最终重发产物
+
+- 源码提交：`ac86c024684a271758a10618e9ab16ebe73b939e`。
+- 更新应用内日志后的最终 `assembleGithubRelease` 成功，耗时 3 分 25 秒，保留 R8、资源压缩、lintVital 与正式签名；APK v2 签名验证通过。
+- 最终 APK 再次通过上述 Android 16 包解析与绘制检查，两套固定深浅图标、两套跟随图标及应用级图标均符合预期。
+- 包名 `com.xiaomanjun.sleepdownschedule`，版本 `1.2.6_beta7`，versionCode `33`。
+- APK 6,328,542 字节；较首次发布增加 1,136 字节，重复资源仍为 0。
+- SHA-256：`38cc085b28a2751f7bb44afee4b8440c5f3d4c66b1134725749399ede40ba9cb`。
+- 首次发布产物保留在本地临时目录，历史发布报告保持原记录。本次沿用 Beta7 版本，已安装首次发布包的用户需重新下载覆盖安装。
+
+## 两端发布校验
+
+- [GitHub Beta7](https://github.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v1.2.6_beta7) 与 [Gitee Beta7](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v1.2.6_beta7) 的 APK 附件已替换为上述最终产物，发布说明与应用内日志同步。
+- 两端均保持预发布状态，发布目标与 Beta7 标签均指向源码提交 `ac86c024684a271758a10618e9ab16ebe73b939e`；未合并主分支。GitHub 的最新正式版仍为 `v1.2.5`。
+- GitHub 附件 ID 为 `576930919`，服务端 digest、附件大小和公开下载校验一致；Gitee 公开下载的 SHA-256 与大小同样符合上述产物。
+- Gitee 首次说明更新因缺少其要求的完整字段返回 HTTP 400，补齐字段后更新成功。附件上传后下载校验发生一次连接中断；先只读确认远端状态，再单独下载校验通过，未重复删除或上传附件。
+- 只读模拟器已关闭。未安装到用户实机，也未启动或读取用户应用数据。
