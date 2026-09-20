@@ -2,8 +2,8 @@
 
 Run from any directory with Pillow installed. Original paintings stay unchanged.
 Coordinates are normalized to the 1254px originals, shared by light/dark pairs.
-Only fixed light/dark mipmaps are generated. The follow-mode launcher and
-notification names share these through values[-night]/app_icon_aliases.xml.
+Only fixed light/dark mipmaps are generated. Follow-mode mipmap[-night] bitmap
+XMLs and the notification aliases in values/app_icon_aliases.xml share them.
 """
 from pathlib import Path
 import math

@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Each fixed artwork is stored once per density; follow-mode aliases select the theme. -->
-    <item type="mipmap" name="ic_launcher">@mipmap/ic_launcher_light</item>
-    <item type="mipmap" name="ic_launcher_round">@mipmap/ic_launcher_light</item>
-    <item type="mipmap" name="ic_launcher_kanban">@mipmap/ic_launcher_kanban_light</item>
+    <!-- Follow-mode icons use bitmap XML resources so package parsing retains their dynamic IDs. -->
+    <item type="mipmap" name="ic_launcher_round">@mipmap/ic_launcher</item>
 
     <!-- Keep SystemUI's drawable entry points fixed to the explicitly selected artwork. -->
     <item type="drawable" name="ic_live_update_minimal_light">@mipmap/ic_launcher_light</item>
