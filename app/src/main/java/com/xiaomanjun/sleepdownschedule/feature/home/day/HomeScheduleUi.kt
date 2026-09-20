@@ -1272,7 +1272,6 @@ internal data class WeekCourseBuckets(
 )
 
 /** Neutral wash that marks a course occurrence as an adjustment placeholder instead of a real class. */
-internal val MutedCourseScrim = androidx.compose.ui.graphics.Color(0xFF8E8E93).copy(alpha = 0.58f)
 
 internal val SchoolWeekdays = (1..5).toList()
 internal val FullWeekdays = (1..7).toList()
@@ -1302,7 +1301,7 @@ internal fun weekCourseBuckets(
             regular.filter { it.weekday == weekday }
         } else if (adjustment.sourceDate == null) {
             // The day is off. Keep the regular cards so the timetable still shows what was planned,
-            // and let the views grey them out and refuse to open the editor.
+            // and let the views grey them out while editing still resolves the original course.
             cancelled += weekday
             regular.filter { it.weekday == weekday }
         } else {
@@ -1644,7 +1643,7 @@ internal fun DayScheduleScreen(
                 com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(state.config, targetDate)
             }
             // A day off keeps its regular cards on screen, greyed and read-only.
-            val targetCancelled = targetAdjustment?.sourceDate == null
+            val targetCancelled = targetAdjustment != null && targetAdjustment.sourceDate == null
             val targetTeachingDate = com.xiaomanjun.sleepdownschedule.domain.schedule.teachingDateForSchedule(state.config, targetDate)
             val targetWeekOrNull = when {
                 targetCancelled -> scheduleWeekForDateOrNull(state.config, targetDate)
@@ -1737,7 +1736,7 @@ internal fun DayScheduleScreen(
             val secondaryAdjustment = remember(state.config.scheduleAdjustmentsJson, secondaryDate) {
                 secondaryDate?.let { com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(state.config, it) }
             }
-            val secondaryCancelled = secondaryAdjustment?.sourceDate == null
+            val secondaryCancelled = secondaryAdjustment != null && secondaryAdjustment.sourceDate == null
             val secondaryTeachingDate = if (secondaryCancelled) null else secondaryDate?.let { com.xiaomanjun.sleepdownschedule.domain.schedule.teachingDateForSchedule(state.config, it) }
             val secondaryWeekOrNull = when {
                 secondaryCancelled -> secondaryDate?.let { scheduleWeekForDateOrNull(state.config, it) }
@@ -1806,6 +1805,7 @@ internal fun DayScheduleScreen(
                             simultaneousCount = simultaneousCount,
                             tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f,
                             readOnly = targetAdjustment != null,
+                            occurrenceDate = targetDate,
                             muted = targetCancelled
                         )
                     }
@@ -1851,6 +1851,7 @@ internal fun DayScheduleScreen(
                                 simultaneousCount = simultaneousCount,
                                 tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f,
                                 readOnly = secondaryAdjustment != null,
+                                occurrenceDate = visibleDate,
                                 muted = secondaryCancelled
                             )
                         }
@@ -2033,8 +2034,9 @@ private fun DayPartHeader(
 }
 
 @Composable
-fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, simultaneousCount: Int = 1, tabletFontScale: Float = 1f, readOnly: Boolean = false, muted: Boolean = false) {
-    val resolvedCardColor = courseCardBaseColor(config, course)
+fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, simultaneousCount: Int = 1, tabletFontScale: Float = 1f, readOnly: Boolean = false, muted: Boolean = false, occurrenceDate: LocalDate? = null) {
+    val adjustedEditor = LocalAdjustedCourseEditor.current
+    val resolvedCardColor = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
     val timePillColor = deepenColor(resolvedCardColor, 0.16f)
     val glassContentColor = LocalAdaptiveGlass.current.contentColor
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2062,7 +2064,12 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                 )
             }
         }
-        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config, onClick = if (readOnly) null else ({ sourceBounds -> onCourseClick(course, currentWeek, sourceBounds) }), tabletFontScale = tabletFontScale, displayedWeek = currentWeek, muted = muted)
+        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config,
+            onClick = { sourceBounds ->
+                if (readOnly) occurrenceDate?.let { adjustedEditor?.invoke(course.id, it, sourceBounds) }
+                else onCourseClick(course, currentWeek, sourceBounds)
+            }, tabletFontScale = tabletFontScale, displayedWeek = currentWeek, muted = muted,
+            adjustmentLabel = if (readOnly) { if (muted) "停" else "补" } else null)
     }
 }
 
@@ -2074,9 +2081,12 @@ internal fun DayCourseCardTextContent(
     showWeeks: Boolean,
     textColor: ComposeColor,
     tabletFontScale: Float,
-    config: ScheduleConfigEntity
+    config: ScheduleConfigEntity,
+    muted: Boolean = false
 ) {
-    val themeColor = if (config.courseCardColoredTextEnabled) courseCardBaseColor(config, course) else null
+    val themeColor = if (config.courseCardColoredTextEnabled) {
+        if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
+    } else null
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val safeTabletScale = tabletFontScale.coerceAtLeast(1f)
         val titleStyle = MaterialTheme.typography.titleMedium.copy(
@@ -2117,8 +2127,8 @@ internal fun DayCourseCardTextContent(
 }
 
 @Composable
-fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f, displayedWeek: Int? = null, muted: Boolean = false) {
-    val resolvedCardColor = if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
+fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f, displayedWeek: Int? = null, muted: Boolean = false, adjustmentLabel: String? = null) {
+    val resolvedCardColor = if (muted) MutedCourseLightColor else if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
         else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor)
@@ -2138,18 +2148,21 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedRectangle(24.dp)
     ) { sharedModifier ->
-    CourseGlassCard(
-        backdrop = backdrop,
-        config = config,
-        course = course,
+    Box(
         modifier = sharedModifier.then(boundsModifier).then(
             if (displayedWeek != null) Modifier.courseRemovalMotion(course, displayedWeek, resolvedCardColor) else Modifier
-        ),
-        shape = RoundedRectangle(24.dp),
-        expandedOutlineLight = true,
-        onClick = if (onClick != null) ({ onClick(ownBounds[0]) }) else null
+        )
     ) {
-        Box {
+        CourseGlassCard(
+            backdrop = backdrop,
+            config = config,
+            course = course,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedRectangle(24.dp),
+            expandedOutlineLight = true,
+            muted = muted,
+            onClick = if (onClick != null) ({ onClick(ownBounds[0]) }) else null
+        ) {
             DayCourseCardTextContent(
                 course = course,
                 periods = periods,
@@ -2157,17 +2170,13 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
                 showWeeks = showWeeks,
                 textColor = textColor,
                 tabletFontScale = tabletFontScale,
-                config = config
+                config = config,
+                muted = muted
             )
-            if (muted) {
-                // A cancelled occurrence stays visible as a disabled, greyed reminder.
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clip(RoundedRectangle(24.dp))
-                        .background(MutedCourseScrim)
-                )
-            }
+        }
+        adjustmentLabel?.let {
+            CourseAdjustmentBadge(it, backdrop, config,
+                Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-5).dp).zIndex(7f))
         }
     }
     }

@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -16,12 +17,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.app.ui.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.app.ui.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.app.ui.settingsPageBackground
+import com.xiaomanjun.sleepdownschedule.app.ui.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
@@ -79,10 +90,14 @@ private data class AdjustmentDraft(
     val date: String,
     val rest: Boolean,
     val source: String,
-    val isNew: Boolean
+    val isNew: Boolean,
+    val originalDate: String? = null,
+    val label: String = ""
 )
 
 private enum class AdjustmentPickerPage { DETAILS, TARGET_DATE, SOURCE_DATE }
+
+private data class AdjustmentPickerContent(val page: AdjustmentPickerPage, val rest: Boolean, val error: String?)
 
 @Composable
 internal fun ScheduleAdjustmentsScreen(
@@ -94,12 +109,14 @@ internal fun ScheduleAdjustmentsScreen(
     )) { mutableStateOf(initial) }
     var year by remember { mutableStateOf(LocalDate.now().year.toString()) }
     var loading by remember { mutableStateOf(false) }
+    var alreadyAddedNotice by remember { mutableStateOf<String?>(null) }
     var reviews by remember { mutableStateOf<List<HolidayReview>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     var showExitConfirm by remember { mutableStateOf(false) }
     // The centered picker edits one adjustment at a time; nothing leaves this screen before 保存.
     var draft by remember { mutableStateOf<AdjustmentDraft?>(null) }
+    var draftVisible by remember { mutableStateOf(false) }
     var draftError by remember { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<ScheduleAdjustment?>(null) }
     // The source always means the ORIGINAL teaching date, even if that day itself is on holiday.
@@ -118,34 +135,37 @@ internal fun ScheduleAdjustmentsScreen(
         if (state.config.autoCurrentWeek) require(scheduleWeekForDateOrNull(state.config, targetDate) != null) { "调休日期不在学期内" }
         val sourceDate = origin?.let { parseScheduleDate(it) ?: error("请选择原课程日期") }
         if (sourceDate != null) require(adjustedTeachingWeekForDate(state.config, sourceDate) != null) { "原课程日期不在学期内" }
-        return ScheduleAdjustment(targetDate.toString(), sourceDate?.toString(), label).also {
-            validateScheduleAdjustments(listOf(it))
-        }
+        return scheduleAdjustmentFromInput(target, origin, label)
     }
     val changed = remember(entries, initial) {
         encodeScheduleAdjustments(entries) != encodeScheduleAdjustments(initial)
     }
     fun beginEdit(entry: ScheduleAdjustment) {
-        draft = AdjustmentDraft(entry.date, entry.sourceDate == null, entry.sourceDate.orEmpty(), isNew = false)
+        draftVisible = true
+        draft = AdjustmentDraft(entry.date, entry.sourceDate == null, entry.sourceDate.orEmpty(),
+            isNew = false, originalDate = entry.date, label = entry.label)
         draftError = null
     }
     fun beginNewAdjustment() {
+        draftVisible = true
         draft = AdjustmentDraft(LocalDate.now().toString(), rest = true, source = "", isNew = true)
         draftError = null
     }
     fun commitDraft() {
         val current = draft ?: return
-        val label = entries.firstOrNull { it.date == current.date }?.label.orEmpty()
-        runCatching { validEntry(current.date, if (current.rest) null else current.source, label) }
+        runCatching {
+            val next = validEntry(current.date, if (current.rest) null else current.source, current.label)
+            replaceScheduleAdjustment(entries, current.originalDate, next)
+        }
             .onSuccess { next ->
-                entries = (entries.filter { it.date != next.date } + next).sortedBy { it.date }
-                draft = null
+                entries = next
+                draftVisible = false
                 draftError = null
             }
             .onFailure { draftError = it.message }
     }
     fun dropDraft() {
-        draft = null
+        draftVisible = false
         draftError = null
     }
     fun requestBack() {
@@ -178,7 +198,9 @@ internal fun ScheduleAdjustmentsScreen(
                 }
             }
             require(imported.isNotEmpty()) { "请至少选择一个日期" }
-            entries = (entries.filter { old -> imported.none { it.date == old.date } } + imported).sortedBy { it.date }
+            val merged = (entries.filter { old -> imported.none { it.date == old.date } } + imported).sortedBy { it.date }
+            validateScheduleAdjustments(merged)
+            entries = merged
             reviews = null
             error = null
         }.onFailure { error = it.message ?: "调休安排无效" }
@@ -186,14 +208,20 @@ internal fun ScheduleAdjustmentsScreen(
     // Only intercept back when there is something to save or a preview to drop, so an untouched
     // page keeps the platform predictive-back animation.
     BackHandler(enabled = reviews != null || changed, onBack = ::requestBack)
+    val pageColor = settingsPageBackground(state.config)
+    val pageBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "schedule-adjustments-body") {
+        drawRect(pageColor)
+        drawContent()
+    }
     DetailActivityScaffold(
         title = "调休课表",
         config = state.config,
         onBack = ::requestBack
     ) { backdrop ->
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().glassBackdropProducer(pageBackdrop).verticalScroll(rememberScrollState())
             .padding(start = 16.dp, end = 16.dp, top = detailContentTopPadding() + 12.dp,
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp),
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + DockScrollPadding),
             verticalArrangement = Arrangement.spacedBy(14.dp)) {
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             GlassPreferenceSection("自动获取") {
@@ -205,7 +233,7 @@ internal fun ScheduleAdjustmentsScreen(
                         subtitle = "自动匹配补课日期，仅生成预览",
                         onClick = {
                             if (!loading) scope.launch {
-                                loading = true; error = null
+                                loading = true; error = null; alreadyAddedNotice = null; reviews = null
                                 runCatching { HolidayApi.fetch(year.toIntOrNull() ?: error("请输入年份")) }
                                     .onSuccess { fetched ->
                                         val plans = planHolidays(fetched).mapNotNull { plan ->
@@ -214,15 +242,20 @@ internal fun ScheduleAdjustmentsScreen(
                                             if (rests.isEmpty() && makeups.isEmpty()) null
                                             else plan.copy(restDates = rests, makeups = makeups)
                                         }
+                                        val alreadyAdded = plans.filter { it.isAlreadyAdded(entries) }
+                                        alreadyAddedNotice = alreadyAdded.takeIf { it.isNotEmpty() }
+                                            ?.joinToString(separator = "、", postfix = "：已添加过") { it.name }
                                         if (plans.isEmpty()) error = "该年份没有学期内的节假日"
-                                        else reviews = plans.map { plan ->
+                                        else reviews = plans.filterNot { it in alreadyAdded }.map { plan ->
                                             HolidayReview(plan, restSelected = true, makeups = plan.makeups.map { makeup ->
-                                                val suggested = makeup.suggestedSource
+                                                val savedSource = entries.firstOrNull { it.date == makeup.date.toString() }
+                                                    ?.sourceDate?.let(LocalDate::parse)
+                                                val suggested = savedSource ?: makeup.suggestedSource
                                                 val matched = suggested != null &&
                                                     adjustedTeachingWeekForDate(state.config, suggested) != null
                                                 MakeupReview(makeup.date, if (matched) suggested.toString() else "", matched)
                                             })
-                                        }
+                                        }.takeIf { it.isNotEmpty() }
                                     }.onFailure {
                                         if (it is CancellationException) throw it
                                         error = when (it) {
@@ -234,6 +267,9 @@ internal fun ScheduleAdjustmentsScreen(
                                 loading = false
                             }
                         })
+                }
+                alreadyAddedNotice?.let {
+                    GlassPreferenceCategory(it, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
                 }
             }
             val pending = reviews
@@ -259,14 +295,16 @@ internal fun ScheduleAdjustmentsScreen(
                                     SettingsToggleRow(
                                         title = "补课 · ${shortDate(makeup.date)} ${weekdayText(makeup.date)}",
                                         subtitle = if (makeup.source.isBlank()) "请选择原课程日期"
-                                            else "补 ${makeup.source} ${weekdayText(LocalDate.parse(makeup.source))} 的课",
+                                            else "补 ${makeup.source} ${parseScheduleDate(makeup.source)?.let(::weekdayText).orEmpty()} 的课",
                                         checked = makeup.selected, backdrop = backdrop,
                                         onCheckedChange = { checked -> updateMakeup(planIndex, makeupIndex) { it.copy(selected = checked) } }
                                     )
                                     if (makeup.selected) {
                                         SettingsDivider()
                                         SettingsDatePickerRow("原课程日期", makeup.source,
-                                            { next -> updateMakeup(planIndex, makeupIndex) { it.copy(source = next) } },
+                                            { next -> updateMakeup(planIndex, makeupIndex) {
+                                                it.copy(source = parseScheduleDate(next)?.toString().orEmpty())
+                                            } },
                                             backdrop, state.config)
                                         Text(preview(makeup.source), Modifier.padding(14.dp), style = MaterialTheme.typography.bodySmall)
                                     }
@@ -274,7 +312,7 @@ internal fun ScheduleAdjustmentsScreen(
                             }
                         }
                     }
-                    GlassPreferenceCategory("补课日期按调休规则自动匹配原课程日期，请核对后再采用。",
+                    GlassPreferenceCategory("自动匹配仅供参考，请按学校安排核对。采用后会替换所选日期的已有安排，其他日期保留。",
                         modifier = Modifier.padding(start = 4.dp, top = 8.dp))
                     DialogLiquidButton(backdrop, "采用所选日期", ::applySelected,
                         role = DialogButtonRole.Confirm, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
@@ -284,23 +322,39 @@ internal fun ScheduleAdjustmentsScreen(
                 if (entries.isEmpty()) "调休安排" else "调休安排 · ${entries.size} 天"
             ) {
                 SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
-                    entries.forEachIndexed { index, entry ->
-                        if (index > 0) SettingsDivider()
-                        key(entry.date) {
-                            SettingsSwipeDeleteRow(rowKey = entry.date, onRequestDelete = { deleting = entry }) {
-                                AdjustmentRow(entry, preview = ::preview, onClick = { beginEdit(entry) })
-                            }
-                        }
-                    }
-                    if (entries.isNotEmpty()) SettingsDivider()
                     SettingsNavigationRow(
                         title = "新增调休日",
                         subtitle = "选择停课或补课的日期与原课程日期",
                         onClick = ::beginNewAdjustment
                     )
+                    entries.forEach { entry ->
+                        SettingsDivider()
+                        key(entry.date) {
+                            SettingsSwipeDeleteRow(rowKey = entry.date, onRequestDelete = { deleting = entry }, softAppearance = true) {
+                                AdjustmentRow(entry, preview = ::preview, onClick = { beginEdit(entry) })
+                            }
+                        }
+                    }
                 }
-                GlassPreferenceCategory("点按安排可在居中面板中修改，左滑删除。", modifier = Modifier.padding(start = 4.dp, top = 8.dp))
+                GlassPreferenceCategory("点按修改，左滑删除。修改原课程，也会同步更新对应的补课。", modifier = Modifier.padding(start = 4.dp, top = 8.dp))
             }
+        }
+        val density = LocalDensity.current
+        val imeLift = with(density) {
+            (WindowInsets.ime.getBottom(density) - WindowInsets.navigationBars.getBottom(density)).coerceAtLeast(0).toDp()
+        }
+        val darkPage = appUsesDarkTheme(state.config)
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(168.dp + imeLift)
+            .background(Brush.verticalGradient(listOf(
+                pageColor.copy(alpha = 0f),
+                pageColor.copy(alpha = if (darkPage) 0.42f else 0.36f),
+                pageColor.copy(alpha = if (darkPage) 0.76f else 0.70f),
+                pageColor.copy(alpha = if (darkPage) 0.94f else 0.92f)
+            )))
+        )
+        SettingsActionButton("保存调休安排", pageBackdrop, onClick = { onConfirm(entries) }, glowing = true,
+            modifier = Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, bottom = 18.dp).fillMaxWidth())
         }
         if (showExitConfirm) LiquidAlertDialog(
             title = "保存调休安排？", message = "完成后返回课表详细设置，与其他修改一起保存。",
@@ -329,6 +383,8 @@ internal fun ScheduleAdjustmentsScreen(
         }
         draft?.let { current ->
             AdjustmentEditorDialog(
+                show = draftVisible,
+                onDismissFinished = { draft = null; draftError = null },
                 draft = current,
                 error = draftError,
                 onDraftChange = { draft = it; draftError = null },
@@ -358,7 +414,7 @@ private fun AdjustmentRow(
             Text("${shortDate(date)} ${weekdayText(date)}", style = MaterialTheme.typography.bodyMedium)
             Text(
                 if (entry.sourceDate == null) "停课${entry.label.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}"
-                else "补 ${entry.sourceDate}\n${preview(entry.sourceDate)}",
+                else "补 ${shortDate(LocalDate.parse(entry.sourceDate))} ${weekdayText(LocalDate.parse(entry.sourceDate))}的课 · ${preview(entry.sourceDate).substringBefore('\n')}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -373,6 +429,8 @@ private fun AdjustmentRow(
  */
 @Composable
 private fun AdjustmentEditorDialog(
+    show: Boolean,
+    onDismissFinished: () -> Unit,
     draft: AdjustmentDraft,
     error: String?,
     onDraftChange: (AdjustmentDraft) -> Unit,
@@ -382,108 +440,95 @@ private fun AdjustmentEditorDialog(
     backdrop: Backdrop?, config: ScheduleConfigEntity
 ) {
     val targetDate = parseScheduleDate(draft.date) ?: LocalDate.now()
-    var page by remember(draft.isNew) {
-        mutableStateOf(if (draft.isNew) AdjustmentPickerPage.TARGET_DATE else AdjustmentPickerPage.DETAILS)
+    var page by remember { mutableStateOf(AdjustmentPickerPage.DETAILS) }
+    var selectedDate by remember { mutableStateOf(targetDate) }
+    fun openDatePage(destination: AdjustmentPickerPage) {
+        selectedDate = if (destination == AdjustmentPickerPage.SOURCE_DATE)
+            parseScheduleDate(draft.source) ?: targetDate else targetDate
+        page = destination
     }
-    fun leaveCurrentPage() {
-        page = AdjustmentPickerPage.DETAILS
-    }
+    fun backToDetails() { page = AdjustmentPickerPage.DETAILS }
     val title = when (page) {
         AdjustmentPickerPage.DETAILS -> if (draft.isNew) "新增调休日" else "编辑调休安排"
-        AdjustmentPickerPage.TARGET_DATE -> "调休日期"
-        AdjustmentPickerPage.SOURCE_DATE -> "原课程日期"
+        AdjustmentPickerPage.TARGET_DATE -> "选择调休日期"
+        AdjustmentPickerPage.SOURCE_DATE -> "选择原课程日期"
     }
     SleepDownPickerDialog(
-        show = true,
+        show = show,
+        onDismissFinished = onDismissFinished,
         title = title,
-        onDismissRequest = {
-            if (page == AdjustmentPickerPage.DETAILS) onCancel() else leaveCurrentPage()
-        },
+        onDismissRequest = { if (page == AdjustmentPickerPage.DETAILS) onCancel() else backToDetails() },
         backdrop = backdrop,
         config = config,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
-        contentTransitionKey = page,
+        contentTransitionKey = AdjustmentPickerContent(page, draft.rest, error),
+        scrollableContent = true,
+        smoothContentResize = true,
+        bottomActions = {
+            if (page == AdjustmentPickerPage.DETAILS) {
+                PeriodPickerActions(backdrop, config, onCancel = onCancel, onConfirm = onSave,
+                    confirmText = "保存")
+            } else {
+                PeriodPickerActions(backdrop, config, onCancel = ::backToDetails, cancelText = "返回",
+                    confirmText = "选用日期", onConfirm = {
+                        onDraftChange(if (page == AdjustmentPickerPage.TARGET_DATE)
+                            draft.copy(date = selectedDate.toString()) else draft.copy(source = selectedDate.toString()))
+                        backToDetails()
+                    })
+            }
+        },
         contentForState = { displayed ->
-            when (displayed as AdjustmentPickerPage) {
+            val view = displayed as AdjustmentPickerContent
+            when (view.page) {
                 AdjustmentPickerPage.DETAILS -> Column(
-                    verticalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.QuickSheet.PickerContentSpacing)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        if (draft.isNew) "新安排" else "${shortDate(targetDate)} ${weekdayText(targetDate)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(horizontal = 14.dp)
-                    )
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
-                    ) {
-                        QuickSheetLiquidAction(
-                            label = "停课", enabled = true, backdrop = backdrop, config = config,
-                            primary = draft.rest, modifier = Modifier.weight(1f),
+                    Row(Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)) {
+                        QuickSheetLiquidAction("停课", true, backdrop, config,
+                            primary = view.rest, modifier = Modifier.weight(1f),
                             height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
-                            onClick = { onDraftChange(draft.copy(rest = true)) }
-                        )
-                        QuickSheetLiquidAction(
-                            label = "补课", enabled = true, backdrop = backdrop, config = config,
-                            primary = !draft.rest, modifier = Modifier.weight(1f),
+                            onClick = { onDraftChange(draft.copy(rest = true)) })
+                        QuickSheetLiquidAction("补课", true, backdrop, config,
+                            primary = !view.rest, modifier = Modifier.weight(1f),
                             height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
-                            onClick = { onDraftChange(draft.copy(rest = false)) }
-                        )
+                            onClick = { onDraftChange(draft.copy(rest = false)) })
                     }
-                    Text(
-                        if (draft.rest) "当天课程暂停：课表仍保留课程卡片并置灰，不可点开编辑。"
-                        else "当天按指定的原课程日期上课，卡片正常显示但不可点开编辑。",
+                    Text(if (view.rest) "当天暂停上课，保留原课程且不发送提醒。"
+                        else "选择要补哪一天的课，时间和课程内容随原课程同步。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 14.dp)
-                    )
-                    if (draft.isNew) {
-                        SettingsPickerValueRow(
+                        modifier = Modifier.padding(horizontal = 4.dp))
+                    Column {
+                        SettingsNavigationRow(
                             title = "调休日期",
-                            value = formatScheduleDate(targetDate),
-                            onClick = { page = AdjustmentPickerPage.TARGET_DATE }
-                        )
+                            subtitle = "${formatScheduleDate(targetDate)}  ${weekdayText(targetDate)}",
+                            onClick = { openDatePage(AdjustmentPickerPage.TARGET_DATE) })
+                        if (!view.rest) {
+                            SettingsDivider()
+                            val sourceDate = parseScheduleDate(draft.source)
+                            SettingsNavigationRow(
+                                title = "原课程日期",
+                                subtitle = sourceDate?.let { "${formatScheduleDate(it)}  ${weekdayText(it)}" } ?: "请选择要补哪一天的课",
+                                onClick = { openDatePage(AdjustmentPickerPage.SOURCE_DATE) })
+                        }
                     }
-                    if (!draft.rest) {
-                        SettingsPickerValueRow(
-                            title = "原课程日期",
-                            value = draft.source.ifBlank { "未设置" },
-                            onClick = { page = AdjustmentPickerPage.SOURCE_DATE }
-                        )
-                        Text(
-                            preview(draft.source),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 14.dp)
-                        )
+                    if (!view.rest && draft.source.isNotBlank()) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("补课预览", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                            Text(preview(draft.source), style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 5, overflow = TextOverflow.Ellipsis)
+                        }
                     }
-                    error?.let {
+                    view.error?.let {
                         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(horizontal = 14.dp))
+                            modifier = Modifier.padding(horizontal = 4.dp))
                     }
-                    PeriodPickerActions(
-                        backdrop, config,
-                        onCancel = onCancel, onConfirm = onSave, confirmText = "保存"
-                    )
                 }
-                AdjustmentPickerPage.TARGET_DATE -> AdjustmentDatePickerPage(
-                    initial = targetDate,
-                    backdrop = backdrop, config = config,
-                    onCancel = { if (draft.isNew) onCancel() else leaveCurrentPage() },
-                    onConfirm = { picked ->
-                        onDraftChange(draft.copy(date = picked.toString()))
-                        leaveCurrentPage()
-                    }
-                )
-                AdjustmentPickerPage.SOURCE_DATE -> AdjustmentDatePickerPage(
-                    initial = parseScheduleDate(draft.source) ?: LocalDate.now(),
-                    backdrop = backdrop, config = config,
-                    onCancel = ::leaveCurrentPage,
-                    onConfirm = { picked ->
-                        onDraftChange(draft.copy(source = picked.toString()))
-                        leaveCurrentPage()
-                    }
-                )
+                AdjustmentPickerPage.TARGET_DATE, AdjustmentPickerPage.SOURCE_DATE ->
+                    AdjustmentDatePickerPage(selectedDate, onChange = { selectedDate = it })
             }
         },
         content = {}
@@ -491,22 +536,16 @@ private fun AdjustmentEditorDialog(
 }
 
 @Composable
-private fun AdjustmentDatePickerPage(
-    initial: LocalDate,
-    backdrop: Backdrop?, config: ScheduleConfigEntity,
-    onCancel: () -> Unit, onConfirm: (LocalDate) -> Unit
-) {
-    var year by remember(initial) { mutableIntStateOf(initial.year) }
-    var month by remember(initial) { mutableIntStateOf(initial.monthValue) }
-    var day by remember(initial) { mutableIntStateOf(initial.dayOfMonth) }
-    Column(verticalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.QuickSheet.PickerContentSpacing)) {
+private fun AdjustmentDatePickerPage(selected: LocalDate, onChange: (LocalDate) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("${shortDate(selected)}  ${weekdayText(selected)}",
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         SettingsDatePickerContent(
-            year = year, month = month, day = day,
-            onYearChange = { year = it }, onMonthChange = { month = it }, onDayChange = { day = it }
+            year = selected.year, month = selected.monthValue, day = selected.dayOfMonth,
+            onYearChange = { onChange(selected.withYear(it)) },
+            onMonthChange = { onChange(selected.withMonth(it)) },
+            onDayChange = { onChange(selected.withDayOfMonth(it.coerceIn(1, selected.lengthOfMonth()))) }
         )
-        PeriodPickerActions(backdrop, config, onCancel = onCancel, onConfirm = {
-            val maxDay = java.time.YearMonth.of(year, month).lengthOfMonth()
-            onConfirm(LocalDate.of(year, month, day.coerceAtMost(maxDay)))
-        })
     }
 }

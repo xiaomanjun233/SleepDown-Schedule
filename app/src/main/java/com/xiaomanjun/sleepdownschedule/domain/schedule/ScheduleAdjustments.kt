@@ -33,6 +33,23 @@ fun validateScheduleAdjustments(values: List<ScheduleAdjustment>) {
     }
 }
 
+/** UI dates may contain dots; persisted dates always use ISO, shared with backup and Agent. */
+fun scheduleAdjustmentFromInput(date: String, sourceDate: String?, label: String = ""): ScheduleAdjustment {
+    val target = requireNotNull(parseScheduleDate(date)) { "请选择有效的调休日期" }
+    val source = sourceDate?.let { requireNotNull(parseScheduleDate(it)) { "请选择有效的原课程日期" } }
+    return ScheduleAdjustment(target.toString(), source?.toString(), label).also {
+        validateScheduleAdjustments(listOf(it))
+    }
+}
+
+fun replaceScheduleAdjustment(
+    entries: List<ScheduleAdjustment>, originalDate: String?, replacement: ScheduleAdjustment
+): List<ScheduleAdjustment> {
+    require(entries.none { it.date == replacement.date && it.date != originalDate }) { "该日期已有安排，请编辑原安排" }
+    return (entries.filterNot { it.date == originalDate } + replacement).sortedBy { it.date }
+        .also(::validateScheduleAdjustments)
+}
+
 fun scheduleAdjustmentForDate(config: ScheduleConfigEntity, date: LocalDate): ScheduleAdjustment? =
     decodeScheduleAdjustments(config.scheduleAdjustmentsJson).firstOrNull { it.date == date.toString() }
 

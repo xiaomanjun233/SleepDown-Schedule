@@ -345,6 +345,8 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
 import com.xiaomanjun.sleepdownschedule.transition.transitionRouteIdOrNull
 import com.xiaomanjun.sleepdownschedule.domain.schedule.formatScheduleDate
+import com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate
+import com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate
 import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -467,15 +469,21 @@ private data class SourceButtonFollowThrough(
 
 private fun agentSettingsPage(value: String?): SettingsPage? = when (value) {
     "GENERAL" -> SettingsPage.General
+    "LIQUID_GLASS" -> SettingsPage.LiquidGlass
+    "WIDGETS" -> SettingsPage.Widgets
     "AI_IMPORT" -> SettingsPage.AiImport
     "DAY_AGENT" -> SettingsPage.DayAgent
     "SCHEDULE" -> SettingsPage.Schedule
     "NOTIFICATIONS" -> SettingsPage.Notifications
     "SCHEDULE_MANAGER" -> SettingsPage.ScheduleManager
+    "BACKUP_RESTORE" -> SettingsPage.BackupRestore
+    // ABOUT / CHANGELOG / DOWNLOAD are separate entries in the settings root but all land on the
+    // same "关于应用" screen, so the agent protocol keeps three names and maps them to one page.
     "ABOUT" -> SettingsPage.Changelog
     "CHANGELOG" -> SettingsPage.Changelog
     "DOWNLOAD" -> SettingsPage.Changelog
     "DONATE" -> SettingsPage.Donate
+    "PRIVACY_POLICY" -> SettingsPage.PrivacyPolicy
     else -> null
 }
 
@@ -778,6 +786,7 @@ fun CourseScheduleAppUi(
     val appScope = rememberCoroutineScope()
     val homeAssistant = remember(appScope) { HomeAssistantState(appScope) }
     var assistantImportUri by remember { mutableStateOf<Uri?>(null) }
+    var assistantImportText by remember { mutableStateOf<String?>(null) }
     val assistantHaptic = LocalHapticFeedback.current
     var assistantHapticSent by remember { mutableStateOf(false) }
 
@@ -788,7 +797,7 @@ fun CourseScheduleAppUi(
     val courseEditorMotionState = rememberCourseEditorMotionState()
     val courseEditorFlightRegistry = remember { CourseEditorFlightRegistry() }
     val courseEditorOverlayPhase = courseEditorMotionState.phase
-    fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?, copyDraft: CourseEntity? = null) {
+    fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?, copyDraft: CourseEntity? = null, contextMessage: String? = null) {
         if (courseEditorRequest != null) return
         val sourceGrid = targetWeek?.let(courseEditorFlightRegistry::grid)
         courseEditorFlightRegistry.frozen = true
@@ -798,8 +807,21 @@ fun CourseScheduleAppUi(
             sourceBoundsInRoot = sourceBounds,
             sourceIsDayCard = homeMode != HomeMode.Week && sourceBounds != null,
             copyDraft = copyDraft,
-            sourceGrid = sourceGrid
+            sourceGrid = sourceGrid,
+            contextMessage = contextMessage
         )
+    }
+    fun openAdjustedCourseEditor(courseId: Long, date: LocalDate, sourceBounds: Rect?) {
+        val original = state.courses.firstOrNull { it.id == courseId } ?: return
+        val adjustment = scheduleAdjustmentForDate(state.config, date)
+        val originalDate = adjustment?.sourceDate?.let(LocalDate::parse) ?: date
+        val originalWeek = adjustedTeachingWeekForDate(state.config, originalDate) ?: return
+        val message = if (adjustment?.sourceDate != null) {
+            "$date 补 $originalDate（第 $originalWeek 周）的课。这里编辑原课程，修改也会同步到对应补课安排。"
+        } else if (adjustment != null) {
+            "$date 已停课。这里编辑保留的原课程；当天是否上课由调休安排决定。"
+        } else null
+        openCourseEditor(original, originalWeek, sourceBounds, contextMessage = message)
     }
     fun closeCourseEditor() {
         courseEditorRequest = null
@@ -1073,10 +1095,9 @@ fun CourseScheduleAppUi(
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             result.data?.getStringExtra(ScheduleAdjustmentsActivity.ArrangementsExtra)?.let { value ->
-                viewModel.saveConfig(
-                    latestHomeConfig.copy(scheduleAdjustmentsJson = value),
-                    latestHomePeriods
-                )
+                val scheduleId = result.data?.getIntExtra(ScheduleAdjustmentsActivity.ScheduleIdExtra, -1) ?: -1
+                val original = result.data?.getStringExtra(ScheduleAdjustmentsActivity.OriginalArrangementsExtra)
+                if (scheduleId > 0 && original != null) viewModel.saveScheduleAdjustments(scheduleId, original, value)
             }
         }
     }
@@ -2076,7 +2097,8 @@ fun CourseScheduleAppUi(
     }
     val useSharedCourseBackdrop = screen is Screen.Home && visualState.config.courseCardGlassEnabled &&
         wallpaperImages.source != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val handleHomeAgentAction: AgentActionHandler = {
+    lateinit var handleHomeAgentAction: AgentActionHandler
+    handleHomeAgentAction = {
         plan: AgentPlan,
         onResult: (AgentPlanExecutionResult) -> Unit ->
         val actions = plan.actions
@@ -2084,95 +2106,93 @@ fun CourseScheduleAppUi(
         val courseActions = actions.filter {
             it.type == AgentValidatedActionType.ADD ||
                 it.type == AgentValidatedActionType.UPDATE ||
+                it.type == AgentValidatedActionType.REPLACE ||
                 it.type == AgentValidatedActionType.DELETE
         }
          val settingActions = actions.filter {
              it.type == AgentValidatedActionType.SET_SETTING ||
-                 it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS
+                 it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS ||
+                 it.type == AgentValidatedActionType.SET_ADJUSTMENTS
         }
         when {
             courseActions.size == actions.size && actions.isNotEmpty() ->
                 viewModel.executeAgentPlan(actions, onResult)
-            settingActions.size == actions.size && actions.isNotEmpty() ->
+            settingActions.isNotEmpty() && settingActions.size + courseActions.size == actions.size ->
                 viewModel.executeAgentSettingPlan(actions, onResult)
-            action == null -> onResult(
-                AgentPlanExecutionResult(
-                    success = false,
-                    preview = null,
-                    verified = false,
-                    message = "课程操作与页面或设置操作不能在同一事务中执行"
-                )
-            )
+            actions.isEmpty() -> onResult(AgentPlanExecutionResult(false, null, false, "没有可执行操作"))
+            action == null -> {
+                // Keep dependent operations ordered. Adjacent course/settings steps share one
+                // transaction; navigation/context changes occur only after that batch succeeds.
+                val batch = actions.takeWhile { it in courseActions || it in settingActions }
+                    .ifEmpty { listOf(actions.first()) }
+                handleHomeAgentAction(AgentPlan(batch)) { firstResult ->
+                    if (!firstResult.success || !firstResult.verified) onResult(firstResult)
+                    else handleHomeAgentAction(AgentPlan(actions.drop(batch.size))) { remaining ->
+                        onResult(remaining.copy(verified = firstResult.verified && remaining.verified,
+                            message = firstResult.message + "\n" + remaining.message, undo = null))
+                    }
+                }
+            }
             else -> when (action.type) {
             AgentValidatedActionType.ADD,
             AgentValidatedActionType.UPDATE,
+            AgentValidatedActionType.REPLACE,
             AgentValidatedActionType.DELETE ->
                 viewModel.executeAgentPlan(actions, onResult)
-            AgentValidatedActionType.OPEN_SETTINGS -> {
-                if (action.settingsPage == "PERSONALIZATION") {
+            AgentValidatedActionType.OPEN_SETTINGS -> viewModel.openAgentPage(onResult) { current ->
+                if (action.settingsPage == "SCHEDULE_ADJUSTMENTS") {
+                    context.openRegisteredActivity(TransitionRouteId.SettingsToScheduleAdjustments,
+                        ScheduleAdjustmentsActivity.intent(context, current.config, current.config.scheduleAdjustmentsJson),
+                        launchActivity = { holidayAdjustmentsLauncher.launch(it) })
+                } else if (action.settingsPage == "PERSONALIZATION") {
                     openHomeAnchoredOverlay(HomeAnchoredOverlayKind.Personalize)
                 } else agentSettingsPage(action.settingsPage)?.let { page ->
                     val intent = Intent(context, SettingsDetailActivity::class.java)
                         .putExtra(SettingsDetailPageExtra, page.name)
                     if (page == SettingsPage.Schedule) {
-                        intent.putExtra(ScheduleCustomizeIdExtra, state.config.id)
+                        intent.putExtra(ScheduleCustomizeIdExtra, current.config.id)
                     }
                     context.openRegisteredActivity(
                         TransitionRouteId.HomeToSettingsDetail,
                         intent
                     )
                 }
+            }
+            AgentValidatedActionType.OPEN_IMPORT -> {
+                assistantImportText = action.importText
+                assistantImportUri = action.importAttachmentUri?.let(Uri::parse)
+                homeDialog = HomeDialog.ImportSchedule
                 onResult(
                     AgentPlanExecutionResult(
                         success = true,
                         preview = null,
                         verified = true,
-                        message = "页面已打开"
+                        message = "已打开 AI 导入"
                     )
                 )
             }
-            AgentValidatedActionType.SET_SETTING -> {
-                when {
-                    action.settingKey == "SCHEDULE_NAME" -> action.settingValue
-                        ?.let { name -> viewModel.renameSchedule(state.config.id, name) }
-                    AgentSettingRegistry.isPreferenceSetting(action.settingKey) -> {
-                        AgentSettingRegistry.applyPreference(
-                            context,
-                            action.settingKey,
-                            action.settingValue
-                        )
-                    }
-                    AgentSettingRegistry.isPeriodTimeSetting(action.settingKey) -> {
-                        AgentSettingRegistry.applyPeriodTime(
-                            state.periods,
-                            action.settingKey,
-                            action.settingValue
-                        )?.let { updatedPeriods ->
-                            viewModel.saveConfig(state.config, updatedPeriods)
-                        }
-                    }
-                    else -> AgentSettingRegistry.apply(
-                        state.config,
-                        action.settingKey,
-                        action.settingValue
-                    )?.let(viewModel::savePersonalization)
-                }
-                onResult(
-                    AgentPlanExecutionResult(
-                        success = true,
-                        preview = null,
-                        verified = false,
-                        message = "设置修改已提交"
-                    )
-                )
-            }
-            AgentValidatedActionType.SET_PERIOD_SETTINGS ->
+            AgentValidatedActionType.SET_SETTING,
+            AgentValidatedActionType.SET_PERIOD_SETTINGS,
+            AgentValidatedActionType.SET_ADJUSTMENTS ->
                 viewModel.executeAgentSettingPlan(actions, onResult)
+            AgentValidatedActionType.CREATE_SCHEDULE ->
+                viewModel.createScheduleFromAgent(action.scheduleName.orEmpty(), onResult)
+            AgentValidatedActionType.ACTIVATE_SCHEDULE ->
+                action.scheduleId?.let { viewModel.activateScheduleFromAgent(it, onResult) }
+                    ?: onResult(
+                        AgentPlanExecutionResult(false, null, false, "目标课表不存在，请重新读取课表列表")
+                    )
+            AgentValidatedActionType.DELETE_SCHEDULE ->
+                action.scheduleId?.let { viewModel.deleteScheduleFromAgent(it, onResult) }
+                    ?: onResult(
+                        AgentPlanExecutionResult(false, null, false, "目标课表不存在，请重新读取课表列表")
+                    )
         }
         }
     }
     CompositionLocalProvider(
         LocalHomeAssistant provides homeAssistant,
+        LocalAdjustedCourseEditor provides ::openAdjustedCourseEditor,
         LocalCourseShortcuts provides courseShortcuts,
         LocalCourseCopy provides courseCopy,
         LocalCourseRemoval provides courseRemoval,
@@ -4056,6 +4076,8 @@ fun CourseScheduleAppUi(
                         backdrop = homeDialogBackdrop,
                         initialFileUri = assistantImportUri,
                         onInitialFileConsumed = { assistantImportUri = null },
+                        initialText = assistantImportText,
+                        onInitialTextConsumed = { assistantImportText = null },
                         onCancel = { dismissHomeDialog() },
                         onParsed = { homeDialog = HomeDialog.ConfirmImport(it, returnDialog = null) }
                     )

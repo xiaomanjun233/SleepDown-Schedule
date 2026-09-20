@@ -56,6 +56,8 @@ internal class OpenAiResponsesAgentRunner {
         onDelta: (String) -> Unit,
         onStreamReset: () -> Unit,
         executeTool: (AgentToolCall) -> AgentToolResult,
+        cachedTools: Set<AgentToolName> = emptySet(),
+        allowCachedAnswer: Boolean = false,
         telemetry: DayAgentTurnTelemetry
     ): String {
         val instructions = chatMessages
@@ -66,7 +68,7 @@ internal class OpenAiResponsesAgentRunner {
             .filterNot { it["role"]?.jsonPrimitive?.contentOrNull == "system" }
             .map(::toResponsesInputMessage)
             .toMutableList()
-        val completedOneShotTools = mutableSetOf<AgentToolName>()
+        val completedOneShotTools = cachedTools.toMutableSet()
         val evidenceKeys = mutableSetOf<String>()
         val decisionEffort = toolDecisionReasoningEffort(settings.profile)
 
@@ -79,13 +81,13 @@ internal class OpenAiResponsesAgentRunner {
                     responsesBody(
                         settings = settings,
                         instructions = instructions + "\n\n" +
-                            DayAgentPrompts.ToolDecisionStage,
+                            (if (allowCachedAnswer) DayAgentPrompts.CachedFactsStage else DayAgentPrompts.ToolDecisionStage),
                         input = input,
                         stream = false,
                         includeTools = true,
                         includeMemoryTool = includeMemoryTool,
                         excludedTools = completedOneShotTools,
-                        reasoningEffort = decisionEffort
+                        reasoningEffort = if (allowCachedAnswer) settings.profile.reasoningEffort else decisionEffort
                     )
                 )
             )
@@ -109,6 +111,10 @@ internal class OpenAiResponsesAgentRunner {
                 )
             }
             if (decision.calls.isEmpty()) {
+                if (allowCachedAnswer) usableCachedAgentAnswer(decision.content)?.let { answer ->
+                    onDelta(answer)
+                    return answer
+                }
                 return streamFinal(
                     settings = settings,
                     instructions = instructions,
@@ -130,7 +136,7 @@ internal class OpenAiResponsesAgentRunner {
                     put("call_id", result.callId)
                     put("output", result.content)
                 }
-                if (call.name.isOneShotPerTurn) completedOneShotTools += call.name
+                if (result.success && call.name.isOneShotPerTurn) completedOneShotTools += call.name
                 result
             }
             telemetry.recordToolResults(results)
@@ -279,18 +285,11 @@ internal class OpenAiResponsesAgentRunner {
 
         val result = AgentResponsesTextAccumulator()
         try {
-        BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).useLines { lines ->
-            lines.forEach { line ->
-                if (!line.startsWith("data:")) return@forEach
-                val data = line.removePrefix("data:").trim()
-                if (data.isBlank() || data == "[DONE]") return@forEach
-                val event = runCatching {
-                    AgentResponsesJson.parseToJsonElement(data).jsonObject
-                }.getOrNull() ?: return@forEach
-                val usage = agentTokenUsage(event)
-                if (!usage.isEmpty) onUsage(usage)
-                result.consume(event).takeIf(String::isNotEmpty)?.let(onDelta)
-            }
+        connection.forEachSseDataLine { data ->
+            val event = parseSseJsonObject(data) ?: return@forEachSseDataLine
+            val usage = agentTokenUsage(event)
+            if (!usage.isEmpty) onUsage(usage)
+            result.consume(event).takeIf(String::isNotEmpty)?.let(onDelta)
         }
         return result.finish()
         } finally {
@@ -307,16 +306,15 @@ internal class OpenAiResponsesAgentRunner {
             normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl).trimEnd('/')
         }
         val endpoint = if (path.isEmpty()) base else "$base/$path"
-        return (URL(endpoint).openConnection() as HttpURLConnection)
-            .apply {
-                requestMethod = "POST"
-                connectTimeout = 30_000
-                readTimeout = 600_000
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                setAiAuthHeader(settings.apiKey, settings.profile.authType)
-                outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            }
+        return openAiPostConnection(
+            url = endpoint,
+            apiKey = settings.apiKey,
+            authType = settings.profile.authType,
+            contentType = "application/json; charset=utf-8",
+            accept = null
+        ).apply {
+            outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        }
     }
 }
 

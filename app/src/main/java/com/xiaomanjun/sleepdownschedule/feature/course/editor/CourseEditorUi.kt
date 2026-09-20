@@ -353,7 +353,8 @@ fun NormalizedCourseEditorScreen(
     onDelete: (CourseEntity) -> Unit,
     backdrop: Backdrop?,
     pickerRenderInRootScaffold: Boolean = true,
-    copyDraft: CourseEntity? = null
+    copyDraft: CourseEntity? = null,
+    contextMessage: String? = null
 ) {
     val formData = remember(state.config, state.periods, state.courses) {
         CourseEditorFormData(
@@ -371,7 +372,8 @@ fun NormalizedCourseEditorScreen(
         onDelete = onDelete,
         backdrop = backdrop,
         pickerRenderInRootScaffold = pickerRenderInRootScaffold,
-        copyDraft = copyDraft
+        copyDraft = copyDraft,
+        contextMessage = contextMessage
     )
 }
 
@@ -715,7 +717,8 @@ fun NormalizedCourseEditorScreen(
     renderPagerIndicator: Boolean = true,
     onPagerPresentationChange: ((CourseEditorPagerPresentation) -> Unit)? = null,
     rowEntrance: (Int) -> Float = { _ -> 1f },
-    copyDraft: CourseEntity? = null
+    copyDraft: CourseEntity? = null,
+    contextMessage: String? = null
 ) {
     val config = formData.config
     val editorGroups = remember(initialCourse, formData.courses) {
@@ -771,14 +774,17 @@ fun NormalizedCourseEditorScreen(
             val group = editorGroups[page]
             val course = group.representative
             val draft = drafts.getValue(page)
+            val pageContext = contextMessage.takeIf { group.courses.any { it.id == initialCourse?.id } }
             CourseEditorFormPage(
                 course = course,
                 title = when {
                     copyDraft != null -> "复制课程"
                     course == null -> "添加单节课"
+                    pageContext != null -> "编辑原课程"
                     else -> "编辑单节课"
                 },
                 groupedCourses = group.courses,
+                contextMessage = pageContext,
                 draft = draft,
                 onDraftChange = { drafts = drafts + (page to it); error = null },
                 periodValues = periodValues,
@@ -876,6 +882,7 @@ private fun CourseEditorFormPage(
     course: CourseEntity?,
     title: String,
     groupedCourses: List<CourseEntity>,
+    contextMessage: String?,
     draft: CourseEditorDraft,
     onDraftChange: (CourseEditorDraft) -> Unit,
     periodValues: List<Int>,
@@ -945,6 +952,16 @@ private fun CourseEditorFormPage(
             ),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        if (contextMessage != null) {
+            item(key = "context", contentType = "context") {
+                Text(
+                    text = contextMessage,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).courseEditorFormRowEntrance(0),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = LocalContentColor.current.copy(alpha = 0.82f)
+                )
+            }
+        }
         if (course != null) {
             item(key = "summary", contentType = "summary") {
                 Text(

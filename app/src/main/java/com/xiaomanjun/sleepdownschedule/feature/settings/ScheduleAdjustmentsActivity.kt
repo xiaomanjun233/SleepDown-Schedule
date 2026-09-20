@@ -61,7 +61,10 @@ class ScheduleAdjustmentsActivity : ComponentActivity() {
                     ScheduleAdjustmentsScreen(draftState, initial,
                         onDismiss = { finish() },
                         onConfirm = { arrangements ->
-                            setResult(Activity.RESULT_OK, Intent().putExtra(ArrangementsExtra, encodeScheduleAdjustments(arrangements)))
+                            setResult(Activity.RESULT_OK, Intent()
+                                .putExtra(ScheduleIdExtra, scheduleId)
+                                .putExtra(OriginalArrangementsExtra, encodeScheduleAdjustments(initial))
+                                .putExtra(ArrangementsExtra, encodeScheduleAdjustments(arrangements)))
                             finish()
                         }
                     )
@@ -72,7 +75,8 @@ class ScheduleAdjustmentsActivity : ComponentActivity() {
 
     companion object {
         internal const val ArrangementsExtra = "schedule_adjustments_draft"
-        private const val ScheduleIdExtra = "schedule_id"
+        internal const val ScheduleIdExtra = "schedule_id"
+        internal const val OriginalArrangementsExtra = "original_schedule_adjustments"
         private const val TotalWeeksExtra = "total_weeks"
         private const val CurrentWeekExtra = "current_week"
         private const val AutoWeekExtra = "auto_current_week"

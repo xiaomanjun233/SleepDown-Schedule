@@ -121,7 +121,12 @@ fun persistWallpaperUriPermission(context: Context, uri: Uri) {
 }
 
 fun persistWallpaperSource(context: Context, uri: Uri): Uri? {
-    if (uri.scheme == "file") return uri
+    if (uri.scheme == "file") {
+        val file = resolveManagedWallpaperFile(context.filesDir, uri.toString())
+        if (file?.isFile == true && file.parentFile?.canonicalFile == wallpaperDirectory(context).canonicalFile) {
+            return Uri.fromFile(file)
+        }
+    }
     persistWallpaperUriPermission(context, uri)
     return persistManagedWallpaperImage(
         context = context,
@@ -139,7 +144,6 @@ internal fun persistManagedWallpaperImage(
     filePrefix: String,
     maxDimension: Int
 ): Uri? {
-    if (uri.scheme == "file") return uri
     val bitmap = loadSampledBitmap(context, uri, maxDimension) ?: return null
     return persistManagedWallpaperBitmap(context, bitmap, directoryName, filePrefix).also {
         bitmap.recycle()
@@ -200,14 +204,41 @@ internal fun unreferencedWallpaperFiles(
             runCatching { canonicalize(File(path)) }.getOrNull()
         }
     }
+    // Android private storage prefixes can change after restore. Preserve the same managed
+    // filename even when the old absolute path no longer canonicalizes to the current prefix.
+    val managedNames = referencedUris.mapNotNullTo(linkedSetOf(), ::managedWallpaperFileName)
     return candidateFiles.filterTo(linkedSetOf()) { file ->
-        runCatching { canonicalize(file) }.getOrNull() !in referencedPaths
+        val path = runCatching { canonicalize(file) }.getOrNull()
+        path != null && path !in referencedPaths && file.name !in managedNames
     }
 }
 
+private fun managedWallpaperFileName(value: String): String? {
+    val uri = runCatching { URI(value) }.getOrNull() ?: return null
+    if (uri.scheme != "file") return null
+    val path = uri.path ?: return null
+    val name = path.substringAfter("/files/wallpaper/", "")
+    return name.takeIf { it.isNotBlank() && '/' !in it && '\\' !in it && it != "." && it != ".." }
+}
+
+internal fun resolveManagedWallpaperFile(filesDir: File, value: String): File? {
+    val uri = runCatching { URI(value) }.getOrNull() ?: return null
+    if (uri.scheme != "file") return null
+    val original = uri.path?.let(::File) ?: return null
+    if (original.isFile) return original
+    val name = managedWallpaperFileName(value) ?: return original
+    return File(File(filesDir, WallpaperDirectoryName), name).takeIf(File::isFile) ?: original
+}
+
+internal fun wallpaperFileReadyForCleanup(file: File, now: Long): Boolean =
+    file.lastModified() > 0 && now - file.lastModified() >= 24 * 60 * 60 * 1000L
+
 fun cleanupUnreferencedScheduleWallpapers(context: Context, referencedUris: Collection<String>) {
     val wallpaperDir = wallpaperDirectory(context)
-    val files = wallpaperDir.listFiles().orEmpty().filter(File::isFile)
+    // A newly prepared wallpaper may still be waiting for its configuration write. Startup,
+    // restore and debounced personalization saves must not delete those in-flight files.
+    val now = System.currentTimeMillis()
+    val files = wallpaperDir.listFiles().orEmpty().filter { it.isFile && wallpaperFileReadyForCleanup(it, now) }
     unreferencedWallpaperFiles(referencedUris, files).forEach { file ->
         runCatching { file.delete() }
     }
@@ -392,7 +423,7 @@ fun readWallpaperSourceSize(context: Context, uri: Uri): WallpaperSourceSize? {
 
 private fun openWallpaperInputStream(context: Context, uri: Uri) =
     if (uri.scheme == "file") {
-        File(uri.path.orEmpty()).inputStream()
+        resolveManagedWallpaperFile(context.filesDir, uri.toString())?.inputStream()
     } else {
         context.contentResolver.openInputStream(uri)
     }

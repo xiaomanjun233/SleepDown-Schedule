@@ -93,6 +93,7 @@ internal fun WallpaperEditorOverlay(
     var portraitCrop by remember(uri) { mutableStateOf(WallpaperCropState()) }
     var landscapeCrop by remember(uri) { mutableStateOf(WallpaperCropState()) }
     var applying by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
     val activeCrop = if (orientation == WallpaperPreviewOrientation.Portrait) portraitCrop else landscapeCrop
 
     LaunchedEffect(uri) {
@@ -121,9 +122,15 @@ internal fun WallpaperEditorOverlay(
     fun save() {
         if (applying) return
         applying = true
+        saveError = null
         scope.launch {
             val appContext = context.applicationContext
-            val savedUri = withContext(Dispatchers.IO) { persistWallpaperSource(appContext, uri) ?: uri }
+            val savedUri = withContext(Dispatchers.IO) { persistWallpaperSource(appContext, uri) }
+            if (savedUri == null) {
+                saveError = "壁纸保存失败，请重新选择图片后重试"
+                applying = false
+                return@launch
+            }
             val savedSize = sourceSize ?: withContext(Dispatchers.IO) { readWallpaperSourceSize(appContext, savedUri) }
             val lightText = withContext(Dispatchers.IO) { wallpaperPrefersLightText(appContext, savedUri.toString()) }
             onApply(
@@ -144,6 +151,9 @@ internal fun WallpaperEditorOverlay(
     }
 
     BackHandler(visible && !applying, onBack = onCancel)
+    LaunchedEffect(saveError) {
+        saveError?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show() }
+    }
     val p = progress.value.coerceIn(0f, 1f)
     BoxWithConstraints(
         modifier = modifier

@@ -384,6 +384,9 @@ internal fun SinglePillWeekScheduleScreen(
     }
     val weekBuckets = bucketsForWeek(displayWeek)
     val visibleCourses = weekBuckets.visibleCourses
+    val hasAdjustmentBadges = remember(state.config.scheduleAdjustmentsJson) {
+        com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(state.config.scheduleAdjustmentsJson).isNotEmpty()
+    }
     val supplementaryRowCount = remember(state.courses, state.periods, state.config, displayWeek) {
         (displayWeek - 1..displayWeek + 1).maxOf { week ->
             bucketsForWeek(week).visibleCourses
@@ -421,7 +424,7 @@ internal fun SinglePillWeekScheduleScreen(
         0.dp
     }
     val weekGridEndPadding = when {
-        adaptiveMetrics.isLargeScreen -> 0.dp
+        adaptiveMetrics.isLargeScreen -> if (hasAdjustmentBadges) 4.dp else 0.dp
         boundless -> BoundlessWeekGridEndPadding
         else -> 8.dp
     }
@@ -555,7 +558,13 @@ internal fun SinglePillWeekScheduleScreen(
         }
     }
     // Include the glass shadow and entrance overshoot, with extra room below the last row.
-    val editControlOverflow = if (retainEditControlOverflow) 24.dp else 0.dp
+    // The adjustment badge also hangs outside the first card. Keep this stable across weeks
+    // so the pager can draw it above the grid without shifting the course's actual bounds.
+    val courseTopOverflow = when {
+        retainEditControlOverflow -> 24.dp
+        hasAdjustmentBadges -> 8.dp
+        else -> 0.dp
+    }
     val editControlBottomOverflow = if (retainEditControlOverflow) 40.dp else 0.dp
     LaunchedEffect(state.config.id, displayWeek, weekEditMode) {
         if (!weekEditMode) weekEditOverlay.clear()
@@ -668,7 +677,7 @@ internal fun SinglePillWeekScheduleScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(cardHeight * state.periods.size + supplementaryHeight + editControlBottomOverflow)
-                        .then(if (retainEditControlOverflow) Modifier else Modifier.clipToBounds())
+                        .then(if (retainEditControlOverflow || hasAdjustmentBadges) Modifier else Modifier.clipToBounds())
                 ) {
                     Column(
                         modifier = Modifier
@@ -780,12 +789,12 @@ internal fun SinglePillWeekScheduleScreen(
                         HorizontalPager(
                             state = pagerState,
                             modifier = Modifier
-                                .offset(y = -editControlOverflow)
+                                .offset(y = -courseTopOverflow)
                                 .fillMaxWidth()
                                 // The parent reserves the bottom gutter. Allow the pager's extra
                                 // top gutter to extend above it without compressing the last row.
                                 .wrapContentHeight(align = Alignment.Top, unbounded = true)
-                                .height(cardHeight * state.periods.size + supplementaryHeight + editControlOverflow + editControlBottomOverflow),
+                                .height(cardHeight * state.periods.size + supplementaryHeight + courseTopOverflow + editControlBottomOverflow),
                             userScrollEnabled = !weekEditMode,
                             // Keep the pager topology stable while a home overlay opens/closes.
                             // Disposing the adjacent week at the exact frame Personalization
@@ -804,7 +813,7 @@ internal fun SinglePillWeekScheduleScreen(
                             WeekCourseColumnsLayer(
                                 modifier = Modifier.padding(
                                     start = rowHeaderWidth,
-                                    top = editControlOverflow,
+                                    top = courseTopOverflow,
                                     bottom = editControlBottomOverflow,
                                     end = weekGridEndPadding
                                 ),
@@ -1553,7 +1562,7 @@ private fun WeekdayHeaderLabels(
             val indicatorColor = (if (adjusted) ComposeColor(0xFFFFB928) else MaterialTheme.colorScheme.primary).copy(alpha = 0.22f)
             val lightweightToday = isToday && todayStyle == WeekdayTodayStyle.LIGHTWEIGHT
             val showTodayCapsule = lightweightToday && backdrop != null && config != null
-            val capsuleTextColor = if (adjusted) ComposeColor(0xFF392900) else ComposeColor.White
+            val capsuleTextColor = ComposeColor.White
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -2982,7 +2991,7 @@ fun WeekCourseBlock(
     onResolveConflict: (CourseEntity) -> Unit = {},
     editMode: Boolean = false,
     editingAllowed: Boolean = true,
-    /** A cancelled adjustment day: the card stays on screen as a greyed, non-interactive reminder. */
+    /** A cancelled occurrence uses neutral light; clicking still edits its original course. */
     muted: Boolean = false,
     editWeek: Int = 1,
     allWeekCourses: List<CourseEntity> = emptyList(),
@@ -3008,8 +3017,10 @@ fun WeekCourseBlock(
     val locationText = course.location.orEmpty()
     val hasLocation = locationText.isNotBlank()
     val hasTeacher = !course.teacher.isNullOrBlank()
-    val resolvedCardColor = if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
-    val themeColor = if (config.courseCardColoredTextEnabled) courseCardBaseColor(config, course) else null
+    val resolvedCardColor = if (muted) MutedCourseLightColor else if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
+    val themeColor = if (config.courseCardColoredTextEnabled) {
+        if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
+    } else null
     val courseTextColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
         else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor)
@@ -3169,6 +3180,9 @@ fun WeekCourseBlock(
     }
     val shortcuts = LocalCourseShortcuts.current
     val currentEditMode by rememberUpdatedState(editMode)
+    val adjustedEditor = LocalAdjustedCourseEditor.current
+    val adjustedOccurrenceDate = if (editingAllowed) null else
+        scheduleWeekStartDate(config, editWeek).plusDays((dayIndex - 1).toLong())
     val openShortcut by rememberUpdatedState<() -> Unit> {
         if (editingAllowed) ownBoundsRef[0]?.let { bounds ->
             shortcuts?.open(CourseShortcutRequest(course, editWeek, bounds,
@@ -3189,8 +3203,10 @@ fun WeekCourseBlock(
     val finishBodyDrag by rememberUpdatedState(onFinishMoveOverlay)
     val cancelBodyDrag by rememberUpdatedState(onCancelWeekEditOverlay)
     val clickBody by rememberUpdatedState<() -> Unit> {
-        // Adjustment days render virtual occurrences: they must never open the course editor.
-        if (copyMotion?.active != true && editingAllowed) onCourseClick(course, ownBoundsRef[0])
+        if (copyMotion?.active != true) {
+            if (editingAllowed) onCourseClick(course, ownBoundsRef[0])
+            else adjustedOccurrenceDate?.let { adjustedEditor?.invoke(course.id, it, ownBoundsRef[0]) }
+        }
     }
     // Editing is read through updated state, never a pointerInput key: switching into edit
     // mode must not cancel the finger that is about to move the course.
@@ -3331,9 +3347,9 @@ fun WeekCourseBlock(
                 .courseRemovalMotion(course, editWeek, courseCardBaseColor(config, course))
                 .then(bodyGestureModifier)
                 .semantics {
-                    if (copyMotion?.active != true && editingAllowed) {
-                        onClick("查看课程") { clickBody(); true }
-                        onLongClick("课程快捷操作") { openShortcut(); true }
+                    if (copyMotion?.active != true) {
+                        onClick(if (editingAllowed) "查看课程" else "查看调休课程") { clickBody(); true }
+                        if (editingAllowed) onLongClick("课程快捷操作") { openShortcut(); true }
                     }
                 }
                 .graphicsLayer {
@@ -3371,6 +3387,7 @@ fun WeekCourseBlock(
                             backdrop = activeCardBackdrop,
                             config = config,
                             course = underlyingCourse,
+                            muted = muted,
                             modifier = Modifier.fillMaxSize(),
                             shape = cardShape,
                             onClick = null
@@ -3480,6 +3497,7 @@ fun WeekCourseBlock(
                 viewportMaterialVisible = true,
                 backdropSampleScale = backdropSampleScale,
                 sampledShape = sampledCardShape,
+                muted = muted,
                 onClick = null
             ) {}
             // The day column already knows the measured width. Subcomposing every card again
@@ -3636,16 +3654,9 @@ fun WeekCourseBlock(
             }
             }
             }
-            if (muted) {
-                // One neutral wash over the finished card so a cancelled occurrence reads as a
-                // disabled placeholder instead of a real lesson.
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(displayedHeight)
-                        .clip(cardShape)
-                        .background(MutedCourseScrim)
-                )
+            if (!editingAllowed) {
+                CourseAdjustmentBadge(if (muted) "停" else "补", activeCardBackdrop, config,
+                    Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-5).dp).zIndex(7f))
             }
             if (conflictWarning && !editMode && !customTimeLocked) {
                 val pillDismissProgress = conflictPillDismiss.value.coerceIn(0f, 1f)

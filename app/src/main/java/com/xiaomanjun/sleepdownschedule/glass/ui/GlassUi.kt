@@ -1002,6 +1002,8 @@ fun BlueStatusGlassPill(
     }
 }
 
+internal val MutedCourseLightColor = Color(0xFF989EA8)
+
 @Composable
 fun CourseGlassCard(
     backdrop: Backdrop?,
@@ -1016,6 +1018,7 @@ fun CourseGlassCard(
     backdropSampleScale: Float = 1f,
     sampledShape: Shape? = null,
     expandedOutlineLight: Boolean = false,
+    muted: Boolean = false,
     morphAllocation: com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation? = null,
     surfaceBackdrop: LayerBackdrop? = null,
     onClick: (() -> Unit)? = null,
@@ -1047,16 +1050,16 @@ fun CourseGlassCard(
     val quality = LocalGlassQuality.current
     val clickInteractionSource = remember { MutableInteractionSource() }
     var pressed by remember { mutableStateOf(false) }
-    val baseColor = courseCardBaseColor(config, course)
+    val baseColor = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
     val hasWallpaper = config.hasAnyWallpaper()
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
     val liveLiquidBlur = blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur
     val liveRefractionStrength = previewState?.cardRefractionStrength
         ?: config.courseCardRefractionStrength
-    val outlineLightEnabled = config.courseCardGlassEnabled &&
+    val outlineLightEnabled = muted || (config.courseCardGlassEnabled &&
         config.courseCardOutlineLightEnabled &&
-        config.hasAnyWallpaper()
+        config.hasAnyWallpaper())
     val liquidEffectFrame = courseCardGlassEffectFrame(
         tokens = tokens,
         liveBlur = liveLiquidBlur,

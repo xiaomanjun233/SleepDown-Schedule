@@ -475,9 +475,9 @@ class AgentToolsTest {
         ).single().content
 
         assertTrue(result.contains("WALLPAPER_BLUR_PERCENT"))
-        assertTrue(result.contains("当前=42"))
+        assertTrue(result.lineSequence().any { it.startsWith("WALLPAPER_BLUR_PERCENT|") && "|42|" in it })
         assertTrue(result.contains("COURSE_CARD_GLASS_ENABLED"))
-        assertTrue(result.contains("当前=true"))
+        assertTrue(result.lineSequence().any { it.startsWith("COURSE_CARD_GLASS_ENABLED|") && "|true|" in it })
         assertTrue(result.contains("MORNING_PERIOD_COUNT"))
         assertTrue(result.contains("当前=4"))
         assertTrue(result.contains("WALLPAPER_PORTRAIT_SCALE"))

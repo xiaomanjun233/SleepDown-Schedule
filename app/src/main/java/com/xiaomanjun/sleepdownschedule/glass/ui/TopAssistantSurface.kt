@@ -83,8 +83,8 @@ internal fun rememberTopAssistantMotion(initialValue: Float = 0f): TopAssistantM
     remember { TopAssistantMotion(initialValue) }
 
 /** Dissolve the last few pixels instead of exposing a hard seam against an OEM cutout. */
-internal fun topAssistantDockAlpha(progress: Float): Float {
-    val t = ((progress - 0.015f) / 0.14f).coerceIn(0f, 1f)
+internal fun topAssistantDockAlpha(progress: Float, fadeEnd: Float = 0.155f): Float {
+    val t = ((progress - 0.015f) / (fadeEnd - 0.015f).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
     return t * t * (3f - 2f * t)
 }
 

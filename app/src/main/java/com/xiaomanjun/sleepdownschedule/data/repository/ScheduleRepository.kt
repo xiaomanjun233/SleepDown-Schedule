@@ -398,14 +398,58 @@ class ScheduleRepository(private val database: AppDatabase) {
         }
     }
 
+    suspend fun commitAgentSettingPlan(
+        before: AppState,
+        config: ScheduleConfigEntity,
+        periods: List<PeriodEntity>,
+        schemes: SchedulePeriodSchemesDraft?,
+        name: String?,
+        courseActions: List<AgentValidatedAction>
+    ): Pair<AgentPlanExecutionResult, AppState> = database.withTransaction {
+        val current = snapshot()
+        require(current.config == before.config && current.periods == before.periods && current.courses == before.courses) {
+            "课表在确认期间发生变化，请重新生成计划"
+        }
+        // A combined plan already supplies explicit course migrations; never remap them twice.
+        schemes?.let { saveScheduleDetail(config, if (courseActions.isEmpty()) it else it.copy(topologyOperations = emptyList())) }
+            ?: saveConfigForSchedule(config.id, config, periods)
+        name?.let { renameSchedule(config.id, it) }
+        val result = if (courseActions.isEmpty()) AgentPlanExecutionResult(true, null, true, "设置已保存")
+            else executeAgentPlan(AgentPlan(courseActions)).also { check(it.success && it.verified) { it.message } }
+        val stored = snapshot()
+        val indexes = stored.periods.map { it.periodIndex }.toSet()
+        require(stored.courses.all { course ->
+            course.periods.isNotEmpty() && course.periods.all { it in indexes } &&
+                course.weeks.all { it in 1..stored.config.totalWeeks }
+        }) { "新设置会使课程周次或节次越界，请在同一计划中调整受影响课程" }
+        result to stored
+    }
+
+    suspend fun restoreAgentSettingPlan(
+        expected: AppState, before: AppState, schemes: SchedulePeriodSchemesDraft, name: String?
+    ) = database.withTransaction {
+        val current = snapshot()
+        require(current.config == expected.config && current.periods == expected.periods && current.courses == expected.courses) {
+            "课表已有后续修改，无法覆盖撤销"
+        }
+        saveScheduleDetail(before.config, schemes.copy(topologyOperations = emptyList()))
+        courseDao.deleteBySchedule(before.config.id)
+        courseDao.insertCourses(before.courses)
+        name?.let { renameSchedule(before.config.id, it) }
+    }
+
     suspend fun executeAgentPlan(plan: AgentPlan): AgentPlanExecutionResult {
         return runCatching {
             database.withTransaction {
                 val scheduleId = activeScheduleId()
                 val before = courseDao.getCourses(scheduleId)
+                require(plan.actions.all { it.sourceScheduleId == null || it.sourceScheduleId == scheduleId }) {
+                    "当前课表已切换，请基于新课表重新生成后续修改"
+                }
                 plan.actions.forEach { action ->
                     if (
                         action.type == AgentValidatedActionType.UPDATE ||
+                        action.type == AgentValidatedActionType.REPLACE ||
                         action.type == AgentValidatedActionType.DELETE
                     ) {
                         val original = action.original
@@ -418,14 +462,28 @@ class ScheduleRepository(private val database: AppDatabase) {
                         if (stored != original) {
                             throw AgentPlanRejectedException("课程在确认前已发生变化，请让 AI 基于最新课表重新生成操作")
                         }
+                        if (action.scope != AgentActionScope.ALL_WEEKS) require(action.sourceWeekSet().let { weeks ->
+                            weeks.isNotEmpty() && weeks.all { it in stored.weeks && parityMatches(stored.weekParity, it) }
+                        }) { "所选周次没有这门课程，请重新读取开课周次" }
                     }
                 }
+                require(!agentActionsHaveOverlappingCourseScopes(plan.actions)) {
+                    "同一课程的同一周有多份修改，请合并后再执行"
+                }
+                val config = configDao.getConfig(scheduleId) ?: error("课表配置不存在")
+                val periodIndexes = configDao.getPeriods(scheduleId).map { it.periodIndex }.toSet()
+                require(plan.actions.mapNotNull { it.scopedEditedCourse() }.all { course ->
+                    course.weekday in 1..7 && course.periods.isNotEmpty() && course.periods.all { it in periodIndexes } &&
+                        course.weeks.isNotEmpty() && course.weeks.all { it in 1..config.totalWeeks } &&
+                        course.weeks.any { parityMatches(course.weekParity, it) }
+                }) { "课程星期、节次或周次无效，请修正完整计划" }
                 val preview = previewAgentPlan(
                     before = before,
                     plan = plan,
                     periodDefinitions = configDao.getPeriods(scheduleId)
                 )
 
+                val removedWeeks = mutableMapOf<Long, MutableSet<Int>>()
                 plan.actions.forEach { action ->
                     when (action.type) {
                         AgentValidatedActionType.ADD -> action.edited?.let { course ->
@@ -437,13 +495,14 @@ class ScheduleRepository(private val database: AppDatabase) {
                             )
                         }
 
-                        AgentValidatedActionType.UPDATE -> {
+                        AgentValidatedActionType.UPDATE,
+                        AgentValidatedActionType.REPLACE -> {
                             val original = action.original
-                            val edited = action.edited
+                            val edited = action.scopedEditedCourse()
                             if (original != null && edited != null) {
-                                if (action.scope == AgentActionScope.CURRENT_WEEK) {
-                                    val remainingWeeks =
-                                        original.weeks.filterNot { it == action.targetWeek }
+                                if (action.scope != AgentActionScope.ALL_WEEKS) {
+                                    val removed = removedWeeks.getOrPut(original.id) { mutableSetOf() }.apply { addAll(action.sourceWeekSet()) }
+                                    val remainingWeeks = original.weeks.filterNot { it in removed }
                                     if (remainingWeeks.isEmpty()) {
                                         courseDao.deleteCourse(original.id)
                                     } else {
@@ -459,7 +518,7 @@ class ScheduleRepository(private val database: AppDatabase) {
                                             listOf(
                                                 edited.copy(
                                                     id = 0,
-                                                    weeks = listOf(action.targetWeek)
+                                                    weeks = edited.weeks
                                                 )
                                             ),
                                             scheduleId
@@ -477,9 +536,9 @@ class ScheduleRepository(private val database: AppDatabase) {
                         }
 
                         AgentValidatedActionType.DELETE -> action.original?.let { original ->
-                            if (action.scope == AgentActionScope.CURRENT_WEEK) {
-                                val remainingWeeks =
-                                    original.weeks.filterNot { it == action.targetWeek }
+                            if (action.scope != AgentActionScope.ALL_WEEKS) {
+                                val removed = removedWeeks.getOrPut(original.id) { mutableSetOf() }.apply { addAll(action.sourceWeekSet()) }
+                                val remainingWeeks = original.weeks.filterNot { it in removed }
                                 if (remainingWeeks.isEmpty()) courseDao.deleteCourse(original.id)
                                 else courseDao.updateCourse(
                                     original.copy(
@@ -493,14 +552,19 @@ class ScheduleRepository(private val database: AppDatabase) {
                         }
 
                         AgentValidatedActionType.OPEN_SETTINGS,
+                        AgentValidatedActionType.OPEN_IMPORT,
                         AgentValidatedActionType.SET_SETTING,
-                        AgentValidatedActionType.SET_PERIOD_SETTINGS -> Unit
+                        AgentValidatedActionType.SET_PERIOD_SETTINGS,
+                        AgentValidatedActionType.SET_ADJUSTMENTS,
+                        AgentValidatedActionType.CREATE_SCHEDULE,
+                        AgentValidatedActionType.ACTIVATE_SCHEDULE,
+                        AgentValidatedActionType.DELETE_SCHEDULE -> Unit
                     }
                 }
 
                 mergeCompatibleCourseFragments(scheduleId)
                 val after = courseDao.getCourses(scheduleId)
-                if (!verifyAgentPlan(after, plan)) {
+                if (!verifyAgentPlan(after, plan, before)) {
                     throw AgentPlanRejectedException("数据库写入后的真实状态与操作计划不一致")
                 }
                 AgentPlanExecutionResult(
@@ -564,6 +628,16 @@ class ScheduleRepository(private val database: AppDatabase) {
             configDao.upsertPeriods(normalizedPeriods)
             syncActiveSchemeTimes(scheduleId, normalizedConfig, normalizedPeriods)
         }
+    }
+
+    suspend fun saveScheduleAdjustments(scheduleId: Int, original: String, updated: String) = database.withTransaction {
+        val current = requireNotNull(configDao.getConfig(scheduleId)) { "课表已不存在，请重新打开调休安排" }
+        fun canonical(value: String) = com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments(
+            com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(value))
+        require(canonical(current.scheduleAdjustmentsJson) == canonical(original)) {
+            "调休安排已有其他修改，请重新打开后编辑"
+        }
+        configDao.upsertConfig(current.copy(scheduleAdjustmentsJson = canonical(updated)))
     }
 
     suspend fun saveConfigChanges(original: ScheduleConfigEntity, updated: ScheduleConfigEntity) {
@@ -646,6 +720,7 @@ class ScheduleRepository(private val database: AppDatabase) {
 
     suspend fun activateSchedule(scheduleId: Int) {
         database.withTransaction {
+            require(profileDao.getProfiles().any { it.id == scheduleId }) { "目标课表已不存在" }
             val oldActiveId = activeScheduleId()
             val globalConfig = configDao.getConfig(oldActiveId) ?: defaultConfig(oldActiveId)
             ensureScheduleData(scheduleId)
@@ -663,7 +738,8 @@ class ScheduleRepository(private val database: AppDatabase) {
     suspend fun deleteSchedule(scheduleId: Int) {
         database.withTransaction {
             val profiles = profileDao.getProfiles()
-            if (profiles.size <= 1) return@withTransaction
+            require(profiles.size > 1) { "至少需要保留一个课表" }
+            require(profiles.any { it.id == scheduleId }) { "目标课表已不存在" }
             profileDao.deleteProfile(scheduleId)
             courseDao.deleteBySchedule(scheduleId)
             periodSchemeDao.deleteTimesForSchedule(scheduleId)
@@ -819,6 +895,9 @@ class ScheduleRepository(private val database: AppDatabase) {
     private fun normalizeConfigForSchedule(config: ScheduleConfigEntity, scheduleId: Int): ScheduleConfigEntity {
         return config.copy(
             id = scheduleId,
+            scheduleAdjustmentsJson = com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments(
+                com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(config.scheduleAdjustmentsJson)
+            ),
             weekCardHeightDp = config.weekCardHeightDp?.coerceIn(28f, 120f),
             weekCardHeightScale = config.weekCardHeightScale
                 .takeIf(Float::isFinite)

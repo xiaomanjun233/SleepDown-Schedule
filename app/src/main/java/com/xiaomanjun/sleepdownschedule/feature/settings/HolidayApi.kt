@@ -8,6 +8,7 @@ import java.net.URL
 import java.io.ByteArrayOutputStream
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustment
 
 /** [wage] is the overtime multiplier: 3 marks a legal holiday, 2 a plain day off, 1 a workday. */
 data class HolidayProposal(val date: LocalDate, val name: String, val isRest: Boolean, val wage: Int = 2)
@@ -17,6 +18,14 @@ data class HolidayPlan(val name: String, val restDates: List<LocalDate>, val mak
 
 /** [suggestedSource] is the teaching date this make-up day most likely replaces; schools may differ. */
 data class HolidayMakeup(val date: LocalDate, val suggestedSource: LocalDate?)
+
+/** A school's saved source dates take precedence over the service's suggested pairing. */
+internal fun HolidayPlan.isAlreadyAdded(entries: List<ScheduleAdjustment>): Boolean {
+    if (restDates.isEmpty() && makeups.isEmpty()) return false
+    val saved = entries.associateBy { it.date }
+    return restDates.all { date -> saved[date.toString()]?.let { it.sourceDate == null } == true } &&
+        makeups.all { saved[it.date.toString()]?.sourceDate != null }
+}
 
 /**
  * Groups rest days into contiguous holiday periods and pairs every make-up workday with the workday it

@@ -30,6 +30,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import com.kyant.backdrop.shadow.Shadow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -1647,7 +1649,8 @@ fun SettingsActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     destructive: Boolean = false,
-    monochrome: Boolean = false
+    monochrome: Boolean = false,
+    glowing: Boolean = false
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val monochromeSurface = if (darkTheme) ComposeColor.Black else ComposeColor.White
@@ -1673,11 +1676,13 @@ fun SettingsActionButton(
                     destructive -> 0.86f
                     monochrome && darkTheme -> 0.58f
                     monochrome -> 0.74f
+                    glowing -> 0.64f
                     else -> 0.84f
                 }
             ),
             contentPadding = PaddingValues(horizontal = 16.dp),
-            blurRadius = 4.dp,
+            shadowStyle = if (glowing) Shadow(radius = 14.dp, color = tint.copy(alpha = 0.26f)) else Shadow.Default,
+            blurRadius = if (glowing) 8.dp else 4.dp,
             lensHeight = 14.dp,
             lensAmount = 18.dp,
             chromaticAberration = false
@@ -1723,6 +1728,7 @@ internal fun SettingsSwipeDeleteRow(
     rowKey: Any?,
     onRequestDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    softAppearance: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val density = LocalDensity.current
@@ -1758,17 +1764,28 @@ internal fun SettingsSwipeDeleteRow(
                 Modifier
                     .fillMaxHeight()
                     .width(with(density) { visibleActionWidth.toDp() })
-                    .padding(end = 16.dp)
+                    .padding(end = if (softAppearance) 12.dp else 16.dp, top = if (softAppearance) 8.dp else 0.dp,
+                        bottom = if (softAppearance) 8.dp else 0.dp)
                     .graphicsLayer {
                         alpha = revealProgress
                         transformOrigin = TransformOrigin(1f, 0.5f)
                     }
                     .clip(RoundedRectangle(15.dp))
-                    .background(ComposeColor(0xFFFF3B30))
+                    .then(if (softAppearance) Modifier
+                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(
+                            ComposeColor(0xFFFF6B61).copy(alpha = 0.22f), ComposeColor(0xFFFF453A).copy(alpha = 0.10f))))
+                        .border(0.7.dp, ComposeColor(0xFFFF665B).copy(alpha = 0.22f), RoundedRectangle(15.dp))
+                        else Modifier.background(ComposeColor(0xFFFF3B30)))
                     .clickable(onClick = ::requestDelete),
                 contentAlignment = Alignment.Center
             ) {
-                Image(
+                if (softAppearance) Column(horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Icon(painter = painterResource(R.drawable.ic_delete_history), contentDescription = null,
+                        tint = ComposeColor(0xFFFF453A), modifier = Modifier.size(18.dp))
+                    Text("删除", color = ComposeColor(0xFFFF453A), fontSize = 10.sp, lineHeight = 12.sp,
+                        fontWeight = FontWeight.Medium)
+                } else Image(
                     painter = painterResource(R.drawable.ic_delete_history),
                     contentDescription = "删除",
                     modifier = Modifier.size(24.dp)

@@ -434,7 +434,8 @@ class DayAgentService(private val context: Context) {
         val memoryEnabled = DayAgentPreferences.isMemoryEnabled(context)
         val savedMemory = DayAgentPreferences.memory(context)
         val memoryToolAvailable = DayAgentPreferences.shouldOfferMemoryUpdate(context, facts.date)
-        val cachedReadResults = mutableMapOf<String, AgentToolResult>()
+        val cachedFacts = SharedAgentToolFacts.read(facts, System.currentTimeMillis())
+        val cachedReadResults = cachedFacts.toMutableMap()
         fun executeTurnTool(call: AgentToolCall): AgentToolResult {
             if (call.name == AgentToolName.UPDATE_MEMORY) {
                 return executeAgentToolCall(call, facts)
@@ -446,7 +447,10 @@ class DayAgentService(private val context: Context) {
                     content = "事实版本=${facts.sourceHash}；与本轮此前相同调用一致，请直接复用前一结果。"
                 )
             }
-            return executeAgentToolCall(call, facts).also { cachedReadResults[key] = it }
+            return executeAgentToolCall(call, facts).also {
+                if (it.success) cachedReadResults[key] = it
+                SharedAgentToolFacts.put(facts, call, it, System.currentTimeMillis())
+            }
         }
         if (imageAttachment != null) {
             require(AiProviderPresets.supportsImageInput(settings.profile)) {
@@ -455,6 +459,7 @@ class DayAgentService(private val context: Context) {
         }
         val messages = mutableListOf<JsonObject>().apply {
             add(agentTextMessage("system", DayAgentPrompts.ChatSystem))
+            if (cachedFacts.isNotEmpty()) add(agentTextMessage("system", agentCachedFactsMessage(facts, cachedFacts)))
             add(
                 agentTextMessage(
                     "system",
@@ -514,10 +519,12 @@ class DayAgentService(private val context: Context) {
                     onDelta = onDelta,
                     onStreamReset = onStreamReset,
                     executeTool = ::executeTurnTool,
+                    cachedTools = cachedFacts.values.map { it.name }.filter { it.isOneShotPerTurn }.toSet(),
+                    allowCachedAnswer = cachedFacts.isNotEmpty(),
                     telemetry = telemetry
                 )
             }
-            val completedOneShotTools = mutableSetOf<AgentToolName>()
+            val completedOneShotTools = cachedFacts.values.map { it.name }.filter { it.isOneShotPerTurn }.toMutableSet()
             val evidenceKeys = mutableSetOf<String>()
             val baseMessages = messages.toList()
             val closedToolFacts = linkedMapOf<String, AgentToolResult>()
@@ -554,7 +561,7 @@ class DayAgentService(private val context: Context) {
                         settings = settings,
                         messages = messages + agentTextMessage(
                             "system",
-                            DayAgentPrompts.ToolDecisionStage
+                            if (cachedFacts.isNotEmpty()) DayAgentPrompts.CachedFactsStage else DayAgentPrompts.ToolDecisionStage
                         ),
                         stream = false,
                         includeTools = true,
@@ -602,6 +609,10 @@ class DayAgentService(private val context: Context) {
                     )
                 }
                 if (decision.calls.isEmpty()) {
+                    if (cachedFacts.isNotEmpty()) usableCachedAgentAnswer(decision.content)?.let { answer ->
+                        onDelta(answer)
+                        return@withContext answer
+                    }
                     val finalMessages = if (decision.webSearchUsed && decision.content.isNotBlank()) {
                         messages + agentTextMessage(
                             "system",
@@ -627,7 +638,7 @@ class DayAgentService(private val context: Context) {
                 val roundResults = decision.calls.map { call ->
                     onStatus(call.name.runStatus())
                     executeTurnTool(call).also {
-                        if (call.name.isOneShotPerTurn) completedOneShotTools += call.name
+                        if (it.success && call.name.isOneShotPerTurn) completedOneShotTools += call.name
                     }
                 }
                 telemetry.recordToolResults(roundResults)
@@ -808,6 +819,8 @@ class DayAgentRepository(private val context: Context) {
         require(scheduleId == facts.scheduleId) {
             "课表已切换，请重新发送这条消息"
         }
+        val stored = scheduleRepository.snapshot()
+        require(stored.config.id == scheduleId) { "课表已切换，请重新发送这条消息" }
         cleanup(facts.date)
         val userMessageId = attachmentMutex.withLock {
             var createdAttachment: File? = null
@@ -851,9 +864,16 @@ class DayAgentRepository(private val context: Context) {
          * before the model turn, so GET_PERIODS always reflects the active schedule's persisted
          * database state instead of a stale Compose snapshot.
          */
+        val freshFacts = buildDayAgentFacts(
+            courses = stored.courses, periods = stored.periods, config = stored.config,
+            date = facts.date, weather = facts.weather,
+            scheduleName = stored.schedules.firstOrNull { it.id == scheduleId }?.name,
+            now = LocalDateTime.now(), settingContext = context,
+            schedules = stored.schedules.map { AgentScheduleSummary(it.id, it.name, it.isActive) }
+        )
         val currentFacts = runCatching {
             val schemes = scheduleRepository.loadPeriodSchemes(scheduleId)
-            facts.copy(
+            freshFacts.copy(
                 periodSchemes = schemes.schemes.map { draft ->
                     AgentPeriodSchemeSnapshot(
                         id = draft.scheme.id,
@@ -873,7 +893,7 @@ class DayAgentRepository(private val context: Context) {
                 },
                 activePeriodSchemeId = schemes.activeSchemeId
             )
-        }.getOrElse { facts }
+        }.getOrElse { freshFacts }
         val executionStatuses = mutableListOf<AgentRunStatus>()
         fun recordStatus(status: AgentRunStatus) {
             if (
@@ -921,6 +941,12 @@ class DayAgentRepository(private val context: Context) {
 
 private val ManagedAgentAttachmentName =
     Regex("""^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.(?:jpg|png|webp)$""")
+
+internal fun agentImportAttachmentFile(filesDir: File, userContent: String): File? {
+    val name = parseAgentMessageContent(userContent).attachmentFileName ?: return null
+    if (!ManagedAgentAttachmentName.matches(name)) return null
+    return File(File(filesDir, "agent_attachments"), name).takeIf(File::isFile)
+}
 
 internal fun orphanedAgentAttachmentNames(
     existingNames: Set<String>,

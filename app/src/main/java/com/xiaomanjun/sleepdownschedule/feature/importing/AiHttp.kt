@@ -18,9 +18,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.intOrNull
-import java.io.BufferedReader
-import java.io.InputStream
-import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.atomic.AtomicInteger
@@ -149,15 +146,14 @@ private fun safeRequest(
     requestContext: AiImportNetworkContext
 ): String {
     val trace = AiImportHttpTrace(url, providerId, endpointStyle, requestContext, body.size)
-    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-        requestMethod = method
-        connectTimeout = 30_000
-        readTimeout = 600_000
-        doOutput = true
-        setAiAuthHeader(apiKey, authType)
-        setRequestProperty("Content-Type", contentType)
-        setRequestProperty("Accept", "application/json")
-    }
+    val connection = openAiPostConnection(
+        url = url,
+        apiKey = apiKey,
+        authType = authType,
+        contentType = contentType,
+        accept = "application/json",
+        method = method
+    )
     return try {
         trace.mark(AiImportHttpPhase.BODY_WRITE_START)
         connection.outputStream.use { it.write(body) }
@@ -179,86 +175,6 @@ private fun safeRequest(
     } finally {
         connection.disconnect()
     }
-}
-
-internal fun HttpURLConnection.setAiAuthHeader(apiKey: String, authType: AiAuthType) {
-    when (authType) {
-        AiAuthType.ApiKeyBearer,
-        AiAuthType.OpenAIProjectKey -> setRequestProperty("Authorization", "Bearer $apiKey")
-        AiAuthType.CustomHeader -> setRequestProperty("api-key", apiKey)
-    }
-}
-
-internal fun redactAiUrl(value: String): String {
-    return runCatching {
-        val url = URL(value)
-        "${url.protocol}://${url.host}${url.path}"
-    }.getOrDefault(value.substringBefore('?'))
-}
-
-private fun formatAiNetworkError(url: String, throwable: Throwable): String {
-    val host = runCatching { URL(url).host }.getOrDefault(url)
-    val message = throwable.message.orEmpty()
-    val hint = when {
-        throwable is IllegalArgumentException ->
-            "AI 请求或响应格式不符合接口协议，请检查模型与接口类型。"
-        message.contains("Unacceptable certificate", ignoreCase = true) ||
-            message.contains("SSLHandshakeException", ignoreCase = true) ||
-            message.contains("Trust anchor", ignoreCase = true) ||
-            message.contains("certificate", ignoreCase = true) ->
-            buildString {
-                append("$host 的 HTTPS 证书链没有被 Android 信任。")
-                if (host.contains("xiaomimimo.com", ignoreCase = true)) {
-                    append("小米 MiMo 普通按量接口应使用 https://api.xiaomimimo.com/v1；Token Plan 应改选“小米 MiMo Token Plan”。")
-                }
-                append("如果正在使用代理/VPN/抓包工具，请关闭 HTTPS 检查，或确认代理证书已被系统信任；不要在 App 内跳过证书校验。")
-            }
-        message.contains("failed to connect", ignoreCase = true) ||
-            message.contains("connect timed out", ignoreCase = true) ||
-            message.contains("Connection refused", ignoreCase = true) ->
-            "手机当前网络无法连接到 $host。请尝试切换蜂窝/其他 Wi-Fi，或给手机配置能访问该 API 的代理/VPN。"
-        message.contains("Unable to resolve host", ignoreCase = true) ->
-            "手机当前网络无法解析 $host。请检查 DNS、网络或代理设置。"
-        message.contains("timeout", ignoreCase = true) ->
-            "连接 $host 超时。请检查网络可达性，或稍后重试。"
-        else -> "无法连接到 $host。请检查手机网络、代理/VPN、接口地址和服务商状态。"
-    }
-    return "$hint 原始错误：$message"
-}
-
-internal fun formatAiRequestError(status: Int, text: String, providerId: String? = null): String {
-    if (providerId == AiProviderPresets.dailyFree.id && isManagedFreeLimitError(status, text)) {
-        return "今日免费 AI 共享额度已用完，请明天再试，或在 AI 设置中配置自己的 AI 服务。"
-    }
-    val compact = sanitizeAiOutputForDisplay(text).replace(Regex("\\s+"), " ").take(240)
-    val hint = if (
-        text.contains("404 page not found", ignoreCase = true) ||
-        text.contains("\"code\":\"service_unavailable_error\"", ignoreCase = true)
-    ) {
-        "接口路径不匹配。若使用第三方兼容站，请确认接口地址包含它要求的版本路径（通常是 /v1），并优先关闭“严格 JSON”。"
-    } else {
-        null
-    }
-    return buildString {
-        append("AI 请求失败 ($status)")
-        hint?.let { append("：").append(it) }
-        if (compact.isNotBlank()) append(" 服务返回：").append(compact)
-    }
-}
-
-private fun isManagedFreeLimitError(status: Int, text: String): Boolean {
-    if (status == 429) return true
-    val normalized = text.lowercase()
-    return listOf(
-        "模型超限",
-        "额度已用完",
-        "额度不足",
-        "quota",
-        "rate_limit",
-        "rate limit",
-        "limit exceeded",
-        "too many requests"
-    ).any(normalized::contains)
 }
 
 internal fun postJson(
@@ -310,15 +226,13 @@ private fun postChatCompletionStreaming(
         requestContext,
         bodyBytes.size
     )
-    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-        requestMethod = "POST"
-        connectTimeout = 30_000
-        readTimeout = 600_000
-        doOutput = true
-        setAiAuthHeader(apiKey, authType)
-        setRequestProperty("Content-Type", "application/json; charset=utf-8")
-        setRequestProperty("Accept", "text/event-stream")
-    }
+    val connection = openAiPostConnection(
+        url = url,
+        apiKey = apiKey,
+        authType = authType,
+        contentType = "application/json; charset=utf-8",
+        accept = "text/event-stream"
+    )
     return try {
         trace.mark(AiImportHttpPhase.BODY_WRITE_START)
         connection.outputStream.use { it.write(bodyBytes) }
@@ -337,19 +251,14 @@ private fun postChatCompletionStreaming(
             val accumulator = ChatCompletionSseAccumulator()
             val reasoningPublisher = AiReasoningStreamPublisher(requestContext.onReasoningUpdate)
             var firstEvent = true
-            BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).useLines { lines ->
-                lines.forEach { line ->
-                    if (!line.startsWith("data:")) return@forEach
-                    val payload = line.removePrefix("data:").trim()
-                    if (payload.isBlank() || payload == "[DONE]") return@forEach
-                    trace.onEvent()
-                    if (firstEvent) {
-                        firstEvent = false
-                        trace.mark(AiImportHttpPhase.FIRST_EVENT)
-                    }
-                    accumulator.consume(payload)
-                    reasoningPublisher.publish(accumulator.reasoning)
+            connection.forEachSseDataLine { payload ->
+                trace.onEvent()
+                if (firstEvent) {
+                    firstEvent = false
+                    trace.mark(AiImportHttpPhase.FIRST_EVENT)
                 }
+                accumulator.consume(payload)
+                reasoningPublisher.publish(accumulator.reasoning)
             }
             trace.mark(AiImportHttpPhase.STREAM_END)
             reasoningPublisher.publish(accumulator.reasoning, force = true)
@@ -385,15 +294,13 @@ private fun postResponsesStreaming(
         requestContext,
         bodyBytes.size
     )
-    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-        requestMethod = "POST"
-        connectTimeout = 30_000
-        readTimeout = 600_000
-        doOutput = true
-        setAiAuthHeader(apiKey, authType)
-        setRequestProperty("Content-Type", "application/json; charset=utf-8")
-        setRequestProperty("Accept", "text/event-stream")
-    }
+    val connection = openAiPostConnection(
+        url = url,
+        apiKey = apiKey,
+        authType = authType,
+        contentType = "application/json; charset=utf-8",
+        accept = "text/event-stream"
+    )
     return try {
         trace.mark(AiImportHttpPhase.BODY_WRITE_START)
         connection.outputStream.use { it.write(bodyBytes) }
@@ -412,19 +319,14 @@ private fun postResponsesStreaming(
             val accumulator = ResponsesSseAccumulator()
             val reasoningPublisher = AiReasoningStreamPublisher(requestContext.onReasoningUpdate)
             var firstEvent = true
-            BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).useLines { lines ->
-                lines.forEach { line ->
-                    if (!line.startsWith("data:")) return@forEach
-                    val payload = line.removePrefix("data:").trim()
-                    if (payload.isBlank() || payload == "[DONE]") return@forEach
-                    trace.onEvent()
-                    if (firstEvent) {
-                        firstEvent = false
-                        trace.mark(AiImportHttpPhase.FIRST_EVENT)
-                    }
-                    accumulator.consume(payload)
-                    reasoningPublisher.publish(accumulator.reasoning)
+            connection.forEachSseDataLine { payload ->
+                trace.onEvent()
+                if (firstEvent) {
+                    firstEvent = false
+                    trace.mark(AiImportHttpPhase.FIRST_EVENT)
                 }
+                accumulator.consume(payload)
+                reasoningPublisher.publish(accumulator.reasoning)
             }
             trace.mark(AiImportHttpPhase.STREAM_END)
             reasoningPublisher.publish(accumulator.reasoning, force = true)

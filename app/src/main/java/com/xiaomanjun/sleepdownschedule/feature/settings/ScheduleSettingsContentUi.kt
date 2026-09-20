@@ -401,7 +401,7 @@ fun ScheduleSettingsContent(
                 previewPageColor.copy(alpha = if (darkPage) 0.94f else 0.92f)
             )))
         )
-        SettingsActionButton("测试实时活动", previewBackdrop, onClick = {
+        SettingsActionButton("测试实时活动", previewBackdrop, glowing = true, onClick = {
             onPreviewLiveUpdate(state.config.copy(
                 notificationsEnabled = notificationsEnabled,
                 notificationLeadMinutes = leadMinutes.toIntOrNull() ?: state.config.notificationLeadMinutes,
@@ -495,4 +495,3 @@ fun ScheduleSettingsContentFixed(
         }
     }
 }
-

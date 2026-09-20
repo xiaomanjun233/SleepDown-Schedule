@@ -166,6 +166,8 @@ fun NormalizedAiManualImportScreen(
     captureHistoryBackground: suspend () -> AiImportHistoryBackgroundCapture? = { null },
     initialFileUri: Uri? = null,
     onInitialFileConsumed: () -> Unit = {},
+    initialText: String? = null,
+    onInitialTextConsumed: () -> Unit = {},
     onParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
@@ -175,6 +177,12 @@ fun NormalizedAiManualImportScreen(
     val scope = rememberCoroutineScope()
     val backgroundPermissionGate = rememberAiImportBackgroundPermissionGate()
     var jsonText by remember { mutableStateOf("") }
+    LaunchedEffect(initialText) {
+        initialText?.let {
+            jsonText = it
+            onInitialTextConsumed()
+        }
+    }
     var error by remember { mutableStateOf<String?>(null) }
     var routeMessage by remember { mutableStateOf<String?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }

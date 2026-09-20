@@ -217,7 +217,8 @@ internal object DayAgentRenderCache {
         val periodsHash: Int,
         val configHash: Int,
         val scheduleName: String?,
-        val weatherHash: Int
+        val weatherHash: Int,
+        val schedulesHash: Int
     )
 
     private val facts = object : LinkedHashMap<FactsKey, DayAgentFacts>(6, 0.75f, true) {
@@ -234,14 +235,22 @@ internal object DayAgentRenderCache {
         scheduleName: String?,
         context: android.content.Context
     ): DayAgentFacts {
+        val scheduleSummaries = state.schedules.map { profile ->
+            AgentScheduleSummary(
+                id = profile.id,
+                name = profile.name,
+                isActive = profile.isActive || profile.id == state.config.id
+            )
+        }
         val key = FactsKey(
             scheduleId = state.config.id,
             date = date,
             coursesHash = state.courses.hashCode(),
             periodsHash = state.periods.hashCode(),
-            configHash = state.config.hashCode(),
+            configHash = 31 * state.config.hashCode() + AgentSettingRegistry.snapshot(state.config, scheduleName, context, date).hashCode(),
             scheduleName = scheduleName,
-            weatherHash = weather.hashCode()
+            weatherHash = weather.hashCode(),
+            schedulesHash = scheduleSummaries.hashCode()
         )
         return facts.getOrPut(key) {
             buildDayAgentFacts(
@@ -251,7 +260,8 @@ internal object DayAgentRenderCache {
                 date,
                 weather,
                 scheduleName,
-                settingContext = context.applicationContext
+                settingContext = context.applicationContext,
+                schedules = scheduleSummaries
             )
         }
     }
@@ -1138,12 +1148,21 @@ internal fun DayAgentConversationDialog(
     var closing by remember { mutableStateOf(false) }
     val dialogContext = LocalContext.current
     val hostWindow = remember(dialogContext) { dialogContext.findAgentHostActivity()?.window }
-    DisposableEffect(hostWindow) {
+    DisposableEffect(hostWindow, homePresentation) {
         val previousSoftInputMode = hostWindow?.attributes?.softInputMode
         hostWindow?.let(::keepHostBehindAgentIme)
+        // MainActivity normally fits system bars. A full-window material cannot paint the
+        // navigation area until its actual window also lays out edge-to-edge. Keep this for
+        // the whole home conversation so compact/fullscreen transitions share one viewport.
+        if (homePresentation && hostWindow != null) {
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(hostWindow, false)
+        }
         onDispose {
             if (previousSoftInputMode != null) {
                 hostWindow.setSoftInputMode(previousSoftInputMode)
+            }
+            if (homePresentation && hostWindow != null) {
+                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(hostWindow, true)
             }
         }
     }
@@ -1342,6 +1361,8 @@ internal fun DayAgentConversationDialog(
         val left = (windowWidth - homeExpandedWidth).toPx() / 2f
         Rect(left, 0f, left + homeExpandedWidth.toPx(), windowHeight.toPx())
     }
+    // Reading width may remain compact on tablets; the material always covers the window.
+    val homeMaterialFullRect = with(density) { Rect(0f, 0f, windowWidth.toPx(), windowHeight.toPx()) }
     val homeFinalWidth = if (homeFullScreen) homeExpandedWidth else homeWidth
     val homeFullScreenSettled by remember(homePresentation, homeFullScreen, closing) { derivedStateOf {
         homePresentation && homeFullScreen && !closing &&
@@ -1355,9 +1376,9 @@ internal fun DayAgentConversationDialog(
         homeCapsuleHeight, homeResponseTop + homeAnswerLimit + homeHandleHeight
     )
     val homeComposerWidth = if (homeFullScreen) homeExpandedWidth - 16.dp else homeWidth - 8.dp
-    val homeSurfaceEnvelope = remember(homeFullRect, sourceRect, density.density) {
+    val homeSurfaceEnvelope = remember(homeMaterialFullRect, sourceRect, density.density) {
         GlassTransitionEnvelope.covering(listOf(
-            GlassTransitionGeometry(sourceRect, 0f), GlassTransitionGeometry(homeFullRect, 0f)
+            GlassTransitionGeometry(sourceRect, 0f), GlassTransitionGeometry(homeMaterialFullRect, 0f)
         ), with(density) { 56.dp.toPx() })
     }
     val homeInputLightInset = rememberUpdatedState(with(density) {
@@ -1423,7 +1444,14 @@ internal fun DayAgentConversationDialog(
         }
     }
     val homeGeometry = rememberUpdatedState<() -> GlassTransitionGeometry> {
-        GlassTransitionGeometry(conversationGeometry(), homeShellRadiusPx().coerceAtLeast(0f))
+        val destination = topAssistantMorphRect(homeCompactRect(), homeMaterialFullRect,
+            fullMotion.drop.value, fullMotion.spread.value).let {
+            it.copy(bottom = it.bottom + fullPullDistance * (1f - fullMotion.drop.value.coerceIn(0f, 1f)))
+        }
+        GlassTransitionGeometry(topAssistantMorphRect(
+            if (closing) homeAnchorBounds ?: sourceRect else sourceRect,
+            destination, homeMotion.drop.value, homeMotion.spread.value
+        ), homeShellRadiusPx().coerceAtLeast(0f))
     }
     val homeSurfaceAllocation = remember(homeSurfaceEnvelope) {
         GlassMorphAllocation(
@@ -1664,12 +1692,13 @@ internal fun DayAgentConversationDialog(
                       )
               ) {
             if (homePresentation) Box(
-                Modifier.glassMorphHost(homeSurfaceAllocation).glassBackdropProducer(homeSurfaceBackdrop)
+                (if (homeFullScreenSettled) Modifier.matchParentSize() else Modifier.glassMorphHost(homeSurfaceAllocation))
+                    .glassBackdropProducer(homeSurfaceBackdrop)
             ) {
                 TopAssistantSurface(
                     backdrop, state.config, androidx.compose.ui.graphics.RectangleShape,
                     modifier = Modifier.matchParentSize(),
-                    morphAllocation = homeSurfaceAllocation,
+                    morphAllocation = homeSurfaceAllocation.takeUnless { homeFullScreenSettled },
                     shapeProvider = ::homeShellShape,
                     edgeEffectsEnabled = !homeFullScreenSettled,
                     refractionEnabled = !homeFullScreen && !fullMotion.drop.isRunning,
@@ -1694,7 +1723,7 @@ internal fun DayAgentConversationDialog(
                          val sizeProgress = agentMorphSizeProgress(raw, closing)
                          alpha = if (anchoredTabletConversation) {
                              agentSmoothStep(0.08f, 0.26f, sizeProgress)
-                         } else if (homePresentation && closing) topAssistantDockAlpha(homeMotion.drop.value) else 1f
+                         } else if (homePresentation && closing) topAssistantDockAlpha(homeMotion.drop.value, fadeEnd = 0.08f) else 1f
                          val cornerProgress = agentSmoothStep(0.04f, 0.90f, sizeProgress)
                         val visualRadiusPx =
                             sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * cornerProgress
@@ -1924,17 +1953,25 @@ internal fun DayAgentConversationDialog(
                                      val courseActions = parsed.actions.filter { action ->
                                           action.type == AgentValidatedActionType.ADD ||
                                               action.type == AgentValidatedActionType.UPDATE ||
+                                              action.type == AgentValidatedActionType.REPLACE ||
                                               action.type == AgentValidatedActionType.DELETE
                                      }
                                       val settingActions = parsed.actions.filter { action ->
                                           action.type == AgentValidatedActionType.SET_SETTING ||
-                                              action.type == AgentValidatedActionType.SET_PERIOD_SETTINGS
+                                              action.type == AgentValidatedActionType.SET_PERIOD_SETTINGS ||
+                                              action.type == AgentValidatedActionType.SET_ADJUSTMENTS
                                      }
                                      val plans = buildList {
-                                         if (courseActions.isNotEmpty()) {
+                                         if (parsed.actions.any { it !in courseActions && it !in settingActions } && parsed.actions.size > 1) {
+                                             add("workflow-plan" to AgentPlan(parsed.actions))
+                                             return@buildList
+                                         }
+                                         if (courseActions.isNotEmpty() && settingActions.isNotEmpty()) {
+                                             add("combined-plan" to AgentPlan(courseActions + settingActions))
+                                         } else if (courseActions.isNotEmpty()) {
                                              add("course-plan" to AgentPlan(courseActions))
                                          }
-                                         if (settingActions.isNotEmpty()) {
+                                         if (settingActions.isNotEmpty() && courseActions.isEmpty()) {
                                              add("setting-plan" to AgentPlan(settingActions))
                                          }
                                          parsed.actions
@@ -1955,8 +1992,9 @@ internal fun DayAgentConversationDialog(
                                               )
                                           }
                                           val containsCourseActions = plan.actions.any { action ->
-                                              action.type == AgentValidatedActionType.ADD ||
+                                                  action.type == AgentValidatedActionType.ADD ||
                                                   action.type == AgentValidatedActionType.UPDATE ||
+                                                  action.type == AgentValidatedActionType.REPLACE ||
                                                   action.type == AgentValidatedActionType.DELETE
                                           }
                                           if (containsCourseActions) {
@@ -2017,7 +2055,8 @@ internal fun DayAgentConversationDialog(
                                               backdrop = backdrop,
                                               config = state.config,
                                               destructive = plan.actions.any {
-                                                  it.type == AgentValidatedActionType.DELETE
+                                                  it.type == AgentValidatedActionType.DELETE ||
+                                                      it.type == AgentValidatedActionType.DELETE_SCHEDULE
                                               },
                                               applied = alreadyApplied,
                                               enabled = !executing,
@@ -2026,7 +2065,16 @@ internal fun DayAgentConversationDialog(
                                                   if (actionKey !in appliedActionKeys.value) {
                                                       val dispatch = {
                                                           executingActionKeys += actionKey
-                                                          onAgentAction(plan) { result ->
+                                                          val inputMessage = messages.lastOrNull { it.role == "user" && it.id < message.id }
+                                                          val attachment = if (plan.actions.any { it.type == AgentValidatedActionType.OPEN_IMPORT } && inputMessage != null)
+                                                              agentImportAttachmentFile(dialogContext.filesDir, inputMessage.content) else null
+                                                          val dispatchedPlan = if (attachment != null)
+                                                              AgentPlan(plan.actions.map { action ->
+                                                                  if (action.type == AgentValidatedActionType.OPEN_IMPORT)
+                                                                      action.copy(importAttachmentUri = android.net.Uri.fromFile(attachment).toString()) else action
+                                                              })
+                                                              else plan
+                                                          onAgentAction(dispatchedPlan) { result ->
                                                               executingActionKeys -= actionKey
                                                               actionFeedback = actionFeedback + (actionKey to result)
                                                                if (result.success && result.verified) {
@@ -2040,7 +2088,9 @@ internal fun DayAgentConversationDialog(
                                                               }
                                                           }
                                                       }
-                                                      if (plan.actions.singleOrNull()?.type == AgentValidatedActionType.OPEN_SETTINGS) {
+                                                      if (plan.actions.any { it.type == AgentValidatedActionType.OPEN_SETTINGS ||
+                                                          it.type == AgentValidatedActionType.OPEN_IMPORT ||
+                                                          it.type == AgentValidatedActionType.ACTIVATE_SCHEDULE }) {
                                                           dismissAnimated(afterDismiss = dispatch)
                                                       } else {
                                                           dispatch()
@@ -2149,7 +2199,7 @@ internal fun DayAgentConversationDialog(
                       shape = if (homePresentation) homeShellShape() else RoundedCornerShape(32.dp)
                       clip = !homeFullScreenSettled
                       alpha = if (homePresentation) fullMotion.drop.value.coerceIn(0f, 1f) *
-                          (if (closing) topAssistantDockAlpha(homeMotion.drop.value) else homeMotion.drop.value.coerceIn(0f, 1f))
+                          (if (closing) topAssistantDockAlpha(homeMotion.drop.value, fadeEnd = 0.08f) else homeMotion.drop.value.coerceIn(0f, 1f))
                           else agentSmoothStep(0.38f, 0.92f, expansion.value)
                   }
               ) {
@@ -2841,10 +2891,16 @@ private fun AgentSendLiquidButton(
 private fun agentActionButtonLabel(action: AgentValidatedAction): String = when (action.type) {
     AgentValidatedActionType.ADD -> "确认添加：${action.edited?.name ?: action.summary}"
     AgentValidatedActionType.UPDATE -> "确认修改：${action.summary}"
+    AgentValidatedActionType.REPLACE -> "确认整体替换：${action.summary}"
     AgentValidatedActionType.DELETE -> "确认删除：${action.original?.name ?: action.summary}"
     AgentValidatedActionType.OPEN_SETTINGS -> action.summary
+    AgentValidatedActionType.OPEN_IMPORT -> action.summary
     AgentValidatedActionType.SET_SETTING -> "确认设置：${action.summary}"
     AgentValidatedActionType.SET_PERIOD_SETTINGS -> "确认节次设置：${action.summary}"
+    AgentValidatedActionType.SET_ADJUSTMENTS -> "确认调休安排：${action.summary}"
+    AgentValidatedActionType.CREATE_SCHEDULE -> "确认新建课表：${action.summary}"
+    AgentValidatedActionType.ACTIVATE_SCHEDULE -> "确认切换课表：${action.summary}"
+    AgentValidatedActionType.DELETE_SCHEDULE -> "确认删除课表：${action.summary}"
 }
 
 private data class AgentMessageParts(
@@ -3092,13 +3148,16 @@ private fun agentRunStatusIcon(icon: AgentRunStatusIcon): Int = when (icon) {
     AgentRunStatusIcon.THINKING -> R.drawable.ic_agent_thinking
 }
 
+/** Actions that go through the setting execution channel rather than the course transaction. */
+private fun AgentValidatedAction.isSettingAction(): Boolean =
+    type == AgentValidatedActionType.SET_SETTING ||
+        type == AgentValidatedActionType.SET_PERIOD_SETTINGS ||
+        type == AgentValidatedActionType.SET_ADJUSTMENTS
+
 private fun agentPlanSummary(plan: AgentPlan): String =
     if (plan.actions.size == 1) {
         plan.actions.first().summary
-    } else if (plan.actions.all {
-            it.type == AgentValidatedActionType.SET_SETTING ||
-                it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS
-        }) {
+    } else if (plan.actions.all { it.isSettingAction() }) {
         if (plan.actions.all {
                 it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS ||
                     AgentSettingRegistry.isPeriodTimeSetting(it.settingKey)
@@ -3108,16 +3167,13 @@ private fun agentPlanSummary(plan: AgentPlan): String =
             "${plan.actions.size} 项设置"
         }
     } else {
-        "${plan.actions.size} 项课程修改"
+        "${plan.actions.size} 项操作"
     }
 
 private fun agentPlanButtonLabel(plan: AgentPlan): String =
     if (plan.actions.size == 1) {
         agentActionButtonLabel(plan.actions.first())
-    } else if (plan.actions.all {
-            it.type == AgentValidatedActionType.SET_SETTING ||
-                it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS
-        }) {
+    } else if (plan.actions.all { it.isSettingAction() }) {
         if (plan.actions.all {
                 it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS ||
                     AgentSettingRegistry.isPeriodTimeSetting(it.settingKey)
@@ -3127,7 +3183,7 @@ private fun agentPlanButtonLabel(plan: AgentPlan): String =
             "确认应用 ${plan.actions.size} 项设置"
         }
     } else {
-        "确认执行 ${plan.actions.size} 项课程修改"
+        "确认执行 ${plan.actions.size} 项操作"
     }
 
 private fun agentPlanPreviewText(
@@ -3147,10 +3203,10 @@ private fun agentPlanPreviewText(
             "${preview.changedCourseCount} 条课程记录"
     }
     val action = plan.actions.first()
-    val scope = if (action.scope == AgentActionScope.CURRENT_WEEK) {
-        "仅第${action.targetWeek}周"
-    } else {
-        "全学期"
+    val scope = when (action.scope) {
+        AgentActionScope.CURRENT_WEEK -> "仅第${action.targetWeek}周"
+        AgentActionScope.SELECTED_WEEKS -> "原第${action.sourceWeeks.joinToString("、")}周 → 第${action.edited?.weeks?.joinToString("、") ?: "无"}周"
+        AgentActionScope.ALL_WEEKS -> "全学期"
     }
     val change = when (action.type) {
         AgentValidatedActionType.ADD ->

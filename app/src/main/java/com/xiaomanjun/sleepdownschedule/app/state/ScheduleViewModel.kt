@@ -6,6 +6,8 @@ import com.xiaomanjun.sleepdownschedule.feature.schedule.*
 
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTopologyOperation
+import com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
@@ -206,20 +208,51 @@ class ScheduleViewModel(
     ) = viewModelScope.launch {
         val settingActions = actions.filter {
             it.type == AgentValidatedActionType.SET_SETTING ||
-                it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS
+                it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS ||
+                it.type == AgentValidatedActionType.SET_ADJUSTMENTS
         }
-        if (settingActions.size != actions.size || settingActions.isEmpty()) {
+        val courseActions = actions.filter { it.type in setOf(AgentValidatedActionType.ADD,
+            AgentValidatedActionType.UPDATE, AgentValidatedActionType.REPLACE, AgentValidatedActionType.DELETE) }
+        if (settingActions.size + courseActions.size != actions.size || settingActions.isEmpty()) {
             onResult(
                 AgentPlanExecutionResult(false, null, false, "这组操作不是完整的设置计划")
             )
             return@launch
         }
+        /*
+         * Overlapping keys (for example NOTIFICATION_MODE and REALTIME_ACTIVITY) write the same
+         * state. Accepting both made the stored result depend on the order of the JSON array, so a
+         * plan that uses two keys of one group is rejected outright instead of silently picking one.
+         */
+        AgentSettingRegistry
+            .conflictingGroup(settingActions.mapNotNull { it.settingKey })
+            ?.let { group ->
+                onResult(
+                    AgentPlanExecutionResult(
+                        false, null, false,
+                        "同一组设置只能用一个键：${group.joinToString(" / ")}，请只保留一个后重试"
+                    )
+                )
+                return@launch
+            }
 
         val before = repository.snapshot()
         val scheduleId = before.config.id
+        if (actions.any { it.sourceScheduleId != null && it.sourceScheduleId != scheduleId }) {
+            onResult(AgentPlanExecutionResult(false, null, false, "当前课表已切换，请基于新课表重新生成后续修改"))
+            return@launch
+        }
         val beforeSchemes = repository.loadPeriodSchemes(scheduleId)
         val beforeName = before.schedules.firstOrNull { it.id == scheduleId }?.name
         val beforeAgentPreferences = captureDayAgentPreferences()
+        val beforeIcons = settingActions.mapNotNull { it.settingKey }
+            .filter(AgentSettingRegistry::isAppIconSetting).associateWith {
+            AgentSettingRegistry.currentAppIconValue(app, it)
+        }
+        fun restorePreferences() {
+            restoreDayAgentPreferences(beforeAgentPreferences)
+            beforeIcons.forEach { (key, value) -> AgentSettingRegistry.applyAppIcon(app, key, value) }
+        }
         var targetConfig = before.config
         var targetPeriods = before.periods
         var targetName = beforeName
@@ -232,6 +265,11 @@ class ScheduleViewModel(
             .singleOrNull()
         if (settingActions.count { it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS } > 1) {
             onResult(AgentPlanExecutionResult(false, null, false, "一次只能提交一份完整节次设置"))
+            return@launch
+        }
+        if (settingActions.count { it.type == AgentValidatedActionType.SET_ADJUSTMENTS } > 1 ||
+            structuredPeriodAction != null && periodActions.isNotEmpty()) {
+            onResult(AgentPlanExecutionResult(false, null, false, "同一设置只能提交一份完整方案，不能混用两种节次写入方式"))
             return@launch
         }
         if (periodActions.isNotEmpty()) {
@@ -258,6 +296,7 @@ class ScheduleViewModel(
                         targetName = action.settingValue
                     }
                     AgentSettingRegistry.isPreferenceSetting(action.settingKey) -> Unit
+                    AgentSettingRegistry.isAppIconSetting(action.settingKey) -> Unit
                     else -> {
                         targetConfig = AgentSettingRegistry.apply(
                             targetConfig,
@@ -274,6 +313,16 @@ class ScheduleViewModel(
                         }
                     }
                 }
+            }
+
+        settingActions
+            .filter { it.type == AgentValidatedActionType.SET_ADJUSTMENTS }
+            .forEach { action ->
+                targetConfig = targetConfig.copy(
+                    scheduleAdjustmentsJson = encodeScheduleAdjustments(
+                        action.adjustments.orEmpty()
+                    )
+                )
             }
 
         var targetSchemes: SchedulePeriodSchemesDraft? = null
@@ -302,10 +351,13 @@ class ScheduleViewModel(
                 ?: targetPeriods
         }
 
+        var committed: AppState? = null
+        var courseResult: AgentPlanExecutionResult? = null
         val writeError = runCatching {
-            targetSchemes?.let { repository.saveScheduleDetail(targetConfig, it) }
-                ?: repository.saveConfigForSchedule(scheduleId, targetConfig, targetPeriods)
-            targetName?.let { repository.renameSchedule(scheduleId, it) }
+            val saved = repository.commitAgentSettingPlan(before, targetConfig, targetPeriods,
+                targetSchemes, targetName, courseActions)
+            courseResult = saved.first
+            committed = saved.second
             settingActions
                 .filter { AgentSettingRegistry.isPreferenceSetting(it.settingKey) }
                 .forEach { action ->
@@ -315,30 +367,40 @@ class ScheduleViewModel(
                         )
                     )
                 }
+            settingActions
+                .filter { AgentSettingRegistry.isAppIconSetting(it.settingKey) }
+                .forEach { action ->
+                    check(AgentSettingRegistry.applyAppIcon(app, action.settingKey, action.settingValue))
+                }
         }.exceptionOrNull()
         if (writeError != null) {
-            runCatching {
-                repository.saveScheduleDetail(before.config, beforeSchemes)
-                beforeName?.let { repository.renameSchedule(scheduleId, it) }
-                restoreDayAgentPreferences(beforeAgentPreferences)
+            val rollback = runCatching {
+                committed?.let { repository.restoreAgentSettingPlan(it, before, beforeSchemes, beforeName) }
+                restorePreferences()
             }
             refreshCoordinator.request()
             onResult(
                 AgentPlanExecutionResult(
                     false, null, false,
-                    "设置保存失败，已恢复修改前状态：${writeError.message ?: "未知错误"}"
+                    if (rollback.isSuccess) "设置保存失败，修改已回滚：${writeError.message ?: "未知错误"}"
+                    else "设置保存失败，恢复未完成：${rollback.exceptionOrNull()?.message}"
                 )
             )
             return@launch
         }
 
         val actual = repository.snapshot()
-        val verified = settingActions.all { action ->
+        val verified = actual.config == committed?.config && actual.periods == committed?.periods &&
+            actual.courses == committed?.courses && settingActions.all { action ->
             when {
                 action.type == AgentValidatedActionType.SET_PERIOD_SETTINGS ->
                     actual.config.hasSamePeriodTopology(targetConfig) &&
                         actual.periods.sortedBy { it.periodIndex } ==
                         targetPeriods.sortedBy { it.periodIndex }
+                action.type == AgentValidatedActionType.SET_ADJUSTMENTS ->
+                    runCatching {
+                        decodeScheduleAdjustments(actual.config.scheduleAdjustmentsJson)
+                    }.getOrDefault(emptyList()) == action.adjustments.orEmpty().sortedBy { it.date }
                 AgentSettingRegistry.isPeriodTimeSetting(action.settingKey) -> {
                     val expected = AgentSettingRegistry.applyPeriodTime(
                         actual.periods, action.settingKey, action.settingValue
@@ -347,6 +409,8 @@ class ScheduleViewModel(
                 }
                 action.settingKey == "SCHEDULE_NAME" ->
                     actual.schedules.firstOrNull { it.id == scheduleId }?.name == action.settingValue
+                AgentSettingRegistry.isAppIconSetting(action.settingKey) ->
+                    AgentSettingRegistry.currentAppIconValue(app, action.settingKey) == action.settingValue
                 AgentSettingRegistry.isPreferenceSetting(action.settingKey) ->
                     AgentSettingRegistry.snapshot(
                         actual.config,
@@ -359,14 +423,16 @@ class ScheduleViewModel(
             }
         }
         if (!verified) {
-            repository.saveScheduleDetail(before.config, beforeSchemes)
-            beforeName?.let { repository.renameSchedule(scheduleId, it) }
-            restoreDayAgentPreferences(beforeAgentPreferences)
+            val rollback = runCatching {
+                repository.restoreAgentSettingPlan(requireNotNull(committed), before, beforeSchemes, beforeName)
+                restorePreferences()
+            }
             refreshCoordinator.request()
             onResult(
                 AgentPlanExecutionResult(
                     false, null, false,
-                    "数据库回读与目标不一致，已自动回滚全部修改"
+                    if (rollback.isSuccess) "数据库回读与目标不一致，已自动回滚全部修改"
+                    else "回读不一致，恢复未完成：${rollback.exceptionOrNull()?.message}"
                 )
             )
             return@launch
@@ -376,15 +442,14 @@ class ScheduleViewModel(
         onResult(
             AgentPlanExecutionResult(
                 success = true,
-                preview = null,
+                preview = courseResult?.preview,
                 verified = true,
-                message = "已应用并回读验证 ${settingActions.size} 项设置",
+                message = "已应用并回读验证 ${actions.size} 项修改",
                 undo = { undoResult ->
                     viewModelScope.launch {
                         val restored = runCatching {
-                            repository.saveScheduleDetail(before.config, beforeSchemes)
-                            beforeName?.let { repository.renameSchedule(scheduleId, it) }
-                            restoreDayAgentPreferences(beforeAgentPreferences)
+                            repository.restoreAgentSettingPlan(requireNotNull(committed), before, beforeSchemes, beforeName)
+                            restorePreferences()
                             refreshCoordinator.request()
                         }.isSuccess
                         undoResult(
@@ -635,6 +700,92 @@ class ScheduleViewModel(
         cleanupScheduleWallpaperFiles()
         refreshCoordinator.request()
     }
+
+    /**
+     * Agent-facing schedule actions. These run outside the course transaction because they change
+     * the global active context, so the result reports the action itself rather than a course diff.
+     * Creating a schedule deliberately does not switch to it; an unrequested context switch would
+     * make every later fact read belong to a different schedule than the user was looking at.
+     */
+    fun openAgentPage(onResult: (AgentPlanExecutionResult) -> Unit, open: (AppState) -> Unit) = viewModelScope.launch {
+        val error = runCatching { open(repository.snapshot()) }.exceptionOrNull()
+        onResult(AgentPlanExecutionResult(error == null, null, error == null,
+            if (error == null) "页面已打开" else "打开页面失败：${error.message ?: "请重试"}"))
+    }
+
+    fun createScheduleFromAgent(name: String, onResult: (AgentPlanExecutionResult) -> Unit) =
+        viewModelScope.launch {
+            val error = runCatching {
+                val createdId = repository.createSchedule(name)
+                check(repository.snapshot().schedules.any { it.id == createdId && it.name == name.trim().take(30) }) {
+                    "创建后的课表未通过回读校验"
+                }
+                refreshCoordinator.request()
+            }.exceptionOrNull()
+            onResult(
+                AgentPlanExecutionResult(
+                    success = error == null,
+                    preview = null,
+                    verified = error == null,
+                    message = if (error == null) {
+                        "已创建课表「$name」，当前仍在使用原课表；需要切换请再确认"
+                    } else {
+                        "创建课表失败：${error.message ?: "未知错误"}"
+                    }
+                )
+            )
+        }
+
+    fun activateScheduleFromAgent(scheduleId: Int, onResult: (AgentPlanExecutionResult) -> Unit) =
+        viewModelScope.launch {
+            val error = runCatching {
+                repository.activateSchedule(scheduleId)
+                check(repository.snapshot().config.id == scheduleId) { "切换后的课表未通过回读校验" }
+                refreshCoordinator.request()
+            }.exceptionOrNull()
+            onResult(
+                AgentPlanExecutionResult(
+                    success = error == null,
+                    preview = null,
+                    verified = error == null,
+                    message = if (error == null) "已切换到目标课表" else "切换课表失败：${error.message ?: "目标课表不存在"}"
+                )
+            )
+        }
+
+    fun deleteScheduleFromAgent(scheduleId: Int, onResult: (AgentPlanExecutionResult) -> Unit) =
+        viewModelScope.launch {
+            if (repository.snapshot().schedules.size <= 1) {
+                onResult(
+                    AgentPlanExecutionResult(
+                        success = false,
+                        preview = null,
+                        verified = false,
+                        message = "当前仅剩一个课表，无法删除；已为你保留使用中的课表"
+                    )
+                )
+                return@launch
+            }
+            val error = runCatching {
+                repository.deleteSchedule(scheduleId)
+                check(repository.snapshot().schedules.none { it.id == scheduleId }) { "删除后的课表未通过回读校验" }
+                cleanupScheduleWallpaperFiles()
+                refreshCoordinator.request()
+            }.exceptionOrNull()
+            onResult(
+                AgentPlanExecutionResult(
+                    success = error == null,
+                    preview = null,
+                    verified = error == null,
+                    message = if (error == null) "已删除课表" else "删除课表失败：${error.message ?: "未知错误"}"
+                )
+            )
+        }
+
+    fun saveScheduleAdjustments(scheduleId: Int, original: String, updated: String) =
+        launchCourseMutation("调休安排已保存") {
+            repository.saveScheduleAdjustments(scheduleId, original, updated)
+        }
 
     fun clearSnackbar() {
         snackbar.value = null

@@ -3,9 +3,11 @@ package com.xiaomanjun.sleepdownschedule.feature.agent
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustment
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -55,7 +57,7 @@ class DayAgentActionsTest {
         )
         val response = "可以。<agent_actions>[" +
             "{\"type\":\"UPDATE_COURSE\",\"courseId\":42,\"scope\":\"CURRENT_WEEK\",\"course\":{\"weekday\":2,\"periods\":[2]},\"summary\":\"移动数据库原理\"}," +
-            "{\"type\":\"OPEN_SETTINGS\",\"settingsPage\":\"SCHEDULE\",\"summary\":\"打开课表设置\"}" +
+            "{\"type\":\"SET_SETTING\",\"settingKey\":\"TOTAL_WEEKS\",\"settingValue\":\"18\",\"summary\":\"设置学期周数\"}" +
             "]</agent_actions>"
 
         val parsed = parseAgentActions(response, facts)
@@ -66,8 +68,8 @@ class DayAgentActionsTest {
         assertEquals(2, parsed.actions[0].edited?.weekday)
         assertEquals(listOf(2), parsed.actions[0].edited?.periods)
         assertEquals(7, parsed.actions[0].edited?.scheduleId)
-        assertEquals(AgentValidatedActionType.OPEN_SETTINGS, parsed.actions[1].type)
-        assertEquals("SCHEDULE", parsed.actions[1].settingsPage)
+        assertEquals(AgentValidatedActionType.SET_SETTING, parsed.actions[1].type)
+        assertEquals("TOTAL_WEEKS", parsed.actions[1].settingKey)
     }
 
     @Test
@@ -177,7 +179,7 @@ class DayAgentActionsTest {
         )
         val response = """
             已为你准备好仅本周的课程，请确认。
-            <agent_actions>{"type":"ADD_COURSE","scope":"CURRENT_WEEK","course":{"name":"心理健康教育","weekday":1,"periods":[9,10],"weeks":[21]},"summary":"添加今晚课程"}</agent_actions>
+            <agent_actions>{"type":"ADD_COURSE","scope":"CURRENT_WEEK","course":{"name":"心理健康教育","weekday":1,"periods":[9,10]},"summary":"添加今晚课程"}</agent_actions>
         """.trimIndent()
 
         val parsed = parseAgentActions(response, facts)
@@ -274,6 +276,180 @@ class DayAgentActionsTest {
             val content = """<agent_actions>[{"type":"UPDATE_COURSE","courseId":7,"scope":"ALL_WEEKS","course":$patch}]</agent_actions>"""
             assertEquals(expected, parseAgentActions(content, facts).actions.single().edited?.note)
         }
+    }
+
+    @Test
+    fun personalizationPageSurvivesParsingInsteadOfBeingDroppedSilently() {
+        val facts = factsAt(9, 0, emptyList())
+        val response = "可以打开首页外观设置。<agent_actions>[" +
+            "{\"type\":\"OPEN_SETTINGS\",\"settingsPage\":\"PERSONALIZATION\",\"summary\":\"打开首页外观\"}" +
+            "]</agent_actions>"
+
+        val action = parseAgentActions(response, facts).actions.single()
+
+        assertEquals(AgentValidatedActionType.OPEN_SETTINGS, action.type)
+        assertEquals("PERSONALIZATION", action.settingsPage)
+    }
+
+    @Test
+    fun newlyReachableSettingsPagesAreAccepted() {
+        val facts = factsAt(9, 0, emptyList())
+        listOf("LIQUID_GLASS", "WIDGETS", "BACKUP_RESTORE", "PRIVACY_POLICY").forEach { page ->
+            val response = "<agent_actions>[" +
+                "{\"type\":\"OPEN_SETTINGS\",\"settingsPage\":\"$page\"}]</agent_actions>"
+            assertEquals(page, parseAgentActions(response, facts).actions.single().settingsPage)
+        }
+    }
+
+    @Test
+    fun overlappingSettingKeysAreReportedAsOneConflictGroup() {
+        assertNull(AgentSettingRegistry.conflictingGroup(listOf("TOTAL_WEEKS", "DARK_MODE")))
+        assertNull(AgentSettingRegistry.conflictingGroup(listOf("REALTIME_ACTIVITY")))
+        assertEquals(
+            setOf("NOTIFICATION_MODE", "REALTIME_ACTIVITY"),
+            AgentSettingRegistry.conflictingGroup(listOf("NOTIFICATION_MODE", "REALTIME_ACTIVITY"))
+        )
+        assertEquals(
+            setOf("COURSE_CARD_COLOR", "COURSE_CARD_COLOR_MODE", "COURSE_CARD_PALETTE"),
+            AgentSettingRegistry.conflictingGroup(
+                listOf("COURSE_CARD_COLOR", "COURSE_CARD_PALETTE")
+            )
+        )
+    }
+
+    @Test
+    fun replaceCourseRewritesWholeEntityIncludingColourAndClearFields() {
+        val original = slot("数据库原理", "一教 203", 8, 0, 8, 45).course.copy(
+            id = 42,
+            periods = listOf(1),
+            weeks = (1..18).toList(),
+            note = "旧备注",
+            scheduleId = 7
+        )
+        val facts = factsAt(9, 0, emptyList()).copy(
+            week = listOf(AgentCourseSlot(original, date, LocalTime.of(8, 0), LocalTime.of(8, 45))),
+            periodDefinitions = listOf(
+                PeriodEntity(1, "08:00", "08:45", 7),
+                PeriodEntity(2, "08:55", "09:40", 7)
+            ),
+            totalWeeks = 18,
+            scheduleId = 7
+        )
+        val response = "<agent_actions>[{\"type\":\"REPLACE_COURSE\",\"courseId\":42,\"scope\":\"ALL_WEEKS\"," +
+            "\"course\":{\"name\":\"数据库原理\",\"weekday\":2,\"periods\":[2],\"customColorArgb\":\"#FF8800\"}}]</agent_actions>"
+
+        val action = parseAgentActions(response, facts).actions.single()
+
+        assertEquals(AgentValidatedActionType.REPLACE, action.type)
+        assertEquals(2, action.edited?.weekday)
+        assertEquals(listOf(2), action.edited?.periods)
+        // Replacement nulls teacher/location/note that the model did not supply.
+        assertEquals(null, action.edited?.note)
+        assertEquals(0xFFFF8800L, action.edited?.customColorArgb)
+    }
+
+    @Test
+    fun patchClearFieldsClearsTeacherAndCustomTimeInsteadOfPreserving() {
+        val original = slot("课程", "教室", 8, 0, 8, 45).course.copy(
+            id = 42,
+            teacher = "张三",
+            customStartTime = "09:00",
+            customEndTime = "09:45",
+            note = "备注",
+            scheduleId = 7
+        )
+        val facts = factsAt(9, 0, emptyList()).copy(
+            week = listOf(AgentCourseSlot(original, date, LocalTime.of(9, 0), LocalTime.of(9, 45))),
+            periodDefinitions = listOf(PeriodEntity(1, "08:00", "08:45", 7)),
+            totalWeeks = 18,
+            scheduleId = 7
+        )
+        val response = "<agent_actions>[{\"type\":\"UPDATE_COURSE\",\"courseId\":42,\"scope\":\"ALL_WEEKS\"," +
+            "\"course\":{\"clearFields\":[\"teacher\",\"customTime\",\"note\"]}}]</agent_actions>"
+
+        val edited = parseAgentActions(response, facts).actions.single().edited!!
+
+        assertEquals(null, edited.teacher)
+        assertEquals(null, edited.note)
+        assertEquals(null, edited.customStartTime)
+        assertEquals(null, edited.customEndTime)
+    }
+
+    @Test
+    fun validatesWholeTableAdjustmentsReplacement() {
+        val facts = factsAt(9, 0, emptyList()).copy(scheduleId = 7)
+        val response = "<agent_actions>[{\"type\":\"SET_ADJUSTMENTS\"," +
+            "\"adjustments\":[{\"date\":\"2026-10-02\",\"sourceDate\":\"2026-10-05\",\"label\":\"国庆补课\"}]," +
+            "\"summary\":\"设置调休\"}]</agent_actions>"
+        val action = parseAgentActions(response, facts).actions.single()
+
+        assertEquals(AgentValidatedActionType.SET_ADJUSTMENTS, action.type)
+        assertEquals(1, action.adjustments?.size)
+        assertEquals("2026-10-02", action.adjustments?.single()?.date)
+        assertEquals("2026-10-05", action.adjustments?.single()?.sourceDate)
+
+        val sameDay = "<agent_actions>[{\"type\":\"SET_ADJUSTMENTS\",\"adjustments\":[" +
+            "{\"date\":\"2026-10-02\",\"sourceDate\":\"2026-10-02\"}]}]</agent_actions>"
+        assertTrue(parseAgentActions(sameDay, facts).actions.isEmpty())
+    }
+
+    @Test
+    fun scheduleActionsRequireARealScheduleIdFromTheFacts() {
+        val facts = factsAt(9, 0, emptyList()).copy(
+            schedules = listOf(
+                AgentScheduleSummary(1, "课程表", isActive = true),
+                AgentScheduleSummary(2, "二课表", isActive = false)
+            )
+        )
+
+        val create = "<agent_actions>[{\"type\":\"CREATE_SCHEDULE\",\"name\":\"三课表\"}]</agent_actions>"
+        val activate = "<agent_actions>[{\"type\":\"ACTIVATE_SCHEDULE\",\"scheduleId\":2}]</agent_actions>"
+        val missing = "<agent_actions>[{\"type\":\"ACTIVATE_SCHEDULE\",\"scheduleId\":99}]</agent_actions>"
+
+        val createAction = parseAgentActions(create, facts).actions.single()
+        assertEquals(AgentValidatedActionType.CREATE_SCHEDULE, createAction.type)
+        assertEquals("三课表", createAction.scheduleName)
+
+        val activateAction = parseAgentActions(activate, facts).actions.single()
+        assertEquals(AgentValidatedActionType.ACTIVATE_SCHEDULE, activateAction.type)
+        assertEquals(2, activateAction.scheduleId)
+
+        assertTrue(parseAgentActions(missing, facts).actions.isEmpty())
+    }
+
+    @Test
+    fun openImportSurvivesParsingAsNavigationAction() {
+        val facts = factsAt(9, 0, emptyList())
+        val response = "<agent_actions>[{\"type\":\"OPEN_IMPORT\",\"summary\":\"打开AI导入\"}]</agent_actions>"
+
+        val action = parseAgentActions(response, facts).actions.single()
+
+        assertEquals(AgentValidatedActionType.OPEN_IMPORT, action.type)
+    }
+
+    @Test
+    fun adjustmentsAndSchedulesReadToolsRenderTheirFacts() {
+        val facts = factsAt(9, 0, emptyList()).copy(
+            scheduleAdjustments = listOf(
+                ScheduleAdjustment("2026-10-02", "2026-10-05", "国庆补课")
+            ),
+            schedules = listOf(
+                AgentScheduleSummary(1, "课程表", isActive = true),
+                AgentScheduleSummary(2, "二课表", isActive = false)
+            )
+        )
+        val results = executeAgentReadTools(
+            listOf(
+                AgentToolCall("adj", AgentToolName.GET_SCHEDULE_ADJUSTMENTS),
+                AgentToolCall("sched", AgentToolName.GET_SCHEDULES)
+            ),
+            facts
+        )
+
+        assertTrue(results[0].content.contains("date=2026-10-02"))
+        assertTrue(results[0].content.contains("sourceDate=2026-10-05"))
+        assertTrue(results[1].content.contains("课程表"))
+        assertTrue(results[1].content.contains("true"))
     }
 
     private fun factsAt(

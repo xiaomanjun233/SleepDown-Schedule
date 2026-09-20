@@ -3,8 +3,37 @@ package com.xiaomanjun.sleepdownschedule.feature.settings
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.LocalDate
+import com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustment
 
 class HolidayApiTest {
+    private val importedPlan = HolidayPlan("国庆", listOf(LocalDate.parse("2026-10-01"), LocalDate.parse("2026-10-02")),
+        listOf(HolidayMakeup(LocalDate.parse("2026-10-10"), LocalDate.parse("2026-10-02"))))
+    private val importedEntries = listOf(
+        ScheduleAdjustment("2026-10-01", label = "学校放假"),
+        ScheduleAdjustment("2026-10-02"),
+        ScheduleAdjustment("2026-10-10", "2026-10-02")
+    )
+
+    @Test fun recognizesAnAddedGroupWithoutRequiringTheSameLabelOrListOrder() {
+        assertTrue(importedPlan.isAlreadyAdded(importedEntries.reversed() + ScheduleAdjustment("2026-12-01")))
+    }
+
+    @Test fun preservesSchoolPairingWhenTheHolidayGroupWasAlreadyAdded() {
+        val edited = importedEntries.map { if (it.date == "2026-10-10") it.copy(sourceDate = "2026-10-05") else it }
+        assertTrue(importedPlan.isAlreadyAdded(edited))
+    }
+
+    @Test fun partialOrChangedDayTypesAreNotReportedAsACompleteAddedGroup() {
+        assertFalse(importedPlan.isAlreadyAdded(importedEntries.drop(1)))
+        assertFalse(importedPlan.isAlreadyAdded(importedEntries.map { if (it.date == "2026-10-10") it.copy(sourceDate = null) else it }))
+        assertFalse(importedPlan.isAlreadyAdded(importedEntries.map { if (it.date == "2026-10-01") it.copy(sourceDate = "2026-10-05") else it }))
+    }
+
+    @Test fun emptyOrAnotherYearsPlanIsNotAlreadyAdded() {
+        assertFalse(HolidayPlan("空", emptyList(), emptyList()).isAlreadyAdded(importedEntries))
+        assertFalse(importedPlan.copy(restDates = listOf(LocalDate.parse("2027-10-01"))).isAlreadyAdded(importedEntries))
+    }
+
     @Test fun parsesRestAndMakeupWithoutGuessingSchoolCourseMapping() {
         val result = HolidayApi.parse("""{"code":0,"holiday":{
           "10-10":{"date":"2026-10-10","name":"国庆后调休","holiday":false,"after":true},

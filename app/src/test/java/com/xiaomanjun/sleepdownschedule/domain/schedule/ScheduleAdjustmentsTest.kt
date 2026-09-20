@@ -9,6 +9,25 @@ import org.junit.Test
 import java.time.LocalDate
 
 class ScheduleAdjustmentsTest {
+    @Test fun pickerDisplayDateNormalizesBeforeHolidayPreviewAndPersistence() {
+        val entry = scheduleAdjustmentFromInput("2026.10.10", "2026.10.08", "手动校正")
+        assertEquals("2026-10-08", entry.sourceDate)
+        assertEquals(LocalDate.of(2026, 10, 8), LocalDate.parse(entry.sourceDate))
+        assertEquals(listOf(entry), decodeScheduleAdjustments(encodeScheduleAdjustments(listOf(entry))))
+    }
+
+    @Test fun changingTargetDateMovesExistingArrangementAndPreservesLabel() {
+        val old = ScheduleAdjustment("2026-10-10", "2026-10-08", "国庆")
+        val moved = old.copy(date = "2026-10-11")
+        assertEquals(listOf(moved), replaceScheduleAdjustment(listOf(old), old.date, moved))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun movingToOccupiedDateDoesNotOverwriteAnotherArrangement() {
+        val old = ScheduleAdjustment("2026-10-10")
+        val occupied = ScheduleAdjustment("2026-10-11")
+        replaceScheduleAdjustment(listOf(old, occupied), old.date, old.copy(date = occupied.date))
+    }
     private val source = LocalDate.parse("2026-09-07") // week 2, Monday
     private val target = LocalDate.parse("2026-09-19") // week 3, Saturday
     private val regular = CourseEntity(42, "高数", null, "A101", 1, listOf(1), listOf(2), WeekParity.EVEN, null)

@@ -200,11 +200,18 @@ internal fun HomeAssistantHost(
         val topCutout = insets?.displayCutout?.boundingRects?.filter {
             it.top <= (insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars()).top)
         }?.firstOrNull()
-        val anchor = with(density) {
+        // Capture the physical cutout before hiding system bars. Some OEMs report no cutout
+        // while immersive, which otherwise moves the closing target halfway up the status bar.
+        val anchor = remember(controller.visible, maxWidth, maxHeight, density.density) { with(density) {
             val centerX = topCutout?.exactCenterX() ?: maxWidth.toPx() / 2f
             val centerY = topCutout?.exactCenterY() ?: safeTop.toPx() / 2f
             val halfWidth = maxOf(topCutout?.width()?.toFloat() ?: 0f, 36.dp.toPx()) / 2f
             Rect(centerX - halfWidth, (centerY - 12.dp.toPx()).coerceAtLeast(0f), centerX + halfWidth, centerY + 12.dp.toPx())
+        } }
+        val closingAnchor = with(density) {
+            // A fuller, slightly lower docking cap keeps the final return leg visible.
+            Rect(anchor.left - 4.dp.toPx(), anchor.top + 1.dp.toPx(),
+                anchor.right + 4.dp.toPx(), anchor.bottom + 7.dp.toPx())
         }
         if (controller.stage == HomeAssistantStage.Hidden && controller.pullPixels > 0f) {
             Text(
@@ -319,7 +326,7 @@ internal fun HomeAssistantHost(
                     onSourceHandoff = {},
                     onDismiss = controller::reset,
                     homePresentation = true,
-                    homeAnchorBounds = anchor,
+                    homeAnchorBounds = closingAnchor,
                     homeInitiallyFullScreen = controller.conversationStartsFullScreen,
                     onImportFile = onImportFile
                 )

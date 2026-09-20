@@ -191,7 +191,8 @@ data class CourseEditorOverlayRequest(
     val sourceBoundsInRoot: Rect?,
     val sourceIsDayCard: Boolean = false,
     val copyDraft: CourseEntity? = null,
-    internal val sourceGrid: CourseEditorWeekGrid? = null
+    internal val sourceGrid: CourseEditorWeekGrid? = null,
+    val contextMessage: String? = null
 )
 
 
@@ -683,6 +684,7 @@ internal fun CourseEditorContainerOverlayHost(
                         formData = formData,
                         course = shownRequest.course,
                         copyDraft = shownRequest.copyDraft,
+                        contextMessage = shownRequest.contextMessage,
                         backdrop = editorFormBackdrop,
                         onDismissRequest = dismissEditor,
                         onSave = saveEditedCourse,
@@ -719,6 +721,7 @@ private fun CourseEditorFormLayer(
     formData: CourseEditorFormData,
     course: CourseEntity,
     copyDraft: CourseEntity?,
+    contextMessage: String?,
     backdrop: Backdrop?,
     onDismissRequest: () -> Unit,
     onSave: (List<CourseEntity>, List<CourseEntity>) -> Unit,
@@ -778,6 +781,7 @@ private fun CourseEditorFormLayer(
                             formData = formData,
                             initialCourse = course.takeIf { copyDraft == null },
                             copyDraft = copyDraft,
+                            contextMessage = contextMessage,
                             onCancel = onDismissRequest,
                             onSave = {},
                             onSaveCourses = { onSave(emptyList(), it) },
