@@ -8141,7 +8141,9 @@ fun SettingsRootScreen(
                             "版本 $versionName",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
+                            maxLines = 2,
+                            softWrap = true,
+                            textAlign = TextAlign.End
                         )
                     },
                     modifier = Modifier
