@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="com.xiaomanjun.sleepdownschedule.permission.COLOROS_COURSE_BRIDGE" />
+
+    <queries>
+        <package android:name="com.xiaomanjun.sleepdownschedule" />
+        <provider android:authorities="com.xiaomanjun.sleepdownschedule.coloros.course" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@android:drawable/ic_menu_my_calendar"
+        android:label="@string/app_name"
+        android:roundIcon="@android:drawable/ic_menu_my_calendar"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <meta-data
+            android:name="com.xiaomanjun.sleepdownschedule.COLOROS_PROXY"
+            android:value="sleepdown-coloros-proxy-v1" />
+
+        <activity
+            android:name=".MainActivity"
+            android:excludeFromRecents="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name=".WakeUpProxyProvider"
+            android:authorities="com.suda.yzune.wakeupschedule.provider"
+            android:enabled="true"
+            android:exported="true"
+            android:grantUriPermissions="false" />
+    </application>
+
+</manifest>

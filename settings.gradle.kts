@@ -68,6 +68,7 @@ dependencyResolutionManagement {
 rootProject.name = "CourseSchedule"
 include(":app")
 include(":benchmark")
+include(":coloros-wakeup-proxy")
 include(":kyant-backdrop")
 project(":kyant-backdrop").projectDir = file("third-party/kyant-backdrop")
 
