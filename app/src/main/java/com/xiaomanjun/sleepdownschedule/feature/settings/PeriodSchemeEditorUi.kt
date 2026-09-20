@@ -152,6 +152,7 @@ internal fun PeriodSchemeEditor(
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     val chromeProgress = LocalSettingsEditorProgress.current
     var session by remember(config.id) { mutableStateOf<PeriodTimelineSession?>(null) }
+    var initialSession by remember(config.id) { mutableStateOf<PeriodTimelineSession?>(null) }
     var showChoice by remember { mutableStateOf(false) }
     var showWizard by remember { mutableStateOf(false) }
     var showDeleteScheme by remember { mutableStateOf(false) }
@@ -190,6 +191,7 @@ internal fun PeriodSchemeEditor(
     DisposableEffect(chromeProgress) { onDispose { chromeProgress?.floatValue = 0f } }
 
     fun enter(value: PeriodTimelineSession) {
+        initialSession = PeriodTimelineSession(config, draft)
         frozenActionSource = actionSource
         localError = null
         editorLaidOut = false
@@ -236,14 +238,18 @@ internal fun PeriodSchemeEditor(
                 onDraftChange(current.draft)
             }
             session = null
+            initialSession = null
             editorLaidOut = false
             closing = false
             localError = null
         }
     }
     fun requestExit() {
-        if (session != null && !closing && !changingStructure && motion.value == 1f) {
-            showExitConfirmation = true
+        val current = session ?: return
+        val initial = initialSession ?: return
+        if (!closing && !changingStructure && motion.value == 1f) {
+            if (current.hasChangesFrom(initial)) showExitConfirmation = true
+            else leave(commit = false)
         }
     }
     LaunchedEffect(session != null, editorLaidOut) {

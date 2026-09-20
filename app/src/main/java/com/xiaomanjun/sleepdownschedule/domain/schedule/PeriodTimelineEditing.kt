@@ -19,6 +19,15 @@ internal data class PeriodTimelineSession(
             if (it.scheme.id == value.scheme.id) value else it
         })
     )
+
+    /** Compare saved meaning, excluding editor-only materialization and gesture history. */
+    fun hasChangesFrom(initial: PeriodTimelineSession): Boolean {
+        if (config != initial.config) return true
+        fun resolvedDraft(session: PeriodTimelineSession) = session.draft.copy(
+            schemes = session.draft.schemes.map { it.materializeForTimeline(session.config) }
+        )
+        return resolvedDraft(this) != resolvedDraft(initial)
+    }
 }
 
 internal fun PeriodSchemeDraft.materializeForTimeline(config: ScheduleConfigEntity) = copy(
