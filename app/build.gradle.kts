@@ -99,6 +99,7 @@ android {
         all {
             buildConfigField("String", "GLASS_OCCLUSION_MODE", "\"legacy\"")
             buildConfigField("boolean", "GLASS_FIXED_MORPH", "false")
+            buildConfigField("boolean", "SLEEPDOWN_EXP_BUILD", "false")
         }
         getByName("debug") {
             buildConfigField("boolean", "GLASS_FIXED_MORPH", providers.gradleProperty("sleepdown.glassFixedMorph").getOrElse("false").toBoolean().toString())
@@ -117,6 +118,13 @@ android {
             signingConfig = signingConfigs.findByName("release")
             buildConfigField("String", "SLEEPDOWN_REMOTE_CONFIG_SECRET", "\"$remoteConfigSecret\"")
             buildConfigField("boolean", "SLEEPDOWN_REMOTE_AI_ENABLED", remoteConfigSecret.isNotBlank().toString())
+        }
+        create("exp") {
+            initWith(getByName("release"))
+            versionNameSuffix = "-exp"
+            signingConfig = signingConfigs.findByName("release")
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "SLEEPDOWN_EXP_BUILD", "true")
         }
         create("benchmark") {
             initWith(getByName("release"))
@@ -157,7 +165,7 @@ androidComponents {
 }
 
 tasks.configureEach {
-    val createsReleaseArtifact = name.matches(Regex("(assemble|bundle|package).*(Release)$"))
+    val createsReleaseArtifact = name.matches(Regex("(assemble|bundle|package).*(Release|Exp)$"))
     if (createsReleaseArtifact) {
         doFirst {
             check(hasReleaseSigning) {
