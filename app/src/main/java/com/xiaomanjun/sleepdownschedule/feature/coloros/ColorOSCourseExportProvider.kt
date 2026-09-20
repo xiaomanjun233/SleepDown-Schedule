@@ -33,7 +33,11 @@ class ColorOSCourseExportProvider : ContentProvider() {
         if (path !in supportedPaths) return null
         val appContext = context?.applicationContext ?: return oneRow(-1, "{}")
         if (callingPackage == ColorOSCourseContract.PROXY_PACKAGE) {
-            ColorOSCourseBridge.recordProxyQuery(appContext, uri.encodedPath.orEmpty())
+            ColorOSCourseBridge.recordProxyQuery(
+                appContext,
+                uri.encodedPath.orEmpty(),
+                uri.getQueryParameter(PROXY_CALLER_PARAMETER)
+            )
         }
         return when (path) {
             "has_init" -> oneRow(databaseJson("{\"has_init\":false}") {
@@ -122,5 +126,6 @@ class ColorOSCourseExportProvider : ContentProvider() {
             "course_list",
             "next_course_list"
         )
+        const val PROXY_CALLER_PARAMETER = "sleepdown_proxy_caller"
     }
 }

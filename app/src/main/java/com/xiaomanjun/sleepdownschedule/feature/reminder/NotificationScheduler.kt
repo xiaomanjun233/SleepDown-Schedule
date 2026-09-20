@@ -4,6 +4,7 @@ import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
 import com.xiaomanjun.sleepdownschedule.core.identity.refreshAppNotificationIcons
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseReminderSessions
+import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseExperiment
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -102,25 +103,27 @@ object NotificationScheduler {
         periods: List<PeriodEntity>,
         forceReschedule: Boolean = false
     ) = refreshMutex.withLock {
+        val effectiveConfig = ColorOSCourseExperiment.suppressLiveUpdate(context, config)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val liveUpdatePreferences = LiveUpdatePreferences.read(context)
-        val signature = scheduleSignature(courses, config, periods, liveUpdatePreferences = liveUpdatePreferences) +
+        val signature = scheduleSignature(courses, effectiveConfig, periods, liveUpdatePreferences = liveUpdatePreferences) +
             "|exact=${canScheduleExactCourseAlarms(context)}"
         val todayIsInTerm = scheduleWeekForDateOrNull(
-            config,
+            effectiveConfig,
             LocalDate.now()
         ) != null
         if (forceReschedule || !todayIsInTerm || prefs.getString(KEY_SCHEDULE_SIGNATURE, null) != signature) {
             // Always clear stale alarms outside the term, even if this process has
             // already seen today's signature before the boundary check was fixed.
-            scheduleToday(context, courses, config, periods, liveUpdatePreferences)
+            scheduleToday(context, courses, effectiveConfig, periods, liveUpdatePreferences)
             prefs.edit {putString(KEY_SCHEDULE_SIGNATURE, signature)}
         }
         LiveUpdateRecoveryWorker.updateSchedule(
-            context, config.notificationsEnabled && config.notificationMode == NotificationMode.LIVE_UPDATE
+            context,
+            effectiveConfig.notificationsEnabled && effectiveConfig.notificationMode == NotificationMode.LIVE_UPDATE
         )
         withContext(Dispatchers.Main.immediate) {
-            checkImmediateLiveUpdate(context, courses, config, periods)
+            checkImmediateLiveUpdate(context, courses, effectiveConfig, periods)
         }
     }
 
@@ -319,6 +322,12 @@ object NotificationScheduler {
     }
 
     fun checkImmediateLiveUpdate(context: Context, courses: List<CourseEntity>, config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
+        if (ColorOSCourseExperiment.isEnabled(context)) {
+            Log.d(TAG, "skip immediate live update: ColorOS course cloud experiment enabled")
+            cancelLiveUpdateNotifications(context)
+            stopLiveUpdateService(context)
+            return
+        }
         if (isPreviewLiveUpdateRunning(context)) {
             Log.d(TAG, "keep preview live update while app state refreshes")
             return
@@ -645,6 +654,11 @@ object NotificationScheduler {
     fun liveUpdateId(): Int = LIVE_UPDATE_ID
 
     fun showLiveUpdatePreview(context: Context, config: ScheduleConfigEntity) {
+        if (ColorOSCourseExperiment.isEnabled(context)) {
+            cancelLiveUpdateNotifications(context)
+            stopLiveUpdateService(context)
+            return
+        }
         createChannel(context)
         if (!canPostNotifications(context)) return
         startLiveUpdateService(context, liveUpdatePreviewPayload(config))

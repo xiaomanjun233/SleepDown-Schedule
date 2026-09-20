@@ -34,6 +34,7 @@ public final class WakeUpProxyProvider extends ContentProvider {
     private static final long FRESH_CACHE_TTL_MS = 750L;
     private static final long STALE_CACHE_TTL_MS = 5L * 60L * 1000L;
     private static final long SOURCE_TIMEOUT_MS = 500L;
+    private static final String CALLER_PARAMETER = "sleepdown_proxy_caller";
     private static final Uri REFRESH_URI =
             Uri.parse("content://com.suda.yzune.wakeupschedule.provider/refresh");
 
@@ -72,7 +73,7 @@ public final class WakeUpProxyProvider extends ContentProvider {
             return oneRow(cached.code, cached.data);
         }
 
-        SourceResponse response = readSourceWithRetry(uri);
+        SourceResponse response = readSourceWithRetry(uri, getCallingPackage());
         if (response.isUsable()) {
             Snapshot fresh = new Snapshot(response.code, response.data,
                     SystemClock.elapsedRealtime());
@@ -94,8 +95,12 @@ public final class WakeUpProxyProvider extends ContentProvider {
         return fallback(path);
     }
 
-    private SourceResponse readSourceWithRetry(Uri uri) {
-        Uri sourceUri = uri.buildUpon().authority(SOURCE_AUTHORITY).build();
+    private SourceResponse readSourceWithRetry(Uri uri, String callerPackage) {
+        Uri.Builder sourceBuilder = uri.buildUpon().authority(SOURCE_AUTHORITY);
+        if (callerPackage != null && !callerPackage.trim().isEmpty()) {
+            sourceBuilder.appendQueryParameter(CALLER_PARAMETER, callerPackage);
+        }
+        Uri sourceUri = sourceBuilder.build();
         SourceResponse last = SourceResponse.failure("not attempted");
         for (int attempt = 1; attempt <= 2; attempt++) {
             CancellationSignal cancellation = new CancellationSignal();

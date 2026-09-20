@@ -15,6 +15,7 @@ object ColorOSCourseBridge {
     internal const val KEY_LAST_REFRESH_REASON = "last_refresh_reason"
     internal const val KEY_LAST_PROXY_QUERY_AT = "last_proxy_query_at"
     internal const val KEY_LAST_PROXY_QUERY_PATH = "last_proxy_query_path"
+    internal const val KEY_LAST_PROXY_QUERY_CALLER = "last_proxy_query_caller"
     internal const val KEY_LAST_EXPORT_AT = "last_export_at"
     internal const val KEY_LAST_EXPORT_COUNT = "last_export_count"
     internal const val KEY_LAST_EXPORT_ERROR = "last_export_error"
@@ -56,10 +57,14 @@ object ColorOSCourseBridge {
         scheduleRefresh(reason, delayMillis = 0L)
     }
 
-    internal fun recordProxyQuery(context: Context, path: String) {
+    internal fun recordProxyQuery(context: Context, path: String, externalCaller: String?) {
+        if (externalCaller.isNullOrBlank() || externalCaller == context.packageName ||
+            externalCaller == ColorOSCourseContract.PROXY_PACKAGE
+        ) return
         preferences(context).edit()
             .putLong(KEY_LAST_PROXY_QUERY_AT, System.currentTimeMillis())
             .putString(KEY_LAST_PROXY_QUERY_PATH, path)
+            .putString(KEY_LAST_PROXY_QUERY_CALLER, externalCaller)
             .apply()
     }
 

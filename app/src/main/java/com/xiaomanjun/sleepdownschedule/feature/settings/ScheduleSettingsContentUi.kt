@@ -12,6 +12,8 @@ import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdatePreferences
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseDiagnostics
+import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseExperiment
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import android.content.Intent
 import android.net.Uri
@@ -36,6 +38,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +66,7 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import java.time.LocalTime
 
 
@@ -113,6 +117,11 @@ fun ScheduleSettingsContent(
     onScheduleAdjustmentsChange: (String) -> Unit = {}
 ) {
     val appContext = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var colorOSExperimentEnabled by remember(appContext) {
+        mutableStateOf(ColorOSCourseExperiment.isEnabled(appContext))
+    }
+    var fluidCloudTestResult by remember { mutableStateOf<ColorOSCourseDiagnostics?>(null) }
     var livePreferences by remember(appContext) {
         mutableStateOf(LiveUpdatePreferences.read(appContext))
     }
@@ -244,8 +253,12 @@ fun ScheduleSettingsContent(
                                 enabled = notificationsEnabled
                             )
                             SettingsDivider()
-                            SettingsChoiceRow("通知样式", notificationMode, backdrop, state.config, onNotificationModeChange)
-                            if (notificationMode == NotificationMode.LIVE_UPDATE) {
+                            if (colorOSExperimentEnabled) {
+                                SettingsValueRow("通知样式", "普通通知 · 流体云接管")
+                            } else {
+                                SettingsChoiceRow("通知样式", notificationMode, backdrop, state.config, onNotificationModeChange)
+                            }
+                            if (!colorOSExperimentEnabled && notificationMode == NotificationMode.LIVE_UPDATE) {
                                 SettingsDivider()
                                 SettingsLiveUpdateChipTextRow(
                                     liveUpdateChipTextMode,
@@ -257,7 +270,20 @@ fun ScheduleSettingsContent(
                         }
                     }
                 }
-                if (notificationMode == NotificationMode.LIVE_UPDATE) {
+                if (BuildConfig.SLEEPDOWN_EXP_BUILD) {
+                    item(key = "notification-coloros-course-cloud") {
+                        ColorOSCourseSettingsSection(
+                            state = state,
+                            backdrop = backdrop,
+                            enabled = colorOSExperimentEnabled,
+                            onEnabledChange = { enabled ->
+                                colorOSExperimentEnabled = enabled
+                                if (enabled) onNotificationModeChange(NotificationMode.STANDARD)
+                            }
+                        )
+                    }
+                }
+                if (!colorOSExperimentEnabled && notificationMode == NotificationMode.LIVE_UPDATE) {
                     item(key = "notification-live-course") {
                         GlassPreferenceSection("课程实时活动") {
                             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
@@ -401,17 +427,43 @@ fun ScheduleSettingsContent(
                 previewPageColor.copy(alpha = if (darkPage) 0.94f else 0.92f)
             )))
         )
-        SettingsActionButton("测试实时活动", previewBackdrop, glowing = true, onClick = {
-            onPreviewLiveUpdate(state.config.copy(
-                notificationsEnabled = notificationsEnabled,
-                notificationLeadMinutes = leadMinutes.toIntOrNull() ?: state.config.notificationLeadMinutes,
-                notificationMode = notificationMode,
-                liveUpdateChipTextMode = liveUpdateChipTextMode,
-                liveUpdateActionsEnabled = liveUpdateActionsEnabled
-            ))
+        SettingsActionButton(if (colorOSExperimentEnabled) "测试流体云" else "测试实时活动", previewBackdrop, glowing = true, onClick = {
+            if (colorOSExperimentEnabled) {
+                scope.launch {
+                    fluidCloudTestResult = ColorOSCourseExperiment.testFluidCloud(appContext)
+                }
+            } else {
+                onPreviewLiveUpdate(state.config.copy(
+                    notificationsEnabled = notificationsEnabled,
+                    notificationLeadMinutes = leadMinutes.toIntOrNull() ?: state.config.notificationLeadMinutes,
+                    notificationMode = notificationMode,
+                    liveUpdateChipTextMode = liveUpdateChipTextMode,
+                    liveUpdateActionsEnabled = liveUpdateActionsEnabled
+                ))
+            }
         },
             modifier = Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding()
                 .padding(start = 16.dp, end = 16.dp, bottom = 18.dp).fillMaxWidth())
+    }
+    fluidCloudTestResult?.let { result ->
+        val success = result.proxyProviderAccessible && result.exportValid
+        LiquidAlertDialog(
+            title = if (success) "已请求测试流体云" else "流体云测试未就绪",
+            message = when {
+                result.officialWakeUpConflict -> "检测到 WakeUp 课程表，实验兼容组件无法同时安装。"
+                !result.proxyIsSleepDown -> "未检测到 SleepDown 实验兼容组件，请先安装 proxy APK。"
+                !result.exportValid -> "当前课程数据导出异常，请打开诊断信息查看详情。"
+                else -> "已发送 refresh 通知。ColorOS 是否生成课程流体云仍需以系统实际查询和展示结果为准。"
+            },
+            actions = listOf(
+                LiquidAlertAction("完成", LiquidAlertActionStyle.Primary) {
+                    fluidCloudTestResult = null
+                }
+            ),
+            backdrop = backdrop,
+            config = state.config,
+            onDismissRequest = { fluidCloudTestResult = null }
+        )
     }
 }
 
