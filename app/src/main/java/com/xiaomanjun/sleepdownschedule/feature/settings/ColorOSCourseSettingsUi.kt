@@ -25,7 +25,6 @@ import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseBridge
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseComponentInstaller
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseDiagnostics
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseExperiment
-import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 import com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdater
 import com.xiaomanjun.sleepdownschedule.feature.update.UpdateDownloadState
 import com.xiaomanjun.sleepdownschedule.model.AppState
@@ -38,9 +37,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 internal fun ColorOSCourseSettingsSection(
     state: AppState,
-    backdrop: Backdrop?,
-    enabled: Boolean,
-    onEnabledChange: (Boolean) -> Unit
+    backdrop: Backdrop?
 ) {
     if (!BuildConfig.SLEEPDOWN_EXP_BUILD) return
     val context = LocalContext.current
@@ -59,7 +56,7 @@ internal fun ColorOSCourseSettingsSection(
         }
     }
 
-    LaunchedEffect(enabled) {
+    LaunchedEffect(Unit) {
         diagnostics = ColorOSCourseExperiment.diagnose(context)
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
@@ -113,16 +110,7 @@ internal fun ColorOSCourseSettingsSection(
     val supportedDevice = current?.device?.isColorOSFamily
         ?: ColorOSCourseExperiment.deviceStatus().isColorOSFamily
     val wakeUpConflict = current?.officialWakeUpConflict == true
-    val proxyReady = current?.proxyIsSleepDown == true
-    val toggleEnabled = supportedDevice && !wakeUpConflict && (proxyReady || enabled)
-    val subtitle = when {
-        !supportedDevice -> "仅支持 OPPO、一加和 realme 的 ColorOS 设备。"
-        wakeUpConflict -> "检测到 WakeUp 课程表，实验兼容组件无法同时安装。"
-        enabled && !proxyReady -> "请先安装课程组件。"
-        enabled -> "已开启，原来的实时活动已关闭。"
-        !proxyReady -> "请先下载并安装课程组件。"
-        else -> "开启后，课程将交给系统流体云显示。"
-    }
+    val proxyReady = current?.let { it.proxyIsSleepDown && it.proxyVersionSupported } == true
     val componentActionSubtitle = when (val state = componentDownloadState) {
         is UpdateDownloadState.Downloading -> state.progressPercent?.let { "正在下载：$it%" } ?: "正在下载…"
         is UpdateDownloadState.Completed -> "下载完成，点击进入安装。"
@@ -143,15 +131,20 @@ internal fun ColorOSCourseSettingsSection(
         ) {
             SettingsInfoRow(
                 title = "使用前准备",
-                body = "这项功能只适用于 ColorOS。第一次使用请先下载课程组件，再打开下方开关。"
+                body = "这项功能只适用于 ColorOS。第一次使用请先下载课程组件。"
             )
             SettingsDivider()
             SettingsInfoRow(
                 title = "如何使用",
                 body = "1. 安装课程组件。\n" +
-                    "2. 打开“使用系统课程流体云”。\n" +
-                    "3. 到系统“设置 → 通知与控制中心 → 流体云”打开总开关。\n" +
-                    "4. 回到本页底部点“测试流体云”，测试内容会在 3 分钟后结束。"
+                    "2. 到系统“设置 → 通知与控制中心 → 流体云”打开总开关。\n" +
+                    "3. 点“测试流体云”，SleepDown 会自动唤醒课程组件。测试课程约 21～22 分钟后开始，持续 5 分钟。\n" +
+                    "4. 如果仍未显示，请在系统的自启动管理中允许“WakeUp课程表”自启动和关联启动，再回来测试。"
+            )
+            SettingsDivider()
+            SettingsInfoRow(
+                title = "后台说明",
+                body = "SleepDown 不用一直留在后台，系统需要更新时会自动读取课程。手机重启后请先解锁一次；若在系统设置中强行停止 SleepDown 或“WakeUp课程表”，重新打开应用后才会恢复。"
             )
             if (!proxyReady && !wakeUpConflict && supportedDevice) {
                 SettingsDivider()
@@ -165,28 +158,12 @@ internal fun ColorOSCourseSettingsSection(
                 )
             }
             SettingsDivider()
-            SettingsToggleRow(
-                title = "使用系统课程流体云",
-                subtitle = subtitle,
-                checked = enabled,
-                backdrop = backdrop,
-                enabled = toggleEnabled,
-                onCheckedChange = { requested ->
-                    val accepted = ColorOSCourseExperiment.setEnabled(context, requested)
-                    if (accepted) {
-                        NotificationScheduler.cancelCurrentLiveUpdate(context, null, null)
-                    }
-                    NotificationScheduler.requestReschedule(context)
-                    onEnabledChange(accepted)
-                    reload()
-                }
-            )
-            SettingsDivider()
             SettingsValueRow("设备支持", current?.device?.let { if (it.isColorOSFamily) "支持" else "不支持" } ?: "检测中…")
             SettingsDivider()
             SettingsValueRow("课程组件", current?.let {
                 when {
-                    it.proxyIsSleepDown -> "已安装"
+                    it.proxyIsSleepDown && it.proxyVersionSupported -> "已安装 · ${it.proxyVersionName}"
+                    it.proxyIsSleepDown -> "需要更新 · ${it.proxyVersionName}"
                     it.proxyInstalled -> "与已安装的 WakeUp 课程表冲突"
                     else -> "未安装"
                 }
@@ -211,7 +188,7 @@ internal fun ColorOSCourseSettingsSection(
                 iconRes = R.drawable.ic_refresh,
                 backdrop = backdrop,
                 onClick = {
-                    ColorOSCourseBridge.notifyScheduleChanged(context, "manual_settings")
+                    ColorOSCourseExperiment.synchronizeFromUserAction(context)
                     reload()
                 }
             )

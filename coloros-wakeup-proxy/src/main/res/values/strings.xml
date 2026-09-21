@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">SleepDown ColorOS 兼容组件</string>
+    <string name="app_name">WakeUp课程表</string>
     <string name="source_app_missing">未找到 SleepDown 实验版。请先安装 SleepDown exp APK，再从设置中的“ColorOS 课程流体云”查看诊断信息。</string>
 </resources>

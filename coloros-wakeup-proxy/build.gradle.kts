@@ -20,18 +20,14 @@ val hasReleaseSigning = listOf(
 
 android {
     namespace = "com.suda.yzune.wakeupschedule"
-    compileSdk {
-        version = release(37) {
-            minorApiLevel = 0
-        }
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.suda.yzune.wakeupschedule"
-        minSdk = 26
+        minSdk = 33
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0-sleepdown-exp"
+        versionCode = 255
+        versionName = "6.0.15"
     }
 
     signingConfigs {
@@ -54,8 +50,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
 }
 

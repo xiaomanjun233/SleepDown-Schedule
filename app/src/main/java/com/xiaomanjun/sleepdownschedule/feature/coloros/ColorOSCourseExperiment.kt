@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.coloros
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
@@ -10,13 +11,16 @@ import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.model.NotificationMode
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import java.security.MessageDigest
 import java.time.Instant
@@ -35,6 +39,9 @@ data class ColorOSCourseDiagnostics(
     val device: ColorOSDeviceStatus,
     val proxyInstalled: Boolean,
     val proxyIsSleepDown: Boolean,
+    val proxyVersionName: String,
+    val proxyVersionCode: Long,
+    val proxyVersionSupported: Boolean,
     val officialWakeUpConflict: Boolean,
     val proxyProviderAccessible: Boolean,
     val sourceProviderAccessible: Boolean,
@@ -50,7 +57,12 @@ data class ColorOSCourseDiagnostics(
     fun asText(): String = buildString {
         appendLine("设备：${device.manufacturer} ${device.brand}")
         appendLine("系统支持：${yesNo(device.isColorOSFamily)}${device.colorOSVersion?.let { "（$it）" }.orEmpty()}")
-        appendLine("课程组件：${if (proxyIsSleepDown) "已安装" else if (proxyInstalled) "被其他课程应用占用" else "未安装"}")
+        appendLine("课程组件：${when {
+            proxyIsSleepDown && proxyVersionSupported -> "已安装（$proxyVersionName）"
+            proxyIsSleepDown -> "版本过低（$proxyVersionName）"
+            proxyInstalled -> "被其他课程应用占用"
+            else -> "未安装"
+        }}")
         appendLine("组件连接：${if (proxyProviderAccessible) "正常" else "未连接"}")
         appendLine("课程读取：${if (exportValid) "正常（今天 $todayCourseCount 门，明天 $tomorrowCourseCount 门）" else "异常"}")
         appendLine("最近同步：${lastRefreshAt.takeIf { it > 0 } ?: "无"}")
@@ -65,9 +77,12 @@ data class ColorOSCourseDiagnostics(
 }
 
 object ColorOSCourseExperiment {
+    private const val MINIMUM_PROXY_VERSION_CODE = 255L
     private const val KEY_ENABLED = "experiment_enabled"
     private const val KEY_TEST_PREVIEW_EXPIRES_AT = "test_preview_expires_at"
-    private const val TEST_PREVIEW_DURATION_MS = 3 * 60 * 1_000L
+    private const val KEY_TEST_PREVIEW_FORMAT_VERSION = "test_preview_format_version"
+    private const val TEST_PREVIEW_FORMAT_VERSION = 2
+    private const val PROXY_WARM_UP_DELAY_MS = 350L
     private val previewHandler = Handler(Looper.getMainLooper())
     private var previewCleanup: Runnable? = null
 
@@ -100,6 +115,8 @@ object ColorOSCourseExperiment {
             preferences.edit().remove(KEY_TEST_PREVIEW_EXPIRES_AT).apply()
             previewCleanup?.let(previewHandler::removeCallbacks)
             previewCleanup = null
+        } else {
+            warmUpProxyFromUserAction(context)
         }
         ColorOSCourseBridge.notifyScheduleChanged(
             context,
@@ -134,27 +151,28 @@ object ColorOSCourseExperiment {
                 signingDigests(current) == signingDigests(proxy)
         } == true
         val proxyIsSleepDown = proxyInstalled && metadataMatches && signatureMatches
+        val proxyVersionName = proxyPackage?.versionName.orEmpty()
+        val proxyVersionCode = proxyPackage?.longVersionCodeCompat() ?: 0L
+        val proxyVersionSupported = proxyIsSleepDown && proxyVersionCode >= MINIMUM_PROXY_VERSION_CODE
 
         var error: String? = null
         val sourceRows = linkedMapOf<String, ProviderRow>()
-        listOf("has_init", "show_table_id", "table_list", "course_list", "next_course_list")
+        listOf("table_list", "course_list", "next_course_list")
             .forEach { path ->
                 runCatching { query(appContext, ColorOSCourseContract.sourceUri(path)) }
                     .onSuccess { sourceRows[path] = it }
                     .onFailure { if (error == null) error = "$path: ${it.message ?: it.javaClass.simpleName}" }
             }
-        val sourceProviderAccessible = sourceRows.size == 5 && sourceRows.values.all { it.code == 0 }
+        val sourceProviderAccessible = sourceRows.size == 3 && sourceRows.values.all { it.code == 0 }
         val todayCount = sourceRows["course_list"]?.data?.jsonArraySizeOrNull() ?: 0
         val tomorrowCount = sourceRows["next_course_list"]?.data?.jsonArraySizeOrNull() ?: 0
         val exportValid = sourceProviderAccessible &&
-            sourceRows["has_init"]?.data?.isJsonObject() == true &&
-            sourceRows["show_table_id"]?.data?.isJsonObject() == true &&
             sourceRows["table_list"]?.data?.isJsonArray() == true &&
             sourceRows["course_list"]?.data?.isJsonArray() == true &&
             sourceRows["next_course_list"]?.data?.isJsonArray() == true
 
         val proxyAccessible = if (proxyIsSleepDown) {
-            runCatching { query(appContext, ColorOSCourseContract.proxyUri("has_init")).code == 0 }
+            runCatching { query(appContext, ColorOSCourseContract.proxyUri("table_list")).code == 0 }
                 .onFailure { if (error == null) error = "proxy: ${it.message ?: it.javaClass.simpleName}" }
                 .getOrDefault(false)
         } else {
@@ -165,6 +183,9 @@ object ColorOSCourseExperiment {
             device = deviceStatus(),
             proxyInstalled = proxyInstalled,
             proxyIsSleepDown = proxyIsSleepDown,
+            proxyVersionName = proxyVersionName,
+            proxyVersionCode = proxyVersionCode,
+            proxyVersionSupported = proxyVersionSupported,
             officialWakeUpConflict = proxyInstalled && !proxyIsSleepDown,
             proxyProviderAccessible = proxyAccessible,
             sourceProviderAccessible = sourceProviderAccessible,
@@ -180,12 +201,58 @@ object ColorOSCourseExperiment {
     }
 
     suspend fun testFluidCloud(context: Context): ColorOSCourseDiagnostics {
+        if (warmUpProxyFromUserAction(context)) {
+            delay(PROXY_WARM_UP_DELAY_MS)
+        }
         val diagnostics = diagnose(context)
-        if (diagnostics.proxyProviderAccessible && diagnostics.exportValid && isEnabled(context)) {
+        if (
+            diagnostics.proxyProviderAccessible &&
+            diagnostics.proxyVersionSupported &&
+            diagnostics.exportValid &&
+            isEnabled(context)
+        ) {
             startTestPreview(context)
         }
         ColorOSCourseBridge.notifyScheduleChanged(context, "manual_test")
         return diagnostics
+    }
+
+    fun hasActiveTestPreview(
+        context: Context,
+        nowMillis: Long = System.currentTimeMillis()
+    ): Boolean = activeTestPreviewExpiresAt(context) > nowMillis
+
+    fun cancelTestPreview(context: Context): Boolean {
+        val appContext = context.applicationContext
+        val preferences = ColorOSCourseBridge.preferences(appContext)
+        val removed = preferences.contains(KEY_TEST_PREVIEW_EXPIRES_AT)
+        preferences.edit()
+            .remove(KEY_TEST_PREVIEW_EXPIRES_AT)
+            .putInt(KEY_TEST_PREVIEW_FORMAT_VERSION, TEST_PREVIEW_FORMAT_VERSION)
+            .apply()
+        previewCleanup?.let(previewHandler::removeCallbacks)
+        previewCleanup = null
+        ColorOSCourseBridge.notifyScheduleChanged(appContext, "test_preview_cancelled")
+        return removed
+    }
+
+    fun synchronizeFromUserAction(context: Context) {
+        warmUpProxyFromUserAction(context)
+        ColorOSCourseBridge.notifyScheduleChanged(context, "manual_settings")
+    }
+
+    private fun warmUpProxyFromUserAction(context: Context): Boolean {
+        if (!isAvailable()) return false
+        val intent = Intent(ColorOSCourseContract.PROXY_WARM_UP_ACTION)
+            .setClassName(
+                ColorOSCourseContract.PROXY_PACKAGE,
+                ColorOSCourseContract.PROXY_ACTIVITY
+            )
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+        return runCatching {
+            context.startActivity(intent)
+            true
+        }.getOrDefault(false)
     }
 
     internal fun appendTestPreview(
@@ -199,15 +266,16 @@ object ColorOSCourseExperiment {
         date = date,
         zoneId = zoneId,
         nowMillis = nowMillis,
-        expiresAtMillis = ColorOSCourseBridge.preferences(context)
-            .getLong(KEY_TEST_PREVIEW_EXPIRES_AT, 0L)
+        expiresAtMillis = activeTestPreviewExpiresAt(context)
     )
 
     private fun startTestPreview(context: Context) {
         val appContext = context.applicationContext
-        val expiresAt = System.currentTimeMillis() + TEST_PREVIEW_DURATION_MS
+        val nowMillis = System.currentTimeMillis()
+        val expiresAt = ColorOSCourseTestPreview.expiresAt(nowMillis)
         ColorOSCourseBridge.preferences(appContext).edit()
             .putLong(KEY_TEST_PREVIEW_EXPIRES_AT, expiresAt)
+            .putInt(KEY_TEST_PREVIEW_FORMAT_VERSION, TEST_PREVIEW_FORMAT_VERSION)
             .apply()
         previewCleanup?.let(previewHandler::removeCallbacks)
         previewCleanup = Runnable {
@@ -215,7 +283,19 @@ object ColorOSCourseExperiment {
                 .remove(KEY_TEST_PREVIEW_EXPIRES_AT)
                 .apply()
             ColorOSCourseBridge.notifyScheduleChanged(appContext, "test_preview_finished")
-        }.also { previewHandler.postDelayed(it, TEST_PREVIEW_DURATION_MS) }
+        }.also { previewHandler.postDelayed(it, (expiresAt - nowMillis).coerceAtLeast(0L)) }
+    }
+
+    private fun activeTestPreviewExpiresAt(context: Context): Long {
+        val preferences = ColorOSCourseBridge.preferences(context.applicationContext)
+        if (preferences.getInt(KEY_TEST_PREVIEW_FORMAT_VERSION, 0) != TEST_PREVIEW_FORMAT_VERSION) {
+            preferences.edit()
+                .remove(KEY_TEST_PREVIEW_EXPIRES_AT)
+                .putInt(KEY_TEST_PREVIEW_FORMAT_VERSION, TEST_PREVIEW_FORMAT_VERSION)
+                .apply()
+            return 0L
+        }
+        return preferences.getLong(KEY_TEST_PREVIEW_EXPIRES_AT, 0L)
     }
 
     private fun query(context: Context, uri: android.net.Uri): ProviderRow {
@@ -277,11 +357,24 @@ object ColorOSCourseExperiment {
         Json.parseToJsonElement(this).jsonArray.size
     }.getOrNull()
 
+    @Suppress("DEPRECATION")
+    private fun PackageInfo.longVersionCodeCompat(): Long =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) longVersionCode else versionCode.toLong()
+
     private data class ProviderRow(val code: Int, val data: String)
 }
 
 internal object ColorOSCourseTestPreview {
+    private const val START_DELAY_MS = 21 * 60 * 1_000L
+    private const val ACTIVE_DURATION_MS = 5 * 60 * 1_000L
+    private const val ACTIVE_DURATION_SECONDS = 5 * 60L
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
+    fun expiresAt(nowMillis: Long): Long {
+        val earliestStart = nowMillis + START_DELAY_MS
+        val alignedStart = Math.floorDiv(earliestStart + 59_999L, 60_000L) * 60_000L
+        return alignedStart + ACTIVE_DURATION_MS
+    }
 
     fun append(
         json: String,
@@ -291,25 +384,35 @@ internal object ColorOSCourseTestPreview {
         expiresAtMillis: Long
     ): String {
         if (expiresAtMillis <= nowMillis) return json
-        val now = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
-        if (date != now.toLocalDate()) return json
         val expiresAt = Instant.ofEpochMilli(expiresAtMillis).atZone(zoneId)
+        val startsAt = expiresAt.minusSeconds(ACTIVE_DURATION_SECONDS)
+        if (startsAt.toLocalDate() != date || expiresAt.toLocalDate() != date) return json
         val existing = runCatching { Json.parseToJsonElement(json).jsonArray }.getOrNull()
             ?: return json
+        val preview = buildJsonObject {
+            put("id", 1_900_000_000 + ((startsAt.toEpochSecond() / 60L) % 100_000_000L).toInt())
+            put("courseName", "SleepDown 流体云测试")
+            put("room", "测试预览")
+            put("teacher", "SleepDown")
+            put("startTime", startsAt.toLocalTime().format(timeFormatter))
+            put("endTime", expiresAt.toLocalTime().format(timeFormatter))
+            put("color", "#ff3f8cff")
+            put("extra", "")
+            put("startTimestamp", startsAt.toEpochSecond())
+            put("endTimestamp", expiresAt.toEpochSecond())
+        }
+        val ordered = buildList<JsonElement> {
+            addAll(existing)
+            add(preview)
+        }.sortedWith(
+            compareBy<JsonElement> { element ->
+                element.jsonObject["startTimestamp"]?.jsonPrimitive?.longOrNull ?: Long.MAX_VALUE
+            }.thenBy { element ->
+                element.jsonObject["id"]?.jsonPrimitive?.longOrNull ?: Long.MAX_VALUE
+            }
+        )
         return buildJsonArray {
-            existing.forEach { add(it) }
-            add(buildJsonObject {
-                put("id", 9_000_000_000_000L + expiresAtMillis % 1_000_000L)
-                put("courseName", "SleepDown 流体云测试")
-                put("room", "实验预览")
-                put("teacher", "SleepDown")
-                put("startTime", now.minusSeconds(30).toLocalTime().format(timeFormatter))
-                put("endTime", expiresAt.toLocalTime().format(timeFormatter))
-                put("color", "#ff3f8cff")
-                put("extra", "测试课程将在 3 分钟后自动结束")
-                put("startTimestamp", now.toEpochSecond() - 30L)
-                put("endTimestamp", expiresAt.toEpochSecond())
-            })
+            ordered.forEach { add(it) }
         }.toString()
     }
 }

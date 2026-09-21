@@ -22,7 +22,6 @@
 
         <activity
             android:name=".MainActivity"
-            android:excludeFromRecents="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -34,8 +33,7 @@
             android:name=".WakeUpProxyProvider"
             android:authorities="com.suda.yzune.wakeupschedule.provider"
             android:enabled="true"
-            android:exported="true"
-            android:grantUriPermissions="false" />
+            android:exported="true" />
     </application>
 
 </manifest>

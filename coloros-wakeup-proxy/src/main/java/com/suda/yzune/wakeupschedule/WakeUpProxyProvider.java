@@ -27,13 +27,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 public final class WakeUpProxyProvider extends ContentProvider {
-    private static final String TAG = "SleepDownWakeUpProxy";
+    private static final String TAG = "WakeUpProxyProvider";
     private static final String SOURCE_AUTHORITY =
             "com.xiaomanjun.sleepdownschedule.coloros.course";
     private static final String[] COLUMNS = {"code", "data"};
-    private static final long FRESH_CACHE_TTL_MS = 750L;
-    private static final long STALE_CACHE_TTL_MS = 5L * 60L * 1000L;
-    private static final long SOURCE_TIMEOUT_MS = 500L;
+    private static final long CACHE_TTL_MS = 500L;
+    private static final long SOURCE_TIMEOUT_MS = 400L;
     private static final String CALLER_PARAMETER = "sleepdown_proxy_caller";
     private static final Uri REFRESH_URI =
             Uri.parse("content://com.suda.yzune.wakeupschedule.provider/refresh");
@@ -46,7 +45,7 @@ public final class WakeUpProxyProvider extends ContentProvider {
 
                 @Override
                 public synchronized Thread newThread(Runnable runnable) {
-                    Thread thread = new Thread(runnable, "sleepdown-course-source-" + ++nextId);
+                    Thread thread = new Thread(runnable, "wakeup-source-" + ++nextId);
                     thread.setDaemon(true);
                     return thread;
                 }
@@ -62,100 +61,116 @@ public final class WakeUpProxyProvider extends ContentProvider {
                         String[] selectionArgs, String sortOrder) {
         List<String> segments = uri.getPathSegments();
         String path = segments.isEmpty() ? "" : segments.get(0);
-        if ("refresh".equals(path)) return null;
-        if (!isSupported(path)) return null;
+        if ("refresh".equals(path)) {
+            return null;
+        }
+        if (!isSupported(path)) {
+            return null;
+        }
 
         long startedAt = SystemClock.elapsedRealtime();
         String key = cacheKey(uri, path);
         Snapshot cached = SNAPSHOTS.get(key);
         long now = SystemClock.elapsedRealtime();
-        if (cached != null && now - cached.createdAtMs <= FRESH_CACHE_TTL_MS) {
+        if (cached != null && now - cached.createdAtMs <= CACHE_TTL_MS) {
+            Log.d(TAG, "缓存命中 path=" + uri.getPath() + " jsonLength="
+                    + cached.data.length() + " costMs=" + (now - startedAt));
             return oneRow(cached.code, cached.data);
         }
 
-        SourceResponse response = readSourceWithRetry(uri, getCallingPackage());
-        if (response.isUsable()) {
+        SourceResponse response = readSourceWithRetry(uri, path, getCallingPackage());
+        if (response.isUsable(path)) {
             Snapshot fresh = new Snapshot(response.code, response.data,
                     SystemClock.elapsedRealtime());
             SNAPSHOTS.put(key, fresh);
-            Log.d(TAG, "Source query succeeded path=" + uri.getPath()
+            Log.d(TAG, "实时取源成功 path=" + uri.getPath()
                     + " caller=" + getCallingPackage()
+                    + " jsonLength=" + response.data.length()
                     + " costMs=" + (SystemClock.elapsedRealtime() - startedAt));
             return oneRow(fresh.code, fresh.data);
         }
 
-        now = SystemClock.elapsedRealtime();
-        if (cached != null && now - cached.createdAtMs <= STALE_CACHE_TTL_MS) {
-            Log.w(TAG, "Source unavailable; using recent memory snapshot path="
-                    + uri.getPath() + " reason=" + response.reason);
+        if (cached != null) {
+            Log.w(TAG, "实时取源失败，回退快照 path=" + uri.getPath() + " reason="
+                    + response.reason + " jsonLength=" + cached.data.length()
+                    + " costMs=" + (SystemClock.elapsedRealtime() - startedAt));
             return oneRow(cached.code, cached.data);
         }
 
-        Log.w(TAG, "Source unavailable with no recent snapshot path=" + uri.getPath()
-                + " reason=" + response.reason);
+        Log.w(TAG, "实时取源失败，无可用快照 path=" + uri.getPath() + " reason="
+                + response.reason + " costMs=" + (SystemClock.elapsedRealtime() - startedAt));
         return fallback(path);
     }
 
-    private SourceResponse readSourceWithRetry(Uri uri, String callerPackage) {
+    private SourceResponse readSourceWithRetry(Uri uri, String path, String callerPackage) {
         Uri.Builder sourceBuilder = uri.buildUpon().authority(SOURCE_AUTHORITY);
         if (callerPackage != null && !callerPackage.trim().isEmpty()) {
             sourceBuilder.appendQueryParameter(CALLER_PARAMETER, callerPackage);
         }
         Uri sourceUri = sourceBuilder.build();
-        SourceResponse last = SourceResponse.failure("not attempted");
+        SourceResponse last = SourceResponse.failure("未执行");
         for (int attempt = 1; attempt <= 2; attempt++) {
             CancellationSignal cancellation = new CancellationSignal();
             Future<SourceResponse> future = SOURCE_EXECUTOR.submit(
                     () -> readSourceOnce(sourceUri, cancellation));
             try {
                 SourceResponse response = future.get(SOURCE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-                if (response.isUsable()) return response;
+                if (response.isUsable(path)) {
+                    return response;
+                }
                 last = response;
+                Log.w(TAG, "源返回不可用 path=" + uri.getPath() + " attempt=" + attempt
+                        + " reason=" + response.reason + " jsonLength="
+                        + (response.data == null ? 0 : response.data.length()));
             } catch (TimeoutException error) {
                 cancellation.cancel();
                 future.cancel(true);
-                last = SourceResponse.failure("timeout");
+                last = SourceResponse.failure("超时");
+                Log.w(TAG, "源查询超时 path=" + uri.getPath() + " attempt=" + attempt);
             } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
                 cancellation.cancel();
                 future.cancel(true);
-                return SourceResponse.failure("interrupted");
+                return SourceResponse.failure("线程中断");
             } catch (CancellationException error) {
-                last = SourceResponse.failure("cancelled");
+                last = SourceResponse.failure("已取消");
             } catch (ExecutionException error) {
-                Throwable cause = error.getCause();
-                last = SourceResponse.failure(cause == null
-                        ? "execution failed" : String.valueOf(cause.getMessage()));
+                last = SourceResponse.failure(error.getCause() == null
+                        ? "执行失败" : String.valueOf(error.getCause().getMessage()));
+                Log.w(TAG, "源查询异常 path=" + uri.getPath() + " attempt=" + attempt,
+                        error.getCause());
             }
         }
         return last;
     }
 
-    private SourceResponse readSourceOnce(Uri sourceUri, CancellationSignal cancellation) {
+    private SourceResponse readSourceOnce(Uri sourceUri, CancellationSignal cancellation)
+            throws Exception {
         Context context = getContext();
-        if (context == null) return SourceResponse.failure("provider context unavailable");
+        if (context == null) {
+            return SourceResponse.failure("Provider 上下文为空");
+        }
         ContentResolver resolver = context.getContentResolver();
         try (Cursor source = resolver.query(sourceUri, null, null, null, null, cancellation)) {
             if (source == null || !source.moveToFirst()) {
-                return SourceResponse.failure("empty source cursor");
+                return SourceResponse.failure("源 Cursor 为空");
             }
             int codeColumn = source.getColumnIndex("code");
             int dataColumn = source.getColumnIndex("data");
             if (codeColumn < 0 || dataColumn < 0) {
-                return SourceResponse.failure("source columns missing");
+                return SourceResponse.failure("源 Cursor 缺少字段");
             }
             String data = source.getString(dataColumn);
             if (data == null || data.trim().isEmpty()) {
-                return SourceResponse.failure("source data empty");
+                return SourceResponse.failure("源 data 为空");
             }
             return new SourceResponse(source.getInt(codeColumn), data, "");
-        } catch (RuntimeException error) {
-            return SourceResponse.failure(error.getClass().getSimpleName() + ": " + error.getMessage());
         }
     }
 
     private static String cacheKey(Uri uri, String path) {
-        if (!("course_list".equals(path) || "next_course_list".equals(path))) return path;
+        if (!("course_list".equals(path)
+                || "next_course_list".equals(path))) return path;
         List<String> segments = uri.getPathSegments();
         if (segments.size() > 1) {
             return path + "|" + String.join("/", segments.subList(1, segments.size()));
@@ -203,7 +218,7 @@ public final class WakeUpProxyProvider extends ContentProvider {
 
     @Override
     public String getType(Uri uri) {
-        return "application/json";
+        return null;
     }
 
     @Override
@@ -248,8 +263,12 @@ public final class WakeUpProxyProvider extends ContentProvider {
             return new SourceResponse(-1, null, reason);
         }
 
-        boolean isUsable() {
-            return code == 0 && data != null && !data.trim().isEmpty();
+        boolean isUsable(String path) {
+            if (code != 0 || data == null || data.trim().isEmpty()) {
+                return false;
+            }
+            return !("course_list".equals(path) || "next_course_list".equals(path))
+                    || !"[]".equals(data.trim());
         }
     }
 }

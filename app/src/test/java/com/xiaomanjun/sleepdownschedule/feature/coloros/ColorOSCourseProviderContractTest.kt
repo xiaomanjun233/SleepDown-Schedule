@@ -7,6 +7,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,7 +36,6 @@ class ColorOSCourseProviderContractTest {
                 )
             )
         ).jsonArray
-
         assertTrue(initialized.getValue("has_init").jsonPrimitive.boolean)
         assertEquals(7, shownTable.getValue("table_id").jsonPrimitive.int)
         assertEquals(listOf(7, 8), tables.map { it.jsonObject.getValue("id").jsonPrimitive.int })
@@ -59,17 +59,39 @@ class ColorOSCourseProviderContractTest {
     @Test
     fun testPreviewIsExplicitCurrentDayOnlyAndExpires() {
         val zone = ZoneId.of("Asia/Shanghai")
-        val now = Instant.parse("2026-09-20T18:10:00Z").toEpochMilli()
-        val expiresAt = now + 3 * 60 * 1_000L
+        val now = Instant.parse("2026-09-20T18:10:37Z").toEpochMilli()
+        val expiresAt = ColorOSCourseTestPreview.expiresAt(now)
         val today = LocalDate.of(2026, 9, 21)
+        val laterStart = today.atTime(10, 0).atZone(zone).toEpochSecond()
+        val laterCourse = """[{"id":1,"courseName":"上午课程","startTimestamp":$laterStart,"endTimestamp":${laterStart + 3_600}}]"""
 
-        val preview = Json.parseToJsonElement(
-            ColorOSCourseTestPreview.append("[]", today, zone, now, expiresAt)
-        ).jsonArray.single().jsonObject
+        val courses = Json.parseToJsonElement(
+            ColorOSCourseTestPreview.append(laterCourse, today, zone, now, expiresAt)
+        ).jsonArray
+        val preview = courses.first().jsonObject
 
         assertEquals("SleepDown 流体云测试", preview.getValue("courseName").jsonPrimitive.content)
-        assertEquals("测试课程将在 3 分钟后自动结束", preview.getValue("extra").jsonPrimitive.content)
+        assertEquals("02:32", preview.getValue("startTime").jsonPrimitive.content)
+        assertEquals("02:37", preview.getValue("endTime").jsonPrimitive.content)
+        assertEquals(Instant.parse("2026-09-20T18:32:00Z").epochSecond, preview.getValue("startTimestamp").jsonPrimitive.long)
+        assertEquals(Instant.parse("2026-09-20T18:37:00Z").epochSecond, preview.getValue("endTimestamp").jsonPrimitive.long)
+        assertEquals(
+            5 * 60L,
+            preview.getValue("endTimestamp").jsonPrimitive.long -
+                preview.getValue("startTimestamp").jsonPrimitive.long
+        )
+        assertTrue(preview.getValue("id").jsonPrimitive.long in 1..Int.MAX_VALUE.toLong())
+        assertEquals("", preview.getValue("extra").jsonPrimitive.content)
+        assertEquals("上午课程", courses.last().jsonObject.getValue("courseName").jsonPrimitive.content)
         assertEquals("[]", ColorOSCourseTestPreview.append("[]", today.plusDays(1), zone, now, expiresAt))
         assertEquals("[]", ColorOSCourseTestPreview.append("[]", today, zone, expiresAt, expiresAt))
+
+        val lateNow = Instant.parse("2026-09-21T15:50:37Z").toEpochMilli()
+        val lateExpiresAt = ColorOSCourseTestPreview.expiresAt(lateNow)
+        val nextDayPreview = Json.parseToJsonElement(
+            ColorOSCourseTestPreview.append("[]", today.plusDays(1), zone, lateNow, lateExpiresAt)
+        ).jsonArray.single().jsonObject
+        assertEquals("00:12", nextDayPreview.getValue("startTime").jsonPrimitive.content)
+        assertEquals("[]", ColorOSCourseTestPreview.append("[]", today, zone, lateNow, lateExpiresAt))
     }
 }

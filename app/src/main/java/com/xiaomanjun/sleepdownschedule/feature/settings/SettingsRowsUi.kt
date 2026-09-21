@@ -1354,6 +1354,7 @@ fun SettingsInfoRow(title: String, body: String) {
 internal val LocalCollapsibleSettingsInfoRows = compositionLocalOf { false }
 
 private val changelogReleaseDates = mapOf(
+    "1.2.6-exp" to "2026-09-21",
     "1.2.6_beta7" to "2026-09-20",
     "1.2.6_beta6" to "2026-09-19",
     "1.2.6_beta5" to "2026-09-16",
@@ -1587,16 +1588,28 @@ fun GlassPreferenceSection(
 }
 
 @Composable
-fun SettingsChoiceRow(title: String, selected: NotificationMode, backdrop: Backdrop?, config: ScheduleConfigEntity, onSelected: (NotificationMode) -> Unit) {
-    val modes = NotificationMode.entries
+fun SettingsChoiceRow(
+    title: String,
+    selected: NotificationMode,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onSelected: (NotificationMode) -> Unit,
+    colorOSFluidCloudSelected: Boolean = false,
+    showColorOSFluidCloud: Boolean = false,
+    onColorOSFluidCloudSelected: () -> Unit = {}
+) {
+    val choices = buildList<Pair<String, NotificationMode?>> {
+        add("普通通知" to NotificationMode.STANDARD)
+        add("实时活动" to NotificationMode.LIVE_UPDATE)
+        if (showColorOSFluidCloud) add("流体云" to null)
+    }
     SleepDownLiquidDropdownPreference(
-        items = modes.map {
-            when (it) {
-                NotificationMode.STANDARD -> "普通通知"
-                NotificationMode.LIVE_UPDATE -> "实时活动"
-            }
+        items = choices.map { it.first },
+        selectedIndex = if (colorOSFluidCloudSelected) {
+            choices.indexOfFirst { it.second == null }.coerceAtLeast(0)
+        } else {
+            choices.indexOfFirst { it.second == selected }.coerceAtLeast(0)
         },
-        selectedIndex = modes.indexOf(selected).coerceAtLeast(0),
         title = title,
         backdrop = backdrop,
         config = config,
@@ -1604,7 +1617,11 @@ fun SettingsChoiceRow(title: String, selected: NotificationMode, backdrop: Backd
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 240.dp,
         onExpandedChange = {},
-        onSelectedIndexChange = { index -> onSelected(modes[index.coerceIn(modes.indices)]) }
+        onSelectedIndexChange = { index ->
+            choices[index.coerceIn(choices.indices)].second
+                ?.let(onSelected)
+                ?: onColorOSFluidCloudSelected()
+        }
     )
 }
 
