@@ -20,7 +20,7 @@ val releaseKeyAlias = releaseSecret("sleepdown.releaseKeyAlias", "SLEEPDOWN_RELE
 val releaseKeyPassword = releaseSecret("sleepdown.releaseKeyPassword", "SLEEPDOWN_RELEASE_KEY_PASSWORD")
 val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOWN_REMOTE_CONFIG_SECRET").orEmpty()
 val sleepDownVersionName = "1.2.6_beta8"
-val sleepDownExpRevision = 2
+val sleepDownExpRevision = 3
 val sleepDownExpVersionBase = sleepDownVersionName
     .substringBefore("_beta")
     .substringBefore("-beta")

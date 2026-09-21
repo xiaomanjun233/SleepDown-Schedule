@@ -103,4 +103,15 @@ class GiteeAppUpdaterTest {
         assertFalse(GiteeAppUpdater.isVersionNewer("1.2.6_beta7", beta8.tagName))
         assertTrue(GiteeAppUpdater.isVersionNewer("1.2.6-exp3", "1.2.6-exp2"))
     }
+
+    @Test
+    fun exp3ChannelSelectsTheNewExperimentalRevision() {
+        val exp3 = release("v1.2.6-exp3", true)
+        val beta8 = release("v1.2.6_beta8", true)
+        val candidates = listOf(beta8, release("v1.2.6-exp2", true), exp3)
+        assertEquals(exp3, GiteeAppUpdater.selectRelease(candidates, AppUpdateChannel.Experimental))
+        assertEquals(beta8, GiteeAppUpdater.selectRelease(candidates, AppUpdateChannel.Beta))
+        assertEquals(exp3, GiteeAppUpdater.selectLatestAssetRelease(listOf(candidates[1], exp3)))
+        assertFalse(GiteeAppUpdater.isVersionNewer("v1.2.6-exp2", exp3.tagName))
+    }
 }

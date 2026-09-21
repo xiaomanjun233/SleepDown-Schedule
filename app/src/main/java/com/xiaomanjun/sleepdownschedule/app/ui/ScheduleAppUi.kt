@@ -9235,6 +9235,16 @@ fun ChangelogSettingsScreen(
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
                 SettingsInfoRow(
+                    "1.2.6-exp3",
+                    "同步普通版 Beta8 的助手编辑、平板小组件、作息间隔、日视图和文字可读性改进，完整内容见本页 Beta8 日志。\n" +
+                    "安装或更新课程组件时自动查找最新实验版 Release 中的组件，不再固定使用旧版下载地址。\n" +
+                    "课程组件按日期保存课程缓存，改善 SleepDown 或组件进程被后台回收后课表变空的问题；真正的空课表和课程删除仍会正常刷新。\n" +
+                    "手机开机解锁后或课程组件更新后，主动请求系统重新读取课表，并修正跨午夜时初始化状态丢失的问题。\n" +
+                    "新增 SleepDown 与课程组件的后台管理入口，方便检查自启动、关联启动和后台运行设置。\n" +
+                    "课程组件更新至 6.0.17，请与 exp3 主应用一并覆盖更新。系统冻结、强行停止和后台限制仍可能影响课程读取与流体云显示。"
+                )
+                SettingsDivider()
+                SettingsInfoRow(
                     "1.2.6-exp2",
                     "修复删除测试课程或清空当天课程后，课程组件仍返回旧课程、导致流体云无法正确清除和重新测试的问题。\n" +
                     "刷新课表时会先清除组件快照，再由组件主动通知系统重新读取；不再需要使用 ADB 手动清理组件。\n" +
