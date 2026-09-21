@@ -290,6 +290,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -1664,13 +1665,16 @@ internal fun DayScheduleScreen(
                     )
             }
             val backgroundFrozen = LocalHomeBackgroundFrozen.current
-            val minuteClock by produceState(initialValue = LocalDateTime.now(), page, backgroundFrozen) {
+            val dayLifecycleOwner = LocalLifecycleOwner.current
+            val minuteClock by produceState(initialValue = LocalDateTime.now(), page, backgroundFrozen, dayLifecycleOwner) {
                 if (backgroundFrozen) return@produceState
-                value = LocalDateTime.now()
-                while (true) {
-                    val nowMillis = System.currentTimeMillis()
-                    delay((60_000L - nowMillis % 60_000L + 100L).coerceAtLeast(1_000L))
+                dayLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                     value = LocalDateTime.now()
+                    while (true) {
+                        val nowMillis = System.currentTimeMillis()
+                        delay((60_000L - nowMillis % 60_000L + 100L).coerceAtLeast(1_000L))
+                        value = LocalDateTime.now()
+                    }
                 }
             }
             val listState = rememberLazyListState()
@@ -1806,7 +1810,8 @@ internal fun DayScheduleScreen(
                             tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f,
                             readOnly = targetAdjustment != null,
                             occurrenceDate = targetDate,
-                            muted = targetCancelled
+                            muted = targetCancelled,
+                            completed = hasDayCourseEnded(course, state.periods, targetDate, minuteClock)
                         )
                     }
                 }
@@ -1852,7 +1857,8 @@ internal fun DayScheduleScreen(
                                 tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f,
                                 readOnly = secondaryAdjustment != null,
                                 occurrenceDate = visibleDate,
-                                muted = secondaryCancelled
+                                muted = secondaryCancelled,
+                                completed = hasDayCourseEnded(course, state.periods, visibleDate, minuteClock)
                             )
                         }
                     }
@@ -2034,41 +2040,38 @@ private fun DayPartHeader(
 }
 
 @Composable
-fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, simultaneousCount: Int = 1, tabletFontScale: Float = 1f, readOnly: Boolean = false, muted: Boolean = false, occurrenceDate: LocalDate? = null) {
+fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, simultaneousCount: Int = 1, tabletFontScale: Float = 1f, readOnly: Boolean = false, muted: Boolean = false, occurrenceDate: LocalDate? = null, completed: Boolean = false) {
     val adjustedEditor = LocalAdjustedCourseEditor.current
-    val resolvedCardColor = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
-    val timePillColor = deepenColor(resolvedCardColor, 0.16f)
-    val glassContentColor = LocalAdaptiveGlass.current.contentColor
+    val subdued = muted || completed
+    val resolvedCardColor = if (subdued) MutedCourseLightColor else courseCardBaseColor(config, course)
+    val foreground = if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
+        else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor) else glassForegroundColor(config)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        GlassSurface(
+        CourseGlassCard(
             backdrop = backdrop,
             config = config,
+            course = course,
             modifier = Modifier.wrapContentWidth(),
             shape = Capsule(),
-            tokens = GlassTokens.pill(intensity = 0.75f),
-            baseSurfaceColorOverride = if (glassUsesLightStyle(config)) HomeLightGlassSurfaceColor else null
+            expandedOutlineLight = true,
+            muted = subdued
         ) {
-            Box(Modifier.background(timePillColor.copy(alpha = 0.26f))) {
-                Text(
-                    buildString {
-                        append(courseTimeLabel(course, periods))
-                        if (simultaneousCount > 1) append(" · 同时${simultaneousCount}门")
-                    },
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && backdrop != null) {
-                        glassContentColor
-                    } else {
-                        readableOn(timePillColor)
-                    }
-                )
-            }
+            CourseCardText(
+                buildString {
+                    append(courseTimeLabel(course, periods))
+                    if (simultaneousCount > 1) append(" · 同时${simultaneousCount}门")
+                },
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = foreground,
+                themeColor = resolvedCardColor.takeIf { subdued || config.courseCardColoredTextEnabled }
+            )
         }
         CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config,
             onClick = { sourceBounds ->
                 if (readOnly) occurrenceDate?.let { adjustedEditor?.invoke(course.id, it, sourceBounds) }
                 else onCourseClick(course, currentWeek, sourceBounds)
-            }, tabletFontScale = tabletFontScale, displayedWeek = currentWeek, muted = muted,
+            }, tabletFontScale = tabletFontScale, displayedWeek = currentWeek, muted = subdued,
             adjustmentLabel = if (readOnly) { if (muted) "停" else "补" } else null)
     }
 }
@@ -2084,9 +2087,8 @@ internal fun DayCourseCardTextContent(
     config: ScheduleConfigEntity,
     muted: Boolean = false
 ) {
-    val themeColor = if (config.courseCardColoredTextEnabled) {
-        if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
-    } else null
+    val themeColor = if (muted) MutedCourseLightColor
+        else if (config.courseCardColoredTextEnabled) courseCardBaseColor(config, course) else null
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val safeTabletScale = tabletFontScale.coerceAtLeast(1f)
         val titleStyle = MaterialTheme.typography.titleMedium.copy(
