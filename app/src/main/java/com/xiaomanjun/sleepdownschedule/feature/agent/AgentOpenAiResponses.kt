@@ -23,15 +23,6 @@ import kotlinx.serialization.json.put
 
 private val AgentResponsesJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
-private fun toolDecisionReasoningEffort(profile: AiProviderProfile): AiReasoningEffort {
-    val supported = AiProviderPresets.reasoningEfforts(profile)
-    return when {
-        AiReasoningEffort.MINIMAL in supported -> AiReasoningEffort.MINIMAL
-        AiReasoningEffort.LOW in supported -> AiReasoningEffort.LOW
-        else -> profile.reasoningEffort
-    }
-}
-
 internal data class AgentResponsesTurn(
     val outputItems: List<JsonObject>,
     val calls: List<AgentToolCall>,
@@ -57,7 +48,6 @@ internal class OpenAiResponsesAgentRunner {
         onStreamReset: () -> Unit,
         executeTool: (AgentToolCall) -> AgentToolResult,
         cachedTools: Set<AgentToolName> = emptySet(),
-        allowCachedAnswer: Boolean = false,
         telemetry: DayAgentTurnTelemetry
     ): String {
         val instructions = chatMessages
@@ -70,7 +60,7 @@ internal class OpenAiResponsesAgentRunner {
             .toMutableList()
         val completedOneShotTools = cachedTools.toMutableSet()
         val evidenceKeys = mutableSetOf<String>()
-        val decisionEffort = toolDecisionReasoningEffort(settings.profile)
+        var outputRetryRequested = false
 
         toolRounds@ for (round in 0 until MaxAgentToolRounds) {
             onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在思考"))
@@ -81,13 +71,15 @@ internal class OpenAiResponsesAgentRunner {
                     responsesBody(
                         settings = settings,
                         instructions = instructions + "\n\n" +
-                            (if (allowCachedAnswer) DayAgentPrompts.CachedFactsStage else DayAgentPrompts.ToolDecisionStage),
+                            DayAgentPrompts.TaskStage + if (outputRetryRequested) {
+                                "\n\n" + DayAgentPrompts.TaskOutputRetry
+                            } else "",
                         input = input,
                         stream = false,
                         includeTools = true,
                         includeMemoryTool = includeMemoryTool,
                         excludedTools = completedOneShotTools,
-                        reasoningEffort = if (allowCachedAnswer) settings.profile.reasoningEffort else decisionEffort
+                        reasoningEffort = settings.profile.reasoningEffort
                     )
                 )
             )
@@ -110,24 +102,20 @@ internal class OpenAiResponsesAgentRunner {
                     )
                 )
             }
+            // Preserve opaque reasoning even when retrying an empty response without tool calls.
+            input += decision.outputItems
             if (decision.calls.isEmpty()) {
-                if (allowCachedAnswer) usableCachedAgentAnswer(decision.content)?.let { answer ->
+                usableAgentAnswer(decision.content)?.let { answer ->
                     onDelta(answer)
                     return answer
                 }
-                return streamFinal(
-                    settings = settings,
-                    instructions = instructions,
-                    input = input,
-                    onStatus = onStatus,
-                    onDelta = onDelta,
-                    onStreamReset = onStreamReset,
-                    telemetry = telemetry
-                )
+                if (!outputRetryRequested) {
+                    outputRetryRequested = true
+                    continue@toolRounds
+                }
+                break@toolRounds
             }
 
-            // Stateless Responses continuation requires every output item, not just visible text.
-            input += decision.outputItems
             val results = decision.calls.map { call ->
                 onStatus(call.name.runStatus())
                 val result = executeTool(call)
@@ -372,6 +360,7 @@ internal fun parseAgentResponsesTurn(response: String): AgentResponsesTurn {
                 runCatching { AgentResponsesJson.parseToJsonElement(raw) as? JsonObject }
                     .getOrNull()
             }
+            ?.filterValues { it != kotlinx.serialization.json.JsonNull }
             ?.mapValues { (_, value) ->
                 (value as? JsonPrimitive)?.contentOrNull ?: value.toString()
             }

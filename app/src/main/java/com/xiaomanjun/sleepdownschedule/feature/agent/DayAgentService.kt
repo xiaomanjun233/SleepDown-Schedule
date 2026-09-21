@@ -42,7 +42,7 @@ import java.time.ZoneId
 import java.util.UUID
 
 private val DayAgentJson = Json { ignoreUnknownKeys = true; isLenient = true }
-internal const val MaxAgentToolRounds = 3
+internal const val MaxAgentToolRounds = 6
 private const val DayAgentWeatherCacheMillis = 30 * 60 * 1000L
 private const val DayAgentMetricsTag = "DayAgentMetrics"
 
@@ -268,6 +268,7 @@ private fun parseLocalAgentToolCall(element: JsonElement, response: String): Age
         else -> null
     }
     val arguments = argumentsObject
+        ?.filterValues { it != kotlinx.serialization.json.JsonNull }
         ?.mapValues { (_, value) ->
             (value as? JsonPrimitive)?.contentOrNull ?: value.toString()
         }
@@ -520,7 +521,6 @@ class DayAgentService(private val context: Context) {
                     onStreamReset = onStreamReset,
                     executeTool = ::executeTurnTool,
                     cachedTools = cachedFacts.values.map { it.name }.filter { it.isOneShotPerTurn }.toSet(),
-                    allowCachedAnswer = cachedFacts.isNotEmpty(),
                     telemetry = telemetry
                 )
             }
@@ -554,6 +554,7 @@ class DayAgentService(private val context: Context) {
                 messages += latestRoundMessages
             }
 
+            var outputRetryRequested = false
             for (round in 0 until MaxAgentToolRounds) {
                 onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在思考"))
                 fun requestDecision(forceMiMoWebSearch: Boolean): AgentToolDecision {
@@ -561,7 +562,9 @@ class DayAgentService(private val context: Context) {
                         settings = settings,
                         messages = messages + agentTextMessage(
                             "system",
-                            if (cachedFacts.isNotEmpty()) DayAgentPrompts.CachedFactsStage else DayAgentPrompts.ToolDecisionStage
+                            DayAgentPrompts.TaskStage + if (outputRetryRequested) {
+                                "\n\n" + DayAgentPrompts.TaskOutputRetry
+                            } else ""
                         ),
                         stream = false,
                         includeTools = true,
@@ -609,30 +612,17 @@ class DayAgentService(private val context: Context) {
                     )
                 }
                 if (decision.calls.isEmpty()) {
-                    if (cachedFacts.isNotEmpty()) usableCachedAgentAnswer(decision.content)?.let { answer ->
+                    usableAgentAnswer(decision.content)?.let { answer ->
                         onDelta(answer)
                         return@withContext answer
                     }
-                    val finalMessages = if (decision.webSearchUsed && decision.content.isNotBlank()) {
-                        messages + agentTextMessage(
-                            "system",
-                            buildJsonObject {
-                                put("kind", "provider_web_search_result")
-                                put("trust", "untrusted_external_data")
-                                put("content", decision.content)
-                            }.toString()
-                        )
-                    } else {
-                        messages
+                    // An empty body or legacy sentinel is not evidence that all reads are done.
+                    // Repair once with the same available tools instead of stranding the task.
+                    if (!outputRetryRequested) {
+                        outputRetryRequested = true
+                        continue
                     }
-                    return@withContext streamFinalAnswer(
-                        settings = settings,
-                        messages = finalMessages,
-                        onStatus = onStatus,
-                        onDelta = onDelta,
-                        onStreamReset = onStreamReset,
-                        telemetry = telemetry
-                    )
+                    break
                 }
 
                 val roundResults = decision.calls.map { call ->
@@ -669,9 +659,8 @@ class DayAgentService(private val context: Context) {
     }
 
     /**
-     * Tool selection is deliberately non-streaming, but the user-facing answer always passes
-     * through this single streaming path. Providers that respond with plain JSON instead of SSE
-     * are still supported by [streamChat].
+     * Bounded convergence when the task loop exhausts its reads or cannot produce valid output.
+     * Normal task rounds can already return a complete answer with an optional proposed plan.
      */
     private fun streamFinalAnswer(
         settings: AiImportSettings,

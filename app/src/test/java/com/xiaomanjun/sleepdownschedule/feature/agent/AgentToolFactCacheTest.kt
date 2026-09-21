@@ -5,12 +5,36 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 
 class AgentToolFactCacheTest {
     private val facts = buildDayAgentFacts(emptyList(), defaultPeriods(), defaultConfig(),
         LocalDate.of(2026, 9, 7), null, now = LocalDateTime.of(2026, 9, 7, 9, 0))
     private val call = AgentToolCall("first", AgentToolName.GET_WEEK_SCHEDULE)
     private val result = AgentToolResult("first", call.name, true, "当天没有课程")
+
+    @Test fun overviewReadIncludesEditableIdentityAndOccurrenceScope() {
+        val course = CourseEntity(
+            id = 42L, name = "专业英语", teacher = "原教师", location = "原教室",
+            weekday = 1, periods = listOf(1), weeks = listOf(1, 2),
+            weekParity = WeekParity.ALL, note = "保留备注", scheduleId = 1
+        )
+        val current = facts.copy(today = listOf(AgentCourseSlot(
+            course, facts.date, LocalTime.of(8, 0), LocalTime.of(8, 45),
+            originalDate = facts.date.minusDays(7), teachingWeek = 1
+        )), semesterCourses = listOf(course))
+        val overview = AgentToolCall("overview", AgentToolName.GET_CURRENT_OVERVIEW)
+        val first = executeAgentReadTools(listOf(overview), current).single()
+        assertTrue(first.content.contains("ID=42"))
+        assertTrue(first.content.contains("教师=原教师"))
+        assertTrue(first.content.contains("地点=原教室"))
+        assertTrue(first.content.contains("teachingWeek=1"))
+        assertTrue(first.content.contains("originalDate=2026-08-31"))
+        val later = current.copy(today = emptyList(), now = current.now.plusMinutes(1))
+        val next = executeAgentReadTools(listOf(overview), later).single()
+        assertTrue(next.content.contains("今日=无课"))
+        assertFalse(next.content.contains("ID=42"))
+    }
 
     @Test fun followUpReusesUnchangedFactsButNotOtherSchedulesOrVersions() {
         val cache = AgentToolFactCache()
@@ -67,8 +91,8 @@ class AgentToolFactCacheTest {
     }
 
     @Test fun directAnswerRequiresContentAndCannotLeakToolSentinel() {
-        assertEquals("今天没有课程。", usableCachedAgentAnswer(" 今天没有课程。 "))
-        assertNull(usableCachedAgentAnswer("FINAL_ANSWER_READY"))
-        assertNull(usableCachedAgentAnswer(" "))
+        assertEquals("今天没有课程。", usableAgentAnswer(" 今天没有课程。 "))
+        assertNull(usableAgentAnswer("FINAL_ANSWER_READY"))
+        assertNull(usableAgentAnswer(" "))
     }
 }

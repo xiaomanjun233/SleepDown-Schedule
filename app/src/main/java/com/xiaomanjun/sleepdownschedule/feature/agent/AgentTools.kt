@@ -110,13 +110,13 @@ internal fun agentToolDefinitions(
 ): JsonArray = buildJsonArray {
     if (AgentToolName.GET_CURRENT_OVERVIEW !in excludedTools) add(agentToolDefinition(
         AgentToolName.GET_CURRENT_OVERVIEW,
-        "当前日期、时间、学期状态、有效教学周、今天/明天课程摘要和天气。回答当前状态时读取。",
+        "当前日期、时间、学期状态、有效教学周、今天/明天的完整课程记录与实际发生时间、原教学周和天气。",
         strict = strictFunctions
     ))
     if (AgentToolName.SEARCH_COURSES !in excludedTools) add(agentToolDefinition(
         AgentToolName.SEARCH_COURSES,
-        "按课程名、教师或地点查找当前课表记录；修改明确对象前读取，可用不同关键词重复检索。",
-        queryRequired = true,
+        "一次组合条件定位当前课表的课程，返回完整记录和真实 ID。query 模糊检索，其余条件精确匹配且同时满足；至少提供一项。定位后直接组合字段修改，无需按字段重复查询。最多展示 24 条，截断时用完整学期快照处理批量目标。",
+        courseSearch = true,
         strict = strictFunctions
     ))
     if (AgentToolName.GET_WEEK_SCHEDULE !in excludedTools) add(agentToolDefinition(
@@ -283,10 +283,21 @@ internal fun supportsMiMoOfficialWebSearch(
     return model.trim().lowercase() in setOf("mimo-v2.5-pro", "mimo-v2.5")
 }
 
+private val AgentCourseSearchFields = linkedMapOf(
+    "query" to "课程名、教师或地点的模糊检索词；已有精确条件时可省略",
+    "courseId" to "已知真实课程记录 ID，十进制整数",
+    "name" to "完整课程名称，精确匹配",
+    "teacher" to "当前教师姓名，精确匹配",
+    "location" to "当前上课地点，精确匹配",
+    "weekday" to "原始课表星期，整数 1（周一）至 7（周日）；实际补课日期请使用日程工具定位",
+    "period" to "课程包含的节次，正整数",
+    "week" to "课程实际开课的教学周，正整数，考虑单双周"
+)
+
 private fun agentToolDefinition(
     name: AgentToolName,
     description: String,
-    queryRequired: Boolean = false,
+    courseSearch: Boolean = false,
     strict: Boolean = false
 ) = buildJsonObject {
     put("type", "function")
@@ -296,15 +307,18 @@ private fun agentToolDefinition(
         put("parameters", buildJsonObject {
             put("type", "object")
             put("properties", buildJsonObject {
-                if (queryRequired) {
-                    put("query", buildJsonObject {
-                        put("type", "string")
-                        put("description", "课程名、教师、地点或用户描述中的检索词")
-                    })
+                if (courseSearch) {
+                    AgentCourseSearchFields.forEach { (key, description) ->
+                        put(key, buildJsonObject {
+                            put("type", buildJsonArray { add(JsonPrimitive("string")); add(JsonPrimitive("null")) })
+                            put("description", description)
+                        })
+                    }
                 }
             })
             put("required", buildJsonArray {
-                if (queryRequired) add(JsonPrimitive("query"))
+                // Strict providers require all declared fields; unused filters are JSON null.
+                if (courseSearch && strict) AgentCourseSearchFields.keys.forEach { add(JsonPrimitive(it)) }
             })
             put("additionalProperties", false)
         })
@@ -345,28 +359,26 @@ internal fun executeAgentReadTools(
         semesterCourses = scopedSemesterCourses
     )
     return calls.map { call ->
+        val content = try {
+            when (call.name) {
+                AgentToolName.GET_CURRENT_OVERVIEW -> agentOverviewResult(scopedFacts)
+                AgentToolName.SEARCH_COURSES -> agentCourseSearchResult(call.arguments, scopedFacts)
+                AgentToolName.GET_WEEK_SCHEDULE -> agentWeekResult(scopedFacts)
+                AgentToolName.GET_SEMESTER_SCHEDULE -> agentSemesterResult(scopedFacts)
+                AgentToolName.GET_PERIODS -> agentPeriodResult(scopedFacts)
+                AgentToolName.GET_SETTINGS -> AgentSettingRegistry.promptCatalog(currentValues = scopedFacts.settingSnapshot)
+                AgentToolName.GET_SCHEDULE_ADJUSTMENTS -> agentAdjustmentsResult(scopedFacts)
+                AgentToolName.GET_SCHEDULES -> agentSchedulesResult(scopedFacts)
+                AgentToolName.UPDATE_MEMORY -> "记忆更新只能由助手会话层处理"
+            }
+        } catch (error: IllegalArgumentException) {
+            return@map AgentToolResult(call.id, call.name, false, "读取失败：${error.message}；请修正查询条件后重试。")
+        }
         AgentToolResult(
             callId = call.id,
             name = call.name,
             success = true,
-            content = "读取成功；当前课表ID=${scopedFacts.scheduleId}；事实版本=${scopedFacts.sourceHash}\n" +
-                when (call.name) {
-                    AgentToolName.GET_CURRENT_OVERVIEW -> agentOverviewResult(scopedFacts)
-                    AgentToolName.SEARCH_COURSES ->
-                        agentCourseSearchResult(call.arguments["query"].orEmpty(), scopedFacts)
-                    AgentToolName.GET_WEEK_SCHEDULE -> agentWeekResult(scopedFacts)
-                    AgentToolName.GET_SEMESTER_SCHEDULE -> agentSemesterResult(scopedFacts)
-                    AgentToolName.GET_PERIODS -> agentPeriodResult(scopedFacts)
-                    AgentToolName.GET_SETTINGS ->
-                        AgentSettingRegistry.promptCatalog(
-                            currentValues = scopedFacts.settingSnapshot
-                        )
-                    AgentToolName.GET_SCHEDULE_ADJUSTMENTS ->
-                        agentAdjustmentsResult(scopedFacts)
-                    AgentToolName.GET_SCHEDULES -> agentSchedulesResult(scopedFacts)
-                    AgentToolName.UPDATE_MEMORY ->
-                        "记忆更新只能由助手会话层处理"
-                }
+            content = "读取成功；当前课表ID=${scopedFacts.scheduleId}；事实版本=${scopedFacts.sourceHash}\n$content"
         )
     }
 }
@@ -487,19 +499,33 @@ private fun agentOverviewResult(facts: DayAgentFacts): String = buildString {
     appendLine("天气=${facts.weather?.summary ?: "不可用"}")
     appendLine(
         "今日=" + facts.today.joinToString("；") {
-            "${it.start}-${it.end} ${it.course.name} @${it.course.location ?: "待确认"}"
+            agentDayCourseLine(it)
         }.ifBlank { "无课" }
     )
     appendLine(
         "明日=" + facts.tomorrow.joinToString("；") {
-            "${it.start}-${it.end} ${it.course.name} @${it.course.location ?: "待确认"}"
+            agentDayCourseLine(it)
         }.ifBlank { "无课" }
     )
 }
 
-private fun agentCourseSearchResult(query: String, facts: DayAgentFacts): String {
+private fun agentDayCourseLine(item: AgentCourseSlot): String =
+    "${item.date} ${item.start}-${item.end} ${agentCourseLine(item.course)}" +
+        "；teachingWeek=${item.teachingWeek}；originalDate=${item.originalDate ?: item.date}"
+
+private fun agentCourseSearchResult(arguments: Map<String, String>, facts: DayAgentFacts): String {
+    require(arguments.keys.all { it in AgentCourseSearchFields }) { "存在不支持的课程筛选字段" }
+    val filters = arguments.mapValues { it.value.trim() }.filterValues(String::isNotEmpty)
+    require(filters.isNotEmpty()) { "至少提供一个课程筛选条件" }
+    fun positiveNumber(key: String, maximum: Long = Long.MAX_VALUE): Long? = filters[key]?.let { raw ->
+        requireNotNull(raw.toLongOrNull()?.takeIf { it in 1..maximum }) { "$key 必须是 1 至 $maximum 之间的整数" }
+    }
+    val id = positiveNumber("courseId")
+    val weekday = positiveNumber("weekday", 7)?.toInt()
+    val period = positiveNumber("period", Int.MAX_VALUE.toLong())?.toInt()
+    val week = positiveNumber("week", facts.totalWeeks.toLong())?.toInt()
     val unique = facts.semesterCourses.distinctBy { it.id }
-    val needle = query.trim()
+    val needle = filters["query"].orEmpty()
     /*
      * Match in both directions: the model may pass either a fragment of the course name
      * ("数学" → "高等数学") or a whole user sentence that embeds the full name. One-directional
@@ -510,12 +536,22 @@ private fun agentCourseSearchResult(query: String, facts: DayAgentFacts): String
         return value.contains(needle, ignoreCase = true) ||
             needle.contains(value, ignoreCase = true)
     }
+    fun exact(key: String, value: String?): Boolean = filters[key]?.let { it.equals(value?.trim(), ignoreCase = true) } ?: true
     val matched = unique.filter { course ->
-        needle.isNotBlank() &&
-            (fieldMatches(course.name) || fieldMatches(course.teacher) || fieldMatches(course.location))
-    }.take(24)
-    return matched.joinToString("\n", transform = ::agentCourseLine)
-        .ifBlank { "没有匹配课程" }
+        (needle.isEmpty() || fieldMatches(course.name) || fieldMatches(course.teacher) || fieldMatches(course.location)) &&
+            (id == null || course.id == id) && exact("name", course.name) &&
+            exact("teacher", course.teacher) && exact("location", course.location) &&
+            (weekday == null || course.weekday == weekday) &&
+            (period == null || period in course.periods) &&
+            (week == null || week in course.weeks && parityMatches(course.weekParity, week))
+    }
+    if (matched.isEmpty()) return "没有匹配课程"
+    return buildString {
+        append(matched.take(24).joinToString("\n", transform = ::agentCourseLine))
+        if (matched.size > 24) {
+            append("\n匹配共 ${matched.size} 条，仅展示前 24 条；批量处理前请读取 GET_SEMESTER_SCHEDULE 的完整记录后筛选，不能把当前结果当作全部目标。")
+        }
+    }
 }
 
 private fun agentWeekResult(facts: DayAgentFacts): String = buildString {
@@ -525,7 +561,7 @@ private fun agentWeekResult(facts: DayAgentFacts): String = buildString {
     } else {
         append(
             facts.week.joinToString("\n") { item ->
-                "${item.date} ${item.start}-${item.end} ${agentCourseLine(item.course)}" +
+                agentDayCourseLine(item) +
                     if (item.originalDate != null) "（调休：原 ${item.originalDate} 第 ${item.teachingWeek} 周）" else ""
             }.ifBlank { "本周无课" }
         )
@@ -534,7 +570,7 @@ private fun agentWeekResult(facts: DayAgentFacts): String = buildString {
 
 private fun agentSemesterResult(facts: DayAgentFacts): String = buildString {
     appendLine("学期状态=${facts.termState.name}（${facts.termStatus}）")
-    appendLine("课程行=id|名称|星期|节次|周次；可选字段 p=单双周（默认 ALL）、l=地点、t=教师、n=备注（省略表示无备注）、x=自定义时间")
+    appendLine("课程行=id|名称|星期|节次|周次；可选字段 p=单双周（默认 ALL）、l=地点、t=教师、n=备注（省略表示无备注）、x=自定义时间、c=自定义颜色（#AARRGGBB，省略表示默认）")
     append(
         facts.semesterCourses.distinctBy { it.id }
             .joinToString("\n", transform = ::agentCompactCourseLine)
@@ -615,7 +651,7 @@ private fun agentCourseLine(course: CourseEntity): String =
         "；地点=${course.location ?: "待确认"}；教师=${course.teacher ?: "待确认"}；备注=${course.note.orEmpty().toAgentCompactField()}" +
         course.customTimeRangeOrNull()?.let { (start, end) ->
             "；自定义时间=${start}-${end}（优先于节次默认时间）"
-        }.orEmpty()
+        }.orEmpty() + course.customColorArgb?.let { "；自定义颜色=${agentColorText(it)}" }.orEmpty()
 
 private fun agentCompactCourseLine(course: CourseEntity): String = buildList {
     add(course.id.toString())
@@ -628,7 +664,10 @@ private fun agentCompactCourseLine(course: CourseEntity): String = buildList {
     course.teacher?.takeIf(String::isNotBlank)?.let { add("t=${it.toAgentCompactField()}") }
     course.note?.takeIf(String::isNotBlank)?.let { add("n=${it.toAgentCompactField()}") }
     course.customTimeRangeOrNull()?.let { (start, end) -> add("x=$start-$end") }
+    course.customColorArgb?.let { add("c=${agentColorText(it)}") }
 }.joinToString("|")
+
+private fun agentColorText(color: Long): String = "#" + (color and 0xFFFFFFFFL).toString(16).uppercase().padStart(8, '0')
 
 private fun String.toAgentCompactField(): String = trim()
     .replace('|', '／')

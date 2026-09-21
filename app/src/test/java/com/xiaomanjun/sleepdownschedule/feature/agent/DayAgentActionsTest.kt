@@ -18,6 +18,45 @@ class DayAgentActionsTest {
     private val date = LocalDate.of(2026, 7, 15)
 
     @Test
+    fun editsTodayTeacherAndLocationWithoutRecreatingOrChangingOtherWeeks() {
+        val first = slot("第一门课", "原教室", 8, 0, 8, 45).course.copy(
+            id = 41, teacher = "原教师", weeks = (1..18).toList(), note = "保留备注"
+        )
+        val second = first.copy(id = 42, name = "第二门课", periods = listOf(2))
+        val unrelated = first.copy(id = 43, name = "其他日期课程", weekday = 2)
+        val courses = listOf(first, second, unrelated)
+        val facts = factsAt(9, 0, listOf(
+            AgentCourseSlot(first, date, LocalTime.of(8, 0), LocalTime.of(8, 45), teachingWeek = 4),
+            AgentCourseSlot(second, date, LocalTime.of(9, 0), LocalTime.of(9, 45), teachingWeek = 4)
+        )).copy(
+            currentWeek = 4, totalWeeks = 18, semesterCourses = courses,
+            periodDefinitions = listOf(PeriodEntity(1, "08:00", "08:45"), PeriodEntity(2, "09:00", "09:45"))
+        )
+        val response = """请确认今天两节课的修改。<agent_actions>[
+            {"type":"UPDATE_COURSE","courseId":41,"scope":"SELECTED_WEEKS","sourceWeeks":[4],"course":{"teacher":"王老师","location":"A101"}},
+            {"type":"UPDATE_COURSE","courseId":42,"scope":"SELECTED_WEEKS","sourceWeeks":[4],"course":{"teacher":"王老师","location":"A101"}}
+        ]</agent_actions>"""
+        val parsed = parseAgentActions(response, facts)
+        assertEquals(2, parsed.actions.size)
+        assertTrue(parsed.actions.all { it.type == AgentValidatedActionType.UPDATE })
+        val plan = AgentPlan(parsed.actions)
+        val preview = previewAgentPlan(courses, plan)
+        val changed = preview.after.filter { it.name in listOf(first.name, second.name) && 4 in it.weeks }
+        assertEquals(2, changed.size)
+        assertTrue(changed.all { it.teacher == "王老师" && it.location == "A101" && it.note == "保留备注" })
+        for (original in listOf(first, second)) {
+            val remaining = preview.after.single { it.name == original.name && 4 !in it.weeks }
+            assertEquals(original.copy(weeks = original.weeks - 4), remaining)
+            val edited = changed.single { it.name == original.name }
+            assertEquals(original.weekday, edited.weekday)
+            assertEquals(original.periods, edited.periods)
+        }
+        assertTrue(preview.after.contains(unrelated))
+        assertTrue(verifyAgentPlan(preview.after, plan, courses))
+        assertFalse(verifyAgentPlan(courses, plan, courses))
+    }
+
+    @Test
     fun parsesConfirmedCourseDraftIntoActiveSchedule() {
         val facts = factsAt(9, 0, emptyList()).copy(
             periodDefinitions = listOf(
