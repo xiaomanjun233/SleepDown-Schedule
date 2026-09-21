@@ -21,9 +21,9 @@ internal fun homeTextShadowStrength(
     if (ratios.isEmpty()) return 0f
     // Ignore isolated pixels, but retain narrow stripes that the old average washed away.
     val difficultContrast = ratios[((ratios.size - 1) * 0.10f).toInt()]
-    val exitThreshold = if (currentStrength > 0f) 5.4f else 4.8f
+    val exitThreshold = if (currentStrength > 0f) 6.0f else 5.2f
     if (difficultContrast >= exitThreshold) return 0f
-    val strength = ((4.8f - difficultContrast) / 3.8f).coerceIn(0.125f, 1f)
+    val strength = ((5.2f - difficultContrast) / 4.2f).coerceIn(0.125f, 1f)
     // Eight levels suppress subpixel sampling noise; the UI blends between these targets.
     return (strength * 8f).roundToInt() / 8f
 }

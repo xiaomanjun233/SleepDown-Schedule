@@ -338,7 +338,15 @@ private fun sampleVisibleWallpaperLuminances(
     bounds: Rect,
     columns: Int = 7,
     rows: Int = 5
-): FloatArray? {
+): FloatArray? = sampleVisibleWallpaperColors(context, bounds, columns, rows)
+    ?.map { it.luminance() }?.toFloatArray()
+
+internal fun sampleVisibleWallpaperColors(
+    context: HomeReadabilityContext,
+    bounds: Rect,
+    columns: Int = 7,
+    rows: Int = 5
+): List<ComposeColor>? {
     if (bounds.width <= 0f || bounds.height <= 0f) return null
     val bitmap = context.bitmap ?: return null
     val config = context.config ?: return null
@@ -363,7 +371,8 @@ private fun sampleVisibleWallpaperLuminances(
     if (drawn.width <= 0f || drawn.height <= 0f) return null
     val visibleBounds = bounds.intersect(Rect(0f, 0f, root.width.toFloat(), root.height.toFloat()))
     if (visibleBounds.width <= 0f || visibleBounds.height <= 0f) return null
-    val samples = FloatArray(columns * rows)
+    val samples = ArrayList<ComposeColor>(columns * rows)
+    val brightness = config.wallpaperBrightness.coerceIn(0.35f, 1f)
     for (row in 0 until rows) {
         for (column in 0 until columns) {
             val rootX = visibleBounds.left + visibleBounds.width * ((column + 0.5f) / columns)
@@ -373,7 +382,8 @@ private fun sampleVisibleWallpaperLuminances(
             val y = (((rootY - drawn.top) / drawn.height) * bitmap.height)
                 .roundToInt().coerceIn(0, bitmap.height - 1)
             val pixel = bitmap[x, y]
-            samples[row * columns + column] = visibleWallpaperLuminance(pixel, config.wallpaperBrightness)
+            val source = ComposeColor(pixel)
+            samples.add(ComposeColor(source.red * brightness, source.green * brightness, source.blue * brightness))
         }
     }
     return samples
@@ -433,10 +443,23 @@ fun HomeReadableText(
         val bounds = textBounds.translate(origin)
         if (lastSample[0] == bounds) return
         lastSample[0] = bounds
-        val samples = sampleVisibleWallpaperLuminances(readability, bounds)
-        targetShadowStrength = samples?.let {
-            homeTextShadowStrength(it, color.luminance(), color.alpha, targetShadowStrength)
-        } ?: 0f
+        // Check short spans independently: one dark character must not be hidden by a bright line.
+        var requiredStrength = 0f
+        for (line in 0 until layout.lineCount) {
+            val left = layout.getLineLeft(line)
+            val right = layout.getLineRight(line)
+            val top = layout.getLineTop(line)
+            val bottom = layout.getLineBottom(line)
+            val spans = ceil((right - left) / ((bottom - top) * 0.75f).coerceAtLeast(1f)).toInt().coerceIn(1, 32)
+            for (span in 0 until spans) {
+                val region = Rect(left + (right - left) * span / spans, top,
+                    left + (right - left) * (span + 1) / spans, bottom).translate(origin)
+                val samples = sampleVisibleWallpaperLuminances(readability, region, columns = 3, rows = 5) ?: continue
+                requiredStrength = maxOf(requiredStrength,
+                    homeTextShadowStrength(samples, color.luminance(), color.alpha, targetShadowStrength))
+            }
+        }
+        targetShadowStrength = requiredStrength
     }
     LaunchedEffect(readability, color, backgroundFrozen) { updateContrast() }
     val density = LocalDensity.current
@@ -449,7 +472,7 @@ fun HomeReadableText(
     val shadowStyle = if (shadowStrength <= 0.001f || readability.bitmap == null) style else {
         val radius = with(density) {
             // Spread the soft shadow beyond the glyph edge while keeping the light halo centered.
-            (effectiveFontSize.toPx() * if (lightText) 0.22f else 0.28f).coerceIn(2.dp.toPx(), 4.8.dp.toPx())
+            (effectiveFontSize.toPx() * if (lightText) 0.28f else 0.36f).coerceIn(2.6.dp.toPx(), 6.2.dp.toPx())
         }
         style.copy(shadow = androidx.compose.ui.graphics.Shadow(
             color = (if (lightText) ComposeColor.Black else ComposeColor.White).copy(

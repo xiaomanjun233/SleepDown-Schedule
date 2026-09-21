@@ -29,12 +29,16 @@ import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.Capsule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextBackground
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
@@ -1075,6 +1079,35 @@ fun CourseGlassCard(
     )
     val simpleBlurValue = (blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur)
         .coerceIn(0f, SimpleCourseCardBlurMax) * quality
+    val textCardCoordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    var textCardReady by remember { mutableStateOf(false) }
+    val textCardBounds = remember {
+        {
+            textCardCoordinates[0]?.takeIf { it.isAttached }?.let { position ->
+                val origin = position.localToWindow(Offset.Zero)
+                // Keep the full card height when its top is scrolled outside the viewport.
+                Rect(origin.x, origin.y, origin.x + position.size.width, origin.y + position.size.height)
+            }
+        }
+    }
+    val liveCardAlpha = (previewState?.cardAlpha ?: config.cardAlpha).coerceIn(0f, 1f)
+    val textSurfaceAlpha = when {
+        useGlass -> courseGlassTintAlpha(if (outlineLightEnabled) 0.75f else liveCardAlpha, quality, hasWallpaper) *
+            courseCardBrightnessAttenuation(config.wallpaperBrightness, outlineLightEnabled)
+        simpleBlurBackdrop != null -> courseSimpleBlurTintAlpha(liveCardAlpha, quality, hasWallpaper)
+        !config.courseCardGlassEnabled && !config.courseCardGaussianBlurEnabled ->
+            liveCardAlpha.coerceAtLeast(if (hasWallpaper) 0.35f else 0.92f)
+        else -> liveCardAlpha.coerceAtLeast(0.86f)
+    }
+    val textBackground = rememberCourseTextBackground(
+        base = baseColor, tintAlpha = textSurfaceAlpha,
+        blurred = useGlass || simpleBlurBackdrop != null,
+        blurPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+            (if (useGlass) liquidEffectFrame.blur ?: 0.dp else simpleBlurValue.dp).toPx()
+        },
+        outline = useGlass && outlineLightEnabled, expanded = expandedOutlineLight,
+        ready = textCardReady, cardBounds = textCardBounds
+    )
     val simpleMaterial = GlassMaterialSpec.simpleBlur(simpleBlurValue.dp)
     val simpleDescriptor = rememberGlassSurfaceDescriptor(
         debugLabel = "CourseSimpleBlurCard",
@@ -1132,7 +1165,10 @@ fun CourseGlassCard(
     } else {
         Modifier
     }
-    val cardModifier = modifier
+    val cardModifier = modifier.onGloballyPositioned {
+        textCardCoordinates[0] = it
+        textCardReady = true
+    }
         .then(
             if (onClick == null) Modifier else Modifier
                 .pointerInput(onClick) {
@@ -1294,7 +1330,7 @@ fun CourseGlassCard(
         } else {
             surfaceContent()
         }
-        content()
+        CompositionLocalProvider(LocalCourseTextBackground provides textBackground) { content() }
         if (pressed) {
             Box(
                 Modifier
