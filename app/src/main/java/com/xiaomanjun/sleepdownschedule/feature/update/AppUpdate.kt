@@ -185,18 +185,19 @@ object GiteeAppUpdater {
     ): Result<GiteeReleaseInfo> = withContext(Dispatchers.IO) {
         runCatching {
             val normalizedNames = expectedNames.mapTo(linkedSetOf()) { it.lowercase() }
-            readReleaseObjects().forEach { release ->
+            val candidates = readReleaseObjects().mapNotNull { release ->
+                if ((release["draft"] as? JsonPrimitive)?.booleanOrNull == true) return@mapNotNull null
                 val asset = release.releaseAssets().firstOrNull {
                     it.name.lowercase() in normalizedNames
-                } ?: return@forEach
+                } ?: return@mapNotNull null
                 val sourceTag = release.string("tag_name").ifBlank { release.string("name") }
                 require(sourceTag.isNotBlank()) { "Gitee 版本缺少版本标签" }
                 val releasePage = release.string("html_url").ifBlank {
                     "$GiteeRepositoryUrl/releases/tag/${Uri.encode(sourceTag)}"
                 }
-                return@runCatching GiteeReleaseInfo(
+                GiteeReleaseInfo(
                     name = displayName,
-                    tagName = "course-component-$sourceTag-${asset.name.hashCode()}",
+                    tagName = sourceTag,
                     notes = release.string("body"),
                     apkName = asset.name,
                     apkUrl = asset.url,
@@ -205,9 +206,20 @@ object GiteeAppUpdater {
                     packageKind = packageKind
                 )
             }
-            error("暂未找到课程组件，请稍后重试")
+            val latest = selectLatestAssetRelease(candidates)
+                ?: error("暂未找到课程组件，请稍后重试")
+            latest.copy(tagName = "course-component-${latest.tagName}-${latest.apkUrl.hashCode()}")
         }
     }
+
+    internal fun selectLatestAssetRelease(releases: List<GiteeReleaseInfo>): GiteeReleaseInfo? =
+        releases.filter { !it.apkUrl.isNullOrBlank() }.maxWithOrNull { left, right ->
+            when {
+                isVersionNewer(left.tagName, right.tagName) -> 1
+                isVersionNewer(right.tagName, left.tagName) -> -1
+                else -> 0
+            }
+        }
 
     suspend fun downloadApk(context: Context, release: GiteeReleaseInfo): Result<File> {
         if (!AppDistribution.supportsSelfUpdate) {

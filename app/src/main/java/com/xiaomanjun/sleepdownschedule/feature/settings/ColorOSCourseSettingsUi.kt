@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,6 +27,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionSt
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseBridge
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseComponentInstaller
+import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseContract
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseDiagnostics
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseExperiment
 import com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdater
@@ -46,6 +51,7 @@ internal fun ColorOSCourseSettingsSection(
     var showDiagnostics by remember { mutableStateOf(false) }
     var componentError by remember { mutableStateOf<String?>(null) }
     var downloadedComponent by remember { mutableStateOf<File?>(null) }
+    var checkingComponent by remember { mutableStateOf(false) }
     val downloadState by GiteeAppUpdater.downloadState.collectAsStateWithLifecycle()
     val componentDownloadState = downloadState.takeIf(ColorOSCourseComponentInstaller::isComponentDownload)
 
@@ -78,31 +84,25 @@ internal fun ColorOSCourseSettingsSection(
     }
 
     fun downloadOrInstallComponent() {
-        if (componentDownloadState is UpdateDownloadState.Downloading) return
-        val readyApk = downloadedComponent
-            ?: (componentDownloadState as? UpdateDownloadState.Completed)?.apk?.takeIf(File::exists)
-        if (readyApk != null) {
-            downloadedComponent = readyApk
-            if (GiteeAppUpdater.canRequestPackageInstalls(context)) {
-                installComponent(readyApk)
-            } else {
-                installPermissionLauncher.launch(GiteeAppUpdater.unknownSourcesSettingsIntent(context))
-            }
-            return
-        }
+        if (checkingComponent || componentDownloadState is UpdateDownloadState.Downloading) return
+        checkingComponent = true
         componentError = null
         scope.launch {
-            ColorOSCourseComponentInstaller.download(context).fold(
-                onSuccess = { apk ->
-                    downloadedComponent = apk
-                    if (GiteeAppUpdater.canRequestPackageInstalls(context)) {
-                        installComponent(apk)
-                    } else {
-                        installPermissionLauncher.launch(GiteeAppUpdater.unknownSourcesSettingsIntent(context))
-                    }
-                },
-                onFailure = { componentError = it.message ?: "课程组件下载失败" }
-            )
+            try {
+                ColorOSCourseComponentInstaller.download(context).fold(
+                    onSuccess = { apk ->
+                        downloadedComponent = apk
+                        if (GiteeAppUpdater.canRequestPackageInstalls(context)) {
+                            installComponent(apk)
+                        } else {
+                            installPermissionLauncher.launch(GiteeAppUpdater.unknownSourcesSettingsIntent(context))
+                        }
+                    },
+                    onFailure = { componentError = it.message ?: "课程组件下载失败" }
+                )
+            } finally {
+                checkingComponent = false
+            }
         }
     }
 
@@ -113,14 +113,13 @@ internal fun ColorOSCourseSettingsSection(
     val proxyReady = current?.let { it.proxyIsSleepDown && it.proxyVersionSupported } == true
     val componentActionSubtitle = when (val state = componentDownloadState) {
         is UpdateDownloadState.Downloading -> state.progressPercent?.let { "正在下载：$it%" } ?: "正在下载…"
-        is UpdateDownloadState.Completed -> "下载完成，点击进入安装。"
+        is UpdateDownloadState.Completed -> "点击检查最新版本并安装。"
         is UpdateDownloadState.Failed -> "下载失败，点击重试。"
-        else -> "从 Gitee 下载，完成后会直接进入安装。"
+        else -> if (checkingComponent) "正在查找最新组件…" else "自动查找 Gitee 最新组件，下载后进入安装。"
     }
     val componentActionButton = when (val state = componentDownloadState) {
         is UpdateDownloadState.Downloading -> state.progressPercent?.let { "$it%" } ?: "下载中"
-        is UpdateDownloadState.Completed -> "安装"
-        else -> "下载"
+        else -> if (checkingComponent) "检查中" else if (proxyReady) "检查更新" else "下载安装"
     }
 
     GlassPreferenceSection("课程流体云") {
@@ -144,16 +143,37 @@ internal fun ColorOSCourseSettingsSection(
             SettingsDivider()
             SettingsInfoRow(
                 title = "后台说明",
-                body = if (ColorOSCourseExperiment.allowsParallelLiveUpdate()) {
-                    "荣耀上的 YOYO 课程小组件与 SleepDown 实时活动可以同时使用。SleepDown 不用一直留在后台；手机重启后请先解锁一次。若强行停止 SleepDown 或“WakeUp课程表”，重新打开应用后才会恢复。"
-                } else {
-                    "SleepDown 不用一直留在后台，系统需要更新时会自动读取课程。手机重启后请先解锁一次；若在系统设置中强行停止 SleepDown 或“WakeUp课程表”，重新打开应用后才会恢复。"
-                }
+                body = (if (ColorOSCourseExperiment.allowsParallelLiveUpdate()) {
+                    "荣耀上的 YOYO 课程小组件与 SleepDown 实时活动可以同时使用。"
+                } else "") +
+                    "课程组件会保存已同步的课程快照，重启解锁或组件更新后通知系统重新读取。" +
+                    "请在系统设置中允许“WakeUp课程表”自启动、关联启动和后台运行；自启动不代表系统不会冻结后台应用。" +
+                    "若强行停止 SleepDown 或课程组件，请重新打开应用并同步。"
             )
-            if (!proxyReady && !wakeUpConflict && supportedDevice) {
+            if (current?.proxyIsSleepDown == true) {
                 SettingsDivider()
                 SettingsActionRow(
-                    title = "安装课程组件",
+                    title = "组件自启动",
+                    subtitle = "在系统启动管理中允许“WakeUp课程表”自启动和关联启动。",
+                    buttonText = "设置",
+                    iconRes = R.drawable.ic_settings,
+                    backdrop = backdrop,
+                    onClick = { openCourseComponentSettings(context, startup = true) }
+                )
+                SettingsDivider()
+                SettingsActionRow(
+                    title = "组件后台运行",
+                    subtitle = "打开“WakeUp课程表”的应用信息，检查电池与后台限制。",
+                    buttonText = "设置",
+                    iconRes = R.drawable.ic_settings,
+                    backdrop = backdrop,
+                    onClick = { openCourseComponentSettings(context, startup = false) }
+                )
+            }
+            if (!wakeUpConflict && supportedDevice) {
+                SettingsDivider()
+                SettingsActionRow(
+                    title = if (proxyReady) "更新课程组件" else "安装课程组件",
                     subtitle = componentActionSubtitle,
                     buttonText = componentActionButton,
                     iconRes = R.drawable.ic_download,
@@ -237,6 +257,26 @@ internal fun ColorOSCourseSettingsSection(
             onDismissRequest = { componentError = null }
         )
     }
+}
+
+private fun openCourseComponentSettings(context: Context, startup: Boolean) {
+    if (startup) {
+        // This entry is exposed by current ColorOS. Other systems use app details.
+        val opened = runCatching {
+            context.startActivity(
+                Intent("com.oplus.battery.permission.startup.StartupAppListActivity")
+                    .setPackage("com.oplus.battery")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.isSuccess
+        if (opened) return
+    }
+    context.startActivity(
+        Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:${ColorOSCourseContract.PROXY_PACKAGE}")
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    )
 }
 
 private fun Long?.toDisplayTime(): String {

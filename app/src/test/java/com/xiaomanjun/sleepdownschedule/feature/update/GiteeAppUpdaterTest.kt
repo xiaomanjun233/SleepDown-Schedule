@@ -7,6 +7,15 @@ import org.junit.Test
 
 class GiteeAppUpdaterTest {
     @Test
+    fun componentSelectsNewestReleaseEvenWhenGiteeReturnsOldestFirst() {
+        val latest = release("v1.2.6-exp10", true)
+        val candidates = listOf(release("v1.2.6-exp", true), latest, release("v1.2.6-exp2", true))
+        assertEquals(latest, GiteeAppUpdater.selectLatestAssetRelease(candidates))
+        assertEquals(latest, GiteeAppUpdater.selectLatestAssetRelease(candidates.reversed()))
+        assertEquals(latest, GiteeAppUpdater.selectLatestAssetRelease(candidates + release("v1.3.0-exp").copy(apkUrl = null)))
+    }
+
+    @Test
     fun comparesNumericVersions() {
         assertTrue(GiteeAppUpdater.isVersionNewer("v1.1", "1.0"))
         assertTrue(GiteeAppUpdater.isVersionNewer("1.0.1", "1.0"))
