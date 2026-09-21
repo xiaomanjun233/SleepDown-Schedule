@@ -305,7 +305,8 @@ fun createReducedWallpaperBitmap(source: Bitmap?): Bitmap? {
 fun createWallpaperReadabilityBitmap(source: Bitmap?): Bitmap? {
     if (source == null || source.width <= 0 || source.height <= 0) return null
     val largest = max(source.width, source.height).coerceAtLeast(1)
-    val scale = (128f / largest).coerceAtMost(1f)
+    // At 128px a small timeline label covered only one source row, losing local light/dark edges.
+    val scale = (512f / largest).coerceAtMost(1f)
     val width = (source.width * scale).roundToInt().coerceAtLeast(1)
     val height = (source.height * scale).roundToInt().coerceAtLeast(1)
     return createBitmap(width, height).also { target ->

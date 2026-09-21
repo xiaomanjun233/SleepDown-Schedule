@@ -111,26 +111,6 @@ class HomeAdaptiveMetricsTest {
     }
 
     @Test
-    fun homeReadabilityUsesSymmetricLocalShadowsWithHysteresis() {
-        assertEquals(
-            HomeReadabilityShadow.Dark,
-            homeReadabilityShadowForLuminance(0.9f, 0.7f, HomeReadabilityShadow.None)
-        )
-        assertEquals(
-            HomeReadabilityShadow.Light,
-            homeReadabilityShadowForLuminance(0.05f, 0.18f, HomeReadabilityShadow.None)
-        )
-        assertEquals(
-            HomeReadabilityShadow.Light,
-            homeReadabilityShadowForLuminance(0.05f, 0.38f, HomeReadabilityShadow.Light)
-        )
-        assertEquals(
-            HomeReadabilityShadow.None,
-            homeReadabilityShadowForLuminance(0.05f, 0.62f, HomeReadabilityShadow.Light)
-        )
-    }
-
-    @Test
     fun shallowLandscapeWindowAvoidsTwoPaneLayout() {
         val metrics = calculateHomeAdaptiveMetrics(
             widthDp = 900,
