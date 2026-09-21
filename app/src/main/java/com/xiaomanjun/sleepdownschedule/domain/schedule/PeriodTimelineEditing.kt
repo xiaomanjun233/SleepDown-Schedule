@@ -248,6 +248,11 @@ internal fun resizeTimelineBlock(session: PeriodTimelineSession, index: Int, isB
 internal fun shiftTimelineFirstLesson(session: PeriodTimelineSession, part: PeriodDayPart, start: Int): PeriodTimelineSession =
     editTimelinePart(session, part) { desired -> shiftTimelineFirstLesson(session.config, session.active, part, start, desired) }
 
+/** Removing a leading gap moves lessons to the section anchor without changing their numbering. */
+internal fun resizeTimelineLeadingBreak(session: PeriodTimelineSession, part: PeriodDayPart, minutes: Int): PeriodTimelineSession =
+    shiftTimelineFirstLesson(session, part,
+        timelinePartAnchorMinute(session.config, session.active, part) + minutes.coerceAtLeast(0))
+
 internal fun shiftTimelinePart(session: PeriodTimelineSession, part: PeriodDayPart, start: Int): PeriodTimelineSession =
     editTimelinePart(session, part) { desired -> shiftTimelinePart(session.config, session.active, part, start, desired) }
 
