@@ -69,8 +69,10 @@ public final class WakeUpProxyProvider extends ContentProvider {
                     if (!WakeUpSourceResponsePolicy.isUsable(code, data)) return;
                     Bundle extras = cursor.getExtras();
                     long createdAt = System.currentTimeMillis();
-                    long validUntil = (isCourse(path) ? date : LocalDate.now(zone))
-                            .plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();
+                    // Metadata must outlive midnight too, or a successful pull today would
+                    // invalidate initialization while pushed future course rows remain usable.
+                    long validUntil = WakeUpSourceResponsePolicy.snapshotValidUntil(
+                            isCourse(path), date, LocalDate.now(zone), zone);
                     WakeUpSnapshotStore.Entry fresh = new WakeUpSnapshotStore.Entry(data,
                             extras.getString("base_data", data), zone.getId(), createdAt, validUntil,
                             extras.getLong("preview_until", 0L));

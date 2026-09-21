@@ -48,4 +48,24 @@ public final class WakeUpSnapshotStoreTest {
         assertEquals(today, WakeUpSourceResponsePolicy.requestedDate(List.of("course_list", millis), zone, today));
         assertEquals(today, WakeUpSourceResponsePolicy.requestedDate(List.of("course_list", "20261399"), zone, today));
     }
+
+    @Test public void metadataPullSurvivesMidnightWhileDatedCoursesExpireSeparately() throws Exception {
+        File file = new File(folder.getRoot(), "snapshots");
+        LocalDate today = LocalDate.of(2026, 9, 21);
+        ZoneId zone = ZoneId.of("Asia/Shanghai");
+        long created = today.atStartOfDay(zone).toInstant().toEpochMilli();
+        WakeUpSnapshotStore store = new WakeUpSnapshotStore(file);
+        store.replace(Map.of(
+                "has_init", new WakeUpSnapshotStore.Entry("{}", "{}", zone.getId(), created,
+                        WakeUpSourceResponsePolicy.snapshotValidUntil(false, today, today, zone), 0),
+                "course|today", new WakeUpSnapshotStore.Entry("[]", "[]", zone.getId(), created,
+                        WakeUpSourceResponsePolicy.snapshotValidUntil(true, today, today, zone), 0),
+                "course|tomorrow", new WakeUpSnapshotStore.Entry("[tomorrow]", "[tomorrow]", zone.getId(), created,
+                        WakeUpSourceResponsePolicy.snapshotValidUntil(true, today.plusDays(1), today, zone), 0)));
+        WakeUpSnapshotStore restarted = new WakeUpSnapshotStore(file);
+        long nextMorning = today.plusDays(1).atTime(8, 0).atZone(zone).toInstant().toEpochMilli();
+        assertNotNull(restarted.get("has_init", nextMorning, zone.getId()));
+        assertNull(restarted.get("course|today", nextMorning, zone.getId()));
+        assertEquals("[tomorrow]", restarted.get("course|tomorrow", nextMorning, zone.getId()).dataAt(nextMorning));
+    }
 }

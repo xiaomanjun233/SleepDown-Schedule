@@ -16,6 +16,11 @@ final class WakeUpSourceResponsePolicy {
         return code == 0 && data != null && !data.trim().isEmpty();
     }
 
+    static long snapshotValidUntil(boolean course, LocalDate requestedDate, LocalDate today, ZoneId zone) {
+        return (course ? requestedDate.plusDays(1) : today.plusDays(8))
+                .atStartOfDay(zone).toInstant().toEpochMilli();
+    }
+
     static LocalDate requestedDate(List<String> segments, ZoneId zone, LocalDate today) {
         LocalDate date = today;
         if (segments.size() > 1) {
