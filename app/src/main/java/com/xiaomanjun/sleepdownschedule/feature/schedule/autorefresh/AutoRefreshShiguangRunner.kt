@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.webkit.CookieManager
@@ -16,7 +17,6 @@ import com.xiaomanjun.sleepdownschedule.ImportDraft
 import com.xiaomanjun.sleepdownschedule.app.ui.releaseSleepDownWebView
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduBridgeInteractionRequest
-import com.xiaomanjun.sleepdownschedule.feature.importing.ShiguangWarehouse
 import com.xiaomanjun.sleepdownschedule.feature.importing.configureEduImportSecurity
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangBridgeHost
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.injectShiguangRuntime
@@ -39,6 +39,8 @@ internal data class AutoRefreshFetch(
 internal object AutoRefreshShiguangRunner {
     private const val TimeoutMillis = 90_000L
     private const val StablePageDelayMillis = 2_500L
+    private const val SwuCoursePageUrl =
+        "https://jw.swu.edu.cn/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N2151"
 
     suspend fun fetch(
         context: Context,
@@ -46,7 +48,7 @@ internal object AutoRefreshShiguangRunner {
         profile: AutoRefreshScheduleProfile,
         targetState: AppState
     ): AutoRefreshFetch {
-        val source = ShiguangWarehouse.resolveScript(context, adapter)
+        val source = ShiguangApiAdapterCatalog.resolveScript(context, adapter)
         require(ShiguangApiAdapterCatalog.isApiOnlyScript(adapter.school.id, adapter.adapterId, source)) {
             "拾光适配器已变更，不再满足纯接口刷新条件"
         }
@@ -71,6 +73,7 @@ internal object AutoRefreshShiguangRunner {
         var finished = false
         var pageGeneration = 0
         var loginAttempts = 0
+        var swuCoursePageAttempts = 0
         var lastUrl = adapter.importUrl
 
         fun release() {
@@ -110,7 +113,7 @@ internal object AutoRefreshShiguangRunner {
         fun isFailureMessage(message: String): Boolean {
             val normalized = message.lowercase()
             return listOf(
-                "失败", "错误", "无效", "无法", "未登录", "请登录", "超时",
+                "失败", "错误", "无效", "无法", "未登录", "请登录", "登录失效", "超时",
                 "error", "exception", "invalid", "unauthorized", "forbidden"
             ).any(normalized::contains)
         }
@@ -164,9 +167,29 @@ internal object AutoRefreshShiguangRunner {
             }, StablePageDelayMillis)
         }
 
+        fun continueAfterLogin(webView: WebView, expectedGeneration: Int) {
+            if (!ShiguangApiAdapterCatalog.isSwuDirectAdapter(adapter)) {
+                startAdapterScript(webView, expectedGeneration)
+                return
+            }
+            if (isSwuCoursePage(webView.url)) {
+                startAdapterScript(webView, expectedGeneration)
+                return
+            }
+            if (swuCoursePageAttempts >= 3) {
+                fail("无法进入西南大学教务系统；请确认已连接校园网或 aTrust，并先在教务导入页完成统一认证")
+                return
+            }
+            swuCoursePageAttempts += 1
+            handler.postDelayed({
+                if (finished || scriptStarted || pageGeneration != expectedGeneration) return@postDelayed
+                webView.loadUrl(SwuCoursePageUrl)
+            }, 1_200L)
+        }
+
         fun tryCredentialLogin(webView: WebView, expectedGeneration: Int) {
             if (loginAttempts >= 2 || profile.username.isBlank() || profile.password.isBlank()) {
-                startAdapterScript(webView, expectedGeneration)
+                continueAfterLogin(webView, expectedGeneration)
                 return
             }
             val loginScript = buildCredentialLoginScript(profile.username, profile.password)
@@ -177,11 +200,11 @@ internal object AutoRefreshShiguangRunner {
                     // Covers SPA logins that authenticate without a full page navigation.
                     handler.postDelayed({
                         if (!finished && !scriptStarted && pageGeneration == expectedGeneration) {
-                            startAdapterScript(webView, expectedGeneration)
+                            continueAfterLogin(webView, expectedGeneration)
                         }
                     }, 5_000L)
                 } else {
-                    startAdapterScript(webView, expectedGeneration)
+                    continueAfterLogin(webView, expectedGeneration)
                 }
             }
         }
@@ -314,4 +337,10 @@ internal object AutoRefreshShiguangRunner {
         val year = calendar.get(Calendar.YEAR)
         return if (calendar.get(Calendar.MONTH) >= Calendar.AUGUST) year else year - 1
     }
+
+    private fun isSwuCoursePage(url: String?): Boolean = runCatching {
+        val uri = Uri.parse(url.orEmpty())
+        uri.host.equals("jw.swu.edu.cn", ignoreCase = true) &&
+            uri.path.orEmpty().startsWith("/jwglxt/")
+    }.getOrDefault(false)
 }

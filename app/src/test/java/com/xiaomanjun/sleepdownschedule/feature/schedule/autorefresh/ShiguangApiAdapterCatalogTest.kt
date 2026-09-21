@@ -46,6 +46,16 @@ class ShiguangApiAdapterCatalogTest {
     }
 
     @Test
+    fun swuExperimentalVariantUsesOnlyStructuredApis() {
+        val source = File("src/main/assets/auto_refresh/swu_direct_api.js").readText()
+
+        assertTrue(ShiguangApiAdapterCatalog.isApiOnlyScript("SWU", "SWU_01", source))
+        assertFalse(source.contains("DOMParser"))
+        assertFalse(source.contains("querySelector"))
+        assertFalse(source.contains("response.text"))
+    }
+
+    @Test
     fun auditedJsonApiScriptIsAccepted() {
         val script = """
             fetch('/api/schedule').then(function (response) {
