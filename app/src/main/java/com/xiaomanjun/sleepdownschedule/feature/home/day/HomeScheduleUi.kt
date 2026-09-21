@@ -448,8 +448,8 @@ fun HomeReadableText(
     }
     val shadowStyle = if (shadowStrength <= 0.001f || readability.bitmap == null) style else {
         val radius = with(density) {
-            // Keep the light halo centered; dark drop shadows sit only a fraction below the glyph.
-            (effectiveFontSize.toPx() * if (lightText) 0.13f else 0.16f).coerceIn(1.2.dp.toPx(), 2.8.dp.toPx())
+            // Spread the soft shadow beyond the glyph edge while keeping the light halo centered.
+            (effectiveFontSize.toPx() * if (lightText) 0.22f else 0.28f).coerceIn(2.dp.toPx(), 4.8.dp.toPx())
         }
         style.copy(shadow = androidx.compose.ui.graphics.Shadow(
             color = (if (lightText) ComposeColor.Black else ComposeColor.White).copy(
