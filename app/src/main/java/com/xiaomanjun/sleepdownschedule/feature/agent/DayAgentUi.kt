@@ -3190,34 +3190,57 @@ private fun agentPlanPreviewText(
     plan: AgentPlan,
     preview: AgentPlanPreview
 ): String {
-    preview.newConflicts.firstOrNull()?.let { conflict ->
-        return "影响提示 · 执行后可能重叠：${conflict.first.name} 与 ${conflict.second.name}，" +
+    val warning = preview.newConflicts.firstOrNull()?.let { conflict ->
+        "影响提示 · 执行后可能重叠：${conflict.first.name} 与 ${conflict.second.name}，" +
             "第${conflict.weeks.joinToString("、")}周 · " +
             "第${conflict.periods.joinToString("、")}节"
-    }
-    if (plan.actions.size > 1) {
-        val weekText = preview.affectedWeeks.takeIf { it.isNotEmpty() }
-            ?.joinToString("、", prefix = "第", postfix = "周")
-            ?: "当前课表"
-        return "预演 · ${plan.actions.size} 项操作 · 影响 $weekText · " +
-            "${preview.changedCourseCount} 条课程记录"
-    }
-    val action = plan.actions.first()
-    val scope = when (action.scope) {
-        AgentActionScope.CURRENT_WEEK -> "仅第${action.targetWeek}周"
-        AgentActionScope.SELECTED_WEEKS -> "原第${action.sourceWeeks.joinToString("、")}周 → 第${action.edited?.weeks?.joinToString("、") ?: "无"}周"
-        AgentActionScope.ALL_WEEKS -> "全学期"
-    }
-    val change = when (action.type) {
-        AgentValidatedActionType.ADD ->
-            "新增 ${action.edited?.name.orEmpty()} ${agentCourseSlotText(action.edited)}"
-        AgentValidatedActionType.UPDATE ->
-            "${agentCourseSlotText(action.original)} → ${agentCourseSlotText(action.edited)}"
-        AgentValidatedActionType.DELETE ->
-            "删除 ${action.original?.name.orEmpty()} ${agentCourseSlotText(action.original)}"
-        else -> action.summary
-    }
-    return "预演 · $scope · $change"
+    }.orEmpty()
+    val changes = plan.actions.mapIndexed { index, action ->
+        val scope = when (action.scope) {
+            AgentActionScope.CURRENT_WEEK -> "仅第${action.targetWeek}周"
+            AgentActionScope.SELECTED_WEEKS -> {
+                val source = "第${action.sourceWeeks.joinToString("、")}周"
+                if (action.edited != null && action.sourceWeeks.toSet() != action.edited.weeks.toSet()) {
+                    "$source → 第${action.edited.weeks.joinToString("、")}周"
+                } else "仅$source"
+            }
+            AgentActionScope.ALL_WEEKS -> if (action.type == AgentValidatedActionType.ADD) {
+                "第${action.edited?.weeks?.joinToString("、")}周"
+            } else "整个课程记录"
+        }
+        val change = when (action.type) {
+            AgentValidatedActionType.ADD ->
+                "新增 ${action.edited?.name.orEmpty()} ${agentCourseSlotText(action.edited)}"
+            AgentValidatedActionType.UPDATE, AgentValidatedActionType.REPLACE ->
+                "${action.original?.name.orEmpty()}：${agentCourseChangesText(action.original, action.edited, action.scope == AgentActionScope.ALL_WEEKS)}"
+            AgentValidatedActionType.DELETE ->
+                "删除 ${action.original?.name.orEmpty()} ${agentCourseSlotText(action.original)}"
+            else -> action.summary
+        }
+        val prefix = if (plan.actions.size > 1) "${index + 1}. " else ""
+        val scopedChange = if (action.original != null || action.edited != null) "$scope · $change" else change
+        "$prefix$scopedChange"
+    }.joinToString("\n")
+    return listOf(warning, "预演 · ${plan.actions.size} 项操作", changes)
+        .filter(String::isNotBlank).joinToString("\n")
+}
+
+private fun agentCourseChangesText(before: CourseEntity?, after: CourseEntity?, includeWeeks: Boolean): String {
+    if (before == null || after == null) return "课程内容变更"
+    fun field(value: String?) = value?.takeIf(String::isNotBlank) ?: "未设置"
+    return buildList {
+        if (before.name != after.name) add("名称 ${before.name} → ${after.name}")
+        if (before.teacher != after.teacher) add("教师 ${field(before.teacher)} → ${field(after.teacher)}")
+        if (before.location != after.location) add("地点 ${field(before.location)} → ${field(after.location)}")
+        if (before.note != after.note) add("备注 ${field(before.note)} → ${field(after.note)}")
+        if (includeWeeks && before.weeks != after.weeks) add("周次 ${before.weeks.joinToString("、")} → ${after.weeks.joinToString("、")}")
+        if (before.weekday != after.weekday || before.periods != after.periods ||
+            before.customStartTime != after.customStartTime || before.customEndTime != after.customEndTime) {
+            add("时间 ${agentCourseSlotText(before)} → ${agentCourseSlotText(after)}")
+        }
+        if (before.weekParity != after.weekParity) add("单双周 ${parityLabel(before.weekParity)} → ${parityLabel(after.weekParity)}")
+        if (before.customColorArgb != after.customColorArgb) add("课程颜色变更")
+    }.joinToString("；").ifBlank { "调整生效周次" }
 }
 
 private fun agentCourseSlotText(course: CourseEntity?): String {
@@ -3226,11 +3249,14 @@ private fun agentCourseSlotText(course: CourseEntity?): String {
     val periodText = when {
         periods.isEmpty() -> "未设置节次"
         periods.size == 1 -> "第${periods.first()}节"
-        else -> "第${periods.first()}-${periods.last()}节"
+        else -> "第${periods.joinToString("、")}节"
     }
     val weekday = "一二三四五六日".getOrNull(course.weekday - 1)?.toString()
         ?: course.weekday.toString()
-    return "周$weekday $periodText"
+    val time = if (course.customStartTime != null && course.customEndTime != null) {
+        "${course.customStartTime}–${course.customEndTime}"
+    } else periodText
+    return "周$weekday $time"
 }
 
 private fun agentMorphPositionProgress(rawProgress: Float, closing: Boolean): Float {

@@ -59,6 +59,6 @@ internal fun agentCachedFactsMessage(facts: DayAgentFacts, cached: Map<String, A
     })
 }.toString()
 
-internal fun usableCachedAgentAnswer(content: String): String? = content.trim().takeIf {
+internal fun usableAgentAnswer(content: String): String? = content.trim().takeIf {
     it.isNotBlank() && !it.contains("FINAL_ANSWER_READY") && !containsLeakedAgentFunctionProtocol(it)
 }

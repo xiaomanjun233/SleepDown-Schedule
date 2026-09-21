@@ -595,7 +595,7 @@ class AgentToolsTest {
     }
 
     @Test
-    fun modelReceivesAllToolsAndSearchSchemaRequiresQuery() {
+    fun modelReceivesAllToolsAndSearchSupportsOptionalCombinedFilters() {
         val definitions = agentToolDefinitions().toString()
 
         listOf(
@@ -606,8 +606,56 @@ class AgentToolsTest {
             AgentToolName.GET_PERIODS,
             AgentToolName.GET_SETTINGS
         ).forEach { tool -> assertTrue(definitions.contains("\"name\":\"${tool.name}\"")) }
-        assertTrue(definitions.contains("\"required\":[\"query\"]"))
+        assertTrue(definitions.contains("\"courseId\""))
+        assertTrue(definitions.contains("\"weekday\""))
+        assertTrue(definitions.contains("\"period\""))
         assertTrue(definitions.contains("\"additionalProperties\":false"))
+        val search = agentResponsesToolDefinitions().map { it.jsonObject }
+            .single { it["name"]?.jsonPrimitive?.content == "SEARCH_COURSES" }
+            .getValue("parameters").jsonObject
+        assertEquals(search.getValue("properties").jsonObject.keys,
+            search.getValue("required").jsonArray.map { it.jsonPrimitive.content }.toSet())
+    }
+
+    @Test
+    fun combinedSearchSelectsExactCourseAndRejectsInvalidOrEmptyFilters() {
+        val exact = course(42, "英语", 1).copy(weekday = 3, periods = listOf(3, 4), weeks = listOf(1, 2, 3), weekParity = WeekParity.ODD)
+        val facts = buildDayAgentFacts(emptyList(), defaultPeriods(), defaultConfig(), LocalDate.of(2026, 9, 7), null, now = LocalDateTime.of(2026, 9, 7, 9, 0))
+            .copy(semesterCourses = listOf(exact, exact.copy(id = 43, periods = listOf(5)), exact.copy(id = 44, name = "英语听力")))
+        fun read(args: Map<String, String>) = executeAgentReadTools(listOf(AgentToolCall("find", AgentToolName.SEARCH_COURSES, args)), facts).single()
+        val found = read(mapOf("name" to "英语", "weekday" to "3", "period" to "3", "week" to "3"))
+        assertTrue(found.success)
+        assertTrue(found.content.contains("ID=42"))
+        assertFalse(found.content.contains("ID=43"))
+        assertFalse(found.content.contains("ID=44"))
+        assertTrue(read(mapOf("courseId" to "43")).content.contains("ID=43"))
+        assertTrue(read(mapOf("courseId" to "42", "week" to "2")).content.contains("没有匹配课程"))
+        for (args in listOf(emptyMap(), mapOf("weekday" to "8"), mapOf("courseId" to "bad"), mapOf("unsupported" to "英语"))) {
+            assertFalse(read(args).success)
+        }
+    }
+
+    @Test
+    fun searchTruncationIsExplicitAndSemesterReadKeepsAllMatches() {
+        val facts = buildDayAgentFacts(emptyList(), defaultPeriods(), defaultConfig(), LocalDate.of(2026, 9, 7), null, now = LocalDateTime.of(2026, 9, 7, 9, 0))
+            .copy(semesterCourses = (1L..30L).map { course(it, "实验课$it", 1).copy(customColorArgb = 0xFF112233L) })
+        val results = executeAgentReadTools(listOf(
+            AgentToolCall("find", AgentToolName.SEARCH_COURSES, mapOf("query" to "实验课")),
+            AgentToolCall("all", AgentToolName.GET_SEMESTER_SCHEDULE)
+        ), facts)
+        assertTrue(results[0].content.contains("匹配共 30 条，仅展示前 24 条"))
+        assertTrue(results[0].content.contains("GET_SEMESTER_SCHEDULE"))
+        assertFalse(results[0].content.contains("ID=30"))
+        assertTrue(results[1].content.contains("30|实验课30|"))
+        assertTrue(results.all { "#FF112233" in it.content })
+    }
+
+    @Test
+    fun strictNullFiltersAreAbsentInBothProviderProtocols() {
+        val chat = parseAgentToolDecision("""{"choices":[{"message":{"tool_calls":[{"id":"find","function":{"name":"SEARCH_COURSES","arguments":{"query":null,"name":"英语","weekday":"3"}}}]}}]}""")
+        val responses = parseAgentResponsesTurn("""{"output":[{"type":"function_call","call_id":"find","name":"SEARCH_COURSES","arguments":"{\"query\":null,\"name\":\"英语\",\"weekday\":\"3\"}"}]}""")
+        assertEquals(mapOf("name" to "英语", "weekday" to "3"), chat.calls.single().arguments)
+        assertEquals(chat.calls.single().arguments, responses.calls.single().arguments)
     }
 
     @Test
@@ -645,11 +693,24 @@ class AgentToolsTest {
     }
 
     @Test
-    fun actionProtocolIsSentOnlyForFinalAnswerAndToolStageRequestsParallelReads() {
+    fun taskRequestAllowsReadingAndPlanningTogetherFromTheFirstRound() {
+        val body = Json.parseToJsonElement(DayAgentChatTransport().agentBody(
+            settings = AiImportSettings(profile = AiProviderPresets.deepSeek, apiKey = "test-key"),
+            messages = listOf(buildJsonObject {
+                put("role", "system")
+                put("content", DayAgentPrompts.TaskStage)
+            }),
+            stream = false,
+            includeTools = true
+        )).jsonObject
         assertFalse(DayAgentPrompts.ChatSystem.contains("<agent_actions>"))
         assertTrue(DayAgentPrompts.FinalAnswerStage.contains("<agent_actions>"))
-        assertTrue(DayAgentPrompts.ToolDecisionStage.contains("并行"))
-        assertTrue(DayAgentPrompts.ToolDecisionStage.contains("不要重复"))
+        assertEquals("auto", body["tool_choice"]?.jsonPrimitive?.content)
+        assertTrue(body.getValue("tools").jsonArray.isNotEmpty())
+        val instruction = body.getValue("messages").jsonArray.single().jsonObject.getValue("content").jsonPrimitive.content
+        assertTrue(instruction.contains("<agent_actions>"))
+        assertTrue(instruction.contains("并行"))
+        assertTrue(instruction.contains("不要重复"))
     }
 
     @Test
