@@ -621,7 +621,7 @@ internal fun SinglePillWeekScheduleScreen(
                     horizontalArrangement = Arrangement.Center
                 ) {
                     WeekSwitchButton(-1, state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
-                    Text(
+                    HomeReadableText(
                         text = "第${displayWeek}周",
                         modifier = Modifier.padding(horizontal = 10.dp),
                         style = MaterialTheme.typography.titleSmall,
@@ -1424,7 +1424,16 @@ internal fun BoundlessWeekdayHeaderRow(
                     .fillMaxSize()
                     .padding(horizontal = 1.dp),
                 alignment = Alignment.Center,
-                candidateFontSizes = listOf(14.sp, 13.sp, 12.sp, 11.sp, 10.sp)
+                candidateFontSizes = listOf(14.sp, 13.sp, 12.sp, 11.sp, 10.sp),
+                content = { fittedSize ->
+                    HomeReadableText(
+                        text = "第${displayWeek}周", color = textColor,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontSize = fittedSize, fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center, maxLines = 1, softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             )
         }
         val displayedPage = (displayWeek - 1).coerceIn(0, config.totalWeeks.coerceAtLeast(1) - 1)

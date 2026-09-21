@@ -24,7 +24,8 @@ internal fun AutoFitSingleLineText(
     style: TextStyle,
     modifier: Modifier = Modifier,
     alignment: Alignment = Alignment.CenterStart,
-    candidateFontSizes: List<TextUnit> = listOf(15.sp, 14.sp, 13.sp, 12.sp)
+    candidateFontSizes: List<TextUnit> = listOf(15.sp, 14.sp, 13.sp, 12.sp),
+    content: (@Composable (TextUnit) -> Unit)? = null
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -43,7 +44,7 @@ internal fun AutoFitSingleLineText(
                     ).size.width <= availableWidthPx
                 } ?: 12.sp
         }
-        Text(
+        if (content != null) content(fontSize) else Text(
             text = text,
             color = color,
             style = style.copy(fontSize = fontSize),

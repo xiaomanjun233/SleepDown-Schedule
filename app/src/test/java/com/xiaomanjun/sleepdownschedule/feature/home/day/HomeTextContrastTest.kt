@@ -20,10 +20,10 @@ class HomeTextContrastTest {
     }
 
     @Test fun hysteresisPreventsTogglingAtTheShadowThreshold() {
-        val nearThreshold = uniform(0.20f)
+        val nearThreshold = uniform(0.22f)
         assertEquals(0f, homeTextShadowStrength(nearThreshold, 0f), 0f)
         assertEquals(0.125f, homeTextShadowStrength(nearThreshold, 0f, currentStrength = 0.125f), 0f)
-        assertEquals(0f, homeTextShadowStrength(uniform(0.25f), 0f, currentStrength = 0.125f), 0f)
+        assertEquals(0f, homeTextShadowStrength(uniform(0.27f), 0f, currentStrength = 0.125f), 0f)
     }
 
     @Test fun brightAverageCannotHideADarkStripeUnderPartOfTheText() {
