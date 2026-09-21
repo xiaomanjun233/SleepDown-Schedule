@@ -35,6 +35,19 @@ data class ColorOSDeviceStatus(
     val isColorOSFamily: Boolean
 )
 
+internal fun isCourseCloudExperimentDevice(
+    manufacturer: String,
+    brand: String,
+    colorOSVersion: String?
+): Boolean {
+    val familyNames = listOf(manufacturer, brand).map(String::lowercase)
+    return familyNames.any { value ->
+        value.contains("oppo") || value.contains("oneplus") ||
+            value.contains("realme") || value.contains("oplus") ||
+            value.contains("honor")
+    } || colorOSVersion != null
+}
+
 data class ColorOSCourseDiagnostics(
     val device: ColorOSDeviceStatus,
     val proxyInstalled: Boolean,
@@ -77,7 +90,7 @@ data class ColorOSCourseDiagnostics(
 }
 
 object ColorOSCourseExperiment {
-    private const val MINIMUM_PROXY_VERSION_CODE = 255L
+    private const val MINIMUM_PROXY_VERSION_CODE = 256L
     private const val KEY_ENABLED = "experiment_enabled"
     private const val KEY_TEST_PREVIEW_EXPIRES_AT = "test_preview_expires_at"
     private const val KEY_TEST_PREVIEW_FORMAT_VERSION = "test_preview_format_version"
@@ -94,11 +107,7 @@ object ColorOSCourseExperiment {
             ?: Build.DISPLAY.orEmpty().takeIf {
                 it.contains("coloros", ignoreCase = true) || it.contains("oplus", ignoreCase = true)
             }
-        val familyNames = listOf(manufacturer, brand).map(String::lowercase)
-        val isFamily = familyNames.any { value ->
-            value.contains("oppo") || value.contains("oneplus") ||
-                value.contains("realme") || value.contains("oplus")
-        } || colorOSVersion != null
+        val isFamily = isCourseCloudExperimentDevice(manufacturer, brand, colorOSVersion)
         return ColorOSDeviceStatus(manufacturer, brand, colorOSVersion, isFamily)
     }
 

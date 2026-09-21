@@ -26,8 +26,8 @@ android {
         applicationId = "com.suda.yzune.wakeupschedule"
         minSdk = 33
         targetSdk = 36
-        versionCode = 255
-        versionName = "6.0.15"
+        versionCode = 256
+        versionName = "6.0.16"
     }
 
     signingConfigs {
@@ -53,6 +53,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
 }
 
 tasks.configureEach {

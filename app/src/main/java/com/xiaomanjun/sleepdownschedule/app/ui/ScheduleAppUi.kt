@@ -9233,6 +9233,13 @@ fun ChangelogSettingsScreen(
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
                 SettingsInfoRow(
+                    "1.2.6-exp2",
+                    "修复删除测试课程或清空当天课程后，课程组件仍返回旧课程、导致流体云无法正确清除和重新测试的问题。\n" +
+                    "刷新课表时会先清除组件快照，再由组件主动通知系统重新读取；不再需要使用 ADB 手动清理组件。\n" +
+                    "向荣耀 MagicOS 设备开放课程流体云实验入口；YOYO 是否还会校验组件签名或应用特征，需要以真机结果为准。"
+                )
+                SettingsDivider()
+                SettingsInfoRow(
                     "1.2.6-exp",
                     "新增 ColorOS 课程流体云实验功能，可在通知样式中选择“流体云”，并按引导下载课程组件。\n" +
                     "流体云测试课程会在约 21～22 分钟后开始并持续 5 分钟；再次点击红色按钮可删除测试课程。\n" +

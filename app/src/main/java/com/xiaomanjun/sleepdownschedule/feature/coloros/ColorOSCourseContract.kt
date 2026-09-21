@@ -11,6 +11,8 @@ internal object ColorOSCourseContract {
     const val BRIDGE_PERMISSION = "com.xiaomanjun.sleepdownschedule.permission.COLOROS_COURSE_BRIDGE"
     const val PROXY_METADATA_KEY = "com.xiaomanjun.sleepdownschedule.COLOROS_PROXY"
     const val PROXY_METADATA_VERSION = "sleepdown-coloros-proxy-v1"
+    const val PROXY_REFRESH_METHOD = "refresh"
+    const val PROXY_REFRESH_ACCEPTED = "refresh_accepted"
 
     val refreshUri: Uri = Uri.parse("content://$PROXY_AUTHORITY/refresh")
     fun sourceUri(path: String): Uri = Uri.parse("content://$SOURCE_AUTHORITY/$path")

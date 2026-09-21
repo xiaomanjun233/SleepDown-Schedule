@@ -35,6 +35,8 @@ class GiteeAppUpdaterTest {
         assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3-rc1", "1.4.3-beta10"))
         assertFalse(GiteeAppUpdater.isVersionNewer("1.4.3+99", "1.4.3+1"))
         assertFalse(GiteeAppUpdater.isVersionNewer("1.4.3_beta2", "v1.4.3-beta2"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3-exp2", "1.4.3-exp"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.4.3-exp", "1.4.3-exp2"))
         assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3_beta7", "1.4.3-exp"))
         assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3", "1.4.3-exp"))
     }

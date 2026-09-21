@@ -20,9 +20,12 @@ val releaseKeyAlias = releaseSecret("sleepdown.releaseKeyAlias", "SLEEPDOWN_RELE
 val releaseKeyPassword = releaseSecret("sleepdown.releaseKeyPassword", "SLEEPDOWN_RELEASE_KEY_PASSWORD")
 val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOWN_REMOTE_CONFIG_SECRET").orEmpty()
 val sleepDownVersionName = "1.2.6_beta7"
-val sleepDownExpVersionName = sleepDownVersionName
+val sleepDownExpRevision = 2
+val sleepDownExpVersionBase = sleepDownVersionName
     .substringBefore("_beta")
-    .substringBefore("-beta") + "-exp"
+    .substringBefore("-beta")
+val sleepDownExpVersionName = "$sleepDownExpVersionBase-exp" +
+    if (sleepDownExpRevision > 1) sleepDownExpRevision else ""
 val skipReleaseResourceShrink = providers.gradleProperty("sleepdown.skipReleaseResourceShrink")
     .map(String::toBoolean)
     .getOrElse(false)

@@ -131,15 +131,15 @@ internal fun ColorOSCourseSettingsSection(
         ) {
             SettingsInfoRow(
                 title = "使用前准备",
-                body = "这项功能只适用于 ColorOS。第一次使用请先下载课程组件。"
+                body = "这项实验适用于 ColorOS，并已向荣耀 MagicOS 开放测试。第一次使用请先下载课程组件。"
             )
             SettingsDivider()
             SettingsInfoRow(
                 title = "如何使用",
                 body = "1. 安装课程组件。\n" +
-                    "2. 到系统“设置 → 通知与控制中心 → 流体云”打开总开关。\n" +
+                    "2. ColorOS 请打开系统流体云总开关；荣耀请在 YOYO 建议和通知相关设置中允许课程提醒。\n" +
                     "3. 点“测试流体云”，SleepDown 会自动唤醒课程组件。测试课程约 21～22 分钟后开始，持续 5 分钟。\n" +
-                    "4. 如果仍未显示，请在系统的自启动管理中允许“WakeUp课程表”自启动和关联启动，再回来测试。"
+                    "4. 如果仍未显示，请在系统的应用启动管理中允许“WakeUp课程表”自启动和关联启动，再回来测试。荣耀系统可能还会校验组件签名或应用特征，需要以真机结果为准。"
             )
             SettingsDivider()
             SettingsInfoRow(

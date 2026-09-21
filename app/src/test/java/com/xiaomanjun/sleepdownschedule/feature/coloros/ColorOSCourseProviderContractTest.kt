@@ -17,6 +17,16 @@ import java.time.ZoneId
 
 class ColorOSCourseProviderContractTest {
     @Test
+    fun enablesColorOSAndHonorExperimentFamilies() {
+        assertTrue(isCourseCloudExperimentDevice("OPPO", "OPPO", null))
+        assertTrue(isCourseCloudExperimentDevice("OnePlus", "OnePlus", null))
+        assertTrue(isCourseCloudExperimentDevice("realme", "realme", null))
+        assertTrue(isCourseCloudExperimentDevice("HONOR", "HONOR", null))
+        assertTrue(isCourseCloudExperimentDevice("unknown", "unknown", "ColorOS 16"))
+        assertEquals(false, isCourseCloudExperimentDevice("Xiaomi", "Redmi", null))
+    }
+
+    @Test
     fun exposesEveryWakeUpCompatibleEndpoint() {
         assertEquals(
             setOf("has_init", "show_table_id", "table_list", "course_list", "next_course_list"),

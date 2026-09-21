@@ -90,12 +90,25 @@ object ColorOSCourseBridge {
     private fun dispatchRefresh(reason: String) {
         val context = applicationContext ?: return
         runCatching {
-            context.contentResolver.notifyChange(ColorOSCourseContract.refreshUri, null)
+            val resolver = context.contentResolver
+            val proxyHandledRefresh = runCatching {
+                resolver.call(
+                    ColorOSCourseContract.refreshUri,
+                    ColorOSCourseContract.PROXY_REFRESH_METHOD,
+                    reason,
+                    null
+                )?.getBoolean(ColorOSCourseContract.PROXY_REFRESH_ACCEPTED) == true
+            }.getOrDefault(false)
+            if (!proxyHandledRefresh) {
+                // Older or missing components do not implement the refresh call. Keep the
+                // notification fallback so diagnostics and the upgrade prompt remain usable.
+                resolver.notifyChange(ColorOSCourseContract.refreshUri, null)
+            }
             preferences(context).edit()
                 .putLong(KEY_LAST_REFRESH_AT, System.currentTimeMillis())
                 .putString(KEY_LAST_REFRESH_REASON, reason)
                 .apply()
-            Log.d(TAG, "Refresh notified reason=$reason")
+            Log.d(TAG, "Refresh notified reason=$reason proxyHandled=$proxyHandledRefresh")
         }.onFailure { error ->
             Log.w(TAG, "Failed to notify ColorOS course refresh", error)
         }

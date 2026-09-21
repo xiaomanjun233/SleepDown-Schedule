@@ -7,6 +7,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.Looper;
@@ -34,6 +35,8 @@ public final class WakeUpProxyProvider extends ContentProvider {
     private static final long CACHE_TTL_MS = 500L;
     private static final long SOURCE_TIMEOUT_MS = 400L;
     private static final String CALLER_PARAMETER = "sleepdown_proxy_caller";
+    private static final String REFRESH_METHOD = "refresh";
+    private static final String REFRESH_ACCEPTED = "refresh_accepted";
     private static final Uri REFRESH_URI =
             Uri.parse("content://com.suda.yzune.wakeupschedule.provider/refresh");
 
@@ -210,10 +213,30 @@ public final class WakeUpProxyProvider extends ContentProvider {
     }
 
     public static void notifySystem(Context context) {
-        ContentResolver resolver = context.getContentResolver();
-        resolver.notifyChange(REFRESH_URI, null);
+        clearSnapshotsAndNotify(context);
         new Handler(Looper.getMainLooper()).postDelayed(
-                () -> resolver.notifyChange(REFRESH_URI, null), 1_000L);
+                () -> clearSnapshotsAndNotify(context), 1_000L);
+    }
+
+    private static void clearSnapshotsAndNotify(Context context) {
+        SNAPSHOTS.clear();
+        context.getContentResolver().notifyChange(REFRESH_URI, null);
+    }
+
+    @Override
+    public Bundle call(String method, String arg, Bundle extras) {
+        if (!REFRESH_METHOD.equals(method)) {
+            return super.call(method, arg, extras);
+        }
+        Bundle result = new Bundle();
+        Context context = getContext();
+        if (context == null) {
+            result.putBoolean(REFRESH_ACCEPTED, false);
+            return result;
+        }
+        clearSnapshotsAndNotify(context);
+        result.putBoolean(REFRESH_ACCEPTED, true);
+        return result;
     }
 
     @Override
@@ -264,11 +287,7 @@ public final class WakeUpProxyProvider extends ContentProvider {
         }
 
         boolean isUsable(String path) {
-            if (code != 0 || data == null || data.trim().isEmpty()) {
-                return false;
-            }
-            return !("course_list".equals(path) || "next_course_list".equals(path))
-                    || !"[]".equals(data.trim());
+            return WakeUpSourceResponsePolicy.isUsable(code, data);
         }
     }
 }
