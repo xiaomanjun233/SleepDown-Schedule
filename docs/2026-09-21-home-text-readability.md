@@ -21,4 +21,4 @@
 - 公共实现提交为 `9e5dc25`，实验版构建源为合并提交 `55bae6a`。`:app:assembleGithubExp` 完整构建成功（4 分 42 秒），包含 Kotlin、R8、Lint、资源和签名打包。
 - `apksigner verify` 通过，证书与当前已安装渠道一致；包名 `com.xiaomanjun.sleepdownschedule`，版本 `1.2.6-exp2` / `33`。本轮为本地修复包，未创建公开 Release。
 - 产物 `app/build/outputs/apk/github/exp/app-github-exp.apk`，SHA-256：`B9D36CAECCDCE798EF318332E772B6866330A04AB4DFB02D892163A6FE538EF0`。
-- 打包后执行 `adb devices -l`，设备列表为空，覆盖安装等待手机重新连接。未自动启动应用，软阴影视觉效果尚未实机验收。
+- 手机重新连接后，于 2026-09-21 22:24:48 覆盖安装成功。设备 PLJ110，Android 17 / ColorOS V17.0.0；读取已安装 APK 的 SHA-256 与上述产物一致，版本为 `1.2.6-exp2` / `33`。未清除应用数据、未自动启动应用，软阴影视觉效果尚未实机验收。
