@@ -432,7 +432,7 @@ internal fun HomeStartMode.toHomeMode(): HomeMode = when (this) {
     HomeStartMode.WEEK -> HomeMode.Week
 }
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
+enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
 
 /** Matches the navigation motion used by the bundled Miuix system-style navigator. */
 private class MiuixSettingsNavigationEasing(
@@ -474,6 +474,7 @@ private fun agentSettingsPage(value: String?): SettingsPage? = when (value) {
     "AI_IMPORT" -> SettingsPage.AiImport
     "DAY_AGENT" -> SettingsPage.DayAgent
     "SCHEDULE" -> SettingsPage.Schedule
+    "AUTO_REFRESH_SCHEDULE" -> SettingsPage.AutoRefreshSchedule
     "NOTIFICATIONS" -> SettingsPage.Notifications
     "SCHEDULE_MANAGER" -> SettingsPage.ScheduleManager
     "BACKUP_RESTORE" -> SettingsPage.BackupRestore
@@ -499,6 +500,7 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.AiImport -> "AI 设置"
     SettingsPage.DayAgent -> "AI助理"
     SettingsPage.Schedule -> "课表详细设置"
+    SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
     SettingsPage.BackupRestore -> "备份与恢复"
@@ -512,6 +514,7 @@ private fun SettingsPage.title(): String = when (this) {
 internal fun SettingsPage.usesPersistentCenteredSettingsTitle(): Boolean = when (this) {
     SettingsPage.LiquidGlass,
     SettingsPage.Widgets,
+    SettingsPage.AutoRefreshSchedule,
     SettingsPage.About,
 	SettingsPage.Changelog,
 	SettingsPage.PrivacyPolicy -> true
@@ -4775,6 +4778,7 @@ internal fun AppTopBar(
                         SettingsPage.AiImport -> "AI 设置"
                         SettingsPage.DayAgent -> "AI助理"
                         SettingsPage.Schedule -> "课表详细设置"
+                        SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
                         SettingsPage.Notifications -> "通知设置"
                         SettingsPage.ScheduleManager -> "课表设置"
                         SettingsPage.BackupRestore -> "备份与恢复"
@@ -7066,6 +7070,10 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 onExitInterceptionChange = { interceptSystemBack = it }
                             )
                         }
+                        SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
+                            state = state,
+                            backdrop = backdrop
+                        )
                         SettingsPage.Notifications -> ScheduleConfigScreen(
                             state = state,
                             backdrop = backdrop,
@@ -7966,6 +7974,10 @@ private fun SettingsPageContent(
             onExitCommitFinished = onExitCommitFinished,
             onExitInterceptionChange = onExitInterceptionChange
         )
+        SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
+            state = state,
+            backdrop = backdrop
+        )
         SettingsPage.Notifications -> ScheduleConfigScreen(
             state = state,
             backdrop = backdrop,
@@ -8194,6 +8206,14 @@ fun SettingsRootScreen(
                         "编辑当前课表的周数、节次与显示规则",
                         selected = selectedPage == SettingsPage.Schedule,
                         onClick = { onPageChange(SettingsPage.Schedule) }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        "自动刷新课表",
+                        "连接教务系统，手动或定时同步课程",
+                        badgeText = "实验性功能",
+                        selected = selectedPage == SettingsPage.AutoRefreshSchedule,
+                        onClick = { onPageChange(SettingsPage.AutoRefreshSchedule) }
                     )
                     SettingsDivider()
                     SettingsNavigationRow(

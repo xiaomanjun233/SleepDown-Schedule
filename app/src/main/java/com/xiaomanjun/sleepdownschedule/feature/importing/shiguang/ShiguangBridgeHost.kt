@@ -35,6 +35,10 @@ internal class ShiguangBridgeHost(
         return true
     }
 
+    fun resolveInteraction(requestId: String, resultRawJs: String) {
+        resolve(requestId, resultRawJs)
+    }
+
     fun beginTask(
         config: ScheduleConfigEntity,
         periods: List<PeriodEntity>,
