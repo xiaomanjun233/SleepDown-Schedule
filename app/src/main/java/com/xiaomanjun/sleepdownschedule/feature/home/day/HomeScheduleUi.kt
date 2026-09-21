@@ -2176,7 +2176,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         }
         adjustmentLabel?.let {
             CourseAdjustmentBadge(it, backdrop, config,
-                Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-5).dp).zIndex(7f))
+                Modifier.align(Alignment.BottomEnd).offset(x = 5.dp, y = 5.dp).zIndex(7f))
         }
     }
     }
