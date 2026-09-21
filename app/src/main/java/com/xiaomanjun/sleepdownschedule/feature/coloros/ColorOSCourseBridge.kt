@@ -3,9 +3,19 @@ package com.xiaomanjun.sleepdownschedule.feature.coloros
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.Bundle
 import android.util.Log
 import androidx.room.InvalidationTracker
 import com.xiaomanjun.sleepdownschedule.AppDatabase
+import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
+import com.xiaomanjun.sleepdownschedule.domain.schedule.ColorOSCourseMapper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicBoolean
 
 object ColorOSCourseBridge {
@@ -20,17 +30,16 @@ object ColorOSCourseBridge {
     internal const val KEY_LAST_EXPORT_COUNT = "last_export_count"
     internal const val KEY_LAST_EXPORT_ERROR = "last_export_error"
     private const val REFRESH_DEBOUNCE_MS = 250L
-    private const val SECOND_REFRESH_DELAY_MS = 1_000L
 
     private val installed = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private var applicationContext: Context? = null
     private var pendingReason = "schedule_changed"
-    private val secondRefresh = Runnable { dispatchRefresh("${pendingReason}_retry") }
-    private val firstRefresh = Runnable {
-        dispatchRefresh(pendingReason)
-        handler.postDelayed(secondRefresh, SECOND_REFRESH_DELAY_MS)
+    private val refreshRequests = Channel<String>(Channel.CONFLATED)
+    private val worker = CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+        for (reason in refreshRequests) dispatchRefresh(reason)
     }
+    private val firstRefresh = Runnable { refreshRequests.trySend(pendingReason) }
 
     private val databaseObserver = object : InvalidationTracker.Observer(
         "courses",
@@ -83,20 +92,44 @@ object ColorOSCourseBridge {
     private fun scheduleRefresh(reason: String, delayMillis: Long = REFRESH_DEBOUNCE_MS) {
         pendingReason = reason
         handler.removeCallbacks(firstRefresh)
-        handler.removeCallbacks(secondRefresh)
         handler.postDelayed(firstRefresh, delayMillis)
     }
 
-    private fun dispatchRefresh(reason: String) {
+    private suspend fun dispatchRefresh(reason: String) {
         val context = applicationContext ?: return
         runCatching {
             val resolver = context.contentResolver
+            val snapshot = (context as CourseScheduleApp).repository.snapshot()
+            check(snapshot.loaded) { "Course snapshot is not ready" }
+            val zone = ZoneId.systemDefault()
+            val today = LocalDate.now(zone)
+            val rows = Bundle().apply {
+                putString("has_init", ColorOSCourseProviderContract.hasInitJson(true))
+                putString("show_table_id", ColorOSCourseProviderContract.showTableIdJson(snapshot.config.id))
+                putString("table_list", ColorOSCourseProviderContract.tableListJson(snapshot.schedules))
+            }
+            val baseRows = Bundle()
+            repeat(8) { offset ->
+                val date = today.plusDays(offset.toLong())
+                val base = ColorOSCourseMapper.export(date, snapshot, zone).json
+                val key = "course|$date"
+                baseRows.putString(key, base)
+                rows.putString(key, ColorOSCourseExperiment.appendTestPreview(context, base, date, zone))
+            }
+            val export = Bundle().apply {
+                putInt("snapshot_version", 1)
+                putString("zone", zone.id)
+                putLong("valid_until", today.plusDays(8).atStartOfDay(zone).toInstant().toEpochMilli())
+                putLong("preview_until", ColorOSCourseExperiment.activeTestPreviewExpiresAt(context))
+                putBundle("rows", rows)
+                putBundle("base_rows", baseRows)
+            }
             val proxyHandledRefresh = runCatching {
                 resolver.call(
                     ColorOSCourseContract.refreshUri,
                     ColorOSCourseContract.PROXY_REFRESH_METHOD,
                     reason,
-                    null
+                    export
                 )?.getBoolean(ColorOSCourseContract.PROXY_REFRESH_ACCEPTED) == true
             }.getOrDefault(false)
             if (!proxyHandledRefresh) {
@@ -110,7 +143,7 @@ object ColorOSCourseBridge {
                 .apply()
             Log.d(TAG, "Refresh notified reason=$reason proxyHandled=$proxyHandledRefresh")
         }.onFailure { error ->
-            Log.w(TAG, "Failed to notify ColorOS course refresh", error)
+            Log.w(TAG, "Failed to synchronize ColorOS courses: ${error.javaClass.simpleName}")
         }
     }
 }

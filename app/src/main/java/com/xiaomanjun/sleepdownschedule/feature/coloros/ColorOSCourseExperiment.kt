@@ -95,7 +95,7 @@ data class ColorOSCourseDiagnostics(
 }
 
 object ColorOSCourseExperiment {
-    private const val MINIMUM_PROXY_VERSION_CODE = 256L
+    private const val MINIMUM_PROXY_VERSION_CODE = 257L
     private const val KEY_ENABLED = "experiment_enabled"
     private const val KEY_TEST_PREVIEW_EXPIRES_AT = "test_preview_expires_at"
     private const val KEY_TEST_PREVIEW_FORMAT_VERSION = "test_preview_format_version"
@@ -305,7 +305,7 @@ object ColorOSCourseExperiment {
         }.also { previewHandler.postDelayed(it, (expiresAt - nowMillis).coerceAtLeast(0L)) }
     }
 
-    private fun activeTestPreviewExpiresAt(context: Context): Long {
+    internal fun activeTestPreviewExpiresAt(context: Context): Long {
         val preferences = ColorOSCourseBridge.preferences(context.applicationContext)
         if (preferences.getInt(KEY_TEST_PREVIEW_FORMAT_VERSION, 0) != TEST_PREVIEW_FORMAT_VERSION) {
             preferences.edit()

@@ -26,8 +26,8 @@ android {
         applicationId = "com.suda.yzune.wakeupschedule"
         minSdk = 33
         targetSdk = 36
-        versionCode = 256
-        versionName = "6.0.16"
+        versionCode = 257
+        versionName = "6.0.17"
     }
 
     signingConfigs {

@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Bundle
 import android.util.Log
 import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
@@ -51,22 +52,31 @@ class ColorOSCourseExportProvider : ContentProvider() {
             "table_list" -> oneRow(databaseJson("[]") {
                 ColorOSCourseProviderContract.tableListJson(app().repository.snapshot().schedules)
             })
-            "course_list" -> oneRow(courseJson(uri, tomorrow = false))
-            "next_course_list" -> oneRow(courseJson(uri, tomorrow = true))
+            "course_list" -> courseCursor(uri, tomorrow = false)
+            "next_course_list" -> courseCursor(uri, tomorrow = true)
             else -> null
         }
     }
 
-    private fun courseJson(uri: Uri, tomorrow: Boolean): Pair<Int, String> = databaseJson("[]") {
-        val zoneId = ZoneId.systemDefault()
-        val date = ColorOSCourseProviderContract.requestedDate(uri.pathSegments, zoneId)
-            .let { if (tomorrow) it.plusDays(1) else it }
-        val result = ColorOSCourseMapper.export(date, app().repository.activeSnapshot(), zoneId)
-        val exportedJson = requireNotNull(context).let {
-            ColorOSCourseExperiment.appendTestPreview(it, result.json, date, zoneId)
+    private fun courseCursor(uri: Uri, tomorrow: Boolean): Cursor {
+        val extras = Bundle()
+        val response = databaseJson("[]") {
+            val zoneId = ZoneId.systemDefault()
+            val date = ColorOSCourseProviderContract.requestedDate(uri.pathSegments, zoneId)
+                .let { if (tomorrow) it.plusDays(1) else it }
+            val result = ColorOSCourseMapper.export(date, app().repository.activeSnapshot(), zoneId)
+            val exportedJson = requireNotNull(context).let {
+                ColorOSCourseExperiment.appendTestPreview(it, result.json, date, zoneId)
+            }
+            context?.let { ColorOSCourseBridge.recordExport(it, result.exportedCount) }
+            extras.putString("base_data", result.json)
+            extras.putLong("preview_until", ColorOSCourseExperiment.activeTestPreviewExpiresAt(requireNotNull(context)))
+            exportedJson
         }
-        context?.let { ColorOSCourseBridge.recordExport(it, result.exportedCount) }
-        exportedJson
+        return MatrixCursor(columns).apply {
+            addRow(arrayOf<Any>(response.first, response.second))
+            setExtras(extras)
+        }
     }
 
     private fun databaseJson(fallback: String, block: suspend () -> String): Pair<Int, String> = try {
