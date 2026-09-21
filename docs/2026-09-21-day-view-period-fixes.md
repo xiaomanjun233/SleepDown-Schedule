@@ -13,3 +13,10 @@
 - 覆盖 1 分钟课前间隔归零、负时长边界、课间删除后恢复、末节压缩恢复、其他方案与节次编号保持不变，以及课程最后结束点、自定义时间、缺失结束时间、跨日和调休日期。
 - 界面材质沿用公共组件，未增加机械样式测试。实机外观、滚轮和拖拽交互仍需现场验收，不能以单元测试代替。
 - 普通版 `assembleGithubRelease` 完整构建成功（5 分 2 秒），包含 Kotlin、R8、Lint、资源及签名打包。APK 的签名校验通过，包名 `com.xiaomanjun.sleepdownschedule`，版本 `1.2.6_beta7` / `33`。本轮为本地修复验证，尚未公开发布新版本。
+
+## 实验版同步与安装
+
+- 本地 main 基线为 `e8d0320`，合入实验分支的构建提交为 `18e7334`；本轮修改的业务代码与 main 一致。`:app:assembleGithubExp` 完整构建成功（4 分 35 秒），签名校验通过，证书与普通版相同。
+- 2026-09-21 21:39 使用 `adb install -r` 覆盖安装到 PLJ110（Android 17 / ColorOS V17.0.0），返回 `Success`。PackageManager 回读版本为 `1.2.6-exp2` / `33`，更新时间为 21:39:15。
+- 设备安装的 `base.apk` 与本地实验 APK 的 SHA-256 一致：`523AA203785FA80C7AB54F6A22D630F62EF6C1742F2E805B9D6765BD8B1CD98D`。本轮没有卸载、清除数据或重新安装课程组件，也没有自动启动应用；界面视觉与点击交互未实机验收。
+- 安装产物：`app/build/outputs/apk/github/exp/app-github-exp.apk`。仅本地构建与安装，未推送或发布 Release。
