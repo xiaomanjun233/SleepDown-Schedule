@@ -30,7 +30,8 @@ internal object AutoRefreshScheduleCoordinator {
         adapter: EduAdapter,
         username: String,
         password: String,
-        scheduleId: Int
+        scheduleId: Int,
+        initialCookies: List<AutoRefreshCookie> = emptyList()
     ): AutoRefreshOutcome = refreshMutex.withLock {
         val provisional = AutoRefreshScheduleProfile(
             schoolId = adapter.school.id,
@@ -40,6 +41,7 @@ internal object AutoRefreshScheduleCoordinator {
             username = username,
             password = password,
             scheduleId = scheduleId,
+            cookies = initialCookies,
             lastResult = "正在验证教务登录"
         )
         execute(context, adapter, provisional, persistNewProfile = true)
@@ -67,7 +69,7 @@ internal object AutoRefreshScheduleCoordinator {
             app.repository.importDraftForSchedule(profile.scheduleId, fetched.draft)
             val now = System.currentTimeMillis()
             val updated = profile.copy(
-                cookies = fetched.cookies.ifEmpty { profile.cookies },
+                cookies = mergeCookies(profile.cookies, fetched.cookies),
                 lastRefreshAt = now,
                 lastResult = "刷新成功，共 ${fetched.draft.courses.size} 门课程"
             )
@@ -100,6 +102,14 @@ internal object AutoRefreshScheduleCoordinator {
             )
         }
     }
+
+    private fun mergeCookies(
+        existing: List<AutoRefreshCookie>,
+        refreshed: List<AutoRefreshCookie>
+    ): List<AutoRefreshCookie> = (existing + refreshed)
+        .associateBy(AutoRefreshCookie::url)
+        .values
+        .toList()
 
     private fun recordFailure(
         context: Context,

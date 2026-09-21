@@ -85,7 +85,10 @@ internal object ShiguangApiAdapterCatalog {
     }
 
     fun isSwuDirectAdapter(adapter: EduAdapter): Boolean =
-        "${adapter.school.id}/${adapter.adapterId}" == SwuKey
+        isSwuDirectAdapter(adapter.school.id, adapter.adapterId)
+
+    fun isSwuDirectAdapter(schoolId: String, adapterId: String): Boolean =
+        "$schoolId/$adapterId" == SwuKey
 
     internal fun isApiOnlyScript(schoolId: String, adapterId: String, script: String): Boolean {
         if ("$schoolId/$adapterId" !in auditedKeys || script.isBlank()) return false

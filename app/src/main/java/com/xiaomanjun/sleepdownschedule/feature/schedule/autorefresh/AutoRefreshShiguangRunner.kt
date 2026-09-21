@@ -177,7 +177,7 @@ internal object AutoRefreshShiguangRunner {
                 return
             }
             if (swuCoursePageAttempts >= 3) {
-                fail("无法进入西南大学教务系统；请确认已连接校园网或 aTrust，并先在教务导入页完成统一认证")
+                fail("无法进入西南大学教务系统；请确认已连接校园网或 aTrust，并在自动刷新页重新完成统一认证")
                 return
             }
             swuCoursePageAttempts += 1
@@ -255,7 +255,10 @@ internal object AutoRefreshShiguangRunner {
                 }
             }
         }
-        target?.loadUrl(adapter.importUrl)
+        target?.loadUrl(
+            if (ShiguangApiAdapterCatalog.isSwuDirectAdapter(adapter)) SwuCoursePageUrl
+            else adapter.importUrl
+        )
         continuation.invokeOnCancellation {
             handler.post {
                 if (!finished) {

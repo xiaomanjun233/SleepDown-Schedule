@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import android.app.Activity
 import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -70,10 +71,12 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdown
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidMenuItem
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleCoordinator
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshCookie
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleProfile
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleWorker
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.ShiguangApiAdapterCatalog
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.SwuUnifiedAuthActivity
 import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
@@ -154,6 +157,46 @@ private fun AutoRefreshLoginContent(
     var error by remember { mutableStateOf<String?>(null) }
     var schoolMenuVisible by remember { mutableStateOf(false) }
     var anchorBounds by remember { mutableStateOf(Rect.Zero) }
+    val swuSelected = selected?.let(ShiguangApiAdapterCatalog::isSwuDirectAdapter) == true
+
+    fun verifyAndEnable(
+        adapter: EduAdapter,
+        account: String,
+        secret: String,
+        cookies: List<AutoRefreshCookie> = emptyList()
+    ) {
+        scope.launch {
+            loggingIn = true
+            error = null
+            val result = AutoRefreshScheduleCoordinator.loginAndRefresh(
+                context = context,
+                adapter = adapter,
+                username = account,
+                password = secret,
+                scheduleId = state.config.id,
+                initialCookies = cookies
+            )
+            if (!result.success) error = result.message
+            loggingIn = false
+        }
+    }
+
+    val swuAuthLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val adapter = selected
+        if (adapter == null || !ShiguangApiAdapterCatalog.isSwuDirectAdapter(adapter)) {
+            error = "学校选择已变更，请重新认证"
+            return@rememberLauncherForActivityResult
+        }
+        val cookies = SwuUnifiedAuthActivity.captureCookies(result.data)
+        if (cookies.isEmpty()) {
+            error = "未读取到统一认证会话，请重试"
+        } else {
+            verifyAndEnable(adapter, account = "", secret = "", cookies = cookies)
+        }
+    }
 
     val groups = remember(adapters, selected) {
         adapters.groupBy { it.school.initial.ifBlank { "#" } }.map { (initial, group) ->
@@ -189,7 +232,7 @@ private fun AutoRefreshLoginContent(
             ) {
                 Text("连接教务系统", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "仅展示已核对为接口请求、不会抓取课表 HTML 的拾光适配器。登录成功后，账号、密码与 Cookie 会加密保存在本机。",
+                    "仅展示已核对为接口请求、不会抓取课表 HTML 的拾光适配器。登录成功后，所需的账号、密码或 Cookie 会加密保存在本机。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -228,27 +271,35 @@ private fun AutoRefreshLoginContent(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        AutoRefreshLiquidField(
-                            value = username,
-                            onValueChange = { username = it; error = null },
-                            label = "学号 / 账号",
-                            icon = MiuixIcons.ContactsCircle,
-                            backdrop = backdrop,
-                            state = state,
-                            keyboardType = KeyboardType.Text,
-                            imeAction = ImeAction.Next
-                        )
-                        AutoRefreshLiquidField(
-                            value = password,
-                            onValueChange = { password = it; error = null },
-                            label = "教务密码",
-                            icon = MiuixIcons.Lock,
-                            backdrop = backdrop,
-                            state = state,
-                            keyboardType = KeyboardType.Password,
-                            imeAction = ImeAction.Done,
-                            password = true
-                        )
+                        if (swuSelected) {
+                            Text(
+                                "西南大学使用统一认证。点击下方按钮后，请在可见网页中完成登录、验证码或二次认证；SleepDown 只保存登录会话，不读取你在网页输入的密码。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            AutoRefreshLiquidField(
+                                value = username,
+                                onValueChange = { username = it; error = null },
+                                label = "学号 / 账号",
+                                icon = MiuixIcons.ContactsCircle,
+                                backdrop = backdrop,
+                                state = state,
+                                keyboardType = KeyboardType.Text,
+                                imeAction = ImeAction.Next
+                            )
+                            AutoRefreshLiquidField(
+                                value = password,
+                                onValueChange = { password = it; error = null },
+                                label = "教务密码",
+                                icon = MiuixIcons.Lock,
+                                backdrop = backdrop,
+                                state = state,
+                                keyboardType = KeyboardType.Password,
+                                imeAction = ImeAction.Done,
+                                password = true
+                            )
+                        }
                         error?.let {
                             Text(
                                 it,
@@ -257,7 +308,11 @@ private fun AutoRefreshLoginContent(
                             )
                         }
                         SettingsActionButton(
-                            label = if (loggingIn) "正在登录并验证…" else "登录并启用",
+                            label = when {
+                                loggingIn -> "正在验证并读取课表…"
+                                swuSelected -> "打开西南大学统一认证"
+                                else -> "登录并启用"
+                            },
                             backdrop = backdrop,
                             modifier = Modifier.fillMaxWidth(),
                             glowing = true,
@@ -266,21 +321,17 @@ private fun AutoRefreshLoginContent(
                                 when {
                                     loggingIn -> Unit
                                     adapter == null -> error = "请先选择学校"
+                                    ShiguangApiAdapterCatalog.isSwuDirectAdapter(adapter) -> {
+                                        error = null
+                                        swuAuthLauncher.launch(SwuUnifiedAuthActivity.intent(context))
+                                    }
                                     username.isBlank() -> error = "请输入学号或账号"
                                     password.isBlank() -> error = "请输入教务密码"
-                                    else -> scope.launch {
-                                        loggingIn = true
-                                        error = null
-                                        val result = AutoRefreshScheduleCoordinator.loginAndRefresh(
-                                            context = context,
-                                            adapter = adapter,
-                                            username = username.trim(),
-                                            password = password,
-                                            scheduleId = state.config.id
-                                        )
-                                        if (!result.success) error = result.message
-                                        loggingIn = false
-                                    }
+                                    else -> verifyAndEnable(
+                                        adapter = adapter,
+                                        account = username.trim(),
+                                        secret = password
+                                    )
                                 }
                             }
                         )
@@ -292,7 +343,7 @@ private fun AutoRefreshLoginContent(
                             ) {
                                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                 Spacer(Modifier.width(8.dp))
-                                Text("正在通过拾光接口读取并校验课表", style = MaterialTheme.typography.bodySmall)
+                                Text("正在通过接口读取并校验课表", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -304,7 +355,7 @@ private fun AutoRefreshLoginContent(
                 SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
                     SettingsInfoRow(
                         "校园网络限制",
-                        "部分学校教务系统需要内网登录，刷新时可能需要挂代理或连接校园网。若学校启用了验证码、短信或二次认证，首次自动登录也可能需要先在教务导入页完成网页登录。"
+                        "部分学校教务系统需要内网登录，刷新时可能需要挂代理或连接校园网。若学校启用了验证码、短信或二次认证，本页会打开可见网页让你完成认证。"
                     )
                 }
             }
@@ -337,6 +388,32 @@ private fun AutoRefreshDashboardContent(
     var transientResult by remember(profile.lastResult) { mutableStateOf(profile.lastResult) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     var avatarVersion by remember { mutableIntStateOf(0) }
+    val swuProfile = ShiguangApiAdapterCatalog.isSwuDirectAdapter(
+        profile.schoolId,
+        profile.adapterId
+    )
+    val swuAuthLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val cookies = SwuUnifiedAuthActivity.captureCookies(result.data)
+        if (cookies.isEmpty()) {
+            transientResult = "未读取到统一认证会话，请重试"
+        } else {
+            val updated = profile.copy(
+                cookies = (profile.cookies + cookies)
+                    .associateBy(AutoRefreshCookie::url)
+                    .values
+                    .toList(),
+                lastResult = "统一认证已更新，正在刷新课表"
+            )
+            onProfileChange(updated)
+            onRefresh(
+                { refreshing = it },
+                { transientResult = it }
+            )
+        }
+    }
     val avatarLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -404,7 +481,7 @@ private fun AutoRefreshDashboardContent(
                 }
                 Text(profile.schoolName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "${profile.adapterName} · ${maskAccount(profile.username)}",
+                    "${profile.adapterName} · ${if (swuProfile && profile.username.isBlank()) "统一认证" else maskAccount(profile.username)}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -431,6 +508,20 @@ private fun AutoRefreshDashboardContent(
                                 }
                             }
                         )
+                        if (swuProfile) {
+                            Spacer(Modifier.height(10.dp))
+                            SettingsActionButton(
+                                label = "重新完成统一认证",
+                                backdrop = backdrop,
+                                modifier = Modifier.fillMaxWidth(),
+                                monochrome = true,
+                                onClick = {
+                                    if (!refreshing) {
+                                        swuAuthLauncher.launch(SwuUnifiedAuthActivity.intent(context))
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
