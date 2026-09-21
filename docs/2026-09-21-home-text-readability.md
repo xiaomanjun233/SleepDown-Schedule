@@ -12,6 +12,13 @@
 
 ## 验证范围
 
-用户要求只打包并安装实验版；公共代码先进入 main，再同步到 exp。`testGithubDebugUnitTest` 经临时筛选脚本只运行 `HomeTextContrastTest`，9 项全部通过、0 失败、0 错误（2 分 31 秒）。本次未构建普通版 APK，实验版签名打包与安装结果完成后补充。
+用户要求只打包并安装实验版；公共代码先进入 main，再同步到 exp。`testGithubDebugUnitTest` 经临时筛选脚本只运行 `HomeTextContrastTest`，9 项全部通过、0 失败、0 错误（2 分 31 秒）。本次未构建普通版 APK。
 
 首轮扩大到 `HomeAdaptiveMetricsTest` 时，既有 `weekCardCornersStayFixedOnPhoneAndScaleWithinTabletBounds` 的圆角断言失败；本轮未修改该圆角实现。后续仅运行与软阴影算法直接相关的测试，未把全量测试标记为通过。
+
+## 实验版构建
+
+- 公共实现提交为 `9e5dc25`，实验版构建源为合并提交 `55bae6a`。`:app:assembleGithubExp` 完整构建成功（4 分 42 秒），包含 Kotlin、R8、Lint、资源和签名打包。
+- `apksigner verify` 通过，证书与当前已安装渠道一致；包名 `com.xiaomanjun.sleepdownschedule`，版本 `1.2.6-exp2` / `33`。本轮为本地修复包，未创建公开 Release。
+- 产物 `app/build/outputs/apk/github/exp/app-github-exp.apk`，SHA-256：`B9D36CAECCDCE798EF318332E772B6866330A04AB4DFB02D892163A6FE538EF0`。
+- 打包后执行 `adb devices -l`，设备列表为空，覆盖安装等待手机重新连接。未自动启动应用，软阴影视觉效果尚未实机验收。
