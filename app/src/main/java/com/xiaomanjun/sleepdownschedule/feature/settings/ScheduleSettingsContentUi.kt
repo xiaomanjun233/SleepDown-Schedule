@@ -121,6 +121,7 @@ fun ScheduleSettingsContent(
     var colorOSExperimentEnabled by remember(appContext) {
         mutableStateOf(ColorOSCourseExperiment.isEnabled(appContext))
     }
+    val honorParallelLiveUpdate = ColorOSCourseExperiment.allowsParallelLiveUpdate()
     var fluidCloudTestResult by remember { mutableStateOf<ColorOSCourseDiagnostics?>(null) }
     var fluidCloudTestActive by remember(appContext) {
         mutableStateOf(ColorOSCourseExperiment.hasActiveTestPreview(appContext))
@@ -272,17 +273,28 @@ fun ScheduleSettingsContent(
                                 },
                                 colorOSFluidCloudSelected = colorOSExperimentEnabled,
                                 showColorOSFluidCloud = ColorOSCourseExperiment.isAvailable(),
+                                colorOSFluidCloudLabel = if (honorParallelLiveUpdate) {
+                                    "YOYO课程 + 实时活动"
+                                } else {
+                                    "流体云"
+                                },
                                 onColorOSFluidCloudSelected = {
                                     val accepted = ColorOSCourseExperiment.setEnabled(appContext, true)
                                     colorOSExperimentEnabled = accepted
                                     if (accepted) {
-                                        NotificationScheduler.cancelCurrentLiveUpdate(appContext, null, null)
-                                        onNotificationModeChange(NotificationMode.STANDARD)
+                                        if (honorParallelLiveUpdate) {
+                                            onNotificationModeChange(NotificationMode.LIVE_UPDATE)
+                                        } else {
+                                            NotificationScheduler.cancelCurrentLiveUpdate(appContext, null, null)
+                                            onNotificationModeChange(NotificationMode.STANDARD)
+                                        }
                                         NotificationScheduler.requestReschedule(appContext)
                                     }
                                 }
                             )
-                            if (!colorOSExperimentEnabled && notificationMode == NotificationMode.LIVE_UPDATE) {
+                            if ((!colorOSExperimentEnabled || honorParallelLiveUpdate) &&
+                                notificationMode == NotificationMode.LIVE_UPDATE
+                            ) {
                                 SettingsDivider()
                                 SettingsLiveUpdateChipTextRow(
                                     liveUpdateChipTextMode,
@@ -302,7 +314,9 @@ fun ScheduleSettingsContent(
                         )
                     }
                 }
-                if (!colorOSExperimentEnabled && notificationMode == NotificationMode.LIVE_UPDATE) {
+                if ((!colorOSExperimentEnabled || honorParallelLiveUpdate) &&
+                    notificationMode == NotificationMode.LIVE_UPDATE
+                ) {
                     item(key = "notification-live-course") {
                         GlassPreferenceSection("课程实时活动") {
                             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {

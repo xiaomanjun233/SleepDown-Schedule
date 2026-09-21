@@ -33,7 +33,13 @@ data class ColorOSDeviceStatus(
     val brand: String,
     val colorOSVersion: String?,
     val isColorOSFamily: Boolean
-)
+) {
+    val isHonor: Boolean
+        get() = isHonorCourseCloudDevice(manufacturer, brand)
+}
+
+internal fun isHonorCourseCloudDevice(manufacturer: String, brand: String): Boolean =
+    listOf(manufacturer, brand).any { it.contains("honor", ignoreCase = true) }
 
 internal fun isCourseCloudExperimentDevice(
     manufacturer: String,
@@ -43,9 +49,8 @@ internal fun isCourseCloudExperimentDevice(
     val familyNames = listOf(manufacturer, brand).map(String::lowercase)
     return familyNames.any { value ->
         value.contains("oppo") || value.contains("oneplus") ||
-            value.contains("realme") || value.contains("oplus") ||
-            value.contains("honor")
-    } || colorOSVersion != null
+            value.contains("realme") || value.contains("oplus")
+    } || isHonorCourseCloudDevice(manufacturer, brand) || colorOSVersion != null
 }
 
 data class ColorOSCourseDiagnostics(
@@ -116,6 +121,11 @@ object ColorOSCourseExperiment {
     fun isEnabled(context: Context): Boolean = isAvailable() &&
         ColorOSCourseBridge.preferences(context).getBoolean(KEY_ENABLED, false)
 
+    fun allowsParallelLiveUpdate(): Boolean = deviceStatus().isHonor
+
+    fun suppressesLiveUpdate(context: Context): Boolean =
+        isEnabled(context) && !allowsParallelLiveUpdate()
+
     fun setEnabled(context: Context, enabled: Boolean): Boolean {
         val accepted = enabled && isAvailable()
         val preferences = ColorOSCourseBridge.preferences(context)
@@ -135,7 +145,7 @@ object ColorOSCourseExperiment {
     }
 
     fun suppressLiveUpdate(context: Context, config: ScheduleConfigEntity): ScheduleConfigEntity =
-        if (isEnabled(context) && config.notificationMode == NotificationMode.LIVE_UPDATE) {
+        if (suppressesLiveUpdate(context) && config.notificationMode == NotificationMode.LIVE_UPDATE) {
             config.copy(notificationMode = NotificationMode.STANDARD)
         } else {
             config

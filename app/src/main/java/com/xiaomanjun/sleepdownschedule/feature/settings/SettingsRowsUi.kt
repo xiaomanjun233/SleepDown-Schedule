@@ -1597,12 +1597,13 @@ fun SettingsChoiceRow(
     onSelected: (NotificationMode) -> Unit,
     colorOSFluidCloudSelected: Boolean = false,
     showColorOSFluidCloud: Boolean = false,
+    colorOSFluidCloudLabel: String = "流体云",
     onColorOSFluidCloudSelected: () -> Unit = {}
 ) {
     val choices = buildList<Pair<String, NotificationMode?>> {
         add("普通通知" to NotificationMode.STANDARD)
         add("实时活动" to NotificationMode.LIVE_UPDATE)
-        if (showColorOSFluidCloud) add("流体云" to null)
+        if (showColorOSFluidCloud) add(colorOSFluidCloudLabel to null)
     }
     SleepDownLiquidDropdownPreference(
         items = choices.map { it.first },

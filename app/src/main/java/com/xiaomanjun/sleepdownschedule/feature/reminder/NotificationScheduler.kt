@@ -322,7 +322,7 @@ object NotificationScheduler {
     }
 
     fun checkImmediateLiveUpdate(context: Context, courses: List<CourseEntity>, config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
-        if (ColorOSCourseExperiment.isEnabled(context)) {
+        if (ColorOSCourseExperiment.suppressesLiveUpdate(context)) {
             Log.d(TAG, "skip immediate live update: ColorOS course cloud experiment enabled")
             cancelLiveUpdateNotifications(context)
             stopLiveUpdateService(context)
@@ -654,7 +654,7 @@ object NotificationScheduler {
     fun liveUpdateId(): Int = LIVE_UPDATE_ID
 
     fun showLiveUpdatePreview(context: Context, config: ScheduleConfigEntity) {
-        if (ColorOSCourseExperiment.isEnabled(context)) {
+        if (ColorOSCourseExperiment.suppressesLiveUpdate(context)) {
             cancelLiveUpdateNotifications(context)
             stopLiveUpdateService(context)
             return

@@ -144,7 +144,11 @@ internal fun ColorOSCourseSettingsSection(
             SettingsDivider()
             SettingsInfoRow(
                 title = "后台说明",
-                body = "SleepDown 不用一直留在后台，系统需要更新时会自动读取课程。手机重启后请先解锁一次；若在系统设置中强行停止 SleepDown 或“WakeUp课程表”，重新打开应用后才会恢复。"
+                body = if (ColorOSCourseExperiment.allowsParallelLiveUpdate()) {
+                    "荣耀上的 YOYO 课程小组件与 SleepDown 实时活动可以同时使用。SleepDown 不用一直留在后台；手机重启后请先解锁一次。若强行停止 SleepDown 或“WakeUp课程表”，重新打开应用后才会恢复。"
+                } else {
+                    "SleepDown 不用一直留在后台，系统需要更新时会自动读取课程。手机重启后请先解锁一次；若在系统设置中强行停止 SleepDown 或“WakeUp课程表”，重新打开应用后才会恢复。"
+                }
             )
             if (!proxyReady && !wakeUpConflict && supportedDevice) {
                 SettingsDivider()

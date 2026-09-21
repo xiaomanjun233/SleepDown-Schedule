@@ -22,6 +22,8 @@ class ColorOSCourseProviderContractTest {
         assertTrue(isCourseCloudExperimentDevice("OnePlus", "OnePlus", null))
         assertTrue(isCourseCloudExperimentDevice("realme", "realme", null))
         assertTrue(isCourseCloudExperimentDevice("HONOR", "HONOR", null))
+        assertTrue(isHonorCourseCloudDevice("HONOR", "HONOR"))
+        assertEquals(false, isHonorCourseCloudDevice("OPPO", "OPPO"))
         assertTrue(isCourseCloudExperimentDevice("unknown", "unknown", "ColorOS 16"))
         assertEquals(false, isCourseCloudExperimentDevice("Xiaomi", "Redmi", null))
     }
