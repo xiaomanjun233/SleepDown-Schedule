@@ -44,3 +44,12 @@
 代码补充了 `RECEIVE_BOOT_COMPLETED`、仅接受 `BOOT_COMPLETED` / `MY_PACKAGE_REPLACED` 的私有 Receiver，以及实验设置页的组件自启动、后台管理入口。Receiver 只通知一次课程刷新，复用 Provider 的持久快照，不启动 Activity 或常驻服务。快照在凭据加密存储中，故不注册解锁前的 `LOCKED_BOOT_COMPLETED`。
 
 开机广播属于 Android 允许的静态广播例外，参考 [Android 官方广播例外说明](https://developer.android.com/develop/background-work/background-tasks/broadcasts/broadcast-exceptions)。这一启动入口不等于 OEM 会放行所有后台跨应用调用；手机重启后的实际验收尚未执行。
+
+## 本轮实现与本地验证
+
+- 普通版基线 `4916bb7`：助手统一使用可查询、可规划的任务循环，组合条件一次定位课程，支持多字段局部修改和完整替换，确认卡显示字段差异与生效周次。平板取消统一缩小的格数声明，使用标准 dp 和桌面实际尺寸；调休角标移至右下角。运行规则见 [Day Agent 规范](architecture/DAY_AGENT_RUNTIME.md)。
+- 实验版构建源码 `4c2b4cc` 已合入上述 main。组件更新按实际版本选择包含目标附件的最新 Release，不依赖接口排序；已安装组件仍可检查更新。
+- 课程组件 `6.0.17` / `257` 保存有时区、日期和有效期的派生快照，主应用主动同步未来八天，代理重启后可恢复。真实空课表覆盖旧记录，过期测试课不滞留；失败读取不返回成功空课表。元信息有效期与多日缓存匹配，避免午夜先失去初始化状态。开机与组件更新只触发一次刷新。
+- 普通版 `assembleGithubRelease`、实验版 `assembleGithubExp`、组件 `assembleRelease` 均通过完整打包；110 项定向测试通过（助手 88、更新器与 ColorOS 课程 16、代理 6）。任务循环测试使用本地模拟 HTTP，未调用真实模型服务。
+- 三个 APK 签名校验通过且证书一致。主应用本地包沿用 `1.2.6_beta7` / `33` 和 `1.2.6-exp2` / `33`，本轮未创建 Release、覆盖发布附件或推送远端。
+- 新包尚未安装；未执行新组件的重启、后台冻结后系统读取，以及不同品牌平板桌面的实机验收。以上构建和测试不能视为 OEM 冻结问题已被解决。
