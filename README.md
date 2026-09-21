@@ -11,7 +11,13 @@ SleepDown 围绕课表的导入、维护、提醒与日常查看进行设计，�
 
 应用使用 Jetpack Compose 构建，界面以 Miuix 与液态玻璃效果为基础，并针对壁纸背景下的可读性、动画连续性以及手机和平板布局进行了专门适配。视觉效果之外，项目同样重视数据迁移安全、长期存储占用和复杂课表场景下的稳定性。
 
-当前版本为 **1.2.3**，最低支持 Android 8.0（API 26）。正式身份已迁移到 `com.xiaomanjun.sleepdownschedule`；GitHub 与应用商店发行版共用这一 applicationId。安装包可以在 [GitHub Releases](https://github.com/xiaomanjun233/SleepDown-Schedule/releases) 或 [Gitee 发行版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases) 下载。
+最低支持 Android 8.0（API 26）。正式身份已迁移到 `com.xiaomanjun.sleepdownschedule`；GitHub 与应用商店发行版共用这一 applicationId。当前正式版、Beta 和实验版以 [GitHub Releases](https://github.com/xiaomanjun233/SleepDown-Schedule/releases) 与 [Gitee 发行版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases) 的发布标记为准。
+
+### 普通版与 ColorOS 实验版
+
+`main` 是普通版唯一基线，长期 `exp` 分支在同一基线、包名、数据和签名之上增加 ColorOS / 荣耀 MagicOS 课程流体云实验。实验版不会形成另一套普通功能分支：通用功能和修复先进入 `main`，再同步到 `exp`；厂商专项实现则留在 `exp`，验证成熟后才单独转入普通版。
+
+普通版不会自动推荐实验版。首次使用实验版需要从 `v<主版本>-exp` Release 手动安装；安装实验版后，可在应用中选择继续接收实验版，或切换到正式版/Beta 更新。实验 Release 同时提供 SleepDown 主应用和独立课程组件，且始终标记为预发布，不替换正式版 latest。完整的分支、版本号、更新通道、组件兼容和发布规则见 [普通版与实验版分支、版本及发布规范](docs/EXP_BRANCH_AND_RELEASES.md)。
 
 ### 从 1.1.5 迁移
 
@@ -105,6 +111,7 @@ git clone https://gitee.com/xiaomanjun233/SleepDown-Schedule.git
 
 - `main`：已验证的最新稳定代码，受分支保护。
 - `develop`：贡献者提交 Pull Request 的目标分支，受分支保护。
+- `exp`：基于 `main` 的长期 ColorOS / 荣耀 MagicOS 课程流体云实验分支，不作为普通功能的独立基线。
 - `v<版本号>`：正式发布版本标签，例如 `v1.1.1`。
 - `feature/*`、`fix/*`、`release/*`、`codex/*`：短期开发分支，不作为长期下载入口。
 
@@ -187,6 +194,7 @@ CourseSchedule/
 
 - `main`：已验证的最新稳定代码，受分支保护，只能通过合并进入。
 - `develop`：贡献者提交变更的目标分支，受分支保护。所有来自外部的 Pull Request 默认合并到 `develop`，验证稳定后再由维护者合入 `main`。
+- `exp`：只在 `main` 之上叠加 ColorOS / 荣耀 MagicOS 课程流体云实验；普通改动先进入 `main`，再同步到 `exp`。详细规则见 [实验版规范](docs/EXP_BRANCH_AND_RELEASES.md)。
 - `v<版本号>`：正式发布版本标签，例如 `v1.1.1`。
 - `feature/*`、`fix/*`、`release/*`、`codex/*`：短期开发分支，不作为长期下载入口。
 
