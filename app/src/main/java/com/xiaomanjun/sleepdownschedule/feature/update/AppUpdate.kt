@@ -110,7 +110,8 @@ object GiteeAppUpdater {
         }
         val latestTag = preferences(context).getString(LatestTagKey, null)
         _updateAvailable.value = latestTag?.let {
-            (includesBeta(context) || !ParsedVersion.parse(it).isPrerelease) && isVersionNewer(it, currentVersionName)
+            val version = ParsedVersion.parse(it)
+            !version.isExperimental && (includesBeta(context) || !version.isPrerelease) && isVersionNewer(it, currentVersionName)
         } == true
     }
 
@@ -263,7 +264,10 @@ object GiteeAppUpdater {
     }
 
     internal fun selectRelease(releases: List<GiteeReleaseInfo>, includeBeta: Boolean): GiteeReleaseInfo? =
-        releases.filter { includeBeta || (!it.prerelease && !ParsedVersion.parse(it.tagName).isPrerelease) }
+        releases.filter {
+            val version = ParsedVersion.parse(it.tagName)
+            !version.isExperimental && (includeBeta || (!it.prerelease && !version.isPrerelease))
+        }
             .maxWithOrNull { left, right ->
                 when {
                     isVersionNewer(left.tagName, right.tagName) -> 1
@@ -563,7 +567,12 @@ class UpdateDownloadForegroundService : Service() {
 
 private data class ReleaseAsset(val name: String, val url: String)
 
-private data class ParsedVersion(val numbers: List<Int>, val stage: Int, val sequence: Int) {
+private data class ParsedVersion(
+    val numbers: List<Int>,
+    val stage: Int,
+    val sequence: Int,
+    val isExperimental: Boolean
+) {
     val isPrerelease: Boolean get() = stage < 5
     companion object {
         fun parse(raw: String): ParsedVersion {
@@ -572,8 +581,9 @@ private data class ParsedVersion(val numbers: List<Int>, val stage: Int, val seq
                 ?: error("无法识别版本号：$raw")
             val numbers = main.value.split('.').map { it.toInt() }
             val suffix = normalized.substring(main.range.last + 1).substringBefore('+')
-            val pre = Regex("(?i)(dev|alpha|beta|preview|rc)[\\s._-]*(\\d*)").find(suffix)
+            val pre = Regex("(?i)(experimental|exp|dev|alpha|beta|preview|rc)[\\s._-]*(\\d*)").find(suffix)
             val stage = when (pre?.groupValues?.get(1)?.lowercase()) {
+                "experimental", "exp" -> 0
                 "dev" -> 0
                 "alpha" -> 1
                 "beta" -> 2
@@ -581,7 +591,13 @@ private data class ParsedVersion(val numbers: List<Int>, val stage: Int, val seq
                 "rc" -> 4
                 else -> 5
             }
-            return ParsedVersion(numbers, stage, pre?.groupValues?.get(2)?.toIntOrNull() ?: 0)
+            val stageName = pre?.groupValues?.get(1)?.lowercase()
+            return ParsedVersion(
+                numbers = numbers,
+                stage = stage,
+                sequence = pre?.groupValues?.get(2)?.toIntOrNull() ?: 0,
+                isExperimental = stageName == "experimental" || stageName == "exp"
+            )
         }
     }
 }
