@@ -32,6 +32,48 @@ class PeriodTimelineEditingTest {
         assertNull(validateResolvedPeriodTimes(changed.times))
     }
 
+    @Test fun removingOneMinuteLeadingGapKeepsStructureOtherSchemesAndSectionAnchor() {
+        val eveningConfig = config.copy(afternoonPeriodCount = 0, eveningPeriodCount = 1)
+        val evening = original.copy(
+            scheme = original.scheme.copy(eveningStartTime = "19:00"),
+            times = original.times.take(2) + PeriodSchemeTimeEntity(1, 3, "19:01", "19:46")
+        )
+        val other = evening.copy(scheme = evening.scheme.copy(id = 2), times = evening.times.map { it.copy(schemeId = 2) })
+        val initial = PeriodTimelineSession(eveningConfig, SchedulePeriodSchemesDraft(listOf(evening, other), 1))
+        val changed = resizeTimelineLeadingBreak(initial, PeriodDayPart.EVENING, 0)
+        assertEquals("19:00", changed.active.times.last().startTime)
+        assertEquals("19:45", changed.active.times.last().endTime)
+        assertEquals("19:00", changed.active.scheme.eveningStartTime)
+        assertEquals(initial.config, changed.config)
+        assertEquals(initial.active.times.take(2), changed.active.times.take(2))
+        assertEquals(other, changed.draft.schemes.last())
+        assertTrue(changed.draft.topologyOperations.isEmpty())
+        assertNull(validateResolvedPeriodTimes(changed.active.times))
+        assertEquals(changed.active.times, resizeTimelineLeadingBreak(initial, PeriodDayPart.EVENING, -1).active.times)
+    }
+
+    @Test fun deletingAndReaddingLeadingGapRecoversCompressedLessonWithoutMovingNextPart() {
+        val tight = original.copy(times = original.times.take(2) + PeriodSchemeTimeEntity(1, 3, "10:00", "10:45"))
+        val initial = PeriodTimelineSession(config, SchedulePeriodSchemesDraft(listOf(tight), 1))
+        val delayed = resizeTimelineLeadingBreak(initial, PeriodDayPart.MORNING, 30)
+        assertEquals("10:00", delayed.active.times[1].endTime)
+        val removed = resizeTimelineLeadingBreak(delayed, PeriodDayPart.MORNING, 0)
+        assertEquals(tight.times, removed.active.times)
+        assertTrue(removed.uncompressedLastMinutes.isEmpty())
+        assertEquals(delayed.active.times, resizeTimelineLeadingBreak(removed, PeriodDayPart.MORNING, 30).active.times)
+    }
+
+    @Test fun deletingAndReaddingOrdinaryBreakKeepsPeriodNumbersAndOtherSchemes() {
+        val other = original.copy(scheme = original.scheme.copy(id = 2), times = original.times.map { it.copy(schemeId = 2) })
+        val initial = PeriodTimelineSession(config, SchedulePeriodSchemesDraft(listOf(original, other), 1))
+        val removed = resizeTimelineBlock(initial, 1, true, 0)
+        assertEquals(initial.config, removed.config)
+        assertEquals(other, removed.draft.schemes.last())
+        assertEquals(listOf(1, 2, 3), removed.active.times.map { it.periodIndex })
+        assertTrue(removed.draft.topologyOperations.isEmpty())
+        assertEquals(initial.active.times, resizeTimelineBlock(removed, 1, true, 10).active.times)
+    }
+
     @Test fun growthStopsAtNextDayPart() {
         val changed = resizeTimelineBlock(config, original, 1, true, 2000)
         assertEquals("14:00", changed.times[1].endTime)

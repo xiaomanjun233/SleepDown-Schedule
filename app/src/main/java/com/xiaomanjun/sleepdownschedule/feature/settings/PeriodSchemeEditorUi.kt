@@ -132,8 +132,8 @@ private fun TimelineBlock.displayHeight(fontScale: Float): Dp =
     (TimelineMinuteHeight * minutes).coerceAtLeast(72.dp * fontScale.coerceAtLeast(1f))
 
 private fun resizeTimelineEntry(session: PeriodTimelineSession, block: TimelineBlock, minutes: Int): PeriodTimelineSession {
-    return if (block.beforeFirst) shiftTimelineFirstLesson(
-        session, block.part, block.start + minutes.coerceAtLeast(1)
+    return if (block.beforeFirst) resizeTimelineLeadingBreak(
+        session, block.part, minutes
     ) else resizeTimelineBlock(session, block.period, block.isBreak, minutes)
 }
 
@@ -357,7 +357,7 @@ internal fun PeriodSchemeEditor(
                 val updated = resizeTimelineEntry(dragBase ?: current, block, minutes)
                 session = updated
                 return timelineBlocks(updated.config, updated.active, includeLeading = true)
-                    .firstOrNull { it.key == block.key }?.minutes ?: block.minutes
+                    .firstOrNull { it.key == block.key }?.minutes ?: if (block.isBreak) 0 else block.minutes
             }
             Column(Modifier.fillMaxSize().glassBackdropProducer(editorBackdrop)
                 .onGloballyPositioned { editorLaidOut = true }
@@ -393,6 +393,15 @@ internal fun PeriodSchemeEditor(
                                         val index = order++
                                         val stableKey = block.stableKey(lessonKeys)
                                         key(stableKey) {
+                                            if (block.isBreak && block.minutes == 0) {
+                                                Box(Modifier.fillMaxWidth().padding(end = 38.dp)
+                                                    .heightIn(min = 48.dp)
+                                                    .graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) }
+                                                    .clickable(enabled = interactive, onClickLabel = "添加课间") { pickingBlock = block },
+                                                    contentAlignment = Alignment.Center) {
+                                                    Text("添加课间", color = TimelineBreakColor, style = MaterialTheme.typography.labelLarge)
+                                                }
+                                            } else {
                                             Box(Modifier.fillMaxWidth()) {
                                             Box(Modifier.fillMaxWidth().padding(end = 38.dp)) {
                                             TimelineEditCard(block, index, { motion.value }, closing,
@@ -411,12 +420,13 @@ internal fun PeriodSchemeEditor(
                                                 onResize = { resize(block, it) })
                                             }
                                             TimelineRatioRailSegment(block.color,
-                                                first = blockIndex == 0 || hasAddAfter(partBlocks[blockIndex - 1]),
-                                                last = blockIndex == partBlocks.lastIndex || hasAddAfter(block),
+                                                first = blockIndex == 0 || hasAddAfter(partBlocks[blockIndex - 1]) || partBlocks[blockIndex - 1].minutes == 0,
+                                                last = blockIndex == partBlocks.lastIndex || hasAddAfter(block) || partBlocks[blockIndex + 1].minutes == 0,
                                                 modifier = Modifier.matchParentSize().graphicsLayer {
                                                     alpha = timelineSceneProgress(motion.value, closing) *
                                                         if (stableKey in changingKeys) cardMotion.value else 1f
                                                 })
+                                            }
                                             }
                                             if (block.isBreak) {
                                                 val after = insertionPosition(block)
@@ -499,23 +509,24 @@ internal fun PeriodSchemeEditor(
                 showDeleteScheme = false
             })), popupBackdrop, state.config, { showDeleteScheme = false })
     deletingBlock?.let { block ->
-        LiquidAlertDialog("移除${block.title}", "节次编号将连续调整，其他作息也会同步减少这一节。删除后可从课间下方添加节次，课程对应关系会在保存详细设置时确认。",
+        LiquidAlertDialog("移除${block.title}", if (block.isBreak) "后续课程将在当前时段内提前 ${block.minutes} 分钟，节次编号和其他作息不变。"
+            else "节次编号将连续调整，其他作息也会同步减少这一节。删除后可从课间下方添加节次，课程对应关系会在保存详细设置时确认。",
             listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = { deletingBlock = null }),
                 LiquidAlertAction("移除", LiquidAlertActionStyle.Destructive, onClick = {
                     session?.let { edit ->
-                        val result = deleteTimelinePeriod(edit, block.period)
+                        val result = if (block.isBreak) resizeTimelineEntry(edit, block, 0) else deleteTimelinePeriod(edit, block.period)
                         if (result == null) localError = "至少需要保留一个节次" else if (!changingStructure) {
                             changingStructure = true
                             val before = timelineBlocks(edit.config, edit.active, includeLeading = true)
                             val precedingBreak = before.getOrNull(before.indexOfFirst { it.key == block.key } - 1)
-                                ?.takeIf { it.isBreak && it.part == block.part && block.period == edit.config.periodRange(block.part).last }
+                                ?.takeIf { !block.isBreak && it.isBreak && it.part == block.part && block.period == edit.config.periodRange(block.part).last }
                             changingKeys = listOfNotNull(block, precedingBreak).map { it.stableKey(lessonKeys) }.toSet()
                             scope.launch {
                                 cardMotion.animateTo(0f, tween(160, easing = TimelineRemoveEasing))
                                 previousBreakHeights = before.filter { it.isBreak }.associate {
                                     it.stableKey(lessonKeys) to it.displayHeight(density.fontScale)
                                 }
-                                val updatedKeys = lessonKeys.filterIndexed { index, _ -> index != block.period - 1 }
+                                val updatedKeys = if (block.isBreak) lessonKeys else lessonKeys.filterIndexed { index, _ -> index != block.period - 1 }
                                 val expandingBreak = timelineBlocks(result.config, result.active, includeLeading = true)
                                     .filter { it.isBreak }.any {
                                         it.displayHeight(density.fontScale) != (previousBreakHeights[it.stableKey(updatedKeys)] ?: 0.dp)
@@ -592,7 +603,7 @@ private fun TimelineEditCard(
                     fontWeight = FontWeight.SemiBold, maxLines = 1)
             }
         }
-        if (!block.isBreak) Box(
+        Box(
             Modifier.align(Alignment.TopStart).offset(x = (-5).dp, y = (-5).dp).size(48.dp)
                 .semantics { contentDescription = "移除${block.title}" }
                 .clickable(enabled = enabled, interactionSource = null, indication = null, onClick = onDelete)
