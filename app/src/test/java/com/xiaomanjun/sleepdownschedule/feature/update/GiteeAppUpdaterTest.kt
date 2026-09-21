@@ -90,4 +90,17 @@ class GiteeAppUpdaterTest {
             )
         )
     }
+
+    @Test
+    fun beta8UpgradesBeta7WithoutSelectingExperimentalReleases() {
+        val beta8 = release("v1.2.6_beta8", true)
+        val stable = release("v1.2.5")
+        val releases = listOf(release("v1.2.6-exp3", true), release("v1.3.0-exp3"),
+            release("v1.2.6_beta7", true), stable, beta8)
+        assertEquals(beta8, GiteeAppUpdater.selectRelease(releases, true))
+        assertEquals(stable, GiteeAppUpdater.selectRelease(releases, false))
+        assertTrue(GiteeAppUpdater.isVersionNewer(beta8.tagName, "1.2.6_beta7"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.2.6_beta7", beta8.tagName))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.2.6-exp3", "1.2.6-exp2"))
+    }
 }
