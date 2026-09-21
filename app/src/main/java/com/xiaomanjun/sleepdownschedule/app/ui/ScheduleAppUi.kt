@@ -1272,12 +1272,14 @@ fun CourseScheduleAppUi(
     val homeReadabilityContext = remember(
         wallpaperImages.readabilityBitmap,
         visualState.config,
-        homeReadabilityRootSize
+        homeReadabilityRootSize,
+        homeRootPositionInWindow
     ) {
         HomeReadabilityContext(
             bitmap = wallpaperImages.readabilityBitmap,
             config = visualState.config,
-            rootSize = homeReadabilityRootSize
+            rootSize = homeReadabilityRootSize,
+            rootOffsetInWindow = homeRootPositionInWindow
         )
     }
     val appDarkTheme = appUsesDarkTheme(visualState.config)

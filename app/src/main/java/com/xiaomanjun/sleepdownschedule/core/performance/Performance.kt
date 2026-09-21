@@ -573,13 +573,15 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
                         synchronized(wallpaperSourceCache) { wallpaperSourceCache[sourceKey] = entry }
                     }
                 }
+                val blurredSource = createBlurredWallpaperBitmap(sourceEntry?.source, blurBucket)
                 HomeWallpaperImages(
                     source = sourceEntry?.source,
                     reducedSource = sourceEntry?.reducedSource,
-                    blurredSource = createBlurredWallpaperBitmap(sourceEntry?.source, blurBucket),
+                    blurredSource = blurredSource,
                     blurBucket = blurBucket,
                     representativeColors = sourceEntry?.representativeColors ?: DefaultCourseCardPalette,
-                    readabilityBitmap = sourceEntry?.readabilityBitmap,
+                    readabilityBitmap = if (blurredSource != null) createWallpaperReadabilityBitmap(blurredSource)
+                        else sourceEntry?.readabilityBitmap,
                     renderKey = renderKey
                 ).prepareToDraw()
             }.getOrElse {

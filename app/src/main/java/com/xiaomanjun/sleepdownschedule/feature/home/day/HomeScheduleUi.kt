@@ -244,6 +244,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -326,55 +327,18 @@ import kotlin.math.roundToInt
 data class HomeReadabilityContext(
     val bitmap: Bitmap? = null,
     val config: ScheduleConfigEntity? = null,
-    val rootSize: IntSize = IntSize.Zero
+    val rootSize: IntSize = IntSize.Zero,
+    val rootOffsetInWindow: Offset = Offset.Zero
 )
 
 val LocalHomeReadability = compositionLocalOf { HomeReadabilityContext() }
 
-internal enum class HomeReadabilityShadow {
-    None,
-    Dark,
-    Light
-}
-
-internal fun homeReadabilityShadowForLuminance(
-    textLuminance: Float,
-    backgroundLuminance: Float,
-    current: HomeReadabilityShadow
-): HomeReadabilityShadow = when {
-    textLuminance >= 0.62f -> {
-        if (backgroundLuminance >= if (current == HomeReadabilityShadow.Dark) 0.43f else 0.53f) {
-            HomeReadabilityShadow.Dark
-        } else HomeReadabilityShadow.None
-    }
-    textLuminance <= 0.38f -> {
-        if (backgroundLuminance <= if (current == HomeReadabilityShadow.Light) 0.42f else 0.32f) {
-            HomeReadabilityShadow.Light
-        } else HomeReadabilityShadow.None
-    }
-    else -> HomeReadabilityShadow.None
-}
-
-private fun regionTextShadow(
+private fun sampleVisibleWallpaperLuminances(
     context: HomeReadabilityContext,
     bounds: Rect,
-    textColor: ComposeColor,
-    current: HomeReadabilityShadow
-): HomeReadabilityShadow {
-    val visibleLuminance = sampleVisibleWallpaperLuminance(context, bounds)
-        ?: return HomeReadabilityShadow.None
-    // Symmetric adaptive contrast: light text receives a dark shadow on bright wallpaper, while
-    // dark text receives a very soft white shadow only over locally dark wallpaper. Hysteresis in
-    // both directions prevents labels from toggling during fractional pager/list motion.
-    return homeReadabilityShadowForLuminance(textColor.luminance(), visibleLuminance, current)
-}
-
-private fun sampleVisibleWallpaperLuminance(
-    context: HomeReadabilityContext,
-    bounds: Rect,
-    columns: Int = 5,
-    rows: Int = 3
-): Float? {
+    columns: Int = 7,
+    rows: Int = 5
+): FloatArray? {
     if (bounds.width <= 0f || bounds.height <= 0f) return null
     val bitmap = context.bitmap ?: return null
     val config = context.config ?: return null
@@ -397,24 +361,22 @@ private fun sampleVisibleWallpaperLuminance(
         cropState = cropState
     )
     if (drawn.width <= 0f || drawn.height <= 0f) return null
-    var weightedLuminance = 0f
-    var samples = 0
+    val visibleBounds = bounds.intersect(Rect(0f, 0f, root.width.toFloat(), root.height.toFloat()))
+    if (visibleBounds.width <= 0f || visibleBounds.height <= 0f) return null
+    val samples = FloatArray(columns * rows)
     for (row in 0 until rows) {
         for (column in 0 until columns) {
-            val rootX = bounds.left + bounds.width * ((column + 0.5f) / columns)
-            val rootY = bounds.top + bounds.height * ((row + 0.5f) / rows)
+            val rootX = visibleBounds.left + visibleBounds.width * ((column + 0.5f) / columns)
+            val rootY = visibleBounds.top + visibleBounds.height * ((row + 0.5f) / rows)
             val x = (((rootX - drawn.left) / drawn.width) * bitmap.width)
                 .roundToInt().coerceIn(0, bitmap.width - 1)
             val y = (((rootY - drawn.top) / drawn.height) * bitmap.height)
                 .roundToInt().coerceIn(0, bitmap.height - 1)
             val pixel = bitmap[x, y]
-            val color = ComposeColor(pixel)
-            weightedLuminance += color.luminance()
-            samples++
+            samples[row * columns + column] = visibleWallpaperLuminance(pixel, config.wallpaperBrightness)
         }
     }
-    val dim = (1f - config.wallpaperBrightness.coerceIn(0.35f, 1f)).coerceIn(0f, 0.65f)
-    return weightedLuminance / samples.coerceAtLeast(1) * (1f - dim)
+    return samples
 }
 
 internal fun homeStatusBarWallpaperLuminance(context: HomeReadabilityContext): Float? {
@@ -423,7 +385,7 @@ internal fun homeStatusBarWallpaperLuminance(context: HomeReadabilityContext): F
     // Status-bar appearance is global, so sample both icon clusters across the complete top strip.
     // The crop mapping is shared with HomeReadableText and therefore follows the visible wallpaper,
     // including a user-saved portrait/landscape crop rather than the uncropped source bitmap.
-    return sampleVisibleWallpaperLuminance(
+    return sampleVisibleWallpaperLuminances(
         context = context,
         bounds = Rect(
             left = 0f,
@@ -433,7 +395,7 @@ internal fun homeStatusBarWallpaperLuminance(context: HomeReadabilityContext): F
         ),
         columns = 9,
         rows = 3
-    )
+    )?.average()?.toFloat()
 }
 
 @Composable
@@ -452,50 +414,71 @@ fun HomeReadableText(
 ) {
     val readability = LocalHomeReadability.current
     val backgroundFrozen = LocalHomeBackgroundFrozen.current
-    var readabilityShadow by remember(readability.bitmap, readability.config, readability.rootSize, color) {
-        mutableStateOf(HomeReadabilityShadow.None)
-    }
-    val measuredModifier = modifier.onGloballyPositioned { coordinates ->
-        // Background zoom must not resample wallpaper pixels or restyle frozen labels.
-        if (backgroundFrozen) return@onGloballyPositioned
-        val next = regionTextShadow(
-            readability,
-            coordinates.boundsInRoot(),
-            color,
-            readabilityShadow
+    var targetShadowStrength by remember(color) { mutableFloatStateOf(0f) }
+    val shadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "home-text-soft-shadow")
+    val textLayout = remember { mutableStateOf<TextLayoutResult?>(null) }
+    val coordinates = remember { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(1) }
+    // Reuse each decision until the actual text bounds or wallpaper inputs change.
+    val lastSample = remember(readability, color, backgroundFrozen) { arrayOfNulls<Rect>(1) }
+    fun updateContrast() {
+        if (backgroundFrozen) return
+        val position = coordinates[0]?.takeIf { it.isAttached } ?: return
+        val layout = textLayout.value ?: return
+        if (layout.lineCount == 0) return
+        val textBounds = Rect(
+            (0 until layout.lineCount).minOf { layout.getLineLeft(it) }, layout.getLineTop(0),
+            (0 until layout.lineCount).maxOf { layout.getLineRight(it) }, layout.getLineBottom(layout.lineCount - 1)
         )
-        if (next != readabilityShadow) readabilityShadow = next
+        val origin = position.localToWindow(Offset.Zero) - readability.rootOffsetInWindow
+        val bounds = textBounds.translate(origin)
+        if (lastSample[0] == bounds) return
+        lastSample[0] = bounds
+        val samples = sampleVisibleWallpaperLuminances(readability, bounds)
+        targetShadowStrength = samples?.let {
+            homeTextShadowStrength(it, color.luminance(), color.alpha, targetShadowStrength)
+        } ?: 0f
     }
-    Box(
-        modifier = measuredModifier
-    ) {
+    LaunchedEffect(readability, color, backgroundFrozen) { updateContrast() }
+    val density = LocalDensity.current
+    val lightText = color.luminance() >= 0.5f
+    val effectiveFontSize = when {
+        fontSize != TextUnit.Unspecified -> fontSize
+        style.fontSize != TextUnit.Unspecified -> style.fontSize
+        else -> 14.sp
+    }
+    val shadowStyle = if (shadowStrength <= 0.001f || readability.bitmap == null) style else {
+        val radius = with(density) {
+            // Keep the light halo centered; dark drop shadows sit only a fraction below the glyph.
+            (effectiveFontSize.toPx() * if (lightText) 0.13f else 0.16f).coerceIn(1.2.dp.toPx(), 2.8.dp.toPx())
+        }
+        style.copy(shadow = androidx.compose.ui.graphics.Shadow(
+            color = (if (lightText) ComposeColor.Black else ComposeColor.White).copy(
+                alpha = (if (lightText) 0.82f else 0.92f) * shadowStrength
+            ),
+            offset = Offset(0f, with(density) { if (lightText) 0.45.dp.toPx() else 0f }),
+            blurRadius = radius
+        ))
+    }
+    Box(modifier = modifier) {
         Text(
             text = text,
-            color = color,
-            style = when (readabilityShadow) {
-                HomeReadabilityShadow.Dark -> style.copy(
-                    shadow = androidx.compose.ui.graphics.Shadow(
-                        color = ComposeColor.Black.copy(alpha = 0.44f),
-                        offset = Offset(0f, 1.2f),
-                        blurRadius = 12f
-                    )
-                )
-                HomeReadabilityShadow.Light -> style.copy(
-                    shadow = androidx.compose.ui.graphics.Shadow(
-                        color = ComposeColor.White.copy(alpha = 0.38f),
-                        offset = Offset(0f, 1f),
-                        blurRadius = 9f
-                    )
-                )
-                HomeReadabilityShadow.None -> style
+            modifier = Modifier.onGloballyPositioned {
+                coordinates[0] = it
+                updateContrast()
             },
+            color = color,
+            style = shadowStyle,
             fontWeight = fontWeight,
             fontSize = fontSize,
             lineHeight = lineHeight,
             textAlign = textAlign,
             maxLines = maxLines,
             softWrap = softWrap,
-            overflow = overflow
+            overflow = overflow,
+            onTextLayout = {
+                textLayout.value = it
+                updateContrast()
+            }
         )
     }
 }
