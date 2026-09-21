@@ -9233,6 +9233,14 @@ fun ChangelogSettingsScreen(
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
                 SettingsInfoRow(
+                    "1.2.6-exp",
+                    "新增 ColorOS 课程流体云实验功能，可在通知样式中选择“流体云”，并按引导下载课程组件。\n" +
+                    "流体云测试课程会在约 21～22 分钟后开始并持续 5 分钟；再次点击红色按钮可删除测试课程。\n" +
+                    "增加课程组件状态、数据读取与系统查询诊断，并说明后台、自启动、强行停止和重启后的使用边界。\n" +
+                    "实验版可在设置中选择正式版、Beta 版或实验版更新，首次获取实验版仍需手动下载安装。"
+                )
+                SettingsDivider()
+                SettingsInfoRow(
                     "1.2.6_beta7",
                     "修复自动匹配调休后手动修改日期可能闪退的问题，完善停课、补课日期校验与保存。\n" +
                     "自动检测到整组调休已应用时提示“已添加过”，保留手动调整的原课程日期；“新增调休日”移到安排卡片组最前方。\n" +

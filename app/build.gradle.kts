@@ -19,6 +19,10 @@ val releaseStorePassword = releaseSecret("sleepdown.releaseStorePassword", "SLEE
 val releaseKeyAlias = releaseSecret("sleepdown.releaseKeyAlias", "SLEEPDOWN_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseSecret("sleepdown.releaseKeyPassword", "SLEEPDOWN_RELEASE_KEY_PASSWORD")
 val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOWN_REMOTE_CONFIG_SECRET").orEmpty()
+val sleepDownVersionName = "1.2.6_beta7"
+val sleepDownExpVersionName = sleepDownVersionName
+    .substringBefore("_beta")
+    .substringBefore("-beta") + "-exp"
 val skipReleaseResourceShrink = providers.gradleProperty("sleepdown.skipReleaseResourceShrink")
     .map(String::toBoolean)
     .getOrElse(false)
@@ -66,7 +70,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 33
-        versionName = "1.2.6_beta7"
+        versionName = sleepDownVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SLEEPDOWN_API_BASE_URL", "\"https://api.sleepdownschedule.cn\"")
         buildConfigField(
@@ -121,7 +125,6 @@ android {
         }
         create("exp") {
             initWith(getByName("release"))
-            versionNameSuffix = "-exp"
             signingConfig = signingConfigs.findByName("release")
             matchingFallbacks += listOf("release")
             buildConfigField("boolean", "SLEEPDOWN_EXP_BUILD", "true")
@@ -159,6 +162,11 @@ android {
 }
 
 androidComponents {
+    onVariants(selector().withBuildType("exp")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionName.set(sleepDownExpVersionName)
+        }
+    }
     onVariants(selector().withName(Pattern.compile("(github|store)BenchmarkRelease"))) { variant ->
         variant.applicationId.set("${variant.applicationId.get()}.benchmark")
     }

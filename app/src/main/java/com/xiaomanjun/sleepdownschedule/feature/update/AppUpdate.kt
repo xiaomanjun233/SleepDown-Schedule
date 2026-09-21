@@ -53,6 +53,7 @@ private const val UpdatePreferences = "app_update_state"
 private const val LastCheckDateKey = "last_check_date"
 private const val LatestTagKey = "latest_tag"
 private const val IncludeBetaKey = "include_beta"
+private const val UpdateChannelKey = "update_channel"
 
 data class GiteeReleaseInfo(
     val name: String,
@@ -68,6 +69,12 @@ data class GiteeReleaseInfo(
 enum class DownloadPackageKind {
     AppUpdate,
     CourseComponent
+}
+
+enum class AppUpdateChannel {
+    Stable,
+    Beta,
+    Experimental
 }
 
 sealed interface GiteeUpdateCheckResult {
@@ -98,15 +105,31 @@ object GiteeAppUpdater {
     private val _downloadState = MutableStateFlow<UpdateDownloadState>(UpdateDownloadState.Idle)
     val downloadState: StateFlow<UpdateDownloadState> = _downloadState.asStateFlow()
 
-    fun includesBeta(context: Context): Boolean = preferences(context).getBoolean(IncludeBetaKey, false)
+    fun updateChannel(context: Context): AppUpdateChannel {
+        val preferences = preferences(context)
+        return preferences.getString(UpdateChannelKey, null)
+            ?.let { stored -> AppUpdateChannel.entries.firstOrNull { it.name == stored } }
+            ?: if (preferences.getBoolean(IncludeBetaKey, false)) {
+                AppUpdateChannel.Beta
+            } else {
+                AppUpdateChannel.Stable
+            }
+    }
 
-    fun setIncludesBeta(context: Context, enabled: Boolean) {
+    fun setUpdateChannel(context: Context, channel: AppUpdateChannel) {
         preferences(context).edit {
-            putBoolean(IncludeBetaKey, enabled)
+            putString(UpdateChannelKey, channel.name)
+            putBoolean(IncludeBetaKey, channel == AppUpdateChannel.Beta)
             remove(LastCheckDateKey)
             remove(LatestTagKey)
         }
         _updateAvailable.value = false
+    }
+
+    fun includesBeta(context: Context): Boolean = updateChannel(context) == AppUpdateChannel.Beta
+
+    fun setIncludesBeta(context: Context, enabled: Boolean) {
+        setUpdateChannel(context, if (enabled) AppUpdateChannel.Beta else AppUpdateChannel.Stable)
     }
 
     fun restoreCachedStatus(context: Context, currentVersionName: String) {
@@ -115,8 +138,9 @@ object GiteeAppUpdater {
             return
         }
         val latestTag = preferences(context).getString(LatestTagKey, null)
+        val channel = updateChannel(context)
         _updateAvailable.value = latestTag?.let {
-            (includesBeta(context) || !ParsedVersion.parse(it).isPrerelease) && isVersionNewer(it, currentVersionName)
+            channel.acceptsTag(it) && isVersionNewer(it, currentVersionName)
         } == true
     }
 
@@ -144,7 +168,7 @@ object GiteeAppUpdater {
                     "当前应用商店发行版不支持应用内 APK 更新"
                 }
                 val releases = readReleaseObjects().map { it.toReleaseInfo() }
-                val release = selectRelease(releases, includesBeta(context))
+                val release = selectRelease(releases, updateChannel(context))
                     ?: error("当前更新渠道暂无可用版本")
                 if (isVersionNewer(release.tagName, currentVersionName)) {
                     GiteeUpdateCheckResult.UpdateAvailable(release)
@@ -293,7 +317,16 @@ object GiteeAppUpdater {
     }
 
     internal fun selectRelease(releases: List<GiteeReleaseInfo>, includeBeta: Boolean): GiteeReleaseInfo? =
-        releases.filter { includeBeta || (!it.prerelease && !ParsedVersion.parse(it.tagName).isPrerelease) }
+        selectRelease(
+            releases,
+            if (includeBeta) AppUpdateChannel.Beta else AppUpdateChannel.Stable
+        )
+
+    internal fun selectRelease(
+        releases: List<GiteeReleaseInfo>,
+        channel: AppUpdateChannel
+    ): GiteeReleaseInfo? =
+        releases.filter { channel.accepts(it) }
             .maxWithOrNull { left, right ->
                 when {
                     isVersionNewer(left.tagName, right.tagName) -> 1
@@ -302,16 +335,31 @@ object GiteeAppUpdater {
                 }
             }
 
+    private fun AppUpdateChannel.accepts(release: GiteeReleaseInfo): Boolean {
+        val version = ParsedVersion.parse(release.tagName)
+        return when (this) {
+            AppUpdateChannel.Stable -> !release.prerelease && !version.isPrerelease
+            AppUpdateChannel.Beta -> !version.isExperimental
+            AppUpdateChannel.Experimental -> version.isExperimental
+        }
+    }
+
+    private fun AppUpdateChannel.acceptsTag(tag: String): Boolean {
+        val version = ParsedVersion.parse(tag)
+        return when (this) {
+            AppUpdateChannel.Stable -> !version.isPrerelease
+            AppUpdateChannel.Beta -> !version.isExperimental
+            AppUpdateChannel.Experimental -> version.isExperimental
+        }
+    }
+
     private fun preferences(context: Context) =
         context.applicationContext.getSharedPreferences(UpdatePreferences, Context.MODE_PRIVATE)
 
     private fun JsonObject.toReleaseInfo(): GiteeReleaseInfo {
         val tag = string("tag_name").ifBlank { string("name") }
         require(tag.isNotBlank()) { "Gitee Release 缺少版本标签" }
-        val asset = releaseAssets().firstOrNull { asset ->
-            asset.name.endsWith(".apk", ignoreCase = true) ||
-                asset.url.substringBefore('?').endsWith(".apk", ignoreCase = true)
-        }
+        val asset = releaseAssets().firstOrNull(ReleaseAsset::isAppUpdateApk)
         val releasePage = string("html_url").ifBlank {
             "$GiteeRepositoryUrl/releases/tag/${Uri.encode(tag)}"
         }
@@ -622,7 +670,12 @@ class UpdateDownloadForegroundService : Service() {
 
 private data class ReleaseAsset(val name: String, val url: String)
 
-private data class ParsedVersion(val numbers: List<Int>, val stage: Int, val sequence: Int) {
+private data class ParsedVersion(
+    val numbers: List<Int>,
+    val stage: Int,
+    val sequence: Int,
+    val isExperimental: Boolean
+) {
     val isPrerelease: Boolean get() = stage < 5
     companion object {
         fun parse(raw: String): ParsedVersion {
@@ -631,8 +684,9 @@ private data class ParsedVersion(val numbers: List<Int>, val stage: Int, val seq
                 ?: error("无法识别版本号：$raw")
             val numbers = main.value.split('.').map { it.toInt() }
             val suffix = normalized.substring(main.range.last + 1).substringBefore('+')
-            val pre = Regex("(?i)(dev|alpha|beta|preview|rc)[\\s._-]*(\\d*)").find(suffix)
+            val pre = Regex("(?i)(experimental|exp|dev|alpha|beta|preview|rc)[\\s._-]*(\\d*)").find(suffix)
             val stage = when (pre?.groupValues?.get(1)?.lowercase()) {
+                "experimental", "exp" -> 0
                 "dev" -> 0
                 "alpha" -> 1
                 "beta" -> 2
@@ -640,9 +694,24 @@ private data class ParsedVersion(val numbers: List<Int>, val stage: Int, val seq
                 "rc" -> 4
                 else -> 5
             }
-            return ParsedVersion(numbers, stage, pre?.groupValues?.get(2)?.toIntOrNull() ?: 0)
+            val stageName = pre?.groupValues?.get(1)?.lowercase()
+            return ParsedVersion(
+                numbers = numbers,
+                stage = stage,
+                sequence = pre?.groupValues?.get(2)?.toIntOrNull() ?: 0,
+                isExperimental = stageName == "experimental" || stageName == "exp"
+            )
         }
     }
+}
+
+private fun ReleaseAsset.isAppUpdateApk(): Boolean {
+    val normalizedName = name.lowercase()
+    val normalizedUrl = url.substringBefore('?').lowercase()
+    val isApk = normalizedName.endsWith(".apk") || normalizedUrl.endsWith(".apk")
+    val isCourseComponent = normalizedName.contains("coloros-course-component") ||
+        normalizedName.contains("wakeup-proxy")
+    return isApk && !isCourseComponent
 }
 
 private fun JsonObject.string(key: String): String =
