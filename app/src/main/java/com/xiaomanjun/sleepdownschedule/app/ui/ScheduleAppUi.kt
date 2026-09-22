@@ -234,6 +234,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -775,6 +776,11 @@ fun CourseScheduleAppUi(
     var homeMode by remember(state.loaded, state.config.defaultHomeMode) {
         mutableStateOf(state.config.defaultHomeMode.toHomeMode())
     }
+    val rootPageMotion = rememberHomeSwitchMotion(screen is Screen.Config, "home-settings")
+    val homeModeMotion = key(state.loaded) {
+        rememberHomeSwitchMotion(homeMode == HomeMode.Week, "day-week")
+    }
+    val rootPageStateHolder = rememberSaveableStateHolder()
     var homeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     val aiHistorySelection by AiEduImportProgressSession.historySelection.collectAsStateWithLifecycle()
     val aiFinalImportRequest by AiEduImportProgressSession.finalImportRequest.collectAsStateWithLifecycle()
@@ -928,7 +934,7 @@ fun CourseScheduleAppUi(
             destinationTransitionActive || courseEditorRequest != null ||
             courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle || courseShortcuts.request != null ||
             homeAssistant.stage == HomeAssistantStage.Conversation
-    val homeBackgroundFreezeActive = shouldUseFrozenHomeMorphBlur(
+    val homeBackgroundFreezeActive = !rootPageMotion.moving && !homeModeMotion.moving && shouldUseFrozenHomeMorphBlur(
         screenIsHome = screen is Screen.Home,
         previewActive = personalizationPreviewActive,
         overlayActive = homeBackgroundOverlayActive
@@ -1602,7 +1608,9 @@ fun CourseScheduleAppUi(
         homeDisplayDate,
         editingCourseId,
         activeHomeAnchoredOverlay,
-        addButtonHidden
+        addButtonHidden,
+        rootPageMotion.moving,
+        homeModeMotion.moving
     ) {
         buildString {
             append(System.identityHashCode(homeBackgroundSession)).append('|')
@@ -1619,6 +1627,7 @@ fun CourseScheduleAppUi(
                 .append('|').append(editingCourseId)
                 .append('|').append(activeHomeAnchoredOverlay)
                 .append('|').append(addButtonHidden)
+                .append('|').append(rootPageMotion.moving).append('|').append(homeModeMotion.moving)
             // Menus are sibling consumers outside this recorder. Hiding the source menu during
             // handoff changes no Home pixels and must not recapture the scene during Opening.
         }
@@ -1639,7 +1648,13 @@ fun CourseScheduleAppUi(
     }
     val currentHomeCoordinatesFreeze = rememberUpdatedState(homeBackgroundFreezeActive)
     val currentHomeCaptureFrameKey = rememberUpdatedState(homeCaptureFrameKey)
-    val homeGlassSampleRecordKey = remember { { currentHomeCaptureFrameKey.value } }
+    val homeGlassMotionKey = remember(rootPageMotion, homeModeMotion) {
+        derivedStateOf {
+            Triple(currentHomeCaptureFrameKey.value, rootPageMotion.progress.value, homeModeMotion.progress.value)
+        }
+    }
+    // Observe page movement in glass draw nodes, even when their layout coordinate object is reused.
+    val homeGlassSampleRecordKey = remember(homeGlassMotionKey) { { homeGlassMotionKey.value } }
     val freezeHomeGlassCoordinates = remember {
         {
             currentHomeCoordinatesFreeze.value &&
@@ -2100,7 +2115,7 @@ fun CourseScheduleAppUi(
     val sharedCourseBackdrop = remember(backgroundBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy) {
         com.kyant.backdrop.backdrops.SharedBlurBackdrop(backgroundBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
     }
-    val useSharedCourseBackdrop = screen is Screen.Home && visualState.config.courseCardGlassEnabled &&
+    val useSharedCourseBackdrop = rootPageMotion.retains(false) && visualState.config.courseCardGlassEnabled &&
         wallpaperImages.source != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     lateinit var handleHomeAgentAction: AgentActionHandler
     handleHomeAgentAction = {
@@ -2495,20 +2510,21 @@ fun CourseScheduleAppUi(
             containerColor = ComposeColor.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                if (screen !is Screen.Config) TopBarEntranceContainer(
+                HomeSwitchPane(rootPageMotion, secondary = false, modifier = Modifier.fillMaxWidth()) {
+                TopBarEntranceContainer(
                     phase = startupPhase,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(
                             rootTopBarLayoutHeight(
-                                screen,
+                                Screen.Home,
                                 homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS
                             )
                         )
                 ) {
-                    if (screen is Screen.Home) {
+                    if (rootPageMotion.retains(false)) {
                         AnimatedVisibility(
-                            visible = screen is Screen.Config || homeContentUnderTopBar,
+                            visible = homeContentUnderTopBar,
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .zIndex(10f),
@@ -2543,14 +2559,15 @@ fun CourseScheduleAppUi(
                             .zIndex(11f)
                     ) {
                         AppTopBar(
-                            screen = screen,
-                            state = if (screen is Screen.Home) visualState else state,
+                            screen = Screen.Home,
+                            state = visualState,
                             settingsPage = SettingsPage.Root,
                             backdrop = chromeBackdrop,
                             homeMode = homeMode,
+                            homeModeMotion = homeModeMotion,
                             onHomeModeChange = { homeMode = it },
-                            homeDisplayDate = homeTitleDate,
-                            homeDisplayWeek = homeTitleWeek,
+                            homeDisplayDate = homeDisplayDate,
+                            homeDisplayWeek = homeDisplayWeek,
                             beforeScheduleTerm = beforeScheduleTerm,
                             afterScheduleTerm = afterScheduleTerm,
                             homeShowingAnotherWeek = homeShowingAnotherWeek,
@@ -2568,7 +2585,7 @@ fun CourseScheduleAppUi(
                             onBackHome = { screen = Screen.Home }
                         )
                     }
-                    if (homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS) {
+                    if (homeModeMotion.retains(true) && weekViewStyle == WeekViewStyle.BOUNDLESS) {
                         // Boundless week header lives on the top bar layer (above the gradient
                         // blur) so weekday labels are never covered; geometry mirrors the course
                         // grid (rowHeaderWidth slot + equal columns + weekGridEndPadding).
@@ -2594,9 +2611,10 @@ fun CourseScheduleAppUi(
                                     start = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp,
                                     end = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp
                                 )
-                                .graphicsLayer { clip = false }
+                                .homeSwitchLayer(homeModeMotion, secondary = true, travel = 22.dp)
                         )
                     }
+                }
                 }
             }
         ) { padding ->
@@ -2608,15 +2626,15 @@ fun CourseScheduleAppUi(
                     modifier = Modifier
                         .fillMaxSize()
                         .glassBackdropProducer(backgroundBackdrop, recordKey = {
-                            if (screen is Screen.Home && visualState.loaded && wallpaperImages.source != null) {
+                            if (rootPageMotion.retains(false) && visualState.loaded && wallpaperImages.source != null) {
                                 homeWallpaperRecordKey.value?.let { imageKey ->
                                     listOf(imageKey, personalizationPreviewState.wallpaperBrightness
-                                        ?: visualState.config.wallpaperBrightness)
+                                        ?: visualState.config.wallpaperBrightness, rootPageMotion.progress.value)
                                 }
                             } else null
                         })
                 ) {
-                    if (screen is Screen.Home) {
+                    if (rootPageMotion.retains(false)) {
                         if (!visualState.loaded) {
                             HomeBackdropFallback(
                                 noWallpaper = !visualState.config.hasAnyWallpaper()
@@ -2638,10 +2656,11 @@ fun CourseScheduleAppUi(
                                 HomeBackdropFallback(noWallpaper = noWallpaperResolved)
                             }
                         }
-                    } else if (screen is Screen.Config) {
-                        Box(Modifier.fillMaxSize().background(settingsPageBackground(settingsVisualConfig(state.config))))
-                    } else {
-                        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+                    }
+                    if (rootPageMotion.retains(true)) {
+                        Box(Modifier.fillMaxSize()
+                            .graphicsLayer { alpha = rootPageMotion.progress.value.coerceIn(0f, 1f) }
+                            .background(settingsPageBackground(settingsVisualConfig(state.config))))
                     }
                 }
                 /*
@@ -2651,18 +2670,22 @@ fun CourseScheduleAppUi(
                  * every glass surface that consumes this backdrop.
                  */
                 if (
-                    screen is Screen.Home &&
+                    rootPageMotion.retains(false) &&
                     visualState.loaded &&
                     visualState.config.hasAnyWallpaper() &&
                     wallpaperImages.source != null
                 ) {
-                    WallpaperToneOverlay(visualState.config, personalizationPreviewState)
+                    Box(Modifier.fillMaxSize().graphicsLayer {
+                        alpha = 1f - rootPageMotion.progress.value.coerceIn(0f, 1f)
+                    }) {
+                        WallpaperToneOverlay(visualState.config, personalizationPreviewState)
+                    }
                 }
                 if (useSharedCourseBackdrop) {
                     Box(Modifier.fillMaxSize().then(sharedCourseBackdrop.preRenderModifier {
                         homeWallpaperRecordKey.value?.let { imageKey ->
                             listOf(imageKey, personalizationPreviewState.wallpaperBrightness
-                                ?: visualState.config.wallpaperBrightness)
+                                ?: visualState.config.wallpaperBrightness, rootPageMotion.progress.value)
                         }
                     }))
                 }
@@ -2674,13 +2697,14 @@ fun CourseScheduleAppUi(
                         message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                     }
                     ContentEntranceContainer(phase = startupPhase, modifier = Modifier.weight(1f)) {
-                        when (screen) {
-                            Screen.Home -> {
+                        HomeSwitchPane(rootPageMotion, secondary = false, modifier = Modifier.fillMaxSize()) {
+                            rootPageStateHolder.SaveableStateProvider("home") {
                                  if (visualState.loaded) HomeScreen(
                                      state = visualState,
                                      agentState = agentVisualState,
                                      personalizationPreviewState = personalizationPreviewState,
                                      mode = homeMode,
+                                     modeMotion = homeModeMotion,
                                      dayViewMode = dayViewMode,
                                      weekViewStyle = weekViewStyle,
                                      adaptiveMetrics = homeAdaptiveMetrics,
@@ -2700,7 +2724,7 @@ fun CourseScheduleAppUi(
                                         homeDisplayDate = if (range == null) requested
                                         else requested.coerceIn(range.start, range.endInclusive)
                                     },
-                                    onContentUnderTopBarChange = { homeContentUnderTopBar = it },
+                                    onContentUnderTopBarChange = { if (screen is Screen.Home) homeContentUnderTopBar = it },
                                     dayAgentBackgroundMotionState = dayAgentBackgroundMotionState,
                                     onAgentPagerSettledChange = { settled ->
                                         dayAgentPagerSettled = settled
@@ -2749,7 +2773,13 @@ fun CourseScheduleAppUi(
                                     }
                                 )
                             }
-                            Screen.Config -> Box(Modifier.fillMaxSize()) {
+                            DockBackdropContinuityPatch(
+                                config = visualState.config,
+                                modifier = Modifier.align(Alignment.BottomCenter)
+                            )
+                        }
+                        HomeSwitchPane(rootPageMotion, secondary = true, modifier = Modifier.fillMaxSize()) {
+                            rootPageStateHolder.SaveableStateProvider("settings") {
                                 SettingsScreen(
                                         page = SettingsPage.Root,
                                         state = state,
@@ -2781,12 +2811,6 @@ fun CourseScheduleAppUi(
                                         }
                                     )
                             }
-                        }
-                        if (screen is Screen.Home) {
-                            DockBackdropContinuityPatch(
-                                config = visualState.config,
-                                modifier = Modifier.align(Alignment.BottomCenter)
-                            )
                         }
                     }
                 }
@@ -4663,6 +4687,7 @@ internal fun AppTopBar(
     settingsPage: SettingsPage,
     backdrop: Backdrop?,
     homeMode: HomeMode,
+    homeModeMotion: HomeSwitchMotion,
     onHomeModeChange: (HomeMode) -> Unit,
     homeDisplayDate: LocalDate,
     homeDisplayWeek: Int,
@@ -4705,20 +4730,28 @@ internal fun AppTopBar(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .fillMaxWidth()
+                    .fillMaxHeight()
                     .padding(start = 16.dp, end = 120.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
+                HomeMode.entries.forEach { titleMode ->
+                key(titleMode) {
+                HomeSwitchPane(homeModeMotion, secondary = titleMode == HomeMode.Week,
+                    modifier = Modifier.fillMaxSize(), travel = 14.dp, contentAlignment = Alignment.CenterStart) {
                 HomeDateTitle(
                     state = state,
-                    displayDate = homeDisplayDate,
-                    displayWeek = homeDisplayWeek,
+                    displayDate = if (titleMode == HomeMode.Day) homeDisplayDate else LocalDate.now(),
+                    displayWeek = if (titleMode == HomeMode.Day) effectiveCurrentWeek(state.config, homeDisplayDate) else homeDisplayWeek,
                     showTwoDays = false,
                     beforeScheduleTerm = beforeScheduleTerm,
                     afterScheduleTerm = afterScheduleTerm,
-                    showReturnToCurrentWeekHint = homeShowingAnotherWeek,
-                    showWeather = homeMode == HomeMode.Week,
+                    showReturnToCurrentWeekHint = titleMode == HomeMode.Week && homeDisplayWeek != effectiveCurrentWeek(state.config),
+                    showWeather = titleMode == HomeMode.Week,
                     onReturnCurrent = onReturnHomeToCurrentWeek
                 )
+                }
+                }
+                }
             }
             Row(
                 modifier = Modifier
@@ -9001,6 +9034,14 @@ fun ChangelogSettingsScreen(
     val darkTheme = appUsesDarkTheme(state.config)
     val listState = rememberLazyListState()
     val heroHeightPx = with(density) { AboutHeroHeight.toPx() }
+    // Each version owns its measurement and clipping surface, even when several are expanded.
+    fun androidx.compose.foundation.lazy.LazyListScope.changelogItem(version: String, body: String) {
+        item(key = "changelog-$version", contentType = "changelog-version") {
+            AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
+                CollapsibleChangelogRow(version, body)
+            }
+        }
+    }
     val heroScrollOffsetPx = remember(listState, heroHeightPx) {
         derivedStateOf {
             if (listState.firstVisibleItemIndex > 0) {
@@ -9251,21 +9292,20 @@ fun ChangelogSettingsScreen(
                     summary = "每一次打磨，都可以在这里找到。"
                 )
             }
-            item(key = "about-changelog") {
-                AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
-                CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.6_beta9",
                     "新增自动刷新课表，可选择从不、每天或每7天更新，登录失效后可重新连接教务。\n" +
                     "自动刷新支持130所学校的142个教务入口，涵盖正方等接口取课系统，支持需要校园网或校园VPN的学校。\n" +
                     "统一学校选择、底部搜索和教务网页登录体验，登录后读取并保存凭证，连接成功后可手动或自动刷新课表。\n" +
                     "修复西南大学登录入口，并完善其他学校的教务登录状态识别；刷新沿用已确认的学期、校区等信息。\n" +
                     "重新设计自动刷新页面，个人信息卡片置顶，头像支持圆形裁切预览，退出登录改为底部悬浮按钮。\n" +
+                    "头像裁切说明居中显示，操作按钮使用随明暗主题切换的黑白文字。\n" +
+                    "重新设计日周视图及首页与设置页切换动画，完善切换中的玻璃采样衔接。\n" +
+                    "修复更新日志连续展开多个版本时卡住的问题，并保留各版本的展开状态。\n" +
                     "增加周课表底部留白，避免最后一行的调课、补课标签被裁切。\n" +
                     "AI 助理按设备当前日期和时区理解今天、明天及课程周次。"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.6_beta8",
                     "AI 助理支持精准定位课程后修改教师、地点、时间和周次等信息，可同时修改多个字段，未指定的内容保持原样。\n" +
                     "完善 AI 助理的查询、计划、执行和结果核对流程，减少重复查询及无法继续调用工具的问题。\n" +
@@ -9279,8 +9319,7 @@ fun ChangelogSettingsScreen(
                     "修复长版本号显示不完整的问题，支持自动换行。\n" +
                     "完善普通版更新渠道过滤，避免将实验版识别为普通版或 Beta 更新。"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.6_beta7",
                     "修复自动匹配调休后手动修改日期可能闪退的问题，完善停课、补课日期校验与保存。\n" +
                     "自动检测到整组调休已应用时提示“已添加过”，保留手动调整的原课程日期；“新增调休日”移到安排卡片组最前方。\n" +
@@ -9294,8 +9333,7 @@ fun ChangelogSettingsScreen(
                     "节次编辑没有实际修改，或调整后恢复原值时，返回不再弹出保存确认；新建作息与节次结构修改仍会提示保存。\n" +
                     "合并重复图标资源，清理废弃预览图，缩小安装包；桌面图标保留独立昼夜入口，修复跟随系统深浅色不切换的问题。"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.6_beta6",
                     "新增「调休课表」：在课表详细设置里设置停课日与补课日，也可以按年份在线获取法定节假日与调休安排，自动匹配补课日期，先预览再采用。\n" +
                     "点按某条调休安排会弹出居中面板，直接选择停课或补课，并在面板里挑选调休日期与原课程日期；左滑删除，删除前再确认一次。\n" +
@@ -9305,8 +9343,7 @@ fun ChangelogSettingsScreen(
                     "「今日助手」更名为「AI助理」，并新增「周视图AI助理」开关。\n" +
                     "通知设置与课表详细设置统一使用公共小标题样式；「测试实时活动」改为底部居中悬浮胶囊，并真实反映实时活动按钮开关。"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.6_beta5",
                     "周视图新增下拉助手：课程滚到顶部后，继续下拉即可打开输入胶囊并自动弹出键盘；从按钮上开始下拉不会误触发。\n" +
                     "发送后胶囊随回答内容向下展开，保留轻透玻璃底部；下拉横条进入完整对话，上划可关闭，消息记录与原今日助手共享。\n" +
@@ -9316,8 +9353,7 @@ fun ChangelogSettingsScreen(
                     "日视图助手与完整对话顶部加入渐变模糊，进出完整对话更加平顺；展开完成后取消圆角和描边，首页仅下拉过程中进行圆角裁切。\n" +
                     "优化胶囊触摸和收回摄像头的衔接，保留教务导入灵动岛的反馈特效；教务岛缩小时继续隐藏状态栏。"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.6_beta4",
                     "修复首页启动时残留的切换动画，直接显示已加载的默认视图和当前周；首张壁纸也直接呈现。\n" +
                     "节次编辑右侧时间轴逐张对齐课程与课间卡片，跳过“添加节次”按钮区域，拖拽调整后保持对应。\n" +
@@ -9325,8 +9361,7 @@ fun ChangelogSettingsScreen(
                     "删除中间节次后，课间占位平滑展开；删除末节时一并收起前一个课间，补回课程时自动补齐。\n" +
                     "退出节次编辑时新增保存确认，可选择保存、不保存或继续编辑。"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.6_beta3",
                     "重做详细节次编辑：统一新建与调整作息入口，分两步确认节数、分段起点、课程时长和课间时长。\n" +
                     "课程与课间以独立卡片呈现，支持逐分钟拖拽和刻度振动；彩色时长与随段滚动的比例轴同步更新，调整时保持页面位置。\n" +
@@ -9336,8 +9371,7 @@ fun ChangelogSettingsScreen(
                     "上课与课间状态切换时先显示新的实时活动，再撤下旧活动，让状态变化更及时。\n" +
                     "移除首页首次打开时的飞入动画，内容就绪后直接呈现。"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.6_beta2",
                     "继续打磨玻璃界面、弹窗展开与页面返回动画，优化课表左右滑动，让熟悉的光影与动效更轻盈。\n" +
                         "复制课程时，卡片中心会更贴近点击位置，落点预览更加直观，自定义时间课程同样适用。\n" +
@@ -9348,13 +9382,11 @@ fun ChangelogSettingsScreen(
                         "统一 AI 导入、今日助手与下载通知的应用图标，跟随所选风格和深浅模式，修复 AI 导入实时活动重复显示图标的问题。\n" +
                         "取消升级后自动弹出的无界模式介绍，打开应用即可继续查看课表。"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.6_beta1",
                     "优化应用稳定性，提高应用流畅度"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.5",
                         "长按课程即可打开快捷菜单，编辑单节课、进入快速编辑模式、复制或移除，都更顺手。继续拖动即可移动课程，调整时长的操作也更加清晰。\n" +
                         "全新课程复制体验：选择本周或全部上课周后，直接回到课表选择目标位置，先预览，再点一次确认。顶部玻璃提示胶囊随操作展开，遇到课程冲突时及时提醒；确认后，课程副本从原位置飞向新位置，以回弹与涟漪落地。\n" +
@@ -9372,8 +9404,7 @@ fun ChangelogSettingsScreen(
                         "小组件设置新增「添加到桌面」，选好样式即可添加；修复今日课程 4×2 小组件的添加预览尺寸。\n" +
                         "新增「接收 Beta 版更新」开关：默认接收正式版，也可以主动体验新功能；使用测试版时，同版本正式版发布后也能正常收到更新提示。"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.4",
                     "课程卡片新增质感轮廓光：卡片边缘带有一圈柔和的亮光描边，让课程卡从壁纸中浮起、更有层次；同时新增折射强度控制，可以在个性化面板中分别调节\n" +
                         "周视图新增无界模式：星期与日期融入顶栏，课程可滚动到屏幕顶部，并可隐藏上一周/下一周按钮；通用设置中开启，首次更新会弹出切换引导\n" +
@@ -9388,8 +9419,7 @@ fun ChangelogSettingsScreen(
                         "精简实时活动相关文案表述\n" +
                         "完善 AI 请求端点配置兼容"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.3",
                     "重新设计教务导入页与网页内页，优化工具排版、字母选择栏、悬浮 Dock、渐变模糊顶栏、玻璃灵动岛和相关弹窗；AI 教务与通用工具的历史页面会从 Dock 处自然展开\n" +
                         "完整接入拾光仓库 2.0 的官方学校索引、适配脚本和交互方式，支持提交课程、开学日期、学期周数与完整节次时间；学校索引和脚本改从 Gitee 获取，缓存超过七天后自动检查更新\n" +
@@ -9398,16 +9428,14 @@ fun ChangelogSettingsScreen(
                         "日视图新增标准与双日两种模式；标准模式会在今日课程全部结束后提前展示明日课程，双日模式沿用原日视图排版连续显示两天课程\n" +
                         "修复教务 Dock 输入时的光标闪烁和焦点异常，优化中心弹窗跟手弥散光与遮挡恢复叠化，恢复浅色顶栏、返回按钮和搜索控件阴影，并恢复多课表详细设置的返回保存询问"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.2",
                     "优化教务系统导入页，修复网页重复加载、页面跳转闪烁等问题，并优化教务适配器选择，同一学校存在多个导入工具时可以查看并选择对应适配\n" +
                         "修复平板小组件排版异常的问题\n" +
                         "重构自定义背景小组件的课程卡绘制方式，修复模糊卡片背景与课程文字错位的问题\n" +
                         "修复部分设备上首页左上角日期标题和右上角按钮拖拽放大后被裁切的问题"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.1",
                     "建立统一的液态玻璃渲染框架。首页、二级页面、课程卡片、中心弹窗和悬浮菜单现在使用一致的背景采样与材质链路，复杂壁纸下的模糊、折射和前景色表现更加统一，也减少了弹窗背景变黑、退化为纯色或局部失去玻璃效果的情况。\n" +
                         "建立统一的无缝动画框架。多课表快速设置进入详细设置，以及首页前往课程管理、教务导入、手动导入和设置详情等页面时，会从实际点击位置自然展开，并完整衔接背景与页面内容；打开和返回时的跳帧、闪黑、内容重叠与动画偶尔被跳过的问题得到改善。\n" +
@@ -9436,8 +9464,7 @@ fun ChangelogSettingsScreen(
                         "修复左上角标题栏在部分机型、特殊状态栏高度或显示比例下被裁切的问题。\n" +
                         "修复平板端带背景小组件中，轮廓光课程卡片发生错位的问题，使背景、轮廓和课程内容在不同小组件尺寸下保持一致对齐。"
                 )
-                SettingsDivider()
-                SettingsInfoRow(
+            changelogItem(
                     "1.2.0",
                     "移除原来的加号菜单和日视图/周视图切换滑块，将相关功能重新整合进功能更完整的三点菜单。首页顶栏更轻、更整洁，课程与日期重新成为视觉中心，常用入口的位置和操作逻辑也更加统一" +
                         "；三点菜单采用全新的液态玻璃外观，从三点按钮打开和收回时更加连贯，拖动时也有更自然的弹性反馈与跟手高光。除了原有功能，现在还可以直接跳转到指定周数，快捷进入多课表管理和全新的课程管理页，让一个入口承担更多日常操作" +
@@ -9449,63 +9476,35 @@ fun ChangelogSettingsScreen(
                         "；今日助手和 Agent 服务进一步增强稳定性，个别模型服务商暂时不可用时，会自动尝试其他可用服务。Agent 现在也能读取和修改课程的自定义时间，并在执行课程或设置修改前展示计划、影响范围和冲突信息，确认后再完成操作" +
                         "；新增完整的隐私政策说明，清楚介绍课表数据保存在什么位置、哪些功能会联网以及各项权限的用途。用户自行配置的 API Key 等敏感信息只保存在本机，不会写入普通课表备份"
                 )
-                SettingsDivider()
-                SettingsInfoRow("1.1.5", "新增完整的数据备份与恢复功能，可将课表、作息、应用设置、小组件外观及相关图片保存为一个备份文件，恢复前会先检查文件并展示内容预览，替换数据也会再次确认，帮助你更安心地迁移和保管数据；新增“今明课程”桌面小组件，可同时查看今天剩余课程和明天的课程安排，并支持独立设置背景图片、取景、缩放、模糊和亮度；通用设置新增液态玻璃自定义选项，可以自由调节玻璃组件的清晰与模糊程度；现在液态玻璃开启和关闭时的课程卡片颜色、透明度、模糊及字体大小会分别保存，不再和液态玻璃课程卡片共享保存参数；优化平板设置页面的双栏浏览、返回按钮和顶部标题，修复部分设置返回后没有保存的问题；优化 AI 导入页面，改善导入历史和手动导入的显示与动画；修复个性化滑块拖动时跳动以及 100% 吸附点位置不准确的问题；重新设计关于应用页面，加入应用官网、项目仓库、反馈入口，新增功能亮点介绍页，优化深色模式、更新日志和网页打开体验；调大平板横屏课程卡片文字，查看课程名称、地点和教师信息更加清晰。")
-                SettingsDivider()
-                SettingsInfoRow("1.1.4", "修复普通设置保存错误使用个性化字段合并，跟随系统、手动深色模式、首页模式及后台隐藏等设置现在可以稳定持久化；设置详情页返回前等待最新配置写入完成，避免异步保存被页面销毁取消；修复手动切换深色模式时二级设置页触发启动器别名切换、导致 ColorOS 任务被回收并表现为闪退的问题；修复从设置页进入课表详细设置后修改无法持久化的问题，并统一使用课表设置保存确认弹窗。")
-                SettingsInfoRow("1.1.3", "AI 导入现已使用结构化局部编辑，只提交需要修改的课程、周次或节次，减少重复传输完整课表产生的 Token 消耗，并统一支持全部模型供应商；AI 修改过程中会持续展示处理进度、本轮具体改动摘要和完整历史修改记录，长时间推理不再被过早中断；重新实现导入历史预览与详情页的无缝动画，进入和返回均在同一页面完成，减少闪烁、重复卡片和布局跳动；优化模型快捷选单、手动导入控件及课程编辑选择器在不同玻璃亮度下的文字与控件配色；调整添加单节课页面的垂直排版、选择器宽度和离散周次显示；修复小组件背景编辑时预览区域跳动、交接闪烁以及顶栏字号不一致的问题，并提升多处交互与动画稳定性。")
-                SettingsDivider()
-                SettingsInfoRow("1.1.2", "新增由 SleepDown 提供的每日免费 AI 额度，未配置模型服务也可使用今日助手、AI 对话与 AI 教务导入，并在共享额度用尽时提供明确提示；支持 OpenAI Responses 与兼容接口，为 Agent 和 AI 导入加入快捷模型选择、推理强度设置、视觉附件及更多兼容模型；全新设计 AI 教务导入页面，集中呈现导入对话、文件附件、网页识别与视觉截取入口，并新增可保留文件导入上下文、继续历史对话的导入历史页面，以及更连贯的打开、返回和滑动删除交互；优化课程编辑与合并逻辑，相同信息的跨星期、跨周课程可统一编辑，并完善周次、自定义单双周和星期选择；全面改进手机、平板横屏和桌面小组件的动态排版，优化日视图、周视图、浮层、字体缩放、课程组居中及不同组件尺寸下的排版，并为设置壁纸的小组件课程卡片加入质感轮廓光效果；优化无壁纸状态的渐变背景、玻璃采样、折射与明暗可读性，统一弹窗按钮、菜单材质和多处无缝动画；修复兼容接口附件能力识别、个性化设置互相回撤、多课表页面顶栏闪现、输入框长按闪烁、历史记录闪帧、小组件更换背景时可能应用失败并影响系统相册响应及多项稳定性问题。")
-                SettingsDivider()
-                SettingsInfoRow("1.1.1", "本次更新进一步缩小安装包，减少安装后的空间占用，并优化壁纸、桌面组件和助手历史等数据的存储，长期使用更省空间；修复部分用户从旧版本升级后闪退的问题；新增武汉科技大学教务导入适配；优化平板等大屏设备的界面布局与操作体验，并提升整体性能和稳定性。支持直接覆盖安装，已有课表和设置不会丢失。")
-                SettingsDivider()
-                SettingsInfoRow("1.1.0", "桌面小组件现在也能自由个性化，4×2、2×2 今日课程组件和今日助手组件可分别设置背景图片，支持独立调整取景、缩放、模糊与亮度，保存前即可预览实际效果；今日助手现在支持发送图片，并加入可随时关闭、查看和编辑的长期记忆，课程查找更准确，工具执行状态更清晰，长回复与图片预览也更加流畅稳定；新增更具流动感的液态动画，首页加号菜单、个性化面板、添加课程、手动导入和教务导入之间能够自然衔接，课程编辑弹窗的展开、背景景深与收回动画也更加连贯，并会收回到课程修改后的位置；新增动态模糊过渡，内容展开或收起时会以自然的模糊效果衔接，减少文字和页面的突兀跳变；新增课程冲突处理，修改星期、节次、周次、单周课程或全部周课程时，应用会主动提醒本次新增的冲突，你可以先保留修改并跳转到冲突周，再点击“冲突”将课程移到最近空位，被单独调整的周次也会正确保留，不会再次并回整段周次；新用户将不再默认启用看板娘壁纸，默认日间、夜间壁纸已更新，并会跟随应用深色模式自动切换，应用图标也已换新，浅色与深色模式各有对应样式；调整课程卡片的玻璃采样层级，长按提起或移动卡片时，玻璃材质可以正确透出下方课程，层次更加自然；统一优化课程编辑、弹窗、滑条、加号菜单、个性化面板和教务页之间的动画衔接，减少闪烁和突兀切换；移动课程或调整节次时不再重新打乱整页课程配色，多彩卡片的颜色更加稳定；压缩并整理课程编辑弹窗的间距，常用信息更集中，操作更顺手；优化今日助手的流式回复、图片处理和复杂动画性能，长内容场景下更加流畅；移除首次启动时的遮罩展开动画，壁纸会在首个可见画面直接呈现，随后再自然进入首页；课程保存后，编辑弹窗会收回到修改后的卡片位置，动画方向与最终结果保持一致。")
-                SettingsDivider()
-                SettingsInfoRow("1.0.9", "今日助手全面升级，能够根据需要读取当前课表和设置，连续完成查询、修改、确认结果与撤销操作，并支持 MiMo 联网搜索；新增课程卡片和今日助手打开时的背景随动缩放效果，课程卡片展开与收回采用更自然的抛物线运动轨迹，配合弹性缩放和更流畅的页面交接，动画更加灵动；增强课程、节次、作息方案和个性化设置的智能调整能力，修改节次后可更合理地处理原有课程安排；修复今日助手偶尔读取错误课表、工具调用中断、回复内容缺失，以及实时活动倒计时停止刷新、测试提醒无法取消等问题。")
-                SettingsDivider()
-                SettingsInfoRow("1.0.8", "桌面小组件新增今日助手，展示当前或下节课、倒计时、地点与教师、上下课时间、今日课程数量、天气和预警，并补齐今日课程与今日助手三款小组件在系统选择页的独立名称和预览；修复升级后部分课表的节次时间与详细设置被错误重建为默认值的问题，完善多作息方案保存和数据库迁移兼容；将周次切换字符替换为矢量图标，并修复添加单节课选择器层级等交互问题。")
-                SettingsDivider()
-                SettingsInfoRow("1.0.7", "重构个性化与壁纸调整流程，新增卡片式壁纸裁切页面、横竖屏独立构图及更连贯的无缝过渡，并优化配色布局、玻璃材质、壁纸模糊与全部调节滑条的性能；强化课表详细设置与课程编辑，补充中午时段、总节次配置、时段防重叠和多课程翻页编辑，完善节次选择器、特殊课间以及 ICS 导入导出的完整作息信息，并支持从系统分享或打开方式直接调用 SleepDown 导入 ICS；重新设计今日助手卡片，集中展示课程、天气和预警信息，保留对话入口并增强自然语言课程与设置操作的识别稳定性；改进首页文字可读性和非液态玻璃课程卡片的高斯模糊效果，修复详情页进入闪帧、后台任务卡片隐藏范围及多项动画、数据与交互问题。")
-                SettingsDivider()
-                SettingsInfoRow("1.0.6", "重构课表详细设置与节次时间管理，支持上午、下午、晚上分段配置、多套作息方案、自动匹配、特殊课间与手动微调，并完善保存确认、课程节次重映射和不同课表间的数据隔离；增强今日助手的课程与设置操作能力，修复操作按钮缺失、切换课表后当前节次不显示以及生成文案后首页卡顿等问题；优化日视图、周视图、课程卡片与多课表管理的动画性能和交接效果，补全开学前与学期结束后的日期边界处理；更新下载新增后台持续下载与原生实时进度通知。")
-                SettingsDivider()
-                SettingsInfoRow("1.0.5", "优化今日助手样式与动画，修复日视图布局错误；重新设计桌面小组件，新增2x1样式；性能优化减少卡顿。日视图与周视图表头新增当前节次标识，上课时段一目了然。课表详细设置页面精简标题、取消二次确认、动画更流畅。节次时间编辑改版：可添加多条大课间，自动匹配一键重算，时间线合并展示。")
-                SettingsDivider()
-                SettingsInfoRow("1.0.4", "优化课程卡片、设置页面和今日助手的动画效果，切换更流畅，减少闪烁感；统一课表设置弹窗中的日期选择器、按钮和浮层样式；改进不同字体大小下的排版适配，文字显示更完整。")
-                SettingsDivider()
-                SettingsInfoRow("1.0.3", "多课表管理页面全新改版，卡片堆叠效果更灵动流畅；设置页跳转动画更连贯；整体玻璃质感优化，文字更清晰易读；日期选择器和课程编辑弹窗布局改进，操作更顺手。")
-                SettingsDivider()
-                SettingsInfoRow("1.0.2", "扩展今日 Agent 能力边界，支持结合当前课表理解更多课程与设置需求，并可引导进入对应功能；优化设置分类与信息层级，常用配置更易查找；优化首页日视图与周视图的跟手切换动画，日期、周次及课程内容衔接更自然；调整日视图课程卡片圆角，使卡片层级与整体界面更加协调；新增 ICS 课表文件导入与导出分享，可通过系统分享器保存或发送课表；通用教务导入会保存曾打开的教务站地址与登录状态，方便下次快速进入；新增每日自动检查更新功能，发现新版本时展示版本号和更新日志；通用设置与通知设置改为修改后直接保存，不再需要二次确认。")
-                SettingsDivider()
-                SettingsInfoRow("1.0.1", "新增今日助手，可结合当天课程与时间生成日程提醒，并支持快捷提问；新增课程卡片彩色模式，可从壁纸提取代表色并为同页课程分配不同配色；优化周视图课程卡片排版，课程名称、地点与教师信息层级更清晰。")
-                SettingsDivider()
-                SettingsInfoRow("1.0", "优化二级页面排版。")
-                SettingsInfoRow("1.10 beta", "优化页面切换与周视图渲染性能；新增快速编辑当前周卡片功能，长按卡片会弹出角标和删除按钮，拖拽把手可以修改课程持续时间，按住卡片拖拽可以修改上课时间，编辑体验更顺畅；修复了导入未来学期课表时，无法正确映射第一周的问题。")
-                SettingsDivider()
-                SettingsInfoRow("1.09 beta", "新增 AI 导入功能，绑定 API Key 之后，可以在原有教务导入无法识别网页课表结构时调用大模型来组织课表结构；无法抓取网页时，可以通过识屏进行强制抓取。此导入方法作为兜底方案，课表导入准确度取决于学校网站结构、选用大模型能力等。目前仅 DeepSeek 和小米 MIMO 经过了全流程测试，DeepSeek 不支持多模态，所以无法使用图片导入功能；优化各项玻璃参数，视觉效果更透亮；优化了个性化弹窗和加号菜单打开的动画。")
-                SettingsDivider()
-                SettingsInfoRow("1.08 beta", "优化动画过渡，课程卡片打开与收回更顺滑；优化渐变模糊效果，顶部与背景过渡更自然。")
-                SettingsDivider()
-                SettingsInfoRow("1.07 beta", "优化个性化面板布局，壁纸与课程卡片设置分区更清晰；调整弹窗取消与保存按钮为圆形液态图标按钮；优化课程卡片可读性，周视图课程名、地点、教师信息层级更分明；改进滑块默认值交互，点击标记点即可快速恢复默认并提供震动反馈；支持点击首页日期快速回到本周，日视图也可左右滑动切换日期；修复壁纸模糊时出现马赛克的问题。")
-                SettingsDivider()
-                SettingsInfoRow("1.06 beta", "重构首页自定义壁纸设置，支持竖屏和横屏分别调整显示区域，横竖屏切换和大屏窗口下显示更稳定；新增课程卡片字体大小调节；调整优化液态玻璃参数，修复液态玻璃可能出现分界线的问题，视效更通透灵动；优化加号菜单动画和首次启动课程卡片入场动画。")
-                SettingsDivider()
-                SettingsInfoRow("1.05 beta", "新增多课表功能，首页长按即可进入多课表管理页面，设置亦可进入；新增课表分享功能，可以一键复制课表口令；优化首次启动掉帧问题；优化编辑卡片弹窗无缝动画。")
-                SettingsDivider()
-                SettingsInfoRow("1.04 beta", "新增首次启动课程卡片飞入动画；新增隐藏后台卡片功能，返回桌面后自动从最近任务移除；修复自定义壁纸可能在应用重启后丢失的问题；全面适配 120Hz 高刷屏动画。")
-                SettingsDivider()
-                SettingsInfoRow("1.03 beta", "新增加号菜单连贯展开动画；新增课程卡片无缝展开与返回动画；调整玻璃通透度；增加课程卡片通透度可调范围；优化壁纸设置；优化周视图甩尾动画掉帧问题；优化桌面小组件排版、深色模式和剩余课程显示逻辑；调整实时活动提示文本，并支持系统新增荣耀 MagicOS 10。")
-                SettingsDivider()
-                SettingsInfoRow("1.02 beta", "修复教务 WebView 在部分 CAS 页面显示半截的问题；接入 Custom Tabs 浏览器登录流程；优化西南大学节次时间表；通用教务导入预览增加节次检查提示。")
-                SettingsDivider()
-                SettingsInfoRow("1.01 beta", "修复教务导入预览与节次信息问题；新增组件测试页、本次日志抓取、更新日志入口和下载新版页面；优化课程编辑删除作用范围；为周视图切换周加入课程卡片甩尾过渡动画。")
-                SettingsDivider()
-                SettingsInfoRow("1.0 beta", "完成基础课程表、手动导入、教务导入、通知提醒、实时活动、深色模式、壁纸与液态玻璃个性化设置。")
-                }
-            }
+            changelogItem("1.1.5", "新增完整的数据备份与恢复功能，可将课表、作息、应用设置、小组件外观及相关图片保存为一个备份文件，恢复前会先检查文件并展示内容预览，替换数据也会再次确认，帮助你更安心地迁移和保管数据；新增“今明课程”桌面小组件，可同时查看今天剩余课程和明天的课程安排，并支持独立设置背景图片、取景、缩放、模糊和亮度；通用设置新增液态玻璃自定义选项，可以自由调节玻璃组件的清晰与模糊程度；现在液态玻璃开启和关闭时的课程卡片颜色、透明度、模糊及字体大小会分别保存，不再和液态玻璃课程卡片共享保存参数；优化平板设置页面的双栏浏览、返回按钮和顶部标题，修复部分设置返回后没有保存的问题；优化 AI 导入页面，改善导入历史和手动导入的显示与动画；修复个性化滑块拖动时跳动以及 100% 吸附点位置不准确的问题；重新设计关于应用页面，加入应用官网、项目仓库、反馈入口，新增功能亮点介绍页，优化深色模式、更新日志和网页打开体验；调大平板横屏课程卡片文字，查看课程名称、地点和教师信息更加清晰。")
+            changelogItem("1.1.4", "修复普通设置保存错误使用个性化字段合并，跟随系统、手动深色模式、首页模式及后台隐藏等设置现在可以稳定持久化；设置详情页返回前等待最新配置写入完成，避免异步保存被页面销毁取消；修复手动切换深色模式时二级设置页触发启动器别名切换、导致 ColorOS 任务被回收并表现为闪退的问题；修复从设置页进入课表详细设置后修改无法持久化的问题，并统一使用课表设置保存确认弹窗。")
+            changelogItem("1.1.3", "AI 导入现已使用结构化局部编辑，只提交需要修改的课程、周次或节次，减少重复传输完整课表产生的 Token 消耗，并统一支持全部模型供应商；AI 修改过程中会持续展示处理进度、本轮具体改动摘要和完整历史修改记录，长时间推理不再被过早中断；重新实现导入历史预览与详情页的无缝动画，进入和返回均在同一页面完成，减少闪烁、重复卡片和布局跳动；优化模型快捷选单、手动导入控件及课程编辑选择器在不同玻璃亮度下的文字与控件配色；调整添加单节课页面的垂直排版、选择器宽度和离散周次显示；修复小组件背景编辑时预览区域跳动、交接闪烁以及顶栏字号不一致的问题，并提升多处交互与动画稳定性。")
+            changelogItem("1.1.2", "新增由 SleepDown 提供的每日免费 AI 额度，未配置模型服务也可使用今日助手、AI 对话与 AI 教务导入，并在共享额度用尽时提供明确提示；支持 OpenAI Responses 与兼容接口，为 Agent 和 AI 导入加入快捷模型选择、推理强度设置、视觉附件及更多兼容模型；全新设计 AI 教务导入页面，集中呈现导入对话、文件附件、网页识别与视觉截取入口，并新增可保留文件导入上下文、继续历史对话的导入历史页面，以及更连贯的打开、返回和滑动删除交互；优化课程编辑与合并逻辑，相同信息的跨星期、跨周课程可统一编辑，并完善周次、自定义单双周和星期选择；全面改进手机、平板横屏和桌面小组件的动态排版，优化日视图、周视图、浮层、字体缩放、课程组居中及不同组件尺寸下的排版，并为设置壁纸的小组件课程卡片加入质感轮廓光效果；优化无壁纸状态的渐变背景、玻璃采样、折射与明暗可读性，统一弹窗按钮、菜单材质和多处无缝动画；修复兼容接口附件能力识别、个性化设置互相回撤、多课表页面顶栏闪现、输入框长按闪烁、历史记录闪帧、小组件更换背景时可能应用失败并影响系统相册响应及多项稳定性问题。")
+            changelogItem("1.1.1", "本次更新进一步缩小安装包，减少安装后的空间占用，并优化壁纸、桌面组件和助手历史等数据的存储，长期使用更省空间；修复部分用户从旧版本升级后闪退的问题；新增武汉科技大学教务导入适配；优化平板等大屏设备的界面布局与操作体验，并提升整体性能和稳定性。支持直接覆盖安装，已有课表和设置不会丢失。")
+            changelogItem("1.1.0", "桌面小组件现在也能自由个性化，4×2、2×2 今日课程组件和今日助手组件可分别设置背景图片，支持独立调整取景、缩放、模糊与亮度，保存前即可预览实际效果；今日助手现在支持发送图片，并加入可随时关闭、查看和编辑的长期记忆，课程查找更准确，工具执行状态更清晰，长回复与图片预览也更加流畅稳定；新增更具流动感的液态动画，首页加号菜单、个性化面板、添加课程、手动导入和教务导入之间能够自然衔接，课程编辑弹窗的展开、背景景深与收回动画也更加连贯，并会收回到课程修改后的位置；新增动态模糊过渡，内容展开或收起时会以自然的模糊效果衔接，减少文字和页面的突兀跳变；新增课程冲突处理，修改星期、节次、周次、单周课程或全部周课程时，应用会主动提醒本次新增的冲突，你可以先保留修改并跳转到冲突周，再点击“冲突”将课程移到最近空位，被单独调整的周次也会正确保留，不会再次并回整段周次；新用户将不再默认启用看板娘壁纸，默认日间、夜间壁纸已更新，并会跟随应用深色模式自动切换，应用图标也已换新，浅色与深色模式各有对应样式；调整课程卡片的玻璃采样层级，长按提起或移动卡片时，玻璃材质可以正确透出下方课程，层次更加自然；统一优化课程编辑、弹窗、滑条、加号菜单、个性化面板和教务页之间的动画衔接，减少闪烁和突兀切换；移动课程或调整节次时不再重新打乱整页课程配色，多彩卡片的颜色更加稳定；压缩并整理课程编辑弹窗的间距，常用信息更集中，操作更顺手；优化今日助手的流式回复、图片处理和复杂动画性能，长内容场景下更加流畅；移除首次启动时的遮罩展开动画，壁纸会在首个可见画面直接呈现，随后再自然进入首页；课程保存后，编辑弹窗会收回到修改后的卡片位置，动画方向与最终结果保持一致。")
+            changelogItem("1.0.9", "今日助手全面升级，能够根据需要读取当前课表和设置，连续完成查询、修改、确认结果与撤销操作，并支持 MiMo 联网搜索；新增课程卡片和今日助手打开时的背景随动缩放效果，课程卡片展开与收回采用更自然的抛物线运动轨迹，配合弹性缩放和更流畅的页面交接，动画更加灵动；增强课程、节次、作息方案和个性化设置的智能调整能力，修改节次后可更合理地处理原有课程安排；修复今日助手偶尔读取错误课表、工具调用中断、回复内容缺失，以及实时活动倒计时停止刷新、测试提醒无法取消等问题。")
+            changelogItem("1.0.8", "桌面小组件新增今日助手，展示当前或下节课、倒计时、地点与教师、上下课时间、今日课程数量、天气和预警，并补齐今日课程与今日助手三款小组件在系统选择页的独立名称和预览；修复升级后部分课表的节次时间与详细设置被错误重建为默认值的问题，完善多作息方案保存和数据库迁移兼容；将周次切换字符替换为矢量图标，并修复添加单节课选择器层级等交互问题。")
+            changelogItem("1.0.7", "重构个性化与壁纸调整流程，新增卡片式壁纸裁切页面、横竖屏独立构图及更连贯的无缝过渡，并优化配色布局、玻璃材质、壁纸模糊与全部调节滑条的性能；强化课表详细设置与课程编辑，补充中午时段、总节次配置、时段防重叠和多课程翻页编辑，完善节次选择器、特殊课间以及 ICS 导入导出的完整作息信息，并支持从系统分享或打开方式直接调用 SleepDown 导入 ICS；重新设计今日助手卡片，集中展示课程、天气和预警信息，保留对话入口并增强自然语言课程与设置操作的识别稳定性；改进首页文字可读性和非液态玻璃课程卡片的高斯模糊效果，修复详情页进入闪帧、后台任务卡片隐藏范围及多项动画、数据与交互问题。")
+            changelogItem("1.0.6", "重构课表详细设置与节次时间管理，支持上午、下午、晚上分段配置、多套作息方案、自动匹配、特殊课间与手动微调，并完善保存确认、课程节次重映射和不同课表间的数据隔离；增强今日助手的课程与设置操作能力，修复操作按钮缺失、切换课表后当前节次不显示以及生成文案后首页卡顿等问题；优化日视图、周视图、课程卡片与多课表管理的动画性能和交接效果，补全开学前与学期结束后的日期边界处理；更新下载新增后台持续下载与原生实时进度通知。")
+            changelogItem("1.0.5", "优化今日助手样式与动画，修复日视图布局错误；重新设计桌面小组件，新增2x1样式；性能优化减少卡顿。日视图与周视图表头新增当前节次标识，上课时段一目了然。课表详细设置页面精简标题、取消二次确认、动画更流畅。节次时间编辑改版：可添加多条大课间，自动匹配一键重算，时间线合并展示。")
+            changelogItem("1.0.4", "优化课程卡片、设置页面和今日助手的动画效果，切换更流畅，减少闪烁感；统一课表设置弹窗中的日期选择器、按钮和浮层样式；改进不同字体大小下的排版适配，文字显示更完整。")
+            changelogItem("1.0.3", "多课表管理页面全新改版，卡片堆叠效果更灵动流畅；设置页跳转动画更连贯；整体玻璃质感优化，文字更清晰易读；日期选择器和课程编辑弹窗布局改进，操作更顺手。")
+            changelogItem("1.0.2", "扩展今日 Agent 能力边界，支持结合当前课表理解更多课程与设置需求，并可引导进入对应功能；优化设置分类与信息层级，常用配置更易查找；优化首页日视图与周视图的跟手切换动画，日期、周次及课程内容衔接更自然；调整日视图课程卡片圆角，使卡片层级与整体界面更加协调；新增 ICS 课表文件导入与导出分享，可通过系统分享器保存或发送课表；通用教务导入会保存曾打开的教务站地址与登录状态，方便下次快速进入；新增每日自动检查更新功能，发现新版本时展示版本号和更新日志；通用设置与通知设置改为修改后直接保存，不再需要二次确认。")
+            changelogItem("1.0.1", "新增今日助手，可结合当天课程与时间生成日程提醒，并支持快捷提问；新增课程卡片彩色模式，可从壁纸提取代表色并为同页课程分配不同配色；优化周视图课程卡片排版，课程名称、地点与教师信息层级更清晰。")
+            changelogItem("1.0", "优化二级页面排版。")
+            changelogItem("1.10 beta", "优化页面切换与周视图渲染性能；新增快速编辑当前周卡片功能，长按卡片会弹出角标和删除按钮，拖拽把手可以修改课程持续时间，按住卡片拖拽可以修改上课时间，编辑体验更顺畅；修复了导入未来学期课表时，无法正确映射第一周的问题。")
+            changelogItem("1.09 beta", "新增 AI 导入功能，绑定 API Key 之后，可以在原有教务导入无法识别网页课表结构时调用大模型来组织课表结构；无法抓取网页时，可以通过识屏进行强制抓取。此导入方法作为兜底方案，课表导入准确度取决于学校网站结构、选用大模型能力等。目前仅 DeepSeek 和小米 MIMO 经过了全流程测试，DeepSeek 不支持多模态，所以无法使用图片导入功能；优化各项玻璃参数，视觉效果更透亮；优化了个性化弹窗和加号菜单打开的动画。")
+            changelogItem("1.08 beta", "优化动画过渡，课程卡片打开与收回更顺滑；优化渐变模糊效果，顶部与背景过渡更自然。")
+            changelogItem("1.07 beta", "优化个性化面板布局，壁纸与课程卡片设置分区更清晰；调整弹窗取消与保存按钮为圆形液态图标按钮；优化课程卡片可读性，周视图课程名、地点、教师信息层级更分明；改进滑块默认值交互，点击标记点即可快速恢复默认并提供震动反馈；支持点击首页日期快速回到本周，日视图也可左右滑动切换日期；修复壁纸模糊时出现马赛克的问题。")
+            changelogItem("1.06 beta", "重构首页自定义壁纸设置，支持竖屏和横屏分别调整显示区域，横竖屏切换和大屏窗口下显示更稳定；新增课程卡片字体大小调节；调整优化液态玻璃参数，修复液态玻璃可能出现分界线的问题，视效更通透灵动；优化加号菜单动画和首次启动课程卡片入场动画。")
+            changelogItem("1.05 beta", "新增多课表功能，首页长按即可进入多课表管理页面，设置亦可进入；新增课表分享功能，可以一键复制课表口令；优化首次启动掉帧问题；优化编辑卡片弹窗无缝动画。")
+            changelogItem("1.04 beta", "新增首次启动课程卡片飞入动画；新增隐藏后台卡片功能，返回桌面后自动从最近任务移除；修复自定义壁纸可能在应用重启后丢失的问题；全面适配 120Hz 高刷屏动画。")
+            changelogItem("1.03 beta", "新增加号菜单连贯展开动画；新增课程卡片无缝展开与返回动画；调整玻璃通透度；增加课程卡片通透度可调范围；优化壁纸设置；优化周视图甩尾动画掉帧问题；优化桌面小组件排版、深色模式和剩余课程显示逻辑；调整实时活动提示文本，并支持系统新增荣耀 MagicOS 10。")
+            changelogItem("1.02 beta", "修复教务 WebView 在部分 CAS 页面显示半截的问题；接入 Custom Tabs 浏览器登录流程；优化西南大学节次时间表；通用教务导入预览增加节次检查提示。")
+            changelogItem("1.01 beta", "修复教务导入预览与节次信息问题；新增组件测试页、本次日志抓取、更新日志入口和下载新版页面；优化课程编辑删除作用范围；为周视图切换周加入课程卡片甩尾过渡动画。")
+            changelogItem("1.0 beta", "完成基础课程表、手动导入、教务导入、通知提醒、实时活动、深色模式、壁纸与液态玻璃个性化设置。")
         }
     }
-}
 }
 
 private fun Context.resolveSleepDownCustomTabsPackage(): String? {

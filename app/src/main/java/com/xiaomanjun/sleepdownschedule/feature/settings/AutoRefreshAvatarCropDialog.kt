@@ -16,10 +16,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogButtonRole
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogLiquidButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperCropState
@@ -60,7 +60,10 @@ internal fun AutoRefreshAvatarCropDialog(
         scrollableContent = true,
         bottomActions = {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                DialogLiquidButton(backdrop, "取消", { if (!saving) onDismiss() }, Modifier.weight(1f))
+                DialogLiquidButton(
+                    backdrop, "取消", { if (!saving) onDismiss() }, Modifier.weight(1f),
+                    monochromeNeutral = true
+                )
                 DialogLiquidButton(
                     backdrop, if (saving) "保存中…" else "完成",
                     onClick = {
@@ -104,7 +107,7 @@ internal fun AutoRefreshAvatarCropDialog(
                             }
                         }
                     },
-                    modifier = Modifier.weight(1f), role = DialogButtonRole.Confirm
+                    modifier = Modifier.weight(1f), monochromeNeutral = true
                 )
             }
         }
@@ -121,6 +124,8 @@ internal fun AutoRefreshAvatarCropDialog(
             ) else if (error == null) CircularProgressIndicator()
         }
         Text(error ?: "拖动调整位置，双指缩放预览",
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
             style = MaterialTheme.typography.bodySmall,
             color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
     }

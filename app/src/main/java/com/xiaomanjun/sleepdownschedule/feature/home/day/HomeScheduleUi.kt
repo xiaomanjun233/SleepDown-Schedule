@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.home.day
 import com.xiaomanjun.sleepdownschedule.feature.agent.excludeHomeAssistantPull
 
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseCardText
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
@@ -703,13 +704,16 @@ internal fun HomeScreen(
     weekEditInteractionEnabled: Boolean = true,
     courseGlassOcclusionPhase: CourseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live,
     courseGlassRestoredGroupKeys: Set<String> = emptySet(),
+    modeMotion: HomeSwitchMotion = rememberHomeSwitchMotion(mode == HomeMode.Week, "home-mode"),
 ) {
+    val modeStateHolder = rememberSaveableStateHolder()
     val homeOverscrollFactory = rememberHapticMiuixOverscrollFactory()
     val cardColor = remember(state.config.cardColorArgb, state.config.cardAlpha) {
         ComposeColor(state.config.cardColorArgb.toInt()).copy(alpha = state.config.cardAlpha)
     }
     val textColor = homeForegroundColor(state.config)
     var weekEditMode by remember(state.config.id) { mutableStateOf(false) }
+    LaunchedEffect(mode) { if (mode != HomeMode.Week) weekEditMode = false }
     val homeAssistant = com.xiaomanjun.sleepdownschedule.feature.agent.LocalHomeAssistant.current
     SideEffect { homeAssistant?.editing = weekEditMode }
     DisposableEffect(homeAssistant) { onDispose { homeAssistant?.editing = false } }
@@ -765,20 +769,15 @@ internal fun HomeScreen(
         BackHandler(enabled = mode == HomeMode.Week && weekEditMode) {
             weekEditMode = false
         }
-        AnimatedContent(
-            targetState = mode,
-            transitionSpec = {
-                val direction = if (targetState.ordinal > initialState.ordinal) 1 else -1
-                (
-                    fadeIn(tween(180, delayMillis = 40)) +
-                        slideInHorizontally(tween(200)) { direction * it / 10 }
-                    ) togetherWith (
-                    fadeOut(tween(120)) +
-                        slideOutHorizontally(tween(180)) { -direction * it / 10 }
-                    ) using SizeTransform(clip = false)
-            },
-            label = "home-mode"
-        ) { targetMode ->
+        HomeMode.entries.forEach { targetMode ->
+            key(targetMode) {
+            HomeSwitchPane(
+                motion = modeMotion,
+                secondary = targetMode == HomeMode.Week,
+                modifier = Modifier.fillMaxSize(),
+                travel = 22.dp
+            ) {
+            modeStateHolder.SaveableStateProvider(targetMode.name) {
             when (targetMode) {
                 HomeMode.Day -> CompositionLocalProvider(
                     LocalOverscrollFactory provides homeOverscrollFactory,
@@ -796,7 +795,7 @@ internal fun HomeScreen(
                         backdrop = backdrop,
                         dayAgentBackdrop = dayAgentBackdrop,
                         onSwipeDay = onSwipeDay,
-                        onContentUnderTopBarChange = onContentUnderTopBarChange,
+                        onContentUnderTopBarChange = { if (mode == targetMode) onContentUnderTopBarChange(it) },
                         dayAgentBackgroundMotionState = dayAgentBackgroundMotionState,
                         onAgentPagerSettledChange = onAgentPagerSettledChange,
                         onAgentPrepareOpen = onAgentPrepareOpen,
@@ -833,7 +832,7 @@ internal fun HomeScreen(
                             floatingCourseBackdrop = floatingCourseBackdrop,
                             headerBackdrop = weekHeaderBackdrop,
                             onSwipeWeek = onSwipeWeek,
-                            onContentUnderTopBarChange = onContentUnderTopBarChange,
+                            onContentUnderTopBarChange = { if (mode == targetMode) onContentUnderTopBarChange(it) },
                             style = weekViewStyle,
                             weekEditMode = weekEditMode,
                             onEnterWeekEditMode = { weekEditMode = true },
@@ -848,6 +847,9 @@ internal fun HomeScreen(
                         )
                     }
                 }
+            }
+            }
+            }
             }
         }
     }

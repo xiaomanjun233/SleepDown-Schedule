@@ -64,13 +64,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -1327,10 +1327,6 @@ internal fun ConstrainedPeriodTimePickers(
 
 @Composable
 fun SettingsInfoRow(title: String, body: String) {
-    if (LocalCollapsibleSettingsInfoRows.current) {
-        CollapsibleChangelogRow(title, body)
-        return
-    }
     if (LocalGlassMiuixEnabled.current) {
         MiuixBasicComponent(
             title = title,
@@ -1350,8 +1346,6 @@ fun SettingsInfoRow(title: String, body: String) {
         Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
     }
 }
-
-internal val LocalCollapsibleSettingsInfoRows = compositionLocalOf { false }
 
 private val changelogReleaseDates = mapOf(
     "1.2.6_beta8" to "2026-09-21",
@@ -1388,7 +1382,7 @@ private val changelogReleaseDates = mapOf(
 )
 
 @Composable
-private fun CollapsibleChangelogRow(version: String, body: String) {
+internal fun CollapsibleChangelogRow(version: String, body: String) {
     val isCurrentVersion = version == BuildConfig.VERSION_NAME || version == "下一版本（开发中）"
     val releaseDate = changelogReleaseDates[version]
     val entries = remember(body) {
@@ -1407,8 +1401,9 @@ private fun CollapsibleChangelogRow(version: String, body: String) {
                     "$entry。"
                 }
             }
+            .toList()
     }
-    var expanded by remember(version) { mutableStateOf(isCurrentVersion) }
+    var expanded by rememberSaveable(version) { mutableStateOf(isCurrentVersion) }
     val gentleExpansionEasing = remember {
         CubicBezierEasing(0.20f, 0f, 0f, 1f)
     }
