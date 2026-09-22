@@ -347,6 +347,7 @@ internal fun SinglePillWeekScheduleScreen(
     headerBackdrop: Backdrop? = backdrop,
     onSwipeWeek: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
+    onWeekHeaderPreview: (Int?) -> Unit = {},
     style: WeekViewStyle = WeekViewStyle.NORMAL,
     weekEditMode: Boolean = false,
     onEnterWeekEditMode: () -> Unit = {},
@@ -440,8 +441,22 @@ internal fun SinglePillWeekScheduleScreen(
     )
     val latestDisplayWeek by rememberUpdatedState(displayWeek)
     val latestSwipeWeek by rememberUpdatedState(onSwipeWeek)
+    val latestWeekHeaderPreview by rememberUpdatedState(onWeekHeaderPreview)
     val weekTail = rememberWeekPageTailMotion(pagerState)
     val homeSwitching = LocalHomeTextContrastFrozen.current
+    LaunchedEffect(pagerState, boundless) {
+        try {
+            snapshotFlow {
+                // currentPage changes at the halfway point in either direction. This is only
+                // chrome preview; changing displayWeek here would cancel the active gesture.
+                if (boundless && programmaticPage < 0) {
+                    pagerState.currentPage.coerceIn(0, pagerState.pageCount - 1) + 1
+                } else null
+            }.distinctUntilChanged().collect { latestWeekHeaderPreview(it) }
+        } finally {
+            latestWeekHeaderPreview(null)
+        }
+    }
     LaunchedEffect(pagerState, state.config.totalWeeks) {
         // Publish user swipes only after settling. Programmatic changes already own displayWeek.
         snapshotFlow {

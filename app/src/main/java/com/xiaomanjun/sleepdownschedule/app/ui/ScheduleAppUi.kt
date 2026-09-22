@@ -1531,6 +1531,7 @@ fun CourseScheduleAppUi(
     val homeCurrentWeek = effectiveCurrentWeek(visualState.config)
     val beforeScheduleTerm = isBeforeScheduleTerm(visualState.config, todayDate)
     val afterScheduleTerm = isAfterScheduleTerm(visualState.config, todayDate)
+    val homeWeekHeaderPreview = remember(visualState.config.id) { mutableStateOf<Int?>(null) }
     var homeDisplayWeek by remember(visualState.config.id, visualState.loaded) {
         mutableIntStateOf(if (beforeScheduleTerm) 1 else homeCurrentWeek)
     }
@@ -2578,7 +2579,9 @@ fun CourseScheduleAppUi(
                             homeModeMotion = homeModeMotion,
                             onHomeModeChange = { homeMode = it },
                             homeDisplayDate = homeDisplayDate,
-                            homeDisplayWeek = homeDisplayWeek,
+                            homeDisplayWeek = if (weekViewStyle == WeekViewStyle.BOUNDLESS) {
+                                homeWeekHeaderPreview.value ?: homeDisplayWeek
+                            } else homeDisplayWeek,
                             beforeScheduleTerm = beforeScheduleTerm,
                             afterScheduleTerm = afterScheduleTerm,
                             homeShowingAnotherWeek = homeShowingAnotherWeek,
@@ -2601,7 +2604,7 @@ fun CourseScheduleAppUi(
                         // blur) so weekday labels are never covered; geometry mirrors the course
                         // grid (rowHeaderWidth slot + equal columns + weekGridEndPadding).
                         BoundlessWeekdayHeaderRow(
-                            displayWeek = homeDisplayWeek,
+                            displayWeek = homeWeekHeaderPreview.value ?: homeDisplayWeek,
                             courses = visualState.courses,
                             config = visualState.config,
                             today = todayDate,
@@ -2734,6 +2737,7 @@ fun CourseScheduleAppUi(
                                     floatingCourseBackdrop = backgroundBackdrop,
                                      weekHeaderBackdrop = backgroundBackdrop,
                                     onSwipeWeek = { delta -> homeDisplayWeek = (homeDisplayWeek + delta).coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1)) },
+                                    onWeekHeaderPreview = { homeWeekHeaderPreview.value = it },
                                     onSwipeDay = { delta ->
                                         val requested = homeDisplayDate.plusDays(delta.toLong())
                                         val range = scheduleDayNavigationRange(visualState.config, todayDate)

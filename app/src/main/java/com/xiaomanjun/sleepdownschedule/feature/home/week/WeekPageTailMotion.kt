@@ -40,7 +40,7 @@ internal class WeekTailTimeline(initialPosition: Float) {
     }
 
     fun advance(timeNanos: Long, target: Float, anchor: Int, durationScale: Float): List<Float> {
-        val delayNanos = (24_000_000L * durationScale.coerceAtLeast(0f)).toLong()
+        val delayNanos = (16_000_000L * durationScale.coerceAtLeast(0f)).toLong()
         val longestDelay = delayNanos * (WeekTailGroups - 1)
         if (delayNanos == 0L || abs(target - lastTarget) > 1.25f) {
             history.clear()
