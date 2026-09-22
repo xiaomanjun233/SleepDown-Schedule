@@ -3,7 +3,6 @@ package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.webkit.CookieManager
@@ -39,8 +38,8 @@ internal data class AutoRefreshFetch(
 internal object AutoRefreshShiguangRunner {
     private const val TimeoutMillis = 90_000L
     private const val StablePageDelayMillis = 2_500L
-    private const val SwuCoursePageUrl =
-        "https://jw.swu.edu.cn/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N2151"
+    private const val SwuCoursePageUrl = SwuAuthRoutes.CoursePageUrl
+    private const val SwuSsoUrl = SwuAuthRoutes.SsoUrl
 
     suspend fun fetch(
         context: Context,
@@ -74,6 +73,7 @@ internal object AutoRefreshShiguangRunner {
         var pageGeneration = 0
         var loginAttempts = 0
         var swuCoursePageAttempts = 0
+        var swuSsoAttempts = 0
         var lastUrl = adapter.importUrl
 
         fun release() {
@@ -172,22 +172,55 @@ internal object AutoRefreshShiguangRunner {
                 startAdapterScript(webView, expectedGeneration)
                 return
             }
-            if (isSwuCoursePage(webView.url)) {
-                startAdapterScript(webView, expectedGeneration)
-                return
+            when {
+                SwuAuthRoutes.isCoursePage(webView.url) -> {
+                    startAdapterScript(webView, expectedGeneration)
+                }
+
+                SwuAuthRoutes.isAuthenticatedTeachingPage(webView.url) -> {
+                    if (swuCoursePageAttempts >= 3) {
+                        fail("无法进入西南大学教务课表；请确认已连接校园网或 aTrust")
+                        return
+                    }
+                    swuCoursePageAttempts += 1
+                    handler.postDelayed({
+                        if (finished || scriptStarted || pageGeneration != expectedGeneration) {
+                            return@postDelayed
+                        }
+                        webView.loadUrl(SwuCoursePageUrl)
+                    }, 1_200L)
+                }
+
+                SwuAuthRoutes.isTeachingLoginPage(webView.url) -> {
+                    if (swuSsoAttempts >= 1) {
+                        fail("西南大学统一认证会话已失效，请在自动刷新页重新完成统一认证")
+                        return
+                    }
+                    swuSsoAttempts += 1
+                    handler.postDelayed({
+                        if (finished || scriptStarted || pageGeneration != expectedGeneration) {
+                            return@postDelayed
+                        }
+                        webView.loadUrl(SwuSsoUrl)
+                    }, 600L)
+                }
+
+                SwuAuthRoutes.isUnifiedAuthPage(webView.url) ||
+                    SwuAuthRoutes.isSsoEntry(webView.url) -> {
+                    fail("西南大学统一认证会话已失效，请在自动刷新页重新完成统一认证")
+                }
+
+                else -> {
+                    fail("无法识别西南大学认证页面，请重新完成统一认证")
+                }
             }
-            if (swuCoursePageAttempts >= 3) {
-                fail("无法进入西南大学教务系统；请确认已连接校园网或 aTrust，并在自动刷新页重新完成统一认证")
-                return
-            }
-            swuCoursePageAttempts += 1
-            handler.postDelayed({
-                if (finished || scriptStarted || pageGeneration != expectedGeneration) return@postDelayed
-                webView.loadUrl(SwuCoursePageUrl)
-            }, 1_200L)
         }
 
         fun tryCredentialLogin(webView: WebView, expectedGeneration: Int) {
+            if (ShiguangApiAdapterCatalog.isSwuDirectAdapter(adapter)) {
+                continueAfterLogin(webView, expectedGeneration)
+                return
+            }
             if (loginAttempts >= 2 || profile.username.isBlank() || profile.password.isBlank()) {
                 continueAfterLogin(webView, expectedGeneration)
                 return
@@ -341,9 +374,4 @@ internal object AutoRefreshShiguangRunner {
         return if (calendar.get(Calendar.MONTH) >= Calendar.AUGUST) year else year - 1
     }
 
-    private fun isSwuCoursePage(url: String?): Boolean = runCatching {
-        val uri = Uri.parse(url.orEmpty())
-        uri.host.equals("jw.swu.edu.cn", ignoreCase = true) &&
-            uri.path.orEmpty().startsWith("/jwglxt/")
-    }.getOrDefault(false)
 }

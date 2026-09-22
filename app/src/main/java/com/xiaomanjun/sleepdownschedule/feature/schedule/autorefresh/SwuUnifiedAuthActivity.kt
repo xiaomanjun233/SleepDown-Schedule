@@ -101,10 +101,10 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
     }
 
     companion object {
-        internal const val PortalUrl = "https://i.swu.edu.cn/"
-        internal const val TeachingRootUrl = "https://jw.swu.edu.cn/"
-        internal const val CoursePageUrl =
-            "https://jw.swu.edu.cn/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N2151"
+        internal const val PortalUrl = SwuAuthRoutes.PortalUrl
+        internal const val TeachingRootUrl = SwuAuthRoutes.TeachingRootUrl
+        internal const val SsoUrl = SwuAuthRoutes.SsoUrl
+        internal const val CoursePageUrl = SwuAuthRoutes.CoursePageUrl
         private const val CurrentUrlExtra = "swu_unified_auth_current_url"
 
         internal fun intent(context: Context): Intent =
@@ -115,6 +115,11 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
             val urls = listOfNotNull(
                 PortalUrl,
                 TeachingRootUrl,
+                SsoUrl,
+                SwuAuthRoutes.UnifiedAuthRootUrl,
+                SwuAuthRoutes.UnifiedAuthLoginUrl,
+                SwuAuthRoutes.IdentityRootUrl,
+                SwuAuthRoutes.IdentityLoginUrl,
                 CoursePageUrl,
                 resultData?.getStringExtra(CurrentUrlExtra)
             ).filter { it.startsWith("https://") }.distinct()
@@ -125,11 +130,7 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
             }
         }
 
-        internal fun isCoursePage(url: String?): Boolean {
-            val uri = runCatching { Uri.parse(url.orEmpty()) }.getOrNull() ?: return false
-            return uri.host.equals("jw.swu.edu.cn", ignoreCase = true) &&
-                uri.path.orEmpty().contains("xskbcx_cxXskbcxIndex.html")
-        }
+        internal fun isCoursePage(url: String?): Boolean = SwuAuthRoutes.isCoursePage(url)
     }
 }
 
@@ -141,7 +142,7 @@ private fun SwuUnifiedAuthBrowser(
 ) {
     val context = LocalContext.current
     var webView by remember { mutableStateOf<WebView?>(null) }
-    var currentUrl by remember { mutableStateOf(SwuUnifiedAuthActivity.CoursePageUrl) }
+    var currentUrl by remember { mutableStateOf(SwuUnifiedAuthActivity.SsoUrl) }
     var loading by remember { mutableStateOf(true) }
     var ready by remember { mutableStateOf(false) }
     var pageError by remember { mutableStateOf<String?>(null) }
@@ -225,9 +226,18 @@ private fun SwuUnifiedAuthBrowser(
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
                                 currentUrl = url.orEmpty()
+                                CookieManager.getInstance().flush()
+                                if (
+                                    pageError == null &&
+                                    SwuAuthRoutes.isAuthenticatedTeachingPage(url) &&
+                                    !SwuUnifiedAuthActivity.isCoursePage(url)
+                                ) {
+                                    loading = true
+                                    view?.loadUrl(SwuUnifiedAuthActivity.CoursePageUrl)
+                                    return
+                                }
                                 loading = false
                                 ready = pageError == null && SwuUnifiedAuthActivity.isCoursePage(url)
-                                CookieManager.getInstance().flush()
                             }
 
                             override fun onReceivedError(
@@ -268,7 +278,7 @@ private fun SwuUnifiedAuthBrowser(
                             }
                         }
                         webView = this
-                        loadUrl(SwuUnifiedAuthActivity.CoursePageUrl)
+                        loadUrl(SwuUnifiedAuthActivity.SsoUrl)
                     }
                 },
                 update = {},
@@ -297,7 +307,7 @@ private fun SwuUnifiedAuthBrowser(
                     text = when {
                         pageError != null -> pageError!!
                         ready -> "已进入西南大学教务系统，可以返回并校验课表接口。"
-                        else -> "请在上方完成统一认证。如登录后没有自动返回教务系统，点击下方按钮。"
+                        else -> "请使用校园办事大厅账号完成统一身份认证；认证成功后会自动进入教务课表。"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = if (pageError != null) {
@@ -324,11 +334,11 @@ private fun SwuUnifiedAuthBrowser(
                     Button(
                         onClick = {
                             if (ready) onAuthenticated(currentUrl)
-                            else webView?.loadUrl(SwuUnifiedAuthActivity.CoursePageUrl)
+                            else webView?.loadUrl(SwuUnifiedAuthActivity.SsoUrl)
                         },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(if (ready) "认证完成" else "进入教务系统")
+                        Text(if (ready) "认证完成" else "重新进入统一认证")
                     }
                 }
             }
