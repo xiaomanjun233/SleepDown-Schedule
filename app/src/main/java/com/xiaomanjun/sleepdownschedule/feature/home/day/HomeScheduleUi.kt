@@ -774,8 +774,7 @@ internal fun HomeScreen(
             HomeSwitchPane(
                 motion = modeMotion,
                 secondary = targetMode == HomeMode.Week,
-                modifier = Modifier.fillMaxSize(),
-                travel = 22.dp
+                modifier = Modifier.fillMaxSize()
             ) {
             modeStateHolder.SaveableStateProvider(targetMode.name) {
             when (targetMode) {
@@ -1703,7 +1702,7 @@ internal fun DayScheduleScreen(
                 currentPeriod?.let { period ->
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(),
+                            .fillMaxWidth().homeSwitchGroup(),
                         contentAlignment = Alignment.Center
                     ) {
                         DayStatusGlassPill(
@@ -1716,6 +1715,7 @@ internal fun DayScheduleScreen(
             }
             val agentContent: @Composable () -> Unit = {
                 if (isToday && abs(page - pagerState.currentPage) <= 1) {
+                    Box(Modifier.homeSwitchGroup()) {
                     TodayAgentHost(
                         state = agentState,
                         date = targetDate,
@@ -1728,6 +1728,7 @@ internal fun DayScheduleScreen(
                         onAgentDismissed = onAgentDismissed,
                         onAgentAction = onAgentAction
                     )
+                    }
                 }
             }
             val groupedDayCourses = remember(dayCourses, state.config) {
@@ -1790,7 +1791,8 @@ internal fun DayScheduleScreen(
             }
             val courseList: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
                 if (dayCourses.isEmpty()) item(key = "primary-empty-$targetDate") {
-                    HomeReadableText(if (isToday) "今天没有课程" else "这一天没有课程", color = textColor)
+                    HomeReadableText(if (isToday) "今天没有课程" else "这一天没有课程", color = textColor,
+                        modifier = Modifier.homeSwitchGroup())
                 }
                 groupedDayCourses.forEach { (part, coursesInPart) ->
                     item(key = "primary-day-part-$targetDate-${part?.name ?: "OTHER"}") {
@@ -1833,7 +1835,8 @@ internal fun DayScheduleScreen(
                     }
                     if (secondaryCourses.isEmpty()) {
                         item(key = "secondary-empty-$visibleDate") {
-                            HomeReadableText("第二天没有课程", color = textColor.copy(alpha = 0.82f))
+                            HomeReadableText("第二天没有课程", color = textColor.copy(alpha = 0.82f),
+                                modifier = Modifier.homeSwitchGroup())
                         }
                     }
                     groupedSecondaryCourses.forEach { (part, coursesInPart) ->
@@ -2006,7 +2009,8 @@ private fun DayDateSectionHeader(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 2.dp),
+            .padding(top = 8.dp, bottom = 2.dp)
+            .homeSwitchGroup(),
         contentAlignment = Alignment.Center
     ) {
         DayStatusGlassPill(
@@ -2029,7 +2033,7 @@ private fun DayPartHeader(
         val end = courses.mapNotNull { courseEndTime(it, periods) }.maxOrNull()
         if (start != null && end != null) "$start–$end" else null
     }
-    SleepDownTimeSectionDivider(textColor = textColor, label = {
+    SleepDownTimeSectionDivider(modifier = Modifier.homeSwitchGroup(), textColor = textColor, label = {
         HomeReadableText(
             text = dayPartLabel(part),
             style = MaterialTheme.typography.titleSmall,
@@ -2054,7 +2058,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
     val resolvedCardColor = if (subdued) MutedCourseLightColor else courseCardBaseColor(config, course)
     val foreground = if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
         else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor) else glassForegroundColor(config)
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier = Modifier.homeSwitchGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         CourseGlassCard(
             backdrop = backdrop,
             config = config,

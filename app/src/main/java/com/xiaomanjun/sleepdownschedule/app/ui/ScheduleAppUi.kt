@@ -1650,7 +1650,7 @@ fun CourseScheduleAppUi(
     val currentHomeCaptureFrameKey = rememberUpdatedState(homeCaptureFrameKey)
     val homeGlassMotionKey = remember(rootPageMotion, homeModeMotion) {
         derivedStateOf {
-            Triple(currentHomeCaptureFrameKey.value, rootPageMotion.progress.value, homeModeMotion.progress.value)
+            Triple(currentHomeCaptureFrameKey.value, rootPageMotion.sampleKey, homeModeMotion.sampleKey)
         }
     }
     // Observe page movement in glass draw nodes, even when their layout coordinate object is reused.
@@ -2611,7 +2611,7 @@ fun CourseScheduleAppUi(
                                     start = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp,
                                     end = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp
                                 )
-                                .homeSwitchLayer(homeModeMotion, secondary = true, travel = 22.dp)
+                                .homeSwitchLayer(homeModeMotion, secondary = true)
                         )
                     }
                 }
@@ -2659,7 +2659,7 @@ fun CourseScheduleAppUi(
                     }
                     if (rootPageMotion.retains(true)) {
                         Box(Modifier.fillMaxSize()
-                            .graphicsLayer { alpha = rootPageMotion.progress.value.coerceIn(0f, 1f) }
+                            .homeSwitchLayer(rootPageMotion, secondary = true)
                             .background(settingsPageBackground(settingsVisualConfig(state.config))))
                     }
                 }
@@ -2675,9 +2675,7 @@ fun CourseScheduleAppUi(
                     visualState.config.hasAnyWallpaper() &&
                     wallpaperImages.source != null
                 ) {
-                    Box(Modifier.fillMaxSize().graphicsLayer {
-                        alpha = 1f - rootPageMotion.progress.value.coerceIn(0f, 1f)
-                    }) {
+                    Box(Modifier.fillMaxSize().homeSwitchLayer(rootPageMotion, secondary = false)) {
                         WallpaperToneOverlay(visualState.config, personalizationPreviewState)
                     }
                 }
@@ -4731,13 +4729,14 @@ internal fun AppTopBar(
                     .align(Alignment.CenterStart)
                     .fillMaxWidth()
                     .fillMaxHeight()
-                    .padding(start = 16.dp, end = 120.dp),
+                    .padding(start = 16.dp, end = 120.dp)
+                    .then(if (homeModeMotion.moving) Modifier.clipToBounds() else Modifier),
                 contentAlignment = Alignment.CenterStart
             ) {
                 HomeMode.entries.forEach { titleMode ->
                 key(titleMode) {
                 HomeSwitchPane(homeModeMotion, secondary = titleMode == HomeMode.Week,
-                    modifier = Modifier.fillMaxSize(), travel = 14.dp, contentAlignment = Alignment.CenterStart) {
+                    modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
                 HomeDateTitle(
                     state = state,
                     displayDate = if (titleMode == HomeMode.Day) homeDisplayDate else LocalDate.now(),
@@ -8169,7 +8168,7 @@ fun SettingsRootScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
         item {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth().homeSwitchGroup()) {
                 top.yukonga.miuix.kmp.preference.ArrowPreference(
                     title = appName,
                     summary = "开发者：小漫君",
@@ -8218,7 +8217,7 @@ fun SettingsRootScreen(
             }
         }
         item {
-            GlassPreferenceSection("应用") {
+            GlassPreferenceSection("应用", modifier = Modifier.homeSwitchGroup()) {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow(
                         "通用设置",
@@ -8259,7 +8258,7 @@ fun SettingsRootScreen(
             }
         }
         item {
-            GlassPreferenceSection("智能助手") {
+            GlassPreferenceSection("智能助手", modifier = Modifier.homeSwitchGroup()) {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow(
                         "AI 设置",
@@ -8278,7 +8277,7 @@ fun SettingsRootScreen(
             }
         }
         item {
-            GlassPreferenceSection("其他") {
+            GlassPreferenceSection("其他", modifier = Modifier.homeSwitchGroup()) {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow(
                         "备份与恢复",
@@ -9300,7 +9299,7 @@ fun ChangelogSettingsScreen(
                     "修复西南大学登录入口，并完善其他学校的教务登录状态识别；刷新沿用已确认的学期、校区等信息。\n" +
                     "重新设计自动刷新页面，个人信息卡片置顶，头像支持圆形裁切预览，退出登录改为底部悬浮按钮。\n" +
                     "头像裁切说明居中显示，操作按钮使用随明暗主题切换的黑白文字。\n" +
-                    "重新设计日周视图及首页与设置页切换动画，完善切换中的玻璃采样衔接。\n" +
+                    "日周视图及首页与设置页支持横向并行切换，内容从上到下分组错峰进场，玻璃采样持续跟随。\n" +
                     "修复更新日志连续展开多个版本时卡住的问题，并保留各版本的展开状态。\n" +
                     "增加周课表底部留白，避免最后一行的调课、补课标签被裁切。\n" +
                     "AI 助理按设备当前日期和时区理解今天、明天及课程周次。"

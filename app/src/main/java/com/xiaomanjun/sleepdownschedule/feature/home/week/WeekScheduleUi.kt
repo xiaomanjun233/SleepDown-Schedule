@@ -697,7 +697,8 @@ internal fun SinglePillWeekScheduleScreen(
                             Box(
                                 modifier = Modifier
                                     .height(cardHeight)
-                                    .fillMaxWidth(),
+                                    .fillMaxWidth()
+                                    .homeSwitchGroup(),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -3282,6 +3283,7 @@ fun WeekCourseBlock(
     val baseModifier = Modifier
         .fillMaxWidth()
         .height(height)
+        .homeSwitchGroup()
     val realLandingLiftPx = with(density) { 8.dp.toPx() }
     val tailModifier = Modifier
         .graphicsLayer {
