@@ -109,19 +109,9 @@ internal object AutoRefreshScheduleCoordinator {
         webStorage: AutoRefreshWebStorage?,
         desktopMode: Boolean
     ): AutoRefreshOutcome = refreshMutex.withLock {
-        require(AutoRefreshWebSession.origin(authenticatedUrl) != null) { "请先打开学校教务页面" }
-        require(cookies.isNotEmpty() || webStorage != null) { "未读取到登录态，请先完成学校登录" }
-        val existing = AutoRefreshScheduleStore.load(context)?.takeIf {
-            it.schoolId == adapter.school.id && it.adapterId == adapter.adapterId && it.scheduleId == scheduleId
-        }
-        val retained = AutoRefreshScheduleProfile(
-            schoolId = adapter.school.id, schoolName = adapter.school.name,
-            adapterId = adapter.adapterId, adapterName = adapter.adapterName,
-            username = "", password = "", scheduleId = scheduleId,
-            cookies = cookies, authenticatedUrl = authenticatedUrl, webStorage = webStorage,
-            desktopMode = desktopMode, sessionOnly = true, automatic = false,
-            avatarPath = existing?.avatarPath, lastRefreshAt = existing?.lastRefreshAt ?: 0,
-            lastResult = "登录态已保留，请打开教务页面手动刷新课表"
+        val retained = retainedEduSessionProfile(
+            adapter, scheduleId, cookies, authenticatedUrl, webStorage, desktopMode,
+            AutoRefreshScheduleStore.load(context)
         )
         AutoRefreshScheduleStore.save(context, retained)
         AutoRefreshOutcome(true, retained.lastResult, retained)

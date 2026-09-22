@@ -141,6 +141,7 @@ internal data class EduBrowserPrimaryAction(
     val guide: String,
     val onInvoke: suspend (WebView, ShiguangBridgeHost, Boolean) -> String,
     val enabled: Boolean = true,
+    val progressMessage: String = "正在读取登录态并验证凭证…",
     val onPageStarted: (WebView, String?) -> Unit = { _, _ -> },
     val onPageFinished: (WebView, String?) -> Unit = { _, _ -> }
 )
@@ -1606,14 +1607,16 @@ private fun EduImportBrowserScreen(
                         val target = popupWebView ?: webView
                         if (target != null && !primaryActionRunning && action.enabled) {
                             primaryActionRunning = true
-                            onMessage("正在读取登录态并验证凭证…")
+                            onMessage(action.progressMessage)
                             scope.launch {
                                 try {
                                     onMessage(action.onInvoke(target, bridge, desktopMode))
                                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                                     throw cancelled
-                                } catch (_: Exception) {
-                                    onMessage("连接失败，请检查网络后重试")
+                                } catch (error: Exception) {
+                                    // Raw exception messages may contain session URLs or cookies.
+                                    Log.w("EduSession", "Browser action failed: ${error.javaClass.simpleName}")
+                                    onMessage(eduBrowserActionFailureMessage(error))
                                 } finally {
                                     primaryActionRunning = false
                                 }

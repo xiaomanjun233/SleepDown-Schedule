@@ -13,7 +13,9 @@ internal object AutoRefreshLoginRoutes {
         if (uri.scheme !in setOf("https", "http") || uri.host.isNullOrBlank() || uri.userInfo != null) return false
         val host = uri.host.lowercase()
         val path = uri.path.orEmpty().lowercase()
-        if (path.contains("/authserver") || path.contains("/cas/login") ||
+        val pageName = path.substringAfterLast('/')
+        if (pageName in setOf("default2.aspx", "login.aspx", "login.asp", "login.jsp", "login.html") ||
+            path.contains("/authserver") || path.contains("/cas/login") ||
             path.contains("/login_") || path.endsWith("/login") || path.contains("/am/ui/login") ||
             Regex("(^|/)login([/?]|$)").containsMatchIn(uri.fragment.orEmpty().lowercase())
         ) return false

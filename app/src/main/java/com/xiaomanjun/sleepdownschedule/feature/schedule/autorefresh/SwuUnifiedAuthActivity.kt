@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -24,6 +25,7 @@ import com.xiaomanjun.sleepdownschedule.app.state.ScheduleViewModelFactory
 import com.xiaomanjun.sleepdownschedule.app.ui.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduBrowserPrimaryAction
+import com.xiaomanjun.sleepdownschedule.feature.importing.EduBrowserActionFailure
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduBridgeInteractionDialog
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduImportActivityScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.eduAdapterFromIntentKey
@@ -105,6 +107,7 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                                 webContentBackdrop = webBackdrop,
                                 primaryAction = EduBrowserPrimaryAction(
                                     label = if (sessionOnly) "保留登录态" else "读取登录态",
+                                    progressMessage = if (sessionOnly) "正在保留当前教务登录态…" else "正在读取登录态并验证凭证…",
                                     guide = if (sessionOnly) "完成学校登录后，点击“保留登录态”。下次可继续使用此会话，打开教务页面手动刷新课表。"
                                         else if (loginPageReady) "页面已就绪，点击“读取登录态”校验并保存凭证。课表可在连接后刷新。"
                                         else "请完成学校登录并进入教务系统，再点击“读取登录态”保存凭证。",
@@ -123,19 +126,25 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                                     },
                                     onInvoke = { webView, _, desktopMode ->
                                         val currentUrl = webView.url.orEmpty()
-                                        require(AutoRefreshLoginRoutes.isSessionPage(if (sessionOnly) "" else selected.school.id, currentUrl)) {
-                                            "请先完成学校登录并进入教务系统"
+                                        if (!AutoRefreshLoginRoutes.isSessionPage(if (sessionOnly) "" else selected.school.id, currentUrl)) {
+                                            throw EduBrowserActionFailure("请先完成学校登录并进入教务系统")
                                         }
-                                        val storage = AutoRefreshWebSession.captureStorage(webView, selected.school.id)
+                                        val storage = eduSessionStep("读取网页登录态失败，请刷新教务页面后重试") {
+                                            AutoRefreshWebSession.captureStorage(webView, selected.school.id)
+                                        }
                                         val cookieUrls = visitedUrls + selected.importUrl + currentUrl +
                                             if (ShiguangApiAdapterCatalog.isSwuAdapter(selected)) SwuAuthRoutes.sessionCookieUrls else emptyList()
-                                        val cookies = AutoRefreshWebSession.captureCookies(cookieUrls)
-                                        val result = if (sessionOnly) AutoRefreshScheduleCoordinator.retainSession(
-                                            context = app, adapter = selected,
-                                            scheduleId = intent.getIntExtra(ScheduleExtra, state.config.id),
-                                            cookies = cookies, authenticatedUrl = currentUrl,
-                                            webStorage = storage, desktopMode = desktopMode
-                                        ) else AutoRefreshScheduleCoordinator.connect(
+                                        val cookies = eduSessionStep("读取登录凭证失败，请刷新教务页面后重试") {
+                                            AutoRefreshWebSession.captureCookies(cookieUrls)
+                                        }
+                                        val result = if (sessionOnly) eduSessionStep("登录态未能保存到本机，请重试") {
+                                            AutoRefreshScheduleCoordinator.retainSession(
+                                                context = app, adapter = selected,
+                                                scheduleId = intent.getIntExtra(ScheduleExtra, state.config.id),
+                                                cookies = cookies, authenticatedUrl = currentUrl,
+                                                webStorage = storage, desktopMode = desktopMode
+                                            )
+                                        } else AutoRefreshScheduleCoordinator.connect(
                                             context = app,
                                             adapter = selected,
                                             scheduleId = intent.getIntExtra(ScheduleExtra, state.config.id),
@@ -147,7 +156,9 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                                         )
                                         if (result.success) {
                                             webView.commitSystemCredentialAutofill()
-                                            AutoRefreshScheduleWorker.updateSchedule(app, result.profile)
+                                            eduSessionStep("登录态已保存，但刷新任务未能更新，请返回自动刷新页面重试") {
+                                                AutoRefreshScheduleWorker.updateSchedule(app, result.profile)
+                                            }
                                             setResult(Activity.RESULT_OK)
                                             finish()
                                         }
@@ -172,4 +183,14 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                 .putExtra(AdapterExtra, adapter.toIntentKey())
                 .putExtra(ScheduleExtra, scheduleId)
     }
+}
+
+private suspend fun <T> eduSessionStep(message: String, block: suspend () -> T): T = try {
+    block()
+} catch (cancelled: kotlinx.coroutines.CancellationException) {
+    throw cancelled
+} catch (error: Exception) {
+    // Keep the stage/type/call sites for diagnosis, never raw URL, cookie or account values.
+    Log.w("EduSession", "$message: ${error.javaClass.simpleName}; ${error.stackTrace.take(6).joinToString()}")
+    throw EduBrowserActionFailure(message, error)
 }
