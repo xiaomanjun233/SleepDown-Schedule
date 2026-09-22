@@ -565,7 +565,11 @@ internal fun SinglePillWeekScheduleScreen(
         hasAdjustmentBadges -> 8.dp
         else -> 0.dp
     }
-    val editControlBottomOverflow = if (retainEditControlOverflow) 40.dp else 0.dp
+    val editControlBottomOverflow = when {
+        retainEditControlOverflow -> 40.dp
+        hasAdjustmentBadges -> 24.dp
+        else -> 0.dp
+    }
     LaunchedEffect(state.config.id, displayWeek, weekEditMode) {
         if (!weekEditMode) weekEditOverlay.clear()
     }
