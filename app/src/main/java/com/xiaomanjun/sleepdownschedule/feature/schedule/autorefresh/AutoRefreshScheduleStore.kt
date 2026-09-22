@@ -20,6 +20,12 @@ internal data class AutoRefreshCookie(
     val value: String
 )
 
+internal data class AutoRefreshWebStorage(
+    val origin: String,
+    val values: Map<String, String>,
+    val windowName: String? = null
+)
+
 internal data class AutoRefreshScheduleProfile(
     val schoolId: String,
     val schoolName: String,
@@ -30,7 +36,11 @@ internal data class AutoRefreshScheduleProfile(
     val scheduleId: Int,
     val cookies: List<AutoRefreshCookie> = emptyList(),
     val automatic: Boolean = false,
-    val frequencyMinutes: Long = 60,
+    val frequencyMinutes: Long = AutoRefreshFrequency.DailyMinutes,
+    val authenticatedUrl: String? = null,
+    val desktopMode: Boolean = false,
+    val webStorage: AutoRefreshWebStorage? = null,
+    val interactionAnswers: Map<String, String> = emptyMap(),
     val avatarPath: String? = null,
     val lastRefreshAt: Long = 0,
     val lastResult: String = "尚未刷新"
@@ -108,6 +118,12 @@ internal object AutoRefreshScheduleStore {
         .put("scheduleId", scheduleId)
         .put("automatic", automatic)
         .put("frequencyMinutes", frequencyMinutes)
+        .put("authenticatedUrl", authenticatedUrl)
+        .put("desktopMode", desktopMode)
+        .put("webStorage", webStorage?.let {
+            JSONObject().put("origin", it.origin).put("values", JSONObject(it.values)).put("windowName", it.windowName)
+        })
+        .put("interactionAnswers", JSONObject(interactionAnswers))
         .put("avatarPath", avatarPath)
         .put("lastRefreshAt", lastRefreshAt)
         .put("lastResult", lastResult)
@@ -136,7 +152,20 @@ internal object AutoRefreshScheduleStore {
                 }
             },
             automatic = optBoolean("automatic", false),
-            frequencyMinutes = optLong("frequencyMinutes", 60).coerceAtLeast(15),
+            frequencyMinutes = AutoRefreshFrequency.normalize(optLong("frequencyMinutes", AutoRefreshFrequency.DailyMinutes)),
+            authenticatedUrl = optString("authenticatedUrl").takeIf { it.startsWith("https://") || it.startsWith("http://") },
+            desktopMode = optBoolean("desktopMode", false),
+            webStorage = optJSONObject("webStorage")?.let { storage ->
+                val values = storage.optJSONObject("values") ?: JSONObject()
+                AutoRefreshWebStorage(
+                    storage.getString("origin"),
+                    values.keys().asSequence().associateWith(values::getString),
+                    storage.optString("windowName").takeIf { it.isNotBlank() && it != "null" }
+                )
+            },
+            interactionAnswers = optJSONObject("interactionAnswers")?.let { answers ->
+                answers.keys().asSequence().associateWith(answers::getString)
+            }.orEmpty(),
             avatarPath = optString("avatarPath").takeIf(String::isNotBlank),
             lastRefreshAt = optLong("lastRefreshAt"),
             lastResult = optString("lastResult", "尚未刷新")

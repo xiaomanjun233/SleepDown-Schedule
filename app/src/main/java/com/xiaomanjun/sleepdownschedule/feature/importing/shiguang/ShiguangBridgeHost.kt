@@ -16,14 +16,33 @@ import kotlinx.serialization.decodeFromString
 
 internal class ShiguangBridgeHost(
     private val context: Context,
-    private val onDraft: (ImportDraft) -> Unit,
-    private val onMessage: (String) -> Unit,
-    private val onInteractionRequest: (EduBridgeInteractionRequest) -> Unit
+    private var onDraft: (ImportDraft) -> Unit,
+    private var onMessage: (String) -> Unit,
+    private var onInteractionRequest: (EduBridgeInteractionRequest) -> Unit
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val session = ShiguangImportSession()
     private var activeWebView: WebView? = null
     private var initialPromptAnswer: String? = null
+
+    /** Reuse the already-installed native bridge; addJavascriptInterface only updates after reload. */
+    fun attachTaskCallbacks(
+        onDraft: (ImportDraft) -> Unit,
+        onMessage: (String) -> Unit,
+        onInteractionRequest: (EduBridgeInteractionRequest) -> Unit
+    ): () -> Unit {
+        val previousDraft = this.onDraft
+        val previousMessage = this.onMessage
+        val previousInteraction = this.onInteractionRequest
+        this.onDraft = onDraft
+        this.onMessage = onMessage
+        this.onInteractionRequest = onInteractionRequest
+        return {
+            this.onDraft = previousDraft
+            this.onMessage = previousMessage
+            this.onInteractionRequest = previousInteraction
+        }
+    }
 
     fun bindWebView(webView: WebView?) {
         activeWebView = webView

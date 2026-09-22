@@ -135,13 +135,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
 
+/** A caller-owned action using the same browser, dock and page guide as education import. */
+internal data class EduBrowserPrimaryAction(
+    val label: String,
+    val guide: String,
+    val onInvoke: suspend (WebView, ShiguangBridgeHost, Boolean) -> String,
+    val onPageFinished: (WebView, String?) -> Unit = { _, _ -> }
+)
+
 @Composable
-fun EduImportActivityScreen(
+internal fun EduImportActivityScreen(
     state: AppState,
     adapter: EduAdapter,
     backdrop: Backdrop?,
     webContentBackdrop: LayerBackdrop,
     useDetailTopPadding: Boolean = true,
+    primaryAction: EduBrowserPrimaryAction? = null,
     onParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
@@ -179,6 +188,7 @@ fun EduImportActivityScreen(
         onUrlChange = { currentUrl = it },
         bridge = bridge,
         useDetailTopPadding = useDetailTopPadding,
+        primaryAction = primaryAction,
         onMessage = { message = it }
     )
 }
@@ -431,7 +441,8 @@ private fun EduImportGuideMorphOverlay(
     expanded: Boolean,
     statusText: String?,
     onExpand: () -> Unit,
-    onCollapse: () -> Unit
+    onCollapse: () -> Unit,
+    guideText: String = "登录后进入课程表页面，点击底部导入并核对预览。"
 ) {
     val isLargeScreen = rememberHomeAdaptiveMetrics().isLargeScreen
     val density = LocalDensity.current
@@ -692,7 +703,7 @@ private fun EduImportGuideMorphOverlay(
                     )
                     Text(
                         text = activeStatus
-                            ?: "登录后进入课程表页面，点击底部导入并核对预览。",
+                            ?: guideText,
                         color = foreground.copy(alpha = 0.82f),
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 2,
@@ -749,10 +760,13 @@ private fun EduImportBrowserScreen(
     onUrlChange: (String) -> Unit,
     bridge: ShiguangBridgeHost,
     useDetailTopPadding: Boolean = true,
+    primaryAction: EduBrowserPrimaryAction? = null,
     onMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val currentPrimaryAction by rememberUpdatedState(primaryAction)
+    var primaryActionRunning by remember(adapter) { mutableStateOf(false) }
     val buttonBackdrop = webContentBackdrop
     val backgroundPermissionGate = rememberAiImportBackgroundPermissionGate()
     var addressText by remember(currentUrl) { mutableStateOf(currentUrl) }
@@ -1233,6 +1247,7 @@ private fun EduImportBrowserScreen(
                         loginHistory = EduLoginHistoryStore.load(context)
                         CookieManager.getInstance().flush()
                     }
+                    if (view != null) currentPrimaryAction?.onPageFinished?.invoke(view, url)
                 }
 
                 override fun onPageCommitVisible(view: WebView?, url: String?) {
@@ -1389,7 +1404,7 @@ private fun EduImportBrowserScreen(
         }
     }
 
-    val guideStatusText = eduImportIslandStatus(screenCaptureStatus ?: message)
+    val guideStatusText = if (primaryAction != null) message else eduImportIslandStatus(screenCaptureStatus ?: message)
     LaunchedEffect(importGuideVisible, guideStatusText) {
         if (importGuideVisible && !guideStatusText.isNullOrBlank()) {
             importGuideExpanded = true
@@ -1399,6 +1414,7 @@ private fun EduImportBrowserScreen(
     val currentGuideVisible = rememberUpdatedState(importGuideVisible)
     val currentGuideExpanded = rememberUpdatedState(importGuideExpanded)
     val currentGuideStatus = rememberUpdatedState(guideStatusText)
+    val currentGuideText = rememberUpdatedState(primaryAction?.guide ?: "登录后进入课程表页面，点击底部导入并核对预览。")
     val currentGuideExpandAction = rememberUpdatedState<() -> Unit>({ importGuideExpanded = true })
     val currentGuideCollapseAction = rememberUpdatedState<() -> Unit>({ importGuideExpanded = false })
     val floatingImportGuide: (@Composable () -> Unit)? = if (floatingOverlayHost != null) {
@@ -1412,7 +1428,8 @@ private fun EduImportBrowserScreen(
                     expanded = currentGuideExpanded.value,
                     statusText = currentGuideStatus.value,
                     onExpand = currentGuideExpandAction.value,
-                    onCollapse = currentGuideCollapseAction.value
+                    onCollapse = currentGuideCollapseAction.value,
+                    guideText = currentGuideText.value
                 )
             }
         }
@@ -1543,6 +1560,28 @@ private fun EduImportBrowserScreen(
                     updateNavigationState(target)
                 },
                 originalImportAvailable = !adapter.isAiEduImportTool(),
+                primaryActionLabel = primaryAction?.label,
+                primaryActionEnabled = !primaryActionRunning,
+                onPrimaryAction = primaryAction?.let { action ->
+                    {
+                        val target = popupWebView ?: webView
+                        if (target != null && !primaryActionRunning) {
+                            primaryActionRunning = true
+                            onMessage("正在验证登录并读取课表…")
+                            scope.launch {
+                                try {
+                                    onMessage(action.onInvoke(target, bridge, desktopMode))
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    onMessage("连接失败，请检查网络后重试")
+                                } finally {
+                                    primaryActionRunning = false
+                                }
+                            }
+                        }
+                    }
+                },
                 aiImportRunning = aiParsing,
                 onOriginalImport = { runOriginalImportScript() },
                 onAiImport = {
@@ -1585,7 +1624,8 @@ private fun EduImportBrowserScreen(
                 expanded = importGuideExpanded,
                 statusText = guideStatusText,
                 onExpand = { importGuideExpanded = true },
-                onCollapse = { importGuideExpanded = false }
+                onCollapse = { importGuideExpanded = false },
+                guideText = currentGuideText.value
             )
         }
     }

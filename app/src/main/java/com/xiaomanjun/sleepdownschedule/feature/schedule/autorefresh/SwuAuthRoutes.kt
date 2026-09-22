@@ -2,7 +2,7 @@ package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 
 import java.net.URI
 
-/** Routes used only by the experimental Southwest University auto-refresh flow. */
+/** Existing unified-auth redirects retained alongside the shared education browser. */
 internal object SwuAuthRoutes {
     const val PortalUrl = "https://i.swu.edu.cn/"
     const val TeachingRootUrl = "https://jw.swu.edu.cn/"

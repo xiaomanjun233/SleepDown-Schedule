@@ -1,52 +1,19 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.net.Uri
-import android.net.http.SslError
 import android.os.Bundle
-import android.view.ViewGroup
-import android.webkit.CookieManager
-import android.webkit.SslErrorHandler
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -55,13 +22,17 @@ import com.xiaomanjun.sleepdownschedule.CourseScheduleTheme
 import com.xiaomanjun.sleepdownschedule.app.state.ScheduleViewModel
 import com.xiaomanjun.sleepdownschedule.app.state.ScheduleViewModelFactory
 import com.xiaomanjun.sleepdownschedule.app.ui.DetailActivityScaffold
-import com.xiaomanjun.sleepdownschedule.app.ui.detailContentTopPadding
-import com.xiaomanjun.sleepdownschedule.app.ui.releaseSleepDownWebView
-import com.xiaomanjun.sleepdownschedule.feature.importing.configureEduImportSecurity
-import com.xiaomanjun.sleepdownschedule.feature.importing.enableSystemCredentialAutofill
-import java.util.Locale
+import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
+import com.xiaomanjun.sleepdownschedule.feature.importing.EduBrowserPrimaryAction
+import com.xiaomanjun.sleepdownschedule.feature.importing.EduBridgeInteractionDialog
+import com.xiaomanjun.sleepdownschedule.feature.importing.EduImportActivityScreen
+import com.xiaomanjun.sleepdownschedule.feature.importing.eduAdapterFromIntentKey
+import com.xiaomanjun.sleepdownschedule.feature.importing.toIntentKey
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.ui.LocalLegacyProgressiveBlur
 
-/** Visible authentication surface used only by the experimental SWU auto-refresh flow. */
+/** Retains the existing Activity identity; all auto-refresh schools now use the education browser. */
 class SwuUnifiedAuthActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,284 +40,118 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             val app = application as CourseScheduleApp
-            val scheduleViewModel: ScheduleViewModel = viewModel(
-                factory = ScheduleViewModelFactory(app, app.repository)
+            val viewModel: ScheduleViewModel = viewModel(factory = ScheduleViewModelFactory(app, app.repository))
+            val state by viewModel.state.collectAsStateWithLifecycle()
+            val requested = remember { eduAdapterFromIntentKey(intent.getStringExtra(AdapterExtra)) }
+            var adapter by remember { mutableStateOf<EduAdapter?>(null) }
+            var error by remember { mutableStateOf<String?>(null) }
+            val visitedUrls = remember { linkedSetOf<String>() }
+            var teachingRedirects by remember { mutableIntStateOf(0) }
+            var interaction by remember { mutableStateOf<AutoRefreshLoginInteraction?>(null) }
+            LaunchedEffect(Unit) {
+                runCatching {
+                    val supported = ShiguangApiAdapterCatalog.loadSupported(app)
+                    if (requested == null) supported.firstOrNull(ShiguangApiAdapterCatalog::isSwuAdapter)
+                    else ShiguangApiAdapterCatalog.find(supported, requested.school.id, requested.adapterId)
+                }.onSuccess {
+                    adapter = it
+                    if (it == null) error = "该学校暂不支持自动刷新"
+                }.onFailure { error = "学校列表读取失败，请返回重试" }
+            }
+            val webBackdrop = rememberGlassLayerBackdrop(
+                domain = GlassBackdropDomain.Content,
+                providerId = "auto-refresh-login-web"
             )
-            val state by scheduleViewModel.state.collectAsStateWithLifecycle()
             CourseScheduleTheme(config = state.config) {
-                DetailActivityScaffold(
-                    title = "西南大学统一认证",
-                    config = state.config,
-                    onBack = ::finish,
-                    isolateContentFromBackdrop = true,
-                    compactTopBar = true,
-                    centerCompactTitle = true,
-                    compactTitleMatchesSettings = true,
-                    preserveStatusBarSpace = true
-                ) {
-                    SwuUnifiedAuthBrowser(
-                        topPadding = detailContentTopPadding(),
-                        onAuthenticated = { currentUrl ->
-                            CookieManager.getInstance().flush()
-                            setResult(
-                                Activity.RESULT_OK,
-                                Intent().putExtra(CurrentUrlExtra, currentUrl)
+                CompositionLocalProvider(LocalLegacyProgressiveBlur provides true) {
+                    DetailActivityScaffold(
+                        title = adapter?.school?.name ?: "教务登录",
+                        config = state.config,
+                        onBack = ::finish,
+                        isolateContentFromBackdrop = true,
+                        compactTopBar = true,
+                        centerCompactTitle = true,
+                        compactTitleMatchesSettings = true,
+                        preserveStatusBarSpace = true,
+                        topBarBackdropOverride = webBackdrop
+                    ) { backdrop ->
+                        interaction?.let { pending ->
+                            EduBridgeInteractionDialog(
+                                request = pending.request,
+                                bridge = pending.bridge,
+                                state = state,
+                                backdrop = backdrop,
+                                onFinished = { if (interaction === pending) interaction = null },
+                                resolveInteraction = { _, value -> pending.resolve(value) }
                             )
-                            finish()
                         }
-                    )
+                        val selected = adapter
+                        if (selected == null) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                if (error == null) CircularProgressIndicator() else Text(error!!)
+                            }
+                        } else {
+                            EduImportActivityScreen(
+                                state = state,
+                                adapter = selected,
+                                backdrop = backdrop,
+                                webContentBackdrop = webBackdrop,
+                                primaryAction = EduBrowserPrimaryAction(
+                                    label = "完成登录",
+                                    guide = "登录后进入课表页面，点击底部 ✓ 完成连接。会话失效时可在这里重新登录。",
+                                    onPageFinished = { webView, url ->
+                                        url?.takeIf { AutoRefreshWebSession.origin(it) != null }?.let(visitedUrls::add)
+                                        if (ShiguangApiAdapterCatalog.isSwuAdapter(selected) &&
+                                            SwuAuthRoutes.isAuthenticatedTeachingPage(url) &&
+                                            !SwuAuthRoutes.isCoursePage(url) && teachingRedirects < 3
+                                        ) {
+                                            teachingRedirects++
+                                            webView.loadUrl(SwuAuthRoutes.CoursePageUrl)
+                                        }
+                                    },
+                                    onInvoke = { webView, bridge, desktopMode ->
+                                        val currentUrl = webView.url.orEmpty()
+                                        require(AutoRefreshWebSession.origin(currentUrl) != null) { "请先打开学校课表页面" }
+                                        val storage = AutoRefreshWebSession.captureStorage(webView, selected.school.id)
+                                        val cookieUrls = visitedUrls + selected.importUrl + currentUrl
+                                        val result = AutoRefreshScheduleCoordinator.loginAndRefresh(
+                                            context = app,
+                                            adapter = selected,
+                                            username = "",
+                                            password = "",
+                                            scheduleId = intent.getIntExtra(ScheduleExtra, state.config.id),
+                                            initialCookies = AutoRefreshWebSession.captureCookies(cookieUrls),
+                                            authenticatedUrl = currentUrl,
+                                            webStorage = storage,
+                                            authenticationWebView = webView,
+                                            authenticationBridge = bridge,
+                                            desktopMode = desktopMode,
+                                            onInteraction = { interaction = it }
+                                        )
+                                        if (result.success) {
+                                            AutoRefreshScheduleWorker.updateSchedule(app, result.profile)
+                                            setResult(Activity.RESULT_OK)
+                                            finish()
+                                        }
+                                        result.message
+                                    }
+                                ),
+                                onParsed = {}
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 
     companion object {
-        internal const val PortalUrl = SwuAuthRoutes.PortalUrl
-        internal const val TeachingRootUrl = SwuAuthRoutes.TeachingRootUrl
-        internal const val SsoUrl = SwuAuthRoutes.SsoUrl
-        internal const val CoursePageUrl = SwuAuthRoutes.CoursePageUrl
-        private const val CurrentUrlExtra = "swu_unified_auth_current_url"
+        private const val AdapterExtra = "auto_refresh_auth_adapter"
+        private const val ScheduleExtra = "auto_refresh_auth_schedule"
 
-        internal fun intent(context: Context): Intent =
+        internal fun intent(context: Context, adapter: EduAdapter, scheduleId: Int): Intent =
             Intent(context, SwuUnifiedAuthActivity::class.java)
-
-        internal fun captureCookies(resultData: Intent?): List<AutoRefreshCookie> {
-            val cookieManager = CookieManager.getInstance()
-            val urls = listOfNotNull(
-                PortalUrl,
-                TeachingRootUrl,
-                SsoUrl,
-                SwuAuthRoutes.UnifiedAuthRootUrl,
-                SwuAuthRoutes.UnifiedAuthLoginUrl,
-                SwuAuthRoutes.IdentityRootUrl,
-                SwuAuthRoutes.IdentityLoginUrl,
-                CoursePageUrl,
-                resultData?.getStringExtra(CurrentUrlExtra)
-            ).filter { it.startsWith("https://") }.distinct()
-            return urls.mapNotNull { url ->
-                cookieManager.getCookie(url)
-                    ?.takeIf(String::isNotBlank)
-                    ?.let { value -> AutoRefreshCookie(url, value) }
-            }
-        }
-
-        internal fun isCoursePage(url: String?): Boolean = SwuAuthRoutes.isCoursePage(url)
+                .putExtra(AdapterExtra, adapter.toIntentKey())
+                .putExtra(ScheduleExtra, scheduleId)
     }
-}
-
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-private fun SwuUnifiedAuthBrowser(
-    topPadding: androidx.compose.ui.unit.Dp,
-    onAuthenticated: (String) -> Unit
-) {
-    val context = LocalContext.current
-    var webView by remember { mutableStateOf<WebView?>(null) }
-    var currentUrl by remember { mutableStateOf(SwuUnifiedAuthActivity.SsoUrl) }
-    var loading by remember { mutableStateOf(true) }
-    var ready by remember { mutableStateOf(false) }
-    var pageError by remember { mutableStateOf<String?>(null) }
-
-    fun openExternal(uri: Uri): Boolean {
-        val external = runCatching {
-            if (uri.scheme.equals("intent", ignoreCase = true)) {
-                Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
-            } else {
-                Intent(Intent.ACTION_VIEW, uri)
-            }
-        }.getOrElse {
-            pageError = "无法识别网页请求的外部链接"
-            return true
-        }.apply {
-            addCategory(Intent.CATEGORY_BROWSABLE)
-            component = null
-            selector = null
-        }
-        val fallbackUrl = external.getStringExtra("browser_fallback_url")
-        runCatching { context.startActivity(external) }.onFailure {
-            if (fallbackUrl?.let(::isHttpUrl) == true) {
-                webView?.loadUrl(fallbackUrl)
-            } else {
-                pageError = "未找到可处理该认证链接的应用"
-            }
-        }
-        return true
-    }
-
-    BackHandler(enabled = webView?.canGoBack() == true) {
-        webView?.goBack()
-    }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = topPadding)
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { webContext ->
-                    WebView(webContext).apply webView@ {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        settings.databaseEnabled = true
-                        settings.cacheMode = WebSettings.LOAD_DEFAULT
-                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        settings.javaScriptCanOpenWindowsAutomatically = true
-                        settings.setSupportMultipleWindows(false)
-                        configureEduImportSecurity()
-                        enableSystemCredentialAutofill()
-                        CookieManager.getInstance().apply {
-                            setAcceptCookie(true)
-                            setAcceptThirdPartyCookies(this@webView, true)
-                        }
-                        webChromeClient = WebChromeClient()
-                        webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(
-                                view: WebView?,
-                                request: WebResourceRequest
-                            ): Boolean {
-                                val scheme = request.url.scheme.orEmpty().lowercase(Locale.ROOT)
-                                return if (scheme == "http" || scheme == "https") false
-                                else openExternal(request.url)
-                            }
-
-                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                super.onPageStarted(view, url, favicon)
-                                currentUrl = url.orEmpty()
-                                loading = true
-                                ready = false
-                                pageError = null
-                            }
-
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                super.onPageFinished(view, url)
-                                currentUrl = url.orEmpty()
-                                CookieManager.getInstance().flush()
-                                if (
-                                    pageError == null &&
-                                    SwuAuthRoutes.isAuthenticatedTeachingPage(url) &&
-                                    !SwuUnifiedAuthActivity.isCoursePage(url)
-                                ) {
-                                    loading = true
-                                    view?.loadUrl(SwuUnifiedAuthActivity.CoursePageUrl)
-                                    return
-                                }
-                                loading = false
-                                ready = pageError == null && SwuUnifiedAuthActivity.isCoursePage(url)
-                            }
-
-                            override fun onReceivedError(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                                error: WebResourceError?
-                            ) {
-                                super.onReceivedError(view, request, error)
-                                if (request?.isForMainFrame == true) {
-                                    loading = false
-                                    ready = false
-                                    pageError = "页面加载失败：${error?.description ?: "网络连接异常"}"
-                                }
-                            }
-
-                            override fun onReceivedHttpError(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                                errorResponse: WebResourceResponse?
-                            ) {
-                                super.onReceivedHttpError(view, request, errorResponse)
-                                if (request?.isForMainFrame == true) {
-                                    loading = false
-                                    ready = false
-                                    pageError = "页面返回 HTTP ${errorResponse?.statusCode ?: "错误"}"
-                                }
-                            }
-
-                            override fun onReceivedSslError(
-                                view: WebView?,
-                                handler: SslErrorHandler?,
-                                error: SslError?
-                            ) {
-                                handler?.cancel()
-                                loading = false
-                                ready = false
-                                pageError = "网站证书校验失败，已停止加载"
-                            }
-                        }
-                        webView = this
-                        loadUrl(SwuUnifiedAuthActivity.SsoUrl)
-                    }
-                },
-                update = {},
-                onRelease = { released ->
-                    if (webView === released) webView = null
-                    released.releaseSleepDownWebView(clearResourceCache = false)
-                }
-            )
-            if (loading) {
-                LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
-            }
-        }
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surfaceContainer
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = when {
-                        pageError != null -> pageError!!
-                        ready -> "已进入西南大学教务系统，可以返回并校验课表接口。"
-                        else -> "请使用校园办事大厅账号完成统一身份认证；认证成功后会自动进入教务课表。"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (pageError != null) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                )
-                Text(
-                    "此页仅为自动刷新保存会话 Cookie，不会触发原教务导入。",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { webView?.reload() },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("重新加载")
-                    }
-                    Button(
-                        onClick = {
-                            if (ready) onAuthenticated(currentUrl)
-                            else webView?.loadUrl(SwuUnifiedAuthActivity.SsoUrl)
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(if (ready) "认证完成" else "重新进入统一认证")
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun isHttpUrl(value: String): Boolean {
-    val scheme = runCatching { Uri.parse(value).scheme }.getOrNull()
-    return scheme.equals("http", ignoreCase = true) || scheme.equals("https", ignoreCase = true)
 }

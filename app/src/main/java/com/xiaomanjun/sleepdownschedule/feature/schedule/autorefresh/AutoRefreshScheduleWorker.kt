@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 
 import android.content.Context
+import android.webkit.WebView
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -11,6 +12,7 @@ import androidx.work.WorkerParameters
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.TodayCoursesWidgetProvider
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangBridgeHost
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,14 +27,29 @@ internal data class AutoRefreshOutcome(
 internal object AutoRefreshScheduleCoordinator {
     private val refreshMutex = Mutex()
 
+    suspend fun logout(context: Context) = refreshMutex.withLock {
+        AutoRefreshScheduleWorker.updateSchedule(context, null)
+        AutoRefreshScheduleStore.clear(context)
+    }
+
     suspend fun loginAndRefresh(
         context: Context,
         adapter: EduAdapter,
         username: String,
         password: String,
         scheduleId: Int,
-        initialCookies: List<AutoRefreshCookie> = emptyList()
+        initialCookies: List<AutoRefreshCookie> = emptyList(),
+        authenticatedUrl: String? = null,
+        webStorage: AutoRefreshWebStorage? = null,
+        authenticationWebView: WebView? = null,
+        authenticationBridge: ShiguangBridgeHost? = null,
+        desktopMode: Boolean = false,
+        onInteraction: ((AutoRefreshLoginInteraction?) -> Unit)? = null
     ): AutoRefreshOutcome = refreshMutex.withLock {
+        val existing = AutoRefreshScheduleStore.load(context)?.takeIf {
+            it.schoolId == adapter.school.id && it.adapterId == adapter.adapterId &&
+                it.scheduleId == scheduleId
+        }
         val provisional = AutoRefreshScheduleProfile(
             schoolId = adapter.school.id,
             schoolName = adapter.school.name,
@@ -42,9 +59,15 @@ internal object AutoRefreshScheduleCoordinator {
             password = password,
             scheduleId = scheduleId,
             cookies = initialCookies,
+            authenticatedUrl = authenticatedUrl,
+            desktopMode = desktopMode,
+            webStorage = webStorage,
+            automatic = existing?.automatic ?: false,
+            frequencyMinutes = existing?.frequencyMinutes ?: AutoRefreshFrequency.DailyMinutes,
+            avatarPath = existing?.avatarPath,
             lastResult = "正在验证教务登录"
         )
-        execute(context, adapter, provisional, persistNewProfile = true)
+        execute(context, adapter, provisional, persistNewProfile = true, authenticationWebView, authenticationBridge, onInteraction)
     }
 
     suspend fun refreshSaved(context: Context): AutoRefreshOutcome = refreshMutex.withLock {
@@ -52,7 +75,7 @@ internal object AutoRefreshScheduleCoordinator {
             ?: return@withLock AutoRefreshOutcome(false, "请先登录教务系统")
         val adapters = ShiguangApiAdapterCatalog.loadSupported(context)
         val adapter = ShiguangApiAdapterCatalog.find(adapters, profile.schoolId, profile.adapterId)
-            ?: return@withLock recordFailure(context, profile, "该适配器已不再满足纯接口刷新条件")
+            ?: return@withLock recordFailure(context, profile, "该教务入口已更新，请重新选择学校并登录")
         execute(context, adapter, profile, persistNewProfile = false)
     }
 
@@ -60,16 +83,21 @@ internal object AutoRefreshScheduleCoordinator {
         context: Context,
         adapter: EduAdapter,
         profile: AutoRefreshScheduleProfile,
-        persistNewProfile: Boolean
+        persistNewProfile: Boolean,
+        authenticationWebView: WebView? = null,
+        authenticationBridge: ShiguangBridgeHost? = null,
+        onInteraction: ((AutoRefreshLoginInteraction?) -> Unit)? = null
     ): AutoRefreshOutcome {
         val app = context.applicationContext as CourseScheduleApp
         return runCatching {
             val targetState = app.repository.scheduleSnapshot(profile.scheduleId)
-            val fetched = AutoRefreshShiguangRunner.fetch(app, adapter, profile, targetState)
+            val fetched = AutoRefreshShiguangRunner.fetch(app, adapter, profile, targetState, authenticationWebView, authenticationBridge, onInteraction)
             app.repository.importDraftForSchedule(profile.scheduleId, fetched.draft)
             val now = System.currentTimeMillis()
             val updated = profile.copy(
                 cookies = mergeCookies(profile.cookies, fetched.cookies),
+                webStorage = fetched.storage ?: profile.webStorage,
+                interactionAnswers = fetched.interactionAnswers,
                 lastRefreshAt = now,
                 lastResult = "刷新成功，共 ${fetched.draft.courses.size} 门课程"
             )
@@ -94,6 +122,7 @@ internal object AutoRefreshScheduleCoordinator {
             TodayCoursesWidgetProvider.refreshAll(app)
             AutoRefreshOutcome(true, updated.lastResult, AutoRefreshScheduleStore.load(app) ?: updated)
         }.getOrElse { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
             recordFailure(
                 context,
                 profile,
@@ -145,14 +174,13 @@ class AutoRefreshScheduleWorker(
 
     companion object {
         private const val WorkName = "schedule_api_auto_refresh"
-        internal val FrequencyMinutes = listOf(15L, 30L, 60L, 180L, 360L, 720L)
 
         internal fun updateSchedule(context: Context, profile: AutoRefreshScheduleProfile?) {
             enqueue(context, profile, ExistingPeriodicWorkPolicy.UPDATE)
         }
 
         internal fun ensureSchedule(context: Context, profile: AutoRefreshScheduleProfile?) {
-            enqueue(context, profile, ExistingPeriodicWorkPolicy.KEEP)
+            enqueue(context, profile, ExistingPeriodicWorkPolicy.UPDATE)
         }
 
         private fun enqueue(
@@ -165,7 +193,7 @@ class AutoRefreshScheduleWorker(
                 manager.cancelUniqueWork(WorkName)
                 return
             }
-            val minutes = profile.frequencyMinutes.coerceAtLeast(15)
+            val minutes = AutoRefreshFrequency.normalize(profile.frequencyMinutes)
             val request = PeriodicWorkRequestBuilder<AutoRefreshScheduleWorker>(minutes, TimeUnit.MINUTES)
                 .setConstraints(
                     Constraints.Builder()
