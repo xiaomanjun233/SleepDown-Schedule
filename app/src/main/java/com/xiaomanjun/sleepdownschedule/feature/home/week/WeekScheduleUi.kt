@@ -383,12 +383,15 @@ internal fun SinglePillWeekScheduleScreen(
         onCourseClick(original, sourceWeek, bounds)
     }
     val weekBuckets = bucketsForWeek(displayWeek)
+    var weekJump by remember { mutableStateOf<AdjacentWeekJump?>(null) }
     val visibleCourses = weekBuckets.visibleCourses
     val hasAdjustmentBadges = remember(state.config.scheduleAdjustmentsJson) {
         com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(state.config.scheduleAdjustmentsJson).isNotEmpty()
     }
-    val supplementaryRowCount = remember(state.courses, state.periods, state.config, displayWeek) {
-        (displayWeek - 1..displayWeek + 1).maxOf { week ->
+    val supplementaryRowCount = remember(state.courses, state.periods, state.config, displayWeek, weekJump) {
+        val renderedWeeks = (displayWeek - 1..displayWeek + 1).toList() +
+            listOfNotNull(weekJump?.sourcePage?.plus(1), weekJump?.targetPage?.plus(1))
+        renderedWeeks.maxOf { week ->
             bucketsForWeek(week).visibleCourses
                 .filter { courseNeedsSupplementaryWeekRow(it, state.periods) }
                 .groupingBy { it.weekday }.eachCount().values.maxOrNull() ?: 0
@@ -450,17 +453,43 @@ internal fun SinglePillWeekScheduleScreen(
             }
         }
     }
-    LaunchedEffect(displayWeek, state.config.totalWeeks) {
-        val targetPage = (displayWeek - 1).coerceIn(0, state.config.totalWeeks.coerceAtLeast(1) - 1)
-        if (pagerState.settledPage != targetPage) {
-            programmaticPage = targetPage
-            weekTail.leadFromTop()
+    LaunchedEffect(pagerState, state.config.totalWeeks) {
+        // Finish the currently visible pair, then consume the newest request. Intermediate rapid
+        // clicks never become a queue of pages, and the settled observer cannot undo a pending jump.
+        snapshotFlow { latestDisplayWeek }.collect {
+            fun targetPage() = (latestDisplayWeek - 1).coerceIn(0, pagerState.pageCount - 1)
             try {
-                pagerState.animateScrollToPage(
-                    targetPage,
-                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 350f)
-                )
+                while (pagerState.settledPage != targetPage() ||
+                    kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.00001f) {
+                    val target = targetPage()
+                    programmaticPage = target
+                    weekTail.leadFromTop()
+                    val source = pagerState.currentPage
+                    if (source != target) {
+                        val jump = AdjacentWeekJump(source, target)
+                        weekJump = jump
+                        // Relocate the SAME visible week beside the destination before moving.
+                        // requestScrollToPage bypasses key-based position retention for this rebase.
+                        pagerState.requestScrollToPage(jump.sourceSlot)
+                        weekTail.snapTo(jump.sourceSlot.toFloat())
+                        androidx.compose.runtime.withFrameNanos { }
+                    }
+                    pagerState.animateScrollToPage(
+                        target,
+                        animationSpec = spring(dampingRatio = 0.78f, stiffness = 350f)
+                    )
+                    weekTail.awaitSettled()
+                    // The substituted source is now completely offscreen, including its tail.
+                    weekJump = null
+                }
             } finally {
+                weekJump?.let { interrupted ->
+                    val visiblePage = interrupted.logicalPage(pagerState.currentPage)
+                        .coerceIn(0, pagerState.pageCount - 1)
+                    weekJump = null
+                    pagerState.requestScrollToPage(visiblePage)
+                    weekTail.snapTo(visiblePage.toFloat())
+                }
                 programmaticPage = -1
             }
         }
@@ -724,22 +753,22 @@ internal fun SinglePillWeekScheduleScreen(
                                 // top gutter to extend above it without compressing the last row.
                                 .wrapContentHeight(align = Alignment.Top, unbounded = true)
                                 .height(cardHeight * state.periods.size + supplementaryHeight + courseTopOverflow + editControlBottomOverflow),
-                            userScrollEnabled = !weekEditMode,
+                            userScrollEnabled = !weekEditMode && programmaticPage < 0,
                             // Keep the pager topology stable while a home overlay opens/closes.
                             // Disposing the adjacent week at the exact frame Personalization
                             // starts, then rebuilding it on close, competes with the full-screen
                             // glass/background layers and is visible as a week-only hitch.
                             beyondViewportPageCount = 1,
-                            key = { it }
+                            key = { weekJump?.logicalPage(it) ?: it }
                         ) { page ->
-                            val pageWeek = page + 1
+                            val pageWeek = (weekJump?.logicalPage(page) ?: page) + 1
                             val pageBuckets = bucketsForWeek(pageWeek)
                             val pageCourses = pageBuckets.visibleCourses
                             val pageWeekdays = remember(pageBuckets, state.config.hideEmptyWeekends) {
                                 visibleWeekdaysForBuckets(pageBuckets, state.config.hideEmptyWeekends)
                             }
-                            val isActivePage = pageWeek == displayWeek && pagerState.settledPage == page
-                            WeekPageSamplingScope(weekTail, page, homeSwitching) {
+                            val isActivePage = programmaticPage < 0 && pageWeek == displayWeek && pagerState.settledPage == page
+                            WeekPageSamplingScope(weekTail, page, homeSwitching, weekJump) {
                             WeekCourseColumnsLayer(
                                 modifier = Modifier.padding(
                                     start = rowHeaderWidth,

@@ -20,6 +20,7 @@ import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 
 internal const val WeekTailGroups = 6
@@ -30,6 +31,13 @@ internal class WeekTailTimeline(initialPosition: Float) {
     private val history = ArrayDeque<Sample>()
     private var lastTarget = initialPosition
     private var settled = true
+
+    fun snapTo(position: Float): List<Float> {
+        history.clear()
+        lastTarget = position
+        settled = true
+        return List(WeekTailGroups) { position }
+    }
 
     fun advance(timeNanos: Long, target: Float, anchor: Int, durationScale: Float): List<Float> {
         val delayNanos = (24_000_000L * durationScale.coerceAtLeast(0f)).toLong()
@@ -86,6 +94,15 @@ internal class WeekPageTailMotion(val pager: PagerState) {
     fun setViewport(top: Float, height: Float) { rootTop = top; rootHeight = height.coerceAtLeast(1f) }
     fun touch(y: Float) { anchor = groupForRootY(rootTop + y) }
     fun leadFromTop() { anchor = 0 }
+    fun snapTo(position: Float) {
+        positions = timeline.snapTo(position)
+        following = false
+    }
+    suspend fun awaitSettled() {
+        snapshotFlow {
+            !pager.isScrollInProgress && positions.all { abs(it - position) < 0.00001f }
+        }.first { it }
+    }
     fun groupForRootY(y: Float): Int = (y / rootHeight * WeekTailGroups).toInt().coerceIn(0, WeekTailGroups - 1)
     fun offset(group: Int): Float = if (group == anchor) 0f else position - positions[group.coerceIn(0, WeekTailGroups - 1)]
     fun pageVisible(page: Int): Boolean =
@@ -151,6 +168,7 @@ internal fun WeekPageSamplingScope(
     motion: WeekPageTailMotion,
     page: Int,
     homeSwitching: Boolean,
+    jump: AdjacentWeekJump? = null,
     content: @Composable () -> Unit
 ) {
     val parentFrozen = LocalGlassCoordinatesFrozen.current
@@ -158,8 +176,11 @@ internal fun WeekPageSamplingScope(
     val hiddenKey = remember(page) { Any() }
     // Retain the already-created adjacent page materials, but do not re-record invisible samples.
     // The tail's complete position envelope keeps a trailing page live until it actually leaves.
-    val visible = remember(motion, page, homeSwitching) {
-        { if (homeSwitching) page == motion.pager.settledPage else motion.pageVisible(page) }
+    val visible = remember(motion, page, homeSwitching, jump) {
+        {
+            (jump == null || jump.contains(page)) &&
+                if (homeSwitching) page == motion.pager.settledPage else motion.pageVisible(page)
+        }
     }
     val frozen = remember(visible, parentFrozen) { { !visible() || parentFrozen() } }
     val key = remember(visible, motion, parentKey) {

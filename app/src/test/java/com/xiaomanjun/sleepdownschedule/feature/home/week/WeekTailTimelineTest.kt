@@ -4,6 +4,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WeekTailTimelineTest {
+    @Test fun rebasingClearsEveryFollowerBeforeTheNextOnePageAnimation() {
+        val timeline = WeekTailTimeline(0f)
+        timeline.advance(0L, 0f, 0, 1f)
+        timeline.advance(16_000_000L, 0.5f, 0, 1f)
+        timeline.snapTo(18f).forEach { assertEquals(18f, it, 0f) }
+        val started = timeline.advance(32_000_000L, 18.2f, 0, 1f)
+        assertEquals(18.2f, started.first(), 0f)
+        assertEquals(18f, started.last(), 0f)
+    }
+
     @Test fun followersCatchUpWhileFingerHoldsHalfway() {
         val timeline = WeekTailTimeline(0f)
         timeline.advance(0L, 0f, 2, 1f)
