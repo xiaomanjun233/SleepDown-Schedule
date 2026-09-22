@@ -145,15 +145,13 @@ fun EduSchoolPickerScreen(
     backdrop: Backdrop? = null,
     warehouseGeneration: Int = 0,
     availableAdapters: List<EduAdapter>? = null,
+    adapterBadge: (EduAdapter) -> String? = { null },
     onSelect: (EduAdapter) -> Unit
 ) {
     val context = LocalContext.current
     val adapters = availableAdapters ?: remember(warehouseGeneration) {
-        runCatching { ShiguangWarehouse.loadAdapters(context) }
+        runCatching { ShiguangWarehouse.loadVisibleAdapters(context) }
             .getOrDefault(emptyList())
-            // WakeUp and StarLink already share the AI manual-import input. The two GLOBAL_TOOLS
-            // component fixtures are upstream development pages rather than user-facing imports.
-            .filterNot { it.isManualShareCodeTool() || it.isDevelopmentOnlyGeneralTool() }
     }
     var adapterChoices by remember { mutableStateOf<List<EduAdapter>?>(null) }
     var query by remember { mutableStateOf("") }
@@ -178,6 +176,7 @@ fun EduSchoolPickerScreen(
         state = state,
         backdrop = backdrop,
         adapters = filtered,
+        adapterBadge = adapterBadge,
         query = query,
         onQueryChange = { query = it },
         onSelect = { school ->
@@ -221,6 +220,7 @@ fun EduSchoolPickerScreen(
                     choices.forEach { adapter ->
                         EduAdapterChoiceCard(
                             adapter = adapter,
+                            badgeText = adapterBadge(adapter),
                             selected = adapter.adapterId == selectedAdapterId,
                             config = state.config,
                             onClick = { selectedAdapterId = adapter.adapterId }
@@ -235,6 +235,7 @@ fun EduSchoolPickerScreen(
 @Composable
 private fun EduAdapterChoiceCard(
     adapter: EduAdapter,
+    badgeText: String?,
     selected: Boolean,
     config: ScheduleConfigEntity,
     onClick: () -> Unit
@@ -284,6 +285,11 @@ private fun EduAdapterChoiceCard(
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold
                 )
+                badgeText?.let {
+                    Text(it, color = accent, style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(top = 4.dp).clip(Capsule())
+                            .background(accent.copy(alpha = 0.12f)).padding(horizontal = 8.dp, vertical = 3.dp))
+                }
                 if (details.isNotBlank()) {
                     Text(
                         text = details,
@@ -326,6 +332,7 @@ fun EduSchoolIndexedSelectScreen(
     adapters: List<EduAdapter>,
     query: String,
     onQueryChange: (String) -> Unit,
+    adapterBadge: (EduAdapter) -> String? = { null },
     onSelect: (EduSchool) -> Unit
 ) {
     val window = LocalActivity.current?.window
@@ -535,6 +542,7 @@ fun EduSchoolIndexedSelectScreen(
                                 schools = aiEduSchools,
                                 state = state,
                                 backdrop = backdrop,
+                                adapterBadge = adapterBadge,
                                 onSelect = onSelect
                             )
                         }
@@ -546,6 +554,7 @@ fun EduSchoolIndexedSelectScreen(
                                 schools = pinnedSchools,
                                 state = state,
                                 backdrop = backdrop,
+                                adapterBadge = adapterBadge,
                                 onSelect = onSelect
                             )
                         }
@@ -557,6 +566,7 @@ fun EduSchoolIndexedSelectScreen(
                                 schools = list,
                                 state = state,
                                 backdrop = backdrop,
+                                adapterBadge = adapterBadge,
                                 onSelect = onSelect
                             )
                         }
@@ -832,6 +842,7 @@ private fun EduAlphabetRailDock(
 @Composable
 private fun EduSchoolGroupCard(
     schools: List<EduSchoolAdapterGroup>,
+    adapterBadge: (EduAdapter) -> String?,
     state: AppState,
     backdrop: Backdrop?,
     onSelect: (EduSchool) -> Unit
@@ -845,6 +856,7 @@ private fun EduSchoolGroupCard(
             SettingsNavigationRow(
                 title = group.school.name,
                 subtitle = group.adapters.joinToString(" / ") { it.adapterName },
+                badgeText = group.adapters.firstNotNullOfOrNull(adapterBadge),
                 onClick = { onSelect(group.school) }
             )
         }

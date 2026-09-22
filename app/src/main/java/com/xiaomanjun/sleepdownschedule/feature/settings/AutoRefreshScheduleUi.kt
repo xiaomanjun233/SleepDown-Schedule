@@ -32,6 +32,9 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdown
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.loadWallpaperSource
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchoolPickerScreen
+import com.xiaomanjun.sleepdownschedule.feature.importing.ShiguangWarehouse
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
+import com.xiaomanjun.sleepdownschedule.feature.importing.toIntentKey
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -51,18 +54,29 @@ fun AutoRefreshScheduleSettingsScreen(state: AppState, backdrop: Backdrop?) {
     val context = LocalContext.current
     val profile by AutoRefreshScheduleStore.observe(context).collectAsState()
     var adapters by remember { mutableStateOf<List<EduAdapter>?>(null) }
+    var apiAdapters by remember { mutableStateOf<List<EduAdapter>>(emptyList()) }
     var catalogError by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
     LaunchedEffect(retry) {
         catalogError = null
-        runCatching { ShiguangApiAdapterCatalog.loadSupported(context) }
+        runCatching {
+            apiAdapters = ShiguangApiAdapterCatalog.loadSupported(context)
+            withContext(Dispatchers.IO) { ShiguangWarehouse.loadVisibleAdapters(context) }
+        }
             .onSuccess { adapters = it }
             .onFailure { catalogError = "学校列表读取失败，请重试" }
+        // Reuse the import page's official index, cache and seven-day refresh policy.
+        if (adapters != null) {
+            runCatching { ShiguangWarehouseUpdater.refreshIfStale(context) }
+                .onSuccess {
+                    adapters = withContext(Dispatchers.IO) { ShiguangWarehouse.loadVisibleAdapters(context) }
+                }
+        }
     }
     val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
     val saved = profile
     if (saved != null) {
-        val savedAdapter = adapters?.let { ShiguangApiAdapterCatalog.find(it, saved.schoolId, saved.adapterId) }
+        val savedAdapter = ShiguangApiAdapterCatalog.find(apiAdapters, saved.schoolId, saved.adapterId)
         AutoRefreshDashboardContent(
             state = state,
             backdrop = backdrop,
@@ -88,7 +102,21 @@ fun AutoRefreshScheduleSettingsScreen(state: AppState, backdrop: Backdrop?) {
             state = state,
             backdrop = backdrop,
             availableAdapters = adapters,
-            onSelect = { authLauncher.launch(SwuUnifiedAuthActivity.intent(context, it, state.config.id)) }
+            adapterBadge = {
+                if (ShiguangApiAdapterCatalog.supportsAutomaticRefresh(it, apiAdapters)) null
+                else "可能需要手动刷新"
+            },
+            onSelect = { selected ->
+                val reviewed = ShiguangApiAdapterCatalog.find(apiAdapters, selected.school.id, selected.adapterId)
+                if (reviewed != null) {
+                    authLauncher.launch(SwuUnifiedAuthActivity.intent(context, reviewed, state.config.id))
+                } else {
+                    // DOM/monthly/AI imports keep their existing browser + preview confirmation.
+                    // Never let a partial-page extraction silently replace an entire saved semester.
+                    authLauncher.launch(android.content.Intent(context, com.xiaomanjun.sleepdownschedule.EduImportActivity::class.java)
+                        .putExtra("edu_adapter", selected.toIntentKey()))
+                }
+            }
         )
     } else {
         Box(Modifier.fillMaxSize().padding(top = detailContentTopPadding()), contentAlignment = Alignment.Center) {

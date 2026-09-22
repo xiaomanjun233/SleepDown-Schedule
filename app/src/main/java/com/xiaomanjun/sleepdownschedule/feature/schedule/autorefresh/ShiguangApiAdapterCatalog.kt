@@ -16,8 +16,10 @@ import java.security.MessageDigest
 internal object ShiguangApiAdapterCatalog {
     suspend fun loadSupported(context: Context): List<EduAdapter> = withContext(Dispatchers.IO) {
         parseCatalog(context.assets.open("auto_refresh/catalog.tsv").bufferedReader().use { it.readText() })
-            .also { adapters -> adapters.forEach { resolveScript(context, it) } }
     }
+
+    internal fun supportsAutomaticRefresh(adapter: EduAdapter, reviewed: List<EduAdapter>): Boolean =
+        reviewed.any { it.school.id == adapter.school.id && it.adapterId == adapter.adapterId }
 
     internal fun parseCatalog(text: String): List<EduAdapter> = text.lineSequence()
         .filter { it.isNotBlank() && !it.startsWith("#") }

@@ -38,4 +38,19 @@ class ShiguangApiAdapterCatalogTest {
         assertFalse(ShiguangApiAdapterCatalog.matchesReviewedSource(adapter, original + "\nfetch('/changed');"))
         assertFalse(ShiguangApiAdapterCatalog.matchesReviewedSource(adapter, ""))
     }
+
+    @Test fun sharedWarehouseMetadataDoesNotLoseReviewedApiCapability() {
+        val reviewed = catalog()
+        val swu = reviewed.first { it.school.id == "SWU" }
+        assertTrue(ShiguangApiAdapterCatalog.supportsAutomaticRefresh(
+            swu.copy(adapterName = "上游新名称", warehouseGeneration = "current-index-generation"), reviewed
+        ))
+        val semester = reviewed.first { it.school.id == "HNSF" && it.adapterId == "HNSF_01" }
+        assertFalse(ShiguangApiAdapterCatalog.supportsAutomaticRefresh(
+            semester.copy(adapterId = "HNSF_02"), reviewed
+        ))
+        assertFalse(ShiguangApiAdapterCatalog.supportsAutomaticRefresh(
+            swu.copy(adapterId = "unreviewed-entry"), reviewed
+        ))
+    }
 }
