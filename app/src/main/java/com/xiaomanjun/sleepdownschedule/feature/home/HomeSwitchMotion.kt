@@ -36,48 +36,73 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.min
 
 private const val SwitchGroupCount = 6
 private const val SwitchGroupDelayMillis = 18
-private val SwitchSpring = spring<Float>(dampingRatio = 0.74f, stiffness = 260f, visibilityThreshold = 0.0015f)
+private val SwitchContentSpring = spring<Float>(dampingRatio = 0.74f, stiffness = 260f, visibilityThreshold = 0.0015f)
+// The page/background leads every content group, brakes early and has only a small rebound.
+private val SwitchPageSpring = spring<Float>(dampingRatio = 0.86f, stiffness = 700f, visibilityThreshold = 0.0015f)
 
 internal enum class HomeSwitchClip { None, Page, TopBar }
 
-/** Parallel pages share a spring response, with the lower content following the upper groups. */
+/** The page arrives first; the accepted content springs follow in six staggered groups. */
 @Stable
 internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: State<Boolean>) {
+    private val page = Animatable(if (initialSecondary) 1f else 0f)
     private val tracks = List(SwitchGroupCount) { Animatable(if (initialSecondary) 1f else 0f) }
     // Animatable resets velocity on cancellation. Keep the last frame for a continuous reversal.
+    private var pageVelocity = 0f
     private val velocities = FloatArray(SwitchGroupCount)
     private var settledSecondary by mutableStateOf(initialSecondary)
     private var running by mutableStateOf(false)
-    val progress: State<Float> = tracks.first().asState()
+    val progress: State<Float> = page.asState()
     val moving: Boolean get() = running || settledSecondary != target.value
 
     // Keep sampling throughout the stagger and the spring's overshoot/settling frames.
-    val sampleKey: List<Float> get() = tracks.map { it.value }
+    val sampleKey: List<Float> get() = listOf(page.value) + tracks.map { it.value }
+    val pageSampleKey: Any get() = Triple(page.value, cornerFraction, moving)
+
+    val cornerFraction: Float
+        get() {
+            // Follow the whole motion envelope. Clamping progress to 0..1 erased the corners
+            // at the first endpoint crossing, exactly when the spring started rebounding.
+            fun edgeDistance(value: Float) = min(abs(value), abs(1f - value))
+            val distance = maxOf(edgeDistance(page.value), tracks.maxOf { edgeDistance(it.value) })
+            val fraction = (distance / 0.06f).coerceIn(0f, 1f)
+            return fraction * fraction * (3f - 2f * fraction)
+        }
 
     fun retains(secondary: Boolean): Boolean = moving || settledSecondary == secondary
     fun groupProgress(group: Int): Float = tracks[group.coerceIn(0, SwitchGroupCount - 1)].value
 
     suspend fun animateTo(secondary: Boolean) {
         val destination = if (secondary) 1f else 0f
-        if (tracks.all { it.value == destination } && velocities.all { it == 0f }) {
+        if (page.value == destination && pageVelocity == 0f &&
+            tracks.all { it.value == destination } && velocities.all { it == 0f }) {
             settledSecondary = secondary
             return
         }
         // On reversal keep every group's current position, without another initial pause.
         val settledPosition = if (settledSecondary) 1f else 0f
-        val interrupted = tracks.any { it.value != settledPosition } || velocities.any { it != 0f }
+        val interrupted = page.value != settledPosition || pageVelocity != 0f ||
+            tracks.any { it.value != settledPosition } || velocities.any { it != 0f }
         val durationScale = currentCoroutineContext()[MotionDurationScale]?.scaleFactor ?: 1f
         running = true
         try {
             coroutineScope {
+                launch {
+                    page.animateTo(destination, animationSpec = SwitchPageSpring,
+                        initialVelocity = pageVelocity) {
+                        pageVelocity = velocity
+                    }
+                    pageVelocity = 0f
+                }
                 tracks.forEachIndexed { group, track ->
                     launch {
                         if (!interrupted) delay((group * SwitchGroupDelayMillis * durationScale).toLong())
-                        track.animateTo(destination, animationSpec = SwitchSpring,
+                        track.animateTo(destination, animationSpec = SwitchContentSpring,
                             initialVelocity = velocities[group]) {
                             velocities[group] = velocity
                         }
@@ -109,12 +134,11 @@ internal fun Modifier.homeSwitchLayer(
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1f else 1f
     return graphicsLayer {
         translationX = direction * size.width * ((if (secondary) 1f else 0f) - motion.progress.value)
-        // Round the complete page while it travels; ease the corners back at either endpoint.
+        // Keep rounding through the trailing content's rebound, then release the clip at rest.
         // Do not clamp the translation: the spring must be allowed to overshoot and return.
         clip = pageClip != HomeSwitchClip.None && motion.moving
         shape = if (clip) {
-            val position = motion.progress.value.coerceIn(0f, 1f)
-            val radius = 32.dp * (min(position, 1f - position) * 8f).coerceIn(0f, 1f)
+            val radius = 32.dp * motion.cornerFraction
             val bottom = if (pageClip == HomeSwitchClip.TopBar) 0.dp else radius
             RoundedCornerShape(topStart = radius, topEnd = radius, bottomEnd = bottom, bottomStart = bottom)
         } else RectangleShape

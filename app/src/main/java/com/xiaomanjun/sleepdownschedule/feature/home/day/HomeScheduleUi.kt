@@ -424,7 +424,7 @@ fun HomeReadableText(
     overflow: TextOverflow = TextOverflow.Clip
 ) {
     val readability = LocalHomeReadability.current
-    val backgroundFrozen = LocalHomeBackgroundFrozen.current
+    val backgroundFrozen = LocalHomeBackgroundFrozen.current || LocalHomeTextContrastFrozen.current
     var targetShadowStrength by remember(color) { mutableFloatStateOf(0f) }
     val shadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "home-text-soft-shadow")
     val textLayout = remember { mutableStateOf<TextLayoutResult?>(null) }

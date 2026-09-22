@@ -2474,7 +2474,10 @@ fun CourseScheduleAppUi(
                 .fillMaxSize()
                 .drawWithContent {
                     val freeze = useFrozenHomeMorphBlur()
-                    val needsCapture = lastRecordedHomeFrameKey.get() != homeCaptureFrameKey
+                    // A moving pair of pages is not a stable overlay source. Recording it on
+                    // the switch's first frame adds a full tree traversal to page construction.
+                    val needsCapture = !rootPageMotion.moving && !homeModeMotion.moving &&
+                        lastRecordedHomeFrameKey.get() != homeCaptureFrameKey
                     screenGraphicsLayer.alpha = 1f
                     if (needsCapture) {
                         screenGraphicsLayer.record { this@drawWithContent.drawContent() }
@@ -2503,6 +2506,7 @@ fun CourseScheduleAppUi(
         ) {
         CompositionLocalProvider(
             LocalHomeBackgroundFrozen provides homeBackgroundFreezeActive,
+            LocalHomeTextContrastFrozen provides (rootPageMotion.moving || homeModeMotion.moving),
             com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen provides
                 freezeHomeGlassCoordinates,
             com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey provides homeGlassSampleRecordKey
@@ -2631,10 +2635,11 @@ fun CourseScheduleAppUi(
                             if (rootPageMotion.retains(false) && visualState.loaded && wallpaperImages.source != null) {
                                 homeWallpaperRecordKey.value?.let { imageKey ->
                                     listOf(imageKey, personalizationPreviewState.wallpaperBrightness
-                                        ?: visualState.config.wallpaperBrightness, rootPageMotion.progress.value)
+                                        ?: visualState.config.wallpaperBrightness, rootPageMotion.pageSampleKey)
                                 }
                             } else null
                         })
+                        .background(ComposeColor.Black)
                 ) {
                     if (rootPageMotion.retains(false)) {
                         Box(Modifier.fillMaxSize().homeSwitchLayer(rootPageMotion, secondary = false,
@@ -2687,9 +2692,10 @@ fun CourseScheduleAppUi(
                 }
                 if (useSharedCourseBackdrop) {
                     Box(Modifier.fillMaxSize().then(sharedCourseBackdrop.preRenderModifier {
+                        // Include the corners: they follow the tail after the faster page lands.
                         homeWallpaperRecordKey.value?.let { imageKey ->
                             listOf(imageKey, personalizationPreviewState.wallpaperBrightness
-                                ?: visualState.config.wallpaperBrightness, rootPageMotion.progress.value)
+                                ?: visualState.config.wallpaperBrightness, rootPageMotion.pageSampleKey)
                         }
                     }))
                 }
