@@ -766,7 +766,7 @@ internal fun HomeScreen(
                 }
             }
     ) {
-        BackHandler(enabled = mode == HomeMode.Week && weekEditMode) {
+        BackHandler(enabled = LocalHomePaneVisible.current && mode == HomeMode.Week && weekEditMode) {
             weekEditMode = false
         }
         HomeMode.entries.forEach { targetMode ->
@@ -774,6 +774,7 @@ internal fun HomeScreen(
             HomeSwitchPane(
                 motion = modeMotion,
                 secondary = targetMode == HomeMode.Week,
+                retainContent = true,
                 modifier = Modifier.fillMaxSize()
             ) {
             modeStateHolder.SaveableStateProvider(targetMode.name) {
@@ -1581,9 +1582,10 @@ internal fun DayScheduleScreen(
         return date.coerceIn(range.start, range.endInclusive)
     }
 
-    LaunchedEffect(pagerState, displayDate) {
+    val paneVisible = LocalHomePaneVisible.current
+    LaunchedEffect(pagerState, displayDate, paneVisible) {
         snapshotFlow {
-            !pagerState.isScrollInProgress &&
+            paneVisible && !pagerState.isScrollInProgress &&
                 pagerState.currentPage == pagerState.settledPage &&
                 kotlin.math.abs(pagerState.currentPageOffsetFraction) < 0.0005f &&
                 dateForPage(pagerState.settledPage) == displayDate
@@ -1646,6 +1648,7 @@ internal fun DayScheduleScreen(
         beyondViewportPageCount = 1,
         key = { it }
     ) { page ->
+        HomeDayPageDrawingScope(pagerState, page) {
             val targetDate = dateForPage(page)
             val targetAdjustment = remember(state.config.scheduleAdjustmentsJson, targetDate) {
                 com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(state.config, targetDate)
@@ -1722,7 +1725,7 @@ internal fun DayScheduleScreen(
                         backdrop = dayAgentBackdrop,
                         textColor = textColor,
                         collapsed = agentCollapsed,
-                        isActive = page == pagerState.settledPage,
+                        isActive = paneVisible && page == pagerState.settledPage,
                         backgroundMotionState = dayAgentBackgroundMotionState,
                         onPrepareOpen = onAgentPrepareOpen,
                         onAgentDismissed = onAgentDismissed,
@@ -1940,6 +1943,7 @@ internal fun DayScheduleScreen(
                     }
                 }
             }
+    }
     }
 }
 

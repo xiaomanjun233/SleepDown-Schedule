@@ -2708,7 +2708,7 @@ fun CourseScheduleAppUi(
                     }
                     ContentEntranceContainer(phase = startupPhase, modifier = Modifier.weight(1f)) {
                         HomeSwitchPane(rootPageMotion, secondary = false, modifier = Modifier.fillMaxSize(),
-                            pageClip = HomeSwitchClip.Page) {
+                            pageClip = HomeSwitchClip.Page, retainContent = true) {
                             rootPageStateHolder.SaveableStateProvider("home") {
                                  if (visualState.loaded) HomeScreen(
                                      state = visualState,

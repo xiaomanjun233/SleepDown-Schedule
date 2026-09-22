@@ -401,15 +401,7 @@ internal fun SinglePillWeekScheduleScreen(
     val periodIndexes = remember(state.periods) {
         state.periods.map { it.periodIndex }
     }
-    var previousDisplayWeek by remember { mutableIntStateOf(displayWeek) }
-    var weekMotionDirection by remember { mutableIntStateOf(0) }
-    val outgoingCourses = remember { mutableStateOf<List<CourseEntity>?>(null) }
-    val outgoingWeekdays = remember { mutableStateOf<List<Int>>(emptyList()) }
-    val outgoingWeekKey = remember { mutableIntStateOf(displayWeek) }
-    val outgoingDirection = remember { mutableIntStateOf(0) }
-    val incomingLayerOffset = remember { Animatable(0f) }
-    val outgoingLayerOffset = remember { Animatable(0f) }
-    var gestureCommittedWeek by remember { mutableIntStateOf(0) }
+    var programmaticPage by remember { mutableIntStateOf(-1) }
     val density = LocalDensity.current
     val screenWidth = adaptiveMetrics.screenWidth
     val topSpacerHeight = adaptiveMetrics.weekTopSpacerHeight
@@ -439,85 +431,38 @@ internal fun SinglePillWeekScheduleScreen(
     val boundlessAppTopBarHeight = 66.dp
     val boundlessHeaderOffset =
         adaptiveMetrics.safeTop + boundlessAppTopBarHeight + BoundlessWeekHeaderRowHeight
-    val transitionTravelWidth = if (adaptiveMetrics.isLargeScreen) {
-        (
-            adaptiveMetrics.screenWidth - horizontalContentStartPadding -
-                horizontalContentEndPadding - rowHeaderWidth
-            ).coerceAtLeast(1.dp)
-    } else {
-        screenWidth
-    }
     val pagerState = rememberPagerState(
         initialPage = (displayWeek - 1).coerceAtLeast(0),
         pageCount = { state.config.totalWeeks.coerceAtLeast(1) }
     )
     val latestDisplayWeek by rememberUpdatedState(displayWeek)
     val latestSwipeWeek by rememberUpdatedState(onSwipeWeek)
+    val weekTail = rememberWeekPageTailMotion(pagerState)
+    val homeSwitching = LocalHomeTextContrastFrozen.current
     LaunchedEffect(pagerState, state.config.totalWeeks) {
-        // Observe page commits outside composition, as in Nexio. Publishing at 75% of a
-        // swipe rebuilt home buckets, glass groups and rail layout during the last frames.
-        snapshotFlow { pagerState.settledPage }.distinctUntilChanged().collect { page ->
-            val settledWeek = (page + 1).coerceIn(1, state.config.totalWeeks.coerceAtLeast(1))
-            if (settledWeek != latestDisplayWeek) {
-                gestureCommittedWeek = settledWeek
-                latestSwipeWeek(settledWeek - latestDisplayWeek)
+        // Publish user swipes only after settling. Programmatic changes already own displayWeek.
+        snapshotFlow {
+            if (!pagerState.isScrollInProgress && programmaticPage < 0) pagerState.settledPage else null
+        }.distinctUntilChanged().collect { page ->
+            if (page != null) {
+                val settledWeek = (page + 1).coerceIn(1, state.config.totalWeeks.coerceAtLeast(1))
+                if (settledWeek != latestDisplayWeek) latestSwipeWeek(settledWeek - latestDisplayWeek)
             }
         }
     }
     LaunchedEffect(displayWeek, state.config.totalWeeks) {
         val targetPage = (displayWeek - 1).coerceIn(0, state.config.totalWeeks.coerceAtLeast(1) - 1)
-        if (pagerState.settledPage != targetPage && gestureCommittedWeek == 0) {
-            pagerState.scrollToPage(targetPage)
-        }
-    }
-    LaunchedEffect(displayWeek) {
-        val direction = (displayWeek - previousDisplayWeek).coerceIn(-1, 1)
-        if (direction != 0 && displayWeek == gestureCommittedWeek) {
-            outgoingCourses.value = null
-            incomingLayerOffset.snapTo(0f)
-            outgoingLayerOffset.snapTo(0f)
-            weekMotionDirection = 0
-            previousDisplayWeek = displayWeek
-            gestureCommittedWeek = 0
-            return@LaunchedEffect
-        }
-        if (direction != 0) {
-            val oldWeek = previousDisplayWeek
-            val oldBuckets = bucketsForWeek(oldWeek)
-            outgoingCourses.value = oldBuckets.visibleCourses
-            outgoingWeekdays.value = visibleWeekdaysForBuckets(oldBuckets, state.config.hideEmptyWeekends)
-            outgoingWeekKey.intValue = oldWeek
-            outgoingDirection.intValue = direction
-        }
-        weekMotionDirection = direction
-        previousDisplayWeek = displayWeek
-            if (direction != 0) {
-                val offscreenOffset = with(density) { (transitionTravelWidth + 88.dp).toPx() } * direction
-                incomingLayerOffset.snapTo(offscreenOffset)
-                outgoingLayerOffset.snapTo(0f)
-                launch {
-                    incomingLayerOffset.animateTo(
-                        0f,
-                        animationSpec = spring(dampingRatio = 0.68f, stiffness = 300f)
-                    )
-                }
-                launch {
-                    outgoingLayerOffset.animateTo(
-                        -offscreenOffset,
-                        animationSpec = spring(dampingRatio = 0.72f, stiffness = 280f)
-                    )
-                    if (outgoingWeekKey.intValue != displayWeek) {
-                        outgoingCourses.value = null
-                    outgoingLayerOffset.snapTo(0f)
-                }
+        if (pagerState.settledPage != targetPage) {
+            programmaticPage = targetPage
+            weekTail.leadFromTop()
+            try {
+                pagerState.animateScrollToPage(
+                    targetPage,
+                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 350f)
+                )
+            } finally {
+                programmaticPage = -1
             }
-            launch {
-                delay(220)
-                if (outgoingWeekKey.intValue != displayWeek) outgoingCourses.value = null
-            }
-        } else {
-            incomingLayerOffset.snapTo(0f)
-            outgoingLayerOffset.snapTo(0f)
         }
     }
     val scrollState = rememberScrollState()
@@ -593,11 +538,16 @@ internal fun SinglePillWeekScheduleScreen(
         }
     }
 
-    CompositionLocalProvider(LocalWeekEditMotionState provides weekEditOverlay) {
+    CompositionLocalProvider(
+        LocalWeekEditMotionState provides weekEditOverlay,
+        LocalWeekPageTail provides weekTail,
+        LocalHomeTextContrastFrozen provides (LocalHomeTextContrastFrozen.current || weekTail.moving)
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer { clip = false }
+            .weekTailTouchAnchor(weekTail)
             .onGloballyPositioned { overlayHostBounds.value = it.boundsInRoot() }
     ) {
     Box(
@@ -764,32 +714,6 @@ internal fun SinglePillWeekScheduleScreen(
                                 }
                             )
                     ) {
-                        outgoingCourses.value?.let { oldCourses ->
-                            WeekCourseColumnsLayer(
-                                modifier = Modifier.padding(
-                                    start = rowHeaderWidth,
-                                    end = weekGridEndPadding
-                                ),
-                                courses = oldCourses,
-                                weekdays = outgoingWeekdays.value,
-                                periods = state.periods,
-                                cardHeight = cardHeight,
-                                cardColor = cardColor,
-                                backdrop = backdrop,
-                                // This subtree is recorded into stationaryCoursesBackdrop. It must
-                                // never receive the combined backdrop that includes that recorder.
-                                floatingBackdrop = backdrop,
-                                config = state.config,
-                                weekMotionDirection = outgoingDirection.intValue,
-                                outgoing = true,
-                                layerOffset = outgoingLayerOffset,
-                            editMode = false,
-                            editWeek = outgoingWeekKey.intValue,
-                            allWeekCourses = oldCourses,
-                            editScrollState = scrollState,
-                            onCourseClick = { course, sourceBounds -> openOccurrence(course, outgoingWeekKey.intValue, sourceBounds) }
-                            )
-                        }
                         val pagerZeroOffset = remember { Animatable(0f) }
                         HorizontalPager(
                             state = pagerState,
@@ -815,6 +739,7 @@ internal fun SinglePillWeekScheduleScreen(
                                 visibleWeekdaysForBuckets(pageBuckets, state.config.hideEmptyWeekends)
                             }
                             val isActivePage = pageWeek == displayWeek && pagerState.settledPage == page
+                            WeekPageSamplingScope(weekTail, page, homeSwitching) {
                             WeekCourseColumnsLayer(
                                 modifier = Modifier.padding(
                                     start = rowHeaderWidth,
@@ -833,9 +758,9 @@ internal fun SinglePillWeekScheduleScreen(
                                 // which is outside stationaryCoursesBackdrop.
                                 floatingBackdrop = backdrop,
                                 config = state.config,
-                                weekMotionDirection = if (isActivePage) weekMotionDirection else 0,
+                                weekMotionDirection = 0,
                                 outgoing = false,
-                                layerOffset = if (isActivePage) incomingLayerOffset else pagerZeroOffset,
+                                layerOffset = pagerZeroOffset,
                                 editMode = weekEditMode && isActivePage,
                                 editWeek = pageWeek,
                                 allWeekCourses = pageCourses,
@@ -881,6 +806,7 @@ internal fun SinglePillWeekScheduleScreen(
                                     openOccurrence(course, pageWeek, sourceBounds)
                                 }
                             )
+                            }
                         }
                     }
                 }
@@ -1819,6 +1745,7 @@ private fun WeekDayColumn(
                     .fillMaxWidth()
                     .padding(horizontal = 2.dp)
                     .height(segmentHeight)
+                    .weekPageTail()
                     .zIndex(if (LocalCourseRemoval.current?.matches(segment.course, editWeek) == true) 20f else groupIndex.toFloat())
             ) {
                 WeekCourseBlock(
@@ -2120,7 +2047,7 @@ fun WeekCourseColumnsLayer(
                         )
                         supplementaryCoursesByDay[day].orEmpty().forEachIndexed { index, course ->
                             Column(
-                                modifier = Modifier.fillMaxWidth().height(88.dp).padding(horizontal = 2.dp),
+                                modifier = Modifier.fillMaxWidth().height(88.dp).padding(horizontal = 2.dp).weekPageTail(),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(course.customStartTime.orEmpty(), fontSize = 8.sp, lineHeight = 10.sp,

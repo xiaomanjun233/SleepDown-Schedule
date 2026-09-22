@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -11,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -18,6 +20,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.geometry.Offset
@@ -36,6 +39,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey
 import kotlin.math.abs
 import kotlin.math.min
 
@@ -61,17 +66,18 @@ internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: S
     val moving: Boolean get() = running || settledSecondary != target.value
 
     // Keep sampling throughout the stagger and the spring's overshoot/settling frames.
-    val sampleKey: List<Float> get() = listOf(page.value) + tracks.map { it.value }
-    val pageSampleKey: Any get() = Triple(page.value, cornerFraction, moving)
+    // All glass consumers share one immutable key per frame instead of rebuilding the same
+    // lists for every card's sample pass. State reads remain in drawing, outside composition.
+    val sampleKey: List<Float> by derivedStateOf { listOf(page.value) + tracks.map { it.value } }
+    val pageSampleKey: Any by derivedStateOf { Triple(page.value, cornerFraction, moving) }
 
-    val cornerFraction: Float
-        get() {
+    val cornerFraction: Float by derivedStateOf {
             // Follow the whole motion envelope. Clamping progress to 0..1 erased the corners
             // at the first endpoint crossing, exactly when the spring started rebounding.
             fun edgeDistance(value: Float) = min(abs(value), abs(1f - value))
             val distance = maxOf(edgeDistance(page.value), tracks.maxOf { edgeDistance(it.value) })
             val fraction = (distance / 0.06f).coerceIn(0f, 1f)
-            return fraction * fraction * (3f - 2f * fraction)
+            fraction * fraction * (3f - 2f * fraction)
         }
 
     fun retains(secondary: Boolean): Boolean = moving || settledSecondary == secondary
@@ -176,15 +182,26 @@ internal fun HomeSwitchPane(
     secondary: Boolean,
     modifier: Modifier = Modifier,
     pageClip: HomeSwitchClip = HomeSwitchClip.None,
+    retainContent: Boolean = false,
     contentAlignment: Alignment = Alignment.TopStart,
     content: @Composable BoxScope.() -> Unit
 ) {
-    if (!motion.retains(secondary)) return
+    val visible = motion.retains(secondary)
+    // Keep expensive timetable composition ready after the first idle interval. Hidden pages
+    // do not draw, sample glass, tick their minute clocks or publish accessibility content.
+    var warmed by remember { mutableStateOf(false) }
+    LaunchedEffect(retainContent, motion.moving) {
+        if (retainContent && !motion.moving && !warmed) {
+            delay(200)
+            warmed = true
+        }
+    }
+    if (!visible && !(retainContent && warmed)) return
     val width = remember { mutableIntStateOf(0) }
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1f else 1f
     val parents = LocalSwitchPages.current
     val pages = remember(parents, motion, direction) { parents + SwitchPageScope(motion, width, direction) }
-    val inputModifier = if (motion.moving) {
+    val inputModifier = if (motion.moving || !visible) {
         Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
             awaitPointerEventScope {
                 while (true) {
@@ -194,10 +211,56 @@ internal fun HomeSwitchPane(
         }
     } else Modifier
     Box(
-        modifier.onSizeChanged { width.intValue = it.width }
+        modifier.drawWithContent { if (visible) drawContent() }
+            .onSizeChanged { width.intValue = it.width }
             .homeSwitchLayer(motion, secondary, pageClip).then(inputModifier),
         contentAlignment = contentAlignment
     ) {
-        CompositionLocalProvider(LocalSwitchPages provides pages) { content() }
+        val parentFrozen = LocalGlassCoordinatesFrozen.current
+        val parentKey = LocalGlassSampleRecordKey.current
+        val hiddenKey = remember { Any() }
+        val frozen = remember(visible, parentFrozen) { { !visible || parentFrozen() } }
+        val sampleKey = remember(visible, parentKey) { { if (visible) parentKey() else hiddenKey } }
+        CompositionLocalProvider(
+            LocalSwitchPages provides pages,
+            LocalHomePaneVisible provides (LocalHomePaneVisible.current && visible),
+            LocalGlassCoordinatesFrozen provides frozen,
+            LocalGlassSampleRecordKey provides sampleKey,
+            LocalHomeBackgroundFrozen provides (LocalHomeBackgroundFrozen.current || !visible),
+            LocalHomeTextContrastFrozen provides (LocalHomeTextContrastFrozen.current || !visible)
+        ) { content() }
+    }
+}
+
+/** A retained day page must not leak neighbouring cards through the outer page's rebound. */
+@Composable
+internal fun HomeDayPageDrawingScope(pager: PagerState, page: Int, content: @Composable () -> Unit) {
+    val homeSwitching = LocalHomeTextContrastFrozen.current
+    val visible by remember(pager, page, homeSwitching) {
+        derivedStateOf {
+            if (homeSwitching) page == pager.settledPage else {
+                val position = pager.currentPage + pager.currentPageOffsetFraction
+                page > position - 1f && page < position + 1f
+            }
+        }
+    }
+    val parentFrozen = LocalGlassCoordinatesFrozen.current
+    val parentKey = LocalGlassSampleRecordKey.current
+    val hiddenKey = remember(page) { Any() }
+    val frozen = remember(visible, parentFrozen) { { !visible || parentFrozen() } }
+    val key = remember(visible, parentKey, pager) {
+        derivedStateOf {
+            if (visible) Pair(parentKey(), pager.currentPage + pager.currentPageOffsetFraction) else hiddenKey
+        }
+    }
+    val sampleKey = remember(key) { { key.value } }
+    CompositionLocalProvider(
+        LocalGlassCoordinatesFrozen provides frozen,
+        LocalGlassSampleRecordKey provides sampleKey,
+        LocalHomePaneVisible provides (LocalHomePaneVisible.current && visible),
+        LocalHomeBackgroundFrozen provides (LocalHomeBackgroundFrozen.current || !visible),
+        LocalHomeTextContrastFrozen provides (homeSwitching || !visible || pager.isScrollInProgress)
+    ) {
+        Box(Modifier.drawWithContent { if (visible) drawContent() }) { content() }
     }
 }
