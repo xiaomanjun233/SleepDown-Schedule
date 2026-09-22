@@ -9255,6 +9255,16 @@ fun ChangelogSettingsScreen(
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
                 SettingsInfoRow(
+                    "1.2.6_beta9",
+                    "新增自动刷新课表，可选择从不、每天或每7天更新，登录失效后可重新连接教务。\n" +
+                    "自动刷新支持130所学校的142个教务入口，涵盖正方等接口取课系统，支持需要校园网或校园VPN的学校。\n" +
+                    "统一学校选择、底部搜索和教务网页登录体验，首次连接时确认学期、校区等信息，后续刷新沿用已选内容。\n" +
+                    "重新设计自动刷新页面，个人信息卡片置顶，头像支持圆形裁切预览，退出登录改为底部悬浮按钮。\n" +
+                    "增加周课表底部留白，避免最后一行的调课、补课标签被裁切。\n" +
+                    "AI 助理按设备当前日期和时区理解今天、明天及课程周次。"
+                )
+                SettingsDivider()
+                SettingsInfoRow(
                     "1.2.6_beta8",
                     "AI 助理支持精准定位课程后修改教师、地点、时间和周次等信息，可同时修改多个字段，未指定的内容保持原样。\n" +
                     "完善 AI 助理的查询、计划、执行和结果核对流程，减少重复查询及无法继续调用工具的问题。\n" +
