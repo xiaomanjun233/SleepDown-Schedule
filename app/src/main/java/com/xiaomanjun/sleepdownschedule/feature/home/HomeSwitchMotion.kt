@@ -1,10 +1,10 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -19,8 +19,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.findRootCoordinates
@@ -29,24 +31,31 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.min
 
 private const val SwitchGroupCount = 6
-private const val SwitchDurationMillis = 230
-private const val SwitchGroupDelayMillis = 14
-private val SwitchEasing = CubicBezierEasing(0.2f, 0f, 0.1f, 1f)
+private const val SwitchGroupDelayMillis = 18
+private val SwitchSpring = spring<Float>(dampingRatio = 0.74f, stiffness = 260f, visibilityThreshold = 0.0015f)
 
-/** Parallel pages share six bounded tracks: top first, bottom settled after 300 ms. */
+internal enum class HomeSwitchClip { None, Page, TopBar }
+
+/** Parallel pages share a spring response, with the lower content following the upper groups. */
 @Stable
 internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: State<Boolean>) {
     private val tracks = List(SwitchGroupCount) { Animatable(if (initialSecondary) 1f else 0f) }
+    // Animatable resets velocity on cancellation. Keep the last frame for a continuous reversal.
+    private val velocities = FloatArray(SwitchGroupCount)
     private var settledSecondary by mutableStateOf(initialSecondary)
     private var running by mutableStateOf(false)
     val progress: State<Float> = tracks.first().asState()
     val moving: Boolean get() = running || settledSecondary != target.value
 
-    // Read by the glass draw nodes, including the last 70 ms after the leading track settles.
+    // Keep sampling throughout the stagger and the spring's overshoot/settling frames.
     val sampleKey: List<Float> get() = tracks.map { it.value }
 
     fun retains(secondary: Boolean): Boolean = moving || settledSecondary == secondary
@@ -54,22 +63,25 @@ internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: S
 
     suspend fun animateTo(secondary: Boolean) {
         val destination = if (secondary) 1f else 0f
-        if (tracks.all { it.value == destination }) {
+        if (tracks.all { it.value == destination } && velocities.all { it == 0f }) {
             settledSecondary = secondary
             return
         }
         // On reversal keep every group's current position, without another initial pause.
-        val interrupted = settledSecondary == secondary || tracks.any { it.value > 0f && it.value < 1f }
+        val settledPosition = if (settledSecondary) 1f else 0f
+        val interrupted = tracks.any { it.value != settledPosition } || velocities.any { it != 0f }
+        val durationScale = currentCoroutineContext()[MotionDurationScale]?.scaleFactor ?: 1f
         running = true
         try {
             coroutineScope {
                 tracks.forEachIndexed { group, track ->
                     launch {
-                        track.animateTo(destination, tween(
-                            durationMillis = SwitchDurationMillis,
-                            delayMillis = if (interrupted) 0 else group * SwitchGroupDelayMillis,
-                            easing = SwitchEasing
-                        ))
+                        if (!interrupted) delay((group * SwitchGroupDelayMillis * durationScale).toLong())
+                        track.animateTo(destination, animationSpec = SwitchSpring,
+                            initialVelocity = velocities[group]) {
+                            velocities[group] = velocity
+                        }
+                        velocities[group] = 0f
                     }
                 }
             }
@@ -89,12 +101,23 @@ internal fun rememberHomeSwitchMotion(secondary: Boolean, label: String): HomeSw
 }
 
 @Composable
-internal fun Modifier.homeSwitchLayer(motion: HomeSwitchMotion, secondary: Boolean): Modifier {
+internal fun Modifier.homeSwitchLayer(
+    motion: HomeSwitchMotion,
+    secondary: Boolean,
+    pageClip: HomeSwitchClip = HomeSwitchClip.None
+): Modifier {
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1f else 1f
     return graphicsLayer {
         translationX = direction * size.width * ((if (secondary) 1f else 0f) - motion.progress.value)
-        // Pure translation does not allocate full-page alpha/scale compositing surfaces.
-        clip = false
+        // Round the complete page while it travels; ease the corners back at either endpoint.
+        // Do not clamp the translation: the spring must be allowed to overshoot and return.
+        clip = pageClip != HomeSwitchClip.None && motion.moving
+        shape = if (clip) {
+            val position = motion.progress.value.coerceIn(0f, 1f)
+            val radius = 32.dp * (min(position, 1f - position) * 8f).coerceIn(0f, 1f)
+            val bottom = if (pageClip == HomeSwitchClip.TopBar) 0.dp else radius
+            RoundedCornerShape(topStart = radius, topEnd = radius, bottomEnd = bottom, bottomStart = bottom)
+        } else RectangleShape
     }
 }
 
@@ -128,6 +151,7 @@ internal fun HomeSwitchPane(
     motion: HomeSwitchMotion,
     secondary: Boolean,
     modifier: Modifier = Modifier,
+    pageClip: HomeSwitchClip = HomeSwitchClip.None,
     contentAlignment: Alignment = Alignment.TopStart,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -147,7 +171,7 @@ internal fun HomeSwitchPane(
     } else Modifier
     Box(
         modifier.onSizeChanged { width.intValue = it.width }
-            .homeSwitchLayer(motion, secondary).then(inputModifier),
+            .homeSwitchLayer(motion, secondary, pageClip).then(inputModifier),
         contentAlignment = contentAlignment
     ) {
         CompositionLocalProvider(LocalSwitchPages provides pages) { content() }

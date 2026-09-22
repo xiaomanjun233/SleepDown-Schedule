@@ -2401,6 +2401,7 @@ fun CourseScheduleAppUi(
                 // clean-background frames, as in the 1.1.5 implementation.
                 val shouldRecordStableDetailFrame =
                     detailMorphState is DetailMorphState.Idle &&
+                        !rootPageMotion.moving && !homeModeMotion.moving &&
                         !courseEditorOwnsFrame &&
                         (
                             homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Open ||
@@ -2510,7 +2511,8 @@ fun CourseScheduleAppUi(
             containerColor = ComposeColor.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                HomeSwitchPane(rootPageMotion, secondary = false, modifier = Modifier.fillMaxWidth()) {
+                HomeSwitchPane(rootPageMotion, secondary = false, modifier = Modifier.fillMaxWidth(),
+                    pageClip = HomeSwitchClip.TopBar) {
                 TopBarEntranceContainer(
                     phase = startupPhase,
                     modifier = Modifier
@@ -2635,6 +2637,8 @@ fun CourseScheduleAppUi(
                         })
                 ) {
                     if (rootPageMotion.retains(false)) {
+                        Box(Modifier.fillMaxSize().homeSwitchLayer(rootPageMotion, secondary = false,
+                            pageClip = HomeSwitchClip.Page)) {
                         if (!visualState.loaded) {
                             HomeBackdropFallback(
                                 noWallpaper = !visualState.config.hasAnyWallpaper()
@@ -2656,10 +2660,11 @@ fun CourseScheduleAppUi(
                                 HomeBackdropFallback(noWallpaper = noWallpaperResolved)
                             }
                         }
+                        }
                     }
                     if (rootPageMotion.retains(true)) {
                         Box(Modifier.fillMaxSize()
-                            .homeSwitchLayer(rootPageMotion, secondary = true)
+                            .homeSwitchLayer(rootPageMotion, secondary = true, pageClip = HomeSwitchClip.Page)
                             .background(settingsPageBackground(settingsVisualConfig(state.config))))
                     }
                 }
@@ -2675,7 +2680,8 @@ fun CourseScheduleAppUi(
                     visualState.config.hasAnyWallpaper() &&
                     wallpaperImages.source != null
                 ) {
-                    Box(Modifier.fillMaxSize().homeSwitchLayer(rootPageMotion, secondary = false)) {
+                    Box(Modifier.fillMaxSize().homeSwitchLayer(rootPageMotion, secondary = false,
+                        pageClip = HomeSwitchClip.Page)) {
                         WallpaperToneOverlay(visualState.config, personalizationPreviewState)
                     }
                 }
@@ -2695,7 +2701,8 @@ fun CourseScheduleAppUi(
                         message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                     }
                     ContentEntranceContainer(phase = startupPhase, modifier = Modifier.weight(1f)) {
-                        HomeSwitchPane(rootPageMotion, secondary = false, modifier = Modifier.fillMaxSize()) {
+                        HomeSwitchPane(rootPageMotion, secondary = false, modifier = Modifier.fillMaxSize(),
+                            pageClip = HomeSwitchClip.Page) {
                             rootPageStateHolder.SaveableStateProvider("home") {
                                  if (visualState.loaded) HomeScreen(
                                      state = visualState,
@@ -2776,7 +2783,8 @@ fun CourseScheduleAppUi(
                                 modifier = Modifier.align(Alignment.BottomCenter)
                             )
                         }
-                        HomeSwitchPane(rootPageMotion, secondary = true, modifier = Modifier.fillMaxSize()) {
+                        HomeSwitchPane(rootPageMotion, secondary = true, modifier = Modifier.fillMaxSize(),
+                            pageClip = HomeSwitchClip.Page) {
                             rootPageStateHolder.SaveableStateProvider("settings") {
                                 SettingsScreen(
                                         page = SettingsPage.Root,
@@ -9299,7 +9307,7 @@ fun ChangelogSettingsScreen(
                     "修复西南大学登录入口，并完善其他学校的教务登录状态识别；刷新沿用已确认的学期、校区等信息。\n" +
                     "重新设计自动刷新页面，个人信息卡片置顶，头像支持圆形裁切预览，退出登录改为底部悬浮按钮。\n" +
                     "头像裁切说明居中显示，操作按钮使用随明暗主题切换的黑白文字。\n" +
-                    "日周视图及首页与设置页支持横向并行切换，内容从上到下分组错峰进场，玻璃采样持续跟随。\n" +
+                    "日周视图及首页与设置页支持并行滑动、分组甩尾与柔和回弹，首页和设置页切换时呈现圆角，优化切换中的绘制开销。\n" +
                     "修复更新日志连续展开多个版本时卡住的问题，并保留各版本的展开状态。\n" +
                     "增加周课表底部留白，避免最后一行的调课、补课标签被裁切。\n" +
                     "AI 助理按设备当前日期和时区理解今天、明天及课程周次。"
