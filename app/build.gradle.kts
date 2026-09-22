@@ -66,7 +66,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 33
-        versionName = "1.2.6_beta8"
+        versionName = "1.2.6_beta9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SLEEPDOWN_API_BASE_URL", "\"https://api.sleepdownschedule.cn\"")
         buildConfigField(
@@ -209,6 +209,7 @@ dependencies {
     implementation(project(":kyant-backdrop"))
     implementation("io.github.kyant0:shapes:1.2.0")
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.3")
+    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.3")
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.3")
     implementation("androidx.room:room-runtime:2.8.3")
     implementation("androidx.room:room-ktx:2.8.3")

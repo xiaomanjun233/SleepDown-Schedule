@@ -432,7 +432,7 @@ internal fun HomeStartMode.toHomeMode(): HomeMode = when (this) {
     HomeStartMode.WEEK -> HomeMode.Week
 }
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
+enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
 
 /** Matches the navigation motion used by the bundled Miuix system-style navigator. */
 private class MiuixSettingsNavigationEasing(
@@ -474,6 +474,7 @@ private fun agentSettingsPage(value: String?): SettingsPage? = when (value) {
     "AI_IMPORT" -> SettingsPage.AiImport
     "DAY_AGENT" -> SettingsPage.DayAgent
     "SCHEDULE" -> SettingsPage.Schedule
+    "AUTO_REFRESH_SCHEDULE" -> SettingsPage.AutoRefreshSchedule
     "NOTIFICATIONS" -> SettingsPage.Notifications
     "SCHEDULE_MANAGER" -> SettingsPage.ScheduleManager
     "BACKUP_RESTORE" -> SettingsPage.BackupRestore
@@ -499,6 +500,7 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.AiImport -> "AI 设置"
     SettingsPage.DayAgent -> "AI助理"
     SettingsPage.Schedule -> "课表详细设置"
+    SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
     SettingsPage.BackupRestore -> "备份与恢复"
@@ -512,6 +514,7 @@ private fun SettingsPage.title(): String = when (this) {
 internal fun SettingsPage.usesPersistentCenteredSettingsTitle(): Boolean = when (this) {
     SettingsPage.LiquidGlass,
     SettingsPage.Widgets,
+    SettingsPage.AutoRefreshSchedule,
     SettingsPage.About,
 	SettingsPage.Changelog,
 	SettingsPage.PrivacyPolicy -> true
@@ -4775,6 +4778,7 @@ internal fun AppTopBar(
                         SettingsPage.AiImport -> "AI 设置"
                         SettingsPage.DayAgent -> "AI助理"
                         SettingsPage.Schedule -> "课表详细设置"
+                        SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
                         SettingsPage.Notifications -> "通知设置"
                         SettingsPage.ScheduleManager -> "课表设置"
                         SettingsPage.BackupRestore -> "备份与恢复"
@@ -7066,6 +7070,10 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 onExitInterceptionChange = { interceptSystemBack = it }
                             )
                         }
+                        SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
+                            state = state,
+                            backdrop = backdrop
+                        )
                         SettingsPage.Notifications -> ScheduleConfigScreen(
                             state = state,
                             backdrop = backdrop,
@@ -7966,6 +7974,10 @@ private fun SettingsPageContent(
             onExitCommitFinished = onExitCommitFinished,
             onExitInterceptionChange = onExitInterceptionChange
         )
+        SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
+            state = state,
+            backdrop = backdrop
+        )
         SettingsPage.Notifications -> ScheduleConfigScreen(
             state = state,
             backdrop = backdrop,
@@ -8194,6 +8206,14 @@ fun SettingsRootScreen(
                         "编辑当前课表的周数、节次与显示规则",
                         selected = selectedPage == SettingsPage.Schedule,
                         onClick = { onPageChange(SettingsPage.Schedule) }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        "自动刷新课表",
+                        "连接教务系统，手动或定时同步课程",
+                        badgeText = "实验性功能",
+                        selected = selectedPage == SettingsPage.AutoRefreshSchedule,
+                        onClick = { onPageChange(SettingsPage.AutoRefreshSchedule) }
                     )
                     SettingsDivider()
                     SettingsNavigationRow(
@@ -9234,6 +9254,16 @@ fun ChangelogSettingsScreen(
             item(key = "about-changelog") {
                 AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
                 CompositionLocalProvider(LocalCollapsibleSettingsInfoRows provides true) {
+                SettingsInfoRow(
+                    "1.2.6_beta9",
+                    "新增自动刷新课表，可选择从不、每天或每7天更新，登录失效后可重新连接教务。\n" +
+                    "自动刷新支持130所学校的142个教务入口，涵盖正方等接口取课系统，支持需要校园网或校园VPN的学校。\n" +
+                    "统一学校选择、底部搜索和教务网页登录体验，首次连接时确认学期、校区等信息，后续刷新沿用已选内容。\n" +
+                    "重新设计自动刷新页面，个人信息卡片置顶，头像支持圆形裁切预览，退出登录改为底部悬浮按钮。\n" +
+                    "增加周课表底部留白，避免最后一行的调课、补课标签被裁切。\n" +
+                    "AI 助理按设备当前日期和时区理解今天、明天及课程周次。"
+                )
+                SettingsDivider()
                 SettingsInfoRow(
                     "1.2.6_beta8",
                     "AI 助理支持精准定位课程后修改教师、地点、时间和周次等信息，可同时修改多个字段，未指定的内容保持原样。\n" +

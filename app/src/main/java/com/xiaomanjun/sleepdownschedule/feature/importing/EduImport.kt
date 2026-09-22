@@ -193,13 +193,18 @@ object ShiguangWarehouse {
             }
         }
         try {
-            context.assets.open("$Root/resources/$relativePath").bufferedReader().use { it.readText() }
+            resolveBundledScript(context, adapter)
         } catch (bundledFailure: Exception) {
             throw IOException(
                 "无法获取拾光脚本 $relativePath：${remoteFailure?.message ?: bundledFailure.message}",
                 remoteFailure ?: bundledFailure
             )
         }
+    }
+
+    suspend fun resolveBundledScript(context: Context, adapter: EduAdapter): String = withContext(Dispatchers.IO) {
+        val relativePath = ShiguangWarehouseUpdater.resourceRelativePath(adapter)
+        context.assets.open("$Root/resources/$relativePath").bufferedReader().use { it.readText() }
     }
 
     private fun parseSchools(text: String): List<EduSchool> {

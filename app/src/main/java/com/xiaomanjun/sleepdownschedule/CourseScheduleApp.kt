@@ -2,6 +2,8 @@ package com.xiaomanjun.sleepdownschedule
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleWorker
 
 import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.performance.*
@@ -58,6 +60,7 @@ class CourseScheduleApp : Application() {
         super.onCreate()
         AppIconManager.onIconChanged = { TodayCoursesWidgetProvider.refreshAll(this) }
         AppIconManager.applyStoredMode(this)
+        AutoRefreshScheduleWorker.ensureSchedule(this, AutoRefreshScheduleStore.load(this))
         SleepDownRemoteConfig.initialize(this, applicationScope)
         ActivityTransitionCoordinator.install(this)
         ContextCompat.registerReceiver(

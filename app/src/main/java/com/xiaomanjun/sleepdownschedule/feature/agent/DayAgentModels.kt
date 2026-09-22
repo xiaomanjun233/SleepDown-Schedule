@@ -11,6 +11,7 @@ import java.security.MessageDigest
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
 
 data class AgentWeatherSnapshot(
     val summary: String,
@@ -87,7 +88,10 @@ data class DayAgentFacts(
     /** Current 调休/补课 table for the active schedule, decoded from `scheduleAdjustmentsJson`. */
     val scheduleAdjustments: List<ScheduleAdjustment> = emptyList(),
     /** All schedules the app knows about, used to validate switch/delete targets. */
-    val schedules: List<AgentScheduleSummary> = emptyList()
+    val schedules: List<AgentScheduleSummary> = emptyList(),
+    /** Device wall-clock zone captured with [now] for deterministic relative-date answers. */
+    val timeZoneId: String = ZoneId.systemDefault().id,
+    val utcOffset: String = now.atZone(ZoneId.systemDefault()).offset.id
 )
 
 /** Minimal schedule descriptor exposed to the agent for multi-schedule actions. */

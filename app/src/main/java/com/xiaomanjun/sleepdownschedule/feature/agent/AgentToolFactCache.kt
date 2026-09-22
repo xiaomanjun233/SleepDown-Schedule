@@ -11,7 +11,9 @@ internal class AgentToolFactCache {
     private data class Snapshot(val version: String, val results: LinkedHashMap<String, Entry>)
     private val snapshots = linkedMapOf<Int, Snapshot>()
 
-    private fun version(facts: DayAgentFacts) = "${facts.sourceHash}:${facts.periodSchemes.hashCode()}:${facts.activePeriodSchemeId}"
+    private fun version(facts: DayAgentFacts) =
+        "${facts.sourceHash}:${facts.periodSchemes.hashCode()}:${facts.activePeriodSchemeId}:" +
+            "${facts.timeZoneId}:${facts.utcOffset}"
 
     @Synchronized
     fun read(facts: DayAgentFacts, now: Long): Map<String, AgentToolResult> {
@@ -50,6 +52,8 @@ internal fun agentCachedFactsMessage(facts: DayAgentFacts, cached: Map<String, A
     put("sourceHash", facts.sourceHash)
     put("scheduleId", facts.scheduleId)
     put("now", facts.now.toString())
+    put("timeZone", facts.timeZoneId)
+    put("utcOffset", facts.utcOffset)
     put("results", buildJsonArray {
         cached.forEach { (key, result) -> add(buildJsonObject {
             put("request", key.replace('\u0000', '|'))

@@ -607,6 +607,28 @@ class ScheduleRepository(private val database: AppDatabase) {
         }
     }
 
+    /** Replaces one explicitly bound schedule without changing which schedule is active. */
+    suspend fun importDraftForSchedule(scheduleId: Int, draft: ImportDraft) {
+        database.withTransaction {
+            require(profileDao.getProfiles().any { it.id == scheduleId }) { "自动刷新绑定的课表已不存在" }
+            val activeId = activeScheduleId()
+            val globalConfig = configDao.getConfig(activeId)
+                ?: configDao.getConfig(scheduleId)
+                ?: defaultConfig(activeId)
+            val importedPeriods = normalizePeriodsForSchedule(draft.periods, scheduleId)
+            val importedConfig = configWithCountsFromPeriods(
+                draft.config.withGlobalSettingsFrom(globalConfig),
+                importedPeriods
+            )
+            configDao.upsertConfig(normalizeConfigForSchedule(importedConfig, scheduleId))
+            configDao.deletePeriods(scheduleId)
+            configDao.upsertPeriods(importedPeriods)
+            replaceSchemesWithPeriods(scheduleId, importedConfig, importedPeriods, "自动刷新作息")
+            courseDao.deleteBySchedule(scheduleId)
+            courseDao.insertCourses(normalizeImportedCoursesForSchedule(draft.courses, scheduleId))
+        }
+    }
+
     suspend fun saveConfig(config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
         val scheduleId = activeScheduleId()
         database.withTransaction {
@@ -786,6 +808,16 @@ class ScheduleRepository(private val database: AppDatabase) {
             courses = courseDao.getCourses(activeId),
             config = configDao.getConfig(activeId) ?: defaultConfig(activeId),
             periods = configDao.getPeriods(activeId).ifEmpty { defaultPeriods(activeId) },
+            loaded = true
+        )
+    }
+
+    suspend fun scheduleSnapshot(scheduleId: Int): AppState = database.withTransaction {
+        require(profileDao.getProfiles().any { it.id == scheduleId }) { "自动刷新绑定的课表已不存在" }
+        AppState(
+            courses = courseDao.getCourses(scheduleId),
+            config = configDao.getConfig(scheduleId) ?: defaultConfig(scheduleId),
+            periods = configDao.getPeriods(scheduleId).ifEmpty { defaultPeriods(scheduleId) },
             loaded = true
         )
     }

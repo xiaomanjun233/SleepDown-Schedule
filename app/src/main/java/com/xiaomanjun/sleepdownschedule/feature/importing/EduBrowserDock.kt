@@ -126,6 +126,9 @@ internal fun EduBrowserDock(
     historyExpanded: Boolean = false,
     onHistoryExpandedChange: (Boolean) -> Unit = {},
     onHistorySelected: (EduLoginHistoryEntry) -> Unit = {},
+    primaryActionLabel: String? = null,
+    primaryActionEnabled: Boolean = true,
+    onPrimaryAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val foreground = sleepDownPanelForegroundColor(config)
@@ -522,14 +525,15 @@ internal fun EduBrowserDock(
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         EduBrowserDockIcon(
-                            iconRes = R.drawable.ic_school_import,
-                            contentDescription = "导入",
+                            iconRes = if (onPrimaryAction != null) R.drawable.ic_check else R.drawable.ic_school_import,
+                            contentDescription = primaryActionLabel ?: "导入",
                             foreground = foreground,
-                            enabled = sideControlsEnabled,
+                            enabled = sideControlsEnabled && primaryActionEnabled,
                             modifier = Modifier.onGloballyPositioned { importAnchor = it.boundsInRoot() },
                             onClick = {
                                 moreMenuVisible = false
-                                importMenuVisible = !importMenuVisible
+                                if (onPrimaryAction != null) onPrimaryAction()
+                                else importMenuVisible = !importMenuVisible
                             }
                         )
                         EduBrowserDockIcon(

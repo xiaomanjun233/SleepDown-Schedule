@@ -142,10 +142,11 @@ fun EduSchoolPickerScreen(
     state: AppState,
     backdrop: Backdrop? = null,
     warehouseGeneration: Int = 0,
+    availableAdapters: List<EduAdapter>? = null,
     onSelect: (EduAdapter) -> Unit
 ) {
     val context = LocalContext.current
-    val adapters = remember(warehouseGeneration) {
+    val adapters = availableAdapters ?: remember(warehouseGeneration) {
         runCatching { ShiguangWarehouse.loadAdapters(context) }
             .getOrDefault(emptyList())
             // WakeUp and StarLink already share the AI manual-import input. The two GLOBAL_TOOLS
@@ -1291,7 +1292,8 @@ internal fun EduBridgeInteractionDialog(
     bridge: ShiguangBridgeHost,
     state: AppState,
     backdrop: Backdrop?,
-    onFinished: () -> Unit
+    onFinished: () -> Unit,
+    resolveInteraction: (String, String) -> Unit = bridge::resolveInteraction
 ) {
     when (request) {
         null -> Unit
@@ -1304,14 +1306,14 @@ internal fun EduBridgeInteractionDialog(
                         label = request.confirmText,
                         style = LiquidAlertActionStyle.Primary
                     ) {
-                        bridge.resolveEduBridgeInteraction(request.requestId, "true")
+                        resolveInteraction(request.requestId, "true")
                         onFinished()
                     }
                 ),
                 backdrop = backdrop,
                 config = state.config,
                 onDismissRequest = {
-                    bridge.resolveEduBridgeInteraction(request.requestId, "false")
+                    resolveInteraction(request.requestId, "false")
                     onFinished()
                 }
             )
@@ -1320,14 +1322,14 @@ internal fun EduBridgeInteractionDialog(
             var value by remember(request.requestId) { mutableStateOf(request.defaultValue) }
             var validationError by remember(request.requestId) { mutableStateOf<String?>(null) }
             fun cancel() {
-                bridge.resolveEduBridgeInteraction(request.requestId, "null")
+                resolveInteraction(request.requestId, "null")
                 onFinished()
             }
             fun submit() {
                 validateEduBridgePrompt(bridge, request, value) { error ->
                     validationError = error
                     if (error == null) {
-                        bridge.resolveEduBridgeInteraction(request.requestId, JSONObject.quote(value))
+                        resolveInteraction(request.requestId, JSONObject.quote(value))
                         onFinished()
                     }
                 }
@@ -1384,7 +1386,7 @@ internal fun EduBridgeInteractionDialog(
         is EduBridgeInteractionRequest.SingleSelection -> {
             if (request.options.isEmpty()) {
                 fun cancel() {
-                    bridge.resolveEduBridgeInteraction(request.requestId, "null")
+                    resolveInteraction(request.requestId, "null")
                     onFinished()
                 }
                 LiquidAlertDialog(
@@ -1409,12 +1411,12 @@ internal fun EduBridgeInteractionDialog(
             var visible by remember(request.requestId) { mutableStateOf(true) }
             var completion by remember(request.requestId) { mutableStateOf<(() -> Unit)?>(null) }
             fun cancel() {
-                bridge.resolveEduBridgeInteraction(request.requestId, "null")
+                resolveInteraction(request.requestId, "null")
                 onFinished()
             }
             fun submit() {
                 if (selectedIndex !in request.options.indices) return
-                bridge.resolveEduBridgeInteraction(request.requestId, selectedIndex.toString())
+                resolveInteraction(request.requestId, selectedIndex.toString())
                 onFinished()
             }
             fun closeThen(action: () -> Unit) {

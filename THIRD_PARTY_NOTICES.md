@@ -41,10 +41,16 @@ its popup host so backdrop consumers do not sample a producer that contains
 themselves. The patch base, application order and scope are documented in
 `patches/README.md`; the original package names and license headers are retained.
 
-## xingheyuzhuan/shiguang_warehouse
+## ShiGuangSchedule/shiguang_warehouse
 
 Education-system adapter indexes, YAML configuration and JavaScript resources
 under `app/src/main/assets/shiguang_warehouse-main/` are based on
-[xingheyuzhuan/shiguang_warehouse](https://github.com/xingheyuzhuan/shiguang_warehouse).
+[ShiGuangSchedule/shiguang_warehouse](https://github.com/ShiGuangSchedule/shiguang_warehouse).
 
 License: MIT License.
+
+The auto-refresh adapter catalog and its selected scripts were reviewed against
+upstream commit `fa7cbc2ea116e5ffd082a9fe8cb7bdf4407a8713`. The selection criteria,
+source paths and verification scope are recorded in
+[`docs/reports/2026-09-22-auto-refresh-beta9.md`](docs/reports/2026-09-22-auto-refresh-beta9.md).
+Original script headers and the upstream license are retained.
