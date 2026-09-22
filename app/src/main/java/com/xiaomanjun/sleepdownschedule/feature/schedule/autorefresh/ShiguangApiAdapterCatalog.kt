@@ -4,6 +4,7 @@ import android.content.Context
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchool
 import com.xiaomanjun.sleepdownschedule.feature.importing.ShiguangWarehouse
+import com.xiaomanjun.sleepdownschedule.feature.importing.isAiEduImportTool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
@@ -14,6 +15,10 @@ import java.security.MessageDigest
  * keyword filter cannot distinguish metadata from HTML timetable parsing.
  */
 internal object ShiguangApiAdapterCatalog {
+    suspend fun loadLoginAdapters(context: Context): List<EduAdapter> = withContext(Dispatchers.IO) {
+        ShiguangWarehouse.loadVisibleAdapters(context).filterNot(EduAdapter::isAiEduImportTool)
+    }
+
     suspend fun loadSupported(context: Context): List<EduAdapter> = withContext(Dispatchers.IO) {
         parseCatalog(context.assets.open("auto_refresh/catalog.tsv").bufferedReader().use { it.readText() })
     }

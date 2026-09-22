@@ -92,10 +92,39 @@ internal object AutoRefreshScheduleCoordinator {
     suspend fun refreshSaved(context: Context): AutoRefreshOutcome = refreshMutex.withLock {
         val profile = AutoRefreshScheduleStore.load(context)
             ?: return@withLock AutoRefreshOutcome(false, "请先登录教务系统")
+        if (profile.sessionOnly) return@withLock AutoRefreshOutcome(false, "请打开教务页面手动刷新课表", profile)
         val adapters = ShiguangApiAdapterCatalog.loadSupported(context)
         val adapter = ShiguangApiAdapterCatalog.find(adapters, profile.schoolId, profile.adapterId)
             ?: return@withLock recordFailure(context, profile, "该教务入口已更新，请重新选择学校并登录")
         execute(context, adapter, profile)
+    }
+
+    /** Retain browser state only; HTML adapters still require their normal preview and confirmation. */
+    suspend fun retainSession(
+        context: Context,
+        adapter: EduAdapter,
+        scheduleId: Int,
+        cookies: List<AutoRefreshCookie>,
+        authenticatedUrl: String,
+        webStorage: AutoRefreshWebStorage?,
+        desktopMode: Boolean
+    ): AutoRefreshOutcome = refreshMutex.withLock {
+        require(AutoRefreshWebSession.origin(authenticatedUrl) != null) { "请先打开学校教务页面" }
+        require(cookies.isNotEmpty() || webStorage != null) { "未读取到登录态，请先完成学校登录" }
+        val existing = AutoRefreshScheduleStore.load(context)?.takeIf {
+            it.schoolId == adapter.school.id && it.adapterId == adapter.adapterId && it.scheduleId == scheduleId
+        }
+        val retained = AutoRefreshScheduleProfile(
+            schoolId = adapter.school.id, schoolName = adapter.school.name,
+            adapterId = adapter.adapterId, adapterName = adapter.adapterName,
+            username = "", password = "", scheduleId = scheduleId,
+            cookies = cookies, authenticatedUrl = authenticatedUrl, webStorage = webStorage,
+            desktopMode = desktopMode, sessionOnly = true, automatic = false,
+            avatarPath = existing?.avatarPath, lastRefreshAt = existing?.lastRefreshAt ?: 0,
+            lastResult = "登录态已保留，请打开教务页面手动刷新课表"
+        )
+        AutoRefreshScheduleStore.save(context, retained)
+        AutoRefreshOutcome(true, retained.lastResult, retained)
     }
 
     private suspend fun execute(
@@ -178,7 +207,7 @@ class AutoRefreshScheduleWorker(
 ) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
         val profile = AutoRefreshScheduleStore.load(applicationContext)
-        if (profile?.automatic != true) return Result.success()
+        if (profile?.automaticRefreshEnabled != true) return Result.success()
         AutoRefreshScheduleCoordinator.refreshSaved(applicationContext)
         return Result.success()
     }
@@ -200,7 +229,7 @@ class AutoRefreshScheduleWorker(
             policy: ExistingPeriodicWorkPolicy
         ) {
             val manager = WorkManager.getInstance(context.applicationContext)
-            if (profile?.automatic != true) {
+            if (profile?.automaticRefreshEnabled != true) {
                 manager.cancelUniqueWork(WorkName)
                 return
             }

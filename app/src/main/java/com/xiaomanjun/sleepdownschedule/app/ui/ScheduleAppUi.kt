@@ -15,6 +15,8 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.feature.course.management.HomeMenuActivitySourceFallback
 import com.xiaomanjun.sleepdownschedule.feature.course.management.putCourseManagementInitialState
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshWebSession
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
@@ -7422,6 +7424,16 @@ open class EduImportActivityHost : ComponentActivity() {
             )
             val state by viewModel.state.collectAsStateWithLifecycle()
             val adapter = remember { eduAdapterFromIntentKey(intent.getStringExtra(EduAdapterExtra)) }
+            val retainedSession = remember(adapter) {
+                if (adapter != null && intent.getBooleanExtra(AutoRefreshWebSession.RestoreSessionExtra, false)) {
+                    AutoRefreshScheduleStore.load(app)?.takeIf {
+                        it.schoolId == adapter.school.id && it.adapterId == adapter.adapterId
+                    }
+                } else null
+            }
+            val browserAdapter = remember(adapter, retainedSession) {
+                adapter?.copy(importUrl = retainedSession?.authenticatedUrl ?: adapter.importUrl)
+            }
             var pendingDraft by remember { mutableStateOf<ImportDraft?>(null) }
             val eduWebContentBackdrop = rememberGlassLayerBackdrop(
                 domain = GlassBackdropDomain.Content,
@@ -7452,10 +7464,16 @@ open class EduImportActivityHost : ComponentActivity() {
                         } else {
                             EduImportActivityScreen(
                                 state = state,
-                                adapter = adapter,
+                                adapter = checkNotNull(browserAdapter),
                                 backdrop = backdrop,
                                 webContentBackdrop = eduWebContentBackdrop,
                                 useDetailTopPadding = true,
+                                prepareWebView = { webView ->
+                                    retainedSession?.let {
+                                        AutoRefreshWebSession.restore(webView, it)
+                                    }
+                                },
+                                initialDesktopMode = retainedSession?.desktopMode ?: false,
                                 onParsed = { draft -> pendingDraft = draft }
                             )
                         }

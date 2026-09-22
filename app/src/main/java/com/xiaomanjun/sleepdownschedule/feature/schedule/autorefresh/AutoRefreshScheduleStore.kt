@@ -36,6 +36,7 @@ internal data class AutoRefreshScheduleProfile(
     val scheduleId: Int,
     val cookies: List<AutoRefreshCookie> = emptyList(),
     val automatic: Boolean = false,
+    val sessionOnly: Boolean = false,
     val frequencyMinutes: Long = AutoRefreshFrequency.DailyMinutes,
     val authenticatedUrl: String? = null,
     val desktopMode: Boolean = false,
@@ -44,7 +45,9 @@ internal data class AutoRefreshScheduleProfile(
     val avatarPath: String? = null,
     val lastRefreshAt: Long = 0,
     val lastResult: String = "尚未刷新"
-)
+) {
+    val automaticRefreshEnabled: Boolean get() = automatic && !sessionOnly
+}
 
 internal object AutoRefreshScheduleStore {
     private const val PrefsName = "auto_refresh_schedule"
@@ -117,6 +120,7 @@ internal object AutoRefreshScheduleStore {
         .put("password", password)
         .put("scheduleId", scheduleId)
         .put("automatic", automatic)
+        .put("sessionOnly", sessionOnly)
         .put("frequencyMinutes", frequencyMinutes)
         .put("authenticatedUrl", authenticatedUrl)
         .put("desktopMode", desktopMode)
@@ -152,6 +156,7 @@ internal object AutoRefreshScheduleStore {
                 }
             },
             automatic = optBoolean("automatic", false),
+            sessionOnly = optBoolean("sessionOnly", false),
             frequencyMinutes = AutoRefreshFrequency.normalize(optLong("frequencyMinutes", AutoRefreshFrequency.DailyMinutes)),
             authenticatedUrl = optString("authenticatedUrl").takeIf { it.startsWith("https://") || it.startsWith("http://") },
             desktopMode = optBoolean("desktopMode", false),

@@ -45,6 +45,7 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
             val state by viewModel.state.collectAsStateWithLifecycle()
             val requested = remember { eduAdapterFromIntentKey(intent.getStringExtra(AdapterExtra)) }
             var adapter by remember { mutableStateOf<EduAdapter?>(null) }
+            var sessionOnly by remember { mutableStateOf(false) }
             var error by remember { mutableStateOf<String?>(null) }
             val visitedUrls = remember { linkedSetOf<String>() }
             var teachingRedirects by remember { mutableIntStateOf(0) }
@@ -53,11 +54,15 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 runCatching {
                     val supported = ShiguangApiAdapterCatalog.loadSupported(app)
-                    if (requested == null) supported.firstOrNull(ShiguangApiAdapterCatalog::isSwuAdapter)
-                    else ShiguangApiAdapterCatalog.find(supported, requested.school.id, requested.adapterId)
+                    val reviewed = if (requested == null) supported.firstOrNull(ShiguangApiAdapterCatalog::isSwuAdapter)
+                        else ShiguangApiAdapterCatalog.find(supported, requested.school.id, requested.adapterId)
+                    sessionOnly = reviewed == null
+                    reviewed ?: requested?.let {
+                        ShiguangApiAdapterCatalog.find(ShiguangApiAdapterCatalog.loadLoginAdapters(app), it.school.id, it.adapterId)
+                    }
                 }.onSuccess {
                     adapter = it
-                    if (it == null) error = "该学校暂不支持自动刷新"
+                    if (it == null) error = "该教务入口已更新，请返回重新选择"
                 }.onFailure { error = "学校列表读取失败，请返回重试" }
             }
             val webBackdrop = rememberGlassLayerBackdrop(
@@ -99,15 +104,16 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                                 backdrop = backdrop,
                                 webContentBackdrop = webBackdrop,
                                 primaryAction = EduBrowserPrimaryAction(
-                                    label = "读取登录态",
-                                    guide = if (loginPageReady) "页面已就绪，点击“读取登录态”校验并保存凭证。课表可在连接后刷新。"
+                                    label = if (sessionOnly) "保留登录态" else "读取登录态",
+                                    guide = if (sessionOnly) "完成学校登录后，点击“保留登录态”。下次可继续使用此会话，打开教务页面手动刷新课表。"
+                                        else if (loginPageReady) "页面已就绪，点击“读取登录态”校验并保存凭证。课表可在连接后刷新。"
                                         else "请完成学校登录并进入教务系统，再点击“读取登录态”保存凭证。",
                                     enabled = loginPageReady,
                                     onPageStarted = { _, _ -> loginPageReady = false },
                                     onPageFinished = { webView, url ->
                                         url?.takeIf { AutoRefreshWebSession.origin(it) != null }?.let(visitedUrls::add)
-                                        loginPageReady = AutoRefreshLoginRoutes.isSessionPage(selected.school.id, url)
-                                        if (ShiguangApiAdapterCatalog.isSwuAdapter(selected) &&
+                                        loginPageReady = AutoRefreshLoginRoutes.isSessionPage(if (sessionOnly) "" else selected.school.id, url)
+                                        if (!sessionOnly && ShiguangApiAdapterCatalog.isSwuAdapter(selected) &&
                                             SwuAuthRoutes.isAuthenticatedTeachingPage(url) &&
                                             !SwuAuthRoutes.isCoursePage(url) && teachingRedirects < 3
                                         ) {
@@ -117,17 +123,23 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                                     },
                                     onInvoke = { webView, _, desktopMode ->
                                         val currentUrl = webView.url.orEmpty()
-                                        require(AutoRefreshLoginRoutes.isSessionPage(selected.school.id, currentUrl)) {
+                                        require(AutoRefreshLoginRoutes.isSessionPage(if (sessionOnly) "" else selected.school.id, currentUrl)) {
                                             "请先完成学校登录并进入教务系统"
                                         }
                                         val storage = AutoRefreshWebSession.captureStorage(webView, selected.school.id)
                                         val cookieUrls = visitedUrls + selected.importUrl + currentUrl +
                                             if (ShiguangApiAdapterCatalog.isSwuAdapter(selected)) SwuAuthRoutes.sessionCookieUrls else emptyList()
-                                        val result = AutoRefreshScheduleCoordinator.connect(
+                                        val cookies = AutoRefreshWebSession.captureCookies(cookieUrls)
+                                        val result = if (sessionOnly) AutoRefreshScheduleCoordinator.retainSession(
+                                            context = app, adapter = selected,
+                                            scheduleId = intent.getIntExtra(ScheduleExtra, state.config.id),
+                                            cookies = cookies, authenticatedUrl = currentUrl,
+                                            webStorage = storage, desktopMode = desktopMode
+                                        ) else AutoRefreshScheduleCoordinator.connect(
                                             context = app,
                                             adapter = selected,
                                             scheduleId = intent.getIntExtra(ScheduleExtra, state.config.id),
-                                            initialCookies = AutoRefreshWebSession.captureCookies(cookieUrls),
+                                            initialCookies = cookies,
                                             authenticatedUrl = currentUrl,
                                             webStorage = storage,
                                             desktopMode = desktopMode,
