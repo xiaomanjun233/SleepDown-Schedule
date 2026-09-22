@@ -11,6 +11,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.ImportDraft
 import com.xiaomanjun.sleepdownschedule.app.ui.releaseSleepDownWebView
@@ -49,14 +50,12 @@ internal object AutoRefreshShiguangRunner {
         adapter: EduAdapter,
         profile: AutoRefreshScheduleProfile,
         targetState: AppState,
-        authenticationWebView: WebView? = null,
-        authenticationBridge: ShiguangBridgeHost? = null,
         onInteraction: ((AutoRefreshLoginInteraction?) -> Unit)? = null
     ): AutoRefreshFetch {
         val source = ShiguangApiAdapterCatalog.resolveScript(context, adapter)
-        return withTimeout(if (authenticationWebView == null) 90_000L else 600_000L) {
+        return withTimeout(if (onInteraction == null) 90_000L else 600_000L) {
             withContext(Dispatchers.Main.immediate) {
-                runWebView(context.applicationContext, adapter, profile, targetState, source, authenticationWebView, authenticationBridge, onInteraction)
+                runWebView(context.applicationContext, adapter, profile, targetState, source, onInteraction)
             }
         }
     }
@@ -68,8 +67,6 @@ internal object AutoRefreshShiguangRunner {
         profile: AutoRefreshScheduleProfile,
         targetState: AppState,
         source: String,
-        authenticationWebView: WebView?,
-        authenticationBridge: ShiguangBridgeHost?,
         onInteraction: ((AutoRefreshLoginInteraction?) -> Unit)?
     ): AutoRefreshFetch = suspendCancellableCoroutine { continuation ->
         val handler = Handler(Looper.getMainLooper())
@@ -82,19 +79,14 @@ internal object AutoRefreshShiguangRunner {
         var ssoAttempts = 0
         val visitedUrls = (profile.cookies.map(AutoRefreshCookie::url) + adapter.importUrl).toMutableSet()
         val answers = profile.interactionAnswers.toMutableMap()
-        var restoreBridgeCallbacks: (() -> Unit)? = null
 
         fun release() {
             handler.removeCallbacksAndMessages(null)
             onInteraction?.invoke(null)
-            restoreBridgeCallbacks?.invoke()
-            restoreBridgeCallbacks = null
             target?.let { webView ->
-                if (authenticationWebView == null) {
-                    runCatching { webView.uninstallShiguangRuntime() }
-                    runCatching { webView.stopLoading() }
-                    runCatching { webView.releaseSleepDownWebView(clearResourceCache = false) }
-                }
+                runCatching { webView.uninstallShiguangRuntime() }
+                runCatching { webView.stopLoading() }
+                runCatching { webView.releaseSleepDownWebView(clearResourceCache = false) }
             }
             target = null
         }
@@ -122,19 +114,30 @@ internal object AutoRefreshShiguangRunner {
 
         fun isFailureMessage(message: String): Boolean = listOf(
             "失败", "错误", "无效", "无法", "未登录", "请登录", "登录失效", "超时",
+            "未找到任何课程数据", "导入已取消", "用户取消了导入",
             "error", "exception", "invalid", "unauthorized", "forbidden"
         ).any { message.contains(it, ignoreCase = true) }
 
         lateinit var bridge: ShiguangBridgeHost
-        bridge = authenticationBridge ?: ShiguangBridgeHost(context, {}, {}, {})
-        restoreBridgeCallbacks = bridge.attachTaskCallbacks(
+        bridge = ShiguangBridgeHost(
+            context = context,
             onDraft = ::complete,
             onMessage = { message -> if (isFailureMessage(message)) fail(message) },
             onInteractionRequest = { request ->
-                if (onInteraction != null) {
+                val answer = AutoRefreshAnswers.resolve(answers, request, adapter.school.id)
+                if (request is EduBridgeInteractionRequest.Alert && answer == null) {
+                    fail("教务校验失败，请确认登录状态后重试")
+                } else if (answer != null) {
+                    // Introductory import alerts are protocol acknowledgements. Only unresolved
+                    // school options need user input; never show the adapter's import workflow.
+                    AutoRefreshAnswers.record(answers, request, answer)
+                    bridge.resolveInteraction(request.requestId, answer)
+                } else if (onInteraction != null) {
                     onInteraction(AutoRefreshLoginInteraction(request, bridge) { value ->
                         if (!finished) {
-                            if (value == "null" || (request is EduBridgeInteractionRequest.Alert && value == "false")) {
+                            val invalidSelection = request is EduBridgeInteractionRequest.SingleSelection &&
+                                (value.toIntOrNull()?.let { it in request.options.indices } != true)
+                            if (value == "null" || invalidSelection) {
                                 fail("已取消连接")
                             } else {
                                 AutoRefreshAnswers.record(answers, request, value)
@@ -143,12 +146,7 @@ internal object AutoRefreshShiguangRunner {
                         }
                     })
                 } else {
-                    val answer = AutoRefreshAnswers.resolve(answers, request)
-                    if (request is EduBridgeInteractionRequest.Alert &&
-                        (isFailureMessage(request.title + request.message) || request.message.contains("未获取到"))
-                    ) fail(listOf(request.title, request.message).filter(String::isNotBlank).joinToString("："))
-                    else if (answer == null) fail("教务系统需要确认选项，请重新登录并确认学期、校区等信息")
-                    else bridge.resolveInteraction(request.requestId, answer)
+                    fail("教务系统需要确认选项，请重新登录并确认学期、校区等信息")
                 }
             }
         )
@@ -161,7 +159,7 @@ internal object AutoRefreshShiguangRunner {
                 webView.injectShiguangRuntime(profile.desktopMode)
                 // Isolate top-level declarations so a failed connection can be retried in the same page.
                 webView.evaluateJavascript("(async function() {\n" + source + "\n})().catch(function() { window.shiguangBridge.showToast('刷新失败，请重新登录后重试'); });", null)
-            }, if (authenticationWebView == null) 2_500L else 0L)
+            }, 2_500L)
         }
 
         fun continueAfterLogin(webView: WebView) {
@@ -175,7 +173,7 @@ internal object AutoRefreshShiguangRunner {
                 SwuAuthRoutes.isTeachingLoginPage(webView.url) || SwuAuthRoutes.isUnifiedAuthPage(webView.url) ||
                     SwuAuthRoutes.isSsoEntry(webView.url) ->
                     fail("教务会话已失效，请重新登录；校外访问请连接校园 VPN")
-                else -> startAdapterScript(webView, pageGeneration)
+                else -> fail("尚未进入教务课表页面，请重新完成学校登录")
             }
         }
 
@@ -183,49 +181,49 @@ internal object AutoRefreshShiguangRunner {
             handler.post { finished = true; release() }
         }
         try {
-            val webView = authenticationWebView ?: WebView(context)
+            val webView = WebView(context)
             target = webView
-            if (authenticationWebView == null) {
-                val cookieManager = CookieManager.getInstance().apply { setAcceptCookie(true) }
-                profile.cookies.forEach { cookie ->
-                    cookie.value.split(';').map(String::trim).filter { it.contains('=') }.forEach { value ->
-                        cookieManager.setCookie(cookie.url, "$value; Path=/")
-                    }
-                }
-                cookieManager.flush()
-                webView.settings.javaScriptEnabled = true
-                webView.settings.domStorageEnabled = true
-                if (profile.desktopMode) webView.settings.userAgentString = DesktopWebUserAgent
-                webView.configureEduImportSecurity()
-                AutoRefreshWebSession.installStorage(webView, adapter.school.id, profile.webStorage)
-                cookieManager.setAcceptThirdPartyCookies(webView, true)
-                val interceptor = ShiguangWebRequestInterceptor()
-                webView.webViewClient = object : WebViewClient() {
-                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? =
-                        request?.let { interceptor.intercept(it, profile.desktopMode) }
-
-                    override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
-                        pageGeneration++
-                        url?.let(visitedUrls::add)
-                    }
-
-                    override fun onPageFinished(view: WebView, url: String?) {
-                        if (finished) return
-                        url?.let(visitedUrls::add)
-                        view.injectShiguangRuntime(profile.desktopMode)
-                        continueAfterLogin(view)
-                    }
-
-                    override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                        if (request?.isForMainFrame == true) fail("教务页面加载失败，请检查校园网或 VPN 连接")
-                    }
+            val cookieManager = CookieManager.getInstance().apply { setAcceptCookie(true) }
+            profile.cookies.forEach { cookie ->
+                cookie.value.split(';').map(String::trim).filter { it.contains('=') }.forEach { value ->
+                    cookieManager.setCookie(cookie.url, "$value; Path=/")
                 }
             }
-            if (authenticationWebView == null) webView.installShiguangRuntime(bridge)
+            cookieManager.flush()
+            webView.settings.javaScriptEnabled = true
+            webView.settings.domStorageEnabled = true
+            // Match the visible education browser: legacy portals load scripts over HTTP.
+            webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            if (profile.desktopMode) webView.settings.userAgentString = DesktopWebUserAgent
+            webView.configureEduImportSecurity()
+            AutoRefreshWebSession.installStorage(webView, adapter.school.id, profile.webStorage)
+            cookieManager.setAcceptThirdPartyCookies(webView, true)
+            val interceptor = ShiguangWebRequestInterceptor()
+            webView.webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? =
+                    request?.let { interceptor.intercept(it, profile.desktopMode) }
+
+                override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                    pageGeneration++
+                    url?.let(visitedUrls::add)
+                }
+
+                override fun onPageFinished(view: WebView, url: String?) {
+                    if (finished) return
+                    url?.let(visitedUrls::add)
+                    view.injectShiguangRuntime(profile.desktopMode)
+                    continueAfterLogin(view)
+                }
+
+                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                    if (request?.isForMainFrame == true) fail("教务页面加载失败，请检查校园网或 VPN 连接")
+                }
+            }
+            webView.installShiguangRuntime(bridge)
             bridge.bindWebView(webView)
-            if (authenticationWebView == null) webView.loadUrl(
+            webView.loadUrl(
                 profile.authenticatedUrl ?: if (ShiguangApiAdapterCatalog.isSwuAdapter(adapter)) SwuAuthRoutes.CoursePageUrl else adapter.importUrl
-            ) else startAdapterScript(webView, pageGeneration)
+            )
         } catch (error: Exception) {
             fail(error.message ?: "无法打开教务页面")
         }

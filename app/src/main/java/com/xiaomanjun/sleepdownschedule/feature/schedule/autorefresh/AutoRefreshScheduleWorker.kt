@@ -1,7 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 
 import android.content.Context
-import android.webkit.WebView
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -12,8 +11,9 @@ import androidx.work.WorkerParameters
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.TodayCoursesWidgetProvider
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
-import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangBridgeHost
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
@@ -32,17 +32,14 @@ internal object AutoRefreshScheduleCoordinator {
         AutoRefreshScheduleStore.clear(context)
     }
 
-    suspend fun loginAndRefresh(
+    /** Validate the captured session in the background, then save credentials without importing. */
+    suspend fun connect(
         context: Context,
         adapter: EduAdapter,
-        username: String,
-        password: String,
         scheduleId: Int,
         initialCookies: List<AutoRefreshCookie> = emptyList(),
         authenticatedUrl: String? = null,
         webStorage: AutoRefreshWebStorage? = null,
-        authenticationWebView: WebView? = null,
-        authenticationBridge: ShiguangBridgeHost? = null,
         desktopMode: Boolean = false,
         onInteraction: ((AutoRefreshLoginInteraction?) -> Unit)? = null
     ): AutoRefreshOutcome = refreshMutex.withLock {
@@ -55,19 +52,41 @@ internal object AutoRefreshScheduleCoordinator {
             schoolName = adapter.school.name,
             adapterId = adapter.adapterId,
             adapterName = adapter.adapterName,
-            username = username,
-            password = password,
+            username = "",
+            password = "",
             scheduleId = scheduleId,
             cookies = initialCookies,
             authenticatedUrl = authenticatedUrl,
             desktopMode = desktopMode,
             webStorage = webStorage,
+            interactionAnswers = existing?.interactionAnswers.orEmpty(),
             automatic = existing?.automatic ?: false,
             frequencyMinutes = existing?.frequencyMinutes ?: AutoRefreshFrequency.DailyMinutes,
             avatarPath = existing?.avatarPath,
+            lastRefreshAt = existing?.lastRefreshAt ?: 0,
             lastResult = "正在验证教务登录"
         )
-        execute(context, adapter, provisional, persistNewProfile = true, authenticationWebView, authenticationBridge, onInteraction)
+        val app = context.applicationContext as CourseScheduleApp
+        runCatching {
+            require(initialCookies.isNotEmpty() || webStorage != null) {
+                "未读取到登录凭证，请先完成学校登录"
+            }
+            val targetState = app.repository.scheduleSnapshot(scheduleId)
+            // Validate through the same restored-page path used by automatic refresh.
+            // The adapter only stages a draft in its private bridge; this path never writes it.
+            val verified = AutoRefreshShiguangRunner.fetch(app, adapter, provisional, targetState, onInteraction)
+            val connected = provisional.copy(
+                cookies = mergeCookies(provisional.cookies, verified.cookies),
+                webStorage = verified.storage ?: provisional.webStorage,
+                interactionAnswers = verified.interactionAnswers,
+                lastResult = "登录凭证已保存，可手动或自动刷新课表"
+            )
+            AutoRefreshScheduleStore.save(app, connected)
+            AutoRefreshOutcome(true, connected.lastResult, connected)
+        }.getOrElse { error ->
+            if (error is CancellationException && error !is TimeoutCancellationException) throw error
+            recordFailure(context, provisional, error.message ?: "登录态校验失败，请确认已进入教务系统")
+        }
     }
 
     suspend fun refreshSaved(context: Context): AutoRefreshOutcome = refreshMutex.withLock {
@@ -76,22 +95,18 @@ internal object AutoRefreshScheduleCoordinator {
         val adapters = ShiguangApiAdapterCatalog.loadSupported(context)
         val adapter = ShiguangApiAdapterCatalog.find(adapters, profile.schoolId, profile.adapterId)
             ?: return@withLock recordFailure(context, profile, "该教务入口已更新，请重新选择学校并登录")
-        execute(context, adapter, profile, persistNewProfile = false)
+        execute(context, adapter, profile)
     }
 
     private suspend fun execute(
         context: Context,
         adapter: EduAdapter,
-        profile: AutoRefreshScheduleProfile,
-        persistNewProfile: Boolean,
-        authenticationWebView: WebView? = null,
-        authenticationBridge: ShiguangBridgeHost? = null,
-        onInteraction: ((AutoRefreshLoginInteraction?) -> Unit)? = null
+        profile: AutoRefreshScheduleProfile
     ): AutoRefreshOutcome {
         val app = context.applicationContext as CourseScheduleApp
         return runCatching {
             val targetState = app.repository.scheduleSnapshot(profile.scheduleId)
-            val fetched = AutoRefreshShiguangRunner.fetch(app, adapter, profile, targetState, authenticationWebView, authenticationBridge, onInteraction)
+            val fetched = AutoRefreshShiguangRunner.fetch(app, adapter, profile, targetState)
             app.repository.importDraftForSchedule(profile.scheduleId, fetched.draft)
             val now = System.currentTimeMillis()
             val updated = profile.copy(
@@ -101,28 +116,24 @@ internal object AutoRefreshScheduleCoordinator {
                 lastRefreshAt = now,
                 lastResult = "刷新成功，共 ${fetched.draft.courses.size} 门课程"
             )
-            if (persistNewProfile) {
-                AutoRefreshScheduleStore.save(app, updated)
-            } else {
-                AutoRefreshScheduleStore.update(app) { current ->
-                    if (current.schoolId == profile.schoolId &&
-                        current.adapterId == profile.adapterId &&
-                        current.username == profile.username
-                    ) {
-                        updated.copy(
-                            automatic = current.automatic,
-                            frequencyMinutes = current.frequencyMinutes,
-                            avatarPath = current.avatarPath
-                        )
-                    } else current
-                }
+            AutoRefreshScheduleStore.update(app) { current ->
+                if (current.schoolId == profile.schoolId &&
+                    current.adapterId == profile.adapterId &&
+                    current.username == profile.username
+                ) {
+                    updated.copy(
+                        automatic = current.automatic,
+                        frequencyMinutes = current.frequencyMinutes,
+                        avatarPath = current.avatarPath
+                    )
+                } else current
             }
             val active = app.repository.activeSnapshot()
             NotificationScheduler.refreshToday(app, active.courses, active.config, active.periods)
             TodayCoursesWidgetProvider.refreshAll(app)
             AutoRefreshOutcome(true, updated.lastResult, AutoRefreshScheduleStore.load(app) ?: updated)
         }.getOrElse { error ->
-            if (error is kotlinx.coroutines.CancellationException) throw error
+            if (error is CancellationException && error !is TimeoutCancellationException) throw error
             recordFailure(
                 context,
                 profile,
@@ -147,7 +158,7 @@ internal object AutoRefreshScheduleCoordinator {
     ): AutoRefreshOutcome {
         val friendly = when {
             message.contains("timed out", ignoreCase = true) ->
-                "刷新超时；教务系统可能需要校园网、代理或额外验证"
+                "教务请求超时，请检查校园网或 VPN 后重试"
             else -> message
         }
         if (AutoRefreshScheduleStore.load(context) != null) {

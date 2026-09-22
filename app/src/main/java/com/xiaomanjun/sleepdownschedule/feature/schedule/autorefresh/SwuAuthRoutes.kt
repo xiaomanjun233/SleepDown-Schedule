@@ -14,6 +14,12 @@ internal object SwuAuthRoutes {
     const val CoursePageUrl =
         "https://jw.swu.edu.cn/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N2151"
 
+    // CAS redirects can finish between WebView callbacks; include every established cookie scope.
+    val sessionCookieUrls = listOf(
+        PortalUrl, TeachingRootUrl, SsoUrl, UnifiedAuthRootUrl, UnifiedAuthLoginUrl,
+        IdentityRootUrl, IdentityLoginUrl, CoursePageUrl
+    )
+
     fun isCoursePage(url: String?): Boolean {
         val route = parse(url) ?: return false
         return route.host == TeachingHost && route.path == CoursePagePath

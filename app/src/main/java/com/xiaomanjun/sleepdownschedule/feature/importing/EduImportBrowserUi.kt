@@ -140,6 +140,8 @@ internal data class EduBrowserPrimaryAction(
     val label: String,
     val guide: String,
     val onInvoke: suspend (WebView, ShiguangBridgeHost, Boolean) -> String,
+    val enabled: Boolean = true,
+    val onPageStarted: (WebView, String?) -> Unit = { _, _ -> },
     val onPageFinished: (WebView, String?) -> Unit = { _, _ -> }
 )
 
@@ -1135,6 +1137,7 @@ private fun EduImportBrowserScreen(
             addressText = primary.url.orEmpty().ifBlank { currentUrl }
             onUrlChange(addressText)
             updateNavigationState(primary)
+            if (primary.progress == 100) currentPrimaryAction?.onPageFinished?.invoke(primary, primary.url)
             scheduleWebTopEdgeSample()
         }
     }
@@ -1218,6 +1221,7 @@ private fun EduImportBrowserScreen(
                     view?.injectShiguangRuntime(desktopMode)
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
                     if (visiblePage) updateNavigationState(view)
+                    if (visiblePage && view != null) currentPrimaryAction?.onPageStarted?.invoke(view, url)
                     super.onPageStarted(view, url, favicon)
                 }
 
@@ -1250,12 +1254,21 @@ private fun EduImportBrowserScreen(
                         loginHistory = EduLoginHistoryStore.load(context)
                         CookieManager.getInstance().flush()
                     }
-                    if (view != null) currentPrimaryAction?.onPageFinished?.invoke(view, url)
+                    if (visiblePage && view != null) currentPrimaryAction?.onPageFinished?.invoke(view, url)
                 }
 
                 override fun onPageCommitVisible(view: WebView?, url: String?) {
                     super.onPageCommitVisible(view, url)
                     scheduleWebTopEdgeSample()
+                }
+
+                override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                    super.doUpdateVisitedHistory(view, url, isReload)
+                    val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
+                    // Token-based portals can leave their login route without reloading the document.
+                    if (visiblePage && view?.progress == 100) {
+                        currentPrimaryAction?.onPageFinished?.invoke(view, url)
+                    }
                 }
 
                 override fun shouldInterceptRequest(
@@ -1566,11 +1579,11 @@ private fun EduImportBrowserScreen(
                 },
                 originalImportAvailable = !adapter.isAiEduImportTool(),
                 primaryActionLabel = if (primaryActionRunning) "正在读取…" else primaryAction?.label,
-                primaryActionEnabled = !primaryActionRunning,
+                primaryActionEnabled = !primaryActionRunning && primaryAction?.enabled != false,
                 onPrimaryAction = primaryAction?.let { action ->
                     {
                         val target = popupWebView ?: webView
-                        if (target != null && !primaryActionRunning) {
+                        if (target != null && !primaryActionRunning && action.enabled) {
                             primaryActionRunning = true
                             onMessage("正在读取登录态并验证凭证…")
                             scope.launch {

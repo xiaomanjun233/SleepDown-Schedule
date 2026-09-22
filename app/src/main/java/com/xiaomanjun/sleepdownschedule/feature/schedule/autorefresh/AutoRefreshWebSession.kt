@@ -59,7 +59,7 @@ internal object AutoRefreshWebSession {
                     [localStorage, sessionStorage].some(function(storage) {
                         return Object.keys(storage).some(function(key) {
                             var value = storage.getItem(key);
-                            if (/^eyJ[A-Za-z0-9_-]+\\.eyJ[A-Za-z0-9_-]+\\./.test(value || '')) {
+                            if (/^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\./.test(value || '')) {
                                 values['session:token'] = value; return true;
                             }
                             return false;

@@ -6,6 +6,15 @@ import org.junit.Test
 
 class SwuAuthRoutesTest {
     @Test
+    fun portalAndCasCookiesAloneDoNotMakeATeachingSessionReady() {
+        listOf(SwuAuthRoutes.PortalUrl, SwuAuthRoutes.SsoUrl, SwuAuthRoutes.UnifiedAuthLoginUrl,
+            SwuAuthRoutes.IdentityLoginUrl).forEach { assertFalse(SwuAuthRoutes.isCoursePage(it)) }
+        assertTrue(SwuAuthRoutes.sessionCookieUrls.contains(SwuAuthRoutes.UnifiedAuthRootUrl))
+        assertTrue(SwuAuthRoutes.sessionCookieUrls.contains(SwuAuthRoutes.TeachingRootUrl))
+        assertTrue(SwuAuthRoutes.sessionCookieUrls.contains(SwuAuthRoutes.CoursePageUrl))
+    }
+
+    @Test
     fun coursePageIsRecognizedWithoutTreatingLoginAsAuthenticated() {
         assertTrue(SwuAuthRoutes.isCoursePage(SwuAuthRoutes.CoursePageUrl))
         assertTrue(
