@@ -62,16 +62,20 @@ fun AutoRefreshScheduleSettingsScreen(state: AppState, backdrop: Backdrop?) {
     val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
     val saved = profile
     if (saved != null) {
+        val savedAdapter = adapters?.let { ShiguangApiAdapterCatalog.find(it, saved.schoolId, saved.adapterId) }
         AutoRefreshDashboardContent(
             state = state,
             backdrop = backdrop,
-            profile = saved,
+            profile = saved.copy(
+                adapterName = savedAdapter?.adapterName
+                    ?: saved.adapterName.removeSuffix("（纯接口试验）").removeSuffix("（纯接口实验）")
+            ),
             onReconnect = {
-                adapters?.let { ShiguangApiAdapterCatalog.find(it, saved.schoolId, saved.adapterId) }?.let {
+                savedAdapter?.let {
                     authLauncher.launch(SwuUnifiedAuthActivity.intent(context, it, saved.scheduleId))
                 }
             },
-            reconnectAvailable = adapters?.any { it.school.id == saved.schoolId && it.adapterId == saved.adapterId } == true,
+            reconnectAvailable = savedAdapter != null,
             connectionStatus = when {
                 catalogError != null -> catalogError!!
                 adapters == null -> "正在检查学校支持状态"
@@ -182,7 +186,8 @@ private fun AutoRefreshDashboardContent(
                             backdrop = backdrop,
                             label = "编辑头像",
                             onClick = { avatarLauncher.launch("image/*") },
-                            modifier = Modifier.widthIn(min = 120.dp)
+                            modifier = Modifier.widthIn(min = 96.dp).height(32.dp),
+                            monochromeNeutral = true
                         )
                     }
                     SettingsDivider()
