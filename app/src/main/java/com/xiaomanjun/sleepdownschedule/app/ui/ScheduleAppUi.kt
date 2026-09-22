@@ -234,6 +234,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -775,6 +776,11 @@ fun CourseScheduleAppUi(
     var homeMode by remember(state.loaded, state.config.defaultHomeMode) {
         mutableStateOf(state.config.defaultHomeMode.toHomeMode())
     }
+    val rootPageMotion = rememberHomeSwitchMotion(screen is Screen.Config, "home-settings")
+    val homeModeMotion = key(state.loaded) {
+        rememberHomeSwitchMotion(homeMode == HomeMode.Week, "day-week")
+    }
+    val rootPageStateHolder = rememberSaveableStateHolder()
     var homeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     val aiHistorySelection by AiEduImportProgressSession.historySelection.collectAsStateWithLifecycle()
     val aiFinalImportRequest by AiEduImportProgressSession.finalImportRequest.collectAsStateWithLifecycle()
@@ -928,7 +934,7 @@ fun CourseScheduleAppUi(
             destinationTransitionActive || courseEditorRequest != null ||
             courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle || courseShortcuts.request != null ||
             homeAssistant.stage == HomeAssistantStage.Conversation
-    val homeBackgroundFreezeActive = shouldUseFrozenHomeMorphBlur(
+    val homeBackgroundFreezeActive = !rootPageMotion.moving && !homeModeMotion.moving && shouldUseFrozenHomeMorphBlur(
         screenIsHome = screen is Screen.Home,
         previewActive = personalizationPreviewActive,
         overlayActive = homeBackgroundOverlayActive
@@ -1602,7 +1608,9 @@ fun CourseScheduleAppUi(
         homeDisplayDate,
         editingCourseId,
         activeHomeAnchoredOverlay,
-        addButtonHidden
+        addButtonHidden,
+        rootPageMotion.moving,
+        homeModeMotion.moving
     ) {
         buildString {
             append(System.identityHashCode(homeBackgroundSession)).append('|')
@@ -1619,6 +1627,7 @@ fun CourseScheduleAppUi(
                 .append('|').append(editingCourseId)
                 .append('|').append(activeHomeAnchoredOverlay)
                 .append('|').append(addButtonHidden)
+                .append('|').append(rootPageMotion.moving).append('|').append(homeModeMotion.moving)
             // Menus are sibling consumers outside this recorder. Hiding the source menu during
             // handoff changes no Home pixels and must not recapture the scene during Opening.
         }
@@ -1639,7 +1648,13 @@ fun CourseScheduleAppUi(
     }
     val currentHomeCoordinatesFreeze = rememberUpdatedState(homeBackgroundFreezeActive)
     val currentHomeCaptureFrameKey = rememberUpdatedState(homeCaptureFrameKey)
-    val homeGlassSampleRecordKey = remember { { currentHomeCaptureFrameKey.value } }
+    val homeGlassMotionKey = remember(rootPageMotion, homeModeMotion) {
+        derivedStateOf {
+            Triple(currentHomeCaptureFrameKey.value, rootPageMotion.progress.value, homeModeMotion.progress.value)
+        }
+    }
+    // Observe page movement in glass draw nodes, even when their layout coordinate object is reused.
+    val homeGlassSampleRecordKey = remember(homeGlassMotionKey) { { homeGlassMotionKey.value } }
     val freezeHomeGlassCoordinates = remember {
         {
             currentHomeCoordinatesFreeze.value &&
@@ -2100,7 +2115,7 @@ fun CourseScheduleAppUi(
     val sharedCourseBackdrop = remember(backgroundBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy) {
         com.kyant.backdrop.backdrops.SharedBlurBackdrop(backgroundBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
     }
-    val useSharedCourseBackdrop = screen is Screen.Home && visualState.config.courseCardGlassEnabled &&
+    val useSharedCourseBackdrop = rootPageMotion.retains(false) && visualState.config.courseCardGlassEnabled &&
         wallpaperImages.source != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     lateinit var handleHomeAgentAction: AgentActionHandler
     handleHomeAgentAction = {
@@ -2495,20 +2510,21 @@ fun CourseScheduleAppUi(
             containerColor = ComposeColor.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                if (screen !is Screen.Config) TopBarEntranceContainer(
+                HomeSwitchPane(rootPageMotion, secondary = false, modifier = Modifier.fillMaxWidth()) {
+                TopBarEntranceContainer(
                     phase = startupPhase,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(
                             rootTopBarLayoutHeight(
-                                screen,
+                                Screen.Home,
                                 homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS
                             )
                         )
                 ) {
-                    if (screen is Screen.Home) {
+                    if (rootPageMotion.retains(false)) {
                         AnimatedVisibility(
-                            visible = screen is Screen.Config || homeContentUnderTopBar,
+                            visible = homeContentUnderTopBar,
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .zIndex(10f),
@@ -2543,14 +2559,15 @@ fun CourseScheduleAppUi(
                             .zIndex(11f)
                     ) {
                         AppTopBar(
-                            screen = screen,
-                            state = if (screen is Screen.Home) visualState else state,
+                            screen = Screen.Home,
+                            state = visualState,
                             settingsPage = SettingsPage.Root,
                             backdrop = chromeBackdrop,
                             homeMode = homeMode,
+                            homeModeMotion = homeModeMotion,
                             onHomeModeChange = { homeMode = it },
-                            homeDisplayDate = homeTitleDate,
-                            homeDisplayWeek = homeTitleWeek,
+                            homeDisplayDate = homeDisplayDate,
+                            homeDisplayWeek = homeDisplayWeek,
                             beforeScheduleTerm = beforeScheduleTerm,
                             afterScheduleTerm = afterScheduleTerm,
                             homeShowingAnotherWeek = homeShowingAnotherWeek,
@@ -2568,7 +2585,7 @@ fun CourseScheduleAppUi(
                             onBackHome = { screen = Screen.Home }
                         )
                     }
-                    if (homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS) {
+                    if (homeModeMotion.retains(true) && weekViewStyle == WeekViewStyle.BOUNDLESS) {
                         // Boundless week header lives on the top bar layer (above the gradient
                         // blur) so weekday labels are never covered; geometry mirrors the course
                         // grid (rowHeaderWidth slot + equal columns + weekGridEndPadding).
@@ -2594,9 +2611,10 @@ fun CourseScheduleAppUi(
                                     start = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp,
                                     end = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp
                                 )
-                                .graphicsLayer { clip = false }
+                                .homeSwitchLayer(homeModeMotion, secondary = true, travel = 22.dp)
                         )
                     }
+                }
                 }
             }
         ) { padding ->
@@ -2608,15 +2626,15 @@ fun CourseScheduleAppUi(
                     modifier = Modifier
                         .fillMaxSize()
                         .glassBackdropProducer(backgroundBackdrop, recordKey = {
-                            if (screen is Screen.Home && visualState.loaded && wallpaperImages.source != null) {
+                            if (rootPageMotion.retains(false) && visualState.loaded && wallpaperImages.source != null) {
                                 homeWallpaperRecordKey.value?.let { imageKey ->
                                     listOf(imageKey, personalizationPreviewState.wallpaperBrightness
-                                        ?: visualState.config.wallpaperBrightness)
+                                        ?: visualState.config.wallpaperBrightness, rootPageMotion.progress.value)
                                 }
                             } else null
                         })
                 ) {
-                    if (screen is Screen.Home) {
+                    if (rootPageMotion.retains(false)) {
                         if (!visualState.loaded) {
                             HomeBackdropFallback(
                                 noWallpaper = !visualState.config.hasAnyWallpaper()
@@ -2638,10 +2656,11 @@ fun CourseScheduleAppUi(
                                 HomeBackdropFallback(noWallpaper = noWallpaperResolved)
                             }
                         }
-                    } else if (screen is Screen.Config) {
-                        Box(Modifier.fillMaxSize().background(settingsPageBackground(settingsVisualConfig(state.config))))
-                    } else {
-                        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+                    }
+                    if (rootPageMotion.retains(true)) {
+                        Box(Modifier.fillMaxSize()
+                            .graphicsLayer { alpha = rootPageMotion.progress.value.coerceIn(0f, 1f) }
+                            .background(settingsPageBackground(settingsVisualConfig(state.config))))
                     }
                 }
                 /*
@@ -2651,18 +2670,22 @@ fun CourseScheduleAppUi(
                  * every glass surface that consumes this backdrop.
                  */
                 if (
-                    screen is Screen.Home &&
+                    rootPageMotion.retains(false) &&
                     visualState.loaded &&
                     visualState.config.hasAnyWallpaper() &&
                     wallpaperImages.source != null
                 ) {
-                    WallpaperToneOverlay(visualState.config, personalizationPreviewState)
+                    Box(Modifier.fillMaxSize().graphicsLayer {
+                        alpha = 1f - rootPageMotion.progress.value.coerceIn(0f, 1f)
+                    }) {
+                        WallpaperToneOverlay(visualState.config, personalizationPreviewState)
+                    }
                 }
                 if (useSharedCourseBackdrop) {
                     Box(Modifier.fillMaxSize().then(sharedCourseBackdrop.preRenderModifier {
                         homeWallpaperRecordKey.value?.let { imageKey ->
                             listOf(imageKey, personalizationPreviewState.wallpaperBrightness
-                                ?: visualState.config.wallpaperBrightness)
+                                ?: visualState.config.wallpaperBrightness, rootPageMotion.progress.value)
                         }
                     }))
                 }
@@ -2674,13 +2697,14 @@ fun CourseScheduleAppUi(
                         message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                     }
                     ContentEntranceContainer(phase = startupPhase, modifier = Modifier.weight(1f)) {
-                        when (screen) {
-                            Screen.Home -> {
+                        HomeSwitchPane(rootPageMotion, secondary = false, modifier = Modifier.fillMaxSize()) {
+                            rootPageStateHolder.SaveableStateProvider("home") {
                                  if (visualState.loaded) HomeScreen(
                                      state = visualState,
                                      agentState = agentVisualState,
                                      personalizationPreviewState = personalizationPreviewState,
                                      mode = homeMode,
+                                     modeMotion = homeModeMotion,
                                      dayViewMode = dayViewMode,
                                      weekViewStyle = weekViewStyle,
                                      adaptiveMetrics = homeAdaptiveMetrics,
@@ -2700,7 +2724,7 @@ fun CourseScheduleAppUi(
                                         homeDisplayDate = if (range == null) requested
                                         else requested.coerceIn(range.start, range.endInclusive)
                                     },
-                                    onContentUnderTopBarChange = { homeContentUnderTopBar = it },
+                                    onContentUnderTopBarChange = { if (screen is Screen.Home) homeContentUnderTopBar = it },
                                     dayAgentBackgroundMotionState = dayAgentBackgroundMotionState,
                                     onAgentPagerSettledChange = { settled ->
                                         dayAgentPagerSettled = settled
@@ -2749,7 +2773,13 @@ fun CourseScheduleAppUi(
                                     }
                                 )
                             }
-                            Screen.Config -> Box(Modifier.fillMaxSize()) {
+                            DockBackdropContinuityPatch(
+                                config = visualState.config,
+                                modifier = Modifier.align(Alignment.BottomCenter)
+                            )
+                        }
+                        HomeSwitchPane(rootPageMotion, secondary = true, modifier = Modifier.fillMaxSize()) {
+                            rootPageStateHolder.SaveableStateProvider("settings") {
                                 SettingsScreen(
                                         page = SettingsPage.Root,
                                         state = state,
@@ -2781,12 +2811,6 @@ fun CourseScheduleAppUi(
                                         }
                                     )
                             }
-                        }
-                        if (screen is Screen.Home) {
-                            DockBackdropContinuityPatch(
-                                config = visualState.config,
-                                modifier = Modifier.align(Alignment.BottomCenter)
-                            )
                         }
                     }
                 }
@@ -4663,6 +4687,7 @@ internal fun AppTopBar(
     settingsPage: SettingsPage,
     backdrop: Backdrop?,
     homeMode: HomeMode,
+    homeModeMotion: HomeSwitchMotion,
     onHomeModeChange: (HomeMode) -> Unit,
     homeDisplayDate: LocalDate,
     homeDisplayWeek: Int,
@@ -4705,20 +4730,28 @@ internal fun AppTopBar(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .fillMaxWidth()
+                    .fillMaxHeight()
                     .padding(start = 16.dp, end = 120.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
+                HomeMode.entries.forEach { titleMode ->
+                key(titleMode) {
+                HomeSwitchPane(homeModeMotion, secondary = titleMode == HomeMode.Week,
+                    modifier = Modifier.fillMaxSize(), travel = 14.dp, contentAlignment = Alignment.CenterStart) {
                 HomeDateTitle(
                     state = state,
-                    displayDate = homeDisplayDate,
-                    displayWeek = homeDisplayWeek,
+                    displayDate = if (titleMode == HomeMode.Day) homeDisplayDate else LocalDate.now(),
+                    displayWeek = if (titleMode == HomeMode.Day) effectiveCurrentWeek(state.config, homeDisplayDate) else homeDisplayWeek,
                     showTwoDays = false,
                     beforeScheduleTerm = beforeScheduleTerm,
                     afterScheduleTerm = afterScheduleTerm,
-                    showReturnToCurrentWeekHint = homeShowingAnotherWeek,
-                    showWeather = homeMode == HomeMode.Week,
+                    showReturnToCurrentWeekHint = titleMode == HomeMode.Week && homeDisplayWeek != effectiveCurrentWeek(state.config),
+                    showWeather = titleMode == HomeMode.Week,
                     onReturnCurrent = onReturnHomeToCurrentWeek
                 )
+                }
+                }
+                }
             }
             Row(
                 modifier = Modifier
@@ -9266,6 +9299,9 @@ fun ChangelogSettingsScreen(
                     "统一学校选择、底部搜索和教务网页登录体验，登录后读取并保存凭证，连接成功后可手动或自动刷新课表。\n" +
                     "修复西南大学登录入口，并完善其他学校的教务登录状态识别；刷新沿用已确认的学期、校区等信息。\n" +
                     "重新设计自动刷新页面，个人信息卡片置顶，头像支持圆形裁切预览，退出登录改为底部悬浮按钮。\n" +
+                    "头像裁切说明居中显示，操作按钮使用随明暗主题切换的黑白文字。\n" +
+                    "重新设计日周视图及首页与设置页切换动画，完善切换中的玻璃采样衔接。\n" +
+                    "修复更新日志连续展开多个版本时卡住的问题，并保留各版本的展开状态。\n" +
                     "增加周课表底部留白，避免最后一行的调课、补课标签被裁切。\n" +
                     "AI 助理按设备当前日期和时区理解今天、明天及课程周次。"
                 )
