@@ -68,9 +68,9 @@ internal object AutoRefreshScheduleStore {
         synchronized(lock) {
             val encrypted = encrypt(profile.toJson().toString())
                 ?: throw IllegalStateException("无法加密保存教务登录信息")
-            context.applicationContext.getSharedPreferences(PrefsName, Context.MODE_PRIVATE).edit(commit = true) {
-                putString(PayloadKey, encrypted)
-            }
+            val committed = context.applicationContext.getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
+                .edit().putString(PayloadKey, encrypted).commit()
+            check(committed) { "登录凭证保存失败，请重试" }
             initialized = true
             state.value = profile
         }

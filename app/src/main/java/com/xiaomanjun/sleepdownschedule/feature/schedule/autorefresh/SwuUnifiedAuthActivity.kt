@@ -47,6 +47,7 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
             var error by remember { mutableStateOf<String?>(null) }
             val visitedUrls = remember { linkedSetOf<String>() }
             var teachingRedirects by remember { mutableIntStateOf(0) }
+            var loginPageReady by remember { mutableStateOf(false) }
             var interaction by remember { mutableStateOf<AutoRefreshLoginInteraction?>(null) }
             LaunchedEffect(Unit) {
                 runCatching {
@@ -93,14 +94,18 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                         } else {
                             EduImportActivityScreen(
                                 state = state,
-                                adapter = selected,
+                                adapter = selected.copy(importUrl = AutoRefreshLoginRoutes.entryUrl(selected)),
                                 backdrop = backdrop,
                                 webContentBackdrop = webBackdrop,
                                 primaryAction = EduBrowserPrimaryAction(
                                     label = "读取登录态",
-                                    guide = "请先完成学校登录，再点击底部“读取登录态”获取凭证，用于自动刷新课表。",
+                                    guide = if (loginPageReady) "页面已就绪，点击“读取登录态”校验并保存凭证。课表可在连接后刷新。"
+                                        else "请完成学校登录并进入教务系统，再点击“读取登录态”保存凭证。",
+                                    enabled = loginPageReady,
+                                    onPageStarted = { _, _ -> loginPageReady = false },
                                     onPageFinished = { webView, url ->
                                         url?.takeIf { AutoRefreshWebSession.origin(it) != null }?.let(visitedUrls::add)
+                                        loginPageReady = AutoRefreshLoginRoutes.isSessionPage(selected.school.id, url)
                                         if (ShiguangApiAdapterCatalog.isSwuAdapter(selected) &&
                                             SwuAuthRoutes.isAuthenticatedTeachingPage(url) &&
                                             !SwuAuthRoutes.isCoursePage(url) && teachingRedirects < 3
@@ -109,22 +114,21 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                                             webView.loadUrl(SwuAuthRoutes.CoursePageUrl)
                                         }
                                     },
-                                    onInvoke = { webView, bridge, desktopMode ->
+                                    onInvoke = { webView, _, desktopMode ->
                                         val currentUrl = webView.url.orEmpty()
-                                        require(AutoRefreshWebSession.origin(currentUrl) != null) { "请先完成学校登录，再读取登录态" }
+                                        require(AutoRefreshLoginRoutes.isSessionPage(selected.school.id, currentUrl)) {
+                                            "请先完成学校登录并进入教务系统"
+                                        }
                                         val storage = AutoRefreshWebSession.captureStorage(webView, selected.school.id)
-                                        val cookieUrls = visitedUrls + selected.importUrl + currentUrl
-                                        val result = AutoRefreshScheduleCoordinator.loginAndRefresh(
+                                        val cookieUrls = visitedUrls + selected.importUrl + currentUrl +
+                                            if (ShiguangApiAdapterCatalog.isSwuAdapter(selected)) SwuAuthRoutes.sessionCookieUrls else emptyList()
+                                        val result = AutoRefreshScheduleCoordinator.connect(
                                             context = app,
                                             adapter = selected,
-                                            username = "",
-                                            password = "",
                                             scheduleId = intent.getIntExtra(ScheduleExtra, state.config.id),
                                             initialCookies = AutoRefreshWebSession.captureCookies(cookieUrls),
                                             authenticatedUrl = currentUrl,
                                             webStorage = storage,
-                                            authenticationWebView = webView,
-                                            authenticationBridge = bridge,
                                             desktopMode = desktopMode,
                                             onInteraction = { interaction = it }
                                         )
