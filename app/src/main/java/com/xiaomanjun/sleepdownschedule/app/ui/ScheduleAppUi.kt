@@ -1,4 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.app.ui
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawscope.clipPath
 
 import androidx.compose.animation.core.LinearEasing
 
@@ -8782,6 +8785,7 @@ private val AboutHeroHeight = 390.dp
 private fun AboutGlassPanel(
     darkTheme: Boolean,
     modifier: Modifier = Modifier,
+    longContent: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val shape = RoundedRectangle(28.dp)
@@ -8804,7 +8808,14 @@ private fun AboutGlassPanel(
     }
     Column(
         modifier = modifier
-            .clip(shape)
+            .then(if (longContent) Modifier.drawWithCache {
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    addOutline(shape.createOutline(size, layoutDirection, this@drawWithCache))
+                }
+                onDrawWithContent {
+                    clipPath(path) { this@onDrawWithContent.drawContent() }
+                }
+            } else Modifier.clip(shape))
             .background(panelGradient),
         content = content
     )
@@ -9047,13 +9058,10 @@ fun ChangelogSettingsScreen(
     val darkTheme = appUsesDarkTheme(state.config)
     val listState = rememberLazyListState()
     val heroHeightPx = with(density) { AboutHeroHeight.toPx() }
-    // Each version owns its measurement and clipping surface, even when several are expanded.
-    fun androidx.compose.foundation.lazy.LazyListScope.changelogItem(version: String, body: String) {
-        item(key = "changelog-$version", contentType = "changelog-version") {
-            AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
-                CollapsibleChangelogRow(version, body)
-            }
-        }
+    @Composable
+    fun changelogItem(version: String, body: String) {
+        CollapsibleChangelogRow(version, body)
+        if (version != "1.0 beta") SettingsDivider()
     }
     val heroScrollOffsetPx = remember(listState, heroHeightPx) {
         derivedStateOf {
@@ -9305,6 +9313,10 @@ fun ChangelogSettingsScreen(
                     summary = "每一次打磨，都可以在这里找到。"
                 )
             }
+            item(key = "about-changelog") {
+                // One continuous panel. Canvas clipping avoids a texture as tall as all expanded
+                // versions; each details animation still owns only its own small graphics layer.
+                AboutGlassPanel(darkTheme, Modifier.fillMaxWidth(), longContent = true) {
             changelogItem(
                     "1.2.6_beta9",
                     "新增自动刷新课表，可选择从不、每天或每7天更新，登录失效后可重新连接教务。\n" +
@@ -9516,6 +9528,8 @@ fun ChangelogSettingsScreen(
             changelogItem("1.02 beta", "修复教务 WebView 在部分 CAS 页面显示半截的问题；接入 Custom Tabs 浏览器登录流程；优化西南大学节次时间表；通用教务导入预览增加节次检查提示。")
             changelogItem("1.01 beta", "修复教务导入预览与节次信息问题；新增组件测试页、本次日志抓取、更新日志入口和下载新版页面；优化课程编辑删除作用范围；为周视图切换周加入课程卡片甩尾过渡动画。")
             changelogItem("1.0 beta", "完成基础课程表、手动导入、教务导入、通知提醒、实时活动、深色模式、壁纸与液态玻璃个性化设置。")
+                }
+            }
         }
     }
 }
