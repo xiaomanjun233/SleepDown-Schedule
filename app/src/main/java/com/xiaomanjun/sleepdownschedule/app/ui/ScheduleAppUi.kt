@@ -2401,6 +2401,7 @@ fun CourseScheduleAppUi(
                 // clean-background frames, as in the 1.1.5 implementation.
                 val shouldRecordStableDetailFrame =
                     detailMorphState is DetailMorphState.Idle &&
+                        !rootPageMotion.moving && !homeModeMotion.moving &&
                         !courseEditorOwnsFrame &&
                         (
                             homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Open ||

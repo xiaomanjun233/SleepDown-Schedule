@@ -527,7 +527,7 @@ internal fun SinglePillWeekScheduleScreen(
     LaunchedEffect(contentUnderTopBar) {
         onContentUnderTopBarChange(contentUnderTopBar)
     }
-    var overlayHostBounds by remember { mutableStateOf<Rect?>(null) }
+    val overlayHostBounds = remember { mutableStateOf<Rect?>(null) }
     val weekEditOverlay = rememberWeekEditOverlayController(
         scrollState = scrollState,
         scheduleId = state.config.id
@@ -598,7 +598,7 @@ internal fun SinglePillWeekScheduleScreen(
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer { clip = false }
-            .onGloballyPositioned { overlayHostBounds = it.boundsInRoot() }
+            .onGloballyPositioned { overlayHostBounds.value = it.boundsInRoot() }
     ) {
     Box(
         modifier = Modifier
@@ -912,7 +912,7 @@ internal fun SinglePillWeekScheduleScreen(
 @Composable
 private fun WeekEditOverlayHost(
     request: WeekEditOverlayRequest?,
-    hostBounds: Rect?,
+    hostBounds: androidx.compose.runtime.State<Rect?>,
     offsetX: Float,
     offsetY: Float,
     overlayScale: Float,
@@ -928,7 +928,8 @@ private fun WeekEditOverlayHost(
     config: ScheduleConfigEntity
 ) {
     val req = request ?: return
-    val host = hostBounds ?: return
+    // Read coordinates only in the active overlay, never in the whole timetable during a slide.
+    val host = hostBounds.value ?: return
     if (heightPx <= 1f || req.sourceBounds.width <= 1f) return
     val density = LocalDensity.current
     val widthDp = with(density) { req.sourceBounds.width.toDp() }
