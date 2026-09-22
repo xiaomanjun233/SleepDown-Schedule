@@ -442,7 +442,8 @@ private fun EduImportGuideMorphOverlay(
     statusText: String?,
     onExpand: () -> Unit,
     onCollapse: () -> Unit,
-    guideText: String = "登录后进入课程表页面，点击底部导入并核对预览。"
+    guideText: String = "登录后进入课程表页面，点击底部导入并核对预览。",
+    primaryActionLabel: String? = null
 ) {
     val isLargeScreen = rememberHomeAdaptiveMetrics().isLargeScreen
     val density = LocalDensity.current
@@ -464,7 +465,8 @@ private fun EduImportGuideMorphOverlay(
         islandMotion.animateTo(if (visible && expanded) 1f else 0f)
     }
     val activeStatus = statusText?.trim()?.takeIf { it.isNotEmpty() }
-    val collapsedStatus = remember(activeStatus) { activeStatus?.take(7) ?: "导入中" }
+    val collapsedStatus = activeStatus?.take(7)
+        ?: if (primaryActionLabel != null) "登录后读取" else "导入中"
     val collapsedStatusStyle = MaterialTheme.typography.labelMedium.copy(
         fontWeight = FontWeight.SemiBold
     )
@@ -667,7 +669,7 @@ private fun EduImportGuideMorphOverlay(
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = adapter.school.name,
+                                text = primaryActionLabel ?: adapter.school.name,
                                 color = foreground,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
@@ -675,7 +677,8 @@ private fun EduImportGuideMorphOverlay(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "适配作者 · ${adapter.maintainer.ifBlank { "拾光社区" }}",
+                                text = if (primaryActionLabel != null) adapter.school.name
+                                    else "适配作者 · ${adapter.maintainer.ifBlank { "拾光社区" }}",
                                 color = foreground.copy(alpha = 0.66f),
                                 style = MaterialTheme.typography.bodySmall,
                                 maxLines = 1,
@@ -684,7 +687,7 @@ private fun EduImportGuideMorphOverlay(
                             )
                         }
                     }
-                    if (adapter.description.isNotBlank()) {
+                    if (primaryActionLabel == null && adapter.description.isNotBlank()) {
                         Text(
                             text = adapter.description,
                             modifier = Modifier.fillMaxWidth(),
@@ -1415,6 +1418,7 @@ private fun EduImportBrowserScreen(
     val currentGuideExpanded = rememberUpdatedState(importGuideExpanded)
     val currentGuideStatus = rememberUpdatedState(guideStatusText)
     val currentGuideText = rememberUpdatedState(primaryAction?.guide ?: "登录后进入课程表页面，点击底部导入并核对预览。")
+    val currentGuideActionLabel = rememberUpdatedState(primaryAction?.label)
     val currentGuideExpandAction = rememberUpdatedState<() -> Unit>({ importGuideExpanded = true })
     val currentGuideCollapseAction = rememberUpdatedState<() -> Unit>({ importGuideExpanded = false })
     val floatingImportGuide: (@Composable () -> Unit)? = if (floatingOverlayHost != null) {
@@ -1429,7 +1433,8 @@ private fun EduImportBrowserScreen(
                     statusText = currentGuideStatus.value,
                     onExpand = currentGuideExpandAction.value,
                     onCollapse = currentGuideCollapseAction.value,
-                    guideText = currentGuideText.value
+                    guideText = currentGuideText.value,
+                    primaryActionLabel = currentGuideActionLabel.value
                 )
             }
         }
@@ -1560,14 +1565,14 @@ private fun EduImportBrowserScreen(
                     updateNavigationState(target)
                 },
                 originalImportAvailable = !adapter.isAiEduImportTool(),
-                primaryActionLabel = primaryAction?.label,
+                primaryActionLabel = if (primaryActionRunning) "正在读取…" else primaryAction?.label,
                 primaryActionEnabled = !primaryActionRunning,
                 onPrimaryAction = primaryAction?.let { action ->
                     {
                         val target = popupWebView ?: webView
                         if (target != null && !primaryActionRunning) {
                             primaryActionRunning = true
-                            onMessage("正在验证登录并读取课表…")
+                            onMessage("正在读取登录态并验证凭证…")
                             scope.launch {
                                 try {
                                     onMessage(action.onInvoke(target, bridge, desktopMode))
@@ -1625,7 +1630,8 @@ private fun EduImportBrowserScreen(
                 statusText = guideStatusText,
                 onExpand = { importGuideExpanded = true },
                 onCollapse = { importGuideExpanded = false },
-                guideText = currentGuideText.value
+                guideText = currentGuideText.value,
+                primaryActionLabel = currentGuideActionLabel.value
             )
         }
     }
