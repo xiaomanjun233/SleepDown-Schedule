@@ -28,6 +28,7 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.EduBridgeInteractionDi
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduImportActivityScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.eduAdapterFromIntentKey
 import com.xiaomanjun.sleepdownschedule.feature.importing.toIntentKey
+import com.xiaomanjun.sleepdownschedule.feature.importing.commitSystemCredentialAutofill
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalLegacyProgressiveBlur
@@ -133,6 +134,7 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                                             onInteraction = { interaction = it }
                                         )
                                         if (result.success) {
+                                            webView.commitSystemCredentialAutofill()
                                             AutoRefreshScheduleWorker.updateSchedule(app, result.profile)
                                             setResult(Activity.RESULT_OK)
                                             finish()

@@ -164,10 +164,14 @@ internal fun EduImportActivityScreen(
             if (adapter.requiresManualEduUrl()) "" else adapter.importUrl.ifBlank { "about:blank" }
         )
     }
+    val currentOnParsed by rememberUpdatedState(onParsed)
     val bridge = remember(adapter) {
         ShiguangBridgeHost(
             context = context,
-            onDraft = onParsed,
+            onDraft = { draft ->
+                webView?.commitSystemCredentialAutofill()
+                currentOnParsed(draft)
+            },
             onMessage = { message = it },
             onInteractionRequest = { bridgeInteraction = it }
         )
