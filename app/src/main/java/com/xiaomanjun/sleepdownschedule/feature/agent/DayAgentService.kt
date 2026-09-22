@@ -39,6 +39,7 @@ import java.net.URL
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.util.UUID
 
 private val DayAgentJson = Json { ignoreUnknownKeys = true; isLenient = true }
@@ -460,6 +461,7 @@ class DayAgentService(private val context: Context) {
         }
         val messages = mutableListOf<JsonObject>().apply {
             add(agentTextMessage("system", DayAgentPrompts.ChatSystem))
+            add(agentTextMessage("system", DayAgentPrompts.runtimeClock(facts)))
             if (cachedFacts.isNotEmpty()) add(agentTextMessage("system", agentCachedFactsMessage(facts, cachedFacts)))
             add(
                 agentTextMessage(
@@ -808,6 +810,11 @@ class DayAgentRepository(private val context: Context) {
         require(scheduleId == facts.scheduleId) {
             "课表已切换，请重新发送这条消息"
         }
+        val requestClock = ZonedDateTime.now()
+        val requestDate = requestClock.toLocalDate()
+        require(facts.date == requestDate) {
+            "系统日期已变化，请重新发送这条消息"
+        }
         val stored = scheduleRepository.snapshot()
         require(stored.config.id == scheduleId) { "课表已切换，请重新发送这条消息" }
         cleanup(facts.date)
@@ -855,10 +862,13 @@ class DayAgentRepository(private val context: Context) {
          */
         val freshFacts = buildDayAgentFacts(
             courses = stored.courses, periods = stored.periods, config = stored.config,
-            date = facts.date, weather = facts.weather,
+            date = requestDate, weather = facts.weather,
             scheduleName = stored.schedules.firstOrNull { it.id == scheduleId }?.name,
-            now = LocalDateTime.now(), settingContext = context,
+            now = requestClock.toLocalDateTime(), settingContext = context,
             schedules = stored.schedules.map { AgentScheduleSummary(it.id, it.name, it.isActive) }
+        ).copy(
+            timeZoneId = requestClock.zone.id,
+            utcOffset = requestClock.offset.id
         )
         val currentFacts = runCatching {
             val schemes = scheduleRepository.loadPeriodSchemes(scheduleId)

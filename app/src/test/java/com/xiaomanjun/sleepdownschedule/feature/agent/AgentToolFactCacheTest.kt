@@ -70,6 +70,17 @@ class AgentToolFactCacheTest {
         assertTrue(cache.read(facts.copy(activePeriodSchemeId = 9L), 2_000).isEmpty())
     }
 
+    @Test fun changedTimeZoneInvalidatesCachedFacts() {
+        val cache = AgentToolFactCache()
+        cache.put(facts, call, result, 1_000)
+        assertTrue(
+            cache.read(
+                facts.copy(timeZoneId = "America/Los_Angeles", utcOffset = "-07:00"),
+                2_000
+            ).isEmpty()
+        )
+    }
+
     @Test fun memoryWritesAreNeverReplayedFromCache() {
         val cache = AgentToolFactCache()
         val memory = AgentToolCall("memory", AgentToolName.UPDATE_MEMORY)
