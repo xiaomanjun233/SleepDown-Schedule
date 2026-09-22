@@ -6965,6 +6965,10 @@ open class SettingsDetailActivityHost : ComponentActivity() {
             intent.action == Intent.ACTION_VIEW
         }
         val customizeScheduleId = intent.getIntExtra(ScheduleCustomizeIdExtra, -1).takeIf { it > 0 }
+        if (intent.getStringExtra(SettingsDetailPageExtra) == SettingsPage.AutoRefreshSchedule.name) {
+            // Match the education picker before the first window layout, not after composition.
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        }
         val useEntrySnapshot = intent.getBooleanExtra(ScheduleEntrySnapshotExtra, false)
         setContent {
             val app = application as CourseScheduleApp
