@@ -97,8 +97,8 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                                 backdrop = backdrop,
                                 webContentBackdrop = webBackdrop,
                                 primaryAction = EduBrowserPrimaryAction(
-                                    label = "完成登录",
-                                    guide = "登录后进入课表页面，点击底部 ✓ 完成连接。会话失效时可在这里重新登录。",
+                                    label = "读取登录态",
+                                    guide = "请先完成学校登录，再点击底部“读取登录态”获取凭证，用于自动刷新课表。",
                                     onPageFinished = { webView, url ->
                                         url?.takeIf { AutoRefreshWebSession.origin(it) != null }?.let(visitedUrls::add)
                                         if (ShiguangApiAdapterCatalog.isSwuAdapter(selected) &&
@@ -111,7 +111,7 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                                     },
                                     onInvoke = { webView, bridge, desktopMode ->
                                         val currentUrl = webView.url.orEmpty()
-                                        require(AutoRefreshWebSession.origin(currentUrl) != null) { "请先打开学校课表页面" }
+                                        require(AutoRefreshWebSession.origin(currentUrl) != null) { "请先完成学校登录，再读取登录态" }
                                         val storage = AutoRefreshWebSession.captureStorage(webView, selected.school.id)
                                         val cookieUrls = visitedUrls + selected.importUrl + currentUrl
                                         val result = AutoRefreshScheduleCoordinator.loginAndRefresh(

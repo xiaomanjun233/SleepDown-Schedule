@@ -59,7 +59,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
@@ -219,6 +221,7 @@ internal fun EduBrowserDock(
     val sideControlsAlpha = (1f - controlsCollapseProgress).coerceIn(0f, 1f)
     val sideControlsBlurPx = detailMotionBlurRadiusDp(controlsCollapseProgress) * density.density
     val sideControlsEnabled = controlsCollapseProgress < 0.02f
+    val rightControlsWidth = if (onPrimaryAction != null) 40.dp else BrowserDockRightControlsWidth
     val sideControlsTravelPx = with(density) { 18.dp.toPx() } * controlsCollapseProgress
     val compactAddressLabel = remember(addressFieldValue.text) {
         runCatching { Uri.parse(addressFieldValue.text).host }
@@ -439,7 +442,35 @@ internal fun EduBrowserDock(
                         )
                     }
                 }
-                BasicTextField(
+                if (onPrimaryAction != null) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .graphicsLayer { alpha = sideControlsAlpha }
+                            .clip(Capsule())
+                            .background(foreground.copy(alpha = 0.08f))
+                            .clickable(
+                                enabled = primaryActionEnabled && sideControlsEnabled,
+                                role = Role.Button
+                            ) {
+                                moreMenuVisible = false
+                                keyboard?.hide()
+                                onPrimaryAction()
+                            }
+                            .padding(horizontal = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = primaryActionLabel.orEmpty(),
+                            color = foreground.copy(alpha = if (primaryActionEnabled) 1f else 0.55f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else BasicTextField(
                     value = addressFieldValue,
                     onValueChange = { next ->
                         addressFieldValue = next
@@ -503,12 +534,12 @@ internal fun EduBrowserDock(
                 )
                 Box(
                     modifier = Modifier
-                        .width(BrowserDockRightControlsWidth * sideControlsAlpha)
+                        .width(rightControlsWidth * sideControlsAlpha)
                         .height(40.dp)
                 ) {
                     Row(
                         modifier = Modifier
-                            .width(BrowserDockRightControlsWidth)
+                            .width(rightControlsWidth)
                             .height(40.dp)
                             .graphicsLayer {
                                 translationX = sideControlsTravelPx
@@ -524,16 +555,15 @@ internal fun EduBrowserDock(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        EduBrowserDockIcon(
-                            iconRes = if (onPrimaryAction != null) R.drawable.ic_check else R.drawable.ic_school_import,
-                            contentDescription = primaryActionLabel ?: "导入",
+                        if (onPrimaryAction == null) EduBrowserDockIcon(
+                            iconRes = R.drawable.ic_school_import,
+                            contentDescription = "导入",
                             foreground = foreground,
                             enabled = sideControlsEnabled && primaryActionEnabled,
                             modifier = Modifier.onGloballyPositioned { importAnchor = it.boundsInRoot() },
                             onClick = {
                                 moreMenuVisible = false
-                                if (onPrimaryAction != null) onPrimaryAction()
-                                else importMenuVisible = !importMenuVisible
+                                importMenuVisible = !importMenuVisible
                             }
                         )
                         EduBrowserDockIcon(
@@ -561,12 +591,12 @@ internal fun EduBrowserDock(
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Lock,
-                    contentDescription = "安全连接",
+                    contentDescription = if (onPrimaryAction != null) "学校登录" else "安全连接",
                     tint = foreground.copy(alpha = 0.72f),
                     modifier = Modifier.size(17.dp)
                 )
                 Text(
-                    text = compactAddressLabel,
+                    text = if (onPrimaryAction != null) "登录后读取登录态" else compactAddressLabel,
                     color = foreground,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,

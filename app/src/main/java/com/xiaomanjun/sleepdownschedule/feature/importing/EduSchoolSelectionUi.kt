@@ -14,7 +14,9 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import android.content.Context
 import android.os.Message
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.fadeIn
@@ -326,6 +328,23 @@ fun EduSchoolIndexedSelectScreen(
     onQueryChange: (String) -> Unit,
     onSelect: (EduSchool) -> Unit
 ) {
+    val window = LocalActivity.current?.window
+    DisposableEffect(window) {
+        val originalSoftInputMode = window?.attributes?.softInputMode
+        if (window != null && originalSoftInputMode != null) {
+            // The search dock owns IME displacement, just as in EduSchoolSelectActivityHost.
+            // Settings and embedded hosts must not also resize or pan their content.
+            window.setSoftInputMode(
+                (originalSoftInputMode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            )
+        }
+        onDispose {
+            if (window != null && originalSoftInputMode != null) {
+                window.setSoftInputMode(originalSoftInputMode)
+            }
+        }
+    }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
