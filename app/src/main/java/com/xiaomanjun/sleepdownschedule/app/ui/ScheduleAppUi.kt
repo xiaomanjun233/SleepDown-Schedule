@@ -1,4 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.app.ui
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawscope.clipPath
 
 import androidx.compose.animation.core.LinearEasing
 
@@ -13,6 +16,7 @@ import com.xiaomanjun.sleepdownschedule.feature.course.management.HomeMenuActivi
 import com.xiaomanjun.sleepdownschedule.feature.course.management.putCourseManagementInitialState
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshWebSession
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
@@ -1528,6 +1532,7 @@ fun CourseScheduleAppUi(
     val homeCurrentWeek = effectiveCurrentWeek(visualState.config)
     val beforeScheduleTerm = isBeforeScheduleTerm(visualState.config, todayDate)
     val afterScheduleTerm = isAfterScheduleTerm(visualState.config, todayDate)
+    val homeWeekHeaderPreview = remember(visualState.config.id) { mutableStateOf<Int?>(null) }
     var homeDisplayWeek by remember(visualState.config.id, visualState.loaded) {
         mutableIntStateOf(if (beforeScheduleTerm) 1 else homeCurrentWeek)
     }
@@ -2478,7 +2483,10 @@ fun CourseScheduleAppUi(
                 .fillMaxSize()
                 .drawWithContent {
                     val freeze = useFrozenHomeMorphBlur()
-                    val needsCapture = lastRecordedHomeFrameKey.get() != homeCaptureFrameKey
+                    // A moving pair of pages is not a stable overlay source. Recording it on
+                    // the switch's first frame adds a full tree traversal to page construction.
+                    val needsCapture = !rootPageMotion.moving && !homeModeMotion.moving &&
+                        lastRecordedHomeFrameKey.get() != homeCaptureFrameKey
                     screenGraphicsLayer.alpha = 1f
                     if (needsCapture) {
                         screenGraphicsLayer.record { this@drawWithContent.drawContent() }
@@ -2507,6 +2515,7 @@ fun CourseScheduleAppUi(
         ) {
         CompositionLocalProvider(
             LocalHomeBackgroundFrozen provides homeBackgroundFreezeActive,
+            LocalHomeTextContrastFrozen provides (rootPageMotion.moving || homeModeMotion.moving),
             com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen provides
                 freezeHomeGlassCoordinates,
             com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey provides homeGlassSampleRecordKey
@@ -2572,7 +2581,9 @@ fun CourseScheduleAppUi(
                             homeMode = homeMode,
                             onHomeModeChange = { homeMode = it },
                             homeDisplayDate = homeDisplayDate,
-                            homeDisplayWeek = homeDisplayWeek,
+                            homeDisplayWeek = if (weekViewStyle == WeekViewStyle.BOUNDLESS) {
+                                homeWeekHeaderPreview.value ?: homeDisplayWeek
+                            } else homeDisplayWeek,
                             beforeScheduleTerm = beforeScheduleTerm,
                             afterScheduleTerm = afterScheduleTerm,
                             homeShowingAnotherWeek = homeShowingAnotherWeek,
@@ -2595,7 +2606,7 @@ fun CourseScheduleAppUi(
                         // blur) so weekday labels are never covered; geometry mirrors the course
                         // grid (rowHeaderWidth slot + equal columns + weekGridEndPadding).
                         BoundlessWeekdayHeaderRow(
-                            displayWeek = homeDisplayWeek,
+                            displayWeek = homeWeekHeaderPreview.value ?: homeDisplayWeek,
                             courses = visualState.courses,
                             config = visualState.config,
                             today = todayDate,
@@ -2634,10 +2645,11 @@ fun CourseScheduleAppUi(
                             if (rootPageMotion.retains(false) && visualState.loaded && wallpaperImages.source != null) {
                                 homeWallpaperRecordKey.value?.let { imageKey ->
                                     listOf(imageKey, personalizationPreviewState.wallpaperBrightness
-                                        ?: visualState.config.wallpaperBrightness, rootPageMotion.progress.value)
+                                        ?: visualState.config.wallpaperBrightness, rootPageMotion.pageSampleKey)
                                 }
                             } else null
                         })
+                        .background(ComposeColor.Black)
                 ) {
                     if (rootPageMotion.retains(false)) {
                         Box(Modifier.fillMaxSize().homeSwitchLayer(rootPageMotion, secondary = false,
@@ -2690,9 +2702,10 @@ fun CourseScheduleAppUi(
                 }
                 if (useSharedCourseBackdrop) {
                     Box(Modifier.fillMaxSize().then(sharedCourseBackdrop.preRenderModifier {
+                        // Include the corners: they follow the tail after the faster page lands.
                         homeWallpaperRecordKey.value?.let { imageKey ->
                             listOf(imageKey, personalizationPreviewState.wallpaperBrightness
-                                ?: visualState.config.wallpaperBrightness, rootPageMotion.progress.value)
+                                ?: visualState.config.wallpaperBrightness, rootPageMotion.pageSampleKey)
                         }
                     }))
                 }
@@ -2705,7 +2718,7 @@ fun CourseScheduleAppUi(
                     }
                     ContentEntranceContainer(phase = startupPhase, modifier = Modifier.weight(1f)) {
                         HomeSwitchPane(rootPageMotion, secondary = false, modifier = Modifier.fillMaxSize(),
-                            pageClip = HomeSwitchClip.Page) {
+                            pageClip = HomeSwitchClip.Page, retainContent = true) {
                             rootPageStateHolder.SaveableStateProvider("home") {
                                  if (visualState.loaded) HomeScreen(
                                      state = visualState,
@@ -2727,6 +2740,7 @@ fun CourseScheduleAppUi(
                                     floatingCourseBackdrop = backgroundBackdrop,
                                      weekHeaderBackdrop = backgroundBackdrop,
                                     onSwipeWeek = { delta -> homeDisplayWeek = (homeDisplayWeek + delta).coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1)) },
+                                    onWeekHeaderPreview = { homeWeekHeaderPreview.value = it },
                                     onSwipeDay = { delta ->
                                         val requested = homeDisplayDate.plusDays(delta.toLong())
                                         val range = scheduleDayNavigationRange(visualState.config, todayDate)
@@ -4603,7 +4617,7 @@ fun DetailTopBar(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .height(DetailTopBarHeight)
-                .padding(end = 10.dp)
+                .padding(end = backButtonStartPadding)
                 .graphicsLayer { clip = false },
             contentAlignment = Alignment.CenterEnd
         ) { actions() }
@@ -6955,6 +6969,10 @@ open class SettingsDetailActivityHost : ComponentActivity() {
             intent.action == Intent.ACTION_VIEW
         }
         val customizeScheduleId = intent.getIntExtra(ScheduleCustomizeIdExtra, -1).takeIf { it > 0 }
+        if (intent.getStringExtra(SettingsDetailPageExtra) == SettingsPage.AutoRefreshSchedule.name) {
+            // Match the education picker before the first window layout, not after composition.
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        }
         val useEntrySnapshot = intent.getBooleanExtra(ScheduleEntrySnapshotExtra, false)
         setContent {
             val app = application as CourseScheduleApp
@@ -7438,6 +7456,16 @@ open class EduImportActivityHost : ComponentActivity() {
             )
             val state by viewModel.state.collectAsStateWithLifecycle()
             val adapter = remember { eduAdapterFromIntentKey(intent.getStringExtra(EduAdapterExtra)) }
+            val retainedSession = remember(adapter) {
+                if (adapter != null && intent.getBooleanExtra(AutoRefreshWebSession.RestoreSessionExtra, false)) {
+                    AutoRefreshScheduleStore.load(app)?.takeIf {
+                        it.schoolId == adapter.school.id && it.adapterId == adapter.adapterId
+                    }
+                } else null
+            }
+            val browserAdapter = remember(adapter, retainedSession) {
+                adapter?.copy(importUrl = retainedSession?.authenticatedUrl ?: adapter.importUrl)
+            }
             var pendingDraft by remember { mutableStateOf<ImportDraft?>(null) }
             val eduWebContentBackdrop = rememberGlassLayerBackdrop(
                 domain = GlassBackdropDomain.Content,
@@ -7468,10 +7496,16 @@ open class EduImportActivityHost : ComponentActivity() {
                         } else {
                             EduImportActivityScreen(
                                 state = state,
-                                adapter = adapter,
+                                adapter = checkNotNull(browserAdapter),
                                 backdrop = backdrop,
                                 webContentBackdrop = eduWebContentBackdrop,
                                 useDetailTopPadding = true,
+                                prepareWebView = { webView ->
+                                    retainedSession?.let {
+                                        AutoRefreshWebSession.restore(webView, it)
+                                    }
+                                },
+                                initialDesktopMode = retainedSession?.desktopMode ?: false,
                                 onParsed = { draft -> pendingDraft = draft }
                             )
                         }
@@ -8824,6 +8858,7 @@ private val AboutHeroHeight = 390.dp
 private fun AboutGlassPanel(
     darkTheme: Boolean,
     modifier: Modifier = Modifier,
+    longContent: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val shape = RoundedRectangle(28.dp)
@@ -8846,7 +8881,14 @@ private fun AboutGlassPanel(
     }
     Column(
         modifier = modifier
-            .clip(shape)
+            .then(if (longContent) Modifier.drawWithCache {
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    addOutline(shape.createOutline(size, layoutDirection, this@drawWithCache))
+                }
+                onDrawWithContent {
+                    clipPath(path) { this@onDrawWithContent.drawContent() }
+                }
+            } else Modifier.clip(shape))
             .background(panelGradient),
         content = content
     )
@@ -9089,13 +9131,10 @@ fun ChangelogSettingsScreen(
     val darkTheme = appUsesDarkTheme(state.config)
     val listState = rememberLazyListState()
     val heroHeightPx = with(density) { AboutHeroHeight.toPx() }
-    // Each version owns its measurement and clipping surface, even when several are expanded.
-    fun androidx.compose.foundation.lazy.LazyListScope.changelogItem(version: String, body: String) {
-        item(key = "changelog-$version", contentType = "changelog-version") {
-            AboutGlassPanel(darkTheme = darkTheme, modifier = Modifier.fillMaxWidth()) {
-                CollapsibleChangelogRow(version, body)
-            }
-        }
+    @Composable
+    fun changelogItem(version: String, body: String) {
+        CollapsibleChangelogRow(version, body)
+        if (version != "1.0 beta") SettingsDivider()
     }
     val heroScrollOffsetPx = remember(listState, heroHeightPx) {
         derivedStateOf {
@@ -9347,6 +9386,10 @@ fun ChangelogSettingsScreen(
                     summary = "每一次打磨，都可以在这里找到。"
                 )
             }
+            item(key = "about-changelog") {
+                // One continuous panel. Canvas clipping avoids a texture as tall as all expanded
+                // versions; each details animation still owns only its own small graphics layer.
+                AboutGlassPanel(darkTheme, Modifier.fillMaxWidth(), longContent = true) {
             changelogItem(
                     "1.2.6_beta9",
                     "新增自动刷新课表，可选择从不、每天或每7天更新，登录失效后可重新连接教务。\n" +
@@ -9558,6 +9601,8 @@ fun ChangelogSettingsScreen(
             changelogItem("1.02 beta", "修复教务 WebView 在部分 CAS 页面显示半截的问题；接入 Custom Tabs 浏览器登录流程；优化西南大学节次时间表；通用教务导入预览增加节次检查提示。")
             changelogItem("1.01 beta", "修复教务导入预览与节次信息问题；新增组件测试页、本次日志抓取、更新日志入口和下载新版页面；优化课程编辑删除作用范围；为周视图切换周加入课程卡片甩尾过渡动画。")
             changelogItem("1.0 beta", "完成基础课程表、手动导入、教务导入、通知提醒、实时活动、深色模式、壁纸与液态玻璃个性化设置。")
+                }
+            }
         }
     }
 }

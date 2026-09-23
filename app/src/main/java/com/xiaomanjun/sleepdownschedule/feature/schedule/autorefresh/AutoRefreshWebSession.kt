@@ -12,6 +12,28 @@ import kotlin.coroutines.resume
 
 /** Persist only session fields consumed by reviewed adapters, encrypted with the profile. */
 internal object AutoRefreshWebSession {
+    const val RestoreSessionExtra = "restore_retained_edu_session"
+
+    suspend fun restore(webView: WebView, profile: AutoRefreshScheduleProfile) {
+        val manager = CookieManager.getInstance().apply { setAcceptCookie(true) }
+        for (cookie in profile.cookies) {
+            if (origin(cookie.url) == null) continue
+            // A live browser session may be newer than the encrypted snapshot.
+            val currentNames = manager.getCookie(cookie.url).orEmpty().split(';')
+                .map { it.substringBefore('=').trim() }.toSet()
+            for (entry in cookie.value.split(';').map(String::trim).filter { it.contains('=') }) {
+                if (entry.substringBefore('=') in currentNames) continue
+                suspendCancellableCoroutine<Unit> { continuation ->
+                    manager.setCookie(cookie.url, "$entry; Path=/") {
+                        if (continuation.isActive) continuation.resume(Unit)
+                    }
+                }
+            }
+        }
+        manager.flush()
+        installStorage(webView, profile.schoolId, profile.webStorage)
+    }
+
     private fun keys(schoolId: String): List<String> = when (schoolId) {
         "AEPU", "BBGU" -> listOf("Authorization", "access_token", "token", "X-Access-Token", "x-token", "auth_token", "jwt", "user_token")
         "HUAT" -> listOf("Admin-Token", "adminToken", "token", "X-Token", "x-token", "admin_token")

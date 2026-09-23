@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.luminance
 import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseTextBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen
+import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeTextContrastFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.day.LocalHomeReadability
 import com.xiaomanjun.sleepdownschedule.feature.home.day.sampleVisibleWallpaperColors
 
@@ -25,7 +26,8 @@ internal fun rememberCourseTextBackground(
     cardBounds: () -> Rect?
 ): CourseTextBackground {
     val wallpaper = LocalHomeReadability.current
-    val frozen = LocalHomeBackgroundFrozen.current || LocalCourseTextMotionFrozen.current
+    val frozen = LocalHomeBackgroundFrozen.current ||
+        LocalCourseTextMotionFrozen.current || LocalHomeTextContrastFrozen.current
     return remember(wallpaper, frozen, base, tintAlpha, blurred, blurPx, outline, expanded, ready) {
         CourseTextBackground(frozen) { windowBounds ->
             if (!ready) return@CourseTextBackground null

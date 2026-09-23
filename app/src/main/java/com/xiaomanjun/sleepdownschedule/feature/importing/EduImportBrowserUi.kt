@@ -141,6 +141,7 @@ internal data class EduBrowserPrimaryAction(
     val guide: String,
     val onInvoke: suspend (WebView, ShiguangBridgeHost, Boolean) -> String,
     val enabled: Boolean = true,
+    val progressMessage: String = "正在读取登录态并验证凭证…",
     val onPageStarted: (WebView, String?) -> Unit = { _, _ -> },
     val onPageFinished: (WebView, String?) -> Unit = { _, _ -> }
 )
@@ -153,6 +154,8 @@ internal fun EduImportActivityScreen(
     webContentBackdrop: LayerBackdrop,
     useDetailTopPadding: Boolean = true,
     primaryAction: EduBrowserPrimaryAction? = null,
+    prepareWebView: suspend (WebView) -> Unit = {},
+    initialDesktopMode: Boolean = false,
     onParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
@@ -164,10 +167,14 @@ internal fun EduImportActivityScreen(
             if (adapter.requiresManualEduUrl()) "" else adapter.importUrl.ifBlank { "about:blank" }
         )
     }
+    val currentOnParsed by rememberUpdatedState(onParsed)
     val bridge = remember(adapter) {
         ShiguangBridgeHost(
             context = context,
-            onDraft = onParsed,
+            onDraft = { draft ->
+                webView?.commitSystemCredentialAutofill()
+                currentOnParsed(draft)
+            },
             onMessage = { message = it },
             onInteractionRequest = { bridgeInteraction = it }
         )
@@ -191,6 +198,8 @@ internal fun EduImportActivityScreen(
         bridge = bridge,
         useDetailTopPadding = useDetailTopPadding,
         primaryAction = primaryAction,
+        prepareWebView = prepareWebView,
+        initialDesktopMode = initialDesktopMode,
         onMessage = { message = it }
     )
 }
@@ -766,18 +775,21 @@ private fun EduImportBrowserScreen(
     bridge: ShiguangBridgeHost,
     useDetailTopPadding: Boolean = true,
     primaryAction: EduBrowserPrimaryAction? = null,
+    prepareWebView: suspend (WebView) -> Unit = {},
+    initialDesktopMode: Boolean = false,
     onMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val currentPrimaryAction by rememberUpdatedState(primaryAction)
+    val currentPrepareWebView by rememberUpdatedState(prepareWebView)
     var primaryActionRunning by remember(adapter) { mutableStateOf(false) }
     val buttonBackdrop = webContentBackdrop
     val backgroundPermissionGate = rememberAiImportBackgroundPermissionGate()
     var addressText by remember(currentUrl) { mutableStateOf(currentUrl) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
-    var desktopMode by remember { mutableStateOf(false) }
+    var desktopMode by remember(adapter) { mutableStateOf(initialDesktopMode) }
     var aiParsing by remember { mutableStateOf(false) }
     var aiProgress by remember { mutableStateOf<AiEduImportProgress?>(null) }
     var isScreenCapturing by remember { mutableStateOf(false) }
@@ -1401,7 +1413,17 @@ private fun EduImportBrowserScreen(
             bridge.bindWebView(this)
             updateNavigationState(this)
             val initialUrl = rendererRestoreUrl ?: normalizedUrl
-            if (initialUrl.isNotBlank()) webCompatDelegates.getValue(this).loadInitialUrl(initialUrl)
+            val target = this
+            scope.launch {
+                try {
+                    currentPrepareWebView(target)
+                    // A disposed/replaced renderer must never start another navigation.
+                    if (initialUrl.isNotBlank()) webCompatDelegates[target]?.loadInitialUrl(initialUrl)
+                } catch (error: Exception) {
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    onMessage(error.message ?: "登录态恢复失败，请重新登录")
+                }
+            }
         }
     }
 
@@ -1586,14 +1608,16 @@ private fun EduImportBrowserScreen(
                         val target = popupWebView ?: webView
                         if (target != null && !primaryActionRunning && action.enabled) {
                             primaryActionRunning = true
-                            onMessage("正在读取登录态并验证凭证…")
+                            onMessage(action.progressMessage)
                             scope.launch {
                                 try {
                                     onMessage(action.onInvoke(target, bridge, desktopMode))
                                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                                     throw cancelled
-                                } catch (_: Exception) {
-                                    onMessage("连接失败，请检查网络后重试")
+                                } catch (error: Exception) {
+                                    // Raw exception messages may contain session URLs or cookies.
+                                    Log.w("EduSession", "Browser action failed: ${error.javaClass.simpleName}")
+                                    onMessage(eduBrowserActionFailureMessage(error))
                                 } finally {
                                     primaryActionRunning = false
                                 }

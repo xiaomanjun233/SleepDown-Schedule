@@ -5,12 +5,17 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchool
 import com.xiaomanjun.sleepdownschedule.feature.importing.ShiguangWarehouse
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
+import com.xiaomanjun.sleepdownschedule.feature.importing.isAiEduImportTool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
 
 /** Reviewed bundled adapters plus new API adapters verified from the synchronized warehouse. */
 internal object ShiguangApiAdapterCatalog {
+    suspend fun loadLoginAdapters(context: Context): List<EduAdapter> = withContext(Dispatchers.IO) {
+        ShiguangWarehouse.loadVisibleAdapters(context).filterNot(EduAdapter::isAiEduImportTool)
+    }
+
     suspend fun loadSupported(context: Context): List<EduAdapter> = withContext(Dispatchers.IO) {
         // The school picker updates this cache too. Check its TTL here so this page can discover
         // newly published schools without requiring a visit to the regular import screen first.
@@ -57,6 +62,8 @@ internal object ShiguangApiAdapterCatalog {
             bundled.adapterName != current.adapterName ||
             bundled.description != current.description ||
             bundled.category != current.category
+    internal fun supportsAutomaticRefresh(adapter: EduAdapter, reviewed: List<EduAdapter>): Boolean =
+        reviewed.any { it.school.id == adapter.school.id && it.adapterId == adapter.adapterId }
 
     internal fun parseCatalog(text: String): List<EduAdapter> = text.lineSequence()
         .filter { it.isNotBlank() && !it.startsWith("#") }

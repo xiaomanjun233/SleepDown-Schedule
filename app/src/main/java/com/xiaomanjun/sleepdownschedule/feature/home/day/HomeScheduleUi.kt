@@ -427,7 +427,7 @@ fun HomeReadableText(
     overflow: TextOverflow = TextOverflow.Clip
 ) {
     val readability = LocalHomeReadability.current
-    val backgroundFrozen = LocalHomeBackgroundFrozen.current
+    val backgroundFrozen = LocalHomeBackgroundFrozen.current || LocalHomeTextContrastFrozen.current
     var targetShadowStrength by remember(color) { mutableFloatStateOf(0f) }
     val shadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "home-text-soft-shadow")
     val textLayout = remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -692,6 +692,7 @@ internal fun HomeScreen(
     onSwipeWeek: (Int) -> Unit,
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
+    onWeekHeaderPreview: (Int?) -> Unit = {},
     dayAgentBackgroundMotionState: DayAgentBackgroundMotionState,
     onAgentPagerSettledChange: (Boolean) -> Unit = {},
     onAgentPrepareOpen: suspend () -> Unit = {},
@@ -770,7 +771,7 @@ internal fun HomeScreen(
                 }
             }
     ) {
-        BackHandler(enabled = mode == HomeMode.Week && weekEditMode) {
+        BackHandler(enabled = LocalHomePaneVisible.current && mode == HomeMode.Week && weekEditMode) {
             weekEditMode = false
         }
         HomeMode.entries.forEach { targetMode ->
@@ -778,6 +779,7 @@ internal fun HomeScreen(
             HomeSwitchPane(
                 motion = modeMotion,
                 secondary = targetMode == HomeMode.Week,
+                retainContent = true,
                 modifier = Modifier.fillMaxSize()
             ) {
             modeStateHolder.SaveableStateProvider(targetMode.name) {
@@ -836,6 +838,7 @@ internal fun HomeScreen(
                             floatingCourseBackdrop = floatingCourseBackdrop,
                             headerBackdrop = weekHeaderBackdrop,
                             onSwipeWeek = onSwipeWeek,
+                            onWeekHeaderPreview = onWeekHeaderPreview,
                             onContentUnderTopBarChange = { if (mode == targetMode) onContentUnderTopBarChange(it) },
                             style = weekViewStyle,
                             weekEditMode = weekEditMode,
@@ -1586,9 +1589,10 @@ internal fun DayScheduleScreen(
         return date.coerceIn(range.start, range.endInclusive)
     }
 
-    LaunchedEffect(pagerState, displayDate) {
+    val paneVisible = LocalHomePaneVisible.current
+    LaunchedEffect(pagerState, displayDate, paneVisible) {
         snapshotFlow {
-            !pagerState.isScrollInProgress &&
+            paneVisible && !pagerState.isScrollInProgress &&
                 pagerState.currentPage == pagerState.settledPage &&
                 kotlin.math.abs(pagerState.currentPageOffsetFraction) < 0.0005f &&
                 dateForPage(pagerState.settledPage) == displayDate
@@ -1651,6 +1655,7 @@ internal fun DayScheduleScreen(
         beyondViewportPageCount = 1,
         key = { it }
     ) { page ->
+        HomeDayPageDrawingScope(pagerState, page) {
             val targetDate = dateForPage(page)
             val targetAdjustment = remember(state.config.scheduleAdjustmentsJson, targetDate) {
                 com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(state.config, targetDate)
@@ -1734,7 +1739,7 @@ internal fun DayScheduleScreen(
                         backdrop = dayAgentBackdrop,
                         textColor = textColor,
                         collapsed = agentCollapsed,
-                        isActive = page == pagerState.settledPage,
+                        isActive = paneVisible && page == pagerState.settledPage,
                         backgroundMotionState = dayAgentBackgroundMotionState,
                         onPrepareOpen = onAgentPrepareOpen,
                         onAgentDismissed = onAgentDismissed,
@@ -1959,6 +1964,7 @@ internal fun DayScheduleScreen(
                 }
             }
     }
+    }
 }
 
 internal fun courseDayPart(
@@ -2076,8 +2082,8 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
     val adjustedEditor = LocalAdjustedCourseEditor.current
     val subdued = muted || completed
     val resolvedCardColor = if (subdued) MutedCourseLightColor else courseCardBaseColor(config, course)
-    val foreground = if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor) else glassForegroundColor(config)
+    val foreground = if (config.courseCardGlassEnabled && courseCardUsesAssignments(config))
+        readableOn(resolvedCardColor) else glassForegroundColor(config)
     Column(modifier = Modifier.homeSwitchGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         CourseGlassCard(
             backdrop = backdrop,
@@ -2164,8 +2170,7 @@ internal fun DayCourseCardTextContent(
 fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f, displayedWeek: Int? = null, muted: Boolean = false, adjustmentLabel: String? = null) {
     val resolvedCardColor = if (muted) MutedCourseLightColor else if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
     val textColor =
-        if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor)
+        if (config.courseCardGlassEnabled && courseCardUsesAssignments(config)) readableOn(resolvedCardColor)
         else glassForegroundColor(config)
     val ownBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
     val editId = LocalEditingCourseId.current

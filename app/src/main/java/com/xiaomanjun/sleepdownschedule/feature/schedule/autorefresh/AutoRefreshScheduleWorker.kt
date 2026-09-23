@@ -93,10 +93,29 @@ internal object AutoRefreshScheduleCoordinator {
     suspend fun refreshSaved(context: Context): AutoRefreshOutcome = refreshMutex.withLock {
         val profile = AutoRefreshScheduleStore.load(context)
             ?: return@withLock AutoRefreshOutcome(false, "请先登录教务系统")
+        if (profile.sessionOnly) return@withLock AutoRefreshOutcome(false, "请打开教务页面手动刷新课表", profile)
         val adapters = ShiguangApiAdapterCatalog.loadSupported(context)
         val adapter = ShiguangApiAdapterCatalog.find(adapters, profile.schoolId, profile.adapterId)
             ?: return@withLock recordFailure(context, profile, "该教务入口已更新，请重新选择学校并登录")
         execute(context, adapter, profile)
+    }
+
+    /** Retain browser state only; HTML adapters still require their normal preview and confirmation. */
+    suspend fun retainSession(
+        context: Context,
+        adapter: EduAdapter,
+        scheduleId: Int,
+        cookies: List<AutoRefreshCookie>,
+        authenticatedUrl: String,
+        webStorage: AutoRefreshWebStorage?,
+        desktopMode: Boolean
+    ): AutoRefreshOutcome = refreshMutex.withLock {
+        val retained = retainedEduSessionProfile(
+            adapter, scheduleId, cookies, authenticatedUrl, webStorage, desktopMode,
+            AutoRefreshScheduleStore.load(context)
+        )
+        AutoRefreshScheduleStore.save(context, retained)
+        AutoRefreshOutcome(true, retained.lastResult, retained)
     }
 
     private suspend fun execute(
@@ -207,7 +226,7 @@ class AutoRefreshScheduleWorker(
 ) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
         val profile = AutoRefreshScheduleStore.load(applicationContext)
-        if (profile?.automatic != true) return Result.success()
+        if (profile?.automaticRefreshEnabled != true) return Result.success()
         AutoRefreshScheduleCoordinator.refreshSaved(applicationContext)
         return Result.success()
     }
@@ -229,7 +248,7 @@ class AutoRefreshScheduleWorker(
             policy: ExistingPeriodicWorkPolicy
         ) {
             val manager = WorkManager.getInstance(context.applicationContext)
-            if (profile?.automatic != true) {
+            if (profile?.automaticRefreshEnabled != true) {
                 manager.cancelUniqueWork(WorkName)
                 return
             }

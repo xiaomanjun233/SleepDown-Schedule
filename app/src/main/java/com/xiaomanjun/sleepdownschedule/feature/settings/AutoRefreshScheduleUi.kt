@@ -34,6 +34,7 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchoolPickerScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.describeAdapterRefresh
+import com.xiaomanjun.sleepdownschedule.feature.importing.toIntentKey
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -57,27 +58,34 @@ fun AutoRefreshScheduleSettingsScreen(
     val context = LocalContext.current
     val profile by AutoRefreshScheduleStore.observe(context).collectAsState()
     var adapters by remember { mutableStateOf<List<EduAdapter>?>(null) }
+    var apiAdapters by remember { mutableStateOf<List<EduAdapter>>(emptyList()) }
     var catalogError by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
     var manualRefreshing by remember { mutableStateOf(false) }
     var showRefreshingDialog by remember { mutableStateOf(false) }
     var adapterRefreshMessage by remember { mutableStateOf<String?>(null) }
+    var handledWarehouseRefreshRequest by remember { mutableIntStateOf(warehouseRefreshRequest) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(retry) {
         catalogError = null
-        runCatching { ShiguangApiAdapterCatalog.loadSupported(context) }
+        runCatching {
+            apiAdapters = ShiguangApiAdapterCatalog.loadSupported(context)
+            ShiguangApiAdapterCatalog.loadLoginAdapters(context)
+        }
             .onSuccess { adapters = it }
             .onFailure { catalogError = "学校列表读取失败，请重试" }
     }
     LaunchedEffect(warehouseRefreshRequest) {
-        if (warehouseRefreshRequest == 0 || manualRefreshing) return@LaunchedEffect
+        if (warehouseRefreshRequest == handledWarehouseRefreshRequest || manualRefreshing) return@LaunchedEffect
+        handledWarehouseRefreshRequest = warehouseRefreshRequest
         manualRefreshing = true
         showRefreshingDialog = true
         scope.launch {
             try {
                 val previousAdapters = adapters.orEmpty()
                 val result = ShiguangWarehouseUpdater.refresh(context)
-                val refreshedAdapters = ShiguangApiAdapterCatalog.loadSupported(context)
+                val refreshedAdapters = ShiguangApiAdapterCatalog.loadLoginAdapters(context)
+                apiAdapters = ShiguangApiAdapterCatalog.loadSupported(context)
                 adapters = refreshedAdapters
                 catalogError = null
                 adapterRefreshMessage = describeAdapterRefresh(previousAdapters, refreshedAdapters, result.changed)
@@ -92,7 +100,9 @@ fun AutoRefreshScheduleSettingsScreen(
     val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
     val saved = profile
     if (saved != null) {
-        val savedAdapter = adapters?.let { ShiguangApiAdapterCatalog.find(it, saved.schoolId, saved.adapterId) }
+        val savedAdapter = ShiguangApiAdapterCatalog.find(
+            if (saved.sessionOnly) adapters.orEmpty() else apiAdapters, saved.schoolId, saved.adapterId
+        )
         AutoRefreshDashboardContent(
             state = state,
             backdrop = backdrop,
@@ -106,6 +116,13 @@ fun AutoRefreshScheduleSettingsScreen(
                 }
             },
             reconnectAvailable = savedAdapter != null,
+            onManualRefresh = {
+                savedAdapter?.let {
+                    authLauncher.launch(android.content.Intent(context, com.xiaomanjun.sleepdownschedule.EduImportActivity::class.java)
+                        .putExtra("edu_adapter", it.toIntentKey())
+                        .putExtra(AutoRefreshWebSession.RestoreSessionExtra, true))
+                }
+            },
             connectionStatus = when {
                 catalogError != null -> catalogError!!
                 adapters == null -> "正在检查学校支持状态"
@@ -118,7 +135,14 @@ fun AutoRefreshScheduleSettingsScreen(
             state = state,
             backdrop = backdrop,
             availableAdapters = adapters,
-            onSelect = { authLauncher.launch(SwuUnifiedAuthActivity.intent(context, it, state.config.id)) }
+            adapterBadge = {
+                if (ShiguangApiAdapterCatalog.supportsAutomaticRefresh(it, apiAdapters)) null
+                else "可能需要手动刷新"
+            },
+            onSelect = { selected ->
+                val reviewed = ShiguangApiAdapterCatalog.find(apiAdapters, selected.school.id, selected.adapterId)
+                authLauncher.launch(SwuUnifiedAuthActivity.intent(context, reviewed ?: selected, state.config.id))
+            }
         )
     } else {
         Box(Modifier.fillMaxSize().padding(top = detailContentTopPadding()), contentAlignment = Alignment.Center) {
@@ -163,6 +187,7 @@ private fun AutoRefreshDashboardContent(
     reconnectAvailable: Boolean,
     connectionStatus: String,
     onRetryCatalog: () -> Unit,
+    onManualRefresh: () -> Unit,
     onReconnect: () -> Unit
 ) {
     val context = LocalContext.current
@@ -233,7 +258,8 @@ private fun AutoRefreshDashboardContent(
                         Text(profile.schoolName, style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold, color = foreground)
                         Text(
-                            if (profile.username.isBlank()) "教务账号 · 已连接"
+                            if (profile.sessionOnly) "教务账号 · 登录态已保留"
+                            else if (profile.username.isBlank()) "教务账号 · 已连接"
                             else "教务账号 · ${maskAccount(profile.username)}",
                             style = MaterialTheme.typography.bodyMedium, color = foreground.copy(alpha = 0.62f)
                         )
@@ -252,7 +278,9 @@ private fun AutoRefreshDashboardContent(
             item(key = "refresh") {
                 GlassPreferenceSection("课表更新") {
                     SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
-                        SleepDownLiquidDropdownPreference(
+                        if (profile.sessionOnly) {
+                            SettingsInfoRow("刷新方式", "保留登录态，打开教务页面手动刷新")
+                        } else SleepDownLiquidDropdownPreference(
                             items = listOf("从不", "每天", "每7天"),
                             selectedIndex = AutoRefreshFrequency.selectedIndex(profile.automatic, profile.frequencyMinutes),
                             title = "自动刷新",
@@ -275,11 +303,14 @@ private fun AutoRefreshDashboardContent(
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
                         Column(Modifier.fillMaxWidth().padding(14.dp)) {
                             SettingsActionButton(
-                                if (refreshing) "正在刷新…" else "立即刷新课表",
+                                if (profile.sessionOnly) "打开教务手动刷新"
+                                else if (refreshing) "正在刷新…" else "立即刷新课表",
                                 backdrop,
                                 modifier = Modifier.fillMaxWidth(),
                                 onClick = {
-                                    if (!refreshing) scope.launch {
+                                    if (profile.sessionOnly) {
+                                        if (reconnectAvailable) onManualRefresh() else onRetryCatalog()
+                                    } else if (!refreshing) scope.launch {
                                         refreshing = true
                                         try {
                                             message = AutoRefreshScheduleCoordinator.refreshSaved(context).message
