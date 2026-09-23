@@ -12,7 +12,7 @@
 - `BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES` 在 `github` 渠道为 `true`，在 `store` 渠道为 `false`。Shizuku 依赖、权限、Provider 与实现只进入 `app/src/github/`；商店渠道使用空桥接实现。ColorOS 课程导出 Provider 也只在 GitHub Manifest 注册。
 - OPPO/一加/realme：普通通知、实时活动、流体云、流体云+实时活动。荣耀：普通通知、实时活动、YOYO建议+实时活动。小米/Redmi/POCO：普通通知、实时活动、超级岛。新增选项和设置统一标注“实验功能”，由用户主动选择。
 - 仅流体云模式关闭 SleepDown 自身课程实时活动；组合模式和荣耀 YOYO 建议同时保留实时活动。组件只提供读取入口，不维护第二份课表；发现官方 WakeUp 课程表占用相同包名时提示冲突，不自动卸载或覆盖。
-- 小米超级岛参照 [Nexio 课程表](https://github.com/HaoZai000/NexioSchedule) 的 Shizuku 机制独立实现。用户需安装、启动并授权 Shizuku。发送岛通知前，GitHub 版短暂调整小米服务的联网规则，发送后恢复；记录中断状态并在下次应用启动时尝试恢复。未检测到系统超级岛或 Shizuku 未就绪时，继续显示普通实时活动。此能力影响系统服务，需要小米真机逐项验收。
+- 小米超级岛参照 [Nexio 课程表](https://github.com/HaoZai000/NexioSchedule) 的 Shizuku 机制独立实现。左、右侧字段分别可选课程名、地点和倒计时；课前、课中和课间共用课程时间线。选择超级岛后始终发送焦点通知参数，不请求 Android 实时活动；Shizuku 未就绪时直接发送，不改变所选模式。授权 Shizuku 后，GitHub 版可在发送岛通知前短暂调整小米服务的联网规则，发送后恢复；记录中断状态并在下次应用启动时尝试恢复。此能力影响系统服务，需要小米真机逐项验收。
 - 商店版制作时可移除隔离目录、组件模块、GitHub Manifest 入口和公共调用钩子；不能直接删除当前已发布用户数据或迁移逻辑。
 
 ## 版本与更新

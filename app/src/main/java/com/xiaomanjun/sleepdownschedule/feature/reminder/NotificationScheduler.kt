@@ -712,6 +712,7 @@ object NotificationScheduler {
     internal fun liveUpdateNotification(context: Context, payload: LiveUpdatePayload): android.app.Notification {
         val nowMillis = System.currentTimeMillis()
         val status = payload.statusAt(nowMillis)
+        val superIslandSelected = XiaomiSuperIsland.isEnabled(context)
         val notificationIdentity = payload.notificationIdentityAt(nowMillis)
         val placeText = payload.location.ifBlank { "未设置地点" }
         val shortText = when {
@@ -771,7 +772,7 @@ object NotificationScheduler {
             .setChronometerCountDown(false)
             .setCategory(android.app.Notification.CATEGORY_EVENT)
             .setColor(Notification.COLOR_DEFAULT)
-        status.progressPercent?.let { progress ->
+        status.progressPercent?.takeUnless { superIslandSelected }?.let { progress ->
             val countdownLine = if (status.phase == LiveUpdatePhase.BREAK) {
                 "还有${status.minutesToTransition}分钟上课"
             } else {
@@ -811,7 +812,7 @@ object NotificationScheduler {
                         payload.muteUntil
                     )
                 ).build())
-        } else if (payload.showActions && status.progressPercent == null) {
+        } else if (payload.showActions && (superIslandSelected || status.progressPercent == null)) {
             val notificationManager = context.getSystemService(NotificationManager::class.java)
             val hasDndAccess = notificationManager?.isNotificationPolicyAccessGranted == true
             val dndEnabled = isDoNotDisturbEnabledByApp(context)
@@ -832,28 +833,28 @@ object NotificationScheduler {
                     dndActionPendingIntent(context, payload.muteKey, payload.muteUntil)
                 ).build())
         }
-        runCatching {
-            builder.javaClass
-                .getMethod("setRequestPromotedOngoing", java.lang.Boolean.TYPE)
-                .invoke(builder, true)
-            Log.d(TAG, "setRequestPromotedOngoing called")
-        }.onFailure {
-            Log.w(TAG, "setRequestPromotedOngoing unavailable: ${it.javaClass.simpleName}")
-        }
-        runCatching {
+        if (!superIslandSelected) {
+            runCatching {
+                builder.javaClass
+                    .getMethod("setRequestPromotedOngoing", java.lang.Boolean.TYPE)
+                    .invoke(builder, true)
+                Log.d(TAG, "setRequestPromotedOngoing called")
+            }.onFailure {
+                Log.w(TAG, "setRequestPromotedOngoing unavailable: ${it.javaClass.simpleName}")
+            }
             builder.extras.putBoolean("android.requestPromotedOngoing", true)
+            // Plain short text remains visible on ColorOS; never delegate the chip to a chronometer.
+            runCatching {
+                builder.javaClass
+                    .getMethod("setShortCriticalText", CharSequence::class.java)
+                    .invoke(builder, shortText)
+            }.recoverCatching {
+                builder.javaClass
+                    .getMethod("setShortCriticalText", String::class.java)
+                    .invoke(builder, shortText.toString())
+            }
+            builder.extras.putCharSequence("android.shortCriticalText", shortText)
         }
-        // Plain short text remains visible on ColorOS; never delegate the chip to a chronometer.
-        runCatching {
-            builder.javaClass
-                .getMethod("setShortCriticalText", CharSequence::class.java)
-                .invoke(builder, shortText)
-        }.recoverCatching {
-            builder.javaClass
-                .getMethod("setShortCriticalText", String::class.java)
-                .invoke(builder, shortText.toString())
-        }
-        builder.extras.putCharSequence("android.shortCriticalText", shortText)
         builder.extras.putString(EXTRA_LIVE_UPDATE_IDENTITY, notificationIdentity)
         return builder.build().also { notification ->
             XiaomiSuperIsland.decorate(context, notification, payload, status, shortText.toString())

@@ -256,7 +256,8 @@ fun ScheduleSettingsContent(
                                 backdrop = backdrop,
                                 onNotificationModeChange = onNotificationModeChange
                             )
-                            if (experimentalNotifications.allowsLiveUpdateOptions(notificationMode)) {
+                            if (experimentalNotifications.allowsLiveUpdateOptions(notificationMode) &&
+                                !experimentalNotifications.superIslandEnabled) {
                                 SettingsDivider()
                                 SettingsLiveUpdateChipTextRow(
                                     liveUpdateChipTextMode,
@@ -279,10 +280,10 @@ fun ScheduleSettingsContent(
                 }
                 if (experimentalNotifications.allowsLiveUpdateOptions(notificationMode)) {
                     item(key = "notification-live-course") {
-                        GlassPreferenceSection("课程实时活动") {
+                        GlassPreferenceSection(if (experimentalNotifications.superIslandEnabled) "课程超级岛" else "课程实时活动") {
                             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                                 SettingsToggleRow(
-                                    title = "实时活动按钮",
+                                    title = if (experimentalNotifications.superIslandEnabled) "提醒按钮" else "实时活动按钮",
                                     subtitle = "显示取消提醒和课程勿扰按钮。",
                                     checked = liveUpdateActionsEnabled,
                                     backdrop = backdrop,
@@ -291,8 +292,10 @@ fun ScheduleSettingsContent(
                                 )
                                 SettingsDivider()
                                 SettingsToggleRow(
-                                    title = "上课中实时活动",
-                                    subtitle = "开启后会用实时活动提醒距离最近课间还有多久",
+                                    title = if (experimentalNotifications.superIslandEnabled) "上课中超级岛" else "上课中实时活动",
+                                    subtitle = if (experimentalNotifications.superIslandEnabled)
+                                        "开启后显示课中提醒与距下课倒计时"
+                                    else "开启后会用实时活动提醒距离最近课间还有多久",
                                     checked = livePreferences.duringClassEnabled,
                                     backdrop = backdrop,
                                     enabled = notificationsEnabled,
@@ -305,7 +308,9 @@ fun ScheduleSettingsContent(
                                 SettingsDivider()
                                 SettingsToggleRow(
                                     title = "课间提醒",
-                                    subtitle = "开启后会在课间用实时活动提醒你还有多久上课",
+                                    subtitle = if (experimentalNotifications.superIslandEnabled)
+                                        "开启后在课间显示距离下次上课还有多久"
+                                    else "开启后会在课间用实时活动提醒你还有多久上课",
                                     checked = livePreferences.breakStatusEnabled,
                                     backdrop = backdrop,
                                     enabled = notificationsEnabled && livePreferences.duringClassEnabled,

@@ -14,10 +14,11 @@ The reference repository was reviewed at commit
 radial sampling and denoise passes, and uses its Backdrop 2 per-node shader cache,
 full-resolution coordinates and shared glass surface entry point.
 
-The optional Xiaomi notification workaround was independently implemented after
-reviewing NexioSchedule's Shizuku approach at commit
-`5e12725df66bb7a3a4a9ab346bdc93e6d1f84927`. No Nexio Shizuku source file
-was copied into this project.
+The optional Xiaomi notification workaround and focus-notification field layout
+were independently implemented after reviewing NexioSchedule's Shizuku and
+island notification approach at commit
+`5e12725df66bb7a3a4a9ab346bdc93e6d1f84927`. No Nexio Shizuku or island
+notification source file was copied into this project.
 
 ## RikkaApps/Shizuku-API
 
