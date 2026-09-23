@@ -11,6 +11,9 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.feature.home.week.activeWeekCourseBell
+import com.xiaomanjun.sleepdownschedule.feature.home.week.specialCourseCoversTime
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.background.*
 import com.xiaomanjun.sleepdownschedule.feature.home.week.*
@@ -1697,20 +1700,27 @@ internal fun DayScheduleScreen(
                 }
             }
             val isToday = targetDate == minuteClock.toLocalDate()
-            val currentPeriod = if (isToday && targetWeekOrNull != null && !targetCancelled) {
+            val specialBell = if (isToday && targetWeekOrNull != null && !targetCancelled) {
+                activeWeekCourseBell(dayCourses, targetWeekday, minuteClock.toLocalTime())
+            } else null
+            val specialCourseInProgress = specialBell != null ||
+                (isToday && targetWeekOrNull != null && !targetCancelled &&
+                    specialCourseCoversTime(dayCourses, targetWeekday, minuteClock.toLocalTime()))
+            val currentPeriod = if (isToday && targetWeekOrNull != null && !targetCancelled && !specialCourseInProgress) {
                 currentTimelinePeriod(state.periods, minuteClock.toLocalTime())
             } else null
             val headerContent: @Composable () -> Unit = {
-                currentPeriod?.let { period ->
+                (specialBell?.index ?: currentPeriod?.periodIndex)?.let { periodIndex ->
                     Box(
                         modifier = Modifier
                             .fillMaxWidth().homeSwitchGroup(),
                         contentAlignment = Alignment.Center
                     ) {
                         DayStatusGlassPill(
-                            text = "第${period.periodIndex}节",
+                            text = "第${periodIndex}节",
                             backdrop = backdrop,
-                            config = state.config
+                            config = state.config,
+                            special = specialBell != null
                         )
                     }
                 }
@@ -1810,7 +1820,10 @@ internal fun DayScheduleScreen(
                         val simultaneousCount = dayCourses.count { other ->
                             other.id == course.id || other.periods.any(coursePeriods::contains)
                         }
-                        DayTimelineCourse(
+                        CompositionLocalProvider(
+                            LocalCourseTextMotionFrozen provides
+                                (listState.isScrollInProgress || pagerState.isScrollInProgress)
+                        ) { DayTimelineCourse(
                             course,
                             targetWeek,
                             state.periods,
@@ -1824,7 +1837,7 @@ internal fun DayScheduleScreen(
                             occurrenceDate = targetDate,
                             muted = targetCancelled,
                             completed = hasDayCourseEnded(course, state.periods, targetDate, minuteClock)
-                        )
+                        ) }
                     }
                 }
                 visibleSecondaryDate?.let { visibleDate ->
@@ -1858,7 +1871,10 @@ internal fun DayScheduleScreen(
                             val simultaneousCount = secondaryCourses.count { other ->
                                 other.id == course.id || other.periods.any(coursePeriods::contains)
                             }
-                            DayTimelineCourse(
+                            CompositionLocalProvider(
+                                LocalCourseTextMotionFrozen provides
+                                    (listState.isScrollInProgress || pagerState.isScrollInProgress)
+                            ) { DayTimelineCourse(
                                 course = course,
                                 currentWeek = secondaryWeek,
                                 periods = state.periods,
@@ -1872,7 +1888,7 @@ internal fun DayScheduleScreen(
                                 occurrenceDate = visibleDate,
                                 muted = secondaryCancelled,
                                 completed = hasDayCourseEnded(course, state.periods, visibleDate, minuteClock)
-                            )
+                            ) }
                         }
                     }
                 }
@@ -1977,12 +1993,14 @@ private fun DayStatusGlassPill(
     text: String,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    special: Boolean = false
 ) {
     BlueStatusGlassPill(
         backdrop = backdrop,
         config = config,
-        modifier = modifier
+        modifier = modifier,
+        accentColor = if (special) ComposeColor(0xFFFFC247) else ComposeColor(0xFF0A84FF)
     ) {
         Box(
             modifier = Modifier
@@ -1994,7 +2012,7 @@ private fun DayStatusGlassPill(
             Text(
                 text = text,
                 style = MaterialTheme.typography.titleSmall,
-                color = ComposeColor.White,
+                color = if (special) ComposeColor(0xFF3D2B00) else ComposeColor.White,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )

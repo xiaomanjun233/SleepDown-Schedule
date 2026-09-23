@@ -9,6 +9,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
+import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.TodayCoursesWidgetProvider
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
@@ -114,7 +115,7 @@ internal object AutoRefreshScheduleCoordinator {
                 webStorage = fetched.storage ?: profile.webStorage,
                 interactionAnswers = fetched.interactionAnswers,
                 lastRefreshAt = now,
-                lastResult = "刷新成功，共 ${fetched.draft.courses.size} 门课程"
+                lastResult = describeScheduleRefresh(targetState.courses, fetched.draft.courses)
             )
             AutoRefreshScheduleStore.update(app) { current ->
                 if (current.schoolId == profile.schoolId &&
@@ -169,6 +170,34 @@ internal object AutoRefreshScheduleCoordinator {
             }
         }
         return AutoRefreshOutcome(false, friendly, AutoRefreshScheduleStore.load(context))
+    }
+}
+
+internal fun describeScheduleRefresh(before: List<CourseEntity>, after: List<CourseEntity>): String {
+    fun key(course: CourseEntity): String = listOf(
+        course.name.trim(), course.weekday.toString(), course.periods.sorted().joinToString(","),
+        course.teacher.orEmpty().trim(), course.location.orEmpty().trim()
+    ).joinToString("|")
+    fun value(course: CourseEntity): String = listOf(
+        course.weeks.sorted().joinToString(","), course.weekParity.name,
+        course.customStartTime.orEmpty(), course.customEndTime.orEmpty(), course.customPeriodTimes.orEmpty(),
+        course.note.orEmpty()
+    ).joinToString("|")
+    val old = before.groupBy(::key)
+    val fresh = after.groupBy(::key)
+    val added = fresh.filterKeys { it !in old }.values.flatten()
+    val changed = fresh.filter { (courseKey, courses) ->
+        old[courseKey]?.map(::value)?.sorted() != null &&
+            old[courseKey]?.map(::value)?.sorted() != courses.map(::value).sorted()
+    }.values.flatten()
+    val removed = old.filterKeys { it !in fresh }.values.flatten()
+    fun names(courses: List<CourseEntity>): String = courses.map(CourseEntity::name).distinct()
+        .take(4).joinToString("、") + if (courses.map(CourseEntity::name).distinct().size > 4) "等" else ""
+    return buildString {
+        append("刷新成功，共 ${after.size} 门课程；")
+        append(if (added.isEmpty()) "无新增课程" else "新增 ${added.size} 门：${names(added)}")
+        if (changed.isNotEmpty()) append("；更新 ${changed.size} 门：${names(changed)}")
+        if (removed.isNotEmpty()) append("；移除 ${removed.size} 门：${names(removed)}")
     }
 }
 

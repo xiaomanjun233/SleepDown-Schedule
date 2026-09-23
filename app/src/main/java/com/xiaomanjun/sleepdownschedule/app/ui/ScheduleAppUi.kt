@@ -28,6 +28,7 @@ import com.xiaomanjun.sleepdownschedule.domain.course.*
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.describeAdapterRefresh
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.uninstallShiguangRuntime
 
 import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
@@ -3893,20 +3894,24 @@ fun CourseScheduleAppUi(
                     }
                 },
                 onAll = {
-                    val conflictWeeks = conflictWeeksForEditedCourse(
-                        dialog.original,
-                        dialog.edited,
-                        state.courses,
-                        state.periods
-                    )
+                    val scope = courseApplyAllScope(dialog.original, dialog.edited, state.courses)
+                    val conflictWeeks = if (scope.originals.size == 1) {
+                        conflictWeeksForEditedCourse(dialog.original, scope.edited, state.courses, state.periods)
+                    } else {
+                        conflictWeeksForEditedCourseGroup(scope.originals, listOf(scope.edited), state.courses, state.periods)
+                    }
                     if (conflictWeeks.isEmpty()) {
-                        viewModel.updateCourse(dialog.edited)
+                        if (scope.originals.size == 1) viewModel.updateCourse(scope.edited)
+                        else viewModel.replaceCourseGroup(scope.originals, listOf(scope.edited))
                         dismissHomeDialog()
                         closeCourseEditor()
                     } else {
+                        pendingCourseGroupEdit = scope.takeIf { it.originals.size > 1 }?.let {
+                            PendingCourseGroupEdit(it.originals, listOf(it.edited))
+                        }
                         homeDialog = HomeDialog.ConfirmCourseConflicts(
                             dialog.original,
-                            dialog.edited,
+                            scope.edited,
                             dialog.targetWeek,
                             conflictWeeks
                         )
@@ -7308,11 +7313,14 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
             var warehouseGeneration by remember { mutableIntStateOf(0) }
             var warehouseRefreshing by remember { mutableStateOf(false) }
             var warehouseManualRefreshing by remember { mutableStateOf(false) }
+            var warehouseRefreshResultMessage by remember { mutableStateOf<String?>(null) }
             fun refreshWarehouse(manual: Boolean) {
                 if (warehouseRefreshing) return
                 warehouseRefreshing = true
                 warehouseManualRefreshing = manual
                 refreshScope.launch {
+                    val beforeAdapters = if (manual) ShiguangWarehouse.loadAdapters(this@EduSchoolSelectActivityHost)
+                        else emptyList()
                     runCatching {
                         if (manual) {
                             ShiguangWarehouseUpdater.refresh(this@EduSchoolSelectActivityHost)
@@ -7323,19 +7331,15 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                         if (result == null) return@onSuccess
                         if (result.changed) warehouseGeneration += 1
                         if (manual) {
-                            Toast.makeText(
-                                this@EduSchoolSelectActivityHost,
-                                if (result.changed) "已更新适配列表" else "已是最新适配列表",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            val afterAdapters = ShiguangWarehouse.loadAdapters(this@EduSchoolSelectActivityHost)
+                            warehouseRefreshResultMessage = describeAdapterRefresh(
+                                beforeAdapters, afterAdapters, result.changed
+                            )
                         }
                     }.onFailure { error ->
                         if (manual) {
-                            Toast.makeText(
-                                this@EduSchoolSelectActivityHost,
-                                "更新失败，继续使用当前适配列表：${error.message ?: "网络请求失败"}",
-                                Toast.LENGTH_LONG
-                            ).show()
+                            warehouseRefreshResultMessage =
+                                "更新失败，继续使用当前适配列表：${error.message ?: "网络请求失败"}"
                         }
                     }
                     warehouseRefreshing = false
@@ -7400,6 +7404,18 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                 backdrop = backdrop,
                                 config = state.config,
                                 onDismissRequest = { warehouseManualRefreshing = false }
+                            )
+                        }
+                        warehouseRefreshResultMessage?.let { result ->
+                            LiquidAlertDialog(
+                                title = "适配器刷新结果",
+                                message = result,
+                                actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
+                                    warehouseRefreshResultMessage = null
+                                }),
+                                backdrop = backdrop,
+                                config = state.config,
+                                onDismissRequest = { warehouseRefreshResultMessage = null }
                             )
                         }
                     }

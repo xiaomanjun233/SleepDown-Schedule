@@ -2,7 +2,6 @@ package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import android.graphics.Bitmap
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -34,6 +33,7 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.loadWallpaperSource
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchoolPickerScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.describeAdapterRefresh
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -61,6 +61,7 @@ fun AutoRefreshScheduleSettingsScreen(
     var retry by remember { mutableIntStateOf(0) }
     var manualRefreshing by remember { mutableStateOf(false) }
     var showRefreshingDialog by remember { mutableStateOf(false) }
+    var adapterRefreshMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(retry) {
         catalogError = null
@@ -74,20 +75,14 @@ fun AutoRefreshScheduleSettingsScreen(
         showRefreshingDialog = true
         scope.launch {
             try {
+                val previousAdapters = adapters.orEmpty()
                 val result = ShiguangWarehouseUpdater.refresh(context)
-                adapters = ShiguangApiAdapterCatalog.loadSupported(context)
+                val refreshedAdapters = ShiguangApiAdapterCatalog.loadSupported(context)
+                adapters = refreshedAdapters
                 catalogError = null
-                Toast.makeText(
-                    context,
-                    if (result.changed) "已更新适配列表" else "已是最新适配列表",
-                    Toast.LENGTH_SHORT
-                ).show()
+                adapterRefreshMessage = describeAdapterRefresh(previousAdapters, refreshedAdapters, result.changed)
             } catch (error: Exception) {
-                Toast.makeText(
-                    context,
-                    "更新失败，继续使用当前适配列表：${error.message ?: "网络请求失败"}",
-                    Toast.LENGTH_LONG
-                ).show()
+                adapterRefreshMessage = "更新失败，继续使用当前适配列表：${error.message ?: "网络请求失败"}"
             } finally {
                 manualRefreshing = false
                 showRefreshingDialog = false
@@ -146,6 +141,18 @@ fun AutoRefreshScheduleSettingsScreen(
         config = state.config,
         onDismissRequest = { showRefreshingDialog = false }
     )
+    adapterRefreshMessage?.let { result ->
+        LiquidAlertDialog(
+            title = "适配器刷新结果",
+            message = result,
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
+                adapterRefreshMessage = null
+            }),
+            backdrop = backdrop,
+            config = state.config,
+            onDismissRequest = { adapterRefreshMessage = null }
+        )
+    }
 }
 
 @Composable
@@ -162,6 +169,7 @@ private fun AutoRefreshDashboardContent(
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
     var message by remember(profile.lastResult) { mutableStateOf(profile.lastResult) }
+    var refreshResultMessage by remember { mutableStateOf<String?>(null) }
     var showLogout by remember { mutableStateOf(false) }
     var cropUri by rememberSaveable { mutableStateOf<String?>(null) }
     var cropVisible by rememberSaveable { mutableStateOf(false) }
@@ -275,6 +283,7 @@ private fun AutoRefreshDashboardContent(
                                         refreshing = true
                                         try {
                                             message = AutoRefreshScheduleCoordinator.refreshSaved(context).message
+                                            refreshResultMessage = message
                                         } finally {
                                             refreshing = false
                                         }
@@ -350,6 +359,18 @@ private fun AutoRefreshDashboardContent(
         backdrop = backdrop, config = state.config,
         onDismissRequest = { showLogout = false }
     )
+    refreshResultMessage?.let { result ->
+        LiquidAlertDialog(
+            title = "课表刷新结果",
+            message = result,
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
+                refreshResultMessage = null
+            }),
+            backdrop = backdrop,
+            config = state.config,
+            onDismissRequest = { refreshResultMessage = null }
+        )
+    }
 }
 
 private fun maskAccount(value: String): String = when {

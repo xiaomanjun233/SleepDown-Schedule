@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
+
 import com.xiaomanjun.sleepdownschedule.feature.agent.excludeHomeAssistantPull
 
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseNeedsSupplementaryWeekRow
@@ -368,7 +370,12 @@ internal fun SinglePillWeekScheduleScreen(
     val rowHeaderWidth = if (boundless) BoundlessWeekRowHeaderWidth else 56.dp
     val today = LocalDate.now()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-    val now = LocalTime.now()
+    val now by produceState(initialValue = LocalTime.now()) {
+        while (true) {
+            delay(30_000)
+            value = LocalTime.now()
+        }
+    }
     val currentPeriod = currentTimelinePeriod(state.periods, now)
     // Keep one computed bucket per visited week, shared by the rail, supplements and Pager.
     // Data replacement invalidates the cache; swiping back reuses the same immutable lists.
@@ -385,6 +392,12 @@ internal fun SinglePillWeekScheduleScreen(
     }
     val weekBuckets = bucketsForWeek(displayWeek)
     val visibleCourses = weekBuckets.visibleCourses
+    val showingCurrentWeek = !today.isBefore(weekStart) && today.isBefore(weekStart.plusWeeks(1))
+    val specialBell = if (showingCurrentWeek) {
+        activeWeekCourseBell(visibleCourses, today.dayOfWeek.value, now)
+    } else null
+    val specialCourseInProgress = showingCurrentWeek &&
+        specialCourseCoversTime(visibleCourses, today.dayOfWeek.value, now)
     val hasAdjustmentBadges = remember(state.config.scheduleAdjustmentsJson) {
         com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(state.config.scheduleAdjustmentsJson).isNotEmpty()
     }
@@ -717,10 +730,15 @@ internal fun SinglePillWeekScheduleScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                    val isCurrent = currentPeriod?.periodIndex == period.periodIndex
+                                    val isSpecialCurrent = specialBell?.index == period.periodIndex
+                                    val isCurrent = if (specialCourseInProgress) isSpecialCurrent
+                                        else currentPeriod?.periodIndex == period.periodIndex
                                     Box(
                                         modifier = if (isCurrent) Modifier
-                                            .background(ComposeColor(0xFF0A84FF), RoundedRectangle(5.dp))
+                                            .background(
+                                                ComposeColor(if (isSpecialCurrent) 0xFFFFC247 else 0xFF0A84FF),
+                                                RoundedRectangle(5.dp)
+                                            )
                                             .padding(horizontal = 4.dp, vertical = 1.dp)
                                         else Modifier,
                                         contentAlignment = Alignment.Center
@@ -732,7 +750,7 @@ internal fun SinglePillWeekScheduleScreen(
                                                 lineHeight = 15.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 textAlign = TextAlign.Center,
-                                                color = ComposeColor.White
+                                                color = if (isSpecialCurrent) ComposeColor(0xFF3D2B00) else ComposeColor.White
                                             )
                                         } else {
                                             HomeReadableText(
@@ -747,7 +765,7 @@ internal fun SinglePillWeekScheduleScreen(
                                     }
                                     if (showTimeColumn) {
                                         HomeReadableText(
-                                            period.startTime,
+                                            specialBell?.takeIf { isSpecialCurrent }?.start?.toString() ?: period.startTime,
                                             fontSize = 10.sp,
                                             lineHeight = 11.sp,
                                             fontWeight = FontWeight.Light,
@@ -755,7 +773,7 @@ internal fun SinglePillWeekScheduleScreen(
                                             color = textColor.copy(alpha = 0.86f)
                                         )
                                         HomeReadableText(
-                                            period.endTime,
+                                            specialBell?.takeIf { isSpecialCurrent }?.end?.toString() ?: period.endTime,
                                             fontSize = 10.sp,
                                             lineHeight = 11.sp,
                                             fontWeight = FontWeight.Light,
@@ -780,6 +798,7 @@ internal fun SinglePillWeekScheduleScreen(
                             )
                     ) {
                         outgoingCourses.value?.let { oldCourses ->
+                            CompositionLocalProvider(LocalCourseTextMotionFrozen provides outgoingLayerOffset.isRunning) {
                             WeekCourseColumnsLayer(
                                 modifier = Modifier.padding(
                                     start = rowHeaderWidth,
@@ -804,6 +823,7 @@ internal fun SinglePillWeekScheduleScreen(
                             editScrollState = scrollState,
                             onCourseClick = { course, sourceBounds -> openOccurrence(course, outgoingWeekKey.intValue, sourceBounds) }
                             )
+                            }
                         }
                         val pagerZeroOffset = remember { Animatable(0f) }
                         HorizontalPager(
@@ -830,6 +850,10 @@ internal fun SinglePillWeekScheduleScreen(
                                 visibleWeekdaysForBuckets(pageBuckets, state.config.hideEmptyWeekends)
                             }
                             val isActivePage = pageWeek == displayWeek && pagerState.settledPage == page
+                            CompositionLocalProvider(
+                                LocalCourseTextMotionFrozen provides
+                                    (pagerState.isScrollInProgress || incomingLayerOffset.isRunning)
+                            ) {
                             WeekCourseColumnsLayer(
                                 modifier = Modifier.padding(
                                     start = rowHeaderWidth,
@@ -896,6 +920,7 @@ internal fun SinglePillWeekScheduleScreen(
                                     openOccurrence(course, pageWeek, sourceBounds)
                                 }
                             )
+                            }
                         }
                     }
                 }
@@ -1703,6 +1728,49 @@ private data class WeekRenderedSegment(
     val segment: WeekCourseSegment
 )
 
+internal data class WeekCustomTimeLabels(
+    val showStart: Boolean,
+    val showEnd: Boolean,
+    val showRangeBelow: Boolean
+)
+
+internal fun weekCustomTimeLabels(
+    top: Float,
+    bottom: Float,
+    occupied: List<Pair<Float, Float>>,
+    gridBottom: Float,
+    textHeight: Float
+): WeekCustomTimeLabels {
+    fun hasSpace(labelTop: Float, labelBottom: Float): Boolean =
+        labelTop >= 0f && labelBottom <= gridBottom && occupied.none { (cardTop, cardBottom) ->
+            cardBottom > labelTop - 1f && cardTop < labelBottom + 1f
+        }
+
+    val startFits = hasSpace(top - 10f, top - 10f + textHeight)
+    val endFits = hasSpace(bottom + 10f - textHeight, bottom + 10f)
+    return when {
+        startFits && endFits -> WeekCustomTimeLabels(true, true, false)
+        endFits -> WeekCustomTimeLabels(false, false, true)
+        else -> WeekCustomTimeLabels(startFits, false, false)
+    }
+}
+
+private fun weekCardVerticalBounds(
+    segment: WeekCourseSegment,
+    periods: List<PeriodEntity>,
+    cardHeight: Dp
+): Pair<Float, Float> {
+    val exact = exactTimeWeekPlacement(segment.course, periods)
+    val top = cardHeight.value * (exact?.topRows ?: segment.startPosition.toFloat()) +
+        if (exact == null) 2f else 0f
+    val height = if (exact != null) {
+        (cardHeight.value * exact.heightRows).coerceAtLeast(1f)
+    } else {
+        (cardHeight.value * segment.span - 4f).coerceAtLeast(18f)
+    }
+    return top to top + height
+}
+
 private const val WeekPageGlassMinimumFillRatio = 0.34f
 private const val WeekPageGlassMaximumLayerAreaFraction = 0.58f
 
@@ -1744,6 +1812,7 @@ private fun WeekDayColumn(
     courses: List<CourseEntity>,
     renderedSegments: List<WeekRenderedSegment>,
     tailCardOrder: Map<String, Float>,
+    tailColumnFraction: Float?,
     periods: List<PeriodEntity>,
     cardHeight: Dp,
     cardColor: ComposeColor,
@@ -1793,6 +1862,10 @@ private fun WeekDayColumn(
         composedCardCount = composedCourseCardCount,
         enabled = !editMode && BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT
     )
+    val visibleCardBounds = remember(renderedSegments, periods, cardHeight) {
+        renderedSegments.map { it.segment.course.id to weekCardVerticalBounds(it.segment, periods, cardHeight) }
+    }
+    val timeLabelHeight = with(density) { 9.sp.toDp().value } + 2f
 
     BoxWithConstraints(
         modifier = Modifier
@@ -1832,6 +1905,15 @@ private fun WeekDayColumn(
                 (cardHeight * segmentHeightRows - 4.dp).coerceAtLeast(18.dp)
             }
             val segmentTopInset = if (exactPlacement != null) 0.dp else 2.dp
+            val timeLabels = exactPlacement?.let {
+                weekCustomTimeLabels(
+                    top = cardHeight.value * segmentTopRows,
+                    bottom = cardHeight.value * segmentTopRows + segmentHeight.value,
+                    occupied = visibleCardBounds.filter { it.first != segment.course.id }.map { it.second },
+                    gridBottom = cardHeight.value * periods.size,
+                    textHeight = timeLabelHeight
+                )
+            }
             Box(
                 modifier = Modifier
                     .offset(y = cardHeight * segmentTopRows + segmentTopInset)
@@ -1860,6 +1942,7 @@ private fun WeekDayColumn(
                     layerTravel = layerTravel,
                     stackIndex = groupIndex,
                     cardOrderFraction = tailCardOrder[glassCandidateId],
+                    columnOrderFraction = tailColumnFraction,
                     conflictWarning = group.hasConflict,
                     conflictUnderlyingCourse = underlyingSegment?.course,
                     conflictUnderlyingPeriodIndex = underlyingSegment
@@ -1892,9 +1975,9 @@ private fun WeekDayColumn(
                         courseGlassRestorePlan.mountsGroup(courseGlassRestoreGroupKey(editWeek, listOf(glassCandidateId))),
                     backdropSampleScale = courseBackdropSampleScale
                 )
-                exactPlacement?.let {
+                timeLabels?.let { labels ->
                     val labelColor = glassForegroundColor(config)
-                    Text(
+                    if (labels.showStart) Text(
                                 text = segment.course.customStartTime.orEmpty(),
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
@@ -1906,7 +1989,7 @@ private fun WeekDayColumn(
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1
                     )
-                    Text(
+                    if (labels.showEnd) Text(
                                 text = segment.course.customEndTime.orEmpty(),
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
@@ -1917,6 +2000,15 @@ private fun WeekDayColumn(
                                 lineHeight = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1
+                    )
+                    if (labels.showRangeBelow) Text(
+                        text = "${segment.course.customStartTime.orEmpty()}–${segment.course.customEndTime.orEmpty()}",
+                        modifier = Modifier.align(Alignment.BottomCenter).offset(y = 10.dp).zIndex(12f),
+                        color = labelColor,
+                        fontSize = 7.sp,
+                        lineHeight = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
                     )
                 }
             }
@@ -2041,6 +2133,15 @@ fun WeekCourseColumnsLayer(
             card.first to if (cards.size > 1) index.toFloat() / (cards.size - 1) else 0.5f
         }.toMap()
     }
+    val tailColumnOrder = remember(renderedSegmentsByDay, supplementaryCoursesByDay, weekdays) {
+        val occupied = weekdays.filter { day ->
+            renderedSegmentsByDay[day].orEmpty().isNotEmpty() ||
+                supplementaryCoursesByDay[day].orEmpty().isNotEmpty()
+        }
+        occupied.mapIndexed { index, day ->
+            day to if (occupied.size > 1) index.toFloat() / (occupied.size - 1) else 0.5f
+        }.toMap()
+    }
     val courseGlassRestoreRegistry = LocalCourseGlassRestoreRegistry.current
     val courseGlassOcclusionPhase = LocalCourseGlassOcclusionPhase.current
     var draggingDayIndex by remember { mutableStateOf<Int?>(null) }
@@ -2111,6 +2212,7 @@ fun WeekCourseColumnsLayer(
                         courses = coursesByWeekday[day].orEmpty(),
                         renderedSegments = renderedSegmentsByDay[day].orEmpty(),
                         tailCardOrder = tailCardOrder,
+                        tailColumnFraction = tailColumnOrder[day],
                         periods = periods,
                         cardHeight = cardHeight,
                         cardColor = cardColor,
@@ -2178,6 +2280,7 @@ fun WeekCourseColumnsLayer(
                                     shortcutPivotX = shortcutPivotX,
                                     stackIndex = index,
                                     cardOrderFraction = tailCardOrder[weekSupplementaryTailKey(day, course.id, index)],
+                                    columnOrderFraction = tailColumnOrder[day],
                                     editMode = editMode && !adjustedDay, editWeek = editWeek,
                                     editingAllowed = !adjustedDay,
                                     muted = cancelledDay,
@@ -3048,6 +3151,7 @@ fun WeekCourseBlock(
     layerTravel: Float = 1f,
     stackIndex: Int = 0,
     cardOrderFraction: Float? = null,
+    columnOrderFraction: Float? = null,
     conflictWarning: Boolean = false,
     conflictUnderlyingCourse: CourseEntity? = null,
     conflictUnderlyingPeriodIndex: Int? = null,
@@ -3138,6 +3242,7 @@ fun WeekCourseBlock(
     val conflictCardFlight = remember(course.id, editWeek) { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val screenHeightPx = with(density) { currentWindowSizeDp().height.toPx() }
+    val screenWidthPx = with(density) { currentWindowSizeDp().width.toPx() }
     val edgeScrollThresholdPx = with(density) { 92.dp.toPx() }
     val measuredCardWidthPx = measuredCardWidth
         .takeIf { it > 1f }
@@ -3345,10 +3450,19 @@ fun WeekCourseBlock(
                     ?.coerceIn(0f, 1f) ?: cardFraction
                 val tailGroup = ((cardFraction * 0.55f + screenFraction * 0.45f) * 5f)
                     .roundToInt().coerceIn(0, 5)
+                val columnFraction = columnOrderFraction
+                    ?: ((dayIndex - 1).coerceIn(0, 6) / 6f)
+                val screenColumnFraction = ownBoundsRef[0]?.center?.x
+                    ?.div(screenWidthPx.coerceAtLeast(1f))
+                    ?.coerceIn(0f, 1f) ?: columnFraction
+                val columnGroup = ((columnFraction * 0.6f + screenColumnFraction * 0.4f) * 5f)
+                    .roundToInt().coerceIn(0, 5)
+                val phaseDelay = tailGroup * 0.014f + columnGroup * 0.028f
+                val delayedProgress = ((progress - phaseDelay) / (1f - phaseDelay)).coerceIn(0f, 1f)
                 val tailBase = with(density) {
-                    (32.dp + (tailGroup * 18f).dp + (stackIndex * 6f).dp).toPx()
+                    (30.dp + (tailGroup * 15f).dp + (columnGroup * 8f).dp + (stackIndex * 6f).dp).toPx()
                 }
-                tailBase * progress * tailDirection
+                tailBase * delayedProgress * tailDirection
             } ?: 0f
             val copyRippleCenter = copyMotion?.rippleCenter?.takeIf { copyMotion.target?.week == editWeek }
             val rippleCenter = copyRippleCenter ?: weekEditMotionState?.landingRippleCenter

@@ -13,6 +13,9 @@ internal class CourseTextBackground(
 
 internal val LocalCourseTextBackground = compositionLocalOf<CourseTextBackground?> { null }
 
+/** The page keeps its current text contrast while cards move under the wallpaper. */
+internal val LocalCourseTextMotionFrozen = compositionLocalOf { false }
+
 /** Keep the course hue/saturation, changing only lightness to clear its local surface. */
 internal fun courseTextColorForBackground(seed: Color, samples: FloatArray, previous: Color): Color {
     val backgrounds = samples.filter { it.isFinite() }.map { it.coerceIn(0f, 1f) }
