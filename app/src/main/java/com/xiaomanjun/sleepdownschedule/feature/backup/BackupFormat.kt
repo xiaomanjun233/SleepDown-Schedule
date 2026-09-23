@@ -260,7 +260,8 @@ data class BackupCourse(
     val note: String?,
     val customStartTime: String? = null,
     val customEndTime: String? = null,
-    val customColorArgb: Long? = null
+    val customColorArgb: Long? = null,
+    val customPeriodTimes: String? = null
 )
 
 @Serializable

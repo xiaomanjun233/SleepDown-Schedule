@@ -162,6 +162,23 @@ class DayAgentActionsTest {
     }
 
     @Test
+    fun agentCannotInventDistinctPerPeriodBells() {
+        val facts = factsAt(9, 0, emptyList()).copy(
+            scheduleId = 7,
+            totalWeeks = 18,
+            periodDefinitions = listOf(
+                PeriodEntity(3, "10:20", "11:00", 7),
+                PeriodEntity(4, "11:15", "11:55", 7)
+            )
+        )
+        val response = """<agent_actions>{"type":"ADD_COURSE","scope":"CURRENT_WEEK","course":{"name":"实训课","weekday":3,"periods":[3,4],"customPeriodTimes":"3,10:10-10:50;4,11:05-11:45"}}</agent_actions>"""
+
+        val action = parseAgentActions(response, facts).actions.single()
+
+        assertEquals(null, action.edited?.customPeriodTimes)
+    }
+
+    @Test
     fun rejectsPartialOrReversedCustomCourseTime() {
         val facts = factsAt(9, 0, emptyList()).copy(
             periodDefinitions = listOf(PeriodEntity(1, "08:00", "08:45", 7))

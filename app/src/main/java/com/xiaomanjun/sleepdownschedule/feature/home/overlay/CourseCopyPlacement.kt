@@ -53,7 +53,8 @@ internal fun courseCopyAtSlot(
             id = 0, weekday = weekday,
             periods = courseAnchorPeriodsForTimeRange(start, end, periods),
             customStartTime = start.toString(),
-            customEndTime = end.toString()
+            customEndTime = end.toString(),
+            customPeriodTimes = null
         )
     }
     val indexes = draft.periods.distinct().map { index ->

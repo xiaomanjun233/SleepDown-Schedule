@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeCourseClock
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -46,7 +47,8 @@ data class ScheduleImportCourse(
     val note: String? = null,
     val customStartTime: String? = null,
     val customEndTime: String? = null,
-    val customColorArgb: Long? = null
+    val customColorArgb: Long? = null,
+    val customPeriodTimes: String? = null
 )
 
 @Serializable
@@ -78,37 +80,40 @@ JSON 协议如下：
       "periods": [1, 2],
       "weeks": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16],
       "weekParity": "ALL",
-      "note": ""
+      "note": "",
+      "customStartTime": null,
+      "customEndTime": null
     }
   ]
 }
-要求：weekday 使用 1-7 表示周一到周日；periods 必须引用 scheduleConfig.periods 里的 index；weeks 必须在 1 到 totalWeeks 内；weekParity 只能是 ALL、ODD、EVEN；时间必须是 HH:mm。只返回一个完整 JSON 对象。JSON 可以正常换行和缩进，但不要在字符串值中为了排版擅自插入换行，不要使用 Markdown 代码块。
+要求：weekday 使用 1-7 表示周一到周日；periods 必须引用 scheduleConfig.periods 里的 index；weeks 必须在 1 到 totalWeeks 内；weekParity 只能是 ALL、ODD、EVEN；时间必须是 HH:mm。P 中只写一套默认作息。若课程有独立真实起止时间，填写 customStartTime 和 customEndTime；不能被默认作息覆盖，也不要根据另一教学区域的课间推算。逐节铃声仅由真实教务导入获取，此协议不生成。只返回一个完整 JSON 对象。JSON 可以正常换行和缩进，但不要在字符串值中为了排版擅自插入换行，不要使用 Markdown 代码块。
 """.trimIndent()
 
     fun buildTokenPrompt(): String = """
-请读取我发给你的课表 PDF，并只输出 SleepDown 课程表口令，不要解释、不要 Markdown。
+请读取我发给你的课表图片、PDF 或文字，并只输出 SleepDown 课程表口令，不要解释、不要 Markdown。
 口令格式：
 SDCT1
 T=总周数
 P=节次,开始时间-结束时间;节次,开始时间-结束时间
-C=课程名|教师|地点|星期|节次|周次|单双周|备注
+C=课程名|教师|地点|星期|节次|周次|单双周|备注|课程开始时间|课程结束时间|颜色
 
 规则：
 1. 星期用 1-7 表示周一到周日。
 2. 节次用逗号或范围，例如 1,2 或 1-2。
 3. 周次用逗号或范围，例如 1-16 或 1-8,10,12-16。
 4. 单双周用 A/O/E，分别表示全部/单周/双周。
-5. 没有教师、地点或备注时写 -。
-6. 时间必须是 HH:mm。
-7. 必须严格换行：SDCT1 单独一行，T= 单独一行，全部节次写在同一条 P= 行；每一门课程各占一条独立的 C= 行。
-8. 不要把一条 P= 或 C= 记录折成多行，不要添加项目符号、序号、空行、Markdown 代码围栏或解释文字。
-9. 课程名称、教师、地点和备注中不要使用竖线“|”；如原文包含竖线，请改为空格。每个 C= 行必须恰好包含 8 个由“|”分隔的字段。
+5. 没有教师、地点、备注、课程独立时间或颜色时写 -。颜色若有，使用十进制 ARGB。
+6. 时间必须是 HH:mm。P= 只写一套默认作息；原文给出课程自己的起止时间时，第 9、10 项按原文填写，不能用同节次默认作息覆盖。
+7. 即使不同教学区域的课间不一样，也只填写课程整体真实起止时间，不自行生成逐节铃声。
+8. 必须严格换行：SDCT1 单独一行，T= 单独一行，全部节次写在同一条 P= 行；每一门课程各占一条独立的 C= 行。
+9. 不要把一条 P= 或 C= 记录折成多行，不要添加项目符号、序号、空行、Markdown 代码围栏或解释文字。
+10. 课程名称、教师、地点和备注中不要使用竖线“|”；如原文包含竖线，请改为空格。每个新 C= 行包含 11 个由“|”分隔的字段；旧版较短口令仍可导入。
 示例：
 SDCT1
 T=20
-P=1,08:00-08:45;2,08:55-09:40;3,10:00-10:45
-C=高等数学|张老师|A101|1|1-2|1-16|A|-
-C=大学英语|-|B203|3|3|2-18|O|-
+P=1,08:00-08:45;2,08:55-09:40;3,10:20-11:00;4,11:15-11:55
+C=高等数学|张老师|A101|1|1-2|1-16|A|-|-|-|-
+C=大学英语|-|B203|3|3-4|2-18|O|-|10:10|11:45|-
 """.trimIndent()
 }
 
@@ -143,7 +148,7 @@ object ScheduleImportParser {
             decodeSchedulePayloadWithFallback(cleaned)
         }
         if (containsSleepDownToken(cleaned)) {
-            validatePayload(payload, baseConfig)
+            validatePayload(payload, baseConfig, allowImportedBellTimes = true)
         } else {
             runCatching { validatePayload(payload, baseConfig) }.getOrElse { firstError ->
                 val normalizedPayload = decodeNormalizedSchedulePayload(cleaned, firstError)
@@ -293,10 +298,19 @@ object ScheduleImportParser {
         }
     }
 
-    private fun validatePayload(payload: ScheduleImportPayload, baseConfig: ScheduleConfigEntity): ImportDraft {
+    private fun validatePayload(
+        payload: ScheduleImportPayload,
+        baseConfig: ScheduleConfigEntity,
+        allowImportedBellTimes: Boolean = false
+    ): ImportDraft {
         require(payload.schemaVersion == 1) { "schemaVersion 目前只支持 1" }
         require(payload.scheduleConfig.totalWeeks in 1..60) { "totalWeeks 必须在 1 到 60 之间" }
         require(payload.scheduleConfig.periods.isNotEmpty()) { "periods 不能为空" }
+        require(payload.scheduleConfig.periods.groupBy(PeriodPayload::index).values.all { variants ->
+            variants.map { it.startTime to it.endTime }.distinct().size == 1
+        }) {
+            "同一节次有不同作息；请只保留一套默认作息，并把其他整体真实时间写入对应课程的 customStartTime、customEndTime"
+        }
         val uniquePeriodPayloads = payload.scheduleConfig.periods.distinctBy { it.index }.sortedBy { it.index }
         val indexes = uniquePeriodPayloads.map { it.index }
         require(indexes.all { it > 0 }) { "节次 index 必须大于 0" }
@@ -315,16 +329,12 @@ object ScheduleImportParser {
             require(course.periods.all { it in validPeriodIndexes }) { "$row 引用了不存在的节次" }
             require(course.weeks.isNotEmpty()) { "$row weeks 不能为空" }
             require(course.weeks.all { it in 1..payload.scheduleConfig.totalWeeks }) { "$row weeks 超出 totalWeeks" }
-            val customStartText = course.customStartTime?.trim()?.ifBlank { null }
-            val customEndText = course.customEndTime?.trim()?.ifBlank { null }
-            require((customStartText == null) == (customEndText == null)) {
-                "$row 自定义开始和结束时间必须同时提供"
+            require(allowImportedBellTimes || course.customPeriodTimes == null) {
+                "$row 逐节铃声只能由教务导入或特殊分享口令提供"
             }
-            if (customStartText != null && customEndText != null) {
-                val customStart = parseTime(customStartText, "$row customStartTime")
-                val customEnd = parseTime(customEndText, "$row customEndTime")
-                require(customStart < customEnd) { "$row 自定义结束时间必须晚于开始时间" }
-            }
+            val clock = runCatching {
+                normalizeCourseClock(course.customStartTime, course.customEndTime, course.customPeriodTimes, course.periods)
+            }.getOrElse { throw IllegalArgumentException("$row ${it.message}", it) }
             require(course.customColorArgb == null || course.customColorArgb in 0L..0xFFFFFFFFL) {
                 "$row customColorArgb 必须是有效 ARGB 值"
             }
@@ -345,9 +355,10 @@ object ScheduleImportParser {
                 weeks = normalizedWeeks.weeks,
                 weekParity = normalizedWeeks.parity,
                 note = course.note?.trim()?.ifBlank { null },
-                customStartTime = customStartText,
-                customEndTime = customEndText,
-                customColorArgb = course.customColorArgb
+                customStartTime = clock.start,
+                customEndTime = clock.end,
+                customColorArgb = course.customColorArgb,
+                customPeriodTimes = clock.periodTimes
             )
         }
         return ImportDraft(
@@ -410,7 +421,8 @@ object ScheduleImportParser {
                         customColorArgb = tokenText(fields.getOrNull(10))?.let { encoded ->
                             encoded.toLongOrNull()
                                 ?: throw IllegalArgumentException("课程颜色必须是十进制 ARGB")
-                        }
+                        },
+                        customPeriodTimes = tokenText(fields.getOrNull(11))
                     )
                 }
             }
@@ -497,7 +509,7 @@ fun buildSleepDownScheduleToken(
     val courseLines = courses
         .sortedWith(compareBy<CourseEntity> { it.weekday }.thenBy { it.periods.minOrNull() ?: 0 }.thenBy { it.name })
         .map { course ->
-            listOf(
+            val commonFields = listOf(
                 tokenField(course.name),
                 tokenField(course.teacher),
                 tokenField(course.location),
@@ -513,7 +525,8 @@ fun buildSleepDownScheduleToken(
                 tokenField(course.customStartTime),
                 tokenField(course.customEndTime),
                 course.customColorArgb?.toString() ?: "-"
-            ).joinToString("|")
+            )
+            (commonFields + listOfNotNull(course.customPeriodTimes)).joinToString("|")
         }
     return buildString {
         appendLine("SDCT1")

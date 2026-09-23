@@ -219,6 +219,7 @@ private fun CourseEntity.agentContentEquals(other: CourseEntity): Boolean =
         note == other.note &&
         customStartTime == other.customStartTime &&
         customEndTime == other.customEndTime &&
+        customPeriodTimes == other.customPeriodTimes &&
         customColorArgb == other.customColorArgb &&
         scheduleId == other.scheduleId
 

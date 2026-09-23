@@ -111,4 +111,38 @@ class IcsScheduleCodecTest {
             TimeZone.setDefault(previous)
         }
     }
+
+    @Test
+    fun customTimeCalendarRoundTripKeepsCourseClockIndependentOfPeriodBells() {
+        val config = defaultConfig().copy(totalWeeks = 2, termStartDate = "2026-09-07")
+        val periods = listOf(
+            PeriodEntity(1, "08:20", "09:00"),
+            PeriodEntity(2, "09:15", "09:55"),
+            PeriodEntity(3, "10:20", "11:00"),
+            PeriodEntity(4, "11:15", "11:55")
+        )
+        val course = CourseEntity(
+            id = 70,
+            name = "数控机床加工技术与实践",
+            teacher = null,
+            location = "实训中心",
+            weekday = 3,
+            periods = listOf(3, 4),
+            weeks = listOf(1, 2),
+            weekParity = WeekParity.ALL,
+            note = null,
+            customStartTime = "10:10",
+            customEndTime = "11:45",
+            customPeriodTimes = "3,10:10-10:50;4,11:05-11:45"
+        )
+
+        val exported = IcsScheduleCodec.export("真实时间", config, periods, listOf(course), LocalDate.of(2026, 9, 7))
+        val restored = IcsScheduleCodec.parse(exported.toByteArray(), defaultConfig()).getOrThrow().courses.single()
+
+        assertEquals(listOf(3, 4), restored.periods)
+        assertEquals(listOf(1, 2), restored.weeks)
+        assertEquals("10:10", restored.customStartTime)
+        assertEquals("11:45", restored.customEndTime)
+        assertEquals(course.customPeriodTimes, restored.customPeriodTimes)
+    }
 }

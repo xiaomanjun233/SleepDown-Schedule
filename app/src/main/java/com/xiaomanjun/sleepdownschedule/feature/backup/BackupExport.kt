@@ -309,7 +309,8 @@ object BackupExportMapper {
                     note = course.note,
                     customStartTime = course.customStartTime,
                     customEndTime = course.customEndTime,
-                    customColorArgb = course.customColorArgb
+                    customColorArgb = course.customColorArgb,
+                    customPeriodTimes = course.customPeriodTimes
                 )
             }
             val backupSessions = snapshot.agentDailySessions

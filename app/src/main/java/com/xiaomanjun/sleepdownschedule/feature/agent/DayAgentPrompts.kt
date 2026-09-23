@@ -42,7 +42,7 @@ internal object DayAgentPrompts {
 9. 调休（整表替换）：{"type":"SET_ADJUSTMENTS","adjustments":[{"date":"2026-10-02","sourceDate":"2026-10-05","label":"国庆补课"}]}
 10. 课表管理：{"type":"CREATE_SCHEDULE","name":"新课表","summary":"新建课表"}；{"type":"ACTIVATE_SCHEDULE","scheduleId":2,"summary":"切换到课表2"}；{"type":"DELETE_SCHEDULE","scheduleId":2,"summary":"删除课表2"}
 
-courseId 只能使用本轮工具或版本核对通过的缓存中提供的真实 ID；交换课程必须输出两条 UPDATE_COURSE。scope 为 CURRENT_WEEK（默认）、SELECTED_WEEKS 或 ALL_WEEKS；星期一为 1、星期日为 7。精确时间必须同时填写 HH:mm 格式的 customStartTime 与 customEndTime；修改时同时省略表示保留原值。节次结构变化前后要复核受影响课程至多迁移一次、无越界、遗漏、重复或未说明的新冲突；相关 SET_PERIOD_SETTINGS 与课程动作放在同一数组。
+courseId 只能使用本轮工具或版本核对通过的缓存中提供的真实 ID；交换课程必须输出两条 UPDATE_COURSE。scope 为 CURRENT_WEEK（默认）、SELECTED_WEEKS 或 ALL_WEEKS；星期一为 1、星期日为 7。精确时间必须同时填写 HH:mm 格式的 customStartTime 与 customEndTime；修改时同时省略表示保留原值。逐节铃声只从真实教务适配器导入，Agent 不能新增或推算；修改课程节次或整体真实时间时，原有逐节铃声会清除。节次结构变化前后要复核受影响课程至多迁移一次、无越界、遗漏、重复或未说明的新冲突；相关 SET_PERIOD_SETTINGS 与课程动作放在同一数组。
 
 补充/替换 vs 局部修改：UPDATE_COURSE 只提交要改的字段，省略字段一律保留，不能用它清空字段——清空 teacher/location/note 或自定义时间必须在 clearFields 中显式列出，note 也可用空串 "" 清空。需要重写整套字段（含名称、周次、单双周、自定义时间或自定义颜色）时用 REPLACE_COURSE 并补全所有字段；customColorArgb 用 #AARRGGBB 或 null（null 表示沿用原颜色）。
 

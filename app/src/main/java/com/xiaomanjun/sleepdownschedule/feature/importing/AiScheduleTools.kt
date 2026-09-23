@@ -19,6 +19,7 @@ fun aiSchedulePrompt(): String = """
 识别输入中的真实课表，并调用 IMPORT_SCHEDULE 工具提交结果。
 以可见的表头、星期、节次、课程块和周次为准；不要重复长图接缝处的课程。
 不确定的信息保留在 note 中，不要猜测。每门课的 periods 和 weeks 均不能为空。
+如果原始课表给出了课程自己的真实起止时间，填写 customStartTime 和 customEndTime（HH:mm）。同节次在不同教学区域可能有不同时间和课间；按各自课程原文填写整体起止时间，不得按统一课间推算。节次作息只是默认值，不能覆盖课程真实时间。逐节铃声只能由真实教务适配器提供，不要自行生成。
 changeSummary 必须用简洁中文说明本次识别或修改了哪些课程字段，不能只写“已完成”。
 """.trimIndent()
 
@@ -89,7 +90,9 @@ private fun scheduleJsonSchemaBody(): JsonObject = buildJsonObject {
                             "periods",
                             "weeks",
                             "weekParity",
-                            "note"
+                            "note",
+                            "customStartTime",
+                            "customEndTime"
                         ).map(::JsonPrimitive)
                     )
                 )
@@ -109,6 +112,8 @@ private fun scheduleJsonSchemaBody(): JsonObject = buildJsonObject {
                         put("enum", JsonArray(listOf("ALL", "ODD", "EVEN").map(::JsonPrimitive)))
                     })
                     put("note", nullableStringSchema())
+                    put("customStartTime", nullableStringSchema())
+                    put("customEndTime", nullableStringSchema())
                 })
             })
         })
@@ -205,7 +210,7 @@ private fun schedulePatchSchemaBody(): JsonObject = buildJsonObject {
 private fun nullableRevisionCourseSchema(): JsonObject = buildJsonObject {
     put("type", JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))
     put("additionalProperties", JsonPrimitive(false))
-    put("required", JsonArray(listOf("name", "teacher", "location", "weekday", "periods", "weeks", "weekParity", "note").map(::JsonPrimitive)))
+    put("required", JsonArray(listOf("name", "teacher", "location", "weekday", "periods", "weeks", "weekParity", "note", "customStartTime", "customEndTime").map(::JsonPrimitive)))
     put("properties", scheduleJsonSchemaBody().jsonObject["properties"]!!.jsonObject["courses"]!!.jsonObject["items"]!!.jsonObject["properties"]!!)
 }
 

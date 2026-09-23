@@ -403,7 +403,8 @@ internal data class CourseEditorDraft(
     val customColorArgb: Long?,
     val weeks: Set<Int>,
     val parity: WeekParity,
-    val note: String
+    val note: String,
+    val customPeriodTimes: String? = null
 )
 
 internal enum class CourseWeekSelectionMode {
@@ -526,6 +527,7 @@ private data class CourseEditorGroupingKey(
     val periods: List<Int>,
     val customStartTime: String?,
     val customEndTime: String?,
+    val customPeriodTimes: String?,
     val customColorArgb: Long?,
     val parity: WeekParity,
     val note: String
@@ -539,6 +541,7 @@ private fun CourseEntity.editorGroupingKey() = CourseEditorGroupingKey(
     periods = periods.distinct().sorted(),
     customStartTime = customStartTime,
     customEndTime = customEndTime,
+    customPeriodTimes = customPeriodTimes,
     customColorArgb = customColorArgb,
     parity = weekParity,
     note = note.orEmpty().trim()
@@ -572,6 +575,52 @@ internal fun buildCourseEditorGroups(
                 .thenBy { it.representative?.periods?.minOrNull() ?: 0 }
                 .thenBy { it.representative?.location.orEmpty() }
         )
+}
+
+internal data class CourseApplyAllScope(
+    val originals: List<CourseEntity>,
+    val edited: CourseEntity
+)
+
+/** Apply-all includes weekly fragments whose only differing course detail is the exact clock range. */
+internal fun courseApplyAllScope(
+    original: CourseEntity,
+    edited: CourseEntity,
+    courses: List<CourseEntity>
+): CourseApplyAllScope {
+    val changingClock = original.customStartTime != edited.customStartTime ||
+        original.customEndTime != edited.customEndTime ||
+        original.customPeriodTimes != edited.customPeriodTimes
+    val candidates = (courses + original).filter { candidate ->
+        candidate.scheduleId == original.scheduleId &&
+            candidate.name.trim() == original.name.trim() &&
+            candidate.teacher.orEmpty().trim() == original.teacher.orEmpty().trim() &&
+            candidate.location.orEmpty().trim() == original.location.orEmpty().trim() &&
+            candidate.weekday == original.weekday &&
+            candidate.periods.distinct().sorted() == original.periods.distinct().sorted() &&
+            candidate.weekParity == original.weekParity &&
+            candidate.note.orEmpty().trim() == original.note.orEmpty().trim() &&
+            candidate.customColorArgb == original.customColorArgb &&
+            (changingClock || (
+                candidate.customStartTime == original.customStartTime &&
+                    candidate.customEndTime == original.customEndTime &&
+                    candidate.customPeriodTimes == original.customPeriodTimes
+            ))
+    }.distinctBy(CourseEntity::id)
+    val originals = buildList {
+        add(original)
+        val coveredWeeks = original.weeks.toMutableSet()
+        candidates.sortedBy(CourseEntity::id).forEach { candidate ->
+            if (candidate.id != original.id && candidate.weeks.none(coveredWeeks::contains)) {
+                add(candidate)
+                coveredWeeks.addAll(candidate.weeks)
+            }
+        }
+    }
+    return CourseApplyAllScope(
+        originals = originals,
+        edited = edited.copy(weeks = originals.flatMap(CourseEntity::weeks).distinct().sorted())
+    )
 }
 
 internal fun excludedWeeksInsideCourseRange(course: CourseEntity?): Set<Int> {
@@ -635,6 +684,7 @@ private fun courseEditorDraft(
         periodEnd = course?.periods?.maxOrNull() ?: (periodValues.firstOrNull() ?: 1),
         customStartTime = course?.customStartTime,
         customEndTime = course?.customEndTime,
+        customPeriodTimes = course?.customPeriodTimes,
         customColorArgb = course?.customColorArgb,
         weeks = activeWeeks,
         parity = selectionMode.toWeekParity(),
@@ -648,7 +698,7 @@ internal fun courseEditorCopyDraft(
     totalWeeks: Int
 ): CourseEditorDraft = courseEditorDraft(listOf(source), periodValues, totalWeeks)
     .copy(weekdays = emptySet(), periodStart = 0, periodEnd = 0,
-        customStartTime = null, customEndTime = null)
+        customStartTime = null, customEndTime = null, customPeriodTimes = null)
 
 internal fun courseEditorOriginalForWeekday(
     originals: List<CourseEntity>,
@@ -690,6 +740,10 @@ private fun CourseEditorDraft.toCourses(
             note = note.trim().ifBlank { null },
             customStartTime = customStartTime,
             customEndTime = customEndTime,
+            customPeriodTimes = customPeriodTimes?.takeIf {
+                original?.periods == periods && original.customStartTime == customStartTime &&
+                    original.customEndTime == customEndTime
+            },
             customColorArgb = if (allowCustomColorOverride) {
                 customColorArgb
             } else {
@@ -1043,7 +1097,8 @@ private fun CourseEditorFormPage(
                                 periodStart = start,
                                 periodEnd = end,
                                 customStartTime = null,
-                                customEndTime = null
+                                customEndTime = null,
+                                customPeriodTimes = null
                             )
                         )
                     },
@@ -1060,7 +1115,8 @@ private fun CourseEditorFormPage(
                                 periodStart = anchors.minOrNull() ?: draft.periodStart,
                                 periodEnd = anchors.maxOrNull() ?: draft.periodEnd,
                                 customStartTime = startTime,
-                                customEndTime = endTime
+                                customEndTime = endTime,
+                                customPeriodTimes = null
                             )
                         )
                     },

@@ -396,7 +396,8 @@ internal fun buildAiRevisionInput(
         draft.courses.forEachIndexed { index, course ->
             appendLine(
                 "#${index + 1} ${course.name} | 教师:${course.teacher.orEmpty()} | 地点:${course.location.orEmpty()} | " +
-                    "周${course.weekday} | 节:${course.periods.joinToString(",")} | 周次:${course.weeks.joinToString(",")} | ${course.weekParity} | 备注:${course.note.orEmpty()}"
+                    "周${course.weekday} | 节:${course.periods.joinToString(",")} | 周次:${course.weeks.joinToString(",")} | ${course.weekParity} | " +
+                    "真实时间:${course.customStartTime?.let { "$it-${course.customEndTime}" } ?: "未设置"} | 逐节:${course.customPeriodTimes ?: "默认"} | 备注:${course.note.orEmpty()}"
             )
         }
     }.trim()
@@ -411,6 +412,7 @@ internal fun buildAiRevisionInput(
         ${if (priorRequests.isNotBlank()) "此前用户要求：\n$priorRequests\n" else ""}
         用户要求：$instruction
         只修改用户明确指出的内容，保留其他课程、周次和节次。
+        课程真实时间与默认节次作息是独立字段。同节次在不同教学区域可能有不同时间和课间。replace_course 的 customStartTime、customEndTime 填 null 表示保留原值，两个都填空字符串表示清除，修改时两个都填 HH:mm。教务导入的逐节铃声只能保留原值，不能由 AI 新增或推算。
         直接调用 PATCH_SCHEDULE：replace_course 以 #编号完整替换一门课，add_course 新增，remove_course 删除，replace_periods 修改作息时间，set_total_weeks 修改总周数。只提交必要操作，不要回传完整课表。
         changeSummary 必须逐项说明本轮实际改变了哪些课程及字段；没有改动时明确说明原因，禁止写泛泛的“已完成修改”。
         只有用户要求复核、重新识别或核对原网页/附件，而当前课表不足以判断时，才调用 READ_ORIGINAL_IMPORT_SOURCE。不要为了普通字段修改读取原始材料。

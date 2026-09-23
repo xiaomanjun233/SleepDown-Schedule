@@ -1105,7 +1105,8 @@ private fun EduImportBrowserScreen(
                         state.config,
                         state.periods,
                         mergeOverlappingTimeSlots = adapter.school.id == "GLOBAL_TOOLS" &&
-                            adapter.adapterId.equals("WakeUp", ignoreCase = true)
+                            adapter.adapterId.equals("WakeUp", ignoreCase = true),
+                        allowImportedBellTimes = adapter.school.id != "GLOBAL_TOOLS"
                     )
                     target.injectShiguangRuntime(desktopMode)
                     onMessage("正在执行拾光官方适配器")

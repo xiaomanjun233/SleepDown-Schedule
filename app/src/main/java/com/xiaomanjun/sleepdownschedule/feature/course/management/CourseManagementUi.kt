@@ -629,6 +629,7 @@ internal fun CourseManagementDetailPage(
                         weekParity = WeekParity.ALL,
                         customStartTime = null,
                         customEndTime = null,
+                        customPeriodTimes = null,
                         customColorArgb = selectedColor,
                         scheduleId = state.config.id
                     )
@@ -1005,7 +1006,8 @@ private fun CourseArrangementEditorCard(
                                 course.copy(
                                     periods = values.subList(start, end + 1),
                                     customStartTime = null,
-                                    customEndTime = null
+                                    customEndTime = null,
+                                    customPeriodTimes = null
                                 )
                             )
                         },
@@ -1017,7 +1019,8 @@ private fun CourseArrangementEditorCard(
                                 course.copy(
                                     periods = anchors,
                                     customStartTime = startText,
-                                    customEndTime = endText
+                                    customEndTime = endText,
+                                    customPeriodTimes = null
                                 )
                             )
                         }

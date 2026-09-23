@@ -21,6 +21,25 @@ class AppDatabaseMigrationTest {
     )
 
     @Test
+    fun migrate41To42PreservesCoursesAndAddsOptionalImportedBellTimes() {
+        helper.createDatabase(TEST_DATABASE, 41).use { database ->
+            database.execSQL(
+                "INSERT INTO courses (id,name,weekday,periods,weeks,weekParity,scheduleId,customStartTime,customEndTime) " +
+                    "VALUES (42,'迁移保留',3,'[3,4]','[1,2]','ALL',7,'10:10','11:45')"
+            )
+        }
+        helper.runMigrationsAndValidate(TEST_DATABASE, APP_DATABASE_VERSION, true,
+            *APP_DATABASE_MIGRATIONS.toTypedArray()).use { database ->
+            assertSingleText(database, "SELECT customStartTime FROM courses WHERE id=42", "10:10")
+            assertSingleText(database, "SELECT customEndTime FROM courses WHERE id=42", "11:45")
+            database.query("SELECT customPeriodTimes FROM courses WHERE id=42").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(true, cursor.isNull(0))
+            }
+        }
+    }
+
+    @Test
     fun migrate40To41AddsEmptyAdjustmentsAndPreservesSchedule() {
         helper.createDatabase(TEST_DATABASE, 40).use { database ->
             database.execSQL(legacyConfigInsertSql(40))

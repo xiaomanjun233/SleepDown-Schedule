@@ -5,6 +5,9 @@ import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.WeekParity
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseAnchorPeriodsForTimeRange
+import com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeCourseClock
+import com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import java.time.LocalTime
@@ -23,7 +26,8 @@ internal data class ShiguangCoursePayload(
     val customStartTime: String? = null,
     val customEndTime: String? = null,
     val color: Int? = null,
-    val remark: String? = null
+    val remark: String? = null,
+    val customPeriodTimes: String? = null
 )
 
 @Serializable
@@ -52,12 +56,14 @@ internal class ShiguangImportSession {
     private var courseConfig: ShiguangCourseConfigPayload? = null
     private var timeSlots: List<ShiguangTimeSlotPayload>? = null
     private var mergeOverlappingTimeSlots = false
+    private var allowImportedBellTimes = false
     private var sectionMapping: Map<Int, Int>? = null
 
     fun begin(
         config: ScheduleConfigEntity,
         periods: List<PeriodEntity>,
-        mergeOverlappingTimeSlots: Boolean = false
+        mergeOverlappingTimeSlots: Boolean = false,
+        allowImportedBellTimes: Boolean = false
     ) {
         synchronized(lock) {
             active = true
@@ -67,6 +73,7 @@ internal class ShiguangImportSession {
             courseConfig = null
             timeSlots = null
             this.mergeOverlappingTimeSlots = mergeOverlappingTimeSlots
+            this.allowImportedBellTimes = allowImportedBellTimes
             sectionMapping = null
         }
     }
@@ -77,7 +84,12 @@ internal class ShiguangImportSession {
             json
         )
         require(parsed.isNotEmpty()) { "课程数据为空" }
-        parsed.forEachIndexed { index, course -> validateCourse(index, course) }
+        parsed.forEachIndexed { index, course ->
+            require(allowImportedBellTimes || course.customPeriodTimes == null) {
+                "逐节铃声仅支持真实教务适配器导入"
+            }
+            validateCourse(index, course)
+        }
         synchronized(lock) {
             require(active) { "当前没有正在执行的拾光导入任务" }
             courses = parsed
@@ -159,10 +171,19 @@ internal class ShiguangImportSession {
                 "$label 节次范围无效"
             }
         }
-        if (course.isCustomTime) {
-            val start = parseTime(course.customStartTime, "$label customStartTime")
-            val end = parseTime(course.customEndTime, "$label customEndTime")
-            require(start < end) { "$label 自定义结束时间必须晚于开始时间" }
+        if (course.hasExactTime()) {
+            val periodIndexes = course.sectionRangeOrNull()?.toList()
+                ?: parseCoursePeriodTimes(course.customPeriodTimes).map { it.index }
+            if (periodIndexes.isNotEmpty()) {
+                val clock = normalizeCourseClock(
+                    course.customStartTime, course.customEndTime, course.customPeriodTimes, periodIndexes
+                )
+                require(clock.start != null && clock.end != null) { "$label 缺少真实起止时间" }
+            } else {
+                val start = parseTime(course.customStartTime, "$label customStartTime")
+                val end = parseTime(course.customEndTime, "$label customEndTime")
+                require(start < end) { "$label 自定义结束时间必须晚于开始时间" }
+            }
         } else {
             require(hasStartSection) { "$label 缺少节次范围" }
         }
@@ -183,22 +204,24 @@ internal class ShiguangImportSession {
             require(mappedPeriods.isNotEmpty()) { "目标课表没有可用于预览的节次" }
             val periodIndexSet = mappedPeriods.mapTo(hashSetOf(), PeriodEntity::periodIndex)
             val mappedCourses = courses.mapIndexed { index, course ->
-                val periods = if (course.isCustomTime) {
-                    course.customTimePeriodIndexes(mappedPeriods)
-                } else {
-                    course.sectionRangeOrNull()?.map { originalSection ->
-                        if (sectionMapping == null) originalSection
-                        else requireNotNull(sectionMapping[originalSection]) {
-                            "第 ${index + 1} 门课程引用了不存在的节次"
-                        }
-                    }?.distinct()?.sorted().orEmpty()
-                }
-                if (!course.isCustomTime) {
+                val periods = course.sectionRangeOrNull()?.map { originalSection ->
+                    if (sectionMapping == null) originalSection
+                    else requireNotNull(sectionMapping[originalSection]) {
+                        "第 ${index + 1} 门课程引用了不存在的节次"
+                    }
+                }?.distinct()?.sorted()
+                    ?: parseCoursePeriodTimes(course.customPeriodTimes).map { it.index }
+                        .takeIf { it.isNotEmpty() }
+                    ?: course.customTimePeriodIndexes(mappedPeriods)
+                if (!course.hasExactTime()) {
                     require(periods.isNotEmpty()) { "第 ${index + 1} 门课程缺少节次范围" }
                 }
                 require(periods.all { it in periodIndexSet }) {
                     "第 ${index + 1} 门课程引用了不存在的节次"
                 }
+                val clock = normalizeCourseClock(
+                    course.customStartTime, course.customEndTime, course.customPeriodTimes, periods
+                )
                 CourseEntity(
                     name = course.name,
                     teacher = course.teacher.ifBlank { null },
@@ -208,8 +231,9 @@ internal class ShiguangImportSession {
                     weeks = course.weeks.distinct().sorted(),
                     weekParity = WeekParity.ALL,
                     note = course.remark?.takeIf { it.isNotBlank() },
-                    customStartTime = course.customStartTime?.takeIf { course.isCustomTime },
-                    customEndTime = course.customEndTime?.takeIf { course.isCustomTime },
+                    customStartTime = clock.start,
+                    customEndTime = clock.end,
+                    customPeriodTimes = clock.periodTimes,
                     // Shiguang color is a palette index, not ARGB. SleepDown keeps automatic color assignment.
                     customColorArgb = null,
                     scheduleId = baseConfig.id
@@ -240,15 +264,15 @@ private fun ShiguangCoursePayload.sectionRangeOrNull(): IntRange? {
     return start..end
 }
 
+private fun ShiguangCoursePayload.hasExactTime(): Boolean =
+    isCustomTime || !customStartTime.isNullOrBlank() || !customEndTime.isNullOrBlank() || !customPeriodTimes.isNullOrBlank()
+
 private fun ShiguangCoursePayload.customTimePeriodIndexes(periods: List<PeriodEntity>): List<Int> {
-    if (!isCustomTime) return emptyList()
-    val start = parseTime(customStartTime, "customStartTime")
-    val end = parseTime(customEndTime, "customEndTime")
-    return periods.filter { period ->
-        val periodStart = parseTime(period.startTime, "节次 ${period.periodIndex} startTime")
-        val periodEnd = parseTime(period.endTime, "节次 ${period.periodIndex} endTime")
-        periodStart < end && periodEnd > start
-    }.map(PeriodEntity::periodIndex)
+    if (!hasExactTime()) return emptyList()
+    val clock = normalizeCourseClock(customStartTime, customEndTime, customPeriodTimes, emptyList())
+    val start = parseTime(clock.start, "customStartTime")
+    val end = parseTime(clock.end, "customEndTime")
+    return courseAnchorPeriodsForTimeRange(start, end, periods)
 }
 
 private fun parseTime(value: String?, label: String): LocalTime {

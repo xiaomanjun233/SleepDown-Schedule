@@ -3235,7 +3235,8 @@ private fun agentCourseChangesText(before: CourseEntity?, after: CourseEntity?, 
         if (before.note != after.note) add("备注 ${field(before.note)} → ${field(after.note)}")
         if (includeWeeks && before.weeks != after.weeks) add("周次 ${before.weeks.joinToString("、")} → ${after.weeks.joinToString("、")}")
         if (before.weekday != after.weekday || before.periods != after.periods ||
-            before.customStartTime != after.customStartTime || before.customEndTime != after.customEndTime) {
+            before.customStartTime != after.customStartTime || before.customEndTime != after.customEndTime ||
+            before.customPeriodTimes != after.customPeriodTimes) {
             add("时间 ${agentCourseSlotText(before)} → ${agentCourseSlotText(after)}")
         }
         if (before.weekParity != after.weekParity) add("单双周 ${parityLabel(before.weekParity)} → ${parityLabel(after.weekParity)}")

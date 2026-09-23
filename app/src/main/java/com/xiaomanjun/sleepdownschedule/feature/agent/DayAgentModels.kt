@@ -4,6 +4,7 @@ package com.xiaomanjun.sleepdownschedule.feature.agent
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustment
 import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeCourseClock
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -707,6 +708,14 @@ private fun validateAgentCoursePatch(
             base = base
         ) ?: return null
     }
+    val periodTimes = when {
+        AgentClearableCourseField.CUSTOM_TIME in cleared -> null
+        base != null && periods == base.periods && customRange == (base.customStartTime to base.customEndTime) -> base.customPeriodTimes
+        else -> null
+    }
+    val clock = runCatching {
+        normalizeCourseClock(customRange.first, customRange.second, periodTimes, periods)
+    }.getOrNull() ?: return null
     val color = normalizeAgentColor(patch.customColorArgb)
         .getOrElse { return null }
     fun teacher(): String? = when {
@@ -736,8 +745,9 @@ private fun validateAgentCoursePatch(
             weekParity = parity,
             // Omitted/null means unchanged; an explicit empty string or clearFields clears the note.
             note = note(),
-            customStartTime = customRange.first,
-            customEndTime = customRange.second,
+            customStartTime = clock.start,
+            customEndTime = clock.end,
+            customPeriodTimes = clock.periodTimes,
             customColorArgb = colour(),
             scheduleId = facts.scheduleId
         )
@@ -751,8 +761,9 @@ private fun validateAgentCoursePatch(
             weeks = weeks,
             weekParity = parity,
             note = note(),
-            customStartTime = customRange.first,
-            customEndTime = customRange.second,
+            customStartTime = clock.start,
+            customEndTime = clock.end,
+            customPeriodTimes = clock.periodTimes,
             customColorArgb = colour(),
             scheduleId = facts.scheduleId
         )
@@ -792,6 +803,13 @@ private fun validateAgentCourseReplacement(
         end = patch.customEndTime,
         base = base
     ) ?: return null
+    val periodTimes = when {
+        base != null && periods == base.periods && customRange == (base.customStartTime to base.customEndTime) -> base.customPeriodTimes
+        else -> null
+    }
+    val clock = runCatching {
+        normalizeCourseClock(customRange.first, customRange.second, periodTimes, periods)
+    }.getOrNull() ?: return null
     // Replacement treats missing note/teacher/location as explicit null (a full re-write), unlike
     // the patch path where absence means "preserve the base value".
     val note = patch.note?.trim()?.takeIf(String::isNotBlank)
@@ -818,8 +836,9 @@ private fun validateAgentCourseReplacement(
         weeks = weeks,
         weekParity = parity,
         note = note,
-        customStartTime = customRange.first,
-        customEndTime = customRange.second,
+        customStartTime = clock.start,
+        customEndTime = clock.end,
+        customPeriodTimes = clock.periodTimes,
         customColorArgb = color ?: base?.customColorArgb,
         scheduleId = facts.scheduleId
     )
@@ -965,6 +984,9 @@ fun parseAgentCourseDraft(content: String, facts: DayAgentFacts): ParsedAgentCou
     if ((draft.customStartTime != null || draft.customEndTime != null) && customRange == null) {
         return ParsedAgentCourseDraft(displayText, null)
     }
+    val clock = runCatching {
+        normalizeCourseClock(customRange?.first, customRange?.second, null, periods)
+    }.getOrNull() ?: return ParsedAgentCourseDraft(displayText, null)
     val parity = runCatching { WeekParity.valueOf(draft.weekParity.uppercase()) }.getOrDefault(WeekParity.ALL)
     return ParsedAgentCourseDraft(
         displayText = displayText,
@@ -977,8 +999,9 @@ fun parseAgentCourseDraft(content: String, facts: DayAgentFacts): ParsedAgentCou
             weeks = weeks,
             weekParity = parity,
             note = draft.note?.trim()?.takeIf(String::isNotBlank),
-            customStartTime = customRange?.first,
-            customEndTime = customRange?.second,
+            customStartTime = clock.start,
+            customEndTime = clock.end,
+            customPeriodTimes = clock.periodTimes,
             scheduleId = facts.scheduleId
         )
     )

@@ -427,22 +427,46 @@ private fun applyAiSchedulePatch(base: ImportDraft, patchText: String): ImportDr
         periods = periods,
         courses = courses
     )
-    return ScheduleImportParser.parse(draftToPayload(candidate).toString(), base.config)
-        .getOrThrow()
-        .copy(source = ImportDraftSource.AI_EDU)
+    val validated = ScheduleImportParser.parse(draftToPayload(candidate).toString(), base.config).getOrThrow()
+    return validated.copy(
+        courses = validated.courses.zip(candidate.courses).map { (course, source) ->
+            course.copy(customPeriodTimes = source.customPeriodTimes?.takeIf {
+                course.periods == source.periods && course.customStartTime == source.customStartTime &&
+                    course.customEndTime == source.customEndTime
+            })
+        },
+        source = ImportDraftSource.AI_EDU
+    )
 }
 
-private fun revisionCourseFromJson(value: JsonObject, previous: CourseEntity): CourseEntity = previous.copy(
-    name = value["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { error("课程名称不能为空") },
-    teacher = value["teacher"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
-    location = value["location"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
-    weekday = value["weekday"]?.jsonPrimitive?.intOrNull?.also { require(it in 1..7) } ?: error("课程缺少 weekday"),
-    periods = value["periods"]?.jsonArray?.mapNotNull { it.jsonPrimitive.intOrNull }?.distinct()?.sorted()
-        ?.takeIf { it.isNotEmpty() } ?: error("课程 periods 不能为空"),
-    weeks = value["weeks"]?.jsonArray?.mapNotNull { it.jsonPrimitive.intOrNull }?.distinct()?.sorted()
-        ?.takeIf { it.isNotEmpty() } ?: error("课程 weeks 不能为空"),
-    weekParity = value["weekParity"]?.jsonPrimitive?.contentOrNull?.let { WeekParity.valueOf(it) }
-        ?: error("课程缺少 weekParity"),
-    note = value["note"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null }
-)
+private fun revisionCourseFromJson(value: JsonObject, previous: CourseEntity): CourseEntity {
+    val start = value["customStartTime"]?.jsonPrimitive?.contentOrNull?.trim()
+    val end = value["customEndTime"]?.jsonPrimitive?.contentOrNull?.trim()
+    val customRange = when {
+        start == null && end == null -> previous.customStartTime to previous.customEndTime
+        start == "" && end == "" -> null to null
+        !start.isNullOrBlank() && !end.isNullOrBlank() -> start to end
+        else -> error("课程真实开始和结束时间必须同时提供")
+    }
+    val revisedPeriods = value["periods"]?.jsonArray?.mapNotNull { it.jsonPrimitive.intOrNull }?.distinct()?.sorted()
+        ?.takeIf { it.isNotEmpty() } ?: error("课程 periods 不能为空")
+    val periodTimes = previous.customPeriodTimes?.takeIf {
+        revisedPeriods == previous.periods && customRange == (previous.customStartTime to previous.customEndTime)
+    }
+    return previous.copy(
+        name = value["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { error("课程名称不能为空") },
+        teacher = value["teacher"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
+        location = value["location"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
+        weekday = value["weekday"]?.jsonPrimitive?.intOrNull?.also { require(it in 1..7) } ?: error("课程缺少 weekday"),
+        periods = revisedPeriods,
+        weeks = value["weeks"]?.jsonArray?.mapNotNull { it.jsonPrimitive.intOrNull }?.distinct()?.sorted()
+            ?.takeIf { it.isNotEmpty() } ?: error("课程 weeks 不能为空"),
+        weekParity = value["weekParity"]?.jsonPrimitive?.contentOrNull?.let { WeekParity.valueOf(it) }
+            ?: error("课程缺少 weekParity"),
+        note = value["note"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
+        customStartTime = customRange.first,
+        customEndTime = customRange.second,
+        customPeriodTimes = periodTimes
+    )
+}
 
