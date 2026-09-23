@@ -31,6 +31,22 @@ internal fun weekTailGroup(row: Int, column: Int): Int =
     row.coerceIn(0, WeekTailRows - 1) * WeekTailColumns +
         column.coerceIn(0, WeekTailColumns - 1)
 
+internal fun weekTailGroupForCard(
+    screenX: Float,
+    screenY: Float,
+    cardOrderFraction: Float?,
+    columnOrderFraction: Float?
+): Int {
+    val rowOnScreen = screenY.coerceIn(0f, 1f)
+    val columnOnScreen = screenX.coerceIn(0f, 1f)
+    val row = cardOrderFraction?.let { it.coerceIn(0f, 1f) * 0.55f + rowOnScreen * 0.45f }
+        ?: rowOnScreen
+    val column = columnOrderFraction?.let {
+        it.coerceIn(0f, 1f) * 0.6f + columnOnScreen * 0.4f
+    } ?: columnOnScreen
+    return weekTailGroup((row * WeekTailRows).toInt(), (column * WeekTailColumns).toInt())
+}
+
 /** A bounded time history: followers keep advancing even when the finger stops halfway. */
 internal class WeekTailTimeline(initialPosition: Float) {
     private data class Sample(val time: Long, val position: Float)
@@ -130,14 +146,9 @@ internal class WeekPageTailMotion(val pager: PagerState) {
         cardOrderFraction: Float? = null,
         columnOrderFraction: Float? = null
     ): Int {
-        val screenRow = (y / rootHeight).coerceIn(0f, 1f)
-        val screenColumn = (x / rootWidth).coerceIn(0f, 1f)
-        val row = cardOrderFraction?.let { it.coerceIn(0f, 1f) * 0.55f + screenRow * 0.45f }
-            ?: screenRow
-        val column = columnOrderFraction?.let {
-            it.coerceIn(0f, 1f) * 0.6f + screenColumn * 0.4f
-        } ?: screenColumn
-        return weekTailGroup((row * WeekTailRows).toInt(), (column * WeekTailColumns).toInt())
+        return weekTailGroupForCard(
+            x / rootWidth, y / rootHeight, cardOrderFraction, columnOrderFraction
+        )
     }
     fun offset(group: Int): Float = if (group == anchor) 0f else position - positions[group.coerceIn(0, WeekTailGroups - 1)]
     fun pageVisible(page: Int): Boolean =

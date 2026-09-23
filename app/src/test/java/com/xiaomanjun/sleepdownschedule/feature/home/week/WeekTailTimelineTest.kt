@@ -4,6 +4,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WeekTailTimelineTest {
+    @Test fun realCardOrderAndScreenPositionBothAffectRowAndColumnGrouping() {
+        val screenOnly = weekTailGroupForCard(0.5f, 0.5f, null, null)
+        assertEquals(weekTailGroup(3, 3), screenOnly)
+        val firstCard = weekTailGroupForCard(0.5f, 0.5f, 0f, 0f)
+        val lastCard = weekTailGroupForCard(0.5f, 0.5f, 1f, 1f)
+        assertEquals(weekTailGroup(1, 1), firstCard)
+        assertEquals(weekTailGroup(4, 4), lastCard)
+        assertNotEquals(firstCard, lastCard)
+    }
+
     @Test fun rebasingClearsEveryFollowerBeforeTheNextOnePageAnimation() {
         val timeline = WeekTailTimeline(0f)
         timeline.advance(0L, 0f, 0, 1f)
