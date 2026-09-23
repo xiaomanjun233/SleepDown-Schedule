@@ -280,7 +280,7 @@ fun ScheduleSettingsContent(
                 }
                 if (experimentalNotifications.allowsLiveUpdateOptions(notificationMode)) {
                     item(key = "notification-live-course") {
-                        GlassPreferenceSection(if (experimentalNotifications.superIslandEnabled) "课程超级岛" else "课程实时活动") {
+                        GlassPreferenceSection(if (experimentalNotifications.superIslandEnabled) "课程超级岛（实验功能）" else "课程实时活动") {
                             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                                 SettingsToggleRow(
                                     title = if (experimentalNotifications.superIslandEnabled) "提醒按钮" else "实时活动按钮",
@@ -292,7 +292,7 @@ fun ScheduleSettingsContent(
                                 )
                                 SettingsDivider()
                                 SettingsToggleRow(
-                                    title = if (experimentalNotifications.superIslandEnabled) "上课中超级岛" else "上课中实时活动",
+                                    title = if (experimentalNotifications.superIslandEnabled) "上课中超级岛（实验功能）" else "上课中实时活动",
                                     subtitle = if (experimentalNotifications.superIslandEnabled)
                                         "开启后显示课中提醒与距下课倒计时"
                                     else "开启后会用实时活动提醒距离最近课间还有多久",
@@ -360,8 +360,10 @@ fun ScheduleSettingsContent(
                 item(key = "notification-live-settings") {
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                         SettingsInfoRow(
-                            title = "设置实时活动",
-                            body = "请在系统中允许 SleepDown 显示通知和实时活动。"
+                            title = if (experimentalNotifications.superIslandEnabled) "设置超级岛（实验功能）" else "设置实时活动",
+                            body = if (experimentalNotifications.superIslandEnabled)
+                                "请在系统中允许 SleepDown 显示通知。"
+                            else "请在系统中允许 SleepDown 显示通知和实时活动。"
                         )
                         SettingsDivider()
                         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
@@ -369,8 +371,12 @@ fun ScheduleSettingsContent(
                                 "打开通知设置",
                                 backdrop,
                                 onClick = {
-                                    val intent = NotificationScheduler.promotedNotificationSettingsIntent(appContext)
-                                        ?: NotificationScheduler.notificationSettingsIntent(appContext)
+                                    val intent = if (experimentalNotifications.superIslandEnabled) {
+                                        NotificationScheduler.notificationSettingsIntent(appContext)
+                                    } else {
+                                        NotificationScheduler.promotedNotificationSettingsIntent(appContext)
+                                            ?: NotificationScheduler.notificationSettingsIntent(appContext)
+                                    }
                                     appContext.startActivity(intent)
                                 },
                                 modifier = Modifier.fillMaxWidth(),
@@ -383,7 +389,9 @@ fun ScheduleSettingsContent(
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                         SettingsInfoRow(
                             title = "允许后台活动",
-                            body = "允许应用在后台运行，避免锁屏或切到后台后延迟课程提醒与实时活动更新。"
+                            body = if (experimentalNotifications.superIslandEnabled)
+                                "允许应用在后台运行，避免锁屏或切到后台后延迟课程提醒与超级岛更新。"
+                            else "允许应用在后台运行，避免锁屏或切到后台后延迟课程提醒与实时活动更新。"
                         )
                         SettingsDivider()
                         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
