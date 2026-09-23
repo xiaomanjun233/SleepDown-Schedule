@@ -338,6 +338,7 @@ import kotlin.math.sin
 internal fun SinglePillWeekScheduleScreen(
     state: AppState,
     displayWeek: Int,
+    returnToCurrentWeekRequest: Int = 0,
     adaptiveMetrics: HomeAdaptiveMetrics,
     cardHeight: Dp,
     cardColor: ComposeColor,
@@ -402,6 +403,8 @@ internal fun SinglePillWeekScheduleScreen(
         state.periods.map { it.periodIndex }
     }
     var previousDisplayWeek by remember { mutableIntStateOf(displayWeek) }
+    var handledReturnRequest by remember { mutableIntStateOf(returnToCurrentWeekRequest) }
+    var synchronizedReturnRequest by remember { mutableIntStateOf(returnToCurrentWeekRequest) }
     var weekMotionDirection by remember { mutableIntStateOf(0) }
     val outgoingCourses = remember { mutableStateOf<List<CourseEntity>?>(null) }
     val outgoingWeekdays = remember { mutableStateOf<List<Int>>(emptyList()) }
@@ -464,14 +467,26 @@ internal fun SinglePillWeekScheduleScreen(
             }
         }
     }
-    LaunchedEffect(displayWeek, state.config.totalWeeks) {
+    LaunchedEffect(displayWeek, state.config.totalWeeks, returnToCurrentWeekRequest) {
         val targetPage = (displayWeek - 1).coerceIn(0, state.config.totalWeeks.coerceAtLeast(1) - 1)
-        if (pagerState.settledPage != targetPage && gestureCommittedWeek == 0) {
+        val explicitReturn = returnToCurrentWeekRequest != synchronizedReturnRequest
+        if (pagerState.settledPage != targetPage && (gestureCommittedWeek == 0 || explicitReturn)) {
             pagerState.scrollToPage(targetPage)
         }
+        synchronizedReturnRequest = returnToCurrentWeekRequest
     }
-    LaunchedEffect(displayWeek) {
+    LaunchedEffect(displayWeek, returnToCurrentWeekRequest) {
         val direction = (displayWeek - previousDisplayWeek).coerceIn(-1, 1)
+        if (returnToCurrentWeekRequest != handledReturnRequest) {
+            handledReturnRequest = returnToCurrentWeekRequest
+            outgoingCourses.value = null
+            incomingLayerOffset.snapTo(0f)
+            outgoingLayerOffset.snapTo(0f)
+            weekMotionDirection = 0
+            previousDisplayWeek = displayWeek
+            gestureCommittedWeek = 0
+            return@LaunchedEffect
+        }
         if (direction != 0 && displayWeek == gestureCommittedWeek) {
             outgoingCourses.value = null
             incomingLayerOffset.snapTo(0f)
@@ -1697,6 +1712,9 @@ private fun weekGlassCandidateId(
     groupIndex: Int
 ): String = "$dayIndex:${segment.course.id}:${segment.startPosition}:${segment.endPosition}:$groupIndex"
 
+private fun weekSupplementaryTailKey(dayIndex: Int, courseId: Long, index: Int): String =
+    "$dayIndex:supplementary:$courseId:$index"
+
 private fun renderedWeekSegments(
     conflictGroups: List<WeekConflictGroup>,
     conflictFocusCourseId: Long?,
@@ -1725,6 +1743,7 @@ private fun renderedWeekSegments(
 private fun WeekDayColumn(
     courses: List<CourseEntity>,
     renderedSegments: List<WeekRenderedSegment>,
+    tailCardOrder: Map<String, Float>,
     periods: List<PeriodEntity>,
     cardHeight: Dp,
     cardColor: ComposeColor,
@@ -1840,6 +1859,7 @@ private fun WeekDayColumn(
                     layerOffset = layerOffset,
                     layerTravel = layerTravel,
                     stackIndex = groupIndex,
+                    cardOrderFraction = tailCardOrder[glassCandidateId],
                     conflictWarning = group.hasConflict,
                     conflictUnderlyingCourse = underlyingSegment?.course,
                     conflictUnderlyingPeriodIndex = underlyingSegment
@@ -1996,6 +2016,31 @@ fun WeekCourseColumnsLayer(
             )
         }
     }
+    val tailCardOrder = remember(renderedSegmentsByDay, supplementaryCoursesByDay, weekdays, periods) {
+        val cards = weekdays.flatMapIndexed { column, day ->
+            val scheduled = renderedSegmentsByDay[day].orEmpty().map { rendered ->
+                val segment = rendered.segment
+                Triple(
+                    weekGlassCandidateId(day, segment, rendered.groupIndex),
+                    exactTimeWeekPlacement(segment.course, periods)?.topRows
+                        ?: segment.startPosition.toFloat(),
+                    column
+                )
+            }
+            val supplementary = supplementaryCoursesByDay[day].orEmpty().mapIndexed { index, course ->
+                Triple(
+                    weekSupplementaryTailKey(day, course.id, index),
+                    periods.size.toFloat() + index + 1f,
+                    column
+                )
+            }
+            scheduled + supplementary
+        }.sortedWith(compareBy<Triple<String, Float, Int>> { it.second }
+            .thenBy { it.third }.thenBy { it.first })
+        cards.mapIndexed { index, card ->
+            card.first to if (cards.size > 1) index.toFloat() / (cards.size - 1) else 0.5f
+        }.toMap()
+    }
     val courseGlassRestoreRegistry = LocalCourseGlassRestoreRegistry.current
     val courseGlassOcclusionPhase = LocalCourseGlassOcclusionPhase.current
     var draggingDayIndex by remember { mutableStateOf<Int?>(null) }
@@ -2065,6 +2110,7 @@ fun WeekCourseColumnsLayer(
                     WeekDayColumn(
                         courses = coursesByWeekday[day].orEmpty(),
                         renderedSegments = renderedSegmentsByDay[day].orEmpty(),
+                        tailCardOrder = tailCardOrder,
                         periods = periods,
                         cardHeight = cardHeight,
                         cardColor = cardColor,
@@ -2130,7 +2176,9 @@ fun WeekCourseColumnsLayer(
                                     cardColor = cardColor, backdrop = backdrop, floatingBackdrop = floatingBackdrop,
                                     config = config, dayIndex = day, gridColumnWidth = dayColumnWidth,
                                     shortcutPivotX = shortcutPivotX,
-                                    stackIndex = index, editMode = editMode && !adjustedDay, editWeek = editWeek,
+                                    stackIndex = index,
+                                    cardOrderFraction = tailCardOrder[weekSupplementaryTailKey(day, course.id, index)],
+                                    editMode = editMode && !adjustedDay, editWeek = editWeek,
                                     editingAllowed = !adjustedDay,
                                     muted = cancelledDay,
                                     allWeekCourses = allWeekCourses, editScrollState = editScrollState,
@@ -2999,6 +3047,7 @@ fun WeekCourseBlock(
     layerOffset: Animatable<Float, AnimationVector1D>? = null,
     layerTravel: Float = 1f,
     stackIndex: Int = 0,
+    cardOrderFraction: Float? = null,
     conflictWarning: Boolean = false,
     conflictUnderlyingCourse: CourseEntity? = null,
     conflictUnderlyingPeriodIndex: Int? = null,
@@ -3042,7 +3091,6 @@ fun WeekCourseBlock(
         else glassForegroundColor(config)
     val density = LocalDensity.current
     val tailDirection = if (weekMotionOutgoing) -weekMotionDirection else weekMotionDirection
-    val tailBase = with(density) { (32.dp + ((periodIndex - 1).coerceAtLeast(0).coerceAtMost(9) * 9f).dp + (stackIndex * 16f).dp).toPx() }
     val startupPhase = LocalStartupPhase.current
     val editControlOrder = ((periodIndex - 1).coerceAtLeast(0) * 7 + (dayIndex - 1).coerceAtLeast(0)) * 2 + stackIndex
     // Position changes on every pager/vertical-scroll frame but does not affect composition.
@@ -3284,12 +3332,22 @@ fun WeekCourseBlock(
     val baseModifier = Modifier
         .fillMaxWidth()
         .height(height)
-        .homeSwitchGroup()
+        .homeSwitchGroup(cardOrderFraction)
     val realLandingLiftPx = with(density) { 8.dp.toPx() }
     val tailModifier = Modifier
         .graphicsLayer {
             val tailX = layerOffset?.let { offset ->
                 val progress = (kotlin.math.abs(offset.value) / layerTravel.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                val cardFraction = cardOrderFraction
+                    ?: ((periodIndex - 1).coerceIn(0, 9) / 9f)
+                val screenFraction = ownBoundsRef[0]?.center?.y
+                    ?.div(screenHeightPx.coerceAtLeast(1f))
+                    ?.coerceIn(0f, 1f) ?: cardFraction
+                val tailGroup = ((cardFraction * 0.55f + screenFraction * 0.45f) * 5f)
+                    .roundToInt().coerceIn(0, 5)
+                val tailBase = with(density) {
+                    (32.dp + (tailGroup * 18f).dp + (stackIndex * 6f).dp).toPx()
+                }
                 tailBase * progress * tailDirection
             } ?: 0f
             val copyRippleCenter = copyMotion?.rippleCenter?.takeIf { copyMotion.target?.week == editWeek }

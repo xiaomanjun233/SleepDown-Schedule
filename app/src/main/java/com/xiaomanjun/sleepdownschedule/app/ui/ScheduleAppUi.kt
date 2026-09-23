@@ -12,6 +12,7 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.feature.course.management.HomeMenuActivitySourceFallback
 import com.xiaomanjun.sleepdownschedule.feature.course.management.putCourseManagementInitialState
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
@@ -2037,7 +2038,9 @@ fun CourseScheduleAppUi(
     BackHandler(enabled = pickerState.overlayVisible) {
         latestPickerBackAction()
     }
+    var returnHomeWeekRequest by remember { mutableIntStateOf(0) }
     val returnHomeToCurrentDateAndWeek = {
+        returnHomeWeekRequest++
         if (beforeScheduleTerm) {
             homeDisplayDate = parseScheduleDate(visualState.config.termStartDate) ?: LocalDate.now()
             homeDisplayWeek = 1
@@ -2566,7 +2569,6 @@ fun CourseScheduleAppUi(
                             settingsPage = SettingsPage.Root,
                             backdrop = chromeBackdrop,
                             homeMode = homeMode,
-                            homeModeMotion = homeModeMotion,
                             onHomeModeChange = { homeMode = it },
                             homeDisplayDate = homeDisplayDate,
                             homeDisplayWeek = homeDisplayWeek,
@@ -2715,6 +2717,7 @@ fun CourseScheduleAppUi(
                                      adaptiveMetrics = homeAdaptiveMetrics,
                                     weekCardHeight = weekCardHeight.dp,
                                     displayWeek = homeDisplayWeek,
+                                    returnToCurrentWeekRequest = returnHomeWeekRequest,
                                     displayDate = homeDisplayDate,
                                     backdrop = backgroundBackdrop,
                                     dayAgentBackdrop = dayAgentBackdrop,
@@ -4693,7 +4696,6 @@ internal fun AppTopBar(
     settingsPage: SettingsPage,
     backdrop: Backdrop?,
     homeMode: HomeMode,
-    homeModeMotion: HomeSwitchMotion,
     onHomeModeChange: (HomeMode) -> Unit,
     homeDisplayDate: LocalDate,
     homeDisplayWeek: Int,
@@ -4737,28 +4739,20 @@ internal fun AppTopBar(
                     .align(Alignment.CenterStart)
                     .fillMaxWidth()
                     .fillMaxHeight()
-                    .padding(start = 16.dp, end = 120.dp)
-                    .then(if (homeModeMotion.moving) Modifier.clipToBounds() else Modifier),
+                    .padding(start = 16.dp, end = 120.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
-                HomeMode.entries.forEach { titleMode ->
-                key(titleMode) {
-                HomeSwitchPane(homeModeMotion, secondary = titleMode == HomeMode.Week,
-                    modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
                 HomeDateTitle(
                     state = state,
-                    displayDate = if (titleMode == HomeMode.Day) homeDisplayDate else LocalDate.now(),
-                    displayWeek = if (titleMode == HomeMode.Day) effectiveCurrentWeek(state.config, homeDisplayDate) else homeDisplayWeek,
+                    displayDate = if (homeMode == HomeMode.Day) homeDisplayDate else LocalDate.now(),
+                    displayWeek = if (homeMode == HomeMode.Day) effectiveCurrentWeek(state.config, homeDisplayDate) else homeDisplayWeek,
                     showTwoDays = false,
                     beforeScheduleTerm = beforeScheduleTerm,
                     afterScheduleTerm = afterScheduleTerm,
-                    showReturnToCurrentWeekHint = titleMode == HomeMode.Week && homeDisplayWeek != effectiveCurrentWeek(state.config),
-                    showWeather = titleMode == HomeMode.Week,
+                    showReturnToCurrentWeekHint = homeMode == HomeMode.Week && homeDisplayWeek != effectiveCurrentWeek(state.config),
+                    showWeather = homeMode == HomeMode.Week,
                     onReturnCurrent = onReturnHomeToCurrentWeek
                 )
-                }
-                }
-                }
             }
             Row(
                 modifier = Modifier
@@ -7026,6 +7020,11 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                     }
                 }
                 var scheduleExitRequest by remember { mutableIntStateOf(0) }
+                var autoRefreshWarehouseRequest by remember { mutableIntStateOf(0) }
+                val autoRefreshProfile = if (section == SettingsPage.AutoRefreshSchedule) {
+                    AutoRefreshScheduleStore.observe(this@SettingsDetailActivityHost)
+                        .collectAsStateWithLifecycle().value
+                } else null
                 var widgetEditorVisible by remember { mutableStateOf(false) }
                 var interceptSystemBack by remember(section) { mutableStateOf(false) }
                 // Anchored entries share the same destination-side Morph host; ordinary settings
@@ -7056,7 +7055,20 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                     centerCompactTitle = section.usesPersistentCenteredSettingsTitle(),
                     compactTitleMatchesSettings = section.usesPersistentCenteredSettingsTitle(),
                     topBarVisible = !widgetEditorVisible,
-                    onBack = requestExit
+                    onBack = requestExit,
+                    topBarActions = { topBackdrop ->
+                        if (section == SettingsPage.AutoRefreshSchedule && autoRefreshProfile == null) {
+                            TopGlassIconButton(
+                                backdrop = topBackdrop,
+                                config = settingsVisualConfig(state.config),
+                                iconRes = R.drawable.ic_refresh,
+                                contentDescription = "更新自动刷新适配列表",
+                                onClick = { autoRefreshWarehouseRequest++ },
+                                modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
+                                buttonHeight = 42.dp
+                            )
+                        }
+                    }
                 ) { backdrop ->
                     when (section) {
                         SettingsPage.General -> GeneralSettingsScreen(
@@ -7112,7 +7124,8 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                         }
                         SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
                             state = state,
-                            backdrop = backdrop
+                            backdrop = backdrop,
+                            warehouseRefreshRequest = autoRefreshWarehouseRequest
                         )
                         SettingsPage.Notifications -> ScheduleConfigScreen(
                             state = state,
@@ -7724,10 +7737,13 @@ fun SettingsScreen(
     onExitCommitFinished: (Boolean) -> Unit = {},
     onExitInterceptionChange: (Boolean) -> Unit = {}
 ) {
+    val context = LocalContext.current
     val pageConfig = settingsVisualConfig(state.config)
     val pageState = state.copy(config = pageConfig)
     val adaptiveMetrics = rememberHomeAdaptiveMetrics()
     var backupPreviewUriString by rememberSaveable { mutableStateOf<String?>(null) }
+    var autoRefreshWarehouseRequest by remember { mutableIntStateOf(0) }
+    val autoRefreshProfile = AutoRefreshScheduleStore.observe(context).collectAsStateWithLifecycle().value
     GlassMiuixSettingsTheme(pageConfig) {
         if (page == SettingsPage.Root && adaptiveMetrics.isLargeScreen) {
             var tabletNavigation by rememberSaveable(
@@ -7873,6 +7889,19 @@ fun SettingsScreen(
                             useMiuixCollapsedTitleStyle =
                                 targetPage.usesPersistentCenteredSettingsTitle(),
                             onBack = ::popTabletDetailPage,
+                            topBarActions = { topBackdrop ->
+                                if (targetPage == SettingsPage.AutoRefreshSchedule && autoRefreshProfile == null) {
+                                    TopGlassIconButton(
+                                        backdrop = topBackdrop,
+                                        config = pageConfig,
+                                        iconRes = R.drawable.ic_refresh,
+                                        contentDescription = "更新自动刷新适配列表",
+                                        onClick = { autoRefreshWarehouseRequest++ },
+                                        modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
+                                        buttonHeight = 42.dp
+                                    )
+                                }
+                            },
                             modifier = Modifier.fillMaxSize()
                         ) { paneBackdrop ->
                             SettingsPageContent(
@@ -7919,7 +7948,8 @@ fun SettingsScreen(
                                     exitInterceptionByPage = exitInterceptionByPage.toMutableMap().apply {
                                         if (needsInterception) put(targetPage, true) else remove(targetPage)
                                     }
-                                }
+                                },
+                                autoRefreshWarehouseRequest = autoRefreshWarehouseRequest
                             )
                         }
                     }
@@ -7975,7 +8005,8 @@ private fun SettingsPageContent(
     onOpenBackupPreview: (Uri) -> Unit = {},
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
-    onExitInterceptionChange: (Boolean) -> Unit = {}
+    onExitInterceptionChange: (Boolean) -> Unit = {},
+    autoRefreshWarehouseRequest: Int = 0
 ) {
     when (page) {
         SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange = onPageChange)
@@ -8016,7 +8047,8 @@ private fun SettingsPageContent(
         )
         SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
             state = state,
-            backdrop = backdrop
+            backdrop = backdrop,
+            warehouseRefreshRequest = autoRefreshWarehouseRequest
         )
         SettingsPage.Notifications -> ScheduleConfigScreen(
             state = state,
@@ -8251,7 +8283,7 @@ fun SettingsRootScreen(
                     SettingsNavigationRow(
                         "自动刷新课表",
                         "连接教务系统，手动或定时同步课程",
-                        badgeText = "实验性功能",
+                        badgeText = "实验功能",
                         selected = selectedPage == SettingsPage.AutoRefreshSchedule,
                         onClick = { onPageChange(SettingsPage.AutoRefreshSchedule) }
                     )

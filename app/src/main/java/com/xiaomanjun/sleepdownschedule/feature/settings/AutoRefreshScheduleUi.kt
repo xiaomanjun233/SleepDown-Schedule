@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import android.graphics.Bitmap
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -32,6 +33,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdown
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.loadWallpaperSource
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchoolPickerScreen
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -47,17 +49,50 @@ import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun AutoRefreshScheduleSettingsScreen(state: AppState, backdrop: Backdrop?) {
+fun AutoRefreshScheduleSettingsScreen(
+    state: AppState,
+    backdrop: Backdrop?,
+    warehouseRefreshRequest: Int = 0
+) {
     val context = LocalContext.current
     val profile by AutoRefreshScheduleStore.observe(context).collectAsState()
     var adapters by remember { mutableStateOf<List<EduAdapter>?>(null) }
     var catalogError by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
+    var manualRefreshing by remember { mutableStateOf(false) }
+    var showRefreshingDialog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     LaunchedEffect(retry) {
         catalogError = null
         runCatching { ShiguangApiAdapterCatalog.loadSupported(context) }
             .onSuccess { adapters = it }
             .onFailure { catalogError = "学校列表读取失败，请重试" }
+    }
+    LaunchedEffect(warehouseRefreshRequest) {
+        if (warehouseRefreshRequest == 0 || manualRefreshing) return@LaunchedEffect
+        manualRefreshing = true
+        showRefreshingDialog = true
+        scope.launch {
+            try {
+                val result = ShiguangWarehouseUpdater.refresh(context)
+                adapters = ShiguangApiAdapterCatalog.loadSupported(context)
+                catalogError = null
+                Toast.makeText(
+                    context,
+                    if (result.changed) "已更新适配列表" else "已是最新适配列表",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } catch (error: Exception) {
+                Toast.makeText(
+                    context,
+                    "更新失败，继续使用当前适配列表：${error.message ?: "网络请求失败"}",
+                    Toast.LENGTH_LONG
+                ).show()
+            } finally {
+                manualRefreshing = false
+                showRefreshingDialog = false
+            }
+        }
     }
     val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
     val saved = profile
@@ -99,6 +134,18 @@ fun AutoRefreshScheduleSettingsScreen(state: AppState, backdrop: Backdrop?) {
             }
         }
     }
+    if (showRefreshingDialog) LiquidAlertDialog(
+        title = "正在更新适配器",
+        message = "正在获取最新适配列表，完成后会重新检查可用于自动刷新的学校。",
+        actions = listOf(
+            LiquidAlertAction("后台继续", LiquidAlertActionStyle.Secondary) {
+                showRefreshingDialog = false
+            }
+        ),
+        backdrop = backdrop,
+        config = state.config,
+        onDismissRequest = { showRefreshingDialog = false }
+    )
 }
 
 @Composable

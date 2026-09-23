@@ -197,6 +197,7 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
     useMiuixCollapsedTitleStyle: Boolean = false,
     onBack: () -> Unit = {},
     horizontalContentInset: Dp = 16.dp,
+    topBarActions: @Composable (Backdrop?) -> Unit = {},
     content: @Composable (Backdrop?) -> Unit
 ) {
     val pageConfig = settingsVisualConfig(config)
@@ -252,7 +253,8 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
                                 centerTitle = true,
                                 useMiuixCollapsedTitleStyle = useMiuixCollapsedTitleStyle,
                                 showBackButton = showBackButton,
-                                backButtonStartPadding = horizontalContentInset + 16.dp
+                                backButtonStartPadding = horizontalContentInset + 16.dp,
+                                actions = { topBarActions(contentBackdrop) }
                             )
                         }
                     }

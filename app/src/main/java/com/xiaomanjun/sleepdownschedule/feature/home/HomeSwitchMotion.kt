@@ -126,7 +126,7 @@ private val LocalSwitchPages = staticCompositionLocalOf<List<SwitchPageScope>> {
 
 /** Apply once per real content group, so text, cards and their decorations move together. */
 @Composable
-internal fun Modifier.homeSwitchGroup(): Modifier {
+internal fun Modifier.homeSwitchGroup(cardOrderFraction: Float? = null): Modifier {
     val pages = LocalSwitchPages.current
     if (pages.isEmpty()) return this
     val group = remember { mutableIntStateOf(-1) }
@@ -134,8 +134,13 @@ internal fun Modifier.homeSwitchGroup(): Modifier {
         if (group.intValue < 0 || pages.none { it.motion.moving }) {
             val height = coordinates.findRootCoordinates().size.height.coerceAtLeast(1)
             val top = coordinates.localToRoot(Offset.Zero).y
-            // Use the visible position, then hold the group while an existing fling settles.
-            group.intValue = (top / height * SwitchGroupCount).toInt().coerceIn(0, SwitchGroupCount - 1)
+            // A timetable card's place among real cards matters even when scrolling puts several
+            // cards in the same screen band. Blend that order with its current visible position.
+            val screenFraction = (top / height).coerceIn(0f, 1f)
+            val fraction = cardOrderFraction?.let { order ->
+                (order.coerceIn(0f, 1f) * 0.55f + screenFraction * 0.45f)
+            } ?: screenFraction
+            group.intValue = (fraction * SwitchGroupCount).toInt().coerceIn(0, SwitchGroupCount - 1)
         }
     }.graphicsLayer {
         translationX = pages.sumOf { page ->

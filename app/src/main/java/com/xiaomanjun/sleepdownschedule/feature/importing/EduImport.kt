@@ -151,7 +151,7 @@ object ShiguangWarehouse {
         return listOf(aiEduImportAdapter()) + warehouseAdapters
     }
 
-    private fun loadBundledAdapters(context: Context): List<EduAdapter> {
+    internal fun loadBundledAdapters(context: Context): List<EduAdapter> {
         val protocolAdapters = runCatching {
             context.assets.open("$Root/school_index.pb").use { input ->
                 parseProtocolV2Snapshot(input.readBytes()).adapters

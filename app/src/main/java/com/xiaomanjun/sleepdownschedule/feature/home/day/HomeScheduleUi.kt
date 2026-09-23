@@ -680,6 +680,7 @@ internal fun HomeScreen(
     adaptiveMetrics: HomeAdaptiveMetrics,
     weekCardHeight: Dp,
     displayWeek: Int,
+    returnToCurrentWeekRequest: Int = 0,
     displayDate: LocalDate,
     backdrop: Backdrop?,
     dayAgentBackdrop: Backdrop? = backdrop,
@@ -823,6 +824,7 @@ internal fun HomeScreen(
                         SinglePillWeekScheduleScreen(
                             state = state,
                             displayWeek = displayWeek,
+                            returnToCurrentWeekRequest = returnToCurrentWeekRequest,
                             adaptiveMetrics = adaptiveMetrics,
                             cardHeight = effectiveWeekCardHeight,
                             cardColor = cardColor,
