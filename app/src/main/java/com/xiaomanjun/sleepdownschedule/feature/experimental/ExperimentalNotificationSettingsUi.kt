@@ -60,6 +60,7 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
     var shizukuRunning by remember { mutableStateOf(false) }
     var shizukuAuthorized by remember { mutableStateOf(false) }
     var restoring by remember { mutableStateOf(false) }
+    var islandFields by remember(context) { mutableStateOf(XiaomiSuperIsland.fields(context)) }
 
     fun refresh() {
         shizukuRunning = XiaomiSuperIsland.isShizukuRunning()
@@ -72,16 +73,48 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
         SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
             SettingsInfoRow(
                 "小米超级岛（实验功能）",
-                "参考 Nexio 的 Shizuku 方案。授权后发送岛通知时会短暂调整小米服务的联网规则并恢复；未就绪时仍显示普通实时活动。"
+                "课程提醒使用超级岛。Shizuku 授权可提高显示成功率；未就绪时也会照常发送。"
             )
             SettingsDivider()
-            SettingsValueRow("系统超级岛", if (systemSupported) "已检测到" else "未检测到系统支持")
+            SettingsValueRow("系统超级岛", if (systemSupported) "已检测到" else "未检测到，仍会尝试发送")
             SettingsDivider()
             SettingsValueRow("Shizuku 状态", when {
                 !shizukuRunning -> "未运行"
                 !shizukuAuthorized -> "未授权"
                 else -> "已授权"
             })
+            SettingsDivider()
+            SleepDownLiquidDropdownPreference(
+                items = XiaomiIslandField.entries.map { it.label },
+                selectedIndex = islandFields.left.ordinal,
+                title = "超级岛左侧",
+                backdrop = backdrop,
+                config = config,
+                modifier = Modifier.fillMaxWidth(),
+                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                onExpandedChange = {},
+                onSelectedIndexChange = { index ->
+                    val field = XiaomiIslandField.entries[index.coerceIn(XiaomiIslandField.entries.indices)]
+                    XiaomiSuperIsland.setLeftField(context, field)
+                    islandFields = islandFields.copy(left = field)
+                }
+            )
+            SettingsDivider()
+            SleepDownLiquidDropdownPreference(
+                items = XiaomiIslandField.entries.map { it.label },
+                selectedIndex = islandFields.right.ordinal,
+                title = "超级岛右侧",
+                backdrop = backdrop,
+                config = config,
+                modifier = Modifier.fillMaxWidth(),
+                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                onExpandedChange = {},
+                onSelectedIndexChange = { index ->
+                    val field = XiaomiIslandField.entries[index.coerceIn(XiaomiIslandField.entries.indices)]
+                    XiaomiSuperIsland.setRightField(context, field)
+                    islandFields = islandFields.copy(right = field)
+                }
+            )
             if (!shizukuRunning || !shizukuAuthorized) {
                 SettingsDivider()
                 SettingsActionRow(

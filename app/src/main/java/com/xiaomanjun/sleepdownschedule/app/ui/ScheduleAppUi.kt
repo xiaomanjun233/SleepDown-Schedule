@@ -2741,6 +2741,9 @@ fun CourseScheduleAppUi(
                                      weekHeaderBackdrop = backgroundBackdrop,
                                     onSwipeWeek = { delta -> homeDisplayWeek = (homeDisplayWeek + delta).coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1)) },
                                     onWeekHeaderPreview = { homeWeekHeaderPreview.value = it },
+                                    onWeekJumpSettled = { settledWeek ->
+                                        if (settledWeek == homeDisplayWeek) captureRenderToken++
+                                    },
                                     onSwipeDay = { delta ->
                                         val requested = homeDisplayDate.plusDays(delta.toLong())
                                         val range = scheduleDayNavigationRange(visualState.config, todayDate)

@@ -351,6 +351,7 @@ internal fun SinglePillWeekScheduleScreen(
     onSwipeWeek: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onWeekHeaderPreview: (Int?) -> Unit = {},
+    onWeekJumpSettled: (Int) -> Unit = {},
     style: WeekViewStyle = WeekViewStyle.NORMAL,
     weekEditMode: Boolean = false,
     onEnterWeekEditMode: () -> Unit = {},
@@ -454,8 +455,10 @@ internal fun SinglePillWeekScheduleScreen(
         pageCount = { state.config.totalWeeks.coerceAtLeast(1) }
     )
     val latestDisplayWeek by rememberUpdatedState(displayWeek)
+    val latestReturnRequest by rememberUpdatedState(returnToCurrentWeekRequest)
     val latestSwipeWeek by rememberUpdatedState(onSwipeWeek)
     val latestWeekHeaderPreview by rememberUpdatedState(onWeekHeaderPreview)
+    val latestWeekJumpSettled by rememberUpdatedState(onWeekJumpSettled)
     val weekTail = rememberWeekPageTailMotion(pagerState)
     val homeSwitching = LocalHomeTextContrastFrozen.current
     LaunchedEffect(pagerState, boundless) {
@@ -485,11 +488,14 @@ internal fun SinglePillWeekScheduleScreen(
     LaunchedEffect(pagerState, state.config.totalWeeks) {
         // Finish the currently visible pair, then consume the newest request. Intermediate rapid
         // clicks never become a queue of pages, and the settled observer cannot undo a pending jump.
-        snapshotFlow { latestDisplayWeek }.collect {
+        var handledReturnRequest = latestReturnRequest
+        snapshotFlow { latestDisplayWeek to latestReturnRequest }.collect {
             fun targetPage() = (latestDisplayWeek - 1).coerceIn(0, pagerState.pageCount - 1)
+            var moved = false
             try {
                 while (pagerState.settledPage != targetPage() ||
                     kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.00001f) {
+                    moved = true
                     val target = targetPage()
                     programmaticPage = target
                     weekTail.leadFromTop()
@@ -520,6 +526,14 @@ internal fun SinglePillWeekScheduleScreen(
                     weekTail.snapTo(visiblePage.toFloat())
                 }
                 programmaticPage = -1
+            }
+            if (moved || handledReturnRequest != latestReturnRequest) {
+                handledReturnRequest = latestReturnRequest
+                // Let the substituted page leave composition and draw once before recording
+                // a new chrome/glass scene for the destination week.
+                androidx.compose.runtime.withFrameNanos { }
+                androidx.compose.runtime.withFrameNanos { }
+                latestWeekJumpSettled(pagerState.settledPage + 1)
             }
         }
     }
@@ -3142,8 +3156,8 @@ fun WeekCourseBlock(
     val hasLocation = locationText.isNotBlank()
     val hasTeacher = !course.teacher.isNullOrBlank()
     val resolvedCardColor = if (muted) MutedCourseLightColor else if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
-    val themeColor = if (config.courseCardColoredTextEnabled) {
-        if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
+    val themeColor = if (!muted && config.courseCardColoredTextEnabled) {
+        courseCardBaseColor(config, course)
     } else null
     val courseTextColor =
         if (config.courseCardGlassEnabled && courseCardUsesAssignments(config)) readableOn(resolvedCardColor)

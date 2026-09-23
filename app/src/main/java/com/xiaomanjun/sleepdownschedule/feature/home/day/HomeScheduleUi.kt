@@ -693,6 +693,7 @@ internal fun HomeScreen(
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onWeekHeaderPreview: (Int?) -> Unit = {},
+    onWeekJumpSettled: (Int) -> Unit = {},
     dayAgentBackgroundMotionState: DayAgentBackgroundMotionState,
     onAgentPagerSettledChange: (Boolean) -> Unit = {},
     onAgentPrepareOpen: suspend () -> Unit = {},
@@ -839,6 +840,7 @@ internal fun HomeScreen(
                             headerBackdrop = weekHeaderBackdrop,
                             onSwipeWeek = onSwipeWeek,
                             onWeekHeaderPreview = onWeekHeaderPreview,
+                            onWeekJumpSettled = onWeekJumpSettled,
                             onContentUnderTopBarChange = { if (mode == targetMode) onContentUnderTopBarChange(it) },
                             style = weekViewStyle,
                             weekEditMode = weekEditMode,
@@ -2102,7 +2104,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.labelLarge,
                 color = foreground,
-                themeColor = resolvedCardColor.takeIf { subdued || config.courseCardColoredTextEnabled }
+                themeColor = resolvedCardColor.takeIf { !subdued && config.courseCardColoredTextEnabled }
             )
         }
         CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config,
@@ -2125,8 +2127,9 @@ internal fun DayCourseCardTextContent(
     config: ScheduleConfigEntity,
     muted: Boolean = false
 ) {
-    val themeColor = if (muted) MutedCourseLightColor
-        else if (config.courseCardColoredTextEnabled) courseCardBaseColor(config, course) else null
+    val themeColor = if (!muted && config.courseCardColoredTextEnabled) {
+        courseCardBaseColor(config, course)
+    } else null
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val safeTabletScale = tabletFontScale.coerceAtLeast(1f)
         val titleStyle = MaterialTheme.typography.titleMedium.copy(
