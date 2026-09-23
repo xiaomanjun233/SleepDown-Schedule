@@ -35,6 +35,7 @@ import com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestoreService
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentRepository
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetAppearanceRepository
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseBridge
+import com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiSuperIsland
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 
 /**
@@ -64,7 +65,10 @@ class CourseScheduleApp : Application() {
         AutoRefreshScheduleWorker.ensureSchedule(this, AutoRefreshScheduleStore.load(this))
         SleepDownRemoteConfig.initialize(this, applicationScope)
         ActivityTransitionCoordinator.install(this)
-        if (BuildConfig.SLEEPDOWN_EXP_BUILD) ColorOSCourseBridge.install(this, database)
+        if (BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES) ColorOSCourseBridge.install(this, database)
+        if (BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES) {
+            applicationScope.launch(Dispatchers.IO) { XiaomiSuperIsland.restoreInterruptedBypass(this@CourseScheduleApp) }
+        }
         ContextCompat.registerReceiver(
             this,
             CourseAlarmReceiver(),

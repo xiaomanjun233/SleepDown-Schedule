@@ -14,6 +14,18 @@ The reference repository was reviewed at commit
 radial sampling and denoise passes, and uses its Backdrop 2 per-node shader cache,
 full-resolution coordinates and shared glass surface entry point.
 
+The optional Xiaomi notification workaround was independently implemented after
+reviewing NexioSchedule's Shizuku approach at commit
+`5e12725df66bb7a3a4a9ab346bdc93e6d1f84927`. No Nexio Shizuku source file
+was copied into this project.
+
+## RikkaApps/Shizuku-API
+
+The GitHub distribution uses [Shizuku-API](https://github.com/RikkaApps/Shizuku-API)
+version 13.1.5 for the optional Xiaomi notification workaround.
+
+License: MIT License. The store distribution does not include this dependency.
+
 ## Kyant0/AndroidLiquidGlass
 
 Portions of the liquid glass catalog component code are based on

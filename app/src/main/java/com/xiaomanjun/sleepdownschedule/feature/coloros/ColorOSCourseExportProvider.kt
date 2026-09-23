@@ -22,7 +22,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 class ColorOSCourseExportProvider : ContentProvider() {
-    override fun onCreate(): Boolean = BuildConfig.SLEEPDOWN_EXP_BUILD
+    override fun onCreate(): Boolean = BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES
 
     override fun query(
         uri: Uri,

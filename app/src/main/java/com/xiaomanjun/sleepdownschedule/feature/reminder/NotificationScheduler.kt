@@ -1163,8 +1163,10 @@ object NotificationScheduler {
         )
         logLiveUpdateIcon(context, notification)
         // Post first. Reattach the running foreground service before removing its former slot.
-        manager.notify(id, notification)
-        attachForeground?.invoke(id, notification)
+        XiaomiSuperIsland.post(context, notification) {
+            manager.notify(id, notification)
+            attachForeground?.invoke(id, notification)
+        }
         listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID).filter { it != id }.forEach(manager::cancel)
     }
 

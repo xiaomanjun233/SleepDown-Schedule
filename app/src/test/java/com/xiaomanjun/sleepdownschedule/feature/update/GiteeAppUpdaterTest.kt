@@ -71,39 +71,6 @@ class GiteeAppUpdaterTest {
     }
 
     @Test
-    fun experimentalChannelOnlySelectsExperimentalReleases() {
-        val experimental = release("v1.4.3-exp", prerelease = true)
-        val beta = release("v1.4.4_beta1", prerelease = true)
-        val stable = release("v1.4.4")
-        assertEquals(
-            experimental,
-            GiteeAppUpdater.selectRelease(
-                listOf(stable, beta, experimental),
-                AppUpdateChannel.Experimental
-            )
-        )
-        assertEquals(
-            beta,
-            GiteeAppUpdater.selectRelease(
-                listOf(experimental, beta),
-                AppUpdateChannel.Beta
-            )
-        )
-    }
-
-    @Test
-    fun ordinaryBuildIgnoresPersistedExperimentalChannel() {
-        assertEquals(
-            AppUpdateChannel.Stable,
-            GiteeAppUpdater.supportedUpdateChannel(AppUpdateChannel.Experimental, false)
-        )
-        assertEquals(
-            AppUpdateChannel.Experimental,
-            GiteeAppUpdater.supportedUpdateChannel(AppUpdateChannel.Experimental, true)
-        )
-    }
-
-    @Test
     fun beta8UpgradesBeta7WithoutSelectingExperimentalReleases() {
         val beta8 = release("v1.2.6_beta8", true)
         val stable = release("v1.2.5")
@@ -116,14 +83,4 @@ class GiteeAppUpdaterTest {
         assertTrue(GiteeAppUpdater.isVersionNewer("1.2.6-exp3", "1.2.6-exp2"))
     }
 
-    @Test
-    fun exp4ChannelSelectsTheNewExperimentalRevision() {
-        val exp4 = release("v1.2.6-exp4", true)
-        val beta9 = release("v1.2.6_beta9", true)
-        val candidates = listOf(beta9, release("v1.2.6-exp3", true), exp4)
-        assertEquals(exp4, GiteeAppUpdater.selectRelease(candidates, AppUpdateChannel.Experimental))
-        assertEquals(beta9, GiteeAppUpdater.selectRelease(candidates, AppUpdateChannel.Beta))
-        assertEquals(exp4, GiteeAppUpdater.selectLatestAssetRelease(listOf(candidates[1], exp4)))
-        assertFalse(GiteeAppUpdater.isVersionNewer("v1.2.6-exp3", exp4.tagName))
-    }
 }

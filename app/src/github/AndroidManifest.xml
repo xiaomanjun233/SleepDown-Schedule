@@ -1,8 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission
+        android:name="com.xiaomanjun.sleepdownschedule.permission.COLOROS_COURSE_BRIDGE"
+        android:protectionLevel="signature" />
+
+    <uses-permission android:name="com.xiaomanjun.sleepdownschedule.permission.COLOROS_COURSE_BRIDGE" />
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <queries>
+        <package android:name="com.suda.yzune.wakeupschedule" />
+        <provider android:authorities="com.suda.yzune.wakeupschedule.provider" />
+        <package android:name="moe.shizuku.privileged.api" />
+        <package android:name="com.xiaomi.xmsf" />
+    </queries>
+
     <application>
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+        <receiver
+            android:name=".feature.experimental.XiaomiNetworkRestoreReceiver"
+            android:exported="false" />
+        <provider
+            android:name=".feature.coloros.ColorOSCourseExportProvider"
+            android:authorities="com.xiaomanjun.sleepdownschedule.coloros.course"
+            android:enabled="true"
+            android:exported="true"
+            android:grantUriPermissions="false"
+            android:readPermission="com.xiaomanjun.sleepdownschedule.permission.COLOROS_COURSE_BRIDGE" />
         <service
             android:name=".feature.update.UpdateDownloadForegroundService"
             android:exported="false"

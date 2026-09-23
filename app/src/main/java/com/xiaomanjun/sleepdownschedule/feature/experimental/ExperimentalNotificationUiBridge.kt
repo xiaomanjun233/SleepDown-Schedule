@@ -35,7 +35,7 @@ internal class ExperimentalNotificationUiState(
         private set
     var testResult by mutableStateOf<ColorOSCourseDiagnostics?>(null)
     var testActive by mutableStateOf(
-        BuildConfig.SLEEPDOWN_EXP_BUILD && ColorOSCourseExperiment.hasActiveTestPreview(context)
+        BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES && ColorOSCourseExperiment.hasActiveTestPreview(context)
     )
         private set
 
@@ -46,7 +46,7 @@ internal class ExperimentalNotificationUiState(
         selected == ExperimentalNotificationMode.FLUID_CLOUD_LIVE_UPDATE ||
             selected == ExperimentalNotificationMode.YOYO_LIVE_UPDATE
     val superIslandEnabled: Boolean get() = selected == ExperimentalNotificationMode.SUPER_ISLAND
-    val hasDetails: Boolean get() = BuildConfig.SLEEPDOWN_EXP_BUILD && (cloudEnabled || superIslandEnabled)
+    val hasDetails: Boolean get() = BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES && (cloudEnabled || superIslandEnabled)
 
     fun allowsLiveUpdateOptions(baseMode: NotificationMode): Boolean =
         baseMode == NotificationMode.LIVE_UPDATE && (!cloudEnabled || parallelLiveUpdate)
@@ -94,7 +94,7 @@ internal fun ExperimentalNotificationChoiceRow(
     backdrop: Backdrop?,
     onNotificationModeChange: (NotificationMode) -> Unit
 ) {
-    if (BuildConfig.SLEEPDOWN_EXP_BUILD && ExperimentalNotificationModes.available().size > 2) {
+    if (BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES && ExperimentalNotificationModes.available().size > 2) {
         ExperimentalNotificationSettingsRow(
             selected = state.selected,
             backdrop = backdrop,
@@ -137,10 +137,10 @@ internal fun ExperimentalNotificationPreview(
     SettingsActionButton(
         label = when {
             deletingTest -> "删除测试课程"
-            state.selected == ExperimentalNotificationMode.YOYO_LIVE_UPDATE -> "测试YOYO建议+实时活动"
-            state.selected == ExperimentalNotificationMode.FLUID_CLOUD_LIVE_UPDATE -> "测试流体云+实时活动"
-            state.cloudEnabled -> "测试流体云"
-            state.superIslandEnabled -> "测试超级岛"
+            state.selected == ExperimentalNotificationMode.YOYO_LIVE_UPDATE -> "测试YOYO建议+实时活动（实验功能）"
+            state.selected == ExperimentalNotificationMode.FLUID_CLOUD_LIVE_UPDATE -> "测试流体云+实时活动（实验功能）"
+            state.cloudEnabled -> "测试流体云（实验功能）"
+            state.superIslandEnabled -> "测试超级岛（实验功能）"
             else -> "测试实时活动"
         },
         backdrop = backdrop,

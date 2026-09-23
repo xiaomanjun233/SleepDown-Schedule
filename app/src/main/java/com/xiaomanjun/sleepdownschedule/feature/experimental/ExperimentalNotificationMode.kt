@@ -10,17 +10,17 @@ import com.xiaomanjun.sleepdownschedule.model.NotificationMode
 internal enum class ExperimentalNotificationMode(val label: String) {
     STANDARD("普通通知"),
     LIVE_UPDATE("实时活动"),
-    FLUID_CLOUD("流体云"),
-    FLUID_CLOUD_LIVE_UPDATE("流体云+实时活动"),
-    YOYO_LIVE_UPDATE("YOYO建议+实时活动"),
-    SUPER_ISLAND("超级岛")
+    FLUID_CLOUD("流体云（实验功能）"),
+    FLUID_CLOUD_LIVE_UPDATE("流体云+实时活动（实验功能）"),
+    YOYO_LIVE_UPDATE("YOYO建议+实时活动（实验功能）"),
+    SUPER_ISLAND("超级岛（实验功能）")
 }
 
 internal object ExperimentalNotificationModes {
     fun available(): List<ExperimentalNotificationMode> {
         val device = ColorOSCourseExperiment.deviceStatus()
         return availableForDevice(
-            experimentalBuild = BuildConfig.SLEEPDOWN_EXP_BUILD,
+            featuresEnabled = BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES,
             isHonor = device.isHonor,
             isColorOSFamily = device.isColorOSFamily,
             isXiaomi = XiaomiSuperIsland.isXiaomiDevice(Build.MANUFACTURER.orEmpty(), Build.BRAND.orEmpty())
@@ -28,13 +28,13 @@ internal object ExperimentalNotificationModes {
     }
 
     internal fun availableForDevice(
-        experimentalBuild: Boolean,
+        featuresEnabled: Boolean,
         isHonor: Boolean,
         isColorOSFamily: Boolean,
         isXiaomi: Boolean
     ): List<ExperimentalNotificationMode> {
         val base = listOf(ExperimentalNotificationMode.STANDARD, ExperimentalNotificationMode.LIVE_UPDATE)
-        if (!experimentalBuild) return base
+        if (!featuresEnabled) return base
         return when {
             isHonor -> base + ExperimentalNotificationMode.YOYO_LIVE_UPDATE
             isColorOSFamily -> base + listOf(

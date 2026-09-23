@@ -16,7 +16,6 @@ import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
 import com.xiaomanjun.sleepdownschedule.core.identity.AppIconMode
 import com.xiaomanjun.sleepdownschedule.core.identity.AppIconStyle
 import com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdater
-import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateChannel
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import android.content.Context
 import android.net.Uri
@@ -102,7 +101,6 @@ fun GeneralSettingsScreen(
         mutableStateOf(AppIconManager.currentStyle(context))
     }
     var includeBetaUpdates by remember(context) { mutableStateOf(GiteeAppUpdater.includesBeta(context)) }
-    var updateChannel by remember(context) { mutableStateOf(GiteeAppUpdater.updateChannel(context)) }
     LaunchedEffect(state.config) {
         if (hasLocalEdits) {
             val rebased = state.config.withGeneralSettingsFrom(draft)
@@ -253,44 +251,17 @@ fun GeneralSettingsScreen(
                         onCheckedChange = { applyChange(draft.copy(autoCheckUpdates = it)) }
                     )
                     SettingsDivider()
-                    if (BuildConfig.SLEEPDOWN_EXP_BUILD) {
-                        val updateChannels = AppUpdateChannel.entries
-                        SleepDownLiquidDropdownPreference(
-                            items = listOf("正式版", "Beta 版", "实验版"),
-                            selectedIndex = updateChannels.indexOf(updateChannel).coerceAtLeast(0),
-                            title = "更新版本",
-                            summary = when (updateChannel) {
-                                AppUpdateChannel.Stable -> "仅接收正式版；正式版发布后可从实验版切回。"
-                                AppUpdateChannel.Beta -> "接收正式版与 Beta 版更新。"
-                                AppUpdateChannel.Experimental -> "仅接收后续实验版更新。"
-                            },
-                            backdrop = backdrop,
-                            config = visualConfig,
-                            modifier = Modifier.fillMaxWidth(),
-                            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                            maxHeight = 240.dp,
-                            onExpandedChange = {},
-                            onSelectedIndexChange = { index ->
-                                updateChannels.getOrNull(index)?.let { selected ->
-                                    updateChannel = selected
-                                    GiteeAppUpdater.setUpdateChannel(context, selected)
-                                }
-                            }
-                        )
-                    } else {
-                        SettingsToggleRow(
-                            title = "接收 Beta 版更新",
-                            subtitle = if (includeBetaUpdates) "更新渠道：正式版与 Beta 版。同版本正式版发布后也会提示。"
-                                else "更新渠道：仅正式版。开启后可提前体验 Beta 版。",
-                            checked = includeBetaUpdates,
-                            backdrop = backdrop,
-                            onCheckedChange = {
-                                includeBetaUpdates = it
-                                updateChannel = if (it) AppUpdateChannel.Beta else AppUpdateChannel.Stable
-                                GiteeAppUpdater.setIncludesBeta(context, it)
-                            }
-                        )
-                    }
+                    SettingsToggleRow(
+                        title = "接收 Beta 版更新",
+                        subtitle = if (includeBetaUpdates) "更新渠道：正式版与 Beta 版。同版本正式版发布后也会提示。"
+                            else "更新渠道：仅正式版。开启后可提前体验 Beta 版。",
+                        checked = includeBetaUpdates,
+                        backdrop = backdrop,
+                        onCheckedChange = {
+                            includeBetaUpdates = it
+                            GiteeAppUpdater.setIncludesBeta(context, it)
+                        }
+                    )
                 }
                 }
             }

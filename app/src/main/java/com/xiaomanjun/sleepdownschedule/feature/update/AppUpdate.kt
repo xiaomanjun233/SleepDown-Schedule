@@ -53,7 +53,6 @@ private const val UpdatePreferences = "app_update_state"
 private const val LastCheckDateKey = "last_check_date"
 private const val LatestTagKey = "latest_tag"
 private const val IncludeBetaKey = "include_beta"
-private const val UpdateChannelKey = "update_channel"
 
 data class GiteeReleaseInfo(
     val name: String,
@@ -69,12 +68,6 @@ data class GiteeReleaseInfo(
 enum class DownloadPackageKind {
     AppUpdate,
     CourseComponent
-}
-
-enum class AppUpdateChannel {
-    Stable,
-    Beta,
-    Experimental
 }
 
 sealed interface GiteeUpdateCheckResult {
@@ -105,40 +98,15 @@ object GiteeAppUpdater {
     private val _downloadState = MutableStateFlow<UpdateDownloadState>(UpdateDownloadState.Idle)
     val downloadState: StateFlow<UpdateDownloadState> = _downloadState.asStateFlow()
 
-    fun updateChannel(context: Context): AppUpdateChannel {
-        val preferences = preferences(context)
-        val requested = preferences.getString(UpdateChannelKey, null)
-            ?.let { stored -> AppUpdateChannel.entries.firstOrNull { it.name == stored } }
-            ?: if (preferences.getBoolean(IncludeBetaKey, false)) {
-                AppUpdateChannel.Beta
-            } else {
-                AppUpdateChannel.Stable
-            }
-        return supportedUpdateChannel(requested, BuildConfig.SLEEPDOWN_EXP_BUILD)
-    }
+    fun includesBeta(context: Context): Boolean = preferences(context).getBoolean(IncludeBetaKey, false)
 
-    internal fun supportedUpdateChannel(
-        requested: AppUpdateChannel,
-        experimentalBuild: Boolean
-    ): AppUpdateChannel =
-        if (!experimentalBuild && requested == AppUpdateChannel.Experimental) {
-            AppUpdateChannel.Stable
-        } else requested
-
-    fun setUpdateChannel(context: Context, channel: AppUpdateChannel) {
+    fun setIncludesBeta(context: Context, enabled: Boolean) {
         preferences(context).edit {
-            putString(UpdateChannelKey, channel.name)
-            putBoolean(IncludeBetaKey, channel == AppUpdateChannel.Beta)
+            putBoolean(IncludeBetaKey, enabled)
             remove(LastCheckDateKey)
             remove(LatestTagKey)
         }
         _updateAvailable.value = false
-    }
-
-    fun includesBeta(context: Context): Boolean = updateChannel(context) == AppUpdateChannel.Beta
-
-    fun setIncludesBeta(context: Context, enabled: Boolean) {
-        setUpdateChannel(context, if (enabled) AppUpdateChannel.Beta else AppUpdateChannel.Stable)
     }
 
     fun restoreCachedStatus(context: Context, currentVersionName: String) {
@@ -147,9 +115,9 @@ object GiteeAppUpdater {
             return
         }
         val latestTag = preferences(context).getString(LatestTagKey, null)
-        val channel = updateChannel(context)
         _updateAvailable.value = latestTag?.let {
-            channel.acceptsTag(it) && isVersionNewer(it, currentVersionName)
+            val version = ParsedVersion.parse(it)
+            !version.isExperimental && (includesBeta(context) || !version.isPrerelease) && isVersionNewer(it, currentVersionName)
         } == true
     }
 
@@ -177,7 +145,7 @@ object GiteeAppUpdater {
                     "当前应用商店发行版不支持应用内 APK 更新"
                 }
                 val releases = readReleaseObjects().map { it.toReleaseInfo() }
-                val release = selectRelease(releases, updateChannel(context))
+                val release = selectRelease(releases, includesBeta(context))
                     ?: error("当前更新渠道暂无可用版本")
                 if (isVersionNewer(release.tagName, currentVersionName)) {
                     GiteeUpdateCheckResult.UpdateAvailable(release)
@@ -338,16 +306,10 @@ object GiteeAppUpdater {
     }
 
     internal fun selectRelease(releases: List<GiteeReleaseInfo>, includeBeta: Boolean): GiteeReleaseInfo? =
-        selectRelease(
-            releases,
-            if (includeBeta) AppUpdateChannel.Beta else AppUpdateChannel.Stable
-        )
-
-    internal fun selectRelease(
-        releases: List<GiteeReleaseInfo>,
-        channel: AppUpdateChannel
-    ): GiteeReleaseInfo? =
-        releases.filter { channel.accepts(it) }
+        releases.filter {
+            val version = ParsedVersion.parse(it.tagName)
+            !version.isExperimental && (includeBeta || (!it.prerelease && !version.isPrerelease))
+        }
             .maxWithOrNull { left, right ->
                 when {
                     isVersionNewer(left.tagName, right.tagName) -> 1
@@ -355,24 +317,6 @@ object GiteeAppUpdater {
                     else -> 0
                 }
             }
-
-    private fun AppUpdateChannel.accepts(release: GiteeReleaseInfo): Boolean {
-        val version = ParsedVersion.parse(release.tagName)
-        return when (this) {
-            AppUpdateChannel.Stable -> !release.prerelease && !version.isPrerelease
-            AppUpdateChannel.Beta -> !version.isExperimental
-            AppUpdateChannel.Experimental -> version.isExperimental
-        }
-    }
-
-    private fun AppUpdateChannel.acceptsTag(tag: String): Boolean {
-        val version = ParsedVersion.parse(tag)
-        return when (this) {
-            AppUpdateChannel.Stable -> !version.isPrerelease
-            AppUpdateChannel.Beta -> !version.isExperimental
-            AppUpdateChannel.Experimental -> version.isExperimental
-        }
-    }
 
     private fun preferences(context: Context) =
         context.applicationContext.getSharedPreferences(UpdatePreferences, Context.MODE_PRIVATE)

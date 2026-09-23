@@ -44,7 +44,7 @@ internal fun ColorOSCourseSettingsSection(
     state: AppState,
     backdrop: Backdrop?
 ) {
-    if (!BuildConfig.SLEEPDOWN_EXP_BUILD) return
+    if (!BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES) return
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var diagnostics by remember { mutableStateOf<ColorOSCourseDiagnostics?>(null) }

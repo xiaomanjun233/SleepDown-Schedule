@@ -117,7 +117,7 @@ object ColorOSCourseExperiment {
         return ColorOSDeviceStatus(manufacturer, brand, colorOSVersion, isFamily)
     }
 
-    fun isAvailable(): Boolean = BuildConfig.SLEEPDOWN_EXP_BUILD && deviceStatus().isColorOSFamily
+    fun isAvailable(): Boolean = BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES && deviceStatus().isColorOSFamily
 
     fun isEnabled(context: Context): Boolean = isAvailable() &&
         ColorOSCourseBridge.preferences(context).getBoolean(KEY_ENABLED, false)
