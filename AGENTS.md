@@ -56,7 +56,7 @@
 
 - 默认 PowerShell，源码修改使用 `apply_patch`。只暂存本次文件，保留用户改动和任务外素材；不使用 `git reset --hard` 或 `git checkout --` 丢弃工作树。
 - 代码在独立分支完成，默认 `codex/` 前缀。围绕用户目标组织 PR；同轮追加的问题保留可独立回退的提交边界，避免混入无关整理。
-- 普通版以 `main` 为唯一基线，长期 `exp` 分支只叠加 ColorOS 课程流体云实验。普通功能先进入 `main` 再由 `main` 合入 `exp`，不得把两条版本线分别维护；版本、更新通道、组件和发布规则见 [普通版与实验版规范](docs/EXP_BRANCH_AND_RELEASES.md)。
+- 普通版以 `main` 为唯一基线；厂商实验功能集中在隔离目录，普通 GitHub 版启用，商店版由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 关闭。暂不维护历史 `exp` 分支或独立实验更新通道。版本、组件和发布规则见 [普通版实验功能规范](docs/EXP_BRANCH_AND_RELEASES.md)。
 - GitHub 元数据操作使用 Codex 自带 GitHub plugin，不使用 GitHub CLI。远端推送、PR、标签、发布和部署须在用户授权范围内；PR 授权不包含合并或 Release。
 - 每次 Beta 发布同步更新应用内日志与发布页，保留本轮各 Beta 的独立日志；正式版发布时再归并本轮 Beta 内容，去重并移除已撤回的改动。日志使用产品语言，用户指定的文案优先。
 - 不提交 `.gradle-user-home/`、`tmp/`、`sleepdown-promo/`、`ui.xml`、设备截图和临时验收图，除非用户明确指定。

@@ -11,6 +11,9 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.feature.home.week.activeWeekCourseBell
+import com.xiaomanjun.sleepdownschedule.feature.home.week.specialCourseCoversTime
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.background.*
 import com.xiaomanjun.sleepdownschedule.feature.home.week.*
@@ -424,7 +427,7 @@ fun HomeReadableText(
     overflow: TextOverflow = TextOverflow.Clip
 ) {
     val readability = LocalHomeReadability.current
-    val backgroundFrozen = LocalHomeBackgroundFrozen.current
+    val backgroundFrozen = LocalHomeBackgroundFrozen.current || LocalHomeTextContrastFrozen.current
     var targetShadowStrength by remember(color) { mutableFloatStateOf(0f) }
     val shadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "home-text-soft-shadow")
     val textLayout = remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -680,6 +683,7 @@ internal fun HomeScreen(
     adaptiveMetrics: HomeAdaptiveMetrics,
     weekCardHeight: Dp,
     displayWeek: Int,
+    returnToCurrentWeekRequest: Int = 0,
     displayDate: LocalDate,
     backdrop: Backdrop?,
     dayAgentBackdrop: Backdrop? = backdrop,
@@ -688,6 +692,7 @@ internal fun HomeScreen(
     onSwipeWeek: (Int) -> Unit,
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
+    onWeekHeaderPreview: (Int?) -> Unit = {},
     dayAgentBackgroundMotionState: DayAgentBackgroundMotionState,
     onAgentPagerSettledChange: (Boolean) -> Unit = {},
     onAgentPrepareOpen: suspend () -> Unit = {},
@@ -766,7 +771,7 @@ internal fun HomeScreen(
                 }
             }
     ) {
-        BackHandler(enabled = mode == HomeMode.Week && weekEditMode) {
+        BackHandler(enabled = LocalHomePaneVisible.current && mode == HomeMode.Week && weekEditMode) {
             weekEditMode = false
         }
         HomeMode.entries.forEach { targetMode ->
@@ -774,6 +779,7 @@ internal fun HomeScreen(
             HomeSwitchPane(
                 motion = modeMotion,
                 secondary = targetMode == HomeMode.Week,
+                retainContent = true,
                 modifier = Modifier.fillMaxSize()
             ) {
             modeStateHolder.SaveableStateProvider(targetMode.name) {
@@ -823,6 +829,7 @@ internal fun HomeScreen(
                         SinglePillWeekScheduleScreen(
                             state = state,
                             displayWeek = displayWeek,
+                            returnToCurrentWeekRequest = returnToCurrentWeekRequest,
                             adaptiveMetrics = adaptiveMetrics,
                             cardHeight = effectiveWeekCardHeight,
                             cardColor = cardColor,
@@ -831,6 +838,7 @@ internal fun HomeScreen(
                             floatingCourseBackdrop = floatingCourseBackdrop,
                             headerBackdrop = weekHeaderBackdrop,
                             onSwipeWeek = onSwipeWeek,
+                            onWeekHeaderPreview = onWeekHeaderPreview,
                             onContentUnderTopBarChange = { if (mode == targetMode) onContentUnderTopBarChange(it) },
                             style = weekViewStyle,
                             weekEditMode = weekEditMode,
@@ -1581,9 +1589,10 @@ internal fun DayScheduleScreen(
         return date.coerceIn(range.start, range.endInclusive)
     }
 
-    LaunchedEffect(pagerState, displayDate) {
+    val paneVisible = LocalHomePaneVisible.current
+    LaunchedEffect(pagerState, displayDate, paneVisible) {
         snapshotFlow {
-            !pagerState.isScrollInProgress &&
+            paneVisible && !pagerState.isScrollInProgress &&
                 pagerState.currentPage == pagerState.settledPage &&
                 kotlin.math.abs(pagerState.currentPageOffsetFraction) < 0.0005f &&
                 dateForPage(pagerState.settledPage) == displayDate
@@ -1646,6 +1655,7 @@ internal fun DayScheduleScreen(
         beyondViewportPageCount = 1,
         key = { it }
     ) { page ->
+        HomeDayPageDrawingScope(pagerState, page) {
             val targetDate = dateForPage(page)
             val targetAdjustment = remember(state.config.scheduleAdjustmentsJson, targetDate) {
                 com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(state.config, targetDate)
@@ -1695,20 +1705,27 @@ internal fun DayScheduleScreen(
                 }
             }
             val isToday = targetDate == minuteClock.toLocalDate()
-            val currentPeriod = if (isToday && targetWeekOrNull != null && !targetCancelled) {
+            val specialBell = if (isToday && targetWeekOrNull != null && !targetCancelled) {
+                activeWeekCourseBell(dayCourses, targetWeekday, minuteClock.toLocalTime())
+            } else null
+            val specialCourseInProgress = specialBell != null ||
+                (isToday && targetWeekOrNull != null && !targetCancelled &&
+                    specialCourseCoversTime(dayCourses, targetWeekday, minuteClock.toLocalTime()))
+            val currentPeriod = if (isToday && targetWeekOrNull != null && !targetCancelled && !specialCourseInProgress) {
                 currentTimelinePeriod(state.periods, minuteClock.toLocalTime())
             } else null
             val headerContent: @Composable () -> Unit = {
-                currentPeriod?.let { period ->
+                (specialBell?.index ?: currentPeriod?.periodIndex)?.let { periodIndex ->
                     Box(
                         modifier = Modifier
                             .fillMaxWidth().homeSwitchGroup(),
                         contentAlignment = Alignment.Center
                     ) {
                         DayStatusGlassPill(
-                            text = "第${period.periodIndex}节",
+                            text = "第${periodIndex}节",
                             backdrop = backdrop,
-                            config = state.config
+                            config = state.config,
+                            special = specialBell != null
                         )
                     }
                 }
@@ -1722,7 +1739,7 @@ internal fun DayScheduleScreen(
                         backdrop = dayAgentBackdrop,
                         textColor = textColor,
                         collapsed = agentCollapsed,
-                        isActive = page == pagerState.settledPage,
+                        isActive = paneVisible && page == pagerState.settledPage,
                         backgroundMotionState = dayAgentBackgroundMotionState,
                         onPrepareOpen = onAgentPrepareOpen,
                         onAgentDismissed = onAgentDismissed,
@@ -1808,7 +1825,10 @@ internal fun DayScheduleScreen(
                         val simultaneousCount = dayCourses.count { other ->
                             other.id == course.id || other.periods.any(coursePeriods::contains)
                         }
-                        DayTimelineCourse(
+                        CompositionLocalProvider(
+                            LocalCourseTextMotionFrozen provides
+                                (listState.isScrollInProgress || pagerState.isScrollInProgress)
+                        ) { DayTimelineCourse(
                             course,
                             targetWeek,
                             state.periods,
@@ -1822,7 +1842,7 @@ internal fun DayScheduleScreen(
                             occurrenceDate = targetDate,
                             muted = targetCancelled,
                             completed = hasDayCourseEnded(course, state.periods, targetDate, minuteClock)
-                        )
+                        ) }
                     }
                 }
                 visibleSecondaryDate?.let { visibleDate ->
@@ -1856,7 +1876,10 @@ internal fun DayScheduleScreen(
                             val simultaneousCount = secondaryCourses.count { other ->
                                 other.id == course.id || other.periods.any(coursePeriods::contains)
                             }
-                            DayTimelineCourse(
+                            CompositionLocalProvider(
+                                LocalCourseTextMotionFrozen provides
+                                    (listState.isScrollInProgress || pagerState.isScrollInProgress)
+                            ) { DayTimelineCourse(
                                 course = course,
                                 currentWeek = secondaryWeek,
                                 periods = state.periods,
@@ -1870,7 +1893,7 @@ internal fun DayScheduleScreen(
                                 occurrenceDate = visibleDate,
                                 muted = secondaryCancelled,
                                 completed = hasDayCourseEnded(course, state.periods, visibleDate, minuteClock)
-                            )
+                            ) }
                         }
                     }
                 }
@@ -1941,6 +1964,7 @@ internal fun DayScheduleScreen(
                 }
             }
     }
+    }
 }
 
 internal fun courseDayPart(
@@ -1975,12 +1999,14 @@ private fun DayStatusGlassPill(
     text: String,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    special: Boolean = false
 ) {
     BlueStatusGlassPill(
         backdrop = backdrop,
         config = config,
-        modifier = modifier
+        modifier = modifier,
+        accentColor = if (special) ComposeColor(0xFFFFC247) else ComposeColor(0xFF0A84FF)
     ) {
         Box(
             modifier = Modifier
@@ -1992,7 +2018,7 @@ private fun DayStatusGlassPill(
             Text(
                 text = text,
                 style = MaterialTheme.typography.titleSmall,
-                color = ComposeColor.White,
+                color = if (special) ComposeColor(0xFF3D2B00) else ComposeColor.White,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
@@ -2056,8 +2082,8 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
     val adjustedEditor = LocalAdjustedCourseEditor.current
     val subdued = muted || completed
     val resolvedCardColor = if (subdued) MutedCourseLightColor else courseCardBaseColor(config, course)
-    val foreground = if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor) else glassForegroundColor(config)
+    val foreground = if (config.courseCardGlassEnabled && courseCardUsesAssignments(config))
+        readableOn(resolvedCardColor) else glassForegroundColor(config)
     Column(modifier = Modifier.homeSwitchGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         CourseGlassCard(
             backdrop = backdrop,
@@ -2144,8 +2170,7 @@ internal fun DayCourseCardTextContent(
 fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f, displayedWeek: Int? = null, muted: Boolean = false, adjustmentLabel: String? = null) {
     val resolvedCardColor = if (muted) MutedCourseLightColor else if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
     val textColor =
-        if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor)
+        if (config.courseCardGlassEnabled && courseCardUsesAssignments(config)) readableOn(resolvedCardColor)
         else glassForegroundColor(config)
     val ownBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
     val editId = LocalEditingCourseId.current

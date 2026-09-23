@@ -32,6 +32,9 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdown
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.loadWallpaperSource
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchoolPickerScreen
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.describeAdapterRefresh
+import com.xiaomanjun.sleepdownschedule.feature.importing.toIntentKey
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -47,22 +50,59 @@ import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun AutoRefreshScheduleSettingsScreen(state: AppState, backdrop: Backdrop?) {
+fun AutoRefreshScheduleSettingsScreen(
+    state: AppState,
+    backdrop: Backdrop?,
+    warehouseRefreshRequest: Int = 0
+) {
     val context = LocalContext.current
     val profile by AutoRefreshScheduleStore.observe(context).collectAsState()
     var adapters by remember { mutableStateOf<List<EduAdapter>?>(null) }
+    var apiAdapters by remember { mutableStateOf<List<EduAdapter>>(emptyList()) }
     var catalogError by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
+    var manualRefreshing by remember { mutableStateOf(false) }
+    var showRefreshingDialog by remember { mutableStateOf(false) }
+    var adapterRefreshMessage by remember { mutableStateOf<String?>(null) }
+    var handledWarehouseRefreshRequest by remember { mutableIntStateOf(warehouseRefreshRequest) }
+    val scope = rememberCoroutineScope()
     LaunchedEffect(retry) {
         catalogError = null
-        runCatching { ShiguangApiAdapterCatalog.loadSupported(context) }
+        runCatching {
+            apiAdapters = ShiguangApiAdapterCatalog.loadSupported(context)
+            ShiguangApiAdapterCatalog.loadLoginAdapters(context)
+        }
             .onSuccess { adapters = it }
             .onFailure { catalogError = "学校列表读取失败，请重试" }
+    }
+    LaunchedEffect(warehouseRefreshRequest) {
+        if (warehouseRefreshRequest == handledWarehouseRefreshRequest || manualRefreshing) return@LaunchedEffect
+        handledWarehouseRefreshRequest = warehouseRefreshRequest
+        manualRefreshing = true
+        showRefreshingDialog = true
+        scope.launch {
+            try {
+                val previousAdapters = adapters.orEmpty()
+                val result = ShiguangWarehouseUpdater.refresh(context)
+                val refreshedAdapters = ShiguangApiAdapterCatalog.loadLoginAdapters(context)
+                apiAdapters = ShiguangApiAdapterCatalog.loadSupported(context)
+                adapters = refreshedAdapters
+                catalogError = null
+                adapterRefreshMessage = describeAdapterRefresh(previousAdapters, refreshedAdapters, result.changed)
+            } catch (error: Exception) {
+                adapterRefreshMessage = "更新失败，继续使用当前适配列表：${error.message ?: "网络请求失败"}"
+            } finally {
+                manualRefreshing = false
+                showRefreshingDialog = false
+            }
+        }
     }
     val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
     val saved = profile
     if (saved != null) {
-        val savedAdapter = adapters?.let { ShiguangApiAdapterCatalog.find(it, saved.schoolId, saved.adapterId) }
+        val savedAdapter = ShiguangApiAdapterCatalog.find(
+            if (saved.sessionOnly) adapters.orEmpty() else apiAdapters, saved.schoolId, saved.adapterId
+        )
         AutoRefreshDashboardContent(
             state = state,
             backdrop = backdrop,
@@ -76,6 +116,13 @@ fun AutoRefreshScheduleSettingsScreen(state: AppState, backdrop: Backdrop?) {
                 }
             },
             reconnectAvailable = savedAdapter != null,
+            onManualRefresh = {
+                savedAdapter?.let {
+                    authLauncher.launch(android.content.Intent(context, com.xiaomanjun.sleepdownschedule.EduImportActivity::class.java)
+                        .putExtra("edu_adapter", it.toIntentKey())
+                        .putExtra(AutoRefreshWebSession.RestoreSessionExtra, true))
+                }
+            },
             connectionStatus = when {
                 catalogError != null -> catalogError!!
                 adapters == null -> "正在检查学校支持状态"
@@ -88,7 +135,14 @@ fun AutoRefreshScheduleSettingsScreen(state: AppState, backdrop: Backdrop?) {
             state = state,
             backdrop = backdrop,
             availableAdapters = adapters,
-            onSelect = { authLauncher.launch(SwuUnifiedAuthActivity.intent(context, it, state.config.id)) }
+            adapterBadge = {
+                if (ShiguangApiAdapterCatalog.supportsAutomaticRefresh(it, apiAdapters)) null
+                else "可能需要手动刷新"
+            },
+            onSelect = { selected ->
+                val reviewed = ShiguangApiAdapterCatalog.find(apiAdapters, selected.school.id, selected.adapterId)
+                authLauncher.launch(SwuUnifiedAuthActivity.intent(context, reviewed ?: selected, state.config.id))
+            }
         )
     } else {
         Box(Modifier.fillMaxSize().padding(top = detailContentTopPadding()), contentAlignment = Alignment.Center) {
@@ -98,6 +152,30 @@ fun AutoRefreshScheduleSettingsScreen(state: AppState, backdrop: Backdrop?) {
                 SettingsActionButton("重新加载", backdrop, onClick = { retry++ })
             }
         }
+    }
+    if (showRefreshingDialog) LiquidAlertDialog(
+        title = "正在更新适配器",
+        message = "正在获取最新适配列表，完成后会重新检查可用于自动刷新的学校。",
+        actions = listOf(
+            LiquidAlertAction("后台继续", LiquidAlertActionStyle.Secondary) {
+                showRefreshingDialog = false
+            }
+        ),
+        backdrop = backdrop,
+        config = state.config,
+        onDismissRequest = { showRefreshingDialog = false }
+    )
+    adapterRefreshMessage?.let { result ->
+        LiquidAlertDialog(
+            title = "适配器刷新结果",
+            message = result,
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
+                adapterRefreshMessage = null
+            }),
+            backdrop = backdrop,
+            config = state.config,
+            onDismissRequest = { adapterRefreshMessage = null }
+        )
     }
 }
 
@@ -109,12 +187,14 @@ private fun AutoRefreshDashboardContent(
     reconnectAvailable: Boolean,
     connectionStatus: String,
     onRetryCatalog: () -> Unit,
+    onManualRefresh: () -> Unit,
     onReconnect: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
     var message by remember(profile.lastResult) { mutableStateOf(profile.lastResult) }
+    var refreshResultMessage by remember { mutableStateOf<String?>(null) }
     var showLogout by remember { mutableStateOf(false) }
     var cropUri by rememberSaveable { mutableStateOf<String?>(null) }
     var cropVisible by rememberSaveable { mutableStateOf(false) }
@@ -178,7 +258,8 @@ private fun AutoRefreshDashboardContent(
                         Text(profile.schoolName, style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold, color = foreground)
                         Text(
-                            if (profile.username.isBlank()) "教务账号 · 已连接"
+                            if (profile.sessionOnly) "教务账号 · 登录态已保留"
+                            else if (profile.username.isBlank()) "教务账号 · 已连接"
                             else "教务账号 · ${maskAccount(profile.username)}",
                             style = MaterialTheme.typography.bodyMedium, color = foreground.copy(alpha = 0.62f)
                         )
@@ -197,7 +278,9 @@ private fun AutoRefreshDashboardContent(
             item(key = "refresh") {
                 GlassPreferenceSection("课表更新") {
                     SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
-                        SleepDownLiquidDropdownPreference(
+                        if (profile.sessionOnly) {
+                            SettingsInfoRow("刷新方式", "保留登录态，打开教务页面手动刷新")
+                        } else SleepDownLiquidDropdownPreference(
                             items = listOf("从不", "每天", "每7天"),
                             selectedIndex = AutoRefreshFrequency.selectedIndex(profile.automatic, profile.frequencyMinutes),
                             title = "自动刷新",
@@ -220,14 +303,18 @@ private fun AutoRefreshDashboardContent(
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
                         Column(Modifier.fillMaxWidth().padding(14.dp)) {
                             SettingsActionButton(
-                                if (refreshing) "正在刷新…" else "立即刷新课表",
+                                if (profile.sessionOnly) "打开教务手动刷新"
+                                else if (refreshing) "正在刷新…" else "立即刷新课表",
                                 backdrop,
                                 modifier = Modifier.fillMaxWidth(),
                                 onClick = {
-                                    if (!refreshing) scope.launch {
+                                    if (profile.sessionOnly) {
+                                        if (reconnectAvailable) onManualRefresh() else onRetryCatalog()
+                                    } else if (!refreshing) scope.launch {
                                         refreshing = true
                                         try {
                                             message = AutoRefreshScheduleCoordinator.refreshSaved(context).message
+                                            refreshResultMessage = message
                                         } finally {
                                             refreshing = false
                                         }
@@ -303,6 +390,18 @@ private fun AutoRefreshDashboardContent(
         backdrop = backdrop, config = state.config,
         onDismissRequest = { showLogout = false }
     )
+    refreshResultMessage?.let { result ->
+        LiquidAlertDialog(
+            title = "课表刷新结果",
+            message = result,
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
+                refreshResultMessage = null
+            }),
+            backdrop = backdrop,
+            config = state.config,
+            onDismissRequest = { refreshResultMessage = null }
+        )
+    }
 }
 
 private fun maskAccount(value: String): String = when {

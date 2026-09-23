@@ -19,6 +19,7 @@ val releaseStorePassword = releaseSecret("sleepdown.releaseStorePassword", "SLEE
 val releaseKeyAlias = releaseSecret("sleepdown.releaseKeyAlias", "SLEEPDOWN_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseSecret("sleepdown.releaseKeyPassword", "SLEEPDOWN_RELEASE_KEY_PASSWORD")
 val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOWN_REMOTE_CONFIG_SECRET").orEmpty()
+val sleepDownVersionName = "1.2.6_beta9"
 val skipReleaseResourceShrink = providers.gradleProperty("sleepdown.skipReleaseResourceShrink")
     .map(String::toBoolean)
     .getOrElse(false)
@@ -66,7 +67,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 33
-        versionName = "1.2.6_beta9"
+        versionName = sleepDownVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SLEEPDOWN_API_BASE_URL", "\"https://api.sleepdownschedule.cn\"")
         buildConfigField(
@@ -136,10 +137,12 @@ android {
         create("github") {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"github\"")
+            buildConfigField("boolean", "SLEEPDOWN_EXPERIMENTAL_FEATURES", "true")
         }
         create("store") {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"store\"")
+            buildConfigField("boolean", "SLEEPDOWN_EXPERIMENTAL_FEATURES", "false")
         }
     }
 
@@ -157,7 +160,7 @@ androidComponents {
 }
 
 tasks.configureEach {
-    val createsReleaseArtifact = name.matches(Regex("(assemble|bundle|package).*(Release)$"))
+    val createsReleaseArtifact = name.matches(Regex("(assemble|bundle|package).*Release$"))
     if (createsReleaseArtifact) {
         doFirst {
             check(hasReleaseSigning) {
@@ -211,6 +214,8 @@ dependencies {
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.3")
     implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.3")
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.3")
+    add("githubImplementation", "dev.rikka.shizuku:api:13.1.5")
+    add("githubImplementation", "dev.rikka.shizuku:provider:13.1.5")
     implementation("androidx.room:room-runtime:2.8.3")
     implementation("androidx.room:room-ktx:2.8.3")
     ksp("androidx.room:room-compiler:2.8.3")

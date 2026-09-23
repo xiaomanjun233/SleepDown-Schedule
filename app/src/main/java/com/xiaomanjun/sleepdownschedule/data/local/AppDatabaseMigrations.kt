@@ -632,6 +632,14 @@ private val MIGRATION_40_41 = object : Migration(40, 41) {
     }
 }
 
+private val MIGRATION_41_42 = object : Migration(41, 42) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("courses", "customPeriodTimes")) {
+            db.execSQL("ALTER TABLE courses ADD COLUMN customPeriodTimes TEXT")
+        }
+    }
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -672,7 +680,8 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_37_38,
     MIGRATION_38_39,
     MIGRATION_39_40,
-    MIGRATION_40_41
+    MIGRATION_40_41,
+    MIGRATION_41_42
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -720,6 +729,7 @@ private fun repairDatabaseFileBeforeRoomOpen(path: File) {
                 (db.version >= 37 && !sqliteColumnExists(db, "courses", "customStartTime")) ||
                 (db.version >= 37 && !sqliteColumnExists(db, "courses", "customEndTime")) ||
                 (db.version >= 37 && !sqliteColumnExists(db, "courses", "customColorArgb")) ||
+                (db.version >= 42 && !sqliteColumnExists(db, "courses", "customPeriodTimes")) ||
                 (db.version >= 38 && !sqliteColumnExists(db, "schedule_config", "courseCardColorMode")) ||
                 (db.version >= 38 && !sqliteColumnExists(db, "schedule_config", "courseCardPalette")) ||
                 (db.version >= 38 && !sqliteColumnExists(db, "schedule_config", "alternateCourseCardColorMode")) ||
@@ -756,7 +766,7 @@ private fun repairSQLiteDatabase(db: SQLiteDatabase) {
 
 private fun repairCoursesTable(db: SQLiteDatabase) {
     if (!sqliteTableExists(db, "courses")) {
-        db.execSQL("CREATE TABLE courses (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, teacher TEXT, location TEXT, weekday INTEGER NOT NULL, periods TEXT NOT NULL, weeks TEXT NOT NULL, weekParity TEXT NOT NULL, note TEXT, customStartTime TEXT, customEndTime TEXT, customColorArgb INTEGER, scheduleId INTEGER NOT NULL DEFAULT 1)")
+        db.execSQL("CREATE TABLE courses (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, teacher TEXT, location TEXT, weekday INTEGER NOT NULL, periods TEXT NOT NULL, weeks TEXT NOT NULL, weekParity TEXT NOT NULL, note TEXT, customStartTime TEXT, customEndTime TEXT, customColorArgb INTEGER, scheduleId INTEGER NOT NULL DEFAULT 1, customPeriodTimes TEXT)")
         return
     }
     if (!sqliteColumnExists(db, "courses", "scheduleId")) {
@@ -765,6 +775,7 @@ private fun repairCoursesTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "courses", "customStartTime", "TEXT")
     ensureSqliteColumn(db, "courses", "customEndTime", "TEXT")
     ensureSqliteColumn(db, "courses", "customColorArgb", "INTEGER")
+    ensureSqliteColumn(db, "courses", "customPeriodTimes", "TEXT")
 }
 
 private fun repairPeriodSchemeTables(db: SQLiteDatabase) {

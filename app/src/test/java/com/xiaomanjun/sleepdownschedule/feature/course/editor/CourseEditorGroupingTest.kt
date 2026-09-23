@@ -83,4 +83,42 @@ class CourseEditorGroupingTest {
             )?.id
         )
     }
+
+    @Test
+    fun applyAllIncludesWeeksWithDifferentExactTimesButKeepsOtherCoursesSeparate() {
+        val original = course(41, weekday = 1, weeks = listOf(1, 2))
+            .copy(customStartTime = "10:10", customEndTime = "11:45")
+        val anotherTime = course(42, weekday = 1, weeks = listOf(3, 4))
+            .copy(customStartTime = "10:20", customEndTime = "11:55")
+        val otherTeacher = course(43, weekday = 1, weeks = listOf(5, 6), teacher = "周老师")
+
+        val scope = courseApplyAllScope(
+            original,
+            original.copy(customStartTime = "10:30", customEndTime = "12:00"),
+            listOf(original, anotherTime, otherTeacher)
+        )
+
+        assertEquals(setOf(41L, 42L), scope.originals.map(CourseEntity::id).toSet())
+        assertEquals(listOf(1, 2, 3, 4), scope.edited.weeks)
+        assertEquals("10:30", scope.edited.customStartTime)
+        assertEquals("12:00", scope.edited.customEndTime)
+    }
+
+    @Test
+    fun applyAllDoesNotCollapseConcurrentOrUnchangedTimeVariants() {
+        val original = course(41, weekday = 1, weeks = listOf(1, 2))
+            .copy(customStartTime = "10:10", customEndTime = "11:45")
+        val laterWeeks = course(42, weekday = 1, weeks = listOf(3, 4))
+            .copy(customStartTime = "10:20", customEndTime = "11:55")
+        val concurrent = course(43, weekday = 1, weeks = listOf(2, 5))
+            .copy(customStartTime = "10:30", customEndTime = "12:00")
+
+        val timeEdit = courseApplyAllScope(original, original.copy(customStartTime = "10:40"),
+            listOf(original, laterWeeks, concurrent))
+        val noteEdit = courseApplyAllScope(original, original.copy(note = "更新备注"),
+            listOf(original, laterWeeks, concurrent))
+
+        assertEquals(setOf(41L, 42L), timeEdit.originals.map(CourseEntity::id).toSet())
+        assertEquals(listOf(41L), noteEdit.originals.map(CourseEntity::id))
+    }
 }

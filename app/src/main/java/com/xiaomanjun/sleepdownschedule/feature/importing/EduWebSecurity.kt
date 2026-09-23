@@ -2,7 +2,9 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import android.annotation.SuppressLint
 import android.os.Build
+import android.util.Log
 import android.view.View
+import android.view.autofill.AutofillManager
 import android.webkit.WebView
 
 internal fun normalizeEduUrl(input: String): String {
@@ -35,4 +37,17 @@ internal fun WebView.enableSystemCredentialAutofill() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
     isSaveEnabled = true
+}
+
+/** Complete only a verified login/import, while the original visible WebView still exists. */
+internal fun WebView.commitSystemCredentialAutofill() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    // Native WebView virtual fields keep the actual SSO domain, including popup login windows.
+    // Neither field values nor password-manager data pass through the JavaScript import bridge.
+    try {
+        context.getSystemService(AutofillManager::class.java)?.commit()
+    } catch (error: RuntimeException) {
+        // The optional provider must not turn an already-saved session/draft into a login failure.
+        Log.w("EduAutofill", "System autofill commit failed: ${error.javaClass.simpleName}")
+    }
 }

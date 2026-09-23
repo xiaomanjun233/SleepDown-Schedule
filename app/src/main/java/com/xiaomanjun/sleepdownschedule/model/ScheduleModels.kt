@@ -47,7 +47,8 @@ data class CourseEntity(
     val customEndTime: String? = null,
     val customColorArgb: Long? = null,
     @ColumnInfo(defaultValue = "1")
-    val scheduleId: Int = 1
+    val scheduleId: Int = 1,
+    val customPeriodTimes: String? = null
 )
 
 @Entity(tableName = "schedule_profiles")

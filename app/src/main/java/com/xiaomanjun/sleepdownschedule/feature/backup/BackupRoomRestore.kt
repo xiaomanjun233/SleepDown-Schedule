@@ -211,6 +211,7 @@ object BackupRoomRestoreMapper {
                     customStartTime = course.customStartTime,
                     customEndTime = course.customEndTime,
                     customColorArgb = course.customColorArgb,
+                    customPeriodTimes = course.customPeriodTimes,
                     scheduleId = targetScheduleId
                 )
             }

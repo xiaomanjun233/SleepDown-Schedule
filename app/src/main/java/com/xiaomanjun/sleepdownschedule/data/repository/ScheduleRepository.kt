@@ -164,7 +164,11 @@ class ScheduleRepository(private val database: AppDatabase) {
         val activeTimes = saved.firstOrNull { it.first.id == activeId }?.second ?: saved.first().second
         if (draft.topologyOperations.isNotEmpty()) {
             courses = courses.map { course ->
-                course.copy(periods = remapCoursePeriodsByClockTime(course.periods, originalPeriods, activeTimes))
+                val mapped = remapCoursePeriodsByClockTime(course.periods, originalPeriods, activeTimes)
+                require(course.customPeriodTimes == null || mapped == course.periods) {
+                    "${course.name} 有独立逐节铃声，请先确认节次结构调整后的对应关系"
+                }
+                course.copy(periods = mapped)
             }
         }
         configDao.upsertConfig(normalizeConfigForSchedule(config, scheduleId))
@@ -997,13 +1001,16 @@ class ScheduleRepository(private val database: AppDatabase) {
 
     private fun normalizeCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int): List<CourseEntity> {
         return courses.map {
-            val customRange = it.customTimeRangeOrNull()
+            val clock = com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeCourseClock(
+                it.customStartTime, it.customEndTime, it.customPeriodTimes, it.periods
+            )
             it.copy(
                 weekday = it.weekday.coerceIn(1, 7),
                 periods = it.periods.filter { period -> period > 0 }.distinct().sorted().ifEmpty { listOf(1) },
                 weeks = it.weeks.filter { week -> week > 0 }.distinct().sorted().ifEmpty { listOf(1) },
-                customStartTime = customRange?.first?.toString(),
-                customEndTime = customRange?.second?.toString(),
+                customStartTime = clock.start,
+                customEndTime = clock.end,
+                customPeriodTimes = clock.periodTimes,
                 scheduleId = scheduleId
             )
         }
@@ -1077,6 +1084,7 @@ private fun CourseEntity.hasSameOccurrenceSlot(other: CourseEntity): Boolean {
         note.orEmpty().trim() == other.note.orEmpty().trim() &&
         customStartTime == other.customStartTime &&
         customEndTime == other.customEndTime &&
+        customPeriodTimes == other.customPeriodTimes &&
         customColorArgb == other.customColorArgb &&
         weekParity == other.weekParity &&
         scheduleId == other.scheduleId
@@ -1092,6 +1100,7 @@ private data class CourseMergeKey(
     val periods: List<Int>,
     val customStartTime: String?,
     val customEndTime: String?,
+    val customPeriodTimes: String?,
     val customColorArgb: Long?,
     val weekParity: WeekParity
 )
@@ -1107,6 +1116,7 @@ private fun CourseEntity.mergeKey(): CourseMergeKey {
         periods = periods.distinct().sorted(),
         customStartTime = customStartTime,
         customEndTime = customEndTime,
+        customPeriodTimes = customPeriodTimes,
         customColorArgb = customColorArgb,
         weekParity = weekParity
     )

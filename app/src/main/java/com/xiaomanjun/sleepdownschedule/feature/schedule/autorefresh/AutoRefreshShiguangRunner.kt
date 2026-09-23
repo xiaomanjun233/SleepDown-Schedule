@@ -150,7 +150,10 @@ internal object AutoRefreshShiguangRunner {
                 }
             }
         )
-        bridge.beginTask(targetState.config, targetState.periods)
+        bridge.beginTask(
+            targetState.config, targetState.periods,
+            allowImportedBellTimes = adapter.school.id != "GLOBAL_TOOLS"
+        )
 
         fun startAdapterScript(webView: WebView, expectedGeneration: Int) {
             handler.postDelayed({

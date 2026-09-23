@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="com.xiaomanjun.sleepdownschedule.permission.COLOROS_COURSE_BRIDGE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <queries>
+        <package android:name="com.xiaomanjun.sleepdownschedule" />
+        <provider android:authorities="com.xiaomanjun.sleepdownschedule.coloros.course" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@android:drawable/ic_menu_my_calendar"
+        android:label="@string/app_name"
+        android:roundIcon="@android:drawable/ic_menu_my_calendar"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <meta-data
+            android:name="com.xiaomanjun.sleepdownschedule.COLOROS_PROXY"
+            android:value="sleepdown-coloros-proxy-v1" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Course snapshots live in credential-encrypted storage: restore after unlock. -->
+        <receiver
+            android:name=".WakeUpRestoreReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <provider
+            android:name=".WakeUpProxyProvider"
+            android:authorities="com.suda.yzune.wakeupschedule.provider"
+            android:enabled="true"
+            android:exported="true" />
+    </application>
+
+</manifest>

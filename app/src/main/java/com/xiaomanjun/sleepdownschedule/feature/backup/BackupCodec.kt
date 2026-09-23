@@ -494,6 +494,12 @@ object BackupCodec {
                         ?: fail("课程自定义结束时间非法")
                     if (!end.isAfter(start)) fail("课程自定义结束时间必须晚于开始时间")
                 }
+                course.customPeriodTimes?.let { validateText("course customPeriodTimes", it) }
+                runCatching {
+                    com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeCourseClock(
+                        course.customStartTime, course.customEndTime, course.customPeriodTimes, course.periods
+                    )
+                }.getOrElse { fail("课程逐节时间非法: ${it.message}") }
                 if (course.weekday !in 1..7) fail("课程 weekday 非法")
                 if (course.periods.any { it < 0 } || course.weeks.any { it < 0 }) fail("课程 periods/weeks 非法")
                 if (course.periods.any { it !in periodIndexes }) fail("课程引用了不存在的 periodIndex")

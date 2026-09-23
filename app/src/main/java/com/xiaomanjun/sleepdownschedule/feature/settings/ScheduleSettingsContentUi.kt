@@ -12,6 +12,10 @@ import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdatePreferences
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationChoiceRow
+import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationDetails
+import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationPreview
+import com.xiaomanjun.sleepdownschedule.feature.experimental.rememberExperimentalNotificationUiState
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import android.content.Intent
 import android.net.Uri
@@ -113,6 +117,7 @@ fun ScheduleSettingsContent(
     onScheduleAdjustmentsChange: (String) -> Unit = {}
 ) {
     val appContext = LocalContext.current
+    val experimentalNotifications = rememberExperimentalNotificationUiState(notificationMode)
     var livePreferences by remember(appContext) {
         mutableStateOf(LiveUpdatePreferences.read(appContext))
     }
@@ -244,8 +249,14 @@ fun ScheduleSettingsContent(
                                 enabled = notificationsEnabled
                             )
                             SettingsDivider()
-                            SettingsChoiceRow("通知样式", notificationMode, backdrop, state.config, onNotificationModeChange)
-                            if (notificationMode == NotificationMode.LIVE_UPDATE) {
+                            ExperimentalNotificationChoiceRow(
+                                state = experimentalNotifications,
+                                notificationMode = notificationMode,
+                                config = state.config,
+                                backdrop = backdrop,
+                                onNotificationModeChange = onNotificationModeChange
+                            )
+                            if (experimentalNotifications.allowsLiveUpdateOptions(notificationMode)) {
                                 SettingsDivider()
                                 SettingsLiveUpdateChipTextRow(
                                     liveUpdateChipTextMode,
@@ -257,7 +268,16 @@ fun ScheduleSettingsContent(
                         }
                     }
                 }
-                if (notificationMode == NotificationMode.LIVE_UPDATE) {
+                if (experimentalNotifications.hasDetails) {
+                    item(key = "notification-experimental") {
+                        ExperimentalNotificationDetails(
+                            state = experimentalNotifications,
+                            appState = state,
+                            backdrop = backdrop
+                        )
+                    }
+                }
+                if (experimentalNotifications.allowsLiveUpdateOptions(notificationMode)) {
                     item(key = "notification-live-course") {
                         GlassPreferenceSection("课程实时活动") {
                             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
@@ -401,17 +421,20 @@ fun ScheduleSettingsContent(
                 previewPageColor.copy(alpha = if (darkPage) 0.94f else 0.92f)
             )))
         )
-        SettingsActionButton("测试实时活动", previewBackdrop, glowing = true, onClick = {
-            onPreviewLiveUpdate(state.config.copy(
-                notificationsEnabled = notificationsEnabled,
-                notificationLeadMinutes = leadMinutes.toIntOrNull() ?: state.config.notificationLeadMinutes,
-                notificationMode = notificationMode,
-                liveUpdateChipTextMode = liveUpdateChipTextMode,
-                liveUpdateActionsEnabled = liveUpdateActionsEnabled
-            ))
-        },
+        ExperimentalNotificationPreview(
+            state = experimentalNotifications,
+            config = state.config,
+            backdrop = previewBackdrop,
+            dialogBackdrop = backdrop,
+            notificationsEnabled = notificationsEnabled,
+            leadMinutes = leadMinutes,
+            notificationMode = notificationMode,
+            liveUpdateChipTextMode = liveUpdateChipTextMode,
+            liveUpdateActionsEnabled = liveUpdateActionsEnabled,
+            onPreviewLiveUpdate = onPreviewLiveUpdate,
             modifier = Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding()
-                .padding(start = 16.dp, end = 16.dp, bottom = 18.dp).fillMaxWidth())
+                .padding(start = 16.dp, end = 16.dp, bottom = 18.dp).fillMaxWidth()
+        )
     }
 }
 

@@ -98,6 +98,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMotionBlurRadiusDp
@@ -145,15 +148,13 @@ fun EduSchoolPickerScreen(
     backdrop: Backdrop? = null,
     warehouseGeneration: Int = 0,
     availableAdapters: List<EduAdapter>? = null,
+    adapterBadge: (EduAdapter) -> String? = { null },
     onSelect: (EduAdapter) -> Unit
 ) {
     val context = LocalContext.current
     val adapters = availableAdapters ?: remember(warehouseGeneration) {
-        runCatching { ShiguangWarehouse.loadAdapters(context) }
+        runCatching { ShiguangWarehouse.loadVisibleAdapters(context) }
             .getOrDefault(emptyList())
-            // WakeUp and StarLink already share the AI manual-import input. The two GLOBAL_TOOLS
-            // component fixtures are upstream development pages rather than user-facing imports.
-            .filterNot { it.isManualShareCodeTool() || it.isDevelopmentOnlyGeneralTool() }
     }
     var adapterChoices by remember { mutableStateOf<List<EduAdapter>?>(null) }
     var query by remember { mutableStateOf("") }
@@ -178,6 +179,7 @@ fun EduSchoolPickerScreen(
         state = state,
         backdrop = backdrop,
         adapters = filtered,
+        adapterBadge = adapterBadge,
         query = query,
         onQueryChange = { query = it },
         onSelect = { school ->
@@ -221,6 +223,7 @@ fun EduSchoolPickerScreen(
                     choices.forEach { adapter ->
                         EduAdapterChoiceCard(
                             adapter = adapter,
+                            badgeText = adapterBadge(adapter),
                             selected = adapter.adapterId == selectedAdapterId,
                             config = state.config,
                             onClick = { selectedAdapterId = adapter.adapterId }
@@ -235,6 +238,7 @@ fun EduSchoolPickerScreen(
 @Composable
 private fun EduAdapterChoiceCard(
     adapter: EduAdapter,
+    badgeText: String?,
     selected: Boolean,
     config: ScheduleConfigEntity,
     onClick: () -> Unit
@@ -284,6 +288,11 @@ private fun EduAdapterChoiceCard(
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold
                 )
+                badgeText?.let {
+                    Text(it, color = accent, style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(top = 4.dp).clip(Capsule())
+                            .background(accent.copy(alpha = 0.12f)).padding(horizontal = 8.dp, vertical = 3.dp))
+                }
                 if (details.isNotBlank()) {
                     Text(
                         text = details,
@@ -326,6 +335,7 @@ fun EduSchoolIndexedSelectScreen(
     adapters: List<EduAdapter>,
     query: String,
     onQueryChange: (String) -> Unit,
+    adapterBadge: (EduAdapter) -> String? = { null },
     onSelect: (EduSchool) -> Unit
 ) {
     val window = LocalActivity.current?.window
@@ -424,12 +434,14 @@ fun EduSchoolIndexedSelectScreen(
     val floatingSearchDock: (@Composable () -> Unit)? = if (floatingOverlayHost != null) {
         remember(floatingOverlayHost) {
             @Composable {
+                EduSchoolDockViewport { bottomInset ->
                 EduSchoolSearchDock(
                     value = currentSearchQuery.value,
                     onValueChange = currentSearchOnChange.value,
                     backdrop = currentSearchBackdrop.value,
                     config = currentSearchConfig.value,
-                    imeLift = currentSearchImeLift.value
+                    imeLift = currentSearchImeLift.value,
+                    bottomInset = bottomInset
                 )
                 // The alphabet rail floats at the same root level as the top bar, as a sibling of
                 // the Miuix Scaffold instead of a page child. Its gradient blur therefore keeps a
@@ -441,10 +453,11 @@ fun EduSchoolIndexedSelectScreen(
                     backdrop = currentSearchBackdrop.value,
                     config = currentSearchConfig.value,
                     topPadding = currentRailTopPadding.value,
-                    imeLift = currentSearchImeLift.value,
+                    bottomInset = bottomInset,
                     scope = currentRailScope.value,
                     haptic = currentRailHaptic.value
                 )
+                }
             }
         }
     } else {
@@ -535,6 +548,7 @@ fun EduSchoolIndexedSelectScreen(
                                 schools = aiEduSchools,
                                 state = state,
                                 backdrop = backdrop,
+                                adapterBadge = adapterBadge,
                                 onSelect = onSelect
                             )
                         }
@@ -546,6 +560,7 @@ fun EduSchoolIndexedSelectScreen(
                                 schools = pinnedSchools,
                                 state = state,
                                 backdrop = backdrop,
+                                adapterBadge = adapterBadge,
                                 onSelect = onSelect
                             )
                         }
@@ -557,6 +572,7 @@ fun EduSchoolIndexedSelectScreen(
                                 schools = list,
                                 state = state,
                                 backdrop = backdrop,
+                                adapterBadge = adapterBadge,
                                 onSelect = onSelect
                             )
                         }
@@ -567,12 +583,14 @@ fun EduSchoolIndexedSelectScreen(
         // In the detail scaffold this dock is mounted by the root-level sibling host below the
         // Miuix Scaffold. The fallback keeps previews/other callers usable before that host exists.
         if (!rootOverlayMounted) {
+            EduSchoolDockViewport { bottomInset ->
             EduSchoolSearchDock(
                 value = query,
                 onValueChange = onQueryChange,
                 backdrop = overlayBackdrop,
                 config = state.config,
-                imeLift = imeLift
+                imeLift = imeLift,
+                bottomInset = bottomInset
             )
             EduAlphabetRailDock(
                 listState = listState,
@@ -581,11 +599,31 @@ fun EduSchoolIndexedSelectScreen(
                 backdrop = overlayBackdrop,
                 config = state.config,
                 topPadding = topPadding,
-                imeLift = imeLift,
+                bottomInset = bottomInset,
                 scope = scope,
                 haptic = haptic
             )
+            }
         }
+    }
+}
+
+@Composable
+private fun EduSchoolDockViewport(content: @Composable (Dp) -> Unit) {
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val navigationBottom = WindowInsets.navigationBars.getBottom(density)
+    // Height can itself change under adjustResize; it must not erase the closed-keyboard baseline.
+    var closedBottom by remember(configuration.screenWidthDp, configuration.orientation, density.density) { mutableIntStateOf(0) }
+    var currentBottom by remember { mutableIntStateOf(0) }
+    val remaining = schoolDockBottomInsetPx(imeBottom, navigationBottom, closedBottom, currentBottom)
+    Box(Modifier.fillMaxSize().onGloballyPositioned { coordinates ->
+        val bottom = (coordinates.positionOnScreen().y + coordinates.size.height).toInt()
+        currentBottom = bottom
+        if (imeBottom <= navigationBottom) closedBottom = bottom
+    }) {
+        content(with(density) { remaining.toDp() })
     }
 }
 
@@ -598,18 +636,15 @@ private fun EduAlphabetRailDock(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     topPadding: Dp,
-    imeLift: Dp,
+    bottomInset: Dp,
     scope: CoroutineScope,
     haptic: HapticFeedback
 ) {
     if (letters.isEmpty()) return
     val density = LocalDensity.current
-    val navigationBarBottom = with(density) {
-        WindowInsets.navigationBars.getBottom(density).toDp()
-    }
     // Center the rail only in the usable list window: the measured top bar and the entire search
     // dock (including its safe-area/IME lift) are excluded from the centering bounds.
-    val alphabetRailBottomExclusion = 44.dp + 18.dp + navigationBarBottom + imeLift
+    val alphabetRailBottomExclusion = 44.dp + 18.dp + bottomInset
     var railDragging by remember { mutableStateOf(false) }
     var railPointerIndex by remember { mutableIntStateOf(-1) }
     val railScrolling by remember {
@@ -832,6 +867,7 @@ private fun EduAlphabetRailDock(
 @Composable
 private fun EduSchoolGroupCard(
     schools: List<EduSchoolAdapterGroup>,
+    adapterBadge: (EduAdapter) -> String?,
     state: AppState,
     backdrop: Backdrop?,
     onSelect: (EduSchool) -> Unit
@@ -845,6 +881,7 @@ private fun EduSchoolGroupCard(
             SettingsNavigationRow(
                 title = group.school.name,
                 subtitle = group.adapters.joinToString(" / ") { it.adapterName },
+                badgeText = group.adapters.firstNotNullOfOrNull(adapterBadge),
                 onClick = { onSelect(group.school) }
             )
         }
@@ -872,20 +909,17 @@ private fun EduSchoolSearchDock(
     onValueChange: (String) -> Unit,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
-    imeLift: Dp
+    imeLift: Dp,
+    bottomInset: Dp
 ) {
-    val density = LocalDensity.current
     val entranceProgress = remember { Animatable(0f) }
     val searchDockBottomPadding = 18.dp
-    val navigationBarBottom = with(density) {
-        WindowInsets.navigationBars.getBottom(density).toDp()
-    }
     val searchDockTint = if (appUsesDarkTheme(config)) {
         ComposeColor(0xFF1A1A1D)
     } else {
         ComposeColor.White
     }
-    val searchDockGradientHeight = 168.dp + imeLift
+    val searchDockGradientHeight = 168.dp + bottomInset
 
     LaunchedEffect(Unit) {
         entranceProgress.animateTo(
@@ -927,7 +961,7 @@ private fun EduSchoolSearchDock(
             backdrop = backdrop,
             config = config,
             keyboardLift = imeLift,
-            bottomOffset = searchDockBottomPadding + navigationBarBottom + imeLift,
+            bottomOffset = searchDockBottomPadding + bottomInset,
             entranceProgress = entranceProgress.value,
             modifier = Modifier
                 // Give the control the whole window as its layout envelope. Only its two visible

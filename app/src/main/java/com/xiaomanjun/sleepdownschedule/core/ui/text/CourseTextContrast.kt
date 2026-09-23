@@ -13,7 +13,10 @@ internal class CourseTextBackground(
 
 internal val LocalCourseTextBackground = compositionLocalOf<CourseTextBackground?> { null }
 
-/** Keep the course hue/saturation, changing only lightness to clear its local surface. */
+/** The page keeps its current text contrast while cards move under the wallpaper. */
+internal val LocalCourseTextMotionFrozen = compositionLocalOf { false }
+
+/** Keep the course hue while adjusting lightness and saturation only when contrast needs help. */
 internal fun courseTextColorForBackground(seed: Color, samples: FloatArray, previous: Color): Color {
     val backgrounds = samples.filter { it.isFinite() }.map { it.coerceIn(0f, 1f) }
     if (backgrounds.isEmpty()) return previous
@@ -39,11 +42,16 @@ internal fun courseTextColorForBackground(seed: Color, samples: FloatArray, prev
     val original = seed.copy(alpha = 1f)
     if (contrast(original) >= 4.5f) return original
     val previousLight = previous.luminance() > 0.18f
-    val candidates = (0..64).map { index ->
+    val candidates = (0..64).flatMap { index ->
         val level = 0.08f + index * (0.88f / 64f)
-        val color = Color.hsl(hue, saturation.coerceIn(0f, 1f), level)
-        val change = abs(level - lightness) + if ((color.luminance() > 0.18f) != previousLight) 0.06f else 0f
-        Triple(color, contrast(color), change)
+        listOf(1f, 0.85f, 0.7f, 0.55f).map { saturationScale ->
+            val adjustedSaturation = (saturation * saturationScale).coerceIn(0f, 1f)
+            val color = Color.hsl(hue, adjustedSaturation, level)
+            val change = abs(level - lightness) +
+                abs(adjustedSaturation - saturation) * 0.35f +
+                if ((color.luminance() > 0.18f) != previousLight) 0.06f else 0f
+            Triple(color, contrast(color), change)
+        }
     }
     val chosen = candidates.filter { it.second >= 4.5f }.minByOrNull { it.third }
         ?: candidates.maxBy { it.second }

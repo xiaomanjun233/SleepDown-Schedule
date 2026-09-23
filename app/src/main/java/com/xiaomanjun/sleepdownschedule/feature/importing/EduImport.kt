@@ -132,6 +132,10 @@ fun aiEduImportAdapter(): EduAdapter = EduAdapter(
 )
 
 object ShiguangWarehouse {
+    /** Shared user-facing catalogue for import and automatic refresh. */
+    fun loadVisibleAdapters(context: Context): List<EduAdapter> =
+        loadAdapters(context).filterNot { it.isManualShareCodeTool() || it.isDevelopmentOnlyGeneralTool() }
+
     private const val Root = "shiguang_warehouse-main"
     private const val ProtocolV2 = 2
     private val quotedValue = Regex("""^\s*([A-Za-z_]+):\s*"?(.*?)"?\s*(?:#.*)?$""")
@@ -151,7 +155,7 @@ object ShiguangWarehouse {
         return listOf(aiEduImportAdapter()) + warehouseAdapters
     }
 
-    private fun loadBundledAdapters(context: Context): List<EduAdapter> {
+    internal fun loadBundledAdapters(context: Context): List<EduAdapter> {
         val protocolAdapters = runCatching {
             context.assets.open("$Root/school_index.pb").use { input ->
                 parseProtocolV2Snapshot(input.readBytes()).adapters

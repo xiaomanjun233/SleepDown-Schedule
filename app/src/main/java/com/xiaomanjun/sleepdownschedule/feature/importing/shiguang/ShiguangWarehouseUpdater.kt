@@ -22,6 +22,23 @@ internal data class ShiguangRefreshResult(
     val adapterCount: Int
 )
 
+internal fun describeAdapterRefresh(
+    before: List<EduAdapter>,
+    after: List<EduAdapter>,
+    changed: Boolean
+): String {
+    val oldIds = before.map { it.school.id to it.adapterId }.toSet()
+    val added = after.filter { (it.school.id to it.adapterId) !in oldIds }
+    if (added.isEmpty()) return if (changed) {
+        "适配列表已更新，本次没有新增学校或教务入口。"
+    } else {
+        "适配列表已是最新，本次没有新增学校或教务入口。"
+    }
+    val names = added.map { "${it.school.name} · ${it.adapterName}" }.distinct()
+    return "新增 ${added.size} 个教务入口：${names.take(6).joinToString("、")}" +
+        if (names.size > 6) "等" else ""
+}
+
 internal object ShiguangWarehouseUpdater {
     private const val CacheDirectoryName = "shiguang_warehouse"
     private const val IndexFileName = "school_index.pb"

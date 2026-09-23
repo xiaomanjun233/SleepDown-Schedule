@@ -62,9 +62,10 @@ internal class ShiguangBridgeHost(
         config: ScheduleConfigEntity,
         periods: List<PeriodEntity>,
         initialPromptAnswer: String? = null,
-        mergeOverlappingTimeSlots: Boolean = false
+        mergeOverlappingTimeSlots: Boolean = false,
+        allowImportedBellTimes: Boolean = false
     ) {
-        session.begin(config, periods, mergeOverlappingTimeSlots)
+        session.begin(config, periods, mergeOverlappingTimeSlots, allowImportedBellTimes)
         this.initialPromptAnswer = initialPromptAnswer
     }
 
