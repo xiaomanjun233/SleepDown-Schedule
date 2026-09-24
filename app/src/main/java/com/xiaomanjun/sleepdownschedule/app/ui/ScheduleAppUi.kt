@@ -9394,6 +9394,14 @@ fun ChangelogSettingsScreen(
                 // versions; each details animation still owns only its own small graphics layer.
                 AboutGlassPanel(darkTheme, Modifier.fillMaxWidth(), longContent = true) {
             changelogItem(
+                    "1.2.6_beta10",
+                    "修复首页课程卡片首次进入及连续切周后的玻璃圆角、着色和位置错位，保留按行列分组的甩尾动画。\n" +
+                    "修正长按课程快捷操作中的文字对比度。\n" +
+                    "通知设置加入小米超级岛，并提供配置与测试步骤。\n" +
+                    "为 OPPO 流体云和荣耀 YOYO 建议分别展示配置说明，提醒开启课程组件的自启动与关联启动。\n" +
+                    "课程组件使用新图标；检查更新时校验下载包的身份和版本，避免重复安装或覆盖更新版本。"
+                )
+            changelogItem(
                     "1.2.6_beta9",
                     "新增自动刷新课表，可选择从不、每天或每7天更新，登录失效后可重新连接教务。\n" +
                     "自动刷新支持130所学校的142个教务入口，涵盖正方等接口取课系统，支持需要校园网或校园VPN的学校。\n" +
