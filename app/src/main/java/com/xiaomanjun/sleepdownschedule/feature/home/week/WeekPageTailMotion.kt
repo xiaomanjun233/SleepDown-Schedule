@@ -39,14 +39,15 @@ internal fun weekTailGroupForCard(
     cardOrderFraction: Float?,
     columnOrderFraction: Float?
 ): Int {
-    val rowOnScreen = screenY.coerceIn(0f, 1f)
+    // Cards with the same top edge must share a row even if their heights or order differ.
+    // Mixing global card order into this coordinate changed their horizontal spacing.
+    val rowOnScreen = if (screenY.isFinite()) screenY.coerceIn(0f, 1f)
+        else cardOrderFraction?.coerceIn(0f, 1f) ?: 0.5f
     val columnOnScreen = screenX.coerceIn(0f, 1f)
-    val row = cardOrderFraction?.let { it.coerceIn(0f, 1f) * 0.55f + rowOnScreen * 0.45f }
-        ?: rowOnScreen
     val column = columnOrderFraction?.let {
         it.coerceIn(0f, 1f) * 0.6f + columnOnScreen * 0.4f
     } ?: columnOnScreen
-    return weekTailGroup((row * WeekTailRows).toInt(), (column * WeekTailColumns).toInt())
+    return weekTailGroup((rowOnScreen * WeekTailRows).toInt(), (column * WeekTailColumns).toInt())
 }
 
 /** A bounded time history: followers keep advancing even when the finger stops halfway. */
@@ -64,10 +65,10 @@ internal class WeekTailTimeline(initialPosition: Float) {
     }
 
     fun advance(timeNanos: Long, target: Float, anchor: Int, durationScale: Float): List<Float> {
-        val rowDelayNanos = (16_000_000L * durationScale.coerceAtLeast(0f)).toLong()
-        val columnDelayNanos = (9_000_000L * durationScale.coerceAtLeast(0f)).toLong()
-        val longestDelay = rowDelayNanos * (WeekTailRows - 1) +
-            columnDelayNanos * (WeekTailColumns - 1)
+        val rowDelayNanos = (28_000_000L * durationScale.coerceAtLeast(0f)).toLong()
+        // Horizontal column delays pull cards in one row apart. Keep the 6×6 card grouping for
+        // hit position and anchoring, but move each row as one unit during a horizontal swipe.
+        val longestDelay = rowDelayNanos * (WeekTailRows - 1)
         if (rowDelayNanos == 0L || abs(target - lastTarget) > 1.25f) {
             history.clear()
             lastTarget = target
@@ -82,11 +83,9 @@ internal class WeekTailTimeline(initialPosition: Float) {
         lastTarget = target
         while (history.size > 2 && history[1].time <= timeNanos - longestDelay) history.removeFirst()
         val anchorGroup = anchor.coerceIn(0, WeekTailGroups - 1)
-        val positions = List(WeekTailGroups) { group ->
-            val rowDistance = abs(group / WeekTailColumns - anchorGroup / WeekTailColumns)
-            val columnDistance = abs(group % WeekTailColumns - anchorGroup % WeekTailColumns)
-            val delayedTime = timeNanos - rowDistance * rowDelayNanos -
-                columnDistance * columnDelayNanos
+        val rowPositions = FloatArray(WeekTailRows) { row ->
+            val rowDistance = abs(row - anchorGroup / WeekTailColumns)
+            val delayedTime = timeNanos - rowDistance * rowDelayNanos
             var previous = history.first()
             if (delayedTime <= previous.time) previous.position else {
                 var value = target
@@ -103,6 +102,7 @@ internal class WeekTailTimeline(initialPosition: Float) {
                 value
             }
         }
+        val positions = List(WeekTailGroups) { group -> rowPositions[group / WeekTailColumns] }
         settled = positions.all { abs(it - target) < 0.00001f }
         return positions
     }
@@ -228,13 +228,13 @@ internal fun Modifier.weekPageTail(
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1f else 1f
     val positionTracker = onGloballyPositioned {
         if (group.intValue < 0 || !motion.moving) {
-            val center = it.localToRoot(Offset(it.size.width / 2f, it.size.height / 2f))
+            val topCenter = it.localToRoot(Offset(it.size.width / 2f, 0f))
             // Prefetched pages sit offscreen; classify each card where it rests in the grid.
-            val restingX = center.x - (pageSlot?.let { slot ->
+            val restingX = topCenter.x - (pageSlot?.let { slot ->
                 direction * (slot - motion.position) * motion.pager.layoutInfo.pageSize
             } ?: 0f)
             group.intValue = motion.groupForRootPosition(
-                restingX, center.y, cardOrderFraction, columnOrderFraction
+                restingX, topCenter.y, cardOrderFraction, columnOrderFraction
             )
         }
     }
@@ -254,15 +254,18 @@ internal fun WeekPageSamplingScope(
 ) {
     val parentKey = LocalGlassSampleRecordKey.current
     val paneVisible = LocalHomePaneVisible.current
-    // Release hidden glass nodes after the last follower leaves, including during jump rebasing.
-    val visible by remember(motion, page, homeSwitching, jump, paneVisible) {
+    // An idle retained pane keeps only its settled page measured and composed. The outer pane
+    // suppresses its drawing/sampling, so switching modes can reuse these glass nodes.
+    // While visible, release other weeks only after their last tail group leaves.
+    val mounted by remember(motion, page, homeSwitching, jump, paneVisible) {
         derivedStateOf {
-            paneVisible && (jump == null || jump.contains(page)) &&
-                (if (homeSwitching) page == motion.pager.settledPage else
-                    jump?.targetPage == page || motion.pageVisible(page))
+            if (!paneVisible) page == motion.pager.settledPage else
+                (jump == null || jump.contains(page)) &&
+                    (if (homeSwitching) page == motion.pager.settledPage else
+                        jump?.targetPage == page || motion.pageVisible(page))
         }
     }
-    if (!visible) return
+    if (!mounted) return
     val mountedSampleRevision = remember(page) { mutableIntStateOf(0) }
     LaunchedEffect(page) {
         // The first visible frame can precede the shared wallpaper recorder. Refresh once

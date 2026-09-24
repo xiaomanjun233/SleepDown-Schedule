@@ -88,6 +88,7 @@ internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: S
         if (page.value == destination && pageVelocity == 0f &&
             tracks.all { it.value == destination } && velocities.all { it == 0f }) {
             settledSecondary = secondary
+            running = false
             return
         }
         // On reversal keep every group's current position, without another initial pause.
@@ -96,6 +97,7 @@ internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: S
             tracks.any { it.value != settledPosition } || velocities.any { it != 0f }
         val durationScale = currentCoroutineContext()[MotionDurationScale]?.scaleFactor ?: 1f
         running = true
+        var completed = false
         try {
             coroutineScope {
                 launch {
@@ -117,8 +119,12 @@ internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: S
                 }
             }
             settledSecondary = secondary
+            completed = true
         } finally {
-            running = false
+            // An interrupted LaunchedEffect is replaced with a new target. Clearing this flag
+            // between cancellation and restart would unmount the outgoing pane and its groups
+            // while their Animatables still hold an in-flight position.
+            if (completed) running = false
         }
     }
 }
