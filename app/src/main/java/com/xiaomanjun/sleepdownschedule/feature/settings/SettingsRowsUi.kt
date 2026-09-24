@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -467,11 +468,12 @@ internal fun SettingsForwardIndicator(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdrop: Backdrop?, enabled: Boolean = true, onCheckedChange: (Boolean) -> Unit) {
+fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdrop: Backdrop?, enabled: Boolean = true, badgeText: String? = null, onCheckedChange: (Boolean) -> Unit) {
     if (LocalGlassMiuixEnabled.current) {
         GlassMiuixInteractivePreference(
             title = title,
             summary = subtitle.takeIf { it.isNotBlank() },
+            badgeText = badgeText,
             controlWidth = 64.dp,
             controlHeight = 28.dp,
             enabled = enabled
@@ -498,7 +500,7 @@ fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdro
                 .offset(y = 1.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+            PreferenceLabel(title, badgeText)
             if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.width(12.dp))
@@ -518,12 +520,11 @@ fun SettingsActionRow(
     iconRes: Int,
     backdrop: Backdrop?,
     destructive: Boolean = false,
+    badgeText: String? = null,
     onClick: () -> Unit
 ) {
     if (LocalGlassMiuixEnabled.current) {
         MiuixBasicComponent(
-            title = title,
-            summary = subtitle,
             modifier = Modifier.fillMaxWidth(),
             insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
             endActions = {
@@ -536,7 +537,7 @@ fun SettingsActionRow(
                     destructiveFilled = destructive
                 )
             }
-        )
+        ) { SettingsPreferenceText(title, subtitle, badgeText) }
         return
     }
     Row(
@@ -552,7 +553,7 @@ fun SettingsActionRow(
                 .offset(y = 1.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+            PreferenceLabel(title, badgeText)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.width(12.dp))
@@ -1326,14 +1327,12 @@ internal fun ConstrainedPeriodTimePickers(
 }
 
 @Composable
-fun SettingsInfoRow(title: String, body: String) {
+fun SettingsInfoRow(title: String, body: String, badgeText: String? = null) {
     if (LocalGlassMiuixEnabled.current) {
         MiuixBasicComponent(
-            title = title,
-            summary = body,
             modifier = Modifier.fillMaxWidth(),
             insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
-        )
+        ) { SettingsPreferenceText(title, body, badgeText) }
         return
     }
     Column(
@@ -1342,7 +1341,7 @@ fun SettingsInfoRow(title: String, body: String) {
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+        PreferenceLabel(title, badgeText)
         Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
     }
 }
@@ -1539,6 +1538,7 @@ private fun GlassMiuixInteractivePreference(
     controlWidth: Dp,
     controlHeight: Dp = 42.dp,
     enabled: Boolean = true,
+    badgeText: String? = null,
     content: @Composable () -> Unit
 ) {
     Box(
@@ -1547,14 +1547,12 @@ private fun GlassMiuixInteractivePreference(
             .graphicsLayer(alpha = if (enabled) 1f else 0.48f)
     ) {
         MiuixBasicComponent(
-            title = title,
-            summary = summary,
             enabled = enabled,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(end = controlWidth + 12.dp),
             insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
-        )
+        ) { SettingsPreferenceText(title, summary, badgeText, enabled) }
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -1571,13 +1569,19 @@ private fun GlassMiuixInteractivePreference(
 fun GlassPreferenceSection(
     title: String,
     modifier: Modifier = Modifier,
+    badgeText: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.Start
     ) {
-        GlassPreferenceCategory(title)
+        if (badgeText == null) GlassPreferenceCategory(title) else {
+            Row(Modifier.padding(start = 6.dp, top = 8.dp, bottom = 8.dp)) {
+                PreferenceLabel(title, badgeText, style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         content()
     }
 }
@@ -1647,7 +1651,8 @@ fun SettingsActionButton(
     modifier: Modifier = Modifier,
     destructive: Boolean = false,
     monochrome: Boolean = false,
-    glowing: Boolean = false
+    glowing: Boolean = false,
+    badgeText: String? = null
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val monochromeSurface = if (darkTheme) ComposeColor.Black else ComposeColor.White
@@ -1665,8 +1670,8 @@ fun SettingsActionButton(
         LiquidButton(
             onClick = onClick,
             backdrop = backdrop,
-            modifier = modifier,
-            height = 42.dp,
+            modifier = if (badgeText == null) modifier else modifier.heightIn(min = 42.dp),
+            height = if (badgeText == null) 42.dp else Dp.Unspecified,
             tint = tint,
             surfaceColor = tint.copy(
                 alpha = when {
@@ -1677,23 +1682,18 @@ fun SettingsActionButton(
                     else -> 0.84f
                 }
             ),
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = if (badgeText == null) 0.dp else 6.dp),
             shadowStyle = if (glowing) Shadow(radius = 14.dp, color = tint.copy(alpha = 0.26f)) else Shadow.Default,
             blurRadius = if (glowing) 8.dp else 4.dp,
             lensHeight = 14.dp,
             lensAmount = 18.dp,
             chromaticAberration = false
         ) {
-            Text(
-                label,
-                color = textColor,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
-            )
+            PreferenceLabel(label, badgeText, style = MaterialTheme.typography.labelLarge,
+                color = textColor, badgeColor = textColor, centered = true, fontWeight = FontWeight.SemiBold)
         }
     } else {
-        Text(
-            label,
+        Box(
             modifier = modifier
                 .clip(Capsule())
                 .background(
@@ -1708,10 +1708,27 @@ fun SettingsActionButton(
                 )
                 .clickable(onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 11.dp),
-            color = textColor,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold
-        )
+            contentAlignment = Alignment.Center
+        ) {
+            PreferenceLabel(label, badgeText, style = MaterialTheme.typography.labelLarge,
+                color = textColor, badgeColor = textColor, centered = true, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun SettingsPreferenceText(title: String, summary: String?, badge: String?, enabled: Boolean = true) {
+    val theme = top.yukonga.miuix.kmp.theme.MiuixTheme
+    val titleColor = if (enabled) theme.colorScheme.onBackground else theme.colorScheme.disabledOnSecondaryVariant
+    if (badge == null) {
+        top.yukonga.miuix.kmp.basic.Text(title, fontSize = theme.textStyles.headline1.fontSize,
+            fontWeight = FontWeight.Medium, color = titleColor)
+    } else {
+        PreferenceLabel(title, badge, style = theme.textStyles.headline1, color = titleColor)
+    }
+    if (summary != null) {
+        top.yukonga.miuix.kmp.basic.Text(summary, fontSize = theme.textStyles.body2.fontSize,
+            color = if (enabled) theme.colorScheme.onSurfaceVariantSummary else theme.colorScheme.disabledOnSecondaryVariant)
     }
 }
 

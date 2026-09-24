@@ -56,6 +56,7 @@ object NotificationScheduler {
     private const val DND_RULE_NAME = "SleepDown 课程勿扰"
     private const val LIVE_UPDATE_ID = 20260522
     private const val LIVE_UPDATE_ALTERNATE_ID = 20260523
+    private const val SUPER_ISLAND_ID = 20260524
     private const val EXTRA_LIVE_UPDATE_IDENTITY = "sleepdown.live_update_identity"
     private val liveUpdatePostLock = Any()
     private const val SCHEDULE_HORIZON_DAYS = 8L
@@ -646,6 +647,7 @@ object NotificationScheduler {
     fun createChannel(context: Context) {
         val channel = NotificationChannel(CHANNEL_ID, "课程提醒", NotificationManager.IMPORTANCE_DEFAULT)
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        XiaomiSuperIsland.ensureChannel(context)
     }
 
     fun channelId(): String = CHANNEL_ID
@@ -747,6 +749,28 @@ object NotificationScheduler {
             openAppIntent ?: Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        if (superIslandSelected) {
+            XiaomiSuperIsland.ensureChannel(context)
+            val expiresAt = when {
+                payload.expiresAtMillis > nowMillis -> payload.expiresAtMillis
+                payload.isPreview() -> payload.startAtMillis()
+                payload.duringClassEnabled -> payload.endAtMillis()
+                else -> payload.startAtMillis()
+            }
+            return Notification.Builder(context, XiaomiSuperIsland.ChannelId)
+                .applyAppNotificationIcon(context)
+                .setContentTitle(titleText)
+                .setContentText(bodyText)
+                .setContentIntent(contentIntent)
+                .setAutoCancel(true)
+                .apply {
+                    expiresAt?.takeIf { it > nowMillis }?.let { setTimeoutAfter(it - nowMillis) }
+                }
+                .build().also { notification ->
+                    notification.extras.putString(EXTRA_LIVE_UPDATE_IDENTITY, notificationIdentity)
+                    XiaomiSuperIsland.decorate(context, notification, payload, status, shortText.toString())
+                }
+        }
         val builder = android.app.Notification.Builder(context, CHANNEL_ID)
         builder
             .applyAppNotificationIcon(context)
@@ -930,6 +954,7 @@ object NotificationScheduler {
         "$id:$date:$name:${weekday}:${periods.joinToString(",")}:${weeks.joinToString(",")}"
 
     private fun isPreviewLiveUpdateRunning(context: Context): Boolean {
+        if (XiaomiSuperIsland.hasActivePreview(context)) return true
         val prefs = context.getSharedPreferences(LiveUpdatePayload.PREFS, Context.MODE_PRIVATE)
         val muteKey = prefs.getString("mute_key", "").orEmpty()
         return muteKey.startsWith("preview:")
@@ -1129,6 +1154,20 @@ object NotificationScheduler {
         // Submit while the event receiver still holds its wake lock. Delivery must not wait
         // for the FGS (or its optional minute loop) to be scheduled by an OEM background policy.
         if (!canPostNotifications(context)) return
+        if (XiaomiSuperIsland.isEnabled(context)) {
+            // Nexio sends the focus notification directly. A foreground service immediately
+            // reposts it as ongoing and prevents the Xiaomi float from appearing.
+            stopLiveUpdateService(context)
+            try {
+                postLiveUpdateNotification(context, notification)
+                if (payload.isPreview()) {
+                    XiaomiSuperIsland.markPreview(context, payload.startAtMillis() ?: 0L)
+                }
+            } catch (error: SecurityException) {
+                Log.w(TAG, "super island rejected: notification permission revoked", error)
+            }
+            return
+        }
         try {
             postLiveUpdateNotification(context, notification)
         } catch (error: SecurityException) {
@@ -1155,11 +1194,14 @@ object NotificationScheduler {
     ) = synchronized(liveUpdatePostLock) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return@synchronized
         val active = manager.activeNotifications.filter {
-            it.id == LIVE_UPDATE_ID || it.id == LIVE_UPDATE_ALTERNATE_ID
+            it.id == LIVE_UPDATE_ID || it.id == LIVE_UPDATE_ALTERNATE_ID || it.id == SUPER_ISLAND_ID
         }.sortedByDescending { it.postTime }
         val identity = notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY).orEmpty()
-        val id = liveUpdateNotificationSlot(
-            active.map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
+        val island = XiaomiSuperIsland.isEnabled(context) &&
+            notification.channelId == XiaomiSuperIsland.ChannelId
+        val id = if (island) SUPER_ISLAND_ID else liveUpdateNotificationSlot(
+            active.filter { it.id != SUPER_ISLAND_ID }
+                .map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
             identity, LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID
         )
         logLiveUpdateIcon(context, notification)
@@ -1168,13 +1210,16 @@ object NotificationScheduler {
             manager.notify(id, notification)
             attachForeground?.invoke(id, notification)
         }
-        listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID).filter { it != id }.forEach(manager::cancel)
+        listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID, SUPER_ISLAND_ID)
+            .filter { it != id }.forEach(manager::cancel)
     }
 
     internal fun cancelLiveUpdateNotifications(context: Context) = synchronized(liveUpdatePostLock) {
+        XiaomiSuperIsland.clearPreview(context)
         val manager = NotificationManagerCompat.from(context)
         manager.cancel(LIVE_UPDATE_ID)
         manager.cancel(LIVE_UPDATE_ALTERNATE_ID)
+        manager.cancel(SUPER_ISLAND_ID)
     }
 
     internal fun logLiveUpdateIcon(context: Context, notification: Notification) {
@@ -1199,7 +1244,9 @@ object NotificationScheduler {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = context.getSystemService(NotificationManager::class.java)
-                ?.getNotificationChannel(CHANNEL_ID)
+                ?.getNotificationChannel(
+                    if (XiaomiSuperIsland.isEnabled(context)) XiaomiSuperIsland.ChannelId else CHANNEL_ID
+                )
             if (channel?.importance == NotificationManager.IMPORTANCE_NONE) return false
         }
         return true

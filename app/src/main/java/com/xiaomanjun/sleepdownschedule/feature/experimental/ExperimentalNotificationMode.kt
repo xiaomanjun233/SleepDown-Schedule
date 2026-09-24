@@ -10,10 +10,13 @@ import com.xiaomanjun.sleepdownschedule.model.NotificationMode
 internal enum class ExperimentalNotificationMode(val label: String) {
     STANDARD("普通通知"),
     LIVE_UPDATE("实时活动"),
-    FLUID_CLOUD("流体云（实验功能）"),
-    FLUID_CLOUD_LIVE_UPDATE("流体云+实时活动（实验功能）"),
-    YOYO_LIVE_UPDATE("YOYO建议+实时活动（实验功能）"),
-    SUPER_ISLAND("超级岛（实验功能）")
+    FLUID_CLOUD("流体云"),
+    FLUID_CLOUD_LIVE_UPDATE("流体云+实时活动"),
+    YOYO_LIVE_UPDATE("YOYO建议+实时活动"),
+    SUPER_ISLAND("超级岛");
+
+    val badgeText: String?
+        get() = if (this == STANDARD || this == LIVE_UPDATE) null else "实验功能"
 }
 
 internal object ExperimentalNotificationModes {

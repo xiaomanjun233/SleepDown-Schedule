@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule
 
 import com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdatePayload
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+import com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiSuperIsland
 
 import android.app.Service
 import android.content.Intent
@@ -35,6 +36,13 @@ class LiveUpdateForegroundService : Service() {
                 stopSelf()
             }
             else -> {
+                if (XiaomiSuperIsland.isEnabled(this)) {
+                    // Focus notifications are posted directly. A queued service start must not
+                    // replace the island with a foreground, ongoing notification.
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 NotificationScheduler.createChannel(this)
                 val payload = intent?.toLiveUpdatePayload() ?: restorePayload()
                 val renderedAtMillis = System.currentTimeMillis()
@@ -69,6 +77,11 @@ class LiveUpdateForegroundService : Service() {
             var firstFrame = true
             var renderedAtMillis = initialRenderedAtMillis
             while (isActive) {
+                if (XiaomiSuperIsland.isEnabled(this@LiveUpdateForegroundService)) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    break
+                }
                 val payload = activePayload ?: break
                 if (payload.shouldStop()) {
                     clearStoredPayload()

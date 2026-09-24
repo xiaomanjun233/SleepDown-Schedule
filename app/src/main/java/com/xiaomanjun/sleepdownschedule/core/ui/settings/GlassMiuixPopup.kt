@@ -17,12 +17,16 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Arrangement
 import com.kyant.shapes.RoundedRectangle
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -33,6 +37,7 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.effects.blur
@@ -42,10 +47,13 @@ import top.yukonga.miuix.kmp.basic.DropdownDefaults
 import top.yukonga.miuix.kmp.basic.DropdownColors
 import top.yukonga.miuix.kmp.basic.DropdownEntry
 import top.yukonga.miuix.kmp.basic.DropdownItem
+import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
+import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.basic.ListPopupVisualStyle
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.overlay.OverlayCascadingListPopup
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** Business model only; Miuix owns popup layout, input and cascading motion. */
 @Immutable
@@ -226,6 +234,7 @@ internal fun SleepDownLiquidDropdownPreference(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     summary: String? = null,
+    selectedBadgeText: String? = null,
     insideMargin: PaddingValues = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
     maxHeight: Dp = 318.dp,
     @Suppress("UNUSED_PARAMETER") expanded: Boolean? = null,
@@ -243,9 +252,26 @@ internal fun SleepDownLiquidDropdownPreference(
     OverlayDropdownPreference(
         items = items,
         selectedIndex = selectedIndex,
-        title = title,
+        title = if (selectedBadgeText == null) title else "",
         modifier = modifier,
         summary = summary,
+        startAction = selectedBadgeText?.let { badge ->
+            {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val colors = BasicComponentDefaults.titleColor()
+                    MiuixText(
+                        text = title,
+                        fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                        fontWeight = FontWeight.Medium,
+                        color = if (enabled) colors.color else colors.disabledColor
+                    )
+                    PreferenceBadge(badge)
+                }
+            }
+        },
         insideMargin = insideMargin,
         maxHeight = maxHeight,
         enabled = enabled,
