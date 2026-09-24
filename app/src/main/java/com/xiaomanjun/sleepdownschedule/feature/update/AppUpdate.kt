@@ -553,10 +553,18 @@ class UpdateDownloadForegroundService : Service() {
         apk: File,
         packageKind: DownloadPackageKind
     ): Notification {
-        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
-        val installIntent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, ApkMimeType)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        val installIntent = if (packageKind == DownloadPackageKind.CourseComponent) {
+            // The settings page checks the downloaded component's identity and version before
+            // installation. A notification must not bypass that check.
+            packageManager.getLaunchIntentForPackage(packageName)
+                ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ?: Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        } else {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
+            Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, ApkMimeType)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
         val install = PendingIntent.getActivity(
             this,
             6102,
@@ -566,14 +574,19 @@ class UpdateDownloadForegroundService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .applyAppNotificationIcon(this)
             .setContentTitle(if (packageKind == DownloadPackageKind.CourseComponent) "课程组件下载完成" else "更新下载完成")
-            .setContentText("点击安装 $name")
+            .setContentText(if (packageKind == DownloadPackageKind.CourseComponent)
+                "返回 SleepDown 查看组件检查结果" else "点击安装 $name")
             .setContentIntent(install)
-            .setOngoing(true)
+            .setOngoing(packageKind != DownloadPackageKind.CourseComponent)
+            .setAutoCancel(packageKind == DownloadPackageKind.CourseComponent)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_STATUS)
             .setColor(Notification.COLOR_DEFAULT)
-            .requestPromotedOngoing("待安装")
+            .let { builder ->
+                if (packageKind == DownloadPackageKind.CourseComponent) builder
+                else builder.requestPromotedOngoing("待安装")
+            }
             .let { builder ->
                 if (Build.VERSION.SDK_INT >= 36) {
                     builder.setStyle(downloadProgressStyle(100))

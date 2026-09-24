@@ -24,39 +24,48 @@ class XiaomiSuperIslandTest {
         duringClassEnabled = true
     )
 
-    @Test fun preClassUsesIndependentFieldsAndNativeCountdownTimer() {
+    @Test fun preClassUsesNexioTextTemplateAndNativeCountdown() {
         val now = start - 10 * 60_000L
         val root = JSONObject(XiaomiSuperIsland.parameters(
-            course, course.statusAt(now), "10分钟",
-            XiaomiIslandFields(XiaomiIslandField.LOCATION, XiaomiIslandField.COUNTDOWN),
-            now
+            course, course.statusAt(now), "10分钟", now
         )).getJSONObject("param_v2")
         val island = root.getJSONObject("param_island").getJSONObject("bigIslandArea")
 
         assertTrue(root.getBoolean("enableFloat"))
-        assertFalse(root.getBoolean("islandFirstFloat"))
-        assertEquals("教学楼 A101", island.getJSONObject("imageTextInfoLeft")
+        assertFalse(root.has("islandFirstFloat"))
+        assertEquals(2, island.getInt("templateNo"))
+        assertEquals("高等数学", island.getJSONObject("imageTextInfoLeft")
             .getJSONObject("textInfo").getString("title"))
-        assertEquals(start, island.getJSONObject("sameWidthDigitInfo")
-            .getJSONObject("timerInfo").getLong("timerWhen"))
-        assertEquals("", island.getJSONObject("textInfo").getString("title"))
+        assertEquals("教学楼 A101", island.getJSONObject("textInfo").getString("title"))
+        assertEquals(start, root.getJSONObject("hintInfo").getJSONObject("timerInfo")
+            .getLong("timerWhen"))
     }
 
-    @Test fun inClassUsesEndTimeAndStillHonorsBothFields() {
+    @Test fun classStartReopensTheSameTextTemplateWithStaticStatus() {
         val now = start + 10 * 60_000L
         val root = JSONObject(XiaomiSuperIsland.parameters(
-            course, course.statusAt(now), "35分钟",
-            XiaomiIslandFields(XiaomiIslandField.COUNTDOWN, XiaomiIslandField.COURSE_NAME),
-            now
+            course, course.statusAt(now), "35分钟", now
+        )).getJSONObject("param_v2")
+        val island = root.getJSONObject("param_island").getJSONObject("bigIslandArea")
+        val hint = root.getJSONObject("hintInfo")
+
+        assertTrue(root.getBoolean("enableFloat"))
+        assertEquals("reopen", root.getString("reopen"))
+        assertEquals(2, island.getInt("templateNo"))
+        assertEquals("已上课", island.getJSONObject("textInfo").getString("title"))
+        assertEquals("现在", hint.getString("content"))
+        assertEquals("已上课", hint.getString("title"))
+        assertEquals(0, hint.getJSONObject("timerInfo").getInt("timerType"))
+    }
+
+    @Test fun timerEndsWhenTheCourseHasExpired() {
+        val now = end + 1L
+        val root = JSONObject(XiaomiSuperIsland.parameters(
+            course, course.statusAt(now), "已下课", now
         )).getJSONObject("param_v2")
         val island = root.getJSONObject("param_island").getJSONObject("bigIslandArea")
 
-        assertFalse(root.getBoolean("enableFloat"))
-        assertTrue(root.getBoolean("islandFirstFloat"))
-        assertEquals("35分钟", island.getJSONObject("imageTextInfoLeft")
-            .getJSONObject("textInfo").getString("title"))
-        assertEquals("高等数学", island.getJSONObject("textInfo").getString("title"))
-        assertEquals(end, root.getJSONObject("hintInfo").getJSONObject("timerInfo").getLong("timerWhen"))
-        assertEquals("距离下课", root.getJSONObject("hintInfo").getString("content"))
+        assertEquals(2, island.getInt("templateNo"))
+        assertEquals(0, root.getJSONObject("hintInfo").getJSONObject("timerInfo").getInt("timerType"))
     }
 }

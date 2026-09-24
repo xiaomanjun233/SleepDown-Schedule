@@ -88,6 +88,7 @@ internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: S
         if (page.value == destination && pageVelocity == 0f &&
             tracks.all { it.value == destination } && velocities.all { it == 0f }) {
             settledSecondary = secondary
+            running = false
             return
         }
         // On reversal keep every group's current position, without another initial pause.
@@ -96,6 +97,7 @@ internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: S
             tracks.any { it.value != settledPosition } || velocities.any { it != 0f }
         val durationScale = currentCoroutineContext()[MotionDurationScale]?.scaleFactor ?: 1f
         running = true
+        var completed = false
         try {
             coroutineScope {
                 launch {
@@ -117,8 +119,12 @@ internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: S
                 }
             }
             settledSecondary = secondary
+            completed = true
         } finally {
-            running = false
+            // An interrupted LaunchedEffect is replaced with a new target. Clearing this flag
+            // between cancellation and restart would unmount the outgoing pane and its groups
+            // while their Animatables still hold an in-flight position.
+            if (completed) running = false
         }
     }
 }
@@ -160,7 +166,7 @@ internal fun Modifier.homeSwitchGroup(cardOrderFraction: Float? = null): Modifie
     val pages = LocalSwitchPages.current
     if (pages.isEmpty()) return this
     val group = remember { mutableIntStateOf(-1) }
-    return onGloballyPositioned { coordinates ->
+    val tracked = onGloballyPositioned { coordinates ->
         if (group.intValue < 0 || pages.none { it.motion.moving }) {
             val height = coordinates.findRootCoordinates().size.height.coerceAtLeast(1)
             val top = coordinates.localToRoot(Offset.Zero).y
@@ -172,13 +178,16 @@ internal fun Modifier.homeSwitchGroup(cardOrderFraction: Float? = null): Modifie
             } ?: screenFraction
             group.intValue = (fraction * SwitchGroupCount).toInt().coerceIn(0, SwitchGroupCount - 1)
         }
-    }.graphicsLayer {
+    }
+    // At rest the translation is zero. Releasing this layer keeps card glass in the same
+    // clipping stack as its wallpaper sampler; the six staggered tracks are kept for motion.
+    return if (pages.any { it.motion.moving }) tracked.graphicsLayer {
         translationX = pages.sumOf { page ->
             (page.direction * page.width.value *
                 (page.motion.progress.value - page.motion.groupProgress(group.intValue))).toDouble()
         }.toFloat()
         clip = false
-    }
+    } else tracked
 }
 
 @Composable

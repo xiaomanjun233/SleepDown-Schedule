@@ -1,7 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
+import com.xiaomanjun.sleepdownschedule.core.ui.text.softTextShadowStrength
 import kotlin.math.pow
-import kotlin.math.roundToInt
 
 /** Keep the chosen text color; protect the difficult parts of its background with a soft shadow. */
 internal fun homeTextShadowStrength(
@@ -9,24 +9,7 @@ internal fun homeTextShadowStrength(
     textLuminance: Float,
     textAlpha: Float = 1f,
     currentStrength: Float = 0f
-): Float {
-    if (!textLuminance.isFinite()) return 0f
-    val foreground = textLuminance.coerceIn(0f, 1f)
-    val ratios = luminances.filter { it.isFinite() }.map { value ->
-        val background = value.coerceIn(0f, 1f)
-        val opaqueContrast = (maxOf(foreground, background) + 0.05f) / (minOf(foreground, background) + 0.05f)
-        // Conservative opacity penalty: translucent secondary labels need at least as much help.
-        1f + (opaqueContrast - 1f) * textAlpha.coerceIn(0f, 1f)
-    }.sorted()
-    if (ratios.isEmpty()) return 0f
-    // Ignore isolated pixels, but retain narrow stripes that the old average washed away.
-    val difficultContrast = ratios[((ratios.size - 1) * 0.10f).toInt()]
-    val exitThreshold = if (currentStrength > 0f) 6.0f else 5.2f
-    if (difficultContrast >= exitThreshold) return 0f
-    val strength = ((5.2f - difficultContrast) / 4.2f).coerceIn(0.125f, 1f)
-    // Eight levels suppress subpixel sampling noise; the UI blends between these targets.
-    return (strength * 8f).roundToInt() / 8f
-}
+): Float = softTextShadowStrength(luminances, textLuminance, textAlpha, currentStrength)
 
 /** The black wallpaper overlay multiplies sRGB channels before relative luminance is computed. */
 internal fun visibleWallpaperLuminance(argb: Int, brightness: Float): Float {

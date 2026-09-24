@@ -868,7 +868,6 @@ private fun CourseEditorSourceShell(
         if (sourceIsWide) {
             CourseEditorDaySourceContent(
                 course = course,
-                backdrop = backdrop,
                 config = config,
                 tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f
             )
@@ -881,15 +880,10 @@ private fun CourseEditorSourceShell(
 @Composable
 private fun CourseEditorDaySourceContent(
     course: CourseEntity,
-    backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     tabletFontScale: Float
 ) {
-    val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
-    val textColor =
-        if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else if (config.courseCardGlassEnabled) readableOn(cardColor)
-        else glassForegroundColor(config)
+    val textColor = homeForegroundColor(config)
     DayCourseCardTextContent(
         course = course,
         periods = emptyList(),

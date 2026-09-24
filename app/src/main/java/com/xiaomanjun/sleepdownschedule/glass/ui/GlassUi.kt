@@ -50,9 +50,12 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
@@ -833,7 +836,9 @@ internal fun Modifier.verticalGlassAccent(
     val edgeColor = accentColor
     val whiteStrength = if (lightWallpaper) 0.45f else 1f
     return this
-            .clip(clipShape)
+            // The stationary course accent must follow the same draw-time outline as its
+            // sampled material. A retained clip layer can keep the last tail translation.
+            .then(if (morphAllocation == null) Modifier else Modifier.clip(clipShape))
             .drawWithCache {
                 // Sliding changes the sampled wallpaper, not these local gradients. Retain
                 // their brushes/shaders until geometry or personalization actually changes.
@@ -850,17 +855,23 @@ internal fun Modifier.verticalGlassAccent(
                     color = Color.White
                     blendMode = BlendMode.Plus
                 }
+                val accentPath = if (morphAllocation == null) Path().apply {
+                    addOutline(clipShape.createOutline(size, layoutDirection, this@drawWithCache))
+                } else null
                 onDrawBehind {
-                    if (bounds == null) {
-                        drawVerticalGlassAccent(brushes, BlendMode.Plus, shadeTop = !surroundingEdgeGlow)
-                    } else {
-                        inset(bounds.left, bounds.top, size.width - bounds.right, size.height - bounds.bottom) {
+                    val drawAccent: DrawScope.() -> Unit = {
+                        if (bounds == null) {
                             drawVerticalGlassAccent(brushes, BlendMode.Plus, shadeTop = !surroundingEdgeGlow)
+                        } else {
+                            inset(bounds.left, bounds.top, size.width - bounds.right, size.height - bounds.bottom) {
+                                drawVerticalGlassAccent(brushes, BlendMode.Plus, shadeTop = !surroundingEdgeGlow)
+                            }
                         }
+                        // Vertex interpolation gives a continuous soft falloff in one cached draw;
+                        // no per-card blur texture, runtime shader or stacked hard strokes.
+                        if (edgeMesh != null) drawContext.canvas.drawVertices(edgeMesh, BlendMode.Modulate, edgePaint)
                     }
-                    // Vertex interpolation gives a continuous soft falloff in one cached draw;
-                    // no per-card blur texture, runtime shader or stacked hard strokes.
-                    if (edgeMesh != null) drawContext.canvas.drawVertices(edgeMesh, BlendMode.Modulate, edgePaint)
+                    if (accentPath == null) drawAccent() else clipPath(accentPath) { drawAccent() }
                 }
             }
             .border(
@@ -1121,15 +1132,24 @@ fun CourseGlassCard(
     )
     val sharedWallpaper = com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop.current
     val requiredBlurPx = with(androidx.compose.ui.platform.LocalDensity.current) { (liquidEffectFrame.blur ?: 0.dp).toPx() }
-    val useSharedWallpaper = sharedWallpaper != null && sharedWallpaper.ready &&
+    val sharedWallpaperCompatible = sharedWallpaper != null &&
         sharedWallpaper.source === glassBackdrop && sharedWallpaper.radiusPx == requiredBlurPx &&
         sharedWallpaper.vibrant == liquidEffectFrame.useVibrancy && morphAllocation == null
-    val sampledSource = if (useSharedWallpaper) sharedWallpaper!! else glassBackdrop
+    val useSharedWallpaper = sharedWallpaperCompatible && sharedWallpaper.ready
+    val sampledSource = if (useSharedWallpaper) sharedWallpaper else glassBackdrop
     // Course highlights use a fixed cached vector instead of the Kyant directional shader.
     val cardEffects = if (useSharedWallpaper) {
         liquidEffectFrame.materialEffectsOnly().copy(blur = null, useVibrancy = false)
     } else liquidEffectFrame.materialEffectsOnly()
     val decorationEffectFrame = liquidEffectFrame.decorationOnly().copy(highlight = null)
+    // At rest and during ordinary card motion, one draw node owns the sampled material,
+    // tint and decorations. They then use the same measured size, outline and placement.
+    // Keep the split path while the sampled material alone is crossfading or suspended.
+    val unifiedLiquidSurface = useGlass && renderSurface && drawMaterialNodes &&
+        !materialCrossfadeActive
+    val unifiedLiquidEffectFrame = if (useSharedWallpaper) {
+        liquidEffectFrame.copy(blur = null, useVibrancy = false, highlight = null)
+    } else liquidEffectFrame.copy(highlight = null)
     val presetHighlight = Modifier.presetCourseCardHighlight(
         shape = shape,
         alpha = (liquidEffectFrame.highlight?.alpha ?: 0f) *
@@ -1205,16 +1225,21 @@ fun CourseGlassCard(
                             descriptor = liquidDescriptor,
                             material = tokens,
                             shape = { shape },
-                            effectFrame = cardEffects,
+                            effectFrame = if (unifiedLiquidSurface) unifiedLiquidEffectFrame else cardEffects,
                             backdropSampleScale = when {
                                 morphAllocation != null -> 1f
-                                useSharedWallpaper -> com.kyant.backdrop.backdrops.SharedBlurSampleScale
+                                // The shared recorder becomes ready during the first home draw.
+                                // Keep the card buffer at one resolution across that handoff;
+                                // dense weeks would otherwise jump from 0.75/0.5 to 1.0.
+                                sharedWallpaperCompatible -> 1f
                                 else -> activeBackdropSampleScale
                             },
                             cacheDecorations = morphAllocation == null,
+                            placementLayer = morphAllocation != null,
                             renderEnabled = { drawMaterialNodes },
                             renderBounds = { morphAllocation?.localBounds() },
-                            allocationPaddingPx = morphAllocation?.paddingPx
+                            allocationPaddingPx = morphAllocation?.paddingPx,
+                            onDrawSurface = if (unifiedLiquidSurface) liquidSurfaceDraw else null
                     )
             } else if (simpleBlurBackdrop != null) {
                 // Non-liquid mode still samples the content behind the course card, but
@@ -1227,6 +1252,7 @@ fun CourseGlassCard(
                         descriptor = simpleDescriptor,
                         material = simpleMaterial,
                         renderEnabled = { drawMaterialNodes },
+                        placementLayer = false,
                         shape = { shape },
                         effectFrame = GlassEffectFrame(blur = simpleBlurValue.dp)
                     )
@@ -1258,8 +1284,12 @@ fun CourseGlassCard(
                         )
                     }
             }
-            Box((if (useGlass || simpleBlurBackdrop != null) materialAlphaModifier else Modifier).then(surfaceModifier))
-            if (useGlass) {
+            Box(
+                (if (useGlass || simpleBlurBackdrop != null) materialAlphaModifier else Modifier)
+                    .then(surfaceModifier)
+                    .then(if (unifiedLiquidSurface) presetHighlight else Modifier)
+            )
+            if (useGlass && !unifiedLiquidSurface) {
                 // Shared/downsampled consumers own only the expensive sampled backdrop. Keep tint,
                 // highlight, outer shadow and inner shadow at full resolution and per-card geometry.
                 Box(
@@ -1272,6 +1302,7 @@ fun CourseGlassCard(
                             shape = { shape },
                             effectFrame = decorationEffectFrame,
                             cacheDecorations = morphAllocation == null,
+                            placementLayer = morphAllocation != null,
                             renderEnabled = { viewportMaterialVisible },
                             renderBounds = { morphAllocation?.localBounds() },
                             allocationPaddingPx = morphAllocation?.paddingPx,
@@ -1296,6 +1327,7 @@ fun CourseGlassCard(
                         ),
                         sampleBackdrop = false,
                         cacheDecorations = true,
+                        placementLayer = false,
                         renderEnabled = { viewportMaterialVisible },
                         onDrawSurface = {
                             drawRect(baseColor.copy(alpha = courseSimpleBlurTintAlpha(

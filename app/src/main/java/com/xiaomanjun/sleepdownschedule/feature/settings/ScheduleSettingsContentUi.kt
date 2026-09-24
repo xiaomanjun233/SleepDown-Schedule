@@ -280,7 +280,9 @@ fun ScheduleSettingsContent(
                 }
                 if (experimentalNotifications.allowsLiveUpdateOptions(notificationMode)) {
                     item(key = "notification-live-course") {
-                        GlassPreferenceSection(if (experimentalNotifications.superIslandEnabled) "课程超级岛（实验功能）" else "课程实时活动") {
+                        GlassPreferenceSection(
+                            if (experimentalNotifications.superIslandEnabled) "课程超级岛" else "课程实时活动"
+                        ) {
                             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                                 SettingsToggleRow(
                                     title = if (experimentalNotifications.superIslandEnabled) "提醒按钮" else "实时活动按钮",
@@ -292,7 +294,7 @@ fun ScheduleSettingsContent(
                                 )
                                 SettingsDivider()
                                 SettingsToggleRow(
-                                    title = if (experimentalNotifications.superIslandEnabled) "上课中超级岛（实验功能）" else "上课中实时活动",
+                                    title = if (experimentalNotifications.superIslandEnabled) "上课中超级岛" else "上课中实时活动",
                                     subtitle = if (experimentalNotifications.superIslandEnabled)
                                         "开启后显示课中提醒与距下课倒计时"
                                     else "开启后会用实时活动提醒距离最近课间还有多久",
@@ -360,7 +362,7 @@ fun ScheduleSettingsContent(
                 item(key = "notification-live-settings") {
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                         SettingsInfoRow(
-                            title = if (experimentalNotifications.superIslandEnabled) "设置超级岛（实验功能）" else "设置实时活动",
+                            title = if (experimentalNotifications.superIslandEnabled) "设置超级岛" else "设置实时活动",
                             body = if (experimentalNotifications.superIslandEnabled)
                                 "请在系统中允许 SleepDown 显示通知。"
                             else "请在系统中允许 SleepDown 显示通知和实时活动。"

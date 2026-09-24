@@ -28,8 +28,10 @@ class CourseTextContrastTest {
         assertTrue(result.blue > result.green && result.green > result.red)
     }
 
-    @Test fun readableOriginalColorIsPreserved() {
-        assertEquals(blue, resolve(0.01f))
+    @Test fun alreadyReadableBlueGetsBrighterOnVeryDarkGlass() {
+        val result = resolve(0.01f)
+        assertTrue(result.luminance() > blue.luminance())
+        assertTrue(contrast(result, 0.01f) >= 4.5f)
     }
 
     @Test fun midtoneBackgroundChoosesTheMoreReadableDirection() {
@@ -40,7 +42,23 @@ class CourseTextContrastTest {
 
     @Test fun isolatedBrightPixelDoesNotFlipTheWholeLabel() {
         val samples = FloatArray(35) { 0.01f }.also { it[0] = 1f }
-        assertEquals(blue, courseTextColorForBackground(blue, samples, blue))
+        assertEquals(resolve(0.01f, previous = blue), courseTextColorForBackground(blue, samples, blue))
+    }
+
+    @Test fun darkGlassEnrichesColorAndBrightGlassSoftensIt() {
+        val seed = Color(0xFF83A7CF)
+        fun saturation(color: Color): Float {
+            val high = maxOf(color.red, color.green, color.blue)
+            val low = minOf(color.red, color.green, color.blue)
+            val lightness = (high + low) / 2f
+            return if (high == low) 0f else (high - low) / (1f - kotlin.math.abs(2f * lightness - 1f))
+        }
+        val dark = resolve(0.02f, seed)
+        val bright = resolve(0.9f, seed)
+        assertTrue(saturation(dark) > saturation(seed))
+        assertTrue(saturation(bright) < saturation(seed))
+        assertTrue(contrast(dark, 0.02f) >= 4.5f)
+        assertTrue(contrast(bright, 0.9f) >= 4.5f)
     }
 
     @Test fun mutedCourseStaysNeutral() {
@@ -55,5 +73,24 @@ class CourseTextContrastTest {
     @Test fun noValidSamplesKeepsThePreviousColor() {
         val previous = Color(0xFFAACCEE)
         assertEquals(previous, courseTextColorForBackground(blue, floatArrayOf(Float.NaN), previous))
+    }
+
+    @Test fun dayPageKeepsCourseHueVisibleWithoutLocalPolarityChanges() {
+        val brightPage = courseTextColorForPage(blue, 0.88f, lightText = false)
+        val darkPage = courseTextColorForPage(blue, 0.04f, lightText = true)
+        val middlePage = courseTextColorForPage(blue, 0.3f, lightText = true)
+        assertTrue(brightPage.luminance() < 0.3f)
+        assertTrue(darkPage.luminance() > 0.3f)
+        assertTrue(darkPage.blue - darkPage.red > 0.1f)
+        assertTrue(middlePage.blue - middlePage.red > 0.1f)
+        assertTrue(brightPage.blue - brightPage.red > 0.1f)
+        val pink = courseTextColorForPage(Color(0xFFF48FB1), 0.3f, lightText = true)
+        assertTrue(pink.red > pink.blue)
+        assertNotEquals(middlePage, pink)
+    }
+
+    @Test fun monochromeCardShadowProtectsWithoutChangingPolarity() {
+        assertTrue(softTextShadowStrength(FloatArray(20) { 0.01f }, 0f) > 0f)
+        assertEquals(0f, softTextShadowStrength(FloatArray(20) { 0.9f }, 0f), 0f)
     }
 }

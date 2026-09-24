@@ -137,15 +137,16 @@ internal fun ExperimentalNotificationPreview(
     SettingsActionButton(
         label = when {
             deletingTest -> "删除测试课程"
-            state.selected == ExperimentalNotificationMode.YOYO_LIVE_UPDATE -> "测试YOYO建议+实时活动（实验功能）"
-            state.selected == ExperimentalNotificationMode.FLUID_CLOUD_LIVE_UPDATE -> "测试流体云+实时活动（实验功能）"
-            state.cloudEnabled -> "测试流体云（实验功能）"
-            state.superIslandEnabled -> "测试超级岛（实验功能）"
+            state.selected == ExperimentalNotificationMode.YOYO_LIVE_UPDATE -> "测试YOYO建议+实时活动"
+            state.selected == ExperimentalNotificationMode.FLUID_CLOUD_LIVE_UPDATE -> "测试流体云+实时活动"
+            state.cloudEnabled -> "测试流体云"
+            state.superIslandEnabled -> "测试超级岛"
             else -> "测试实时活动"
         },
         backdrop = backdrop,
         glowing = true,
         destructive = deletingTest,
+        badgeText = if (deletingTest) null else state.selected.badgeText,
         onClick = {
             if (state.cloudEnabled) {
                 if (state.testActive) {

@@ -27,6 +27,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionSt
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseBridge
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseComponentInstaller
+import com.xiaomanjun.sleepdownschedule.feature.coloros.CourseComponentDownloadCheck
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseContract
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseDiagnostics
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseExperiment
@@ -52,6 +53,7 @@ internal fun ColorOSCourseSettingsSection(
     var componentError by remember { mutableStateOf<String?>(null) }
     var downloadedComponent by remember { mutableStateOf<File?>(null) }
     var checkingComponent by remember { mutableStateOf(false) }
+    var componentStatus by remember { mutableStateOf<String?>(null) }
     val downloadState by GiteeAppUpdater.downloadState.collectAsStateWithLifecycle()
     val componentDownloadState = downloadState.takeIf(ColorOSCourseComponentInstaller::isComponentDownload)
 
@@ -87,15 +89,29 @@ internal fun ColorOSCourseSettingsSection(
         if (checkingComponent || componentDownloadState is UpdateDownloadState.Downloading) return
         checkingComponent = true
         componentError = null
+        componentStatus = null
         scope.launch {
             try {
                 ColorOSCourseComponentInstaller.download(context).fold(
-                    onSuccess = { apk ->
-                        downloadedComponent = apk
-                        if (GiteeAppUpdater.canRequestPackageInstalls(context)) {
-                            installComponent(apk)
-                        } else {
-                            installPermissionLauncher.launch(GiteeAppUpdater.unknownSourcesSettingsIntent(context))
+                    onSuccess = { result ->
+                        when (result) {
+                            is CourseComponentDownloadCheck.Install -> {
+                                downloadedComponent = result.apk
+                                componentStatus = "发现课程组件 ${result.versionName}，请完成安装。"
+                                if (GiteeAppUpdater.canRequestPackageInstalls(context)) {
+                                    installComponent(result.apk)
+                                } else {
+                                    installPermissionLauncher.launch(GiteeAppUpdater.unknownSourcesSettingsIntent(context))
+                                }
+                            }
+                            is CourseComponentDownloadCheck.NoUpdate -> {
+                                downloadedComponent = null
+                                componentStatus = if (result.downloadedIsOlder) {
+                                    "已安装 ${result.installedVersionName}，高于可下载的 ${result.downloadedVersionName}。"
+                                } else {
+                                    "已是最新组件版本 ${result.installedVersionName}。"
+                                }
+                            }
                         }
                     },
                     onFailure = { componentError = it.message ?: "课程组件下载失败" }
@@ -107,15 +123,18 @@ internal fun ColorOSCourseSettingsSection(
     }
 
     val current = diagnostics
+    val isHonor = current?.device?.isHonor ?: ColorOSCourseExperiment.deviceStatus().isHonor
     val supportedDevice = current?.device?.isColorOSFamily
         ?: ColorOSCourseExperiment.deviceStatus().isColorOSFamily
     val wakeUpConflict = current?.officialWakeUpConflict == true
     val proxyReady = current?.let { it.proxyIsSleepDown && it.proxyVersionSupported } == true
-    val componentActionSubtitle = when (val state = componentDownloadState) {
-        is UpdateDownloadState.Downloading -> state.progressPercent?.let { "正在下载：$it%" } ?: "正在下载…"
-        is UpdateDownloadState.Completed -> "点击检查最新版本并安装。"
-        is UpdateDownloadState.Failed -> "下载失败，点击重试。"
-        else -> if (checkingComponent) "正在查找最新组件…" else "自动查找 Gitee 最新组件，下载后进入安装。"
+    val componentActionSubtitle = when {
+        checkingComponent && componentDownloadState is UpdateDownloadState.Downloading ->
+            componentDownloadState.progressPercent?.let { "正在下载：$it%" } ?: "正在下载…"
+        checkingComponent -> "正在检查课程组件版本…"
+        componentStatus != null -> componentStatus.orEmpty()
+        componentDownloadState is UpdateDownloadState.Failed -> "下载失败，点击重试。"
+        else -> "查找最新组件，下载后校验包名、签名和版本。"
     }
     val componentActionButton = when (val state = componentDownloadState) {
         is UpdateDownloadState.Downloading -> state.progressPercent?.let { "$it%" } ?: "下载中"
@@ -130,15 +149,26 @@ internal fun ColorOSCourseSettingsSection(
         ) {
             SettingsInfoRow(
                 title = "使用前准备",
-                body = "流体云适用于 ColorOS，YOYO 建议适用于荣耀 MagicOS。第一次使用请先下载课程组件。"
+                body = if (isHonor) {
+                    "YOYO 建议适用于荣耀 MagicOS。第一次使用请先安装课程组件。"
+                } else {
+                    "课程流体云适用于 OPPO、一加和 realme 的 ColorOS 系统。第一次使用请先安装课程组件。"
+                }
             )
             SettingsDivider()
             SettingsInfoRow(
-                title = "如何使用",
-                body = "1. 安装课程组件。\n" +
-                    "2. ColorOS 请打开系统流体云总开关；荣耀请在 YOYO 建议和通知相关设置中允许课程提醒。\n" +
-                    "3. 在通知设置底部测试所选模式，SleepDown 会自动唤醒课程组件。测试课程约 21～22 分钟后开始，持续 5 分钟。\n" +
-                    "4. 如果仍未显示，请在系统的应用启动管理中允许“WakeUp课程表”自启动和关联启动，再回来测试。荣耀系统可能还会校验组件签名或应用特征，需要以真机结果为准。"
+                title = if (isHonor) "YOYO 建议配置" else "流体云配置",
+                body = if (isHonor) {
+                    "1. 安装课程组件，在系统的 YOYO 建议和通知设置中允许课程提醒。\n" +
+                        "2. 在应用启动管理中为“WakeUp课程表”打开自启动、关联启动和后台运行。\n" +
+                        "3. 回到本页重新同步，再用底部的测试按钮检查效果。测试课程约 21～22 分钟后开始，持续 5 分钟。\n" +
+                        "4. 若仍未显示，检查系统是否限制组件运行；部分荣耀机型还会校验组件签名或应用特征。"
+                } else {
+                    "1. 安装课程组件，打开系统的流体云总开关。\n" +
+                        "2. 在应用启动管理中为“WakeUp课程表”打开自启动、关联启动和后台运行。\n" +
+                        "3. 回到本页重新同步，再用底部的测试按钮检查效果。测试课程约 21～22 分钟后开始，持续 5 分钟。\n" +
+                        "4. 若仍未显示，检查系统通知权限和组件后台限制。"
+                }
             )
             SettingsDivider()
             SettingsInfoRow(
@@ -153,8 +183,8 @@ internal fun ColorOSCourseSettingsSection(
             if (current?.proxyIsSleepDown == true) {
                 SettingsDivider()
                 SettingsActionRow(
-                    title = "组件自启动",
-                    subtitle = "在系统启动管理中允许“WakeUp课程表”自启动和关联启动。",
+                    title = "组件启动权限",
+                    subtitle = "为“WakeUp课程表”打开自启动和关联启动。",
                     buttonText = "设置",
                     iconRes = R.drawable.ic_settings,
                     backdrop = backdrop,
@@ -173,7 +203,7 @@ internal fun ColorOSCourseSettingsSection(
             if (!wakeUpConflict && supportedDevice) {
                 SettingsDivider()
                 SettingsActionRow(
-                    title = if (proxyReady) "更新课程组件" else "安装课程组件",
+                    title = if (proxyReady) "检查课程组件更新" else "安装课程组件",
                     subtitle = componentActionSubtitle,
                     buttonText = componentActionButton,
                     iconRes = R.drawable.ic_download,
@@ -230,7 +260,7 @@ internal fun ColorOSCourseSettingsSection(
 
     if (showDiagnostics && current != null) {
         LiquidAlertDialog(
-            title = "课程流体云诊断",
+            title = if (isHonor) "YOYO 建议诊断" else "课程流体云诊断",
             message = current.asText(),
             actions = listOf(
                 LiquidAlertAction("完成", LiquidAlertActionStyle.Primary) {
@@ -245,7 +275,7 @@ internal fun ColorOSCourseSettingsSection(
 
     componentError?.let { message ->
         LiquidAlertDialog(
-            title = "课程组件未安装",
+            title = "课程组件检查失败",
             message = message,
             actions = listOf(
                 LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {

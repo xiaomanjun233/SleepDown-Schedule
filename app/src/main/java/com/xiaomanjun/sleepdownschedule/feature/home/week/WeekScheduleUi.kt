@@ -507,6 +507,9 @@ internal fun SinglePillWeekScheduleScreen(
                         // requestScrollToPage bypasses key-based position retention for this rebase.
                         pagerState.requestScrollToPage(jump.sourceSlot)
                         weekTail.snapTo(jump.sourceSlot.toFloat())
+                        // The destination is adjacent but still outside the tail's visible range.
+                        // Mount and record its glass before the leading group starts moving.
+                        androidx.compose.runtime.withFrameNanos { }
                         androidx.compose.runtime.withFrameNanos { }
                     }
                     pagerState.animateScrollToPage(
@@ -1134,10 +1137,10 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
         val locationText = course.location.orEmpty()
         val hasLocation = locationText.isNotBlank()
         val hasTeacher = !course.teacher.isNullOrBlank()
-        val textColor = if (glassUsesLightStyle(config)) {
-            ComposeColor.Black
+        val textColor = if (config.courseCardGlassEnabled && courseCardUsesAssignments(config)) {
+            readableOn(courseCardBaseColor(config, course))
         } else {
-            ComposeColor.White
+            glassForegroundColor(config)
         }
         val compact = heightDp < 78f
         val tiny = heightDp < 52f
@@ -1251,7 +1254,8 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
                     color = textColor.copy(alpha = 0.78f),
                     maxLines = locationLines,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    adaptiveContrast = false
                 )
             }
             CourseCardText(
@@ -1267,7 +1271,8 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
                 color = textColor,
                 maxLines = nameLines,
                 overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                adaptiveContrast = false
             )
             if (canShowTeacher) {
                 CourseCardText(
@@ -1282,7 +1287,8 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
                     color = textColor.copy(alpha = 0.58f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    adaptiveContrast = false
                 )
             }
         }
@@ -2132,6 +2138,13 @@ fun WeekCourseColumnsLayer(
     DisposableEffect(courseGlassRestoreRegistry, editWeek) {
         onDispose { courseGlassRestoreRegistry?.removePage(editWeek) }
     }
+    // The pager path supplies a zero offset. Keeping a full-grid layer at rest clips the
+    // outermost columns' glass differently from the cards in the middle.
+    val gridMoving = layerOffset.isRunning || layerOffset.value != 0f || gestureOffset() != 0f
+    val gridMotionModifier = if (gridMoving) Modifier.graphicsLayer {
+        clip = false
+        translationX = layerOffset.value + gestureOffset()
+    } else Modifier
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -2148,10 +2161,7 @@ fun WeekCourseColumnsLayer(
                     ))
                 }
             }
-            .graphicsLayer {
-                clip = false
-                translationX = layerOffset.value + gestureOffset()
-            }
+            .then(gridMotionModifier)
     ) {
         val dayColumnWidth = maxWidth / weekdays.size.coerceAtLeast(1)
         val travel = with(density) { (maxWidth + 96.dp).toPx() }
@@ -3408,8 +3418,14 @@ fun WeekCourseBlock(
         .height(height)
         .homeSwitchGroup(cardOrderFraction)
     val realLandingLiftPx = with(density) { 8.dp.toPx() }
-    val tailModifier = Modifier
-        .graphicsLayer {
+    val tailTransformActive =
+        layerOffset?.isRunning == true || layerOffset?.value != 0f ||
+            weekEditMotionState?.request != null ||
+            weekEditMotionState?.landingRippleCenter != null ||
+            weekEditMotionState?.realCardLandingActive == true ||
+            copyMotion?.active == true || copyMotion?.rippleCenter != null ||
+            copyMotion?.landed == true
+    val tailTransformModifier = if (tailTransformActive) Modifier.graphicsLayer {
             val tailX = layerOffset?.let { offset ->
                 val progress = (kotlin.math.abs(offset.value) / layerTravel.coerceAtLeast(1f)).coerceIn(0f, 1f)
                 val cardFraction = cardOrderFraction
@@ -3475,8 +3491,8 @@ fun WeekCourseBlock(
             scaleX = ripple.scale * realLanding.scale * landingImpact.scaleX
             scaleY = ripple.scale * realLanding.scale * landingImpact.scaleY
             rotationZ = ripple.rotationFactor
-        }
-        .onGloballyPositioned { coordinates ->
+        } else Modifier
+    val tailModifier = tailTransformModifier.onGloballyPositioned { coordinates ->
             val boundsInRoot = coordinates.boundsInRoot()
             ownBoundsRef[0] = boundsInRoot
             if (periodIndex == course.periods.minOrNull() || course.hasCustomTime()) {
@@ -3491,6 +3507,15 @@ fun WeekCourseBlock(
                 weekEditMotionState?.updateRealLandingCenter(boundsInRoot.center)
             }
         }
+    val visibilityModifier = if (
+        shortcuts?.request != null || copyMotion?.active == true ||
+        copyMotion?.hides(course, editWeek) == true
+    ) Modifier.graphicsLayer {
+        val shortcut = shortcuts?.request
+        alpha = if (copyMotion?.hides(course, editWeek) == true ||
+            (shortcut?.course?.id == course.id && shortcut.week == editWeek &&
+                shortcut.bounds == ownBoundsRef[0])) 0f else 1f
+    } else Modifier
     CourseBoundsSource(
         courseId = course.id,
         visible = editingId != course.id,
@@ -3509,12 +3534,7 @@ fun WeekCourseBlock(
                         if (editingAllowed) onLongClick("课程快捷操作") { openShortcut(); true }
                     }
                 }
-                .graphicsLayer {
-                    val shortcut = shortcuts?.request
-                    alpha = if (copyMotion?.hides(course, editWeek) == true ||
-                        (shortcut?.course?.id == course.id && shortcut.week == editWeek &&
-                        shortcut.bounds == ownBoundsRef[0])) 0f else 1f
-                }
+                .then(visibilityModifier)
                 .zIndex(if (liftedVisualActive) 3f else 0f)
         ) {
             conflictUnderlyingCourse
@@ -3604,42 +3624,47 @@ fun WeekCourseBlock(
                     }
                 }
             }
+            val cardTransformActive =
+                bodyDragging || handleDragging || pressScale != 1f ||
+                    editActivationProgress != 0f || editJitterMotion.value != 0f ||
+                    conflictActionResolving || isOverlayTarget ||
+                    activeOverlayCourseId == course.id
+            val cardTransformModifier = if (cardTransformActive) Modifier.graphicsLayer {
+                val activeScale = if (bodyDragging) {
+                    WeekEditLiftedScale
+                } else {
+                    pressScale * (1f + editActivationProgress * 0.006f)
+                }
+                transformOrigin = if (handleDragging) {
+                    TransformOrigin(0.5f, 0f)
+                } else {
+                    TransformOrigin.Center
+                }
+                rotationZ = if (bodyDragging || handleDragging) 0f else editJitterMotion.value * editActivationProgress
+                scaleX = activeScale
+                scaleY = activeScale
+                val departureAlpha = if (conflictActionResolving) {
+                    1f - (conflictCardFlight.value / 0.12f).coerceIn(0f, 1f)
+                } else {
+                    1f
+                }
+                alpha = when {
+                    isOverlayTarget -> if (weekEditMotionState?.realCardVisible == true) 1f else 0f
+                    activeOverlayCourseId == course.id ->
+                        1f - (weekEditMotionState?.revealProgress ?: 1f)
+                    else -> departureAlpha
+                }
+            } else Modifier
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(displayedHeight)
-                    .graphicsLayer {
-                        val activeScale = if (bodyDragging) {
-                            WeekEditLiftedScale
-                        } else {
-                            pressScale * (1f + editActivationProgress * 0.006f)
-                        }
-                        transformOrigin = if (handleDragging) {
-                            TransformOrigin(0.5f, 0f)
-                        } else {
-                            TransformOrigin.Center
-                        }
-                        rotationZ = if (bodyDragging || handleDragging) 0f else editJitterMotion.value * editActivationProgress
-                        scaleX = activeScale
-                        scaleY = activeScale
-                        val departureAlpha = if (conflictActionResolving) {
-                            1f - (conflictCardFlight.value / 0.12f).coerceIn(0f, 1f)
-                        } else {
-                            1f
-                        }
-                        alpha = when {
-                            isOverlayTarget -> if (weekEditMotionState?.realCardVisible == true) 1f else 0f
-                            activeOverlayCourseId == course.id ->
-                                1f - (weekEditMotionState?.revealProgress ?: 1f)
-                            else -> departureAlpha
-                        }
-                    }
+                    .then(cardTransformModifier)
             ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(displayedHeight)
-                    .clipToBounds()
             ) {
             CourseGlassCard(
                 backdrop = activeCardBackdrop,
@@ -3659,7 +3684,7 @@ fun WeekCourseBlock(
             ) {}
             // The day column already knows the measured width. Subcomposing every card again
             // made a single prefetched page spend 17–24ms in measureAndLayout on the 120Hz phone.
-            Box(Modifier.fillMaxWidth().height(displayedHeight).clipToBounds()) {
+            Box(Modifier.fillMaxWidth().height(displayedHeight).clip(cardShape)) {
             val density = LocalDensity.current
             val heightDp = displayedHeight.value
             val widthDp = cardLayoutWidth.value

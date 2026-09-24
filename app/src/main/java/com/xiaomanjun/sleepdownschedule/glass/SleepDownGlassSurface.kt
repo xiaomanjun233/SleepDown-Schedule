@@ -159,6 +159,8 @@ fun Modifier.sleepDownGlassSurface(
     allocationPaddingPx: Float? = null,
     effectInputKey: Any? = null,
     cacheDecorations: Boolean = false,
+    clipGenericOutlineInDraw: Boolean = true,
+    placementLayer: Boolean = true,
     backdropSampleScale: Float = 1f
 ): Modifier {
     if (sceneState?.diagnosticsEnabled == true) {
@@ -189,7 +191,10 @@ fun Modifier.sleepDownGlassSurface(
     // materials, effects and node identities rather than rebuild every course surface.
     val currentCoordinatesFrozen = rememberUpdatedState(LocalGlassCoordinatesFrozen.current)
     val currentSampleRecordKey = rememberUpdatedState(LocalGlassSampleRecordKey.current)
-    val renderOptions = remember(sampleBackdrop, allocationPaddingPx, cacheDecorations, backdropSampleScale) {
+    val renderOptions = remember(
+        sampleBackdrop, allocationPaddingPx, cacheDecorations,
+        clipGenericOutlineInDraw, placementLayer, backdropSampleScale
+    ) {
         com.kyant.backdrop.BackdropRenderOptions(
             enabled = { currentRenderEnabled.value.invoke() },
             sampleBackdrop = sampleBackdrop,
@@ -197,6 +202,8 @@ fun Modifier.sleepDownGlassSurface(
             allocationPadding = allocationPaddingPx,
             effectKey = { currentEffectInputKey.value },
             cacheDecorations = cacheDecorations,
+            clipGenericOutlineInDraw = clipGenericOutlineInDraw,
+            placementLayer = placementLayer,
             sampleScale = backdropSampleScale,
             coordinatesFrozen = { currentCoordinatesFrozen.value.invoke() },
             sampleRecordKey = { currentSampleRecordKey.value.invoke() }

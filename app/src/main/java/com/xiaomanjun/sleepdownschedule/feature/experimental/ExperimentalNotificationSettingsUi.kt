@@ -2,7 +2,6 @@ package com.xiaomanjun.sleepdownschedule.feature.experimental
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,10 +43,8 @@ internal fun ExperimentalNotificationSettingsRow(
         title = "通知样式",
         backdrop = backdrop,
         config = config,
-        modifier = Modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-        maxHeight = 300.dp,
-        onExpandedChange = {},
+        selectedBadgeText = selected.badgeText,
+        maxHeight = 320.dp,
         onSelectedIndexChange = { index -> onSelected(modes[index.coerceIn(modes.indices)]) }
     )
 }
@@ -60,7 +57,6 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
     var shizukuRunning by remember { mutableStateOf(false) }
     var shizukuAuthorized by remember { mutableStateOf(false) }
     var restoring by remember { mutableStateOf(false) }
-    var islandFields by remember(context) { mutableStateOf(XiaomiSuperIsland.fields(context)) }
 
     fun refresh() {
         shizukuRunning = XiaomiSuperIsland.isShizukuRunning()
@@ -72,8 +68,21 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
     GlassPreferenceSection("实验功能") {
         SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
             SettingsInfoRow(
-                "小米超级岛（实验功能）",
-                "课程提醒使用超级岛。Shizuku 授权可提高显示成功率；未就绪时也会照常发送。"
+                "小米超级岛",
+                "采用 Nexio 的课程模板：左侧课程名、右侧地点，课前显示倒计时。Shizuku 授权可提高显示成功率。"
+            )
+            SettingsDivider()
+            SettingsInfoRow(
+                "配置步骤",
+                "1. 在本页将通知样式选为“超级岛”，并允许 SleepDown 发送通知。\n" +
+                    "2. 在系统设置中搜索“超级岛”，确认总开关和 SleepDown 的显示权限已开启。\n" +
+                    "3. 允许 SleepDown 自启动和后台运行，避免课程提醒延迟。\n" +
+                    "4. 回到通知设置底部点“测试超级岛”；课程约 21～22 分钟后开始，持续 5 分钟。"
+            )
+            SettingsDivider()
+            SettingsInfoRow(
+                "Shizuku（可选）",
+                "若系统未显示超级岛，可启动 Shizuku 并在下方授权 SleepDown，然后再次测试。未授权时课程通知仍会正常发送。"
             )
             SettingsDivider()
             SettingsValueRow("系统超级岛", if (systemSupported) "已检测到" else "未检测到，仍会尝试发送")
@@ -83,42 +92,10 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
                 !shizukuAuthorized -> "未授权"
                 else -> "已授权"
             })
-            SettingsDivider()
-            SleepDownLiquidDropdownPreference(
-                items = XiaomiIslandField.entries.map { it.label },
-                selectedIndex = islandFields.left.ordinal,
-                title = "超级岛左侧",
-                backdrop = backdrop,
-                config = config,
-                modifier = Modifier.fillMaxWidth(),
-                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                onExpandedChange = {},
-                onSelectedIndexChange = { index ->
-                    val field = XiaomiIslandField.entries[index.coerceIn(XiaomiIslandField.entries.indices)]
-                    XiaomiSuperIsland.setLeftField(context, field)
-                    islandFields = islandFields.copy(left = field)
-                }
-            )
-            SettingsDivider()
-            SleepDownLiquidDropdownPreference(
-                items = XiaomiIslandField.entries.map { it.label },
-                selectedIndex = islandFields.right.ordinal,
-                title = "超级岛右侧",
-                backdrop = backdrop,
-                config = config,
-                modifier = Modifier.fillMaxWidth(),
-                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                onExpandedChange = {},
-                onSelectedIndexChange = { index ->
-                    val field = XiaomiIslandField.entries[index.coerceIn(XiaomiIslandField.entries.indices)]
-                    XiaomiSuperIsland.setRightField(context, field)
-                    islandFields = islandFields.copy(right = field)
-                }
-            )
             if (!shizukuRunning || !shizukuAuthorized) {
                 SettingsDivider()
                 SettingsActionRow(
-                    title = "Shizuku 授权（实验功能）",
+                    title = "Shizuku 授权",
                     subtitle = if (shizukuRunning) "授权 SleepDown 使用 Shizuku。" else "安装并启动 Shizuku 后返回此页。",
                     buttonText = if (shizukuRunning) "授权" else "打开",
                     iconRes = R.drawable.ic_settings,

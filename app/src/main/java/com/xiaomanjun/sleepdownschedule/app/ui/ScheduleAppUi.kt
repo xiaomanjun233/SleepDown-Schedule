@@ -1609,6 +1609,7 @@ fun CourseScheduleAppUi(
         visualState.periods,
         wallpaperImages.renderKey,
         wallpaperImages.source,
+        homeWallpaperRecordKey.value,
         homeCourseColorSignature,
         homeMode,
         homeDisplayWeek,
@@ -1629,6 +1630,9 @@ fun CourseScheduleAppUi(
             append(visualState.periods.hashCode()).append('|')
             append(wallpaperImages.renderKey).append('|')
             append(wallpaperImages.source != null).append('|')
+            // The drawable becomes recordable after its source bitmap is first presented.
+            // Re-capture the home scene then; the bitmap selection may be unchanged.
+            append(homeWallpaperRecordKey.value?.hashCode()).append('|')
             append(homeCourseColorSignature.hashCode()).append('|')
             append(homeMode).append('|').append(homeDisplayWeek).append('|').append(homeDisplayDate)
                 .append('|').append(editingCourseId)
@@ -2124,8 +2128,10 @@ fun CourseScheduleAppUi(
     val sharedCourseBackdrop = remember(backgroundBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy) {
         com.kyant.backdrop.backdrops.SharedBlurBackdrop(backgroundBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
     }
-    val useSharedCourseBackdrop = rootPageMotion.retains(false) && visualState.config.courseCardGlassEnabled &&
-        wallpaperImages.source != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val sharedCourseBackdropExpected = rootPageMotion.retains(false) &&
+        visualState.config.courseCardGlassEnabled && visualState.config.hasAnyWallpaper() &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val useSharedCourseBackdrop = sharedCourseBackdropExpected && wallpaperImages.source != null
     lateinit var handleHomeAgentAction: AgentActionHandler
     handleHomeAgentAction = {
         plan: AgentPlan,
@@ -2226,7 +2232,7 @@ fun CourseScheduleAppUi(
         LocalCourseCopy provides courseCopy,
         LocalCourseRemoval provides courseRemoval,
         com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop provides
-            sharedCourseBackdrop.takeIf { useSharedCourseBackdrop },
+            sharedCourseBackdrop.takeIf { sharedCourseBackdropExpected },
         LocalSharedTransitionScope provides activeSharedTransitionScope,
         LocalEditingCourseId provides editingCourseId,
         LocalCourseEditorFlightRegistry provides courseEditorFlightRegistry,
@@ -4882,11 +4888,7 @@ internal fun CourseBoundsSource(
     modifier: Modifier = Modifier,
     content: @Composable (Modifier) -> Unit
 ) {
-    content(
-        modifier.graphicsLayer {
-            alpha = if (visible) 1f else 0f
-        }
-    )
+    content(modifier.then(if (visible) Modifier else Modifier.graphicsLayer { alpha = 0f }))
 }
 
 @Composable
@@ -9393,6 +9395,19 @@ fun ChangelogSettingsScreen(
                 // One continuous panel. Canvas clipping avoids a texture as tall as all expanded
                 // versions; each details animation still owns only its own small graphics layer.
                 AboutGlassPanel(darkTheme, Modifier.fillMaxWidth(), longContent = true) {
+            changelogItem(
+                    "1.2.6_beta10",
+                    "日周视图和首页／设置切换保留分组甩尾与柔和回弹；快速反向切换时内容跟随到位。切周时同行卡片保持原有间距，行间甩尾更明显。切回周视图时复用已预留的卡片，减少重建卡顿。\n" +
+                    "课程卡片的黑白文字在难以辨认的背景上增加柔和阴影，保持统一的文字颜色；开启彩色文字后，颜色会在暗处更鲜明、亮处更柔和。\n" +
+                    "切换周次按钮按相邻页面动画连续跳转；手指滑动时课程跟随触点，停在半途也会逐步到位。无界周视图的星期标题随滑动预览目标周。\n" +
+                    "教务导入与自动刷新共用学校入口列表；不支持后台完整取课的入口提示可能需要手动刷新。已登录学校可保留会话打开教务页面手动刷新，登录操作失败会给出明确提示。\n" +
+                    "自动刷新会检查更新后的学校适配器；手动刷新课表和更新适配器显示具体结果。优化学校搜索键盘位置，并支持系统密码管理器在登录成功后保存或更新凭证。\n" +
+                    "导入课程自带的逐节上课时间会保留在编辑、复制、备份恢复、ICS 和分享中；日周视图按课程实际时间显示当前节次。\n" +
+                    "普通版并入厂商课程通知实验功能：OPPO／一加／realme 可选流体云或流体云与实时活动并行，荣耀可选 YOYO 建议与实时活动并行。通知样式按设备分别展示并标注实验功能。\n" +
+                    "小米设备可选课程超级岛，课前倒计时、课程名和地点使用课程模板；设置页提供配置、权限与测试步骤，Shizuku 授权为可选项。\n" +
+                    "OPPO 流体云和荣耀 YOYO 建议分别提供配置与诊断说明，提醒为课程组件开启自启动、关联启动和后台运行。课程组件换用新图标，检查更新时校验下载包身份和版本。\n" +
+                    "更新日志恢复连续浏览与多版本展开，并保留展开状态。"
+                )
             changelogItem(
                     "1.2.6_beta9",
                     "新增自动刷新课表，可选择从不、每天或每7天更新，登录失效后可重新连接教务。\n" +
