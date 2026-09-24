@@ -43,7 +43,8 @@ internal fun CourseCardText(
     lineHeight: TextUnit = TextUnit.Unspecified,
     textAlign: TextAlign? = null,
     maxLines: Int = Int.MAX_VALUE,
-    overflow: TextOverflow = TextOverflow.Clip
+    overflow: TextOverflow = TextOverflow.Clip,
+    adaptiveContrast: Boolean = true
 ) {
     val fallback = remember(themeColor, color) {
         themeColor?.let {
@@ -63,7 +64,9 @@ internal fun CourseCardText(
             lerp(base, contrastColor, maximumMix)
         } ?: color
     }
-    val background = LocalCourseTextBackground.current
+    // A lifted or morphing card spans a changing underlay. Keep all of its labels on the
+    // same polarity until it returns to the stationary timetable.
+    val background = if (adaptiveContrast) LocalCourseTextBackground.current else null
     var target by remember(themeColor, fallback) { mutableStateOf(fallback) }
     val foreground by animateColorAsState(target, tween(180), label = "course-text-lightness")
     val coordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }

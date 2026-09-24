@@ -8,6 +8,8 @@ import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.GraphicsLayerScope
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -36,12 +38,12 @@ import androidx.compose.ui.unit.IntSize
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.SharedBlurBackdrop
 import androidx.compose.ui.layout.positionInWindow
-import kotlin.math.roundToInt
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.highlight.HighlightElement
 import com.kyant.backdrop.internal.ShapeProvider
 import com.kyant.backdrop.internal.recordLayer
 import com.kyant.backdrop.internal.BackdropRecordingCache
+import com.kyant.backdrop.internal.clipOutline
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.InnerShadowElement
 import com.kyant.backdrop.shadow.Shadow
@@ -249,7 +251,7 @@ private class DrawBackdropElement(
 
 private class DrawBackdropNode(
     var backdrop: Backdrop,
-    var shapeProvider: ShapeProvider,
+    shapeProvider: ShapeProvider,
     var effects: BackdropEffectScope.() -> Unit,
     var layerBlock: (GraphicsLayerScope.() -> Unit)?,
     var exportedBackdrop: LayerBackdrop?,
@@ -258,6 +260,10 @@ private class DrawBackdropNode(
     var onDrawSurface: (DrawScope.() -> Unit)?,
     var onDrawFront: (DrawScope.() -> Unit)?
 ) : LayoutModifierNode, DrawModifierNode, GlobalPositionAwareModifierNode, ObserverModifierNode, Modifier.Node() {
+
+    // The placement layer retains its callback after a pager reuses a card host. Observe a
+    // replacement provider so its clip follows the current outline at unchanged size.
+    var shapeProvider: ShapeProvider by mutableStateOf(shapeProvider)
 
     private val effectScope =
         object : BackdropEffectScopeImpl() {
@@ -270,6 +276,7 @@ private class DrawBackdropNode(
     private val sampleRecordingCache = BackdropRecordingCache()
     private var lastEffectKey: Any? = null
     private var lastEffectShape: Shape? = null
+    private val drawClipPath = Path()
 
     private val layoutLayerBlock: GraphicsLayerScope.() -> Unit = {
         clip = true
@@ -317,10 +324,8 @@ private class DrawBackdropNode(
 
             val recordKey = shapeProvider.options.sampleRecordKey()
             val recordingSize = IntSize(
-                if (sampleScale == 1f) size.width.toInt() + allocationPadding.toInt() * 2
-                else ceil(size.width * sampleScale + allocationPadding * 2).toInt(),
-                if (sampleScale == 1f) size.height.toInt() + allocationPadding.toInt() * 2
-                else ceil(size.height * sampleScale + allocationPadding * 2).toInt()
+                ceil(size.width * sampleScale + allocationPadding * 2).toInt().coerceAtLeast(1),
+                ceil(size.height * sampleScale + allocationPadding * 2).toInt().coerceAtLeast(1)
             )
             val reuseSample = shapeProvider.options.coordinatesFrozen() &&
                 !sampleRecordingCache.needsRecord(recordKey, recordingSize, density, fontScale, layoutDirection)
@@ -341,13 +346,7 @@ private class DrawBackdropNode(
                     val offset = try { source.localPositionOf(card) } catch (_: IllegalArgumentException) {
                         card.positionInWindow() - source.positionInWindow()
                     }
-                    recordLayer(
-                        layer,
-                        size = IntSize(
-                            (size.width * sampleScale + allocationPadding * 2).roundToInt().coerceAtLeast(1),
-                            (size.height * sampleScale + allocationPadding * 2).roundToInt().coerceAtLeast(1)
-                        )
-                    ) {
+                    recordLayer(layer, size = recordingSize) {
                         val canvas = drawContext.canvas
                         canvas.save()
                         canvas.translate(-offset.x * sampleScale + padding, -offset.y * sampleScale + padding)
@@ -356,16 +355,7 @@ private class DrawBackdropNode(
                     }
                     BackdropDiagnostics.event("Sample.SharedDirect")
                 } else {
-                    recordLayer(
-                        layer,
-                        size = IntSize(
-                            if (sampleScale == 1f) size.width.toInt() + allocationPadding.toInt() * 2
-                            else ceil(size.width * sampleScale + allocationPadding * 2).toInt(),
-                            if (sampleScale == 1f) size.height.toInt() + allocationPadding.toInt() * 2
-                            else ceil(size.height * sampleScale + allocationPadding * 2).toInt()
-                        ),
-                        block = recordBackdropBlock
-                    )
+                    recordLayer(layer, size = recordingSize, block = recordBackdropBlock)
                 }
 
                 layerDiagnostics.recorded(layer.size)
@@ -376,8 +366,9 @@ private class DrawBackdropNode(
             layer.topLeft = IntOffset.Zero
             drawContext.canvas.save()
             drawContext.canvas.scale(1f / sampleScale, 1f / sampleScale)
-            val drawPadding = if (sampleScale == 1f) padding.toInt().toFloat() else padding
-            drawContext.canvas.translate(-drawPadding, -drawPadding)
+            // Recording adds the exact effect padding. Subtracting its integer part at 1x
+            // shifts only the sampled pixels by a fraction while tint and outline stay put.
+            drawContext.canvas.translate(-padding, -padding)
             drawLayer(layer)
             drawContext.canvas.restore()
         }
@@ -389,7 +380,11 @@ private class DrawBackdropNode(
     ): MeasureResult {
         val placeable = measurable.measure(constraints)
         return layout(placeable.width, placeable.height) {
-            placeable.placeWithLayer(IntOffset.Zero, layerBlock = layoutLayerBlock)
+            if (shapeProvider.options.placementLayer) {
+                placeable.placeWithLayer(IntOffset.Zero, layerBlock = layoutLayerBlock)
+            } else {
+                placeable.place(IntOffset.Zero)
+            }
         }
     }
 
@@ -400,6 +395,10 @@ private class DrawBackdropNode(
         shapeProvider.options.coordinatesFrozen()
         // Keep the draw observation even when a frozen sample skips the recording block.
         layoutCoordinates
+        // Reads made inside GraphicsLayer.record are not owned by this modifier's draw
+        // observer. Observe the shared wallpaper origin here so its first placement refreshes
+        // cards that drew before the producer reported coordinates.
+        (backdrop as? SharedBlurBackdrop)?.source?.layerCoordinates
         if (!shapeProvider.options.enabled()) return drawContent()
         val bounds = shapeProvider.options.bounds()
         val sampleScale = shapeProvider.options.sampleScale
@@ -415,11 +414,27 @@ private class DrawBackdropNode(
             updateEffects(geometryChanged = true)
         }
 
-        drawSurfaceCallback(onDrawBehind)
-        drawBackdropLayer()
-        drawSurfaceCallback(onDrawSurface)
-        drawContent()
-        drawSurfaceCallback(onDrawFront)
+        // A retained placement layer may replay rectangular pixels after a card is reused.
+        // Clip the material recording to the current rounded or path outline as well; the
+        // separate highlight and shadow nodes keep their original out-of-bounds light.
+        val outline = if (shapeProvider.options.clipGenericOutlineInDraw) {
+            shapeProvider.shape.createOutline(size, layoutDirection, this)
+        } else null
+        val canvas = drawContext.canvas
+        val clipMaterial = outline != null && outline !is Outline.Rectangle
+        if (clipMaterial) {
+            canvas.save()
+            canvas.clipOutline(checkNotNull(outline), drawClipPath)
+        }
+        try {
+            drawSurfaceCallback(onDrawBehind)
+            drawBackdropLayer()
+            drawSurfaceCallback(onDrawSurface)
+            drawContent()
+            drawSurfaceCallback(onDrawFront)
+        } finally {
+            if (clipMaterial) canvas.restore()
+        }
 
         exportedBackdrop?.graphicsLayer?.let { layer ->
             recordLayer(layer) {

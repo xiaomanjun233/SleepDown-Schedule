@@ -1609,6 +1609,7 @@ fun CourseScheduleAppUi(
         visualState.periods,
         wallpaperImages.renderKey,
         wallpaperImages.source,
+        homeWallpaperRecordKey.value,
         homeCourseColorSignature,
         homeMode,
         homeDisplayWeek,
@@ -1629,6 +1630,9 @@ fun CourseScheduleAppUi(
             append(visualState.periods.hashCode()).append('|')
             append(wallpaperImages.renderKey).append('|')
             append(wallpaperImages.source != null).append('|')
+            // The drawable becomes recordable after its source bitmap is first presented.
+            // Re-capture the home scene then; the bitmap selection may be unchanged.
+            append(homeWallpaperRecordKey.value?.hashCode()).append('|')
             append(homeCourseColorSignature.hashCode()).append('|')
             append(homeMode).append('|').append(homeDisplayWeek).append('|').append(homeDisplayDate)
                 .append('|').append(editingCourseId)
@@ -4882,11 +4886,7 @@ internal fun CourseBoundsSource(
     modifier: Modifier = Modifier,
     content: @Composable (Modifier) -> Unit
 ) {
-    content(
-        modifier.graphicsLayer {
-            alpha = if (visible) 1f else 0f
-        }
-    )
+    content(modifier.then(if (visible) Modifier else Modifier.graphicsLayer { alpha = 0f }))
 }
 
 @Composable

@@ -41,7 +41,10 @@ import kotlin.math.roundToInt
 class SharedBlurBackdrop(val source: LayerBackdrop, val radiusPx: Float, val vibrant: Boolean) : Backdrop {
     internal var layer: GraphicsLayer? by mutableStateOf(null)
     internal var sampleScale: Float = 1f
-    val ready: Boolean get() = layer != null
+    // A recorder can publish its layer before the wallpaper producer has reported its
+    // coordinates. Consumers created in that frame would otherwise record an empty sample
+    // and keep it until the first page gesture invalidates their draw nodes.
+    val ready: Boolean get() = layer != null && source.layerCoordinates?.isAttached == true
     override val isCoordinatesDependent = true
     private val inverse = InverseLayerScope()
 

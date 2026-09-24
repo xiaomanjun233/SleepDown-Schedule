@@ -4,6 +4,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WeekTailTimelineTest {
+    @Test fun outgoingPageSurvivesUntilTheLastTailGroupLeaves() {
+        val timeline = WeekTailTimeline(0f)
+        timeline.advance(0L, 0f, 0, 1f)
+        val trailing = timeline.advance(16_000_000L, 1f, 0, 1f)
+        assertTrue(weekPageIntersectsTail(0, 1f, trailing))
+        assertTrue(weekPageIntersectsTail(1, 1f, trailing))
+        assertFalse(weekPageIntersectsTail(2, 1f, trailing))
+        val settled = timeline.advance(160_000_000L, 1f, 0, 1f)
+        assertFalse(weekPageIntersectsTail(0, 1f, settled))
+        assertTrue(weekPageIntersectsTail(1, 1f, settled))
+    }
+
+    @Test fun reversedJumpReleasesOnlyTheFullyHiddenPage() {
+        val timeline = WeekTailTimeline(19f)
+        timeline.advance(0L, 19f, 0, 1f)
+        val trailing = timeline.advance(16_000_000L, 18f, 0, 1f)
+        assertTrue(weekPageIntersectsTail(19, 18f, trailing))
+        assertTrue(weekPageIntersectsTail(18, 18f, trailing))
+        assertFalse(weekPageIntersectsTail(17, 18f, trailing))
+        val settled = timeline.advance(160_000_000L, 18f, 0, 1f)
+        assertFalse(weekPageIntersectsTail(19, 18f, settled))
+        assertTrue(weekPageIntersectsTail(18, 18f, settled))
+    }
+
     @Test fun realCardOrderAndScreenPositionBothAffectRowAndColumnGrouping() {
         val screenOnly = weekTailGroupForCard(0.5f, 0.5f, null, null)
         assertEquals(weekTailGroup(3, 3), screenOnly)
