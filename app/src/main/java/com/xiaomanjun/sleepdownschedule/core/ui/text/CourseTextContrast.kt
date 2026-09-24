@@ -39,15 +39,9 @@ internal fun softTextShadowStrength(
     return (strength * 8f).roundToInt() / 8f
 }
 
-/** Keep the course hue while adjusting lightness and saturation for the sampled background. */
-internal fun courseTextColorForBackground(
-    seed: Color,
-    samples: FloatArray,
-    previous: Color,
-    lockedLightPolarity: Boolean? = null
-): Color {
-    val backgrounds = samples.filter { it.isFinite() }.map { it.coerceIn(0f, 1f) }
-    if (backgrounds.isEmpty()) return previous
+private data class CourseHsl(val hue: Float, val saturation: Float, val lightness: Float)
+
+private fun courseHsl(seed: Color): CourseHsl {
     val high = maxOf(seed.red, seed.green, seed.blue)
     val low = minOf(seed.red, seed.green, seed.blue)
     val delta = high - low
@@ -61,16 +55,37 @@ internal fun courseTextColorForBackground(
         }
         (sector * 60f + 360f) % 360f
     }
+    return CourseHsl(hue, saturation, lightness)
+}
+
+/** Day cards share the page's light/dark direction while keeping each course hue visible. */
+internal fun courseTextColorForPage(seed: Color, pageLuminance: Float, lightText: Boolean): Color {
+    val (hue, saturation, lightness) = courseHsl(seed)
+    val page = pageLuminance.coerceIn(0f, 1f)
+    val darkAmount = ((0.55f - page) / 0.55f).coerceIn(0f, 1f)
+    val brightAmount = ((page - 0.45f) / 0.55f).coerceIn(0f, 1f)
+    val coloredSaturation = if (saturation < 0.01f) 0f else {
+        (saturation * (if (lightText) 1f + darkAmount * 0.2f else 1f - brightAmount * 0.25f))
+            .coerceIn(0.42f, 0.95f)
+    }
+    val coloredLightness = if (lightText) {
+        (0.68f + (lightness - 0.5f) * 0.2f + darkAmount * 0.06f).coerceIn(0.62f, 0.82f)
+    } else {
+        (0.36f + (lightness - 0.5f) * 0.12f - brightAmount * 0.05f).coerceIn(0.26f, 0.40f)
+    }
+    return Color.hsl(hue, coloredSaturation, coloredLightness)
+}
+
+/** Keep the course hue while adjusting lightness and saturation for the sampled background. */
+internal fun courseTextColorForBackground(seed: Color, samples: FloatArray, previous: Color): Color {
+    val backgrounds = samples.filter { it.isFinite() }.map { it.coerceIn(0f, 1f) }
+    if (backgrounds.isEmpty()) return previous
+    val (hue, saturation, lightness) = courseHsl(seed)
     fun contrast(color: Color): Float {
         val foreground = color.luminance()
         val ratios = backgrounds.map { (maxOf(it, foreground) + 0.05f) / (minOf(it, foreground) + 0.05f) }.sorted()
         // A card blurs fine texture. Protect the least readable fifth, without following single pixels.
         return ratios[((ratios.size - 1) * 0.2f).toInt()]
-    }
-    fun allowedPolarity(color: Color): Boolean = when (lockedLightPolarity) {
-        true -> color.luminance() >= 0.42f
-        false -> color.luminance() <= 0.14f
-        null -> true
     }
     val medianBackground = backgrounds.sorted()[backgrounds.size / 2]
     val darkAmount = ((0.25f - medianBackground) / 0.25f).coerceIn(0f, 1f)
@@ -82,13 +97,13 @@ internal fun courseTextColorForBackground(
         .coerceIn(0.08f, 0.96f)
     val original = seed.copy(alpha = 1f)
     if (darkAmount < 0.01f && brightAmount < 0.01f &&
-        allowedPolarity(original) && contrast(original) >= 4.5f) return original
+        contrast(original) >= 4.5f) return original
     val previousLight = previous.luminance() > 0.18f
     val preferred = Color.hsl(hue, preferredSaturation, preferredLightness)
     val preferredContrast = contrast(preferred)
-    if (allowedPolarity(preferred) && preferredContrast >= 4.5f) {
+    if (preferredContrast >= 4.5f) {
         val previousContrast = contrast(previous)
-        if (allowedPolarity(previous) && (preferred.luminance() > 0.18f) != previousLight &&
+        if ((preferred.luminance() > 0.18f) != previousLight &&
             previousContrast >= 4.2f && preferredContrast < previousContrast + 0.6f) return previous
         return preferred
     }
@@ -103,13 +118,11 @@ internal fun courseTextColorForBackground(
             Triple(color, contrast(color), change)
         }
     }
-    val allowed = candidates.filter { allowedPolarity(it.first) }
-    val chosen = allowed.filter { it.second >= 4.5f }.minByOrNull { it.third }
-        ?: allowed.maxByOrNull { it.second }
+    val chosen = candidates.filter { it.second >= 4.5f }.minByOrNull { it.third }
         ?: candidates.maxBy { it.second }
     val previousContrast = contrast(previous)
     // Keep the current polarity in the narrow band where neither choice has a real advantage.
-    if (allowedPolarity(previous) && (chosen.first.luminance() > 0.18f) != previousLight &&
+    if ((chosen.first.luminance() > 0.18f) != previousLight &&
         previousContrast >= 4.2f && chosen.second < previousContrast + 0.6f) return previous
     return chosen.first
 }

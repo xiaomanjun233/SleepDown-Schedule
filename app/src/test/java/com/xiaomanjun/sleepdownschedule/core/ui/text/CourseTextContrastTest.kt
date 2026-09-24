@@ -75,17 +75,18 @@ class CourseTextContrastTest {
         assertEquals(previous, courseTextColorForBackground(blue, floatArrayOf(Float.NaN), previous))
     }
 
-    @Test fun pagePolarityKeepsColoredTextInOneBrightnessBand() {
-        val brightPage = courseTextColorForBackground(
-            blue, floatArrayOf(0.88f), Color.Black, lockedLightPolarity = false
-        )
-        val darkPage = courseTextColorForBackground(
-            blue, floatArrayOf(0.04f), Color.White, lockedLightPolarity = true
-        )
-        assertTrue(brightPage.luminance() <= 0.14f)
-        assertTrue(darkPage.luminance() >= 0.42f)
-        assertTrue(brightPage.blue > brightPage.red)
-        assertTrue(darkPage.blue > darkPage.red)
+    @Test fun dayPageKeepsCourseHueVisibleWithoutLocalPolarityChanges() {
+        val brightPage = courseTextColorForPage(blue, 0.88f, lightText = false)
+        val darkPage = courseTextColorForPage(blue, 0.04f, lightText = true)
+        val middlePage = courseTextColorForPage(blue, 0.3f, lightText = true)
+        assertTrue(brightPage.luminance() < 0.3f)
+        assertTrue(darkPage.luminance() > 0.3f)
+        assertTrue(darkPage.blue - darkPage.red > 0.1f)
+        assertTrue(middlePage.blue - middlePage.red > 0.1f)
+        assertTrue(brightPage.blue - brightPage.red > 0.1f)
+        val pink = courseTextColorForPage(Color(0xFFF48FB1), 0.3f, lightText = true)
+        assertTrue(pink.red > pink.blue)
+        assertNotEquals(middlePage, pink)
     }
 
     @Test fun monochromeCardShadowProtectsWithoutChangingPolarity() {

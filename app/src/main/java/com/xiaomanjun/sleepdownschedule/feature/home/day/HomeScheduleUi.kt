@@ -5,7 +5,7 @@ import com.xiaomanjun.sleepdownschedule.feature.agent.excludeHomeAssistantPull
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseCardText
-import com.xiaomanjun.sleepdownschedule.core.ui.text.courseTextColorForBackground
+import com.xiaomanjun.sleepdownschedule.core.ui.text.courseTextColorForPage
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
@@ -2095,11 +2095,10 @@ private fun dayCourseTextColor(
         LocalAdaptiveGlass.current.luminance
     }
     return remember(seed, pageLuminance, pageForeground) {
-        courseTextColorForBackground(
+        courseTextColorForPage(
             seed = seed,
-            samples = floatArrayOf(pageLuminance),
-            previous = pageForeground,
-            lockedLightPolarity = pageForeground.luminance() >= 0.5f
+            pageLuminance = pageLuminance,
+            lightText = pageForeground.luminance() >= 0.5f
         )
     }
 }
@@ -2108,7 +2107,8 @@ private fun dayCourseTextColor(
 fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, simultaneousCount: Int = 1, tabletFontScale: Float = 1f, readOnly: Boolean = false, muted: Boolean = false, occurrenceDate: LocalDate? = null, completed: Boolean = false) {
     val adjustedEditor = LocalAdjustedCourseEditor.current
     val subdued = muted || completed
-    val foreground = dayCourseTextColor(config, course, homeForegroundColor(config), subdued)
+    val pageForeground = homeForegroundColor(config)
+    val foreground = dayCourseTextColor(config, course, pageForeground, subdued)
     Column(modifier = Modifier.homeSwitchGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         CourseGlassCard(
             backdrop = backdrop,
@@ -2128,7 +2128,8 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                 style = MaterialTheme.typography.labelLarge,
                 color = foreground,
                 themeColor = null,
-                fontWeight = if (!subdued && config.courseCardColoredTextEnabled) FontWeight.Bold else null
+                fontWeight = if (!subdued && config.courseCardColoredTextEnabled) FontWeight.Bold else null,
+                shadowLightText = pageForeground.luminance() >= 0.5f
             )
         }
         CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config,
@@ -2154,6 +2155,7 @@ internal fun DayCourseCardTextContent(
     val coloredText = !muted && config.courseCardColoredTextEnabled
     val renderedTextColor = dayCourseTextColor(config, course, textColor, muted)
     val coloredWeight = if (coloredText) FontWeight.Bold else null
+    val lightText = textColor.luminance() >= 0.5f
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val safeTabletScale = tabletFontScale.coerceAtLeast(1f)
         val titleStyle = MaterialTheme.typography.titleMedium.copy(
@@ -2164,21 +2166,22 @@ internal fun DayCourseCardTextContent(
             fontSize = MaterialTheme.typography.bodyMedium.fontSize * safeTabletScale,
             lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * safeTabletScale
         )
-        CourseCardText(course.name, style = titleStyle, color = renderedTextColor, themeColor = null, fontWeight = coloredWeight)
+        CourseCardText(course.name, style = titleStyle, color = renderedTextColor, themeColor = null, fontWeight = coloredWeight, shadowLightText = lightText)
         if (showTime) {
             CourseCardText(
                 courseHomeTimeDetail(course, periods),
                 themeColor = null,
                 style = bodyStyle,
                 color = renderedTextColor.copy(alpha = 0.86f),
-                fontWeight = coloredWeight
+                fontWeight = coloredWeight,
+                shadowLightText = lightText
             )
         }
         if (!course.location.isNullOrBlank()) {
-            CourseCardText("地点：" + course.location, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight)
+            CourseCardText("地点：" + course.location, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight, shadowLightText = lightText)
         }
         if (!course.teacher.isNullOrBlank()) {
-            CourseCardText("教师：" + course.teacher, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight)
+            CourseCardText("教师：" + course.teacher, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight, shadowLightText = lightText)
         }
         if (showWeeks) {
             CourseCardText(
@@ -2186,11 +2189,12 @@ internal fun DayCourseCardTextContent(
                 themeColor = null,
                 style = bodyStyle,
                 color = renderedTextColor.copy(alpha = 0.86f),
-                fontWeight = coloredWeight
+                fontWeight = coloredWeight,
+                shadowLightText = lightText
             )
         }
         if (!course.note.isNullOrBlank()) {
-            CourseCardText("备注：" + course.note, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight)
+            CourseCardText("备注：" + course.note, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight, shadowLightText = lightText)
         }
     }
 }

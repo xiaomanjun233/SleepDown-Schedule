@@ -50,7 +50,8 @@ internal fun CourseCardText(
     textAlign: TextAlign? = null,
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
-    adaptiveContrast: Boolean = true
+    adaptiveContrast: Boolean = true,
+    shadowLightText: Boolean? = null
 ) {
     val fallback = remember(themeColor, color) {
         themeColor?.let {
@@ -151,7 +152,7 @@ internal fun CourseCardText(
         resolved[0] = updateForeground()
     }
     val density = LocalDensity.current
-    val lightText = color.luminance() >= 0.5f
+    val lightText = shadowLightText ?: (color.luminance() >= 0.5f)
     val effectiveFontSize = when {
         fontSize != TextUnit.Unspecified -> fontSize
         style.fontSize != TextUnit.Unspecified -> style.fontSize
