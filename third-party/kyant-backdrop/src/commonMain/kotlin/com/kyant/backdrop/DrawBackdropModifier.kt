@@ -322,7 +322,10 @@ private class DrawBackdropNode(
             val allocationPadding = shapeProvider.options.allocationPadding ?: padding
             require(allocationPadding >= padding) { "Fixed allocation must cover effect padding" }
 
-            val recordKey = shapeProvider.options.sampleRecordKey()
+            val parentRecordKey = shapeProvider.options.sampleRecordKey()
+            val recordKey = (backdrop as? SharedBlurBackdrop)?.let { shared ->
+                parentRecordKey?.let { it to shared.contentRevision }
+            } ?: parentRecordKey
             val recordingSize = IntSize(
                 ceil(size.width * sampleScale + allocationPadding * 2).toInt().coerceAtLeast(1),
                 ceil(size.height * sampleScale + allocationPadding * 2).toInt().coerceAtLeast(1)
@@ -397,8 +400,12 @@ private class DrawBackdropNode(
         layoutCoordinates
         // Reads made inside GraphicsLayer.record are not owned by this modifier's draw
         // observer. Observe the shared wallpaper origin here so its first placement refreshes
-        // cards that drew before the producer reported coordinates.
-        (backdrop as? SharedBlurBackdrop)?.source?.layerCoordinates
+        // cards that drew before the producer reported coordinates. Also observe rerecordings:
+        // the producer reuses one GraphicsLayer, so its content can change without its identity.
+        (backdrop as? SharedBlurBackdrop)?.let { shared ->
+            shared.source.layerCoordinates
+            shared.contentRevision
+        }
         if (!shapeProvider.options.enabled()) return drawContent()
         val bounds = shapeProvider.options.bounds()
         val sampleScale = shapeProvider.options.sampleScale

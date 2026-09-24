@@ -2128,8 +2128,10 @@ fun CourseScheduleAppUi(
     val sharedCourseBackdrop = remember(backgroundBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy) {
         com.kyant.backdrop.backdrops.SharedBlurBackdrop(backgroundBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
     }
-    val useSharedCourseBackdrop = rootPageMotion.retains(false) && visualState.config.courseCardGlassEnabled &&
-        wallpaperImages.source != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val sharedCourseBackdropExpected = rootPageMotion.retains(false) &&
+        visualState.config.courseCardGlassEnabled && visualState.config.hasAnyWallpaper() &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val useSharedCourseBackdrop = sharedCourseBackdropExpected && wallpaperImages.source != null
     lateinit var handleHomeAgentAction: AgentActionHandler
     handleHomeAgentAction = {
         plan: AgentPlan,
@@ -2230,7 +2232,7 @@ fun CourseScheduleAppUi(
         LocalCourseCopy provides courseCopy,
         LocalCourseRemoval provides courseRemoval,
         com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop provides
-            sharedCourseBackdrop.takeIf { useSharedCourseBackdrop },
+            sharedCourseBackdrop.takeIf { sharedCourseBackdropExpected },
         LocalSharedTransitionScope provides activeSharedTransitionScope,
         LocalEditingCourseId provides editingCourseId,
         LocalCourseEditorFlightRegistry provides courseEditorFlightRegistry,

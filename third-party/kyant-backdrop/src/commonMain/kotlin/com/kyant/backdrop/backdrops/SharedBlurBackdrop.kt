@@ -2,6 +2,7 @@
 package com.kyant.backdrop.backdrops
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -41,6 +42,9 @@ import kotlin.math.roundToInt
 class SharedBlurBackdrop(val source: LayerBackdrop, val radiusPx: Float, val vibrant: Boolean) : Backdrop {
     internal var layer: GraphicsLayer? by mutableStateOf(null)
     internal var sampleScale: Float = 1f
+    // The GraphicsLayer instance stays the same when its recorded wallpaper changes. Consumers
+    // must observe a separate revision or their cached card samples can keep the first frame.
+    internal var contentRevision: Int by mutableIntStateOf(0)
     // A recorder can publish its layer before the wallpaper producer has reported its
     // coordinates. Consumers created in that frame would otherwise record an empty sample
     // and keep it until the first page gesture invalidates their draw nodes.
@@ -140,6 +144,9 @@ private class RecorderNode(var backdrop: SharedBlurBackdrop, var sourceKey: () -
         }
         backdrop.layer = raw
         backdrop.sampleScale = SharedBlurSampleScale
+        // A null source key is deliberately rerecorded every draw while the wallpaper loads.
+        // Publishing each such recording would invalidate the consumers in a draw loop.
+        if ((sourceDirty && key != null) || effectDirty) backdrop.contentRevision++
     }
 
     override fun onAttach() {

@@ -1132,10 +1132,11 @@ fun CourseGlassCard(
     )
     val sharedWallpaper = com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop.current
     val requiredBlurPx = with(androidx.compose.ui.platform.LocalDensity.current) { (liquidEffectFrame.blur ?: 0.dp).toPx() }
-    val useSharedWallpaper = sharedWallpaper != null && sharedWallpaper.ready &&
+    val sharedWallpaperCompatible = sharedWallpaper != null &&
         sharedWallpaper.source === glassBackdrop && sharedWallpaper.radiusPx == requiredBlurPx &&
         sharedWallpaper.vibrant == liquidEffectFrame.useVibrancy && morphAllocation == null
-    val sampledSource = if (useSharedWallpaper) sharedWallpaper!! else glassBackdrop
+    val useSharedWallpaper = sharedWallpaperCompatible && sharedWallpaper.ready
+    val sampledSource = if (useSharedWallpaper) sharedWallpaper else glassBackdrop
     // Course highlights use a fixed cached vector instead of the Kyant directional shader.
     val cardEffects = if (useSharedWallpaper) {
         liquidEffectFrame.materialEffectsOnly().copy(blur = null, useVibrancy = false)
@@ -1227,7 +1228,10 @@ fun CourseGlassCard(
                             effectFrame = if (unifiedLiquidSurface) unifiedLiquidEffectFrame else cardEffects,
                             backdropSampleScale = when {
                                 morphAllocation != null -> 1f
-                                useSharedWallpaper -> 1f
+                                // The shared recorder becomes ready during the first home draw.
+                                // Keep the card buffer at one resolution across that handoff;
+                                // dense weeks would otherwise jump from 0.75/0.5 to 1.0.
+                                sharedWallpaperCompatible -> 1f
                                 else -> activeBackdropSampleScale
                             },
                             cacheDecorations = morphAllocation == null,
