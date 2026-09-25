@@ -62,6 +62,16 @@ class ScheduleTermBoundaryTest {
     }
 
     @Test
+    fun automaticModePromptsForMissingStartDateWithoutGuessingTheWeek() {
+        val newSchedule = defaultConfig().copy(autoCurrentWeek = true)
+        val today = LocalDate.of(2026, 9, 25)
+
+        assertEquals(1, effectiveCurrentWeek(newSchedule, today))
+        assertEquals("待设置开学日期", scheduleTermStatusLabel(newSchedule, today))
+        assertEquals("待设置开学日期", scheduleTermStatusDescription(newSchedule, today))
+    }
+
+    @Test
     fun periodTimeSettingUpdatesOnlyAValidNonOverlappingPeriod() {
         val periods = listOf(
             PeriodEntity(1, "08:00", "08:45"),

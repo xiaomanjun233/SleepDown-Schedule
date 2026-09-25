@@ -28,6 +28,9 @@ internal fun CourseAdjustmentBadge(label: String, backdrop: Backdrop?, config: S
     GlassSurface(
         backdrop = backdrop, config = config, modifier = modifier,
         shape = Capsule(),
+        // The card's pager layer already moves this badge. Avoid replaying its glass in
+        // another placement layer when the pager reuses the containing card.
+        placementLayer = false,
         baseSurfaceColorOverride = if (label == "停") MutedCourseLightColor else Color(0xFFFFB928),
         tokens = GlassTokens.pill(0.65f).copy(blur = 6.dp, surfaceAlpha = 0.30f,
             lensHeight = 4.dp, lensAmount = 4.dp, shadowAlpha = 0f)

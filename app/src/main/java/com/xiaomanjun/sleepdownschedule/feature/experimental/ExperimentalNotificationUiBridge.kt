@@ -133,6 +133,8 @@ internal fun ExperimentalNotificationPreview(
     onPreviewLiveUpdate: (ScheduleConfigEntity) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var needsIslandPrivilege by remember { mutableStateOf(false) }
     val deletingTest = state.cloudEnabled && state.testActive
     SettingsActionButton(
         label = when {
@@ -148,6 +150,10 @@ internal fun ExperimentalNotificationPreview(
         destructive = deletingTest,
         badgeText = if (deletingTest) null else state.selected.badgeText,
         onClick = {
+            if (state.superIslandEnabled && !XiaomiSuperIsland.hasPrivilege(context)) {
+                needsIslandPrivilege = true
+                return@SettingsActionButton
+            }
             if (state.cloudEnabled) {
                 if (state.testActive) {
                     state.cancelTest()
@@ -173,6 +179,18 @@ internal fun ExperimentalNotificationPreview(
         },
         modifier = modifier
     )
+    if (needsIslandPrivilege) {
+        LiquidAlertDialog(
+            title = "先完成超级岛授权",
+            message = "请在上方选择 Shizuku 或 root 并完成授权，再测试超级岛。",
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
+                needsIslandPrivilege = false
+            }),
+            backdrop = dialogBackdrop,
+            config = config,
+            onDismissRequest = { needsIslandPrivilege = false }
+        )
+    }
     state.testResult?.let { result ->
         val success = result.proxyProviderAccessible && result.proxyVersionSupported && result.exportValid
         LiquidAlertDialog(

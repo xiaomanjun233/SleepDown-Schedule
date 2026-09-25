@@ -352,7 +352,7 @@ internal fun SinglePillWeekScheduleScreen(
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onWeekHeaderPreview: (Int?) -> Unit = {},
     onWeekJumpSettled: (Int) -> Unit = {},
-    style: WeekViewStyle = WeekViewStyle.NORMAL,
+    style: WeekViewStyle = WeekViewStyle.BOUNDLESS,
     weekEditMode: Boolean = false,
     onEnterWeekEditMode: () -> Unit = {},
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
@@ -1889,6 +1889,7 @@ private fun WeekDayColumn(
                     .padding(horizontal = 2.dp)
                     .height(segmentHeight)
                     .weekPageTail(
+                        cardKey = glassCandidateId,
                         cardOrderFraction = tailCardOrder[glassCandidateId],
                         columnOrderFraction = tailColumnFraction
                     )
@@ -2246,6 +2247,7 @@ fun WeekCourseColumnsLayer(
                             Column(
                                 modifier = Modifier.fillMaxWidth().height(88.dp).padding(horizontal = 2.dp)
                                     .weekPageTail(
+                                        cardKey = weekSupplementaryTailKey(day, course.id, index),
                                         cardOrderFraction = tailCardOrder[weekSupplementaryTailKey(day, course.id, index)],
                                         columnOrderFraction = tailColumnOrder[day]
                                     ),
@@ -3838,7 +3840,7 @@ fun WeekCourseBlock(
             }
             if (!editingAllowed) {
                 CourseAdjustmentBadge(if (muted) "停" else "补", activeCardBackdrop, config,
-                    Modifier.align(Alignment.BottomEnd).offset(x = 5.dp, y = 5.dp).zIndex(7f))
+                    Modifier.align(Alignment.BottomEnd).offset(x = (-2).dp, y = (-2).dp).zIndex(7f))
             }
             if (conflictWarning && !editMode && !customTimeLocked) {
                 val pillDismissProgress = conflictPillDismiss.value.coerceIn(0f, 1f)

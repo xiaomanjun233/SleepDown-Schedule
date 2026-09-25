@@ -11,13 +11,13 @@
 - `feature/experimental/` 集中维护厂商模式选择、小米通知扩展与设置接入；`feature/coloros/` 和 `coloros-wakeup-proxy/` 维护 ColorOS/荣耀课程组件及协议。公共通知和设置代码只保留少量调用钩子。
 - `BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES` 在 `github` 渠道为 `true`，在 `store` 渠道为 `false`。Shizuku 依赖、权限、Provider 与实现只进入 `app/src/github/`；商店渠道使用空桥接实现。ColorOS 课程导出 Provider 也只在 GitHub Manifest 注册。
 - OPPO/一加/realme：普通通知、实时活动、流体云、流体云+实时活动。荣耀：普通通知、实时活动、YOYO建议+实时活动。小米/Redmi/POCO：普通通知、实时活动、超级岛。用户主动选择通知样式，系统专属配置说明按设备分别展示。
-- 仅流体云模式关闭 SleepDown 自身课程实时活动；组合模式和荣耀 YOYO 建议同时保留实时活动。组件只提供读取入口，不维护第二份课表；发现官方 WakeUp 课程表占用相同包名时提示冲突，不自动卸载或覆盖。
-- 小米超级岛采用 [Nexio 课程表](https://github.com/HaoZai000/NexioSchedule) 的课程通知结构：独立的高重要级别通道直接发送焦点通知，大岛固定使用[小米官方模板 2](https://dev.mi.com/xiaomihyperos/documentation/detail?pId=2143)，左侧课程名、右侧地点或“已上课”；小岛显示应用图标，[展开态模板 9](https://dev.mi.com/xiaomihyperos/documentation/detail?pId=2142)显示课程详情、课前原生倒计时和“查看课表”按钮。岛通知不经实时活动前台服务重发，课程开始和结束由既有闹钟更新。Shizuku 未就绪时直接发送；授权后，GitHub 版可在发送前短暂调整小米服务联网规则，随后恢复，并记录中断状态供下次启动恢复。此能力影响系统服务，需要小米真机逐项验收。
+- 仅流体云模式关闭 SleepDown 自身课程实时活动；ColorOS 组合模式的课前提醒交由流体云，课中、课间及次日提醒继续使用实时活动。荣耀 YOYO 建议同时保留实时活动。组件只提供读取入口，不维护第二份课表；发现官方 WakeUp 课程表占用相同包名时提示冲突，不自动卸载或覆盖。
+- 小米超级岛使用独立的高重要级别通道直接发送焦点通知；[小米官方模板 2](https://dev.mi.com/xiaomihyperos/documentation/detail?pId=2143) 的左右内容及息屏文字由用户选择，小岛显示应用图标，[展开态模板 9](https://dev.mi.com/xiaomihyperos/documentation/detail?pId=2142)显示课程详情、课前原生倒计时和“查看课表”按钮，展开光效可关闭。岛通知不经实时活动前台服务重发，课程开始和结束由既有闹钟更新。必须完成 Shizuku 或 root 授权才能发送超级岛；GitHub 版在发送前短暂调整小米服务联网规则，随后恢复，并记录中断状态供下次启动恢复。此能力影响系统服务，需要小米真机逐项验收。
 - 商店版制作时可移除隔离目录、组件模块、GitHub Manifest 入口和公共调用钩子；不能直接删除当前已发布用户数据或迁移逻辑。
 
 ## 版本与更新
 
-当前应用版本以 `app/build.gradle.kts` 中 `sleepDownVersionName` 和 `versionCode` 为准。正式版使用 `MAJOR.MINOR.PATCH`，普通 Beta 使用 `MAJOR.MINOR.PATCH_betaN`；当前开发基线为 `1.2.6_beta10` / `versionCode 33`，转正式版时仍使用 `1.2.6`。不再从普通版生成 `-expN` 版本名或单独实验 APK。
+当前应用版本以 `app/build.gradle.kts` 中 `sleepDownVersionName` 和 `versionCode` 为准。正式版使用 `MAJOR.MINOR.PATCH`，普通 Beta 使用 `MAJOR.MINOR.PATCH_betaN`；当前正式版为 `1.2.6` / `versionCode 33`，与本轮 Beta 保持相同的版本代码。不再从普通版生成 `-expN` 版本名或单独实验 APK。
 
 普通版“接收 Beta 版更新”开关沿用既有行为。正式版只接收非预发布，开启 Beta 后接收普通预发布与正式版；两者均排除历史 `-expN` 标签。同一 Release 若同时有主应用与课程组件，应用更新只选主应用 APK，文件名含 `coloros-course-component` 或 `wakeup-proxy` 的附件不能作为主应用安装。
 

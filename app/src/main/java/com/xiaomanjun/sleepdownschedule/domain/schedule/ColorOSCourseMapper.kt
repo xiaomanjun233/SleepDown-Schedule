@@ -23,12 +23,15 @@ internal object ColorOSCourseMapper {
     fun export(
         date: LocalDate,
         state: AppState,
-        zoneId: ZoneId = ZoneId.systemDefault()
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        colorForCourse: (CourseEntity) -> Int = { course ->
+            (course.customColorArgb ?: state.config.cardColorArgb).toInt()
+        }
     ): ColorOSCourseExport {
         val exported = mutableListOf<ExportedCourse>()
         var skippedCount = 0
         coursesForDate(state, date).forEach { course ->
-            val sessions = exportSessions(course, state.periods)
+            val sessions = exportSessions(course, state.periods, colorForCourse(course))
             if (sessions.isEmpty()) {
                 skippedCount++
             } else {
@@ -57,10 +60,11 @@ internal object ColorOSCourseMapper {
 
     private fun exportSessions(
         course: CourseEntity,
-        periodDefinitions: List<PeriodEntity>
+        periodDefinitions: List<PeriodEntity>,
+        color: Int
     ): List<ExportedCourse> {
         course.customTimeRangeOrNull()?.let { (start, end) ->
-            return listOf(exportedCourse(course, course.periods.minOrNull() ?: 0, start, end))
+            return listOf(exportedCourse(course, course.periods.minOrNull() ?: 0, start, end, color))
         }
 
         val timesByPeriod = periodDefinitions.associateBy(PeriodEntity::periodIndex)
@@ -71,7 +75,7 @@ internal object ColorOSCourseMapper {
             val end = runCatching { LocalTime.parse(timesByPeriod.getValue(group.last()).endTime) }.getOrNull()
                 ?: return@mapNotNull null
             if (!end.isAfter(start)) return@mapNotNull null
-            exportedCourse(course, group.first(), start, end)
+            exportedCourse(course, group.first(), start, end, color)
         }
     }
 
@@ -96,7 +100,8 @@ internal object ColorOSCourseMapper {
         course: CourseEntity,
         groupStart: Int,
         startTime: LocalTime,
-        endTime: LocalTime
+        endTime: LocalTime,
+        color: Int
     ) = ExportedCourse(
         id = stableCourseId(course.id, groupStart),
         courseName = course.name,
@@ -104,7 +109,7 @@ internal object ColorOSCourseMapper {
         teacher = course.teacher.orEmpty(),
         startTime = startTime,
         endTime = endTime,
-        color = course.customColorArgb?.toWakeUpColor() ?: DEFAULT_COLOR
+        color = "#%08x".format(color.toLong() and 0xFFFF_FFFFL)
     )
 
     private fun stableCourseId(courseId: Long, groupStart: Int): Long = runCatching {
@@ -112,8 +117,6 @@ internal object ColorOSCourseMapper {
     }.getOrElse {
         courseId xor (groupStart.toLong() shl 32)
     }
-
-    private fun Long.toWakeUpColor(): String = "#%08x".format(this and 0xFFFF_FFFFL)
 
     private data class ExportedCourse(
         val id: Long,
@@ -125,5 +128,4 @@ internal object ColorOSCourseMapper {
         val color: String
     )
 
-    private const val DEFAULT_COLOR = "#ff3f8cff"
 }

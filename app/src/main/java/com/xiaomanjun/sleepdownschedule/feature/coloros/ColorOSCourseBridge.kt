@@ -9,6 +9,10 @@ import androidx.room.InvalidationTracker
 import com.xiaomanjun.sleepdownschedule.AppDatabase
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.domain.schedule.ColorOSCourseMapper
+import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCourseColors
+import com.xiaomanjun.sleepdownschedule.feature.widget.providers.MiuixTodayWidgetRenderer
+import com.xiaomanjun.sleepdownschedule.model.AppState
+import com.xiaomanjun.sleepdownschedule.model.CourseEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -89,6 +93,12 @@ object ColorOSCourseBridge {
     internal fun preferences(context: Context) =
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
+    internal fun courseColorResolver(context: Context, state: AppState): (CourseEntity) -> Int {
+        val dark = MiuixTodayWidgetRenderer.usesDarkTheme(context, state.config)
+        val assignments = WidgetCourseColors.assignments(context, state, dark)
+        return { course -> WidgetCourseColors.color(state.config, course, assignments) }
+    }
+
     private fun scheduleRefresh(reason: String, delayMillis: Long = REFRESH_DEBOUNCE_MS) {
         pendingReason = reason
         handler.removeCallbacks(firstRefresh)
@@ -101,6 +111,7 @@ object ColorOSCourseBridge {
             val resolver = context.contentResolver
             val snapshot = (context as CourseScheduleApp).repository.snapshot()
             check(snapshot.loaded) { "Course snapshot is not ready" }
+            val courseColor = courseColorResolver(context, snapshot)
             val zone = ZoneId.systemDefault()
             val today = LocalDate.now(zone)
             val rows = Bundle().apply {
@@ -111,7 +122,7 @@ object ColorOSCourseBridge {
             val baseRows = Bundle()
             repeat(8) { offset ->
                 val date = today.plusDays(offset.toLong())
-                val base = ColorOSCourseMapper.export(date, snapshot, zone).json
+                val base = ColorOSCourseMapper.export(date, snapshot, zone, courseColor).json
                 val key = "course|$date"
                 baseRows.putString(key, base)
                 rows.putString(key, ColorOSCourseExperiment.appendTestPreview(context, base, date, zone))

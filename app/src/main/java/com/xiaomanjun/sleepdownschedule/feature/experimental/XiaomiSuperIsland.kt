@@ -21,6 +21,10 @@ internal object XiaomiSuperIsland {
     private const val Prefs = "experimental_notification_modes"
     private const val Enabled = "xiaomi_super_island_enabled"
     private const val PreviewUntil = "xiaomi_island_preview_until"
+    private const val LeftMode = "xiaomi_island_left_mode"
+    private const val RightMode = "xiaomi_island_right_mode"
+    private const val AodMode = "xiaomi_island_aod_mode"
+    private const val ExpandGlow = "xiaomi_island_expand_glow"
     const val ChannelId = "course_reminder_island"
     private const val FocusParameter = "miui.focus.param"
     private const val SmallPicture = "miui.focus.pic_small"
@@ -37,9 +41,46 @@ internal object XiaomiSuperIsland {
             .invoke(null, "persist.sys.feature.island", false) as Boolean
     }.getOrDefault(false)
 
-    fun isEnabled(context: Context): Boolean = BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES &&
+    fun isSelected(context: Context): Boolean = BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES &&
         isXiaomiDevice(Build.MANUFACTURER.orEmpty(), Build.BRAND.orEmpty()) &&
         context.getSharedPreferences(Prefs, Context.MODE_PRIVATE).getBoolean(Enabled, false)
+
+    fun isEnabled(context: Context): Boolean = isSelected(context) && hasPrivilege(context)
+
+    fun hasPrivilege(context: Context): Boolean =
+        XiaomiShizukuBridge.isAuthorized() || XiaomiRootBridge.isAuthorized(context)
+
+    internal data class Options(
+        val left: Int = 0,
+        val right: Int = 1,
+        val aod: Int = 0,
+        val expandGlow: Boolean = true
+    )
+
+    fun options(context: Context): Options = context.getSharedPreferences(Prefs, Context.MODE_PRIVATE).run {
+        Options(
+            left = getInt(LeftMode, 0).coerceIn(0, 2),
+            right = getInt(RightMode, 1).coerceIn(0, 2),
+            aod = getInt(AodMode, 0).coerceIn(0, 1),
+            expandGlow = getBoolean(ExpandGlow, true)
+        )
+    }
+
+    fun setLeft(context: Context, mode: Int) {
+        context.getSharedPreferences(Prefs, Context.MODE_PRIVATE).edit().putInt(LeftMode, mode.coerceIn(0, 2)).apply()
+    }
+
+    fun setRight(context: Context, mode: Int) {
+        context.getSharedPreferences(Prefs, Context.MODE_PRIVATE).edit().putInt(RightMode, mode.coerceIn(0, 2)).apply()
+    }
+
+    fun setAod(context: Context, mode: Int) {
+        context.getSharedPreferences(Prefs, Context.MODE_PRIVATE).edit().putInt(AodMode, mode.coerceIn(0, 1)).apply()
+    }
+
+    fun setExpandGlow(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(Prefs, Context.MODE_PRIVATE).edit().putBoolean(ExpandGlow, enabled).apply()
+    }
 
     fun setEnabled(context: Context, enabled: Boolean): Boolean {
         val accepted = enabled && BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES &&
@@ -78,11 +119,18 @@ internal object XiaomiSuperIsland {
     fun isShizukuRunning(): Boolean = XiaomiShizukuBridge.isRunning()
     fun isShizukuAuthorized(): Boolean = XiaomiShizukuBridge.isAuthorized()
     fun requestShizukuPermission(onResult: (Boolean) -> Unit) = XiaomiShizukuBridge.requestPermission(onResult)
-    fun restoreInterruptedBypass(context: Context): Boolean = XiaomiShizukuBridge.restoreIfInterrupted(context)
+    fun restoreInterruptedBypass(context: Context): Boolean {
+        val shizukuRestored = XiaomiShizukuBridge.restoreIfInterrupted(context)
+        val rootRestored = XiaomiRootBridge.restoreIfInterrupted(context)
+        return shizukuRestored && rootRestored
+    }
+    fun isRootAuthorized(context: Context): Boolean = XiaomiRootBridge.isAuthorized(context)
+    fun requestRootAuthorization(context: Context): Boolean = XiaomiRootBridge.requestAuthorization(context)
 
     fun post(context: Context, notification: Notification, action: () -> Unit) {
         if (isEnabled(context) && notification.extras.containsKey(FocusParameter)) {
-            XiaomiShizukuBridge.postWithTemporaryBypass(context, action)
+            if (XiaomiShizukuBridge.isAuthorized()) XiaomiShizukuBridge.postWithTemporaryBypass(context, action)
+            else XiaomiRootBridge.postWithTemporaryBypass(context, action)
         } else action()
     }
 
@@ -94,9 +142,8 @@ internal object XiaomiSuperIsland {
         shortText: String
     ) {
         if (!isEnabled(context)) return
-        // Shizuku only improves delivery. The selected island format is always sent.
         notification.extras.putString(FocusParameter, parameters(
-            payload, status, shortText, System.currentTimeMillis(), context.packageName
+            payload, status, shortText, System.currentTimeMillis(), context.packageName, options(context)
         ))
         val appIcon = Icon.createWithResource(context, currentLiveUpdateIconResId(context))
         notification.extras.putBundle("miui.focus.pics", Bundle().apply {
@@ -112,7 +159,8 @@ internal object XiaomiSuperIsland {
         status: LiveUpdateStatus,
         shortText: String,
         nowMillis: Long = System.currentTimeMillis(),
-        packageName: String = "com.xiaomanjun.sleepdownschedule"
+        packageName: String = "com.xiaomanjun.sleepdownschedule",
+        options: Options = Options()
     ): String {
         val beforeClass = status.phase == LiveUpdatePhase.BEFORE_CLASS
         val timerAt = status.nextTransitionAtMillis?.takeIf { beforeClass && it > nowMillis }
@@ -124,16 +172,30 @@ internal object XiaomiSuperIsland {
             LiveUpdatePhase.FINISHED -> "已下课"
             LiveUpdatePhase.TOMORROW -> "明日课程"
         }
+        val countdownText = if (timerAt != null) "${status.minutesToTransition}分钟" else islandStatus
+        val islandText: (Int) -> String = { mode -> when (mode) {
+            0 -> courseName
+            1 -> payload.location.ifBlank { courseName }
+            else -> countdownText
+        } }
+        val leftText = islandText(options.left)
+        val rightText = if (beforeClass) islandText(options.right) else islandStatus
+        val aodText = if (options.aod == 1) payload.location.ifBlank { courseName } else courseName
         val left = JSONObject().put("type", 1).put("textInfo", JSONObject()
-            .put("title", courseName).put("content", "")
+            .put("title", leftText).put("content", "")
             .put("showHighlightColor", false).put("narrowFont", false))
-        // Nexio's working summary: template 2, course name on the left and room/state on the right.
         val bigIsland = JSONObject().put("templateNo", 2)
             .put("imageTextInfoLeft", left)
             .put("textInfo", JSONObject().put("frontTitle", "")
-                .put("title", islandStatus)
+                .put("title", if (options.right == 2 && timerAt != null) "" else rightText)
                 .put("content", "")
                 .put("showHighlightColor", false).put("narrowFont", false))
+        if (options.right == 2 && timerAt != null) {
+            bigIsland.put("sameWidthDigitInfo", JSONObject()
+                .put("content", "上课")
+                .put("showHighlightColor", false)
+                .put("timerInfo", timerInfo(timerAt, nowMillis)))
+        }
         val island = JSONObject()
             .put("islandProperty", 1)
             .put("islandTimeout", 3600)
@@ -175,8 +237,11 @@ internal object XiaomiSuperIsland {
         return JSONObject().put("param_v2", JSONObject()
             .put("protocol", 1)
             .put("business", "course_reminder")
-            .put("enableFloat", true)
+            .put("enableFloat", beforeClass || payload.kind == LiveUpdateKind.TOMORROW)
+            .put("islandFirstFloat", !beforeClass)
             .put("updatable", true)
+            .put("outEffectSrc", if (options.expandGlow) "outer_glow" else "")
+            .put("aodTitle", aodText)
             .put("reopen", "reopen")
             .put("sequence", sequence.incrementAndGet())
             .put("baseInfo", card)

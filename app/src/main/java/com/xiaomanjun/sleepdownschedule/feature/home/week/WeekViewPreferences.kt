@@ -13,9 +13,9 @@ internal object WeekViewPreferences {
 
     fun style(context: Context): WeekViewStyle {
         val preferences = preferences(context)
-        return preferences.getString(StyleKey, WeekViewStyle.NORMAL.name)
+        return preferences.getString(StyleKey, WeekViewStyle.BOUNDLESS.name)
             ?.let { stored -> runCatching { WeekViewStyle.valueOf(stored) }.getOrNull() }
-            ?: WeekViewStyle.NORMAL
+            ?: WeekViewStyle.BOUNDLESS
     }
 
     fun setStyle(context: Context, style: WeekViewStyle) {

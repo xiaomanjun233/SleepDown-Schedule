@@ -145,6 +145,7 @@ object NotificationScheduler {
         val now = System.currentTimeMillis()
         val scheduleZone = ZoneId.systemDefault()
         val today = LocalDate.now(scheduleZone)
+        val cloudHandlesPreClass = ColorOSCourseExperiment.suppressesPreClassLiveUpdate(context)
         val scheduledKeys = mutableListOf<String>()
         (0L..SCHEDULE_HORIZON_DAYS).forEach { dayOffset ->
             val scheduleDate = today.plusDays(dayOffset)
@@ -163,7 +164,7 @@ object NotificationScheduler {
                 val reminderTrigger = firstStart - config.notificationLeadMinutes.coerceAtLeast(0) * 60_000L
                 // Allow-while-idle alarms share a per-app Doze quota. Speculative 1/3/5-minute
                 // retries can postpone the real class boundary; schedule only meaningful events.
-                if (reminderTrigger > now && reminderTrigger < finalEnd) {
+                if (reminderTrigger > now && reminderTrigger < finalEnd && !cloudHandlesPreClass) {
                     schedulePayloadAlarm(
                         context = context,
                         alarmManager = alarmManager,
@@ -349,9 +350,14 @@ object NotificationScheduler {
         val today = LocalDate.now(zone)
         val state = AppState(courses = courses, config = config, periods = periods)
         val preferences = LiveUpdatePreferences.read(context)
+        val cloudHandlesPreClass = ColorOSCourseExperiment.suppressesPreClassLiveUpdate(context)
         val activePayload = coursesForDate(state, today)
             .flatMap { courseReminderSessions(it, periods) }
             .mapNotNull { course -> coursePayload(today, course, config, periods, preferences, zone) }
+            .filter { payload ->
+                !cloudHandlesPreClass ||
+                    (payload.startAtMillis() ?: Long.MAX_VALUE) <= nowMillis
+            }
             .let { selectImmediateCoursePayload(it, nowMillis, config.notificationLeadMinutes) }
             ?: immediateTomorrowPayload(
                 state = state,
@@ -1150,13 +1156,16 @@ object NotificationScheduler {
     }
 
     internal fun startLiveUpdateService(context: Context, payload: LiveUpdatePayload) {
+        if (!payload.isPreview() && payload.kind == LiveUpdateKind.COURSE &&
+            ColorOSCourseExperiment.suppressesPreClassLiveUpdate(context) &&
+            payload.statusAt().phase == LiveUpdatePhase.BEFORE_CLASS) return
         val notification = liveUpdateNotification(context, payload)
         // Submit while the event receiver still holds its wake lock. Delivery must not wait
         // for the FGS (or its optional minute loop) to be scheduled by an OEM background policy.
         if (!canPostNotifications(context)) return
         if (XiaomiSuperIsland.isEnabled(context)) {
-            // Nexio sends the focus notification directly. A foreground service immediately
-            // reposts it as ongoing and prevents the Xiaomi float from appearing.
+            // A foreground service immediately reposts the focus notification as ongoing and
+            // prevents the Xiaomi float from appearing.
             stopLiveUpdateService(context)
             try {
                 postLiveUpdateNotification(context, notification)
