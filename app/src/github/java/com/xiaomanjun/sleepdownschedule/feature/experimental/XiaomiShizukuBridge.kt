@@ -180,7 +180,7 @@ internal class XiaomiNetworkRestoreReceiver : BroadcastReceiver() {
         val pending = goAsync()
         Thread {
             try {
-                XiaomiShizukuBridge.restoreIfInterrupted(context.applicationContext)
+                XiaomiSuperIsland.restoreInterruptedBypass(context.applicationContext)
             } finally {
                 pending.finish()
             }

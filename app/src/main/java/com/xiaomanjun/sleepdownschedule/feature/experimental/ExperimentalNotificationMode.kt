@@ -50,7 +50,7 @@ internal object ExperimentalNotificationModes {
     }
 
     fun selected(context: Context, notificationMode: NotificationMode): ExperimentalNotificationMode {
-        if (XiaomiSuperIsland.isEnabled(context)) return ExperimentalNotificationMode.SUPER_ISLAND
+        if (XiaomiSuperIsland.isSelected(context)) return ExperimentalNotificationMode.SUPER_ISLAND
         if (ColorOSCourseExperiment.isEnabled(context)) {
             return when {
                 ColorOSCourseExperiment.deviceStatus().isHonor -> ExperimentalNotificationMode.YOYO_LIVE_UPDATE
@@ -68,7 +68,7 @@ internal object ExperimentalNotificationModes {
     fun activate(context: Context, mode: ExperimentalNotificationMode): NotificationMode {
         require(mode in available()) { "当前设备不支持所选实验功能" }
         if (ColorOSCourseExperiment.isEnabled(context)) ColorOSCourseExperiment.setEnabled(context, false)
-        if (XiaomiSuperIsland.isEnabled(context)) XiaomiSuperIsland.setEnabled(context, false)
+        if (XiaomiSuperIsland.isSelected(context)) XiaomiSuperIsland.setEnabled(context, false)
         return when (mode) {
             ExperimentalNotificationMode.STANDARD -> NotificationMode.STANDARD
             ExperimentalNotificationMode.LIVE_UPDATE -> NotificationMode.LIVE_UPDATE

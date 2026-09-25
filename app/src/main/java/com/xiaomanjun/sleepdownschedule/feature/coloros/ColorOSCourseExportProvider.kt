@@ -64,7 +64,9 @@ class ColorOSCourseExportProvider : ContentProvider() {
             val zoneId = ZoneId.systemDefault()
             val date = ColorOSCourseProviderContract.requestedDate(uri.pathSegments, zoneId)
                 .let { if (tomorrow) it.plusDays(1) else it }
-            val result = ColorOSCourseMapper.export(date, app().repository.activeSnapshot(), zoneId)
+            val snapshot = app().repository.activeSnapshot()
+            val result = ColorOSCourseMapper.export(date, snapshot, zoneId,
+                ColorOSCourseBridge.courseColorResolver(requireNotNull(context), snapshot))
             val exportedJson = requireNotNull(context).let {
                 ColorOSCourseExperiment.appendTestPreview(it, result.json, date, zoneId)
             }

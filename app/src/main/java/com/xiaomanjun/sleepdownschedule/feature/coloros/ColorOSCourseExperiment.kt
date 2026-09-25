@@ -134,6 +134,9 @@ object ColorOSCourseExperiment {
     fun suppressesLiveUpdate(context: Context): Boolean =
         isEnabled(context) && !allowsParallelLiveUpdate(context)
 
+    fun suppressesPreClassLiveUpdate(context: Context): Boolean =
+        isEnabled(context) && !deviceStatus().isHonor && allowsParallelLiveUpdate(context)
+
     fun setEnabled(context: Context, enabled: Boolean): Boolean {
         val accepted = enabled && isAvailable()
         val preferences = ColorOSCourseBridge.preferences(context)

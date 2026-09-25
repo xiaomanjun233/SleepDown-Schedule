@@ -3838,7 +3838,7 @@ fun WeekCourseBlock(
             }
             if (!editingAllowed) {
                 CourseAdjustmentBadge(if (muted) "停" else "补", activeCardBackdrop, config,
-                    Modifier.align(Alignment.BottomEnd).offset(x = 5.dp, y = 5.dp).zIndex(7f))
+                    Modifier.align(Alignment.BottomEnd).offset(x = (-2).dp, y = (-2).dp).zIndex(7f))
             }
             if (conflictWarning && !editMode && !customTimeLocked) {
                 val pillDismissProgress = conflictPillDismiss.value.coerceIn(0f, 1f)
