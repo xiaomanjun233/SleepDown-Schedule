@@ -1,8 +1,10 @@
-# 普通版实验功能、版本与发布
+# 历史 `exp` 分支与厂商实验功能
+
+本页保留 `exp` 实验线的背景，以及厂商能力转入普通版后的隔离边界。**当前发布和 Beta / 正式版关系以[版本基线](RELEASE_MODEL.md)为准。** 2026-09-25 核对 `main` 的正式标签为 `v1.2.6`；旧 `exp` 停留在 `v1.2.6-exp3` 时期，不能作为新功能起点。
 
 ## 产品基线
 
-`main` 是唯一持续维护的应用基线。原 `exp` 分支及 `-expN` 标签保留历史记录，暂不继续开发或发布独立实验版。厂商课程通知能力作为“实验功能”进入普通版，不建立第二套应用版本、更新通道或数据库。公开 GitHub 版启用，商店版关闭。
+`main` 是唯一持续维护的应用基线。原 `exp` 分支及 `-expN` 标签保留历史记录，不再继续开发或发布独立实验版。厂商课程通知能力作为“实验功能”进入普通版，不建立第二套应用版本、更新通道或数据库。公开 GitHub 版启用，商店版关闭。
 
 普通版继续保持相同的应用包名、Room 数据库、备份协议和发布签名。不能通过清库、换包名或换签名处理兼容问题。历史实验包可按 Android 版本号和签名规则覆盖安装普通包，应用内更新只提供正式版与 Beta 版，不推荐历史 `-expN` 包。
 
@@ -17,7 +19,7 @@
 
 ## 版本与更新
 
-当前应用版本以 `app/build.gradle.kts` 中 `sleepDownVersionName` 和 `versionCode` 为准。正式版使用 `MAJOR.MINOR.PATCH`，普通 Beta 使用 `MAJOR.MINOR.PATCH_betaN`；当前正式版为 `1.2.6` / `versionCode 33`，与本轮 Beta 保持相同的版本代码。不再从普通版生成 `-expN` 版本名或单独实验 APK。
+当前应用版本以 `app/build.gradle.kts` 中 `sleepDownVersionName` 和 `versionCode` 为准。正式版使用 `MAJOR.MINOR.PATCH`，普通 Beta 使用 `MAJOR.MINOR.PATCH_betaN`；2026-09-25 的正式版为 `1.2.6` / `versionCode 33`，与本轮 Beta 保持相同的版本代码。不再从普通版生成 `-expN` 版本名或单独实验 APK。
 
 普通版“接收 Beta 版更新”开关沿用既有行为。正式版只接收非预发布，开启 Beta 后接收普通预发布与正式版；两者均排除历史 `-expN` 标签。同一 Release 若同时有主应用与课程组件，应用更新只选主应用 APK，文件名含 `coloros-course-component` 或 `wakeup-proxy` 的附件不能作为主应用安装。
 

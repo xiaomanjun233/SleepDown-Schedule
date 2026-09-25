@@ -1,6 +1,6 @@
 # SleepDown Schedule 开发指南
 
-本文件保留长期有效的协作原则、数据边界和交付方式。开始任务时完整阅读本文件，其余文档按任务查阅，入口见 [docs/README.md](docs/README.md)。单次调查、实验结论和验收记录留在对应报告中，不累积成全局禁令。
+本文件保留长期有效的协作原则、数据边界和交付方式。开始任务时完整阅读本文件，其余文档按任务查阅，入口见 [docs/README.md](docs/README.md)。当前分支、Beta 与正式版关系见 [版本基线](docs/RELEASE_MODEL.md)，每轮 Git 步骤见 [开发工作流](docs/DEVELOPMENT_WORKFLOW.md)。单次调查、实验结论和验收记录留在对应报告中，不累积成全局禁令。
 
 ## 判断与执行
 
@@ -56,7 +56,7 @@
 
 - 默认 PowerShell，源码修改使用 `apply_patch`。只暂存本次文件，保留用户改动和任务外素材；不使用 `git reset --hard` 或 `git checkout --` 丢弃工作树。
 - 代码在独立分支完成，默认 `codex/` 前缀。围绕用户目标组织 PR；同轮追加的问题保留可独立回退的提交边界，避免混入无关整理。
-- 普通版以 `main` 为唯一基线；厂商实验功能集中在隔离目录，普通 GitHub 版启用，商店版由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 关闭。暂不维护历史 `exp` 分支或独立实验更新通道。版本、组件和发布规则见 [普通版实验功能规范](docs/EXP_BRANCH_AND_RELEASES.md)。
+- `main` 是唯一持续开发基线；新普通功能从当前 `main` 派生短期分支，PR 目标为 `main`。历史 `develop`、`exp` 和 `-expN` 不再作为开发或发布入口，保留可追溯历史。厂商实验功能集中在隔离目录，GitHub 版启用，商店版由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 关闭。分支收尾、版本、组件和发布规则见 [开发工作流](docs/DEVELOPMENT_WORKFLOW.md)及[版本基线](docs/RELEASE_MODEL.md)。
 - GitHub 元数据操作使用 Codex 自带 GitHub plugin，不使用 GitHub CLI。远端推送、PR、标签、发布和部署须在用户授权范围内；PR 授权不包含合并或 Release。
 - 每次 Beta 发布同步更新应用内日志与发布页，保留本轮各 Beta 的独立日志；正式版发布时再归并本轮 Beta 内容，去重并移除已撤回的改动。日志使用产品语言，用户指定的文案优先。
 - 不提交 `.gradle-user-home/`、`tmp/`、`sleepdown-promo/`、`ui.xml`、设备截图和临时验收图，除非用户明确指定。

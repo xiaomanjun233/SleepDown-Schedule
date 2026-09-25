@@ -11,13 +11,15 @@ SleepDown 围绕课表的导入、维护、提醒与日常查看进行设计，�
 
 应用使用 Jetpack Compose 构建，界面以 Miuix 与液态玻璃效果为基础，并针对壁纸背景下的可读性、动画连续性以及手机和平板布局进行了专门适配。视觉效果之外，项目同样重视数据迁移安全、长期存储占用和复杂课表场景下的稳定性。
 
-最低支持 Android 8.0（API 26）。正式身份已迁移到 `com.xiaomanjun.sleepdownschedule`；GitHub 与应用商店发行版共用这一 applicationId。当前正式版、Beta 和实验版以 [GitHub Releases](https://github.com/xiaomanjun233/SleepDown-Schedule/releases) 与 [Gitee 发行版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases) 的发布标记为准。
+最低支持 Android 8.0（API 26）。正式身份已迁移到 `com.xiaomanjun.sleepdownschedule`；GitHub 与应用商店发行版共用这一 applicationId。当前正式版与 Beta 以 [GitHub Releases](https://github.com/xiaomanjun233/SleepDown-Schedule/releases) 与 [Gitee 发行版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases) 的发布标记为准。
 
-### 普通版与 ColorOS 实验版
+### 正式版、Beta 与厂商实验功能
 
-`main` 是普通版唯一基线，长期 `exp` 分支在同一基线、包名、数据和签名之上增加 ColorOS / 荣耀 MagicOS 课程流体云实验。实验版不会形成另一套普通功能分支：通用功能和修复先进入 `main`，再同步到 `exp`；厂商专项实现则留在 `exp`，验证成熟后才单独转入普通版。
+`main` 是唯一持续维护的应用基线。当前正式版为 1.2.6，Beta 是同一版本轮次的逐次候选；每个 Beta 保留独立记录，正式版把仍有效的改动归并成正式日志。OPPO/一加/realme 流体云、荣耀 YOYO 建议和小米超级岛作为按设备出现的实验功能进入 GitHub 版普通应用，商店版关闭相应实验入口。
 
-普通版不会自动推荐实验版。首次使用实验版需要从 `v<主版本>-exp` Release 手动安装；安装实验版后，可在应用中选择继续接收实验版，或切换到正式版/Beta 更新。实验 Release 同时提供 SleepDown 主应用和独立课程组件，且始终标记为预发布，不替换正式版 latest。完整的分支、版本号、更新通道、组件兼容和发布规则见 [普通版与实验版分支、版本及发布规范](docs/EXP_BRANCH_AND_RELEASES.md)。
+早期的 `1.01 beta`—`1.10 beta` 是独立的历史版本序列，不是当前 1.2.6 的 Beta 编号。每一版的更新日志摘要与有证据的时间锚点收录在[最初十个 Beta](docs/EARLY_BETA_HISTORY.md)；无法确认日期或归属的早期画面没有硬配到某一版。
+
+历史 `exp` 分支和 `-expN` 发布保留供追溯，不再作为新功能或独立更新通道。版本、渠道、组件和发布关系见[版本基线](docs/RELEASE_MODEL.md)，厂商能力的隔离边界见[历史实验线记录](docs/EXP_BRANCH_AND_RELEASES.md)。
 
 ### 从 1.1.5 迁移
 
@@ -109,10 +111,9 @@ git clone https://gitee.com/xiaomanjun233/SleepDown-Schedule.git
 
 分发或提供修改版时，必须同步公开对应源代码，使项目至少达到源码可见标准，并遵守许可证中的显著署名、修改说明和非官方标识要求；商业使用须另行取得书面授权。
 
-- `main`：已验证的最新稳定代码，受分支保护。
-- `develop`：贡献者提交 Pull Request 的目标分支，受分支保护。
-- `exp`：基于 `main` 的长期 ColorOS / 荣耀 MagicOS 课程流体云实验分支，不作为普通功能的独立基线。
-- `v<版本号>`：正式发布版本标签，例如 `v1.1.1`。
+- `main`：唯一持续开发基线，发布版本由标签固定。
+- `develop`、`exp`：历史分支，保留历史记录，不作为新 PR 目标或功能起点。
+- `v<版本号>`：正式发布标签，例如 `v1.2.6`；`v<版本号>_betaN` 为逐次 Beta 标签。
 - `feature/*`、`fix/*`、`release/*`、`codex/*`：短期开发分支，不作为长期下载入口。
 
 提交改进与 Pull Request 的具体步骤见文末[开发协作](#开发协作)章节。
@@ -192,10 +193,9 @@ CourseSchedule/
 
 ### 分支约定
 
-- `main`：已验证的最新稳定代码，受分支保护，只能通过合并进入。
-- `develop`：贡献者提交变更的目标分支，受分支保护。所有来自外部的 Pull Request 默认合并到 `develop`，验证稳定后再由维护者合入 `main`。
-- `exp`：只在 `main` 之上叠加 ColorOS / 荣耀 MagicOS 课程流体云实验；普通改动先进入 `main`，再同步到 `exp`。详细规则见 [实验版规范](docs/EXP_BRANCH_AND_RELEASES.md)。
-- `v<版本号>`：正式发布版本标签，例如 `v1.1.1`。
+- `main`：唯一持续维护的代码基线，也是普通改动的 PR 目标。
+- `develop`、`exp`：只保留历史；不再从它们派生普通功能或向它们持续同步。
+- `v<版本号>`：正式发布版本标签，例如 `v1.2.6`；Beta 使用独立预发布标签。
 - `feature/*`、`fix/*`、`release/*`、`codex/*`：短期开发分支，不作为长期下载入口。
 
 ### 如何提交 Pull Request
@@ -213,10 +213,10 @@ CourseSchedule/
    git fetch upstream
    ```
 
-3. **从 `develop` 创建功能分支**（不要直接从 `main` 拉分支）：
+3. **从当前 `main` 创建功能分支**：
 
    ```bash
-   git checkout -b feature/my-change upstream/develop
+   git switch -c feature/my-change upstream/main
    ```
 
 4. **完成修改并提交**：遵循仓库现有代码风格，为改动添加必要的说明，使用清晰、面向用户的语言描述提交内容。
@@ -227,9 +227,9 @@ CourseSchedule/
    git push -u origin feature/my-change
    ```
 
-   然后到 GitHub 上你的 Fork 页面点击 `Compare & pull request`，将 **base 分支选择为上游仓库的 `develop`**（不是 `main`），填写改动说明后提交 PR。
+   然后到 GitHub 上你的 Fork 页面点击 `Compare & pull request`，将 **base 分支选择为上游仓库的 `main`**，填写改动说明后提交 PR。
 
-6. **跟进反馈**：PR 会经过审查；如需调整，在同一个分支继续提交并推送即可，PR 会自动更新。合入 `develop` 前需要至少一次审查通过。
+6. **跟进反馈**：PR 会经过审查；如需调整，在同一个分支继续提交并推送即可，PR 会自动更新。合入 `main` 前需要至少一次审查通过。
 
 提交 PR 前请确认：
 
