@@ -680,7 +680,7 @@ internal fun HomeScreen(
     personalizationPreviewState: PersonalizationPreviewState,
     mode: HomeMode,
     dayViewMode: DayViewMode,
-    weekViewStyle: WeekViewStyle = WeekViewStyle.NORMAL,
+    weekViewStyle: WeekViewStyle = WeekViewStyle.BOUNDLESS,
     adaptiveMetrics: HomeAdaptiveMetrics,
     weekCardHeight: Dp,
     displayWeek: Int,

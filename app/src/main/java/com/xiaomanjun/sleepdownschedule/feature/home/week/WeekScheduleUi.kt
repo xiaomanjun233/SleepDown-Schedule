@@ -352,7 +352,7 @@ internal fun SinglePillWeekScheduleScreen(
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onWeekHeaderPreview: (Int?) -> Unit = {},
     onWeekJumpSettled: (Int) -> Unit = {},
-    style: WeekViewStyle = WeekViewStyle.NORMAL,
+    style: WeekViewStyle = WeekViewStyle.BOUNDLESS,
     weekEditMode: Boolean = false,
     onEnterWeekEditMode: () -> Unit = {},
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },

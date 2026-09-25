@@ -736,10 +736,11 @@ class ScheduleRepository(private val database: AppDatabase) {
         return database.withTransaction {
             val globalConfig = configDao.getConfig() ?: defaultConfig(activeScheduleId())
             val id = profileDao.upsertProfile(ScheduleProfileEntity(name = name, isActive = false)).toInt()
-            configDao.upsertConfig(defaultConfig(id).withGlobalSettingsFrom(globalConfig))
+            val config = defaultConfig(id).copy(autoCurrentWeek = true).withGlobalSettingsFrom(globalConfig)
+            configDao.upsertConfig(config)
             val periods = defaultPeriods(id)
             configDao.upsertPeriods(periods)
-            replaceSchemesWithPeriods(id, defaultConfig(id), periods, "默认作息")
+            replaceSchemesWithPeriods(id, config, periods, "默认作息")
             id
         }
     }

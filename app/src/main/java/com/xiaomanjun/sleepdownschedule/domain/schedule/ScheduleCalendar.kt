@@ -118,7 +118,7 @@ fun isAfterScheduleTerm(
 fun scheduleTermStatusLabel(config: ScheduleConfigEntity, date: LocalDate): String? = when (derivedScheduleTermState(config, date)) {
     ScheduleTermState.UPCOMING -> "暂未开学"
     ScheduleTermState.ENDED -> "学期已结束"
-    ScheduleTermState.INVALID -> "学期日期无效"
+    ScheduleTermState.INVALID -> if (config.termStartDate.isNullOrBlank()) "待设置开学日期" else "学期日期无效"
     else -> null
 }
 
@@ -128,7 +128,7 @@ fun scheduleTermStatusDescription(config: ScheduleConfigEntity, date: LocalDate)
         ScheduleTermState.UPCOMING -> "暂未开学"
         ScheduleTermState.ACTIVE -> "进行中 · 第 ${effectiveCurrentWeek(config, date)} 周"
         ScheduleTermState.ENDED -> "学期已结束"
-        ScheduleTermState.INVALID -> "学期日期无效"
+        ScheduleTermState.INVALID -> if (config.termStartDate.isNullOrBlank()) "待设置开学日期" else "学期日期无效"
     }
 
 /** Returns null outside the actual teaching-term date range instead of folding into week 1/N. */
