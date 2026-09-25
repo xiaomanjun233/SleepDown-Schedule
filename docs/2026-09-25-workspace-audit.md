@@ -28,7 +28,9 @@
 
 - 40 个已并入主线且没有独立工作树的本地短期分支从日常列表退出；名称清单保存在归档根目录的 `保留归档/merged-local-branches-retired.txt`。
 - 13 个含独有提交或长期历史价值的分支建立 `archive/2026-09-25/*` 本地引用后，从日常维护路径停用。包含历史 `develop`、`exp` 和若干实验线；对应标签与提交仍可追溯。
-- 远端分支、已发布标签和 Release 未删除、重写或合并。本轮整理不把旧实验线重新定义为当前开发入口。
+- GitHub 远端的 27 个已并入 `main`、无待处理 PR 且不占用当前工作树的 `codex/*` 分支已退出远端列表。清理前名称与提交 SHA 保存在仓库外的 `保留归档/github-remote-branches-before.txt`。
+- GitHub 远端的 `exp` 与 `codex/license-source-visible` 各有独有提交，先建立 `archive/2026-09-25/*` 远端引用并核对 SHA 一致，再停用原分支；`develop` 也建立了归档引用，但 GitHub 分支保护拒绝删除原名（`GH006: Cannot delete this branch`），故它仍留在远端。
+- `codex/beta10-oem-followup`、`codex/home-course-glass-render` 对应现存工作树；`codex/morph-render-budget-design` 还有独有提交。这三条远端分支保留。GitHub 现有 8 条分支（含 `main`、`develop` 与 3 条归档分支），清理前为 34 条。Gitee 远端、已发布标签及 Release 均未改动。
 
 ## 仍注册的工作树
 
