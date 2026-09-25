@@ -1348,16 +1348,6 @@ fun SettingsInfoRow(title: String, body: String, badgeText: String? = null) {
 
 private val changelogReleaseDates = mapOf(
     "1.2.6" to "2026-09-25",
-    "1.2.6_beta10" to "2026-09-25",
-    "1.2.6_beta9" to "2026-09-22",
-    "1.2.6_beta8" to "2026-09-21",
-    "1.2.6_beta7" to "2026-09-20",
-    "1.2.6_beta6" to "2026-09-19",
-    "1.2.6_beta5" to "2026-09-16",
-    "1.2.6_beta4" to "2026-09-15",
-    "1.2.6_beta3" to "2026-09-15",
-    "1.2.6_beta2" to "2026-09-14",
-    "1.2.6_beta1" to "2026-09-14",
     "1.2.5" to "2026-09-14",
     "1.2.3" to "2026-09-01",
     "1.2.2" to "2026-08-29",
@@ -1377,10 +1367,7 @@ private val changelogReleaseDates = mapOf(
     "1.0.4" to "2026-07-18",
     "1.0.3" to "2026-07-18",
     "1.0.2" to "2026-07-16",
-    "1.0.1" to "2026-07-15",
-    "1.09 beta" to "2026-07-01",
-    "1.04 beta" to "2026-05-27",
-    "1.03 beta" to "2026-05-27"
+    "1.0.1" to "2026-07-15"
 )
 
 @Composable
