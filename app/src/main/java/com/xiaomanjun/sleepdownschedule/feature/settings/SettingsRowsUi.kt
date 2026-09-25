@@ -1347,6 +1347,7 @@ fun SettingsInfoRow(title: String, body: String, badgeText: String? = null) {
 }
 
 private val changelogReleaseDates = mapOf(
+    "1.2.6" to "2026-09-25",
     "1.2.6_beta10" to "2026-09-25",
     "1.2.6_beta9" to "2026-09-22",
     "1.2.6_beta8" to "2026-09-21",

@@ -17,7 +17,7 @@
 
 ## 版本与更新
 
-当前应用版本以 `app/build.gradle.kts` 中 `sleepDownVersionName` 和 `versionCode` 为准。正式版使用 `MAJOR.MINOR.PATCH`，普通 Beta 使用 `MAJOR.MINOR.PATCH_betaN`；当前开发基线为 `1.2.6_beta10` / `versionCode 33`，转正式版时仍使用 `1.2.6`。不再从普通版生成 `-expN` 版本名或单独实验 APK。
+当前应用版本以 `app/build.gradle.kts` 中 `sleepDownVersionName` 和 `versionCode` 为准。正式版使用 `MAJOR.MINOR.PATCH`，普通 Beta 使用 `MAJOR.MINOR.PATCH_betaN`；当前正式版为 `1.2.6` / `versionCode 33`，与本轮 Beta 保持相同的版本代码。不再从普通版生成 `-expN` 版本名或单独实验 APK。
 
 普通版“接收 Beta 版更新”开关沿用既有行为。正式版只接收非预发布，开启 Beta 后接收普通预发布与正式版；两者均排除历史 `-expN` 标签。同一 Release 若同时有主应用与课程组件，应用更新只选主应用 APK，文件名含 `coloros-course-component` 或 `wakeup-proxy` 的附件不能作为主应用安装。
 
