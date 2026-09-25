@@ -219,12 +219,15 @@ internal fun Modifier.weekTailTouchAnchor(motion: WeekPageTailMotion): Modifier 
 
 @Composable
 internal fun Modifier.weekPageTail(
+    cardKey: Any? = null,
     cardOrderFraction: Float? = null,
     columnOrderFraction: Float? = null
 ): Modifier {
     val motion = LocalWeekPageTail.current ?: return this
     val pageSlot = LocalWeekPageSlot.current
-    val group = remember { mutableIntStateOf(-1) }
+    // Pager slots can reuse the same composition position for another course while moving.
+    // The new card must measure its own group instead of inheriting the old card's row.
+    val group = remember(pageSlot, cardKey) { mutableIntStateOf(-1) }
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1f else 1f
     val positionTracker = onGloballyPositioned {
         if (group.intValue < 0 || !motion.moving) {

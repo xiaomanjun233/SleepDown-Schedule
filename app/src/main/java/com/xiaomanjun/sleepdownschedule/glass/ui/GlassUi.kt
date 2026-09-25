@@ -540,6 +540,7 @@ fun GlassSurface(
     bottomLitTintFloor: Float = 0.20f,
     shapeProvider: (() -> Shape)? = null,
     morphAllocation: com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation? = null,
+    placementLayer: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val glassBackdrop = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
@@ -597,7 +598,9 @@ fun GlassSurface(
                 tokens.innerShadowAlpha * pressProgress
             }
         ),
-        layerScale = 1f + 0.055f * pressProgress
+        // Passive glass never receives press events. An identity graphics layer here can
+        // retain the previous pixels of a badge while its parent pager layer moves.
+        layerScale = if (onClick == null) null else 1f + 0.055f * pressProgress
     )
     val contentModifier = if (useGlass) {
         modifier.sleepDownGlassSurface(
@@ -606,6 +609,7 @@ fun GlassSurface(
             material = tokens,
             shape = shapeProvider ?: { shape },
             effectFrame = effectFrame,
+            placementLayer = placementLayer,
             renderBounds = { morphAllocation?.localBounds() },
             allocationPaddingPx = morphAllocation?.paddingPx,
             onDrawSurface = {

@@ -1889,6 +1889,7 @@ private fun WeekDayColumn(
                     .padding(horizontal = 2.dp)
                     .height(segmentHeight)
                     .weekPageTail(
+                        cardKey = glassCandidateId,
                         cardOrderFraction = tailCardOrder[glassCandidateId],
                         columnOrderFraction = tailColumnFraction
                     )
@@ -2246,6 +2247,7 @@ fun WeekCourseColumnsLayer(
                             Column(
                                 modifier = Modifier.fillMaxWidth().height(88.dp).padding(horizontal = 2.dp)
                                     .weekPageTail(
+                                        cardKey = weekSupplementaryTailKey(day, course.id, index),
                                         cardOrderFraction = tailCardOrder[weekSupplementaryTailKey(day, course.id, index)],
                                         columnOrderFraction = tailColumnOrder[day]
                                     ),
