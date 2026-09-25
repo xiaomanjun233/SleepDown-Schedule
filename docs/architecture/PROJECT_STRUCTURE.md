@@ -6,6 +6,8 @@
 
 - `app/`：Android 应用主模块。
 - `benchmark/`：Macrobenchmark 与 Baseline Profile，不承载业务实现。
+- `coloros-wakeup-proxy/`：厂商课程读取兼容组件，独立包名和版本。
+- `third-party/kyant-backdrop/`：本地 Backdrop 源码模块。
 - `sleepdown-site/`：独立静态官网，不参与 Android Gradle 构建。
 - `docs/`：架构、迁移、性能与交接记录。
 - `patches/`：第三方依赖补丁。
@@ -31,6 +33,7 @@ app -------------> transition
 - `domain/`：无 Android UI 副作用的课表规则与计算。
 - `core/`：通用 UI、远程配置、应用身份、壁纸与性能基础设施。
 - `feature/`：按用户功能纵向组织的页面、状态和工作流。
+- `feature/experimental/`：当前普通版中按渠道和设备门控的厂商通知实验入口；专属 Shizuku/root 桥接分别在 `app/src/github/` 和 `app/src/store/`。
 - `glass/`：液态玻璃统一框架，保持既有采样域和材质边界。
 - `transition/`：跨 Activity 转场统一框架；Oplus 暂缓代码不得在结构重构中修改行为。
 - `com.kyant.backdrop.catalog/`：SleepDown 修改过的第三方组件，保持原包名和许可说明。
@@ -55,7 +58,7 @@ app -------------> transition
 - Home、周视图、Morph 与玻璃代码拆分时保持函数体、Modifier 顺序、几何和时间参数不变。
 - 每批变更使用独立回退点，并执行与风险相称的最小充分验证。
 
-## 当前落地结构（2026-08-24）
+## 当前落地结构（2026-09-25 核对）
 
 ```text
 com/xiaomanjun/sleepdownschedule/
@@ -74,6 +77,7 @@ com/xiaomanjun/sleepdownschedule/
 │   ├── schedule/{manager,picker}/
 │   ├── importing/{history,progress}/
 │   ├── agent/background/
+│   ├── experimental/ 与 coloros/
 │   ├── backup/
 │   ├── reminder/
 │   ├── settings/
