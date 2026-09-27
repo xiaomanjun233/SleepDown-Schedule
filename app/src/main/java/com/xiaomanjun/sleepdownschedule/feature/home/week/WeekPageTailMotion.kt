@@ -64,8 +64,8 @@ internal class WeekTailTimeline(initialPosition: Float) {
         return List(WeekTailGroups) { position }
     }
 
-    fun advance(timeNanos: Long, target: Float, anchor: Int, durationScale: Float): List<Float> {
-        val rowDelayNanos = (28_000_000L * durationScale.coerceAtLeast(0f)).toLong()
+    fun advance(timeNanos: Long, target: Float, anchor: Int, durationScale: Float, rowDelayMillis: Int = 28): List<Float> {
+        val rowDelayNanos = (rowDelayMillis * 1_000_000L * durationScale.coerceAtLeast(0f)).toLong()
         // Horizontal column delays pull cards in one row apart. Keep the 6×6 card grouping for
         // hit position and anchoring, but move each row as one unit during a horizontal swipe.
         val longestDelay = rowDelayNanos * (WeekTailRows - 1)
@@ -115,6 +115,7 @@ internal class WeekPageTailMotion(val pager: PagerState) {
     private var positions by mutableStateOf(List(WeekTailGroups) { initial })
     private var following by mutableStateOf(false)
     private var anchor by mutableIntStateOf(0)
+    private var gestureDriven = false
     private var settledSampleRevision by mutableIntStateOf(0)
     private var rootLeft = 0f
     private var rootTop = 0f
@@ -133,9 +134,10 @@ internal class WeekPageTailMotion(val pager: PagerState) {
         rootHeight = height.coerceAtLeast(1f)
     }
     fun touch(x: Float, y: Float) {
+        gestureDriven = true
         anchor = groupForRootPosition(rootLeft + x, rootTop + y)
     }
-    fun leadFromTop() { anchor = weekTailGroup(0, 0) }
+    fun leadFromTop() { gestureDriven = false; anchor = weekTailGroup(0, 0) }
     fun snapTo(position: Float) {
         positions = timeline.snapTo(position)
         following = false
@@ -172,7 +174,8 @@ internal class WeekPageTailMotion(val pager: PagerState) {
             lastObservedPosition = target
             do {
                 withFrameNanos { time ->
-                    positions = timeline.advance(time, position, anchor, scale())
+                    positions = timeline.advance(time, position, anchor, scale(),
+                        rowDelayMillis = if (gestureDriven) 16 else 28)
                     following = positions.any { abs(it - position) > 0.00001f }
                 }
             } while (following)

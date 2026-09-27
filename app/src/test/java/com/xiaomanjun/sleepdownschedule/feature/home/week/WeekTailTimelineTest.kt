@@ -4,6 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WeekTailTimelineTest {
+    @Test fun swipeFollowersCatchUpWithinEightyMillisWhileOtherWeekChangesKeepTheirTiming() {
+        val swipe = WeekTailTimeline(0f)
+        val jump = WeekTailTimeline(0f)
+        swipe.advance(0L, 0f, 0, 1f, rowDelayMillis = 16)
+        jump.advance(0L, 0f, 0, 1f)
+        swipe.advance(16_000_000L, 0.5f, 0, 1f, rowDelayMillis = 16)
+        jump.advance(16_000_000L, 0.5f, 0, 1f)
+        val caughtUp = swipe.advance(96_000_000L, 0.5f, 0, 1f, rowDelayMillis = 16)
+        caughtUp.forEach { assertEquals(0.5f, it, 0.00001f) }
+        assertTrue(jump.advance(96_000_000L, 0.5f, 0, 1f).last() < 0.5f)
+    }
     @Test fun outgoingPageSurvivesUntilTheLastTailGroupLeaves() {
         val timeline = WeekTailTimeline(0f)
         timeline.advance(0L, 0f, 0, 1f)
