@@ -59,7 +59,7 @@ jobs:
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-37.0'
       - name: Compile without release signing
-        run: bash ./gradlew compileGithubReleaseKotlin -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix" --console=plain --no-daemon --no-parallel --max-workers=2
+        run: bash ./gradlew compileGithubReleaseKotlin -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix" --console=plain --no-daemon --no-parallel --max-workers=2 --info --stacktrace
 
   result:
     name: PR checks
