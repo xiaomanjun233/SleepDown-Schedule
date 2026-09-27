@@ -667,34 +667,22 @@ private fun decodeAgentActionDrafts(payload: String, onError: (String) -> Unit):
         .removePrefix("```")
         .removeSuffix("```")
         .trim()
-    val candidates = buildList {
-        add(unfenced)
-        Regex("\\\"actions\\\"\\s*:\\s*(\\[[\\s\\S]*])", RegexOption.IGNORE_CASE)
-            .find(unfenced)?.groupValues?.getOrNull(1)?.let(::add)
-        val arrayStart = unfenced.indexOf('[')
-        val arrayEnd = unfenced.lastIndexOf(']')
-        if (arrayStart >= 0 && arrayEnd > arrayStart) add(unfenced.substring(arrayStart, arrayEnd + 1))
-        val objectStart = unfenced.indexOf('{')
-        val objectEnd = unfenced.lastIndexOf('}')
-        if (objectStart >= 0 && objectEnd > objectStart) add(unfenced.substring(objectStart, objectEnd + 1))
-    }.distinct()
-    candidates.forEach { rawCandidate ->
-        val candidate = normalizeLooseAgentActionJson(rawCandidate)
-        val element = runCatching { AgentJson.parseToJsonElement(candidate) }.getOrNull() ?: return@forEach
-        val actions = (element as? kotlinx.serialization.json.JsonObject)?.get("actions") ?: element
-        // Once a complete container is found, validate it as a whole; never salvage a nested item.
-        return when (actions) {
-            is kotlinx.serialization.json.JsonArray -> runCatching {
-                AgentActionJson.decodeFromString<List<AgentActionDraft>>(actions.toString())
-            }.onFailure { onError(it.message.orEmpty().substringBefore("JSON input:").take(600)) }.getOrDefault(emptyList())
-            is kotlinx.serialization.json.JsonObject -> runCatching {
-                listOf(AgentActionJson.decodeFromString<AgentActionDraft>(actions.toString()))
-            }.onFailure { onError(it.message.orEmpty().substringBefore("JSON input:").take(600)) }.getOrDefault(emptyList())
-            else -> emptyList<AgentActionDraft>().also { onError("操作必须是 JSON 对象或数组") }
-        }
+    val decoded = runCatching { AgentJson.parseToJsonElement(normalizeLooseAgentActionJson(unfenced)) }
+    val element = decoded.getOrNull() ?: run {
+        onError(decoded.exceptionOrNull()?.message.orEmpty().substringBefore("JSON input:").take(600))
+        return emptyList()
     }
-    onError("无法解析操作 JSON；检查引号、逗号、括号和字段类型后重新提交完整数组")
-    return emptyList()
+    val actions = (element as? kotlinx.serialization.json.JsonObject)?.get("actions") ?: element
+    // Validate the complete container; never salvage a nested item from a broken plan.
+    return when (actions) {
+        is kotlinx.serialization.json.JsonArray -> runCatching {
+            AgentActionJson.decodeFromString<List<AgentActionDraft>>(actions.toString())
+        }.onFailure { onError(it.message.orEmpty().substringBefore("JSON input:").take(600)) }.getOrDefault(emptyList())
+        is kotlinx.serialization.json.JsonObject -> runCatching {
+            listOf(AgentActionJson.decodeFromString<AgentActionDraft>(actions.toString()))
+        }.onFailure { onError(it.message.orEmpty().substringBefore("JSON input:").take(600)) }.getOrDefault(emptyList())
+        else -> emptyList<AgentActionDraft>().also { onError("操作必须是 JSON 对象或数组") }
+    }
 }
 
 private fun extractLooseAgentActionPayload(content: String): String? {
@@ -705,12 +693,11 @@ private fun extractLooseAgentActionPayload(content: String): String? {
         .map { it.groupValues[1] }
         .firstOrNull { it.contains("\"type\"", ignoreCase = true) }
     if (fenced != null) return fenced
-    val arrayStart = content.indexOf('[')
-    val arrayEnd = content.lastIndexOf(']')
-    if (arrayStart >= 0 && arrayEnd > arrayStart) return content.substring(arrayStart, arrayEnd + 1)
-    val objectStart = content.indexOf('{')
-    val objectEnd = content.lastIndexOf('}')
-    return if (objectStart >= 0 && objectEnd > objectStart) content.substring(objectStart, objectEnd + 1) else null
+    val start = content.indexOfFirst { it == '[' || it == '{' }
+    if (start < 0) return null
+    val end = content.lastIndexOf(if (content[start] == '[') ']' else '}')
+    // Preserve the outer container even when truncated, so validation can report the failure.
+    return if (end > start) content.substring(start, end + 1) else content.substring(start)
 }
 
 private fun normalizeLooseAgentActionJson(raw: String): String {

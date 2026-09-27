@@ -133,4 +133,17 @@ class AgentPlanSafetyTest {
         assertTrue(examples.size >= 8)
         examples.forEach { assertNotNull(Json.parseToJsonElement(it).jsonObject["type"]?.jsonPrimitive?.content) }
     }
+
+    @Test fun incompleteArrayNeverSalvagesItsFirstValidOperation() {
+        val result = parse("""[{"type":"DELETE_COURSE","courseId":42}, {"type":"UPDATE_COURSE" """)
+        assertTrue(result.actions.isEmpty())
+        assertTrue(result.validationErrors.any { it.field == "actionsJson" })
+        assertTrue(parse("""[{"type":"DELETE_COURSE","courseId":42}""").actions.isEmpty())
+        val unmarked = parseAgentActions("""请确认：[{"type":"DELETE_COURSE","courseId":42}, {"type":"UPDATE_COURSE" """, facts)
+        assertTrue(unmarked.actions.isEmpty())
+        assertTrue(unmarked.validationErrors.any { it.field == "actionsJson" })
+        val brokenWrapper = parseAgentActions("""{"actions":[{"type":"DELETE_COURSE","courseId":42}]""", facts)
+        assertTrue(brokenWrapper.actions.isEmpty())
+        assertTrue(brokenWrapper.validationErrors.isNotEmpty())
+    }
 }
