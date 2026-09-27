@@ -32,7 +32,8 @@ internal class AgentToolFactCache {
 
     @Synchronized
     fun put(facts: DayAgentFacts, call: AgentToolCall, result: AgentToolResult, now: Long) {
-        if (!result.success || call.name == AgentToolName.UPDATE_MEMORY || result.content.length > 100_000) return
+        if (!result.success || call.name in setOf(AgentToolName.UPDATE_MEMORY, AgentToolName.PROPOSE_ACTIONS,
+                AgentToolName.UNKNOWN, AgentToolName.GET_ACTION_GUIDE) || result.content.length > 100_000) return
         val version = version(facts)
         val snapshot = snapshots[facts.scheduleId]?.takeIf { it.version == version }
             ?: Snapshot(version, linkedMapOf()).also { snapshots[facts.scheduleId] = it }
@@ -45,6 +46,16 @@ internal class AgentToolFactCache {
 }
 
 internal val SharedAgentToolFacts = AgentToolFactCache()
+
+/** Large semester snapshots are still cached, but only re-sent when the model requests them. */
+internal fun agentPreloadedFacts(cached: Map<String, AgentToolResult>): Map<String, AgentToolResult> {
+    var remaining = 12_000
+    return cached.filter { (_, result) ->
+        (result.content.length <= 6_000 && result.content.length <= remaining).also { keep ->
+            if (keep) remaining -= result.content.length
+        }
+    }
+}
 
 internal fun agentCachedFactsMessage(facts: DayAgentFacts, cached: Map<String, AgentToolResult>): String = buildJsonObject {
     put("kind", "verified_cached_local_facts")

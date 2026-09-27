@@ -58,15 +58,13 @@ internal fun AgentValidatedAction.scopedEditedCourse(): CourseEntity? = edited?.
     if (scope == AgentActionScope.CURRENT_WEEK) it.copy(weeks = listOf(targetWeek)) else it
 }
 
-/** The same stored course can participate in several edits when their source weeks are disjoint. */
+/** The same course may have disjoint changes within one week, but never to the same cell. */
 internal fun agentActionsHaveOverlappingCourseScopes(actions: List<AgentValidatedAction>): Boolean =
     actions.filter { it.original != null }.groupBy { it.original!!.id }.values.any { group ->
-        if (group.size < 2) false
-        else if (group.any { it.scope == AgentActionScope.ALL_WEEKS }) true
-        else {
-            val seen = mutableSetOf<Int>()
-            group.any { action -> action.sourceWeekSet().any { !seen.add(it) } }
-        }
+        val seen = mutableSetOf<Pair<Int, Int>>()
+        group.any { action -> action.sourceWeekSet().any { week ->
+            action.sourcePeriodSet().any { period -> !seen.add(week to period) }
+        } }
     }
 
 internal fun previewAgentPlan(
@@ -77,6 +75,15 @@ internal fun previewAgentPlan(
     val working = before.toMutableList()
     var temporaryId = -1L
 
+    val courseActions = plan.actions.filter { it.original != null }.groupBy { it.original!!.id }
+    courseActions.forEach { (id, actions) ->
+        val original = before.firstOrNull { it.id == id } ?: return@forEach
+        working.removeAll { it.id == id }
+        working += agentCourseFragments(original, actions).mapIndexed { index, fragment ->
+            fragment.copy(id = if (index == 0) original.id else temporaryId--)
+        }
+    }
+
     plan.actions.forEach { action ->
         when (action.type) {
             AgentValidatedActionType.ADD -> action.edited?.let { edited ->
@@ -84,36 +91,8 @@ internal fun previewAgentPlan(
             }
 
             AgentValidatedActionType.UPDATE,
-            AgentValidatedActionType.REPLACE -> {
-                val original = action.original ?: return@forEach
-                val edited = action.scopedEditedCourse() ?: return@forEach
-                val index = working.indexOfFirst { it.id == original.id }
-                if (index < 0) return@forEach
-                if (action.scope != AgentActionScope.ALL_WEEKS) {
-                    val remaining = working[index].weeks.filterNot { it in action.sourceWeekSet() }
-                    if (remaining.isEmpty()) working.removeAt(index)
-                    else working[index] = working[index].copy(weeks = remaining)
-                    // Preserve the logical course id in simulation. This prevents an already
-                    // existing conflict from being misclassified as new merely because the
-                    // current-week edit will be stored as a physical fragment in Room.
-                    working += edited.copy(id = original.id)
-                } else {
-                    working[index] = edited.copy(id = original.id)
-                }
-            }
-
-            AgentValidatedActionType.DELETE -> {
-                val original = action.original ?: return@forEach
-                val index = working.indexOfFirst { it.id == original.id }
-                if (index < 0) return@forEach
-                if (action.scope != AgentActionScope.ALL_WEEKS) {
-                    val remaining = working[index].weeks.filterNot { it in action.sourceWeekSet() }
-                    if (remaining.isEmpty()) working.removeAt(index)
-                    else working[index] = working[index].copy(weeks = remaining)
-                } else {
-                    working.removeAt(index)
-                }
-            }
+            AgentValidatedActionType.REPLACE,
+            AgentValidatedActionType.DELETE -> Unit
 
             AgentValidatedActionType.OPEN_SETTINGS,
             AgentValidatedActionType.OPEN_IMPORT,

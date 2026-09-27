@@ -487,85 +487,27 @@ class ScheduleRepository(private val database: AppDatabase) {
                     periodDefinitions = configDao.getPeriods(scheduleId)
                 )
 
-                val removedWeeks = mutableMapOf<Long, MutableSet<Int>>()
-                plan.actions.forEach { action ->
-                    when (action.type) {
-                        AgentValidatedActionType.ADD -> action.edited?.let { course ->
-                            courseDao.insertCourse(
-                                normalizeCoursesForSchedule(
-                                    listOf(course.copy(id = 0)),
-                                    scheduleId
-                                ).single()
-                            )
+                plan.actions.filter { it.original != null }.groupBy { it.original!!.id }.forEach { (id, actions) ->
+                    val original = before.first { it.id == id }
+                    actions.forEach { action ->
+                        require(action.sourcePeriodSet().isNotEmpty() && action.sourcePeriodSet().all { it in original.periods }) {
+                            "所选节次不属于原课程，请重新生成计划"
                         }
-
-                        AgentValidatedActionType.UPDATE,
-                        AgentValidatedActionType.REPLACE -> {
-                            val original = action.original
-                            val edited = action.scopedEditedCourse()
-                            if (original != null && edited != null) {
-                                if (action.scope != AgentActionScope.ALL_WEEKS) {
-                                    val removed = removedWeeks.getOrPut(original.id) { mutableSetOf() }.apply { addAll(action.sourceWeekSet()) }
-                                    val remainingWeeks = original.weeks.filterNot { it in removed }
-                                    if (remainingWeeks.isEmpty()) {
-                                        courseDao.deleteCourse(original.id)
-                                    } else {
-                                        courseDao.updateCourse(
-                                            original.copy(
-                                                weeks = remainingWeeks,
-                                                scheduleId = scheduleId
-                                            )
-                                        )
-                                    }
-                                    courseDao.insertCourse(
-                                        normalizeCoursesForSchedule(
-                                            listOf(
-                                                edited.copy(
-                                                    id = 0,
-                                                    weeks = edited.weeks
-                                                )
-                                            ),
-                                            scheduleId
-                                        ).single()
-                                    )
-                                } else {
-                                    courseDao.updateCourse(
-                                        normalizeCoursesForSchedule(
-                                            listOf(edited.copy(id = original.id)),
-                                            scheduleId
-                                        ).single()
-                                    )
-                                }
-                            }
+                    }
+                    val fragments = agentCourseFragments(original, actions)
+                    if (fragments.isEmpty()) courseDao.deleteCourse(id)
+                    else {
+                        courseDao.updateCourse(normalizeCoursesForSchedule(listOf(fragments.first().copy(id = id)), scheduleId).single())
+                        fragments.drop(1).forEach { fragment ->
+                            courseDao.insertCourse(normalizeCoursesForSchedule(listOf(fragment.copy(id = 0)), scheduleId).single())
                         }
-
-                        AgentValidatedActionType.DELETE -> action.original?.let { original ->
-                            if (action.scope != AgentActionScope.ALL_WEEKS) {
-                                val removed = removedWeeks.getOrPut(original.id) { mutableSetOf() }.apply { addAll(action.sourceWeekSet()) }
-                                val remainingWeeks = original.weeks.filterNot { it in removed }
-                                if (remainingWeeks.isEmpty()) courseDao.deleteCourse(original.id)
-                                else courseDao.updateCourse(
-                                    original.copy(
-                                        weeks = remainingWeeks,
-                                        scheduleId = scheduleId
-                                    )
-                                )
-                            } else {
-                                courseDao.deleteCourse(original.id)
-                            }
-                        }
-
-                        AgentValidatedActionType.OPEN_SETTINGS,
-                        AgentValidatedActionType.OPEN_IMPORT,
-                        AgentValidatedActionType.SET_SETTING,
-                        AgentValidatedActionType.SET_PERIOD_SETTINGS,
-                        AgentValidatedActionType.SET_ADJUSTMENTS,
-                        AgentValidatedActionType.CREATE_SCHEDULE,
-                        AgentValidatedActionType.ACTIVATE_SCHEDULE,
-                        AgentValidatedActionType.DELETE_SCHEDULE -> Unit
                     }
                 }
-
+                plan.actions.filter { it.type == AgentValidatedActionType.ADD }.forEach { action ->
+                    action.edited?.let { course ->
+                        courseDao.insertCourse(normalizeCoursesForSchedule(listOf(course.copy(id = 0)), scheduleId).single())
+                    }
+                }
                 mergeCompatibleCourseFragments(scheduleId)
                 val after = courseDao.getCourses(scheduleId)
                 if (!verifyAgentPlan(after, plan, before)) {

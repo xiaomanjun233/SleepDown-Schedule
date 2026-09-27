@@ -128,8 +128,8 @@ class AgentPlanSafetyTest {
     }
 
     @Test fun actionExamplesAreValidJsonWithoutLiteralBackslashQuotes() {
-        val examples = DayAgentPrompts.FinalAnswerStage.lines().filter { it.firstOrNull()?.isDigit() == true }
-            .flatMap { it.substringAfter('：').split('；') }.filter { it.startsWith("{\"type\"") }
+        val examples = AgentCapabilityArea.entries.flatMap { agentActionGuide(it.name).lines() }
+            .map(String::trim).filter { it.startsWith("{\"type\"") }
         assertTrue(examples.size >= 8)
         examples.forEach { assertNotNull(Json.parseToJsonElement(it).jsonObject["type"]?.jsonPrimitive?.content) }
     }

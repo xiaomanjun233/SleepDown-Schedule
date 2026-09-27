@@ -173,9 +173,8 @@ class DayAgentActionsTest {
         )
         val response = """<agent_actions>{"type":"ADD_COURSE","scope":"CURRENT_WEEK","course":{"name":"实训课","weekday":3,"periods":[3,4],"customPeriodTimes":"3,10:10-10:50;4,11:05-11:45"}}</agent_actions>"""
 
-        val action = parseAgentActions(response, facts).actions.single()
-
-        assertEquals(null, action.edited?.customPeriodTimes)
+        // Unsupported fields reject the complete plan instead of silently discarding model input.
+        assertTrue(parseAgentActions(response, facts).actions.isEmpty())
     }
 
     @Test

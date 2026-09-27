@@ -75,8 +75,98 @@ class AgentTaskLoopTest {
         assertEquals("high", request.getValue("reasoning").jsonObject.getValue("effort").jsonPrimitive.content)
     }
 
+    @Test fun unknownAndMalformedToolsReturnPairedErrorsAndAllowRepair() {
+        runConversation(listOf(
+            response(call("bad-name", "deleteCourse"), call("bad-json", "GET_PERIODS", "{")),
+            response(call("fixed", "getPeriods")),
+            response(message("已读取节次，可以准备修改。"))
+        )) { result, requests, calls ->
+            assertEquals("已读取节次，可以准备修改。", result)
+            assertEquals(listOf(AgentToolName.GET_PERIODS), calls.map { it.name })
+            val outputs = requests[1].getValue("input").jsonArray.map { it.jsonObject }
+                .filter { it["type"]?.jsonPrimitive?.content == "function_call_output" }
+            assertEquals(setOf("bad-name", "bad-json"), outputs.map { it.getValue("call_id").jsonPrimitive.content }.toSet())
+            assertTrue(outputs.all { it.getValue("output").jsonPrimitive.content.contains("未执行") || it.getValue("output").jsonPrimitive.content.contains("未知工具") })
+        }
+    }
+
+    @Test fun equivalentSearchesExecuteOnceAndKeepEveryCallPaired() {
+        runConversation(listOf(
+            response(call("first", "SEARCH_COURSES", """{"name":"English","week":"03"}"""),
+                call("repeat", "searchCourses", """{"week":3,"name":"english"}""")),
+            response(message("已定位课程。"))
+        )) { _, requests, calls ->
+            assertEquals(1, calls.size)
+            val outputs = requests[1].getValue("input").jsonArray.map { it.jsonObject }
+                .filter { it["type"]?.jsonPrimitive?.content == "function_call_output" }
+            assertEquals(2, outputs.size)
+            assertTrue(outputs.last().getValue("output").jsonPrimitive.content.contains("复用"))
+        }
+    }
+
+    @Test fun successfulProposalEndsTurnWithoutAnExtraModelRequest() {
+        val answer = "待确认。<agent_actions>[{\"type\":\"OPEN_SETTINGS\",\"settingsPage\":\"GENERAL\"}]</agent_actions>"
+        runConversation(listOf(response(call("plan", "PROPOSE_ACTIONS", """{"actionsJson":"[]"}"""))),
+            tool = { AgentToolResult(it.id, it.name, true, "等待确认", answer) }
+        ) { result, requests, calls ->
+            assertEquals(answer, result)
+            assertEquals(1, requests.size)
+            assertEquals(listOf(AgentToolName.PROPOSE_ACTIONS), calls.map { it.name })
+        }
+    }
+
+    @Test fun proposalReportsRealValidationErrorThenAcceptsCorrectedPlan() {
+        val facts = buildDayAgentFacts(emptyList(), defaultPeriods(), defaultConfig(), java.time.LocalDate.of(2026,9,28), null)
+        fun arguments(payload: String) = buildJsonObject { put("actionsJson", payload) }.toString()
+        val invalid = """[{"type":"OPEN_SETTINGS","settingsPageTypo":"GENERAL"}]"""
+        val valid = """[{"type":"OPEN_SETTINGS","settingsPage":"GENERAL"}]"""
+        runConversation(listOf(
+            response(call("invalid", "PROPOSE_ACTIONS", arguments(invalid))),
+            response(call("fixed", "PROPOSE_ACTIONS", arguments(valid)))
+        ), tool = { prepareAgentActions(it, facts) }) { result, requests, calls ->
+            assertEquals(2, requests.size)
+            assertEquals(2, calls.size)
+            val output = requests[1].getValue("input").jsonArray.map { it.jsonObject }
+                .single { it["type"]?.jsonPrimitive?.content == "function_call_output" }.getValue("output").jsonPrimitive.content
+            assertTrue(output.contains("settingsPageTypo"))
+            assertTrue(output.contains("local_plan_validation"))
+            assertTrue(output.contains("\"executed\":false"))
+            assertEquals(1, parseAgentActions(result, facts).actions.size)
+        }
+    }
+
+    @Test fun legacyAnswerIsSelfCheckedAndItsErrorReturnedToModelBeforeDisplay() {
+        val facts = buildDayAgentFacts(emptyList(), defaultPeriods(), defaultConfig(), java.time.LocalDate.of(2026,9,28), null)
+        val invalid = "<agent_actions>[{\"type\":\"OPEN_SETTINGS\",\"settingsPage\":\"UNKNOWN\"}]</agent_actions>"
+        val valid = "<agent_actions>[{\"type\":\"OPEN_SETTINGS\",\"settingsPage\":\"GENERAL\"}]</agent_actions>"
+        runConversation(listOf(response(message(invalid)), response(message(valid))),
+            validator = { agentAnswerValidationFeedback(it, facts) }
+        ) { result, requests, _ ->
+            assertEquals(valid, result)
+            assertEquals(2, requests.size)
+            assertTrue(requests[1].getValue("input").toString().contains("settingsPage 无效"))
+            assertTrue(requests[1].getValue("tools").jsonArray.isNotEmpty())
+        }
+    }
+
+    @Test fun invalidPlansStopAfterBoundedRepairWithoutAConfirmation() {
+        val facts = buildDayAgentFacts(emptyList(), defaultPeriods(), defaultConfig(), java.time.LocalDate.of(2026,9,28), null)
+        val invalid = "<agent_actions>[{\"type\":\"OPEN_SETTINGS\",\"settingsPage\":\"UNKNOWN\"}]</agent_actions>"
+        runConversation(List(8) { response(message(invalid)) },
+            validator = { agentAnswerValidationFeedback(it, facts) }, allowReset = true
+        ) { result, requests, _ ->
+            assertEquals(AgentPlanRepairLimitMessage, result)
+            assertEquals(8, requests.size)
+            assertTrue(requests.last().getValue("input").toString().contains("local_plan_validation"))
+            assertTrue(parseAgentActions(result, facts).actions.isEmpty())
+        }
+    }
+
     private fun runConversation(
         responses: List<String>,
+        tool: (AgentToolCall) -> AgentToolResult = { AgentToolResult(it.id, it.name, true, "fixture:${it.name}") },
+        validator: (String) -> String? = { null },
+        allowReset: Boolean = false,
         verify: (String, List<JsonObject>, List<AgentToolCall>) -> Unit
     ) {
         val requests = mutableListOf<JsonObject>()
@@ -107,12 +197,13 @@ class AgentTaskLoopTest {
                 includeMemoryTool = false,
                 onStatus = {},
                 onDelta = deltas::add,
-                onStreamReset = { fail("Valid task rounds must not reset output") },
+                onStreamReset = { if (allowReset) deltas.clear() else fail("Valid task rounds must not reset output") },
+                validateAnswer = validator,
                 executeTool = { call ->
                     calls += call
-                    AgentToolResult(call.id, call.name, true, "fixture:${call.name}")
+                    tool(call)
                 },
-                telemetry = DayAgentTurnTelemetry("unit-test")
+                telemetry = DayAgentTurnTelemetry("unit-test", elapsedRealtime = { 100L })
             )
             assertEquals(result, deltas.joinToString(""))
             verify(result, requests, calls)
