@@ -1129,7 +1129,9 @@ private fun WeekEditOverlayHost(
 
 @Composable
 internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: ScheduleConfigEntity) {
-    val themeColor = if (config.courseCardColoredTextEnabled) courseCardBaseColor(config, course) else null
+    val pageForeground = homeForegroundColor(config)
+    val lightText = pageForeground.luminance() >= 0.5f
+    val coloredText = config.courseCardColoredTextEnabled
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val heightDp = maxHeight.value
@@ -1137,11 +1139,7 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
         val locationText = course.location.orEmpty()
         val hasLocation = locationText.isNotBlank()
         val hasTeacher = !course.teacher.isNullOrBlank()
-        val textColor = if (config.courseCardGlassEnabled && courseCardUsesAssignments(config)) {
-            readableOn(courseCardBaseColor(config, course))
-        } else {
-            glassForegroundColor(config)
-        }
+        val textColor = homeCourseTextColor(config, course, pageForeground, muted = false)
         val compact = heightDp < 78f
         val tiny = heightDp < 52f
         val verticalPadding = when {
@@ -1244,13 +1242,14 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
             if (hasLocation && locationLines > 0) {
                 CourseCardText(
                     locationText,
-                    themeColor = themeColor,
+                    themeColor = null,
+                    shadowLightText = lightText,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .fillMaxWidth(),
                     fontSize = locationFont,
                     lineHeight = locationLineHeight,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Medium,
                     color = textColor.copy(alpha = 0.78f),
                     maxLines = locationLines,
                     overflow = TextOverflow.Ellipsis,
@@ -1260,14 +1259,15 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
             }
             CourseCardText(
                 course.name,
-                themeColor = themeColor,
+                themeColor = null,
+                shadowLightText = lightText,
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth()
                     .padding(vertical = centerReserve),
                 fontSize = nameFont,
                 lineHeight = nameLineHeight,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = if (coloredText) FontWeight.Bold else FontWeight.SemiBold,
                 color = textColor,
                 maxLines = nameLines,
                 overflow = TextOverflow.Ellipsis,
@@ -1277,13 +1277,14 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
             if (canShowTeacher) {
                 CourseCardText(
                     course.teacher,
-                    themeColor = themeColor,
+                    themeColor = null,
+                    shadowLightText = lightText,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth(),
                     fontSize = teacherFont,
                     lineHeight = teacherLineHeight,
-                    fontWeight = FontWeight.Normal,
+                    fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Normal,
                     color = textColor.copy(alpha = 0.58f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -3168,12 +3169,10 @@ fun WeekCourseBlock(
     val hasLocation = locationText.isNotBlank()
     val hasTeacher = !course.teacher.isNullOrBlank()
     val resolvedCardColor = if (muted) MutedCourseLightColor else if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
-    val themeColor = if (!muted && config.courseCardColoredTextEnabled) {
-        courseCardBaseColor(config, course)
-    } else null
-    val courseTextColor =
-        if (config.courseCardGlassEnabled && courseCardUsesAssignments(config)) readableOn(resolvedCardColor)
-        else glassForegroundColor(config)
+    val pageForeground = homeForegroundColor(config)
+    val lightText = pageForeground.luminance() >= 0.5f
+    val coloredText = !muted && config.courseCardColoredTextEnabled
+    val courseTextColor = homeCourseTextColor(config, course, pageForeground, muted)
     val density = LocalDensity.current
     val tailDirection = if (weekMotionOutgoing) -weekMotionDirection else weekMotionDirection
     val startupPhase = LocalStartupPhase.current
@@ -3799,13 +3798,14 @@ fun WeekCourseBlock(
                 if (hasLocation && locationLines > 0) {
                     CourseCardText(
                         locationText,
-                        themeColor = themeColor,
+                        themeColor = null,
+                        shadowLightText = lightText,
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .fillMaxWidth(),
                         fontSize = locationFont,
                         lineHeight = locationLineHeight,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Medium,
                         color = courseTextColor.copy(alpha = 0.78f),
                         maxLines = locationLines,
                         overflow = TextOverflow.Ellipsis,
@@ -3814,14 +3814,15 @@ fun WeekCourseBlock(
                 }
                 CourseCardText(
                     course.name,
-                    themeColor = themeColor,
+                    themeColor = null,
+                    shadowLightText = lightText,
                     modifier = Modifier
                         .align(Alignment.Center)
                         .fillMaxWidth()
                         .padding(vertical = centerReserve),
                     fontSize = nameFont,
                     lineHeight = nameLineHeight,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = if (coloredText) FontWeight.Bold else FontWeight.SemiBold,
                     color = courseTextColor,
                     maxLines = nameLines,
                     overflow = TextOverflow.Ellipsis,
@@ -3830,13 +3831,14 @@ fun WeekCourseBlock(
                 if (canShowTeacher) {
                     CourseCardText(
                         course.teacher,
-                        themeColor = themeColor,
+                        themeColor = null,
+                        shadowLightText = lightText,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth(),
                         fontSize = teacherFont,
                         lineHeight = teacherLineHeight,
-                        fontWeight = FontWeight.Normal,
+                        fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Normal,
                         color = courseTextColor.copy(alpha = 0.58f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

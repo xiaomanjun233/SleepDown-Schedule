@@ -2081,7 +2081,7 @@ private fun DayPartHeader(
 }
 
 @Composable
-private fun dayCourseTextColor(
+internal fun homeCourseTextColor(
     config: ScheduleConfigEntity,
     course: CourseEntity,
     pageForeground: ComposeColor,
@@ -2108,7 +2108,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
     val adjustedEditor = LocalAdjustedCourseEditor.current
     val subdued = muted || completed
     val pageForeground = homeForegroundColor(config)
-    val foreground = dayCourseTextColor(config, course, pageForeground, subdued)
+    val foreground = homeCourseTextColor(config, course, pageForeground, subdued)
     Column(modifier = Modifier.homeSwitchGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         CourseGlassCard(
             backdrop = backdrop,
@@ -2153,7 +2153,7 @@ internal fun DayCourseCardTextContent(
     muted: Boolean = false
 ) {
     val coloredText = !muted && config.courseCardColoredTextEnabled
-    val renderedTextColor = dayCourseTextColor(config, course, textColor, muted)
+    val renderedTextColor = homeCourseTextColor(config, course, textColor, muted)
     val coloredWeight = if (coloredText) FontWeight.Bold else null
     val lightText = textColor.luminance() >= 0.5f
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
