@@ -57,7 +57,7 @@ jobs:
           packages: 'platform-tools'
           log-accepted-android-sdk-licenses: 'false'
       - name: Install Android SDK
-        run: sdkmanager 'platforms;android-37'
+        run: sdkmanager 'platforms;android-37.0'
       - name: Compile without release signing
         run: bash ./gradlew compileGithubReleaseKotlin -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix" --console=plain --no-daemon --no-parallel --max-workers=2
 
