@@ -202,40 +202,9 @@ CourseSchedule/
 
 欢迎提交问题反馈或代码改进。本项目并非完全开源，参与贡献前请阅读 [LICENSE.md](LICENSE.md)，确认你的改动符合署名非商业、源码可见许可，且不包含未经授权的第三方素材。
 
-1. **Fork 仓库**：在 GitHub 上点击 `Fork`，将 `xiaomanjun233/SleepDown-Schedule` 复制到你的账号。
+完整步骤、构建环境和验证要求见 [贡献指南](CONTRIBUTING.md)。外部贡献从最新 `main` 创建 Fork 分支，PR 目标选 `main`，按模板说明问题、修改与实际验证；没有强制标题格式、分支前缀或 Issue 编号。
 
-2. **克隆你的 Fork 并同步上游**：
-
-   ```bash
-   git clone https://github.com/<你的用户名>/SleepDown-Schedule.git
-   cd SleepDown-Schedule
-   git remote add upstream https://github.com/xiaomanjun233/SleepDown-Schedule.git
-   git fetch upstream
-   ```
-
-3. **从当前 `main` 创建功能分支**：
-
-   ```bash
-   git switch -c feature/my-change upstream/main
-   ```
-
-4. **完成修改并提交**：遵循仓库现有代码风格，为改动添加必要的说明，使用清晰、面向用户的语言描述提交内容。
-
-5. **推送分支并创建 PR**：
-
-   ```bash
-   git push -u origin feature/my-change
-   ```
-
-   然后到 GitHub 上你的 Fork 页面点击 `Compare & pull request`，将 **base 分支选择为上游仓库的 `main`**，填写改动说明后提交 PR。
-
-6. **跟进反馈**：PR 会经过审查；如需调整，在同一个分支继续提交并推送即可，PR 会自动更新。合入 `main` 前需要至少一次审查通过。
-
-提交 PR 前请确认：
-
-- 变更范围与描述一致，不混入无关改动。
-- 未包含敏感信息（API Key、密钥、个人隐私、数据库文件等）。
-- 若修改了视觉或交互，请说明其效果与验收方式。
+维护者继续使用现有主分支协作方式和管理员权限。PR 自动检查用于提供反馈，纯文档改动跳过 Android 构建；新增检查经过验证后再决定是否作为合并条件。
 
 ## 许可证
 
