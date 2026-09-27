@@ -1183,6 +1183,11 @@ internal fun DayAgentConversationDialog(
     val appliedActionKeys = remember(state.config.id) {
         mutableStateOf(DayAgentPreferences.getAppliedActions(dialogContext, state.config.id))
     }
+    // Keep the shown proposal tied to its original facts. Refreshing the timetable must not
+    // silently change a pending confirmation or erase its before/after details after saving.
+    val confirmationSnapshots = remember(state.config.id, facts.date) {
+        mutableMapOf<Pair<Long, String>, Pair<DayAgentFacts, ParsedAgentActions>>()
+    }
     var executingActionKeys by remember(state.config.id) { mutableStateOf(emptySet<String>()) }
     var actionFeedback by remember(state.config.id) {
         mutableStateOf(emptyMap<String, AgentPlanExecutionResult>())
@@ -1917,9 +1922,15 @@ internal fun DayAgentConversationDialog(
                                  val messageParts = remember(message.content) {
                                      splitAgentReasoning(message.content)
                                  }
-                                  val parsed = remember(messageParts.answer, facts.sourceHash) {
-                                      parseAgentActions(messageParts.answer, facts)
+                                  val confirmationKey = message.id to messageParts.answer
+                                  val previouslyApplied = appliedActionKeys.value.any { it.startsWith("${message.id}:") }
+                                  val confirmation = if (previouslyApplied && confirmationKey !in confirmationSnapshots) {
+                                      facts to ParsedAgentActions("这项操作已执行并验证。", emptyList())
+                                  } else confirmationSnapshots.getOrPut(confirmationKey) {
+                                      facts to parseAgentActions(messageParts.answer, facts)
                                   }
+                                  val confirmationFacts = confirmation.first
+                                  val parsed = confirmation.second
                                   var storedTraceExpanded by remember(message.id) { mutableStateOf(false) }
                                   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                       if (!homePresentation && message.id == tracedAssistantMessageId) {
@@ -1984,28 +1995,14 @@ internal fun DayAgentConversationDialog(
                                           val actionKey = "${message.id}:$planSuffix"
                                           val alreadyApplied = actionKey in appliedActionKeys.value
                                           val executing = actionKey in executingActionKeys
-                                          val preview = remember(plan, facts.sourceHash) {
+                                          val preview = remember(plan, confirmationFacts.sourceHash) {
                                               previewAgentPlan(
-                                                  before = facts.semesterCourses,
+                                                  before = confirmationFacts.semesterCourses,
                                                   plan = plan,
-                                                  periodDefinitions = facts.periodDefinitions
+                                                  periodDefinitions = confirmationFacts.periodDefinitions
                                               )
                                           }
-                                          val containsCourseActions = plan.actions.any { action ->
-                                                  action.type == AgentValidatedActionType.ADD ||
-                                                  action.type == AgentValidatedActionType.UPDATE ||
-                                                  action.type == AgentValidatedActionType.REPLACE ||
-                                                  action.type == AgentValidatedActionType.DELETE
-                                          }
-                                          if (containsCourseActions) {
-                                              Text(
-                                                  text = agentPlanPreviewText(plan, preview),
-                                                  color = if (preview.hasWarnings) {
-                                                      Color(0xFFFFA94D)
-                                                  } else foreground.copy(alpha = 0.68f),
-                                                  style = MaterialTheme.typography.labelSmall
-                                              )
-                                          }
+                                          AgentPlanConfirmation(plan, preview, confirmationFacts, foreground, alreadyApplied)
                                           actionFeedback[actionKey]?.let { result ->
                                               Text(
                                                   text = result.message,
@@ -2049,7 +2046,7 @@ internal fun DayAgentConversationDialog(
                                           AgentOperationLiquidButton(
                                               text = when {
                                                   alreadyApplied -> "已执行并验证：${agentPlanSummary(plan)}"
-                                                  executing -> "正在预演并执行…"
+                                                  executing -> "正在保存并核对…"
                                                   else -> agentPlanButtonLabel(plan)
                                               },
                                               backdrop = backdrop,
@@ -2059,7 +2056,7 @@ internal fun DayAgentConversationDialog(
                                                       it.type == AgentValidatedActionType.DELETE_SCHEDULE
                                               },
                                               applied = alreadyApplied,
-                                              enabled = !executing,
+                                              enabled = !executing && !alreadyApplied,
                                               modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false },
                                               onClick = {
                                                   if (actionKey !in appliedActionKeys.value) {
@@ -2888,20 +2885,8 @@ private fun AgentSendLiquidButton(
     }
 }
 
-private fun agentActionButtonLabel(action: AgentValidatedAction): String = when (action.type) {
-    AgentValidatedActionType.ADD -> "确认添加：${action.edited?.name ?: action.summary}"
-    AgentValidatedActionType.UPDATE -> "确认修改：${action.summary}"
-    AgentValidatedActionType.REPLACE -> "确认整体替换：${action.summary}"
-    AgentValidatedActionType.DELETE -> "确认删除：${action.original?.name ?: action.summary}"
-    AgentValidatedActionType.OPEN_SETTINGS -> action.summary
-    AgentValidatedActionType.OPEN_IMPORT -> action.summary
-    AgentValidatedActionType.SET_SETTING -> "确认设置：${action.summary}"
-    AgentValidatedActionType.SET_PERIOD_SETTINGS -> "确认节次设置：${action.summary}"
-    AgentValidatedActionType.SET_ADJUSTMENTS -> "确认调休安排：${action.summary}"
-    AgentValidatedActionType.CREATE_SCHEDULE -> "确认新建课表：${action.summary}"
-    AgentValidatedActionType.ACTIVATE_SCHEDULE -> "确认切换课表：${action.summary}"
-    AgentValidatedActionType.DELETE_SCHEDULE -> "确认删除课表：${action.summary}"
-}
+private fun agentActionButtonLabel(action: AgentValidatedAction): String =
+    "确认" + agentChangeKinds(action).joinToString("并") { it.label }
 
 private data class AgentMessageParts(
     val reasoning: String,
@@ -3171,80 +3156,11 @@ private fun agentPlanSummary(plan: AgentPlan): String =
     }
 
 private fun agentPlanButtonLabel(plan: AgentPlan): String =
-    if (plan.actions.size == 1) {
-        agentActionButtonLabel(plan.actions.first())
-    } else if (plan.actions.all { it.isSettingAction() }) {
-        if (plan.actions.all {
-                it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS ||
-                    AgentSettingRegistry.isPeriodTimeSetting(it.settingKey)
-            }) {
-            "确认应用 ${plan.actions.size} 项节次设置"
-        } else {
-            "确认应用 ${plan.actions.size} 项设置"
-        }
-    } else {
-        "确认执行 ${plan.actions.size} 项操作"
-    }
+    if (plan.actions.size == 1) agentActionButtonLabel(plan.actions.first())
+    else "确认" + plan.actions.flatMap(::agentChangeKinds).groupingBy { it }.eachCount()
+        .entries.joinToString("、") { (kind, count) -> "${kind.label}${count}项" }
 
-private fun agentPlanPreviewText(
-    plan: AgentPlan,
-    preview: AgentPlanPreview
-): String {
-    val warning = preview.newConflicts.firstOrNull()?.let { conflict ->
-        "影响提示 · 执行后可能重叠：${conflict.first.name} 与 ${conflict.second.name}，" +
-            "第${conflict.weeks.joinToString("、")}周 · " +
-            "第${conflict.periods.joinToString("、")}节"
-    }.orEmpty()
-    val changes = plan.actions.mapIndexed { index, action ->
-        val scope = when (action.scope) {
-            AgentActionScope.CURRENT_WEEK -> "仅第${action.targetWeek}周"
-            AgentActionScope.SELECTED_WEEKS -> {
-                val source = "第${action.sourceWeeks.joinToString("、")}周"
-                if (action.edited != null && action.sourceWeeks.toSet() != action.edited.weeks.toSet()) {
-                    "$source → 第${action.edited.weeks.joinToString("、")}周"
-                } else "仅$source"
-            }
-            AgentActionScope.ALL_WEEKS -> if (action.type == AgentValidatedActionType.ADD) {
-                "第${action.edited?.weeks?.joinToString("、")}周"
-            } else "整个课程记录"
-        }
-        val change = when (action.type) {
-            AgentValidatedActionType.ADD ->
-                "新增 ${action.edited?.name.orEmpty()} ${agentCourseSlotText(action.edited)}"
-            AgentValidatedActionType.UPDATE, AgentValidatedActionType.REPLACE ->
-                "${action.original?.name.orEmpty()}：${agentCourseChangesText(action.original, action.edited, action.scope == AgentActionScope.ALL_WEEKS)}"
-            AgentValidatedActionType.DELETE ->
-                "删除 ${action.original?.name.orEmpty()} ${agentCourseSlotText(action.original)}"
-            else -> action.summary
-        }
-        val prefix = if (plan.actions.size > 1) "${index + 1}. " else ""
-        val scopedChange = if (action.original != null || action.edited != null) "$scope · $change" else change
-        "$prefix$scopedChange"
-    }.joinToString("\n")
-    return listOf(warning, "预演 · ${plan.actions.size} 项操作", changes)
-        .filter(String::isNotBlank).joinToString("\n")
-}
-
-private fun agentCourseChangesText(before: CourseEntity?, after: CourseEntity?, includeWeeks: Boolean): String {
-    if (before == null || after == null) return "课程内容变更"
-    fun field(value: String?) = value?.takeIf(String::isNotBlank) ?: "未设置"
-    return buildList {
-        if (before.name != after.name) add("名称 ${before.name} → ${after.name}")
-        if (before.teacher != after.teacher) add("教师 ${field(before.teacher)} → ${field(after.teacher)}")
-        if (before.location != after.location) add("地点 ${field(before.location)} → ${field(after.location)}")
-        if (before.note != after.note) add("备注 ${field(before.note)} → ${field(after.note)}")
-        if (includeWeeks && before.weeks != after.weeks) add("周次 ${before.weeks.joinToString("、")} → ${after.weeks.joinToString("、")}")
-        if (before.weekday != after.weekday || before.periods != after.periods ||
-            before.customStartTime != after.customStartTime || before.customEndTime != after.customEndTime ||
-            before.customPeriodTimes != after.customPeriodTimes) {
-            add("时间 ${agentCourseSlotText(before)} → ${agentCourseSlotText(after)}")
-        }
-        if (before.weekParity != after.weekParity) add("单双周 ${parityLabel(before.weekParity)} → ${parityLabel(after.weekParity)}")
-        if (before.customColorArgb != after.customColorArgb) add("课程颜色变更")
-    }.joinToString("；").ifBlank { "调整生效周次" }
-}
-
-private fun agentCourseSlotText(course: CourseEntity?): String {
+internal fun agentCourseSlotText(course: CourseEntity?): String {
     if (course == null) return ""
     val periods = course.periods.sorted()
     val periodText = when {
