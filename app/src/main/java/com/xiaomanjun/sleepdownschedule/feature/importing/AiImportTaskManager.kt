@@ -25,6 +25,45 @@ object AiImportTaskManager {
 
     private val pendingTasks = ConcurrentHashMap<String, suspend () -> Unit>()
 
+    /** Classification uses the existing transport/service, but never enters course JSON repair. */
+    internal fun startEduRouting(
+        context: Context,
+        fingerprint: AiEduFingerprint,
+        settings: AiImportSettings,
+        initialProgress: AiEduImportProgress
+    ): String {
+        val appContext = context.applicationContext
+        val taskId = UUID.randomUUID().toString()
+        AiEduImportProgressSession.clearActions()
+        AiEduImportProgressSession.setPreviewDraft(null)
+        AiEduImportProgressSession.update(initialProgress.copy(taskId = taskId,
+            awaitingConfirmation = false, finished = false, error = null,
+            liveSummary = "正在判断可用的通用教务工具。"))
+        pendingTasks.clear()
+        pendingTasks[taskId] = {
+            try {
+                val decision = requestAiEduRouting(fingerprint, settings) { phase ->
+                    if (phase == AiImportHttpPhase.BODY_WRITE_END) {
+                        update(taskId) { it.copy(requestSent = true) }
+                    }
+                }
+                update(taskId) { it.copy(aiOutput = decision, finished = true,
+                    liveSummary = "教务识别完成，正在准备导入方式。") }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Route failure can always return to the local text preview; do not retry or
+                // attach a server response that might echo page data to the routing history.
+                update(taskId) { it.copy(finished = true, aiOutput = "",
+                    liveSummary = "教务识别未完成，可继续使用页面文本解析。") }
+            } finally {
+                AiImportForegroundService.finishRouting(appContext, taskId)
+            }
+        }
+        AiImportForegroundService.start(appContext, taskId, "正在识别教务系统")
+        return taskId
+    }
+
     fun startFileImport(
         context: Context,
         file: AiImportFile,

@@ -363,6 +363,9 @@ internal fun AiEduImportProgressPage(
         AiEduImportProgressSession.cancel()
         onClose()
     }
+    LaunchedEffect(current.returnToBrowser) {
+        if (!historicalMode && current.returnToBrowser) onClose()
+    }
 
     Box(
         Modifier
@@ -693,13 +696,15 @@ private fun AiEduCaptureConfirmation(
     val hasCapturedVisual = progress.screenshotPreviews.isNotEmpty()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            if (hasCapturedText || hasCapturedVisual) "确认发送课表资料" else "未能可靠读取课表文字",
+            progress.confirmationTitle.ifBlank {
+                if (hasCapturedText || hasCapturedVisual) "确认发送课表资料" else "未能可靠读取课表文字"
+            },
             color = textColor,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold
         )
         Text(
-            if (hasCapturedVisual) {
+            progress.confirmationMessage.ifBlank { if (hasCapturedVisual) {
                 "已准备高清视觉截取，请检查上方附件。截图会按页面顺序发送，重叠区域只用于校对，不会重复导入课程。"
             } else if (!hasCapturedText && hasVisualCaptureAction) {
                 "当前课表可能由图片、Canvas 或跨域页面渲染。你可以进入高清识屏，应用会按页面位置截取多张清晰视口图，不会压成模糊长图；确认后才会发送给视觉模型。"
@@ -709,7 +714,7 @@ private fun AiEduCaptureConfirmation(
                 "已抓取到页面文字。需要识别图片、Canvas 或复杂排版时，可切换到支持视觉输入的模型后使用高清视觉截取。"
             } else {
                 "当前模型无法使用高清视觉截取。请切换到支持视觉输入的模型，或返回可复制文字的课表页面。"
-            },
+            } },
             color = textColor.copy(alpha = 0.66f),
             style = MaterialTheme.typography.bodyMedium
         )
