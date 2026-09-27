@@ -12,6 +12,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
@@ -22,6 +23,8 @@ import java.time.LocalDate
 
 /** Resolve the displayed occurrence in the app host, then use the ordinary course editor morph. */
 internal val LocalAdjustedCourseEditor = compositionLocalOf<((Long, LocalDate, Rect?) -> Unit)?> { null }
+
+internal fun Density.courseAdjustmentBadgeInset() = maxOf(16.dp, 11.sp.toDp() + 2.dp) - 4.dp
 
 @Composable
 internal fun CourseAdjustmentBadge(label: String, backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier) {
@@ -35,8 +38,8 @@ internal fun CourseAdjustmentBadge(label: String, backdrop: Backdrop?, config: S
         tokens = GlassTokens.pill(0.65f).copy(blur = 6.dp, surfaceAlpha = 0.30f,
             lensHeight = 4.dp, lensAmount = 4.dp, shadowAlpha = 0f)
     ) {
-        Box(Modifier.sizeIn(minWidth = 22.dp, minHeight = 22.dp).padding(3.dp), contentAlignment = Alignment.Center) {
-            Text(label, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
+        Box(Modifier.sizeIn(minWidth = 16.dp, minHeight = 16.dp).padding(horizontal = 2.dp, vertical = 1.dp), contentAlignment = Alignment.Center) {
+            Text(label, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.SemiBold,
                 color = glassForegroundColor(config))
         }
     }

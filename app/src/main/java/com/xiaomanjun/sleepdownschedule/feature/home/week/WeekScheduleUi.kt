@@ -3626,6 +3626,7 @@ fun WeekCourseBlock(
                     }
                 }
             }
+            val showConflictBadge = conflictWarning && !editMode && !customTimeLocked
             val cardTransformActive =
                 bodyDragging || handleDragging || pressScale != 1f ||
                     editActivationProgress != 0f || editJitterMotion.value != 0f ||
@@ -3686,9 +3687,16 @@ fun WeekCourseBlock(
             ) {}
             // The day column already knows the measured width. Subcomposing every card again
             // made a single prefetched page spend 17–24ms in measureAndLayout on the 120Hz phone.
-            Box(Modifier.fillMaxWidth().height(displayedHeight).clip(cardShape)) {
+            val badgeInset = when {
+                showConflictBadge -> maxOf(20.dp, with(density) { 10.sp.toDp() } + 4.dp) - 3.dp
+                !editingAllowed -> with(density) { courseAdjustmentBadgeInset() }
+                else -> 0.dp
+            }
+            Box(Modifier.fillMaxWidth().height(displayedHeight).clip(cardShape)
+                .padding(top = badgeInset)) {
             val density = LocalDensity.current
-            val heightDp = displayedHeight.value
+            val textHeight = (displayedHeight - badgeInset).coerceAtLeast(0.dp)
+            val heightDp = textHeight.value
             val widthDp = cardLayoutWidth.value
             val compact = heightDp < 78f
             val tiny = heightDp < 52f
@@ -3711,7 +3719,7 @@ fun WeekCourseBlock(
             val teacherFont = scaledCourseWeekText(8.4.sp)
             val teacherLineHeight = scaledCourseWeekText(7.9.sp)
             val contentWidthPx = with(density) { (cardLayoutWidth - horizontalPadding * 2f).coerceAtLeast(24.dp).toPx() }
-            val availableTextPx = with(density) { (displayedHeight - verticalPadding * 2f).coerceAtLeast(0.dp).toPx() }
+            val availableTextPx = with(density) { (textHeight - verticalPadding * 2f).coerceAtLeast(0.dp).toPx() }
 
             fun estimatedLines(text: String, fontSize: TextUnit): Int {
                 if (text.isBlank()) return 0
@@ -3838,21 +3846,24 @@ fun WeekCourseBlock(
             }
             }
             }
-            if (!editingAllowed) {
+            if (!editingAllowed && !showConflictBadge) {
                 CourseAdjustmentBadge(if (muted) "停" else "补", activeCardBackdrop, config,
-                    Modifier.align(Alignment.BottomEnd).offset(x = (-2).dp, y = (-2).dp).zIndex(7f))
+                    Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = (-5).dp).zIndex(7f))
             }
-            if (conflictWarning && !editMode && !customTimeLocked) {
+            if (showConflictBadge) {
                 val pillDismissProgress = conflictPillDismiss.value.coerceIn(0f, 1f)
                 val pillTextColor =
                     if (glassUsesLightStyle(config)) ComposeColor.Black else ComposeColor.White
                 GlassSurface(
                     backdrop = activeCardBackdrop,
                     config = config,
+                    // The parent card owns pager/tail motion, as for adjustment badges.
+                    placementLayer = false,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .offset(x = 2.dp, y = (-4).dp)
-                        .size(width = 34.dp, height = 20.dp)
+                        .width((if (editingAllowed) 34.dp else 48.dp).coerceAtMost(cardLayoutWidth))
+                        .heightIn(min = 20.dp)
                         .zIndex(8f)
                         .graphicsLayer {
                             val dismissScale = 1f - 0.30f * pillDismissProgress
@@ -3907,12 +3918,14 @@ fun WeekCourseBlock(
                     }
                 ) {
                     Text(
-                        text = "冲突",
-                        modifier = Modifier.align(Alignment.Center),
+                        text = if (editingAllowed) "冲突" else if (muted) "停·冲突" else "补·冲突",
+                        modifier = Modifier.align(Alignment.Center).padding(horizontal = 2.dp, vertical = 2.dp),
                         fontSize = 8.sp,
                         lineHeight = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = pillTextColor
+                        color = pillTextColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

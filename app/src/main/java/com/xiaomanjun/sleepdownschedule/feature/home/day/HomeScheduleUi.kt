@@ -2233,6 +2233,9 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             muted = muted,
             onClick = if (onClick != null) ({ onClick(ownBounds[0]) }) else null
         ) {
+            Box(Modifier.padding(top = if (adjustmentLabel != null) {
+                (with(LocalDensity.current) { courseAdjustmentBadgeInset() } - 16.dp).coerceAtLeast(0.dp)
+            } else 0.dp)) {
             DayCourseCardTextContent(
                 course = course,
                 periods = periods,
@@ -2243,10 +2246,11 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
                 config = config,
                 muted = muted
             )
+            }
         }
         adjustmentLabel?.let {
             CourseAdjustmentBadge(it, backdrop, config,
-                Modifier.align(Alignment.BottomEnd).offset(x = 5.dp, y = 5.dp).zIndex(7f))
+                Modifier.align(Alignment.TopEnd).offset(x = (-8).dp, y = (-5).dp).zIndex(7f))
         }
     }
     }
