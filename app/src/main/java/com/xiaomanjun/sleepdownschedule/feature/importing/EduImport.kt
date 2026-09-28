@@ -197,9 +197,12 @@ object ShiguangWarehouse {
         }
     }
 
+    internal fun isLocalTestAdapter(adapter: EduAdapter): Boolean =
+        BuildConfig.SLEEPDOWN_LOCAL_EDU_TEST && adapter.warehouseGeneration == TestGeneration
+
     suspend fun resolveScript(context: Context, adapter: EduAdapter): String = withContext(Dispatchers.IO) {
         val relativePath = ShiguangWarehouseUpdater.resourceRelativePath(adapter)
-        if (BuildConfig.SLEEPDOWN_LOCAL_EDU_TEST && adapter.warehouseGeneration == TestGeneration) {
+        if (isLocalTestAdapter(adapter)) {
             return@withContext context.assets.open("$TestRoot/resources/$relativePath").bufferedReader().use { it.readText() }
         }
         var remoteFailure: Exception? = null

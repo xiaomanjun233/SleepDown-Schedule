@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 
 import android.content.Context
+import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchool
 import com.xiaomanjun.sleepdownschedule.feature.importing.ShiguangWarehouse
@@ -12,6 +13,20 @@ import java.security.MessageDigest
 
 /** Reviewed bundled adapters plus new API adapters verified from the synchronized warehouse. */
 internal object ShiguangApiAdapterCatalog {
+    private fun loadReviewed(context: Context): List<EduAdapter> {
+        val bundled = parseCatalog(
+            context.assets.open("auto_refresh/catalog.tsv").bufferedReader().use { it.readText() }
+        )
+        if (!BuildConfig.SLEEPDOWN_LOCAL_EDU_TEST) return bundled
+        // Optional, separately reviewed Debug sources. Never add test schools to the shipped catalog.
+        val testRoot = "edu_adapter_test"
+        if (context.assets.list(testRoot)?.contains("auto_refresh.tsv") != true) return bundled
+        val local = parseCatalog(
+            context.assets.open("$testRoot/auto_refresh.tsv").bufferedReader().use { it.readText() }
+        )
+        return (bundled + local).associateBy(::key).values.toList()
+    }
+
     suspend fun loadLoginAdapters(context: Context): List<EduAdapter> = withContext(Dispatchers.IO) {
         ShiguangWarehouse.loadVisibleAdapters(context).filterNot(EduAdapter::isAiEduImportTool)
     }
@@ -20,9 +35,7 @@ internal object ShiguangApiAdapterCatalog {
         // The school picker updates this cache too. Check its TTL here so this page can discover
         // newly published schools without requiring a visit to the regular import screen first.
         runCatching { ShiguangWarehouseUpdater.refreshIfStale(context) }
-        val reviewed = parseCatalog(
-            context.assets.open("auto_refresh/catalog.tsv").bufferedReader().use { it.readText() }
-        )
+        val reviewed = loadReviewed(context)
         val official = ShiguangWarehouse.loadAdapters(context)
         val currentByKey = official.associateBy(::key)
         val bundledByKey = ShiguangWarehouse.loadBundledAdapters(context).associateBy(::key)
@@ -31,10 +44,15 @@ internal object ShiguangApiAdapterCatalog {
         val supported = reviewed.mapNotNull { approved ->
             // The catalog SHA is a review of the shipped script. An updated remote script is
             // checked again by resolveScript before any login or background refresh runs.
-            currentByKey[key(approved)]?.takeIf { it.importUrl.startsWith("http") }
+            val current = currentByKey[key(approved)]?.takeIf { it.importUrl.startsWith("http") }
+            if (current != null && ShiguangWarehouse.isLocalTestAdapter(current)) {
+                val source = runCatching { ShiguangWarehouse.resolveScript(context, current) }.getOrNull()
+                current.takeIf { source != null && matchesReviewedSource(approved, source) }
+            } else current
         }.toMutableList()
         official.asSequence()
             .filter { key(it) !in reviewedByKey }
+            .filterNot(ShiguangWarehouse::isLocalTestAdapter)
             .filter { it.importUrl.startsWith("https://") || it.importUrl.startsWith("http://") }
             .filter { candidate ->
                 val bundled = bundledByKey[key(candidate)]
@@ -91,9 +109,14 @@ internal object ShiguangApiAdapterCatalog {
         adapters.firstOrNull { it.school.id == schoolId && it.adapterId == adapterId }
 
     suspend fun resolveScript(context: Context, adapter: EduAdapter): String {
-        val reviewed = parseCatalog(
-            context.assets.open("auto_refresh/catalog.tsv").bufferedReader().use { it.readText() }
-        ).firstOrNull { key(it) == key(adapter) }
+        val reviewed = loadReviewed(context).firstOrNull { key(it) == key(adapter) }
+        if (ShiguangWarehouse.isLocalTestAdapter(adapter)) {
+            val source = ShiguangWarehouse.resolveScript(context, adapter)
+            require(reviewed != null && matchesReviewedSource(reviewed, source)) {
+                "本地测试适配器尚未通过自动刷新校验"
+            }
+            return source
+        }
         val source = if (ShiguangWarehouseUpdater.hasValidRemoteIndex(context)) {
             runCatching { ShiguangWarehouseUpdater.resolveRemoteScript(context, adapter) }
                 .getOrElse { error ->
