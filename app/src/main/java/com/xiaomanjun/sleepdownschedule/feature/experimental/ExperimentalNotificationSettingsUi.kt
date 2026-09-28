@@ -171,9 +171,10 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
     }
     GlassPreferenceSection("超级岛显示") {
         SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
-            val textChoices = listOf("课程名称", "上课地点", "倒计时")
+            val leftChoices = listOf("课程名称", "上课地点", "下一节点")
+            val rightChoices = listOf("课程名称", "上课地点", "倒计时")
             SleepDownLiquidDropdownPreference(
-                items = textChoices,
+                items = leftChoices,
                 selectedIndex = options.left,
                 title = "超级岛左侧",
                 backdrop = backdrop,
@@ -183,11 +184,12 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
                 onSelectedIndexChange = { mode ->
                     XiaomiSuperIsland.setLeft(context, mode)
                     options = XiaomiSuperIsland.options(context)
+                    NotificationScheduler.requestRefresh(context)
                 }
             )
             SettingsDivider()
             SleepDownLiquidDropdownPreference(
-                items = textChoices,
+                items = rightChoices,
                 selectedIndex = options.right,
                 title = "超级岛右侧",
                 backdrop = backdrop,
@@ -197,6 +199,7 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
                 onSelectedIndexChange = { mode ->
                     XiaomiSuperIsland.setRight(context, mode)
                     options = XiaomiSuperIsland.options(context)
+                    NotificationScheduler.requestRefresh(context)
                 }
             )
             SettingsDivider()
@@ -211,12 +214,14 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
                 onSelectedIndexChange = { mode ->
                     XiaomiSuperIsland.setAod(context, mode)
                     options = XiaomiSuperIsland.options(context)
+                    NotificationScheduler.requestRefresh(context)
                 }
             )
             SettingsDivider()
             SettingsToggleRow("展开光效", "在超级岛展开态显示流动光效", options.expandGlow, backdrop) { enabled ->
                 XiaomiSuperIsland.setExpandGlow(context, enabled)
                 options = XiaomiSuperIsland.options(context)
+                NotificationScheduler.requestRefresh(context)
             }
         }
     }

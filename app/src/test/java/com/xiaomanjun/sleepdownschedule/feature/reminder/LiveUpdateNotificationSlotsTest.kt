@@ -31,6 +31,14 @@ class LiveUpdateNotificationSlotsTest {
         assertEquals(12, liveUpdateNotificationSlot(listOf(12 to current, 11 to old), current, 11, 12))
     }
 
+    @Test fun islandClassStartUsesFreshSlotAndDoesNotRequirePreClassPost() {
+        val before = payload.notificationIdentityAt(0)
+        val during = payload.notificationIdentityAt(600_000)
+        assertEquals(24, liveUpdateNotificationSlot(emptyList(), during, 24, 25))
+        assertEquals(25, liveUpdateNotificationSlot(listOf(24 to before), during, 24, 25))
+        assertEquals(25, liveUpdateNotificationSlot(listOf(25 to during), during, 24, 25))
+    }
+
     @Test fun legacyNotificationIsReplacedAndHiddenBreaksDoNotRealert() {
         assertEquals(12, liveUpdateNotificationSlot(listOf(11 to null), payload.notificationIdentityAt(0), 11, 12))
         val continuous = payload.copy(breakStatusEnabled = false)

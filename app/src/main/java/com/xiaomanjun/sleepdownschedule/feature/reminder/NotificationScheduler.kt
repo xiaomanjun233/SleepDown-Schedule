@@ -57,6 +57,7 @@ object NotificationScheduler {
     private const val LIVE_UPDATE_ID = 20260522
     private const val LIVE_UPDATE_ALTERNATE_ID = 20260523
     private const val SUPER_ISLAND_ID = 20260524
+    private const val SUPER_ISLAND_ALTERNATE_ID = 20260525
     private const val EXTRA_LIVE_UPDATE_IDENTITY = "sleepdown.live_update_identity"
     private val liveUpdatePostLock = Any()
     private const val SCHEDULE_HORIZON_DAYS = 8L
@@ -1190,23 +1191,32 @@ object NotificationScheduler {
     ) = synchronized(liveUpdatePostLock) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return@synchronized
         val active = manager.activeNotifications.filter {
-            it.id == LIVE_UPDATE_ID || it.id == LIVE_UPDATE_ALTERNATE_ID || it.id == SUPER_ISLAND_ID
+            it.id == LIVE_UPDATE_ID || it.id == LIVE_UPDATE_ALTERNATE_ID ||
+                it.id == SUPER_ISLAND_ID || it.id == SUPER_ISLAND_ALTERNATE_ID
         }.sortedByDescending { it.postTime }
         val identity = notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY).orEmpty()
         val island = XiaomiSuperIsland.isEnabled(context) &&
             notification.channelId == XiaomiSuperIsland.ChannelId
-        val id = if (island) SUPER_ISLAND_ID else liveUpdateNotificationSlot(
-            active.filter { it.id != SUPER_ISLAND_ID }
-                .map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
-            identity, LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID
-        )
+        val id = if (island) {
+            liveUpdateNotificationSlot(
+                active.filter { it.id == SUPER_ISLAND_ID || it.id == SUPER_ISLAND_ALTERNATE_ID }
+                    .map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
+                identity, SUPER_ISLAND_ID, SUPER_ISLAND_ALTERNATE_ID
+            )
+        } else {
+            liveUpdateNotificationSlot(
+                active.filter { it.id == LIVE_UPDATE_ID || it.id == LIVE_UPDATE_ALTERNATE_ID }
+                    .map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
+                identity, LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID
+            )
+        }
         logLiveUpdateIcon(context, notification)
         // Post first. Reattach the running foreground service before removing its former slot.
         XiaomiSuperIsland.post(context, notification) {
             manager.notify(id, notification)
             attachForeground?.invoke(id, notification)
         }
-        listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID, SUPER_ISLAND_ID)
+        listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID, SUPER_ISLAND_ID, SUPER_ISLAND_ALTERNATE_ID)
             .filter { it != id }.forEach(manager::cancel)
     }
 
@@ -1216,6 +1226,7 @@ object NotificationScheduler {
         manager.cancel(LIVE_UPDATE_ID)
         manager.cancel(LIVE_UPDATE_ALTERNATE_ID)
         manager.cancel(SUPER_ISLAND_ID)
+        manager.cancel(SUPER_ISLAND_ALTERNATE_ID)
     }
 
     internal fun logLiveUpdateIcon(context: Context, notification: Notification) {

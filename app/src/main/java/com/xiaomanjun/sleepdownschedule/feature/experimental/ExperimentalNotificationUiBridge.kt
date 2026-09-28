@@ -51,7 +51,11 @@ internal class ExperimentalNotificationUiState(
     fun allowsLiveUpdateOptions(baseMode: NotificationMode): Boolean =
         baseMode == NotificationMode.LIVE_UPDATE && (!cloudEnabled || parallelLiveUpdate)
 
-    fun select(choice: ExperimentalNotificationMode, onBaseModeChange: (NotificationMode) -> Unit) {
+    fun select(
+        choice: ExperimentalNotificationMode,
+        currentBaseMode: NotificationMode,
+        onBaseModeChange: (NotificationMode) -> Unit
+    ) {
         if (choice == selected) return
         val baseMode = ExperimentalNotificationModes.activate(context, choice)
         selected = choice
@@ -61,7 +65,9 @@ internal class ExperimentalNotificationUiState(
             NotificationScheduler.cancelCurrentLiveUpdate(context, null, null)
         }
         onBaseModeChange(baseMode)
-        NotificationScheduler.requestReschedule(context)
+        // A changed base mode is written asynchronously; its writer refreshes the island after
+        // persistence. When the base mode is unchanged, the vendor selection needs its own refresh.
+        if (baseMode == currentBaseMode) NotificationScheduler.requestReschedule(context)
     }
 
     fun cancelTest() {
@@ -99,7 +105,7 @@ internal fun ExperimentalNotificationChoiceRow(
             selected = state.selected,
             backdrop = backdrop,
             config = config,
-            onSelected = { state.select(it, onNotificationModeChange) }
+            onSelected = { state.select(it, notificationMode, onNotificationModeChange) }
         )
     } else {
         SettingsChoiceRow("通知样式", notificationMode, backdrop, config, onNotificationModeChange)

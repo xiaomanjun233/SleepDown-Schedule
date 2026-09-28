@@ -163,7 +163,16 @@ internal object XiaomiSuperIsland {
         options: Options = Options()
     ): String {
         val beforeClass = status.phase == LiveUpdatePhase.BEFORE_CLASS
-        val timerAt = status.nextTransitionAtMillis?.takeIf { beforeClass && it > nowMillis }
+        val timerAt = status.nextTransitionAtMillis?.takeIf {
+            it > nowMillis && status.phase in setOf(
+                LiveUpdatePhase.BEFORE_CLASS, LiveUpdatePhase.IN_CLASS, LiveUpdatePhase.BREAK
+            )
+        }
+        val timerTarget = when (status.phase) {
+            LiveUpdatePhase.BEFORE_CLASS, LiveUpdatePhase.BREAK -> "上课"
+            LiveUpdatePhase.IN_CLASS -> if (timerAt != payload.endAtMillis()) "课间" else "下课"
+            else -> ""
+        }
         val courseName = payload.name.ifBlank { shortText }
         val islandStatus = when (status.phase) {
             LiveUpdatePhase.BEFORE_CLASS -> payload.location
@@ -172,14 +181,16 @@ internal object XiaomiSuperIsland {
             LiveUpdatePhase.FINISHED -> "已下课"
             LiveUpdatePhase.TOMORROW -> "明日课程"
         }
-        val countdownText = if (timerAt != null) "${status.minutesToTransition}分钟" else islandStatus
+        // The left text component cannot run a system timer. Show the next milestone there;
+        // the expanded card and optional right digit component own the live countdown.
+        val nextMilestoneText = if (timerAt != null) "距$timerTarget" else islandStatus
         val islandText: (Int) -> String = { mode -> when (mode) {
             0 -> courseName
             1 -> payload.location.ifBlank { courseName }
-            else -> countdownText
+            else -> nextMilestoneText
         } }
         val leftText = islandText(options.left)
-        val rightText = if (beforeClass) islandText(options.right) else islandStatus
+        val rightText = islandText(options.right)
         val aodText = if (options.aod == 1) payload.location.ifBlank { courseName } else courseName
         val left = JSONObject().put("type", 1).put("textInfo", JSONObject()
             .put("title", leftText).put("content", "")
@@ -192,13 +203,15 @@ internal object XiaomiSuperIsland {
                 .put("showHighlightColor", false).put("narrowFont", false))
         if (options.right == 2 && timerAt != null) {
             bigIsland.put("sameWidthDigitInfo", JSONObject()
-                .put("content", "上课")
+                .put("content", timerTarget)
                 .put("showHighlightColor", false)
                 .put("timerInfo", timerInfo(timerAt, nowMillis)))
         }
         val island = JSONObject()
             .put("islandProperty", 1)
-            .put("islandTimeout", 3600)
+            .put("islandTimeout", payload.expiresAtMillis.takeIf { it > nowMillis }
+                ?.let { ((it - nowMillis + 999L) / 1000L).coerceIn(60L, 43_200L).toInt() }
+                ?: 3600)
             .put("bigIslandArea", bigIsland)
             .put("smallIslandArea", JSONObject().put("picInfo", JSONObject()
                 .put("type", 1).put("pic", SmallPicture)
@@ -216,7 +229,7 @@ internal object XiaomiSuperIsland {
         val hint = JSONObject()
             .put("type", 2)
             .put("content", when {
-                timerAt != null -> "即将上课"
+                timerAt != null -> if (beforeClass) "即将上课" else "距离$timerTarget"
                 status.phase == LiveUpdatePhase.TOMORROW -> status.statusText
                 beforeClass -> status.statusText
                 else -> "现在"
@@ -234,11 +247,10 @@ internal object XiaomiSuperIsland {
                 .put("actionIntent",
                     "intent:#Intent;component=$packageName/com.xiaomanjun.sleepdownschedule.MainActivity;end"))
             .put("timerInfo", timerInfo(timerAt, nowMillis))
-        return JSONObject().put("param_v2", JSONObject()
+        val parameters = JSONObject()
             .put("protocol", 1)
             .put("business", "course_reminder")
             .put("enableFloat", beforeClass || payload.kind == LiveUpdateKind.TOMORROW)
-            .put("islandFirstFloat", !beforeClass)
             .put("updatable", true)
             .put("outEffectSrc", if (options.expandGlow) "outer_glow" else "")
             .put("aodTitle", aodText)
@@ -248,7 +260,8 @@ internal object XiaomiSuperIsland {
             .put("picInfo", JSONObject().put("type", 1).put("pic", ""))
             .put("hintInfo", hint)
             .put("param_island", island)
-        ).toString()
+        if (!beforeClass) parameters.put("islandFirstFloat", true)
+        return JSONObject().put("param_v2", parameters).toString()
     }
 
     private fun timerInfo(timerAt: Long?, nowMillis: Long): JSONObject = JSONObject().apply {

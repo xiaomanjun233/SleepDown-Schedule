@@ -60,6 +60,14 @@ class CourseSessionReminderTest {
         assertSame(active, NotificationScheduler.selectImmediateCoursePayload(listOf(upcoming, active), epoch(9, 30), 45))
     }
 
+    @Test fun classStartBoundaryCanCreateReminderWithoutPreClassPost() {
+        val active = payload(splitCourse.copy(periods = listOf(1, 2)))
+        val start = epoch(8, 0)
+        assertTrue(start in active.refreshBoundaries())
+        assertSame(active, NotificationScheduler.selectImmediateCoursePayload(listOf(active), start, 10))
+        assertEquals(LiveUpdatePhase.IN_CLASS, active.statusAt(start).phase)
+    }
+
     @Test fun customTimeRemainsOneExactSessionAndAffectsAlarmRescheduling() {
         val original = splitCourse.copy(customStartTime = "18:00", customEndTime = "19:00")
         val edited = original.copy(customEndTime = "20:00")
