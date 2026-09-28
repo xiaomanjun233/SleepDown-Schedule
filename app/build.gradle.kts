@@ -23,6 +23,8 @@ val sleepDownVersionName = "1.2.6"
 val skipReleaseResourceShrink = providers.gradleProperty("sleepdown.skipReleaseResourceShrink")
     .map(String::toBoolean)
     .getOrElse(false)
+// Optional local adapter bundle for device testing. Release never includes this directory.
+val eduAdapterTestAssets = providers.gradleProperty("sleepdown.eduAdapterTestAssets").orNull
 val hasReleaseSigning = listOf(
     releaseStoreFilePath,
     releaseStorePassword,
@@ -79,6 +81,9 @@ android {
 
     sourceSets {
         getByName("androidTest").assets.directories.add("$projectDir/schemas")
+        if (eduAdapterTestAssets != null) {
+            getByName("debug").assets.srcDir(eduAdapterTestAssets)
+        }
     }
 
     signingConfigs {
@@ -98,10 +103,13 @@ android {
             .getOrElse("legacy")
         require(glassOcclusionMode in setOf("legacy", "retained", "live"))
         all {
+            buildConfigField("boolean", "SLEEPDOWN_LOCAL_EDU_TEST", "false")
             buildConfigField("String", "GLASS_OCCLUSION_MODE", "\"legacy\"")
             buildConfigField("boolean", "GLASS_FIXED_MORPH", "false")
         }
         getByName("debug") {
+            buildConfigField("boolean", "SLEEPDOWN_LOCAL_EDU_TEST", (eduAdapterTestAssets != null).toString())
+            if (eduAdapterTestAssets != null) versionNameSuffix = "-edu-test"
             buildConfigField("boolean", "GLASS_FIXED_MORPH", providers.gradleProperty("sleepdown.glassFixedMorph").getOrElse("false").toBoolean().toString())
             buildConfigField("String", "GLASS_OCCLUSION_MODE", "\"$glassOcclusionMode\"")
             applicationIdSuffix = ".debug"
