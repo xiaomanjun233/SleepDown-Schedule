@@ -232,7 +232,7 @@ internal object XiaomiSuperIsland {
                 .put("actionTitle", "查看课表")
                 .put("actionIntentType", 1)
                 .put("actionIntent",
-                    "intent:#Intent;component=$packageName/.MainActivity;end"))
+                    "intent:#Intent;component=$packageName/com.xiaomanjun.sleepdownschedule.MainActivity;end"))
             .put("timerInfo", timerInfo(timerAt, nowMillis))
         return JSONObject().put("param_v2", JSONObject()
             .put("protocol", 1)
