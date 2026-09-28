@@ -1053,20 +1053,22 @@ internal fun DayAgentCardVisualContent(
             DayAgentCardVisualCore(old, foreground, activityAccent,
                 Modifier.fillMaxWidth().graphicsLayer {
                     val p = burst.value.coerceIn(0f, 1f)
-                    alpha = 1f - agentSmoothStep(0.28f, 0.63f, p)
-                    val blur = 7.dp.toPx() * p
+                    alpha = 1f - agentSmoothStep(0.72f, 0.94f, p)
+                    val blur = 7.dp.toPx() * agentSmoothStep(0.72f, 0.94f, p)
                     renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
                 }, null, decorated, shockwaveProgress = { burst.value }, drawSurface = false)
         }
         DayAgentCardVisualCore(displayedVisual, foreground, activityAccent,
             Modifier.fillMaxWidth().graphicsLayer {
                 val p = if (outgoing == null) 1f else burst.value.coerceIn(0f, 1f)
-                alpha = agentSmoothStep(0.60f, 0.88f, p)
-                val blur = 8.dp.toPx() * (1f - p)
+                alpha = agentSmoothStep(0.76f, 0.98f, p)
+                val blur = 8.dp.toPx() * (1f - agentSmoothStep(0.76f, 0.98f, p))
                 renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
             }, onWeatherClick, decorated, animateCountdown = outgoing == null,
             drawSurface = false)
-        if (outgoing != null) Canvas(Modifier.matchParentSize()) {
+        if (outgoing != null) Canvas(Modifier.matchParentSize().clip(
+            RoundedRectangle(if (displayedVisual.collapsed) 26.dp else 28.dp)
+        )) {
             val p = burst.value.coerceIn(0f, 1f)
             val origin = Offset(size.width * 0.82f, 27.dp.toPx())
             val travel = 82.dp.toPx() * p
@@ -1084,8 +1086,9 @@ internal fun DayAgentCardVisualContent(
                     alpha = (1f - p).coerceIn(0f, 1f)
                 )
             }
-            drawCircle(activityAccent, radius = 72.dp.toPx() * p, center = origin,
-                alpha = (0.55f * (1f - p)).coerceIn(0f, 1f),
+            drawCircle(activityAccent,
+                radius = size.width * agentSmoothStep(0f, 0.30f, p), center = origin,
+                alpha = 0.55f * (1f - agentSmoothStep(0.08f, 0.50f, p)),
                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
         }
     }
@@ -1187,18 +1190,23 @@ private fun DayAgentCardVisualCore(
     drawSurface: Boolean = true
 ) {
     val shape = RoundedRectangle(if (visual.collapsed) 26.dp else 28.dp)
-    fun shock(x: Float, y: Float): Modifier = if (shockwaveProgress == null) Modifier else Modifier.graphicsLayer {
-        val p = shockwaveProgress().coerceIn(0f, 1f)
-        val waveDelay = if (x > 0f) 0.03f else if (y > 0f) 0.11f else 0.16f
-        val wave = ((p - waveDelay) / 0.72f).coerceIn(0f, 1f)
-        val envelope = kotlin.math.sin(wave * Math.PI).toFloat().coerceAtLeast(0f)
-        val wobble = kotlin.math.sin(wave * 7.0 * Math.PI).toFloat() * envelope
-        val amplitude = if (x > 0f) 12.dp.toPx() else 9.dp.toPx()
-        translationX = x.dp.toPx() * p + amplitude * wobble
-        translationY = y.dp.toPx() * p + 5.dp.toPx() * envelope *
-            kotlin.math.cos(wave * 7.0 * Math.PI).toFloat()
-        rotationZ = kotlin.math.sign(x) * 3f * p + wobble * 6f
-    }
+    fun shock(x: Float, y: Float, arrival: Float, origin: Boolean = false): Modifier =
+        if (shockwaveProgress == null) Modifier else Modifier.graphicsLayer {
+            val p = shockwaveProgress().coerceIn(0f, 1f)
+            val wave = ((p - arrival) / 0.50f).coerceIn(0f, 1f)
+            val push = if (wave < 0.40f) {
+                agentSmoothStep(0f, 0.40f, wave)
+            } else {
+                1f - agentSmoothStep(0.40f, 1f, wave)
+            }
+            translationX = x.dp.toPx() * push
+            translationY = y.dp.toPx() * push
+            if (origin) {
+                alpha = 1f - agentSmoothStep(0.02f, 0.28f, p)
+                scaleX = 1f + 0.12f * p
+                scaleY = scaleX
+            }
+        }
     Column(
         modifier = modifier
             .clip(shape)
@@ -1212,7 +1220,7 @@ private fun DayAgentCardVisualCore(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     visual.activityLabel,
-                    modifier = shock(-13f, -8f),
+                    modifier = shock(-22f, -6f, 0.22f),
                     color = activityAccent,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
@@ -1221,7 +1229,7 @@ private fun DayAgentCardVisualCore(
                     Spacer(Modifier.width(8.dp))
                     Text(
                         courseName,
-                        modifier = Modifier.weight(1f).then(shock(-7f, 10f)),
+                        modifier = Modifier.weight(1f).then(shock(-16f, -5f, 0.12f)),
                         color = foreground,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
@@ -1236,7 +1244,7 @@ private fun DayAgentCardVisualCore(
                     } else {
                         Text(
                             visual.countdownText,
-                            modifier = shock(13f, -9f),
+                            modifier = shock(16f, -9f, 0f, origin = true),
                             color = activityAccent,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Medium,
@@ -1250,7 +1258,7 @@ private fun DayAgentCardVisualCore(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         visual.locationText,
-                        modifier = Modifier.weight(1f).then(shock(-10f, 12f)),
+                        modifier = Modifier.weight(1f).then(shock(-16f, 14f, 0.18f)),
                         color = foreground.copy(alpha = if (decorated) 0.56f else 0.82f),
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
@@ -1259,7 +1267,7 @@ private fun DayAgentCardVisualCore(
                     Spacer(Modifier.width(10.dp))
                     Text(
                         visual.focusTimeText,
-                        modifier = shock(11f, 9f),
+                        modifier = shock(8f, 14f, 0.08f),
                         color = foreground.copy(alpha = if (decorated) 0.56f else 0.82f),
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1
