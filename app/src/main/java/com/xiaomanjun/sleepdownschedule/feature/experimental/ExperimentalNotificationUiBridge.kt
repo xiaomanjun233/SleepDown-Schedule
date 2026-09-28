@@ -24,7 +24,9 @@ import com.xiaomanjun.sleepdownschedule.model.AppState
 import com.xiaomanjun.sleepdownschedule.model.LiveUpdateChipTextMode
 import com.xiaomanjun.sleepdownschedule.model.NotificationMode
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Everything behind these few settings hooks can be removed from a store build as one feature. */
 internal class ExperimentalNotificationUiState(
@@ -141,9 +143,12 @@ internal fun ExperimentalNotificationPreview(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var needsIslandPrivilege by remember { mutableStateOf(false) }
+    var islandTestRunning by remember { mutableStateOf(false) }
+    var islandTestResult by remember { mutableStateOf<NotificationScheduler.LiveUpdatePreviewResult?>(null) }
     val deletingTest = state.cloudEnabled && state.testActive
     SettingsActionButton(
         label = when {
+            islandTestRunning -> "正在发送超级岛…"
             deletingTest -> "删除测试课程"
             state.selected == ExperimentalNotificationMode.YOYO_LIVE_UPDATE -> "测试YOYO建议+实时活动"
             state.selected == ExperimentalNotificationMode.FLUID_CLOUD_LIVE_UPDATE -> "测试流体云+实时活动"
@@ -156,11 +161,29 @@ internal fun ExperimentalNotificationPreview(
         destructive = deletingTest,
         badgeText = if (deletingTest) null else state.selected.badgeText,
         onClick = {
+            if (islandTestRunning) return@SettingsActionButton
             if (state.superIslandEnabled && !XiaomiSuperIsland.hasPrivilege(context)) {
                 needsIslandPrivilege = true
                 return@SettingsActionButton
             }
-            if (state.cloudEnabled) {
+            if (state.superIslandEnabled) {
+                islandTestRunning = true
+                scope.launch {
+                    try {
+                        islandTestResult = withContext(Dispatchers.IO) {
+                            NotificationScheduler.showLiveUpdatePreview(context, config.copy(
+                                notificationsEnabled = notificationsEnabled,
+                                notificationLeadMinutes = leadMinutes.toIntOrNull() ?: config.notificationLeadMinutes,
+                                notificationMode = NotificationMode.LIVE_UPDATE,
+                                liveUpdateChipTextMode = liveUpdateChipTextMode,
+                                liveUpdateActionsEnabled = liveUpdateActionsEnabled
+                            ))
+                        }
+                    } finally {
+                        islandTestRunning = false
+                    }
+                }
+            } else if (state.cloudEnabled) {
                 if (state.testActive) {
                     state.cancelTest()
                 } else {
@@ -195,6 +218,28 @@ internal fun ExperimentalNotificationPreview(
             backdrop = dialogBackdrop,
             config = config,
             onDismissRequest = { needsIslandPrivilege = false }
+        )
+    }
+    islandTestResult?.let { result ->
+        LiquidAlertDialog(
+            title = if (result == NotificationScheduler.LiveUpdatePreviewResult.POSTED)
+                "测试通知已发送" else "超级岛测试未完成",
+            message = when (result) {
+                NotificationScheduler.LiveUpdatePreviewResult.POSTED ->
+                    "已将测试课程通知交给系统。请查看状态栏超级岛；若未显示，请检查系统的超级岛与焦点通知开关。"
+                NotificationScheduler.LiveUpdatePreviewResult.NOTIFICATIONS_UNAVAILABLE ->
+                    "应用通知或课程提醒超级岛通知渠道不可用，请到系统通知设置中开启。"
+                NotificationScheduler.LiveUpdatePreviewResult.VENDOR_HANDLES_PREVIEW ->
+                    "当前通知由厂商课程组件处理，请先切换通知样式后重试。"
+                NotificationScheduler.LiveUpdatePreviewResult.DELIVERY_FAILED ->
+                    "通知发送失败，请检查授权状态后重试。"
+            },
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
+                islandTestResult = null
+            }),
+            backdrop = dialogBackdrop,
+            config = config,
+            onDismissRequest = { islandTestResult = null }
         )
     }
     state.testResult?.let { result ->

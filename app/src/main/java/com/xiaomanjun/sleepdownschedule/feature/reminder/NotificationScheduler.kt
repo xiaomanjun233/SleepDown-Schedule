@@ -144,7 +144,7 @@ object NotificationScheduler {
                 context, nextIslandRecoveryAt(now, payloads)
             )
         }
-        withContext(Dispatchers.Main.immediate) {
+        withContext(Dispatchers.IO) {
             checkImmediateLiveUpdate(context, courses, effectiveConfig, periods)
         }
     }
@@ -688,15 +688,24 @@ object NotificationScheduler {
 
     fun liveUpdateId(): Int = LIVE_UPDATE_ID
 
-    fun showLiveUpdatePreview(context: Context, config: ScheduleConfigEntity) {
+    internal enum class LiveUpdatePreviewResult {
+        POSTED, NOTIFICATIONS_UNAVAILABLE, VENDOR_HANDLES_PREVIEW, DELIVERY_FAILED
+    }
+
+    internal fun showLiveUpdatePreview(context: Context, config: ScheduleConfigEntity): LiveUpdatePreviewResult {
         if (ColorOSCourseExperiment.suppressesLiveUpdate(context)) {
             cancelLiveUpdateNotifications(context)
             stopLiveUpdateService(context)
-            return
+            return LiveUpdatePreviewResult.VENDOR_HANDLES_PREVIEW
         }
         createChannel(context)
-        if (!canPostNotifications(context)) return
-        startLiveUpdateService(context, liveUpdatePreviewPayload(config))
+        if (!canPostNotifications(context)) return LiveUpdatePreviewResult.NOTIFICATIONS_UNAVAILABLE
+        return runCatching { startLiveUpdateService(context, liveUpdatePreviewPayload(config)) }
+            .onFailure { Log.e(TAG, "live update preview delivery failed", it) }
+            .getOrDefault(false)
+            .let { posted ->
+                if (posted) LiveUpdatePreviewResult.POSTED else LiveUpdatePreviewResult.DELIVERY_FAILED
+            }
     }
 
     internal fun liveUpdatePreviewPayload(
@@ -1198,14 +1207,14 @@ object NotificationScheduler {
         )
     }
 
-    internal fun startLiveUpdateService(context: Context, payload: LiveUpdatePayload) {
+    internal fun startLiveUpdateService(context: Context, payload: LiveUpdatePayload): Boolean {
         if (!payload.isPreview() && payload.kind == LiveUpdateKind.COURSE &&
             ColorOSCourseExperiment.suppressesPreClassLiveUpdate(context) &&
-            payload.statusAt().phase == LiveUpdatePhase.BEFORE_CLASS) return
+            payload.statusAt().phase == LiveUpdatePhase.BEFORE_CLASS) return false
         val notification = liveUpdateNotification(context, payload)
         // Submit while the event receiver still holds its wake lock. Delivery must not wait
         // for the FGS (or its optional minute loop) to be scheduled by an OEM background policy.
-        if (!canPostNotifications(context)) return
+        if (!canPostNotifications(context)) return false
         if (XiaomiSuperIsland.isEnabled(context)) {
             // A foreground service immediately reposts the focus notification as ongoing and
             // prevents the Xiaomi float from appearing.
@@ -1217,14 +1226,15 @@ object NotificationScheduler {
                 }
             } catch (error: SecurityException) {
                 Log.w(TAG, "super island rejected: notification permission revoked", error)
+                return false
             }
-            return
+            return true
         }
         try {
             postLiveUpdateNotification(context, notification)
         } catch (error: SecurityException) {
             Log.w(TAG, "live update rejected: notification permission revoked", error)
-            return
+            return false
         }
         val intent = Intent(context, LiveUpdateForegroundService::class.java)
             .setAction(ACTION_START_LIVE_UPDATE_SERVICE)
@@ -1236,6 +1246,7 @@ object NotificationScheduler {
         }.onFailure {
             Log.w(TAG, "minute refresh service unavailable; event notification already posted", it)
         }
+        return true
     }
 
     @SuppressLint("MissingPermission")
