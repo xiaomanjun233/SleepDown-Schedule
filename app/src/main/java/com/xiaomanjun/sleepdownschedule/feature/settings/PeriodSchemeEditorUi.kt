@@ -688,7 +688,7 @@ private fun TimelinePartStartPicker(
     part: PeriodDayPart, session: PeriodTimelineSession, backdrop: Backdrop?, visualConfig: ScheduleConfigEntity,
     onDismiss: () -> Unit, onChange: (PeriodTimelineSession) -> Unit
 ) {
-    val bounds = timelinePartStartBounds(session.config, session.active, part) ?: return
+    val bounds = timelineFlexiblePartStartBounds(session.config, session.active, part) ?: return
     val original = timelinePartAnchorMinute(session.config, session.active, part)
     var selected by remember { mutableIntStateOf(original.coerceIn(bounds)) }
     var visible by remember { mutableStateOf(true) }
@@ -698,10 +698,21 @@ private fun TimelinePartStartPicker(
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)) {
         Column(verticalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.QuickSheet.PickerContentSpacing)) {
             SettingsTimePickerContent(selected, bounds) { selected = it }
-            Text("整段课程一起平移；若碰到下一分段，只压缩本段最后一节课，最短保留到相邻课间的时长。", fontSize = 12.sp,
+            val preview = remember(session, part, selected) { moveTimelinePartWithNeighbours(session, part, selected) }
+            val movedParts = PeriodDayPart.entries.filter { section ->
+                session.config.periodCount(section) > 0 &&
+                    timelinePartAnchorMinute(session.config, session.active, section) !=
+                    timelinePartAnchorMinute(preview.config, preview.active, section)
+            }
+            val movementHint = when (movedParts.size) {
+                0 -> "当前起点未改变。"
+                1 -> "仅平移${part.timelineLabel()}；课程与课间时长不变。"
+                else -> "将同时平移${movedParts.joinToString("、") { it.timelineLabel() }}；课程与课间时长不变。"
+            }
+            Text(movementHint, fontSize = 12.sp,
                 color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.66f))
             PeriodPickerActions(backdrop, visualConfig, onCancel = { visible = false }, onConfirm = {
-                    pending = shiftTimelinePart(session, part, selected)
+                    pending = moveTimelinePartWithNeighbours(session, part, selected)
                     visible = false
             })
         }

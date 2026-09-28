@@ -97,6 +97,71 @@ internal fun timelinePartStartBounds(config: ScheduleConfigEntity, draft: Period
     return (previous..(next - minimumSpan)).takeUnless { it.isEmpty() }
 }
 
+private data class TimelinePartPlacement(val part: PeriodDayPart, val anchor: Int, val span: Int)
+
+private fun timelinePartPlacements(config: ScheduleConfigEntity, draft: PeriodSchemeDraft): List<TimelinePartPlacement>? {
+    val times = resolveSchemeTimes(config, draft).sortedBy { it.periodIndex }
+    if (validateResolvedPeriodTimes(times) != null) return null
+    return PeriodDayPart.entries.filter { config.periodCount(it) > 0 }.map { part ->
+        val last = times.lastOrNull { it.periodIndex in config.periodRange(part) } ?: return null
+        val anchor = timelinePartAnchorMinute(config, draft, part)
+        val end = parseMinuteOfDay(last.endTime) ?: return null
+        if (end < anchor) return null
+        TimelinePartPlacement(part, anchor, end - anchor)
+    }
+}
+
+/** The selected section can be placed first; adjacent sections shift only when they overlap. */
+internal fun timelineFlexiblePartStartBounds(
+    config: ScheduleConfigEntity, draft: PeriodSchemeDraft, part: PeriodDayPart
+): IntRange? {
+    val placements = timelinePartPlacements(config, draft) ?: return null
+    val index = placements.indexOfFirst { it.part == part }
+    if (index < 0) return null
+    val earliest = placements.take(index).sumOf { it.span }
+    val latest = LastMinuteOfDay - placements.drop(index).sumOf { it.span }
+    return (earliest..latest).takeUnless { it.isEmpty() }
+}
+
+internal fun moveTimelinePartWithNeighbours(
+    session: PeriodTimelineSession, part: PeriodDayPart, requestedStart: Int
+): PeriodTimelineSession {
+    val placements = timelinePartPlacements(session.config, session.active) ?: return session
+    val index = placements.indexOfFirst { it.part == part }
+    val bounds = timelineFlexiblePartStartBounds(session.config, session.active, part) ?: return session
+    if (index < 0) return session
+    val anchors = placements.map { it.anchor }.toMutableList()
+    anchors[index] = requestedStart.coerceIn(bounds)
+    for (position in index - 1 downTo 0) {
+        anchors[position] = minOf(anchors[position], anchors[position + 1] - placements[position].span)
+    }
+    for (position in index + 1 until placements.size) {
+        anchors[position] = maxOf(anchors[position], anchors[position - 1] + placements[position - 1].span)
+    }
+    if (placements.indices.all { anchors[it] == placements[it].anchor }) return session
+
+    val shifted = session.active.materializeForTimeline(session.config)
+    val offsets = placements.mapIndexed { position, placement -> placement.part to (anchors[position] - placement.anchor) }.toMap()
+    val startTimes = placements.mapIndexed { position, placement -> placement.part to timelineMinuteText(anchors[position]) }.toMap()
+    val scheme = shifted.scheme.copy(
+        morningStartTime = startTimes[PeriodDayPart.MORNING] ?: shifted.scheme.morningStartTime,
+        noonStartTime = startTimes[PeriodDayPart.NOON] ?: shifted.scheme.noonStartTime,
+        afternoonStartTime = startTimes[PeriodDayPart.AFTERNOON] ?: shifted.scheme.afternoonStartTime,
+        eveningStartTime = startTimes[PeriodDayPart.EVENING] ?: shifted.scheme.eveningStartTime
+    )
+    val times = shifted.times.map { time ->
+        val section = placements.first { time.periodIndex in session.config.periodRange(it.part) }.part
+        val offset = offsets.getValue(section)
+        time.copy(
+            startTime = timelineMinuteText(requireNotNull(parseMinuteOfDay(time.startTime)) + offset),
+            endTime = timelineMinuteText(requireNotNull(parseMinuteOfDay(time.endTime)) + offset)
+        )
+    }
+    if (validateResolvedPeriodTimes(times) != null) return session
+    return session.updateActive(shifted.copy(scheme = scheme, times = times))
+        .copy(uncompressedLastMinutes = emptyMap())
+}
+
 /** Move a whole day part. At the next boundary only its last lesson is shortened. */
 internal fun shiftTimelinePart(config: ScheduleConfigEntity, draft: PeriodSchemeDraft, part: PeriodDayPart, requestedStart: Int,
     uncompressedLastMinutes: Int? = null): PeriodSchemeDraft {
