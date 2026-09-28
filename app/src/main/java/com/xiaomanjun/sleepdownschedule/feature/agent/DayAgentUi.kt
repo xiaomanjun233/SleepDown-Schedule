@@ -1043,12 +1043,8 @@ internal fun DayAgentCardVisualContent(
             DayAgentCardVisualCore(old, foreground, activityAccent,
                 Modifier.fillMaxWidth().graphicsLayer {
                     val p = burst.value.coerceIn(0f, 1f)
-                    alpha = (1f - p * 1.35f).coerceIn(0f, 1f)
-                    translationX = 12.dp.toPx() * p
-                    translationY = -7.dp.toPx() * p
-                    scaleX = 1f + 0.06f * p
-                    scaleY = 1f + 0.06f * p
-                    val blur = 10.dp.toPx() * p
+                    alpha = (1f - p * 1.12f).coerceIn(0f, 1f)
+                    val blur = 7.dp.toPx() * p
                     renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
                 }, null, decorated, shockwaveProgress = { burst.value })
         }
@@ -1056,7 +1052,6 @@ internal fun DayAgentCardVisualContent(
             Modifier.fillMaxWidth().graphicsLayer {
                 val p = if (outgoing == null) 1f else burst.value.coerceIn(0f, 1f)
                 alpha = ((p - 0.23f) / 0.77f).coerceIn(0f, 1f)
-                translationY = 8.dp.toPx() * (1f - p)
                 val blur = 8.dp.toPx() * (1f - p)
                 renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
             }, onWeatherClick, decorated, animateCountdown = outgoing == null)
@@ -1167,9 +1162,15 @@ private fun DayAgentCardVisualCore(
     val shape = RoundedRectangle(if (visual.collapsed) 26.dp else 28.dp)
     fun shock(x: Float, y: Float): Modifier = if (shockwaveProgress == null) Modifier else Modifier.graphicsLayer {
         val p = shockwaveProgress().coerceIn(0f, 1f)
-        translationX = x.dp.toPx() * p
-        translationY = y.dp.toPx() * p
-        rotationZ = kotlin.math.sign(x) * 3f * p
+        val waveDelay = if (x > 0f) 0.03f else if (y > 0f) 0.11f else 0.16f
+        val wave = ((p - waveDelay) / 0.72f).coerceIn(0f, 1f)
+        val envelope = kotlin.math.sin(wave * Math.PI).toFloat().coerceAtLeast(0f)
+        val wobble = kotlin.math.sin(wave * 7.0 * Math.PI).toFloat() * envelope
+        val amplitude = if (x > 0f) 12.dp.toPx() else 9.dp.toPx()
+        translationX = x.dp.toPx() * p + amplitude * wobble
+        translationY = y.dp.toPx() * p + 5.dp.toPx() * envelope *
+            kotlin.math.cos(wave * 7.0 * Math.PI).toFloat()
+        rotationZ = kotlin.math.sign(x) * 3f * p + wobble * 6f
     }
     Column(
         modifier = modifier
