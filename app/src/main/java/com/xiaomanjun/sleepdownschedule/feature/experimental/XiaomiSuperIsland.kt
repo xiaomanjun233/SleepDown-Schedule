@@ -26,11 +26,12 @@ internal object XiaomiSuperIsland {
     private const val RightMode = "xiaomi_island_right_mode"
     private const val AodMode = "xiaomi_island_aod_mode"
     private const val ExpandGlow = "xiaomi_island_expand_glow"
+    private const val Sequence = "xiaomi_island_sequence"
     const val ChannelId = "course_reminder_island"
     private const val FocusParameter = "miui.focus.param"
     private const val SmallPicture = "miui.focus.pic_small"
     const val DndActionKey = "miui.focus.action_dnd"
-    private val sequence = AtomicLong(0)
+    private val sequence = AtomicLong(System.currentTimeMillis())
 
     fun isXiaomiDevice(manufacturer: String, brand: String): Boolean =
         listOf(manufacturer, brand).any { value ->
@@ -155,7 +156,8 @@ internal object XiaomiSuperIsland {
     ) {
         if (!isEnabled(context)) return
         notification.extras.putString(FocusParameter, parameters(
-            payload, status, shortText, System.currentTimeMillis(), options(context), actionTitle
+            payload, status, shortText, System.currentTimeMillis(), options(context), actionTitle,
+            nextSequence(context)
         ))
         val appIcon = Icon.createWithResource(context, currentLiveUpdateIconResId(context))
         notification.extras.putBundle("miui.focus.pics", Bundle().apply {
@@ -166,13 +168,22 @@ internal object XiaomiSuperIsland {
         })
     }
 
+    private fun nextSequence(context: Context): Long = synchronized(sequence) {
+        val prefs = context.getSharedPreferences(Prefs, Context.MODE_PRIVATE)
+        val next = maxOf(sequence.get(), prefs.getLong(Sequence, 0L), System.currentTimeMillis()) + 1L
+        sequence.set(next)
+        prefs.edit().putLong(Sequence, next).commit()
+        next
+    }
+
     internal fun parameters(
         payload: LiveUpdatePayload,
         status: LiveUpdateStatus,
         shortText: String,
         nowMillis: Long = System.currentTimeMillis(),
         options: Options = Options(),
-        actionTitle: String = "开启勿扰"
+        actionTitle: String = "开启勿扰",
+        sequenceValue: Long = sequence.incrementAndGet()
     ): String {
         val beforeClass = status.phase == LiveUpdatePhase.BEFORE_CLASS
         val timerAt = status.nextTransitionAtMillis?.takeIf {
@@ -260,12 +271,12 @@ internal object XiaomiSuperIsland {
         val parameters = JSONObject()
             .put("protocol", 1)
             .put("business", "course_reminder")
-            .put("enableFloat", beforeClass || payload.kind == LiveUpdateKind.TOMORROW)
+            .put("enableFloat", true)
             .put("updatable", true)
             .put("outEffectSrc", if (options.expandGlow) "outer_glow" else "")
             .put("aodTitle", aodText)
             .put("reopen", "reopen")
-            .put("sequence", sequence.incrementAndGet())
+            .put("sequence", sequenceValue)
             .put("baseInfo", card)
             .put("picInfo", JSONObject().put("type", 1).put("pic", ""))
             .put("hintInfo", hint)

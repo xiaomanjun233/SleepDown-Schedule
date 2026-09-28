@@ -50,7 +50,7 @@ class XiaomiSuperIslandTest {
         val island = root.getJSONObject("param_island").getJSONObject("bigIslandArea")
         val hint = root.getJSONObject("hintInfo")
 
-        assertFalse(root.getBoolean("enableFloat"))
+        assertTrue(root.getBoolean("enableFloat"))
         assertTrue(root.getBoolean("islandFirstFloat"))
         assertEquals("reopen", root.getString("reopen"))
         assertEquals(2, island.getInt("templateNo"))

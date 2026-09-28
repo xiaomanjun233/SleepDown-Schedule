@@ -700,6 +700,10 @@ object NotificationScheduler {
         }
         createChannel(context)
         if (!canPostNotifications(context)) return LiveUpdatePreviewResult.NOTIFICATIONS_UNAVAILABLE
+        // A test should be a fresh focus event. Reposting across the two live-update slots
+        // makes Xiaomi treat repeated tests as updates and may suppress the first float.
+        stopLiveUpdateService(context)
+        cancelLiveUpdateNotifications(context)
         return runCatching { startLiveUpdateService(context, liveUpdatePreviewPayload(config)) }
             .onFailure { Log.e(TAG, "live update preview delivery failed", it) }
             .getOrDefault(false)

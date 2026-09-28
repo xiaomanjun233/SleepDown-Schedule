@@ -17,5 +17,6 @@
 -keep class com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiShizukuBridge$* { *; }
 -keep class com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiRootBridge { *; }
 -keep class com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiRootBridge$* { *; }
+-keep class com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiRootFirewallCommand { *; }
 -keep class com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiNetworkRestoreReceiver { *; }
 -keep class com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiNetworkRestoreReceiver$* { *; }
