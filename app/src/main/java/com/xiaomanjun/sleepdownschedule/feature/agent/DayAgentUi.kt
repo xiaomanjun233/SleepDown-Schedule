@@ -136,6 +136,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -1086,17 +1087,6 @@ internal fun DayAgentCardVisualContent(
 
 @Composable
 private fun AgentCountdownNumber(text: String, seconds: Long, color: Color) {
-    val motion = remember { Animatable(1f) }
-    var displayed by remember { mutableStateOf(text) }
-    var previous by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(text) {
-        if (text == displayed) return@LaunchedEffect
-        previous = displayed
-        displayed = text
-        motion.snapTo(0f)
-        motion.animateTo(1f, tween(300, easing = CubicBezierEasing(0.20f, 0.72f, 0.26f, 1f)))
-        previous = null
-    }
     val shake = if (seconds in 1L..60L) {
         val transition = rememberInfiniteTransition(label = "agent-countdown-shake")
         val offset by transition.animateFloat(
@@ -1106,32 +1096,59 @@ private fun AgentCountdownNumber(text: String, seconds: Long, color: Color) {
         )
         offset
     } else 0f
-    Box(Modifier.graphicsLayer {
+    Row(Modifier.clearAndSetSemantics { contentDescription = text }.graphicsLayer {
         val force = if (seconds <= 10L) 3.2.dp.toPx() else 1.5.dp.toPx()
         translationX = shake * force
         translationY = shake * force * 0.35f
         scaleX = if (seconds in 1L..10L) 1.03f else 1f
         scaleY = scaleX
-    }, contentAlignment = Alignment.CenterEnd) {
+    }, verticalAlignment = Alignment.CenterVertically) {
+        text.forEach { character ->
+            if (character.isDigit()) {
+                AgentCountdownDigit(character, color)
+            } else {
+                Text(character.toString(), color = color,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentCountdownDigit(digit: Char, color: Color) {
+    val motion = remember { Animatable(1f) }
+    var displayed by remember { mutableStateOf(digit) }
+    var previous by remember { mutableStateOf<Char?>(null) }
+    LaunchedEffect(digit) {
+        if (digit == displayed) return@LaunchedEffect
+        previous = displayed
+        displayed = digit
+        motion.snapTo(0f)
+        motion.animateTo(1f, tween(300, easing = CubicBezierEasing(0.20f, 0.72f, 0.26f, 1f)))
+        previous = null
+    }
+    val style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum")
+    Box(contentAlignment = Alignment.Center) {
         previous?.let { outgoing ->
-            Text(outgoing,
+            Text(outgoing.toString(),
                 modifier = Modifier.graphicsLayer {
                     val p = motion.value.coerceIn(0f, 1f)
                     alpha = 1f - p
                     translationY = -8.dp.toPx() * p
                     val blur = 5.dp.toPx() * p
                     renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
-                }, color = color, style = MaterialTheme.typography.titleMedium,
+                }, color = color, style = style,
                 fontWeight = FontWeight.Bold, maxLines = 1)
         }
-        Text(displayed,
+        Text(displayed.toString(),
             modifier = Modifier.graphicsLayer {
                 val p = motion.value.coerceIn(0f, 1f)
                 alpha = p
                 translationY = 8.dp.toPx() * (1f - p)
                 val blur = 5.dp.toPx() * (1f - p)
                 renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
-            }, color = color, style = MaterialTheme.typography.titleMedium,
+            }, color = color, style = style,
             fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
