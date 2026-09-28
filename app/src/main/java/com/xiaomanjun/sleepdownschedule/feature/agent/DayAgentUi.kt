@@ -1022,39 +1022,50 @@ internal fun DayAgentCardVisualContent(
                     androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
             }
         }
-        if (previous.transitionKey != visual.transitionKey &&
-            previous.countdownSeconds != null && previous.countdownSeconds <= 1L) {
-            burst.snapTo(0f)
-            outgoing = previous
-            displayedVisual = visual
-            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-            try {
-                burst.animateTo(1f, tween(680, easing = CubicBezierEasing(0.18f, 0.70f, 0.28f, 1f)))
-            } finally {
+        if (previous.transitionKey != visual.transitionKey) {
+            if (previous.countdownSeconds != null && previous.countdownSeconds <= 1L) {
+                burst.snapTo(0f)
+                outgoing = previous
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            } else {
                 outgoing = null
             }
-        } else {
-            outgoing = null
-            displayedVisual = visual
+        }
+        displayedVisual = visual
+    }
+    val outgoingKey = outgoing?.transitionKey
+    LaunchedEffect(outgoingKey) {
+        if (outgoingKey != null) {
+            try {
+                burst.animateTo(1f, tween(1250, easing = LinearEasing))
+            } finally {
+                if (outgoing?.transitionKey == outgoingKey) outgoing = null
+            }
         }
     }
     Box(modifier) {
+        if (decorated) {
+            val shape = RoundedRectangle(if (displayedVisual.collapsed) 26.dp else 28.dp)
+            Box(Modifier.matchParentSize().clip(shape)
+                .dayAgentCardSurface(displayedVisual, activityAccent, shape))
+        }
         outgoing?.let { old ->
             DayAgentCardVisualCore(old, foreground, activityAccent,
                 Modifier.fillMaxWidth().graphicsLayer {
                     val p = burst.value.coerceIn(0f, 1f)
-                    alpha = (1f - p * 1.12f).coerceIn(0f, 1f)
+                    alpha = 1f - agentSmoothStep(0.28f, 0.63f, p)
                     val blur = 7.dp.toPx() * p
                     renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
-                }, null, decorated, shockwaveProgress = { burst.value })
+                }, null, decorated, shockwaveProgress = { burst.value }, drawSurface = false)
         }
         DayAgentCardVisualCore(displayedVisual, foreground, activityAccent,
             Modifier.fillMaxWidth().graphicsLayer {
                 val p = if (outgoing == null) 1f else burst.value.coerceIn(0f, 1f)
-                alpha = ((p - 0.23f) / 0.77f).coerceIn(0f, 1f)
+                alpha = agentSmoothStep(0.60f, 0.88f, p)
                 val blur = 8.dp.toPx() * (1f - p)
                 renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
-            }, onWeatherClick, decorated, animateCountdown = outgoing == null)
+            }, onWeatherClick, decorated, animateCountdown = outgoing == null,
+            drawSurface = false)
         if (outgoing != null) Canvas(Modifier.matchParentSize()) {
             val p = burst.value.coerceIn(0f, 1f)
             val origin = Offset(size.width * 0.82f, 27.dp.toPx())
@@ -1079,6 +1090,21 @@ internal fun DayAgentCardVisualContent(
         }
     }
 }
+
+private fun Modifier.dayAgentCardSurface(
+    visual: DayAgentCardVisual,
+    activityAccent: Color,
+    shape: Shape
+): Modifier = background(
+    if (visual.cardIsDark) Color.Black.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.30f),
+    shape
+).verticalGlassAccent(
+    accentColor = activityAccent,
+    shape = shape,
+    lightGlass = !visual.cardIsDark,
+    intensity = 1f,
+    expanded = true
+)
 
 @Composable
 private fun AgentCountdownNumber(text: String, seconds: Long, color: Color) {
@@ -1157,7 +1183,8 @@ private fun DayAgentCardVisualCore(
     onWeatherClick: (() -> Unit)?,
     decorated: Boolean,
     animateCountdown: Boolean = false,
-    shockwaveProgress: (() -> Float)? = null
+    shockwaveProgress: (() -> Float)? = null,
+    drawSurface: Boolean = true
 ) {
     val shape = RoundedRectangle(if (visual.collapsed) 26.dp else 28.dp)
     fun shock(x: Float, y: Float): Modifier = if (shockwaveProgress == null) Modifier else Modifier.graphicsLayer {
@@ -1175,22 +1202,9 @@ private fun DayAgentCardVisualCore(
     Column(
         modifier = modifier
             .clip(shape)
-            .then(if (decorated) Modifier
-            .background(
-                if (visual.cardIsDark) {
-                    Color.Black.copy(alpha = 0.20f)
-                } else {
-                    Color.White.copy(alpha = 0.30f)
-                }
-            )
-            .verticalGlassAccent(
-                accentColor = activityAccent,
-                shape = shape,
-                lightGlass = !visual.cardIsDark,
-                intensity = 1f,
-                expanded = true
-            )
-            else Modifier)
+            .then(if (decorated && drawSurface) Modifier.dayAgentCardSurface(
+                visual, activityAccent, shape
+            ) else Modifier)
             .padding(horizontal = 16.dp, vertical = if (visual.collapsed) 10.dp else 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
