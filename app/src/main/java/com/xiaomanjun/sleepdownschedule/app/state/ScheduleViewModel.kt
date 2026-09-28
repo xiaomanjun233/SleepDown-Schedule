@@ -813,6 +813,14 @@ class ScheduleViewModel(
         refreshCoordinator.request()
     }
 
+    fun refreshNotificationsAfterSave() {
+        // A settings Activity may finish as soon as its save callback returns. Keep the
+        // refresh alive long enough to observe the transaction that just completed.
+        (app as CourseScheduleApp).applicationScope.launch {
+            refreshCoordinator.refreshNow()
+        }
+    }
+
     private fun captureDayAgentPreferences(): DayAgentPreferenceSnapshot =
         DayAgentPreferenceSnapshot(
             hasDecision = DayAgentPreferences.hasDecision(app),

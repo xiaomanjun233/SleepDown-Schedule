@@ -2370,9 +2370,7 @@ fun CourseScheduleAppUi(
                         request = request,
                         detailState = detailState,
                         onMorphStateChange = { detailMorphState = it },
-                        onSave = { config, periods ->
-                            viewModel.saveConfigForSchedule(request.scheduleId, config, periods)
-                        },
+                        onSave = { _, _ -> viewModel.refreshNotificationsAfterSave() },
                         onPreviewLiveUpdate = viewModel::previewLiveUpdate,
                         onFinished = {
                             detailMorphRequest = null
@@ -2828,7 +2826,7 @@ fun CourseScheduleAppUi(
                                                 intent
                                             )
                                         },
-                                        onSave = viewModel::saveConfig,
+                                        onSave = { _, _ -> viewModel.refreshNotificationsAfterSave() },
                                         onUpdateConfig = viewModel::saveNotificationSettings,
                                         onUpdateGeneralConfig = viewModel::saveGeneralSettings,
                                         onUpdateHomeChromeBlurScale = viewModel::saveHomeChromeBlurScale,
@@ -7198,14 +7196,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 scheduleEditState,
                                 backdrop,
                                 SettingsSection.Schedule,
-                                onSave = { config, periods ->
-                                    val targetId = customizeScheduleId
-                                    if (targetId != null) {
-                                        viewModel.saveConfigForSchedule(targetId, config, periods)
-                                    } else {
-                                        viewModel.saveConfig(config, periods)
-                                    }
-                                },
+                                onSave = { _, _ -> viewModel.refreshNotificationsAfterSave() },
                                 onPreviewLiveUpdate = viewModel::previewLiveUpdate,
                                 exitCommitRequest = scheduleExitRequest,
                                 onExitCommitFinished = { saved -> if (saved) closeSettings() },

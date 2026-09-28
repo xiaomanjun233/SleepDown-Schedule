@@ -484,6 +484,9 @@ fun decodeOverrides(value: String): Set<Int> = Regex("\\d+").findAll(value).map 
 
 fun validateResolvedPeriodTimes(times: List<PeriodSchemeTimeEntity>): String? {
     val sorted = times.sortedBy { it.periodIndex }
+    sorted.forEachIndexed { position, item ->
+        if (item.periodIndex != position + 1) return "节次编号必须从 1 连续排列"
+    }
     sorted.forEach { item ->
         val start = runCatching { LocalTime.parse(item.startTime) }.getOrNull()
             ?: return "第 ${item.periodIndex} 节开始时间无效"
