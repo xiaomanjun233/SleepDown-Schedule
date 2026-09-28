@@ -58,6 +58,10 @@ class XiaomiSuperIslandTest {
         assertEquals(end, island.getJSONObject("sameWidthDigitInfo")
             .getJSONObject("timerInfo").getLong("timerWhen"))
         assertEquals("距离下课", hint.getString("content"))
+        assertEquals("开启勿扰", hint.getJSONObject("actionInfo").getString("actionTitle"))
+        assertEquals(XiaomiSuperIsland.DndActionKey,
+            hint.getJSONObject("actionInfo").getString("action"))
+        assertFalse(hint.getJSONObject("actionInfo").has("actionIntent"))
         assertEquals(end, hint.getJSONObject("timerInfo").getLong("timerWhen"))
         assertEquals(-1, hint.getJSONObject("timerInfo").getInt("timerType"))
     }

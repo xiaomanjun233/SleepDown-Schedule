@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.graphics.drawable.Icon
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import com.xiaomanjun.sleepdownschedule.BuildConfig
@@ -28,6 +29,7 @@ internal object XiaomiSuperIsland {
     const val ChannelId = "course_reminder_island"
     private const val FocusParameter = "miui.focus.param"
     private const val SmallPicture = "miui.focus.pic_small"
+    const val DndActionKey = "miui.focus.action_dnd"
     private val sequence = AtomicLong(0)
 
     fun isXiaomiDevice(manufacturer: String, brand: String): Boolean =
@@ -40,6 +42,15 @@ internal object XiaomiSuperIsland {
         systemProperties.getMethod("getBoolean", String::class.java, Boolean::class.javaPrimitiveType)
             .invoke(null, "persist.sys.feature.island", false) as Boolean
     }.getOrDefault(false)
+
+    /** Xiaomi exposes this switch separately from Android's notification permission. */
+    fun focusPermission(context: Context): Boolean? = runCatching {
+        val extras = Bundle().apply { putString("package", context.packageName) }
+        context.contentResolver.call(
+            Uri.parse("content://miui.statusbar.notification.public"),
+            "canShowFocus", null, extras
+        )?.getBoolean("canShowFocus")
+    }.getOrNull()
 
     fun isSelected(context: Context): Boolean = BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES &&
         isXiaomiDevice(Build.MANUFACTURER.orEmpty(), Build.BRAND.orEmpty()) &&
@@ -139,11 +150,12 @@ internal object XiaomiSuperIsland {
         notification: Notification,
         payload: LiveUpdatePayload,
         status: LiveUpdateStatus,
-        shortText: String
+        shortText: String,
+        actionTitle: String = "开启勿扰"
     ) {
         if (!isEnabled(context)) return
         notification.extras.putString(FocusParameter, parameters(
-            payload, status, shortText, System.currentTimeMillis(), context.packageName, options(context)
+            payload, status, shortText, System.currentTimeMillis(), options(context), actionTitle
         ))
         val appIcon = Icon.createWithResource(context, currentLiveUpdateIconResId(context))
         notification.extras.putBundle("miui.focus.pics", Bundle().apply {
@@ -159,8 +171,8 @@ internal object XiaomiSuperIsland {
         status: LiveUpdateStatus,
         shortText: String,
         nowMillis: Long = System.currentTimeMillis(),
-        packageName: String = "com.xiaomanjun.sleepdownschedule",
-        options: Options = Options()
+        options: Options = Options(),
+        actionTitle: String = "开启勿扰"
     ): String {
         val beforeClass = status.phase == LiveUpdatePhase.BEFORE_CLASS
         val timerAt = status.nextTransitionAtMillis?.takeIf {
@@ -242,10 +254,8 @@ internal object XiaomiSuperIsland {
             .put("colorSubContent", "#666666").put("colorSubContentDark", "#aaaaaa")
             .put("colorSubTitle", "#222222").put("colorSubTitleDark", "#eeeeee")
             .put("actionInfo", JSONObject()
-                .put("actionTitle", "查看课表")
-                .put("actionIntentType", 1)
-                .put("actionIntent",
-                    "intent:#Intent;component=$packageName/com.xiaomanjun.sleepdownschedule.MainActivity;end"))
+                .put("actionTitle", actionTitle)
+                .put("action", DndActionKey))
             .put("timerInfo", timerInfo(timerAt, nowMillis))
         val parameters = JSONObject()
             .put("protocol", 1)
