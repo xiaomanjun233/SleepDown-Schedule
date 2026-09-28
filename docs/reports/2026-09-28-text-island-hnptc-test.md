@@ -53,3 +53,20 @@ Debug 包名为 `com.xiaomanjun.sleepdownschedule.debug`，桌面名称为“Sle
 交付文件：`tmp/hnptc-delivery/SleepDown-1.2.6-hnptc-debug.apk`，31,859,221 字节，版本 `1.2.6-edu-test` / 33。SHA-256：`266c58967e428eebc8ca5c10e08c8a5c6a1c7a2b2d3005f693e1dc9f120f6400`。
 
 验证使用的 Release SHA-256：`27b41a3d99e04051c93300bd3f39dd7e5c0cbf8e5fa025aae61107354cd11c73`。本轮没有安装、推送、创建 PR 或发布版本。
+
+## 强智接口案例复查
+
+用户追问接口和自动刷新后，对照了拾光 `pending` / `main` 的实际脚本；两分支在本次核对时的 `resources` 内容一致。以下都是已有上游实现：
+
+| 案例 | 获取方式 | 返回内容与参考价值 |
+| --- | --- | --- |
+| [曲阜师范大学 QFNU](https://github.com/ShiGuangSchedule/shiguang_warehouse/blob/177cf963a6cff54be3078f6d6371ea43aed93f10/resources/QFNU/qfnu_01.js#L52) | `fetch` POST `/jsxsd/xskb/xskb_list.do`，参数含学期、节次模式和空周过滤；必要时 GET | HTML 整学期课表；同时读取学期列表与教学周历，最适合优先参考其直接请求流程 |
+| [湖南信息职业技术学院 HNIU](https://github.com/ShiGuangSchedule/shiguang_warehouse/blob/177cf963a6cff54be3078f6d6371ea43aed93f10/resources/HNIU/hniu_01.js#L242) | `fetch` POST 同一 `xskb_list.do`，携带登录 Cookie 和学期 | HTML 课表，证明相近院校已有直接请求写法 |
+| [湖南商务职业技术学院 HNVCC](https://github.com/ShiGuangSchedule/shiguang_warehouse/blob/177cf963a6cff54be3078f6d6371ea43aed93f10/resources/HNVCC/HNVCC_01.js#L93) | GET `/jsxsd/framework/mainV_index_loadkb.htmlx?rq=all&xnxqid=…&xswk=false` | HTML 课表片段，使用 `rq=all` 请求全部课程；重庆工商职业学院 CQTBI 也用同一路径并附加节次模式 |
+| [闽南科技学院 MKU](https://github.com/ShiGuangSchedule/shiguang_warehouse/blob/177cf963a6cff54be3078f6d6371ea43aed93f10/resources/MKU/mku.js#L244) | 课表仍请求 `xskb_list.do`；`jxzlzc_xnxq_ajax` 返回 JSON | JSON 只包含学期周数，不能因此认为完整课程来自 JSON 接口 |
+
+本次检查到的强智课表请求主要返回 HTML，未发现可直接套给湘邮的整学期课程 JSON 案例。HTML 是响应格式，不妨碍后台重复请求和自动解析。先前把自动刷新能力与 JSON 响应绑定的解释过于绝对：当前限制来自 SleepDown 的候选适配器识别规则和本地测试脚本尚未接入自动刷新，而不是 HTML 本身。
+
+`ShiguangApiAdapterCatalog.isLikelyApiAdapter` 当前以“有网络调用且有 JSON 解析”作正向判断。这会漏掉完整的强智 HTML 课表请求，也可能把 MKU 的周数 JSON 当作课程接口证据。后续应依据完整课表获取链路、登录失效处理及实际验证判断能力，不能只放宽一个字符串条件。
+
+推荐下一步优先复用 QFNU 的请求和学期/周历读取流程，在湘邮登录后的响应上验证；保留上游解析方法和预览确认。当前已交付 APK 仍使用前述 BTBU 派生脚本，本次仅核对案例和记录结论，未改包或宣称已启用自动刷新。
