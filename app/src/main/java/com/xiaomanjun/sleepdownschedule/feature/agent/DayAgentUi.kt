@@ -1087,8 +1087,8 @@ internal fun DayAgentCardVisualContent(
                 )
             }
             drawCircle(activityAccent,
-                radius = size.width * agentSmoothStep(0f, 0.30f, p), center = origin,
-                alpha = 0.55f * (1f - agentSmoothStep(0.08f, 0.50f, p)),
+                radius = size.width * agentSmoothStep(0f, 0.21f, p), center = origin,
+                alpha = 0.55f * (1f - agentSmoothStep(0.04f, 0.36f, p)),
                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
         }
     }
@@ -1193,7 +1193,7 @@ private fun DayAgentCardVisualCore(
     fun shock(x: Float, y: Float, arrival: Float, origin: Boolean = false): Modifier =
         if (shockwaveProgress == null) Modifier else Modifier.graphicsLayer {
             val p = shockwaveProgress().coerceIn(0f, 1f)
-            val wave = ((p - arrival) / 0.50f).coerceIn(0f, 1f)
+            val wave = ((p - arrival) / 0.44f).coerceIn(0f, 1f)
             val push = if (wave < 0.40f) {
                 agentSmoothStep(0f, 0.40f, wave)
             } else {
@@ -1220,7 +1220,7 @@ private fun DayAgentCardVisualCore(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     visual.activityLabel,
-                    modifier = shock(-22f, -6f, 0.22f),
+                    modifier = shock(-22f, -6f, 0.15f),
                     color = activityAccent,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
@@ -1229,7 +1229,7 @@ private fun DayAgentCardVisualCore(
                     Spacer(Modifier.width(8.dp))
                     Text(
                         courseName,
-                        modifier = Modifier.weight(1f).then(shock(-16f, -5f, 0.12f)),
+                        modifier = Modifier.weight(1f).then(shock(-16f, -5f, 0.08f)),
                         color = foreground,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
@@ -1258,7 +1258,7 @@ private fun DayAgentCardVisualCore(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         visual.locationText,
-                        modifier = Modifier.weight(1f).then(shock(-16f, 14f, 0.18f)),
+                        modifier = Modifier.weight(1f).then(shock(-16f, 14f, 0.12f)),
                         color = foreground.copy(alpha = if (decorated) 0.56f else 0.82f),
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
@@ -1267,7 +1267,7 @@ private fun DayAgentCardVisualCore(
                     Spacer(Modifier.width(10.dp))
                     Text(
                         visual.focusTimeText,
-                        modifier = shock(8f, 14f, 0.08f),
+                        modifier = shock(8f, 14f, 0.04f),
                         color = foreground.copy(alpha = if (decorated) 0.56f else 0.82f),
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1
@@ -1279,6 +1279,7 @@ private fun DayAgentCardVisualCore(
             Box(Modifier.fillMaxWidth().height(1.dp).background(foreground.copy(alpha = 0.10f)))
             Text(
                 visual.courseCountText,
+                modifier = shock(-13f, 9f, 0.14f),
                 color = foreground,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
@@ -1291,7 +1292,8 @@ private fun DayAgentCardVisualCore(
                     visual.weatherText,
                     modifier = Modifier
                         .weight(1f)
-                        .then(if (onWeatherClick != null) Modifier.clickable(onClick = onWeatherClick) else Modifier),
+                        .then(if (onWeatherClick != null) Modifier.clickable(onClick = onWeatherClick) else Modifier)
+                        .then(shock(-14f, 10f, 0.19f)),
                     color = foreground.copy(alpha = if (decorated) 0.58f else 0.82f),
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
@@ -1301,6 +1303,7 @@ private fun DayAgentCardVisualCore(
                     Spacer(Modifier.width(6.dp))
                      Text(
                          text = status,
+                         modifier = shock(10f, 10f, 0.10f),
                          color = if (visual.weatherAlert) {
                             if (visual.cardIsDark) Color(0xFFFFB86B) else Color(0xFFB84D00)
                         } else {
