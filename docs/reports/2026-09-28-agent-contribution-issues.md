@@ -45,3 +45,10 @@ CI 使用 `pull_request`、只读仓库权限及公开依赖，不读取签名�
 - 最后补全截断 JSON 检查后，`compileGithubReleaseKotlin` 与解析安全、任务循环、动作语义三个套件共同通过（4分23秒，52项测试，0失败/错误/跳过）。覆盖有标签、无标签及包装对象截断时不能接受半份计划。
 - PR 路径脚本本地校验通过；[GitHub Actions #36334137517](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/36334137517) 在治理分支提交 `1b0815f` 上全部成功，包含 `PR scope`、`Android compile` 与汇总检查。干净 runner 的 Android 编译任务约7分28秒；该 PR 不包含本地应用修复。
 - 未连接设备，未安装 APK，也未进行真实模型或真实学校登录验收。角标快滑、大字体、编辑器收尾和确认卡明暗主题仍需设备验收。
+
+### 后续打包安装（2026-09-28）
+
+- 按用户要求从提交 `61f74b1` 构建 `assembleGithubRelease`，保留 R8、资源压缩、lintVital 和 Release 签名；单 worker 构建通过，用时3分14秒，APK 签名校验通过。
+- 已通过 `adb install -r` 覆盖安装到 PLJ110（Android 17 / ColorOS V17.0.0），返回 `Success`。包名 `com.xiaomanjun.sleepdownschedule`，版本 `1.2.6` / `33`。
+- 系统回读更新时间为09:28:11，首次安装时间仍为2026-08-16 01:20:27；未卸载、未清除数据、未自动启动。此次仅验证构建与覆盖安装，视觉、真实模型和学校登录尚未验收。
+- APK SHA-256：`3aace6105efc4607a267d225ba2dfd2b4b87afc3cef153ecd5526b2f70cf3f38`。
