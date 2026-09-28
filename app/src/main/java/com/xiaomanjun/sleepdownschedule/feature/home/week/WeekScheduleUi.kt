@@ -1129,7 +1129,6 @@ private fun WeekEditOverlayHost(
 @Composable
 internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: ScheduleConfigEntity) {
     val pageForeground = homeForegroundColor(config)
-    val lightText = pageForeground.luminance() >= 0.5f
     val coloredText = config.courseCardColoredTextEnabled
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
@@ -1242,7 +1241,6 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
                 CourseCardText(
                     locationText,
                     themeColor = null,
-                    shadowLightText = lightText,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .fillMaxWidth(),
@@ -1259,7 +1257,6 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
             CourseCardText(
                 course.name,
                 themeColor = null,
-                shadowLightText = lightText,
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth()
@@ -1277,7 +1274,6 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
                 CourseCardText(
                     course.teacher,
                     themeColor = null,
-                    shadowLightText = lightText,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth(),
@@ -3169,7 +3165,6 @@ fun WeekCourseBlock(
     val hasTeacher = !course.teacher.isNullOrBlank()
     val resolvedCardColor = if (muted) MutedCourseLightColor else if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
     val pageForeground = homeForegroundColor(config)
-    val lightText = pageForeground.luminance() >= 0.5f
     val coloredText = !muted && config.courseCardColoredTextEnabled
     val courseTextColor = homeCourseTextColor(config, course, pageForeground, muted)
     val density = LocalDensity.current
@@ -3800,7 +3795,6 @@ fun WeekCourseBlock(
                     CourseCardText(
                         locationText,
                         themeColor = null,
-                        shadowLightText = lightText,
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .fillMaxWidth(),
@@ -3816,7 +3810,6 @@ fun WeekCourseBlock(
                 CourseCardText(
                     course.name,
                     themeColor = null,
-                    shadowLightText = lightText,
                     modifier = Modifier
                         .align(Alignment.Center)
                         .fillMaxWidth()
@@ -3833,7 +3826,6 @@ fun WeekCourseBlock(
                     CourseCardText(
                         course.teacher,
                         themeColor = null,
-                        shadowLightText = lightText,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth(),

@@ -2089,15 +2089,11 @@ internal fun homeCourseTextColor(
 ): ComposeColor {
     if (muted || !config.courseCardColoredTextEnabled) return pageForeground
     val seed = courseCardBaseColor(config, course)
-    val pageLuminance = if (config.wallpaperUri.isNullOrBlank()) {
-        MaterialTheme.colorScheme.background.luminance()
-    } else {
-        LocalAdaptiveGlass.current.luminance
-    }
-    return remember(seed, pageLuminance, pageForeground) {
+    val hasWallpaper = !config.wallpaperUri.isNullOrBlank()
+    return remember(seed, hasWallpaper, pageForeground) {
         courseTextColorForPage(
             seed = seed,
-            pageLuminance = pageLuminance,
+            hasWallpaper = hasWallpaper,
             lightText = pageForeground.luminance() >= 0.5f
         )
     }
@@ -2128,8 +2124,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                 style = MaterialTheme.typography.labelLarge,
                 color = foreground,
                 themeColor = null,
-                fontWeight = if (!subdued && config.courseCardColoredTextEnabled) FontWeight.Bold else null,
-                shadowLightText = pageForeground.luminance() >= 0.5f
+                fontWeight = if (!subdued && config.courseCardColoredTextEnabled) FontWeight.Bold else null
             )
         }
         CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config,
@@ -2155,7 +2150,6 @@ internal fun DayCourseCardTextContent(
     val coloredText = !muted && config.courseCardColoredTextEnabled
     val renderedTextColor = homeCourseTextColor(config, course, textColor, muted)
     val coloredWeight = if (coloredText) FontWeight.Bold else null
-    val lightText = textColor.luminance() >= 0.5f
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val safeTabletScale = tabletFontScale.coerceAtLeast(1f)
         val titleStyle = MaterialTheme.typography.titleMedium.copy(
@@ -2166,22 +2160,21 @@ internal fun DayCourseCardTextContent(
             fontSize = MaterialTheme.typography.bodyMedium.fontSize * safeTabletScale,
             lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * safeTabletScale
         )
-        CourseCardText(course.name, style = titleStyle, color = renderedTextColor, themeColor = null, fontWeight = coloredWeight, shadowLightText = lightText)
+        CourseCardText(course.name, style = titleStyle, color = renderedTextColor, themeColor = null, fontWeight = coloredWeight)
         if (showTime) {
             CourseCardText(
                 courseHomeTimeDetail(course, periods),
                 themeColor = null,
                 style = bodyStyle,
                 color = renderedTextColor.copy(alpha = 0.86f),
-                fontWeight = coloredWeight,
-                shadowLightText = lightText
+                fontWeight = coloredWeight
             )
         }
         if (!course.location.isNullOrBlank()) {
-            CourseCardText("地点：" + course.location, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight, shadowLightText = lightText)
+            CourseCardText("地点：" + course.location, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight)
         }
         if (!course.teacher.isNullOrBlank()) {
-            CourseCardText("教师：" + course.teacher, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight, shadowLightText = lightText)
+            CourseCardText("教师：" + course.teacher, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight)
         }
         if (showWeeks) {
             CourseCardText(
@@ -2189,12 +2182,11 @@ internal fun DayCourseCardTextContent(
                 themeColor = null,
                 style = bodyStyle,
                 color = renderedTextColor.copy(alpha = 0.86f),
-                fontWeight = coloredWeight,
-                shadowLightText = lightText
+                fontWeight = coloredWeight
             )
         }
         if (!course.note.isNullOrBlank()) {
-            CourseCardText("备注：" + course.note, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight, shadowLightText = lightText)
+            CourseCardText("备注：" + course.note, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight)
         }
     }
 }

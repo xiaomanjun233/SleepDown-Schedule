@@ -75,18 +75,33 @@ class CourseTextContrastTest {
         assertEquals(previous, courseTextColorForBackground(blue, floatArrayOf(Float.NaN), previous))
     }
 
-    @Test fun dayPageKeepsCourseHueVisibleWithoutLocalPolarityChanges() {
-        val brightPage = courseTextColorForPage(blue, 0.88f, lightText = false)
-        val darkPage = courseTextColorForPage(blue, 0.04f, lightText = true)
-        val middlePage = courseTextColorForPage(blue, 0.3f, lightText = true)
-        assertTrue(brightPage.luminance() < 0.3f)
+    @Test fun wallpaperLetteringKeepsCourseHueInsteadOfTurningIntoDarkInk() {
+        val brightPage = courseTextColorForPage(blue, hasWallpaper = true, lightText = false)
+        val darkPage = courseTextColorForPage(blue, hasWallpaper = true, lightText = true)
+        assertTrue(brightPage.luminance() > 0.3f)
         assertTrue(darkPage.luminance() > 0.3f)
         assertTrue(darkPage.blue - darkPage.red > 0.1f)
-        assertTrue(middlePage.blue - middlePage.red > 0.1f)
         assertTrue(brightPage.blue - brightPage.red > 0.1f)
-        val pink = courseTextColorForPage(Color(0xFFF48FB1), 0.3f, lightText = true)
+        assertEquals((blue.green - blue.red) / (blue.blue - blue.red),
+            (darkPage.green - darkPage.red) / (darkPage.blue - darkPage.red), 0.01f) // 8-bit sRGB rounding
+        val pink = courseTextColorForPage(Color(0xFFF48FB1), hasWallpaper = true, lightText = true)
         assertTrue(pink.red > pink.blue)
-        assertNotEquals(middlePage, pink)
+        assertNotEquals(darkPage, pink)
+    }
+
+    @Test fun flatCardsKeepTheirCourseColorAndNeutralSeedsStayNeutral() {
+        assertEquals(blue, courseTextColorForPage(blue, hasWallpaper = false, lightText = false))
+        val neutral = courseTextColorForPage(Color(0xFF444444), hasWallpaper = true, lightText = true)
+        assertEquals(neutral.red, neutral.green, 0.001f)
+        assertEquals(neutral.green, neutral.blue, 0.001f)
+    }
+
+    @Test fun shadowPolarityFollowsTheColoredGlyphAndProtectsLowContrastRegions() {
+        val lightBlue = courseTextColorForPage(blue, hasWallpaper = true, lightText = false)
+        assertTrue(courseTextNeedsDarkShadow(lightBlue))
+        assertFalse(courseTextNeedsDarkShadow(Color(0xFF001199)))
+        assertTrue(courseTextNeedsDarkShadow(Color(0xFF888888))) // luminance below 0.5
+        assertTrue(softTextShadowStrength(FloatArray(20) { lightBlue.luminance() }, lightBlue.luminance()) > 0f)
     }
 
     @Test fun monochromeCardShadowProtectsWithoutChangingPolarity() {

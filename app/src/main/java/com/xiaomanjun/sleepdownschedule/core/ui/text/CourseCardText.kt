@@ -50,8 +50,7 @@ internal fun CourseCardText(
     textAlign: TextAlign? = null,
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
-    adaptiveContrast: Boolean = true,
-    shadowLightText: Boolean? = null
+    adaptiveContrast: Boolean = true
 ) {
     val fallback = remember(themeColor, color) {
         themeColor?.let {
@@ -118,8 +117,7 @@ internal fun CourseCardText(
             target = courseTextColorForBackground(themeColor, samples, target)
             targetShadowStrength = 0f
         } else {
-            // Keep every ordinary label on the page's chosen black/white polarity. Only its
-            // soft opposite-color shadow responds to the local glass underneath the glyphs.
+            // Keep the chosen course color. Only the soft shadow responds to the local glass.
             targetShadowStrength = softTextShadowStrength(
                 samples, color.luminance(), color.alpha, targetShadowStrength
             )
@@ -152,7 +150,7 @@ internal fun CourseCardText(
         resolved[0] = updateForeground()
     }
     val density = LocalDensity.current
-    val lightText = shadowLightText ?: (color.luminance() >= 0.5f)
+    val lightText = courseTextNeedsDarkShadow(color)
     val effectiveFontSize = when {
         fontSize != TextUnit.Unspecified -> fontSize
         style.fontSize != TextUnit.Unspecified -> style.fontSize

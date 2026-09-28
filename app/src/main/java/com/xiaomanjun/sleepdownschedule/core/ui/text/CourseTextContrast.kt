@@ -58,23 +58,23 @@ private fun courseHsl(seed: Color): CourseHsl {
     return CourseHsl(hue, saturation, lightness)
 }
 
-/** Day cards share the page's light/dark direction while keeping each course hue visible. */
-internal fun courseTextColorForPage(seed: Color, pageLuminance: Float, lightText: Boolean): Color {
-    val (hue, saturation, lightness) = courseHsl(seed)
-    val page = pageLuminance.coerceIn(0f, 1f)
-    val darkAmount = ((0.55f - page) / 0.55f).coerceIn(0f, 1f)
-    val brightAmount = ((page - 0.45f) / 0.55f).coerceIn(0f, 1f)
-    val coloredSaturation = if (saturation < 0.01f) 0f else {
-        (saturation * (if (lightText) 1f + darkAmount * 0.2f else 1f - brightAmount * 0.25f))
-            .coerceIn(0.42f, 0.95f)
-    }
-    val coloredLightness = if (lightText) {
-        (0.68f + (lightness - 0.5f) * 0.2f + darkAmount * 0.06f).coerceIn(0.62f, 0.82f)
-    } else {
-        (0.36f + (lightness - 0.5f) * 0.12f - brightAmount * 0.05f).coerceIn(0.26f, 0.40f)
-    }
-    return Color.hsl(hue, coloredSaturation, coloredLightness)
+/** Keep course hues stable; lift and soften colored lettering over wallpaper glass. */
+internal fun courseTextColorForPage(seed: Color, hasWallpaper: Boolean, lightText: Boolean): Color {
+    if (!hasWallpaper) return seed.copy(alpha = 1f)
+    val value = maxOf(seed.red, seed.green, seed.blue)
+    val chroma = value - minOf(seed.red, seed.green, seed.blue)
+    val saturation = if (value > 0f) chroma / value else 0f
+    // HSV preserves the course hue without forcing every light-page label into dark ink.
+    // The local soft shadow handles contrast; scrolling never recolors the lettering.
+    return Color.hsv(
+        hue = courseHsl(seed).hue,
+        saturation = saturation * if (lightText) 0.5f else 0.8f,
+        value = maxOf(value, if (lightText) 0.92f else 0.85f)
+    )
 }
+
+/** Choose the higher-contrast shadow for the actual colored glyph, not the page foreground. */
+internal fun courseTextNeedsDarkShadow(color: Color): Boolean = color.luminance() > 0.17912878f
 
 /** Keep the course hue while adjusting lightness and saturation for the sampled background. */
 internal fun courseTextColorForBackground(seed: Color, samples: FloatArray, previous: Color): Color {
