@@ -578,11 +578,10 @@ internal fun SinglePillWeekScheduleScreen(
         }
     }
     // Include the glass shadow and entrance overshoot, with extra room below the last row.
-    // The adjustment badge also hangs outside the first card. Keep this stable across weeks
-    // so the pager can draw it above the grid without shifting the course's actual bounds.
+    // Adjustment badges sit on the lower corner. Keep bottom overflow stable across weeks
+    // without adding badge space above the first row.
     val courseTopOverflow = when {
         retainEditControlOverflow -> 24.dp
-        hasAdjustmentBadges -> 8.dp
         else -> 0.dp
     }
     val editControlBottomOverflow = when {
@@ -3683,16 +3682,18 @@ fun WeekCourseBlock(
                 sampledShape = sampledCardShape,
                 muted = muted,
                 onClick = null
-            ) {}
+            ) {
             // The day column already knows the measured width. Subcomposing every card again
             // made a single prefetched page spend 17–24ms in measureAndLayout on the 120Hz phone.
             val badgeInset = when {
-                showConflictBadge -> maxOf(20.dp, with(density) { 10.sp.toDp() } + 4.dp) - 3.dp
-                !editingAllowed -> with(density) { courseAdjustmentBadgeInset() }
+                showConflictBadge -> courseBadgeContentInset(
+                    maxOf(20.dp, with(density) { 10.sp.toDp() } + 4.dp), cardCorner
+                )
+                !editingAllowed -> courseBadgeContentInset(with(density) { courseAdjustmentBadgeHeight() }, cardCorner)
                 else -> 0.dp
             }
             Box(Modifier.fillMaxWidth().height(displayedHeight).clip(cardShape)
-                .padding(top = badgeInset)) {
+                .padding(bottom = badgeInset)) {
             val density = LocalDensity.current
             val textHeight = (displayedHeight - badgeInset).coerceAtLeast(0.dp)
             val heightDp = textHeight.value
@@ -3848,9 +3849,10 @@ fun WeekCourseBlock(
             }
             }
             }
+            }
             if (!editingAllowed && !showConflictBadge) {
                 CourseAdjustmentBadge(if (muted) "停" else "补", activeCardBackdrop, config,
-                    Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = (-5).dp).zIndex(7f))
+                    Modifier.align(Alignment.BottomEnd).courseBadgeCornerAnchor(cardCorner).zIndex(7f))
             }
             if (showConflictBadge) {
                 val pillDismissProgress = conflictPillDismiss.value.coerceIn(0f, 1f)
@@ -3862,8 +3864,8 @@ fun WeekCourseBlock(
                     // The parent card owns pager/tail motion, as for adjustment badges.
                     placementLayer = false,
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 2.dp, y = (-4).dp)
+                        .align(Alignment.BottomEnd)
+                        .courseBadgeCornerAnchor(cardCorner)
                         .width((if (editingAllowed) 34.dp else 48.dp).coerceAtMost(cardLayoutWidth))
                         .heightIn(min = 20.dp)
                         .zIndex(8f)
