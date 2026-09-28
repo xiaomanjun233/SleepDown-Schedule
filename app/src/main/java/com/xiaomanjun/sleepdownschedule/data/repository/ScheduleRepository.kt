@@ -557,21 +557,17 @@ class ScheduleRepository(private val database: AppDatabase) {
     suspend fun importDraftForSchedule(scheduleId: Int, draft: ImportDraft) {
         database.withTransaction {
             require(profileDao.getProfiles().any { it.id == scheduleId }) { "自动刷新绑定的课表已不存在" }
+            val currentConfig = configDao.getConfig(scheduleId) ?: error("自动刷新绑定的课表配置已不存在")
+            val currentPeriods = configDao.getPeriods(scheduleId)
+            val refreshed = preserveTimingForAutoRefresh(currentConfig, currentPeriods, draft)
             val activeId = activeScheduleId()
             val globalConfig = configDao.getConfig(activeId)
-                ?: configDao.getConfig(scheduleId)
-                ?: defaultConfig(activeId)
-            val importedPeriods = normalizePeriodsForSchedule(draft.periods, scheduleId)
-            val importedConfig = configWithCountsFromPeriods(
-                draft.config.withGlobalSettingsFrom(globalConfig),
-                importedPeriods
-            )
-            configDao.upsertConfig(normalizeConfigForSchedule(importedConfig, scheduleId))
-            configDao.deletePeriods(scheduleId)
-            configDao.upsertPeriods(importedPeriods)
-            replaceSchemesWithPeriods(scheduleId, importedConfig, importedPeriods, "自动刷新作息")
+                ?: currentConfig
+            configDao.upsertConfig(normalizeConfigForSchedule(
+                refreshed.config.withGlobalSettingsFrom(globalConfig), scheduleId
+            ))
             courseDao.deleteBySchedule(scheduleId)
-            courseDao.insertCourses(normalizeImportedCoursesForSchedule(draft.courses, scheduleId))
+            courseDao.insertCourses(normalizeImportedCoursesForSchedule(refreshed.courses, scheduleId))
         }
     }
 
@@ -1062,6 +1058,26 @@ private fun CourseEntity.mergeKey(): CourseMergeKey {
         customPeriodTimes = customPeriodTimes,
         customColorArgb = customColorArgb,
         weekParity = weekParity
+    )
+}
+
+internal fun preserveTimingForAutoRefresh(
+    currentConfig: ScheduleConfigEntity,
+    currentPeriods: List<PeriodEntity>,
+    fetched: ImportDraft
+): ImportDraft {
+    require(currentPeriods.isNotEmpty()) { "当前课表没有作息节次，请手动导入并核对作息" }
+    val availablePeriods = currentPeriods.mapTo(hashSetOf()) { it.periodIndex }
+    require(fetched.courses.all { course -> course.periods.all { it in availablePeriods } }) {
+        "刷新课程包含当前作息没有的节次，请手动导入并核对作息"
+    }
+    return fetched.copy(
+        config = currentConfig.copy(
+            totalWeeks = fetched.config.totalWeeks,
+            currentWeek = currentConfig.currentWeek.coerceIn(1, fetched.config.totalWeeks),
+            termStartDate = fetched.config.termStartDate ?: currentConfig.termStartDate
+        ),
+        periods = currentPeriods
     )
 }
 
