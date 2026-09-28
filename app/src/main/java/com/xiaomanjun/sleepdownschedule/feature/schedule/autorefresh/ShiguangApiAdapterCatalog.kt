@@ -11,20 +11,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
 
-/** Reviewed bundled adapters plus new API adapters verified from the synchronized warehouse. */
+/** Detect unattended course fetches from the active Shiguang scripts, including HTML responses. */
 internal object ShiguangApiAdapterCatalog {
-    private fun loadReviewed(context: Context): List<EduAdapter> {
-        val bundled = parseCatalog(
-            context.assets.open("auto_refresh/catalog.tsv").bufferedReader().use { it.readText() }
-        )
-        if (!BuildConfig.SLEEPDOWN_LOCAL_EDU_TEST) return bundled
-        // Optional, separately reviewed Debug sources. Never add test schools to the shipped catalog.
+    private fun loadLocalReviewed(context: Context): List<EduAdapter> {
+        if (!BuildConfig.SLEEPDOWN_LOCAL_EDU_TEST) return emptyList()
+        // A developer-provided Debug script still needs its own exact source fingerprint.
         val testRoot = "edu_adapter_test"
-        if (context.assets.list(testRoot)?.contains("auto_refresh.tsv") != true) return bundled
-        val local = parseCatalog(
+        if (context.assets.list(testRoot)?.contains("auto_refresh.tsv") != true) return emptyList()
+        return parseCatalog(
             context.assets.open("$testRoot/auto_refresh.tsv").bufferedReader().use { it.readText() }
         )
-        return (bundled + local).associateBy(::key).values.toList()
     }
 
     suspend fun loadLoginAdapters(context: Context): List<EduAdapter> = withContext(Dispatchers.IO) {
@@ -32,56 +28,42 @@ internal object ShiguangApiAdapterCatalog {
     }
 
     suspend fun loadSupported(context: Context): List<EduAdapter> = withContext(Dispatchers.IO) {
-        // The school picker updates this cache too. Check its TTL here so this page can discover
-        // newly published schools without requiring a visit to the regular import screen first.
         runCatching { ShiguangWarehouseUpdater.refreshIfStale(context) }
-        val reviewed = loadReviewed(context)
-        val official = ShiguangWarehouse.loadAdapters(context)
-        val currentByKey = official.associateBy(::key)
+        val localReviewed = loadLocalReviewed(context).associateBy(::key)
         val bundledByKey = ShiguangWarehouse.loadBundledAdapters(context).associateBy(::key)
         val hasRemoteIndex = ShiguangWarehouseUpdater.hasValidRemoteIndex(context)
-        val reviewedByKey = reviewed.associateBy(::key)
-        val supported = reviewed.mapNotNull { approved ->
-            // The catalog SHA is a review of the shipped script. An updated remote script is
-            // checked again by resolveScript before any login or background refresh runs.
-            val current = currentByKey[key(approved)]?.takeIf { it.importUrl.startsWith("http") }
-            if (current != null && ShiguangWarehouse.isLocalTestAdapter(current)) {
-                val source = runCatching { ShiguangWarehouse.resolveScript(context, current) }.getOrNull()
-                current.takeIf { source != null && matchesReviewedSource(approved, source) }
-            } else current
-        }.toMutableList()
-        official.asSequence()
-            .filter { key(it) !in reviewedByKey }
-            .filterNot(ShiguangWarehouse::isLocalTestAdapter)
+        ShiguangWarehouse.loadVisibleAdapters(context)
+            .filterNot(EduAdapter::isAiEduImportTool)
             .filter { it.importUrl.startsWith("https://") || it.importUrl.startsWith("http://") }
-            .filter { candidate ->
-                val bundled = bundledByKey[key(candidate)]
-                bundled == null || metadataChanged(bundled, candidate) ||
-                    (hasRemoteIndex && runCatching {
-                        ShiguangWarehouseUpdater.cachedScriptFile(context, candidate).isFile
-                    }.getOrDefault(false))
-            }
-            .forEach { candidate ->
-                // A failed download leaves this one school unavailable; it must not hide the
-                // already verified schools or turn every new entry into a manual adapter.
+            .mapNotNull { adapter ->
                 val source = runCatching {
-                    ShiguangWarehouseUpdater.resolveRemoteScript(context, candidate)
-                }.getOrNull()
-                if (source != null && isLikelyApiAdapter(candidate, source)) supported += candidate
+                    if (ShiguangWarehouse.isLocalTestAdapter(adapter)) {
+                        ShiguangWarehouse.resolveScript(context, adapter)
+                    } else {
+                        val cached = if (hasRemoteIndex) runCatching {
+                            ShiguangWarehouseUpdater.cachedScriptFile(context, adapter)
+                        }.getOrNull() else null
+                        val bundled = bundledByKey[key(adapter)]
+                        when {
+                            cached?.isFile == true -> cached.readText()
+                            bundled != null && bundled.school.folder == adapter.school.folder &&
+                                bundled.assetJsPath == adapter.assetJsPath ->
+                                ShiguangWarehouse.resolveBundledScript(context, bundled)
+                            else -> ShiguangWarehouseUpdater.resolveRemoteScript(context, adapter)
+                        }
+                    }
+                }.getOrNull() ?: return@mapNotNull null
+                val localSourceValid = !ShiguangWarehouse.isLocalTestAdapter(adapter) ||
+                    localReviewed[key(adapter)]?.let { matchesReviewedSource(it, source) } == true
+                adapter.takeIf { localSourceValid && isLikelyApiAdapter(adapter, source) }
             }
-        supported.distinctBy(::key)
+            .distinctBy(::key)
     }
 
     private fun key(adapter: EduAdapter) = adapter.school.id to adapter.adapterId
 
-    internal fun metadataChanged(bundled: EduAdapter, current: EduAdapter): Boolean =
-        bundled.assetJsPath != current.assetJsPath ||
-            bundled.importUrl != current.importUrl ||
-            bundled.adapterName != current.adapterName ||
-            bundled.description != current.description ||
-            bundled.category != current.category
-    internal fun supportsAutomaticRefresh(adapter: EduAdapter, reviewed: List<EduAdapter>): Boolean =
-        reviewed.any { it.school.id == adapter.school.id && it.adapterId == adapter.adapterId }
+    internal fun supportsAutomaticRefresh(adapter: EduAdapter, supported: List<EduAdapter>): Boolean =
+        supported.any { it.school.id == adapter.school.id && it.adapterId == adapter.adapterId }
 
     internal fun parseCatalog(text: String): List<EduAdapter> = text.lineSequence()
         .filter { it.isNotBlank() && !it.startsWith("#") }
@@ -109,42 +91,27 @@ internal object ShiguangApiAdapterCatalog {
         adapters.firstOrNull { it.school.id == schoolId && it.adapterId == adapterId }
 
     suspend fun resolveScript(context: Context, adapter: EduAdapter): String {
-        val reviewed = loadReviewed(context).firstOrNull { key(it) == key(adapter) }
+        val source = ShiguangWarehouse.resolveScript(context, adapter)
         if (ShiguangWarehouse.isLocalTestAdapter(adapter)) {
-            val source = ShiguangWarehouse.resolveScript(context, adapter)
+            val reviewed = loadLocalReviewed(context).firstOrNull { key(it) == key(adapter) }
             require(reviewed != null && matchesReviewedSource(reviewed, source)) {
                 "本地测试适配器尚未通过自动刷新校验"
             }
-            return source
         }
-        val source = if (ShiguangWarehouseUpdater.hasValidRemoteIndex(context)) {
-            runCatching { ShiguangWarehouseUpdater.resolveRemoteScript(context, adapter) }
-                .getOrElse { error ->
-                    if (reviewed == null) throw error
-                    ShiguangWarehouse.resolveBundledScript(context, reviewed)
-                }
-        } else {
-            requireNotNull(reviewed) { "新适配器的云端脚本暂不可用，请联网后重试" }
-            ShiguangWarehouse.resolveBundledScript(context, reviewed)
-        }
-        require(
-            (reviewed != null && matchesReviewedSource(reviewed, source)) ||
-                isLikelyApiAdapter(adapter, source)
-        ) { "教务适配器已更改，当前脚本无法确认可安全自动刷新" }
+        require(isLikelyApiAdapter(adapter, source)) { "该教务入口需要打开网页手动刷新课表" }
         return source
     }
 
-    /** Positive API evidence is required; ordinary DOM metadata lookup alone is not disqualifying. */
+    /** A course request may return JSON or HTML; DOM-only page scraping stays in the visible flow. */
     internal fun isLikelyApiAdapter(adapter: EduAdapter, source: String): Boolean {
-        if (source.isBlank() || !source.contains("shiguangBridge")) return false
+        if (source.isBlank() || !source.contains("shiguangBridge") ||
+            !source.contains("saveImportedCourses")) return false
         // Month-only imports cannot replace a whole semester during unattended refresh.
         if (Regex("选择.{0,8}月份|仅.{0,8}本月|selectMonth\\s*\\(", RegexOption.IGNORE_CASE)
                 .containsMatchIn(source + adapter.description)) return false
-        val network = Regex("\\bfetch\\s*\\(|\\baxios\\s*\\.|\\bXMLHttpRequest\\b|\\$\\.ajax\\s*\\(|\\$\\.getJSON\\s*\\(")
+        val network = Regex("\\bfetch\\s*\\(|\\baxios\\s*\\.|\\bXMLHttpRequest\\b|\\$\\.(?:ajax|get|post|getJSON)\\s*\\(")
             .containsMatchIn(source)
-        val structuredResponse = Regex("\\.json\\s*\\(|JSON\\.parse\\s*\\(|\\$\\.getJSON\\s*\\(|responseType\\s*=\\s*['\"]json['\"]")
-            .containsMatchIn(source)
-        return network && structuredResponse
+        return network
     }
 
     internal fun matchesReviewedSource(adapter: EduAdapter, source: String): Boolean {

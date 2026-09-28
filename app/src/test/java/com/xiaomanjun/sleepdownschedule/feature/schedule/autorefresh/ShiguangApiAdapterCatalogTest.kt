@@ -1,86 +1,76 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 
-import org.junit.Assert.*
-import org.junit.Test
-import java.io.File
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchool
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+import java.security.MessageDigest
 
 class ShiguangApiAdapterCatalogTest {
-    private val assets = File("src/main/assets")
-    private fun catalog() = ShiguangApiAdapterCatalog.parseCatalog(File(assets, "auto_refresh/catalog.tsv").readText())
-    private fun source(adapter: com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter) =
-        File(assets, "shiguang_warehouse-main/resources/${adapter.school.folder}/${adapter.assetJsPath}").readText()
+    private val resources = File("src/main/assets/shiguang_warehouse-main/resources")
 
-    @Test fun reviewedSourcesMatchCatalogIncludingNewSchools() {
-        val adapters = catalog()
-        assertEquals(142, adapters.size)
-        assertEquals(130, adapters.map { it.school.id }.distinct().size)
-        adapters.forEach { assertTrue(it.displayName, ShiguangApiAdapterCatalog.matchesReviewedSource(it, source(it))) }
-    }
+    private fun adapter(schoolId: String, assetJsPath: String) = EduAdapter(
+        EduSchool(schoolId, schoolId, schoolId), "${schoolId}_01", schoolId,
+        "BACHELOR_AND_ASSOCIATE", assetJsPath, "https://school.example.edu", "", ""
+    )
 
-    @Test fun htmlMetadataAndCampusNetworkEntriesAreIncluded() {
-        val adapters = catalog()
-        listOf("SWU", "UZZ", "CUG", "AUFE", "GUIT", "CDUTCM", "WBU", "SICNU").forEach { id ->
-            assertTrue(id, adapters.any { it.school.id == id })
+    private fun source(adapter: EduAdapter) =
+        File(resources, "${adapter.school.folder}/${adapter.assetJsPath}").readText()
+
+    @Test fun htmlCourseRequestsAreEligibleWithoutAReviewedCatalogEntry() {
+        listOf(
+            adapter("SICNU", "school.js"),
+            adapter("CUP", "cup_02.js"),
+            adapter("HIIT", "hiit_01.js")
+        ).forEach { candidate ->
+            assertTrue(candidate.school.id, ShiguangApiAdapterCatalog.isLikelyApiAdapter(
+                candidate, source(candidate)
+            ))
         }
-        val swu = adapters.first { it.school.id == "SWU" }
-        assertTrue(source(swu).contains("DOMParser") || source(swu).contains("querySelector"))
-        assertTrue(adapters.any { it.school.id == "AUFE" && it.importUrl.contains("vpn") })
-        assertFalse(adapters.any { it.school.id in setOf("BUPT", "FAFU", "CQUST", "HIIT") })
-        // Monthly results must not replace a full semester; offer the school's semester adapter.
-        assertFalse(adapters.any { it.school.id == "HNSF" && it.adapterId == "HNSF_02" })
-        assertTrue(adapters.any { it.school.id == "HNSF" && it.adapterId == "HNSF_01" })
     }
 
-    @Test fun unreviewedSourceChangesAreRejectedButLineEndingsArePortable() {
-        val adapter = catalog().first()
-        val original = source(adapter)
-        val crlfSource = original.replace("\r\n", "\n").replace("\n", "\r\n")
-        assertTrue(ShiguangApiAdapterCatalog.matchesReviewedSource(adapter, crlfSource))
-        assertFalse(ShiguangApiAdapterCatalog.matchesReviewedSource(adapter, original + "\nfetch('/changed');"))
-        assertFalse(ShiguangApiAdapterCatalog.matchesReviewedSource(adapter, ""))
+    @Test fun domOnlyPagesKeepTheManualWebViewRoute() {
+        val candidate = adapter("BUPT", "bupt_01.js")
+        assertFalse(ShiguangApiAdapterCatalog.isLikelyApiAdapter(candidate, source(candidate)))
+        val monthly = adapter("HNSF", "hnsf_02.js")
+        assertFalse(ShiguangApiAdapterCatalog.isLikelyApiAdapter(monthly, source(monthly)))
     }
 
-    @Test fun newWarehouseScriptsNeedStructuredApiCourseData() {
-        val candidate = EduAdapter(
-            EduSchool("NEW", "新学校", "NEW"), "NEW_01", "新教务", "BACHELOR_AND_ASSOCIATE",
-            "new.js", "https://school.example.edu", "", ""
-        )
+    @Test fun monthlyAndMissingCourseRequestsAreNotUnattendedImports() {
+        val candidate = adapter("NEW", "new.js")
         assertTrue(ShiguangApiAdapterCatalog.isLikelyApiAdapter(candidate,
-            "const response = await fetch('/api/timetable'); const data = await response.json(); window.shiguangBridge.addCourse(data);"))
+            "const html = await fetch('/semester').then(r => r.text()); window.shiguangBridge.saveImportedCourses(html);"))
         assertFalse(ShiguangApiAdapterCatalog.isLikelyApiAdapter(candidate,
-            "const rows = document.querySelectorAll('table tr'); window.shiguangBridge.addCourse(rows);"))
+            "const rows = document.querySelectorAll('table tr'); window.shiguangBridge.saveImportedCourses(rows);"))
         assertFalse(ShiguangApiAdapterCatalog.isLikelyApiAdapter(candidate,
-            "const response = await fetch('/semester'); const html = await response.text(); document.querySelector('table'); window.shiguangBridge.addCourse(html);"))
+            "async function selectMonth() {} const html = await fetch('/course').then(r => r.text()); window.shiguangBridge.saveImportedCourses(html);"))
         assertFalse(ShiguangApiAdapterCatalog.isLikelyApiAdapter(candidate,
-            "async function selectMonth() {} const response = await fetch('/api/timetable'); const data = await response.json(); window.shiguangBridge.addCourse(data);"))
-        val reviewed = catalog().first { it.school.id == "SWU" }
-        assertTrue(ShiguangApiAdapterCatalog.isLikelyApiAdapter(reviewed, source(reviewed)))
+            "const html = await fetch('/course').then(r => r.text());"))
     }
 
-    @Test fun changedExistingAdapterMetadataTriggersReinspection() {
-        val bundled = catalog().first()
-        assertFalse(ShiguangApiAdapterCatalog.metadataChanged(
-            bundled, bundled.copy(warehouseGeneration = "new-index")
-        ))
-        assertTrue(ShiguangApiAdapterCatalog.metadataChanged(
-            bundled, bundled.copy(assetJsPath = "updated.js")
-        ))
+    @Test fun debugScriptFingerprintStillRejectsChangedSource() {
+        val source = "window.shiguangBridge.showToast('test');\n"
+        val digest = MessageDigest.getInstance("SHA-256").digest(source.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val reviewed = adapter("TEST", "test.js").copy(warehouseGeneration = digest)
+        assertTrue(ShiguangApiAdapterCatalog.matchesReviewedSource(reviewed, source.replace("\n", "\r\n")))
+        assertFalse(ShiguangApiAdapterCatalog.matchesReviewedSource(reviewed, source + "fetch('/changed');"))
+        assertEquals(1, ShiguangApiAdapterCatalog.parseCatalog(
+            listOf("TEST", "Test", "TEST", "T", "TEST_01", "Test", "BACHELOR_AND_ASSOCIATE",
+                "test.js", "https://school.example.edu", "", "", digest).joinToString("\t")
+        ).size)
     }
 
-    @Test fun sharedWarehouseMetadataDoesNotLoseReviewedApiCapability() {
-        val reviewed = catalog()
-        val swu = reviewed.first { it.school.id == "SWU" }
+    @Test fun supportedListMatchesTheSelectedSchoolAndEntrance() {
+        val supported = adapter("CUP", "cup_02.js")
         assertTrue(ShiguangApiAdapterCatalog.supportsAutomaticRefresh(
-            swu.copy(adapterName = "上游新名称", warehouseGeneration = "current-index-generation"), reviewed
-        ))
-        val semester = reviewed.first { it.school.id == "HNSF" && it.adapterId == "HNSF_01" }
-        assertFalse(ShiguangApiAdapterCatalog.supportsAutomaticRefresh(
-            semester.copy(adapterId = "HNSF_02"), reviewed
+            supported.copy(adapterName = "New label"), listOf(supported)
         ))
         assertFalse(ShiguangApiAdapterCatalog.supportsAutomaticRefresh(
-            swu.copy(adapterId = "unreviewed-entry"), reviewed
+            supported.copy(adapterId = "CUP_02"), listOf(supported)
         ))
     }
 }

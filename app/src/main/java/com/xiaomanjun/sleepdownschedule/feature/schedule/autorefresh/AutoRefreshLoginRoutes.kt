@@ -3,7 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import java.net.URI
 
-/** Navigation prerequisites from the reviewed adapters; API validation still decides success. */
+/** Navigation prerequisites for a resumable browser session; adapter validation decides success. */
 internal object AutoRefreshLoginRoutes {
     fun entryUrl(adapter: EduAdapter): String =
         if (ShiguangApiAdapterCatalog.isSwuAdapter(adapter)) SwuAuthRoutes.SsoUrl else adapter.importUrl
