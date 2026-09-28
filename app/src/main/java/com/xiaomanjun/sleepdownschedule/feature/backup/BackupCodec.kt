@@ -640,6 +640,7 @@ object BackupCodec {
         validateShortText("defaultHomeMode", config.defaultHomeMode, allowBlank = false)
         validateShortText("liveUpdateChipTextMode", config.liveUpdateChipTextMode, allowBlank = false)
         validateShortText("courseCardColorMode", config.courseCardColorMode, allowBlank = false)
+        validateShortText("weekCardTextAlignment", config.weekCardTextAlignment, allowBlank = false)
         validateShortText(
             "alternateCourseCardColorMode",
             config.alternateCourseCardColorMode,

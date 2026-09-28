@@ -1130,13 +1130,14 @@ private fun WeekEditOverlayHost(
 internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: ScheduleConfigEntity) {
     val pageForeground = homeForegroundColor(config)
     val coloredText = config.courseCardColoredTextEnabled
+    val cardTextAlign = config.weekCardTextAlign()
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val heightDp = maxHeight.value
         val widthDp = maxWidth.value
         val locationText = course.location.orEmpty()
-        val hasLocation = locationText.isNotBlank()
-        val hasTeacher = !course.teacher.isNullOrBlank()
+        val hasLocation = config.weekCardShowLocation && locationText.isNotBlank()
+        val hasTeacher = config.weekCardShowTeacher && !course.teacher.isNullOrBlank()
         val textColor = homeCourseTextColor(config, course, pageForeground, muted = false)
         val compact = heightDp < 78f
         val tiny = heightDp < 52f
@@ -1250,7 +1251,7 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
                     color = textColor.copy(alpha = 0.78f),
                     maxLines = locationLines,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
+                    textAlign = cardTextAlign,
                     adaptiveContrast = false
                 )
             }
@@ -1267,7 +1268,7 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
                 color = textColor,
                 maxLines = nameLines,
                 overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
+                textAlign = cardTextAlign,
                 adaptiveContrast = false
             )
             if (canShowTeacher) {
@@ -1283,12 +1284,18 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
                     color = textColor.copy(alpha = 0.58f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
+                    textAlign = cardTextAlign,
                     adaptiveContrast = false
                 )
             }
         }
     }
+}
+
+private fun ScheduleConfigEntity.weekCardTextAlign(): TextAlign = when (weekCardTextAlignment) {
+    WeekCardTextAlignment.START -> TextAlign.Start
+    WeekCardTextAlignment.CENTER -> TextAlign.Center
+    WeekCardTextAlignment.END -> TextAlign.End
 }
 
 @Composable
@@ -3161,8 +3168,9 @@ fun WeekCourseBlock(
 ) {
     val personalizationPreview = LocalPersonalizationPreview.current
     val locationText = course.location.orEmpty()
-    val hasLocation = locationText.isNotBlank()
-    val hasTeacher = !course.teacher.isNullOrBlank()
+    val hasLocation = config.weekCardShowLocation && locationText.isNotBlank()
+    val hasTeacher = config.weekCardShowTeacher && !course.teacher.isNullOrBlank()
+    val cardTextAlign = config.weekCardTextAlign()
     val resolvedCardColor = if (muted) MutedCourseLightColor else if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
     val pageForeground = homeForegroundColor(config)
     val coloredText = !muted && config.courseCardColoredTextEnabled
@@ -3804,7 +3812,7 @@ fun WeekCourseBlock(
                         color = courseTextColor.copy(alpha = 0.78f),
                         maxLines = locationLines,
                         overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center
+                        textAlign = cardTextAlign
                     )
                 }
                 CourseCardText(
@@ -3820,7 +3828,7 @@ fun WeekCourseBlock(
                     color = courseTextColor,
                     maxLines = nameLines,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
+                    textAlign = cardTextAlign
                 )
                 if (canShowTeacher) {
                     CourseCardText(
@@ -3835,7 +3843,7 @@ fun WeekCourseBlock(
                         color = courseTextColor.copy(alpha = 0.58f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center
+                        textAlign = cardTextAlign
                     )
                 }
             }

@@ -640,6 +640,17 @@ private val MIGRATION_41_42 = object : Migration(41, 42) {
     }
 }
 
+private val MIGRATION_42_43 = object : Migration(42, 43) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("schedule_config", "weekCardShowLocation"))
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN weekCardShowLocation INTEGER NOT NULL DEFAULT 1")
+        if (!db.hasColumn("schedule_config", "weekCardShowTeacher"))
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN weekCardShowTeacher INTEGER NOT NULL DEFAULT 1")
+        if (!db.hasColumn("schedule_config", "weekCardTextAlignment"))
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN weekCardTextAlignment TEXT NOT NULL DEFAULT 'CENTER'")
+    }
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -681,7 +692,8 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_38_39,
     MIGRATION_39_40,
     MIGRATION_40_41,
-    MIGRATION_41_42
+    MIGRATION_41_42,
+    MIGRATION_42_43
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -866,6 +878,9 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "weekCardHeightDp", "REAL")
     ensureSqliteColumn(db, "schedule_config", "weekCardHeightScale", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "weekCardCornerProgress", "REAL NOT NULL DEFAULT 0.5")
+    ensureSqliteColumn(db, "schedule_config", "weekCardShowLocation", "INTEGER NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "weekCardShowTeacher", "INTEGER NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "weekCardTextAlignment", "TEXT NOT NULL DEFAULT 'CENTER'")
     ensureSqliteColumn(db, "schedule_config", "homeTextLight", "INTEGER NOT NULL DEFAULT 0")
     ensureSqliteColumn(db, "schedule_config", "homeChromeBlurScale", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "homeChromeSamplingScale", "REAL NOT NULL DEFAULT 1")
@@ -901,6 +916,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             alternateCardColorArgb, alternateCardAlpha, alternateCourseCardBlur, alternateCourseCardFontScale,
             alternateCourseCardColorMode, alternateCourseCardPalette,
             weekCardHeightDp, weekCardHeightScale, weekCardCornerProgress,
+            weekCardShowLocation, weekCardShowTeacher, weekCardTextAlignment,
             homeTextLight, homeChromeBlurScale, homeChromeSamplingScale,
             followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
@@ -919,6 +935,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             alternateCardColorArgb, alternateCardAlpha, alternateCourseCardBlur, alternateCourseCardFontScale,
             alternateCourseCardColorMode, alternateCourseCardPalette,
             weekCardHeightDp, weekCardHeightScale, weekCardCornerProgress,
+            weekCardShowLocation, weekCardShowTeacher, weekCardTextAlignment,
             homeTextLight, homeChromeBlurScale, homeChromeSamplingScale,
             followSystemDarkMode, darkMode, defaultWallpaperStyle, hideEmptyWeekends,
             dockAlignment, defaultHomeMode, liveUpdateActionsEnabled, liveUpdateChipTextMode,
@@ -971,6 +988,9 @@ private fun scheduleConfigCreateSql(table: String): String =
         weekCardHeightDp REAL,
         weekCardHeightScale REAL NOT NULL DEFAULT 1,
         weekCardCornerProgress REAL NOT NULL DEFAULT 0.5,
+        weekCardShowLocation INTEGER NOT NULL DEFAULT 1,
+        weekCardShowTeacher INTEGER NOT NULL DEFAULT 1,
+        weekCardTextAlignment TEXT NOT NULL DEFAULT 'CENTER',
         homeTextLight INTEGER NOT NULL,
         homeChromeBlurScale REAL NOT NULL DEFAULT 1,
         homeChromeSamplingScale REAL NOT NULL DEFAULT 1,

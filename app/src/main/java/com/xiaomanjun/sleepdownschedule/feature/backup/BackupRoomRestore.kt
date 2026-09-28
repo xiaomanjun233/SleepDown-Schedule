@@ -146,6 +146,11 @@ object BackupRoomRestoreMapper {
                 weekCardHeightDp = config.weekCardHeightDp,
                 weekCardHeightScale = config.weekCardHeightScale,
                 weekCardCornerProgress = config.weekCardCornerProgress,
+                weekCardShowLocation = config.weekCardShowLocation,
+                weekCardShowTeacher = config.weekCardShowTeacher,
+                weekCardTextAlignment = strictBackupEnum<com.xiaomanjun.sleepdownschedule.model.WeekCardTextAlignment>(
+                    config.weekCardTextAlignment, "weekCardTextAlignment"
+                ),
                 homeTextLight = config.homeTextLight,
                 homeChromeBlurScale = config.homeChromeBlurScale,
                 homeChromeSamplingScale = config.homeChromeSamplingScale,

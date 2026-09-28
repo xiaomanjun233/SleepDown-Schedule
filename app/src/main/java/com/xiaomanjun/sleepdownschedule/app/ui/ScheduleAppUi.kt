@@ -5494,6 +5494,7 @@ internal const val PersonalizeWallpaperBlurSlider = "wallpaper-blur"
 internal const val PersonalizeWallpaperBrightnessSlider = "wallpaper-brightness"
 private const val PersonalizeWallpaperContentChange = "wallpaper-content"
 private const val PersonalizeWeekHeightSlider = "week-height"
+private const val PersonalizeWeekContentChange = "week-content"
 internal const val PersonalizeWeekCornerSlider = "week-corner"
 private const val PersonalizeCardColorChange = "card-color"
 internal const val PersonalizeCardAlphaSlider = "card-alpha"
@@ -5542,6 +5543,11 @@ internal fun mergePersonalizationCandidate(
     )
     PersonalizeWeekCornerSlider -> current.copy(
         weekCardCornerProgress = candidate.weekCardCornerProgress
+    )
+    PersonalizeWeekContentChange -> current.copy(
+        weekCardShowLocation = candidate.weekCardShowLocation,
+        weekCardShowTeacher = candidate.weekCardShowTeacher,
+        weekCardTextAlignment = candidate.weekCardTextAlignment
     )
     PersonalizeCardColorChange -> current.copy(
         cardColorArgb = candidate.cardColorArgb,
@@ -6521,6 +6527,62 @@ fun PersonalizePanel(
                                 "宽松",
                                 modifier = Modifier.align(Alignment.CenterEnd),
                                 style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("周视图卡片内容", style = MaterialTheme.typography.labelLarge)
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("显示上课地点", style = MaterialTheme.typography.bodyMedium)
+                        LiquidControlToggle(
+                            checked = state.config.weekCardShowLocation,
+                            compact = true,
+                            onCheckedChange = {
+                                onUpdateConfig(PersonalizeWeekContentChange,
+                                    state.config.copy(weekCardShowLocation = it))
+                            },
+                            backdrop = backdrop
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("显示教师", style = MaterialTheme.typography.bodyMedium)
+                        LiquidControlToggle(
+                            checked = state.config.weekCardShowTeacher,
+                            compact = true,
+                            onCheckedChange = {
+                                onUpdateConfig(PersonalizeWeekContentChange,
+                                    state.config.copy(weekCardShowTeacher = it))
+                            },
+                            backdrop = backdrop
+                        )
+                    }
+                    Text("文字对齐", style = MaterialTheme.typography.bodyMedium)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(
+                            WeekCardTextAlignment.START to "左对齐",
+                            WeekCardTextAlignment.CENTER to "居中",
+                            WeekCardTextAlignment.END to "右对齐"
+                        ).forEach { (alignment, label) ->
+                            val selected = state.config.weekCardTextAlignment == alignment
+                            LiquidMenuButton(
+                                backdrop = backdrop,
+                                label = label,
+                                onClick = {
+                                    onUpdateConfig(PersonalizeWeekContentChange,
+                                        state.config.copy(weekCardTextAlignment = alignment))
+                                },
+                                modifier = Modifier.weight(1f),
+                                textColorOverride = if (selected) MaterialTheme.colorScheme.onPrimary else null,
+                                surfaceColorOverride = if (selected) MaterialTheme.colorScheme.primary
+                                    else ComposeColor.White.copy(alpha = 0.10f)
                             )
                         }
                     }

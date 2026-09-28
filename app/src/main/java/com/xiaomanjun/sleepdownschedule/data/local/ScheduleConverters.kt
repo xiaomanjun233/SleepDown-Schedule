@@ -79,4 +79,11 @@ class ScheduleConverters {
     @TypeConverter
     fun stringToCourseCardColorMode(value: String): CourseCardColorMode =
         runCatching { CourseCardColorMode.valueOf(value) }.getOrDefault(CourseCardColorMode.SOLID)
+
+    @TypeConverter
+    fun weekCardTextAlignmentToString(value: WeekCardTextAlignment): String = value.name
+
+    @TypeConverter
+    fun stringToWeekCardTextAlignment(value: String): WeekCardTextAlignment =
+        runCatching { WeekCardTextAlignment.valueOf(value) }.getOrDefault(WeekCardTextAlignment.CENTER)
 }
