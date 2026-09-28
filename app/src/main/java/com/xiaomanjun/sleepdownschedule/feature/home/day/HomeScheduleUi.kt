@@ -429,6 +429,7 @@ fun HomeReadableText(
 ) {
     val readability = LocalHomeReadability.current
     val backgroundFrozen = LocalHomeBackgroundFrozen.current || LocalHomeTextContrastFrozen.current
+    val hasWallpaper = readability.config?.hasAnyWallpaper() == true
     var targetShadowStrength by remember(color) { mutableFloatStateOf(0f) }
     val shadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "home-text-soft-shadow")
     val textLayout = remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -436,6 +437,10 @@ fun HomeReadableText(
     // Reuse each decision until the actual text bounds or wallpaper inputs change.
     val lastSample = remember(readability, color, backgroundFrozen) { arrayOfNulls<Rect>(1) }
     fun updateContrast() {
+        if (!hasWallpaper) {
+            targetShadowStrength = 0f
+            return
+        }
         if (backgroundFrozen) return
         val position = coordinates[0]?.takeIf { it.isAttached } ?: return
         val layout = textLayout.value ?: return
@@ -466,7 +471,7 @@ fun HomeReadableText(
         }
         targetShadowStrength = requiredStrength
     }
-    LaunchedEffect(readability, color, backgroundFrozen) { updateContrast() }
+    LaunchedEffect(readability, color, backgroundFrozen, hasWallpaper) { updateContrast() }
     val density = LocalDensity.current
     val lightText = color.luminance() >= 0.5f
     val effectiveFontSize = when {
@@ -474,7 +479,7 @@ fun HomeReadableText(
         style.fontSize != TextUnit.Unspecified -> style.fontSize
         else -> 14.sp
     }
-    val shadowStyle = if (shadowStrength <= 0.001f || readability.bitmap == null) style else {
+    val shadowStyle = if (!hasWallpaper || shadowStrength <= 0.001f || readability.bitmap == null) style else {
         val radius = with(density) {
             // Spread the soft shadow beyond the glyph edge while keeping the light halo centered.
             (effectiveFontSize.toPx() * if (lightText) 0.28f else 0.36f).coerceIn(2.6.dp.toPx(), 6.2.dp.toPx())
