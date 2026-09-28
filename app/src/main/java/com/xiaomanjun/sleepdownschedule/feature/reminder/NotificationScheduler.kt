@@ -547,23 +547,10 @@ object NotificationScheduler {
         periods: List<PeriodEntity>,
         zone: ZoneId = ZoneId.systemDefault()
     ): List<LiveUpdateSegment> {
-        course.customTimeRangeOrNull()?.let { (start, end) ->
-            return listOf(
-                LiveUpdateSegment(
-                    date.atTime(start).atZone(zone).toInstant().toEpochMilli(),
-                    date.atTime(end).atZone(zone).toInstant().toEpochMilli()
-                )
-            )
-        }
-        val periodByIndex = periods.associateBy(PeriodEntity::periodIndex)
-        return course.periods.distinct().sorted().mapNotNull { periodIndex ->
-            val period = periodByIndex[periodIndex] ?: return@mapNotNull null
-            val start = runCatching { LocalTime.parse(period.startTime) }.getOrNull() ?: return@mapNotNull null
-            val end = runCatching { LocalTime.parse(period.endTime) }.getOrNull() ?: return@mapNotNull null
-            if (!end.isAfter(start)) return@mapNotNull null
+        return com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments(course, periods).map { segment ->
             LiveUpdateSegment(
-                date.atTime(start).atZone(zone).toInstant().toEpochMilli(),
-                date.atTime(end).atZone(zone).toInstant().toEpochMilli()
+                date.atTime(segment.start).atZone(zone).toInstant().toEpochMilli(),
+                date.atTime(segment.end).atZone(zone).toInstant().toEpochMilli()
             )
         }
     }

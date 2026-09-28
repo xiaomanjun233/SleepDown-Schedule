@@ -1,9 +1,29 @@
 package com.xiaomanjun.sleepdownschedule.domain.schedule
 
+import com.xiaomanjun.sleepdownschedule.model.CourseEntity
+import com.xiaomanjun.sleepdownschedule.model.PeriodEntity
 import java.time.LocalTime
 
 /** A course can have its own bell times even when its period numbers match the default scheme. */
 data class CoursePeriodTime(val index: Int, val start: LocalTime, val end: LocalTime)
+
+/** The same lesson boundaries drive the live activity and the home assistant. */
+fun courseTimeSegments(course: CourseEntity, periods: List<PeriodEntity>): List<CoursePeriodTime> {
+    val custom = runCatching { parseCoursePeriodTimes(course.customPeriodTimes) }.getOrDefault(emptyList())
+    if (custom.isNotEmpty() && custom.map(CoursePeriodTime::index) == course.periods.distinct().sorted()) {
+        return custom
+    }
+    course.customTimeRangeOrNull()?.let { (start, end) ->
+        return listOf(CoursePeriodTime(course.periods.minOrNull() ?: 0, start, end))
+    }
+    val periodByIndex = periods.associateBy(PeriodEntity::periodIndex)
+    return course.periods.distinct().sorted().mapNotNull { index ->
+        val period = periodByIndex[index] ?: return@mapNotNull null
+        val start = runCatching { LocalTime.parse(period.startTime) }.getOrNull() ?: return@mapNotNull null
+        val end = runCatching { LocalTime.parse(period.endTime) }.getOrNull() ?: return@mapNotNull null
+        CoursePeriodTime(index, start, end).takeIf { end.isAfter(start) }
+    }.sortedBy(CoursePeriodTime::start)
+}
 
 data class NormalizedCourseClock(
     val start: String?,

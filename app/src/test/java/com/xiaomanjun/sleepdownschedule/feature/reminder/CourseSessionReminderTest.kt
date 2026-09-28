@@ -69,4 +69,13 @@ class CourseSessionReminderTest {
             NotificationScheduler.scheduleSignature(listOf(edited), defaultConfig(), periods, date)
         )
     }
+
+    @Test fun customBellTimesKeepTheLiveActivityInBreakWithTheAssistant() {
+        val course = splitCourse.copy(periods = listOf(1, 2), customStartTime = "10:10",
+            customEndTime = "11:45", customPeriodTimes = "1,10:10-10:50;2,11:05-11:45")
+        val timeline = NotificationScheduler.courseTimeline(date, course, periods, zone)
+        assertEquals(2, timeline.size)
+        assertEquals(epoch(10, 50), timeline.first().endAtMillis)
+        assertEquals(epoch(11, 5), timeline.last().startAtMillis)
+    }
 }
