@@ -146,6 +146,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
@@ -1005,6 +1006,7 @@ internal fun DayAgentCardVisualContent(
         return
     }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val cinematic = LocalDayAgentCountdownCinematic.current
     val burst = remember { Animatable(1f) }
     var displayedVisual by remember { mutableStateOf(visual) }
     var outgoing by remember { mutableStateOf<DayAgentCardVisual?>(null) }
@@ -1018,7 +1020,7 @@ internal fun DayAgentCardVisualContent(
             when {
                 seconds == 60L -> haptic.performHapticFeedback(
                     androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                seconds != null && seconds in 1L..3L -> haptic.performHapticFeedback(
+                cinematic == null && seconds != null && seconds in 1L..3L -> haptic.performHapticFeedback(
                     androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
             }
         }
@@ -1026,7 +1028,8 @@ internal fun DayAgentCardVisualContent(
             if (previous.countdownSeconds != null && previous.countdownSeconds <= 1L) {
                 burst.snapTo(0f)
                 outgoing = previous
-                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                if (cinematic == null) haptic.performHapticFeedback(
+                    androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
             } else {
                 outgoing = null
             }
@@ -1110,7 +1113,8 @@ private fun Modifier.dayAgentCardSurface(
 )
 
 @Composable
-private fun AgentCountdownNumber(text: String, seconds: Long, color: Color) {
+private fun AgentCountdownNumber(text: String, seconds: Long, color: Color, transitionKey: String?) {
+    val cinematic = LocalDayAgentCountdownCinematic.current
     val shake = if (seconds in 1L..60L) {
         val transition = rememberInfiniteTransition(label = "agent-countdown-shake")
         val offset by transition.animateFloat(
@@ -1120,7 +1124,11 @@ private fun AgentCountdownNumber(text: String, seconds: Long, color: Color) {
         )
         offset
     } else 0f
-    Row(Modifier.clearAndSetSemantics { contentDescription = text }.graphicsLayer {
+    Row(Modifier.clearAndSetSemantics { contentDescription = text }
+        .onGloballyPositioned { coordinates -> cinematic?.numberBoundsInWindow = coordinates.boundsInWindow() }
+        .graphicsLayer {
+        alpha = if (cinematic != null && cinematic.phase != DayAgentCinematicPhase.IDLE &&
+            cinematic.episodeKey == transitionKey) 0f else 1f
         val force = if (seconds <= 10L) 3.2.dp.toPx() else 1.5.dp.toPx()
         translationX = shake * force
         translationY = shake * force * 0.35f
@@ -1240,7 +1248,8 @@ private fun DayAgentCardVisualCore(
                 Spacer(Modifier.width(10.dp))
                 if (visual.countdownText.isNotBlank()) {
                     if (animateCountdown && visual.countdownSeconds != null) {
-                        AgentCountdownNumber(visual.countdownText, visual.countdownSeconds, activityAccent)
+                        AgentCountdownNumber(visual.countdownText, visual.countdownSeconds,
+                            activityAccent, visual.transitionKey)
                     } else {
                         Text(
                             visual.countdownText,

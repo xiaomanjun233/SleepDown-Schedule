@@ -714,6 +714,7 @@ fun CourseScheduleAppUi(
     var pendingPickerEditorScheduleId by remember { mutableStateOf<Int?>(null) }
     var quickScheduleDraft by remember { mutableStateOf<QuickScheduleDraft?>(null) }
     val dayAgentBackgroundMotionState = rememberDayAgentBackgroundMotionState()
+    val dayAgentCountdownCinematic = remember { DayAgentCountdownCinematicState() }
     var dayAgentPagerSettled by remember { mutableStateOf(false) }
     var detailMorphState by remember { mutableStateOf<DetailMorphState>(DetailMorphState.Idle) }
     var detailMorphRequest by remember { mutableStateOf<DetailMorphRequest?>(null) }
@@ -2227,6 +2228,7 @@ fun CourseScheduleAppUi(
     }
     CompositionLocalProvider(
         LocalHomeAssistant provides homeAssistant,
+        LocalDayAgentCountdownCinematic provides dayAgentCountdownCinematic,
         LocalAdjustedCourseEditor provides ::openAdjustedCourseEditor,
         LocalCourseShortcuts provides courseShortcuts,
         LocalCourseCopy provides courseCopy,
@@ -2382,6 +2384,18 @@ fun CourseScheduleAppUi(
                         modifier = Modifier.zIndex(260f)
                     )
                 }
+                HomeCountdownCinematicOverlay(
+                    effect = dayAgentCountdownCinematic,
+                    state = agentVisualState,
+                    available = screen is Screen.Home && visualState.loaded &&
+                        !homeAssistant.visible && !homeBackgroundOverlayActive &&
+                        !courseCopy.active && renderedHomeDialog == null &&
+                        !jumpWeekDialogMounted && detailMorphRequest == null &&
+                        pickerState.phase is CustomizeUiState.Home,
+                    fromDayCard = homeMode == HomeMode.Day &&
+                        homeDisplayDate == todayDate && dayAgentPagerSettled,
+                    modifier = Modifier.fillMaxSize().zIndex(300f)
+                )
             }
         },
         containerColor = ComposeColor.Transparent,
