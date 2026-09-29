@@ -80,8 +80,8 @@ class CourseTextContrastTest {
         val darkPage = courseTextColorForPage(blue, hasWallpaper = true, lightText = true)
         assertTrue(brightPage.luminance() > 0.3f)
         assertTrue(darkPage.luminance() > 0.3f)
-        assertTrue(darkPage.blue - darkPage.red > 0.1f)
-        assertTrue(brightPage.blue - brightPage.red > 0.1f)
+        assertTrue(darkPage.blue - darkPage.red > 0.5f)
+        assertTrue(brightPage.blue - brightPage.red > 0.5f)
         assertEquals((blue.green - blue.red) / (blue.blue - blue.red),
             (darkPage.green - darkPage.red) / (darkPage.blue - darkPage.red), 0.01f) // 8-bit sRGB rounding
         val pink = courseTextColorForPage(Color(0xFFF48FB1), hasWallpaper = true, lightText = true)

@@ -58,18 +58,24 @@ private fun courseHsl(seed: Color): CourseHsl {
     return CourseHsl(hue, saturation, lightness)
 }
 
-/** Keep course hues stable; lift and soften colored lettering over wallpaper glass. */
+/** Keep the course hue vivid while lifting colored lettering over wallpaper glass. */
 internal fun courseTextColorForPage(seed: Color, hasWallpaper: Boolean, lightText: Boolean): Color {
     if (!hasWallpaper) return seed.copy(alpha = 1f)
     val value = maxOf(seed.red, seed.green, seed.blue)
     val chroma = value - minOf(seed.red, seed.green, seed.blue)
     val saturation = if (value > 0f) chroma / value else 0f
-    // HSV preserves the course hue without forcing every light-page label into dark ink.
-    // The local soft shadow handles contrast; scrolling never recolors the lettering.
-    return Color.hsv(
+    // Nexio's card treatment doubles saturation before blending white into the glyph.
+    // A slightly smaller white mix on light pages keeps the course hue legible.
+    val saturated = Color.hsv(
         hue = courseHsl(seed).hue,
-        saturation = saturation * if (lightText) 0.5f else 0.8f,
-        value = maxOf(value, if (lightText) 0.92f else 0.85f)
+        saturation = (saturation * 2f).coerceAtMost(1f),
+        value = value
+    )
+    val whiteMix = if (lightText) 0.4f else 0.32f
+    return Color(
+        red = saturated.red + (1f - saturated.red) * whiteMix,
+        green = saturated.green + (1f - saturated.green) * whiteMix,
+        blue = saturated.blue + (1f - saturated.blue) * whiteMix
     )
 }
 

@@ -158,14 +158,14 @@ internal fun CourseCardText(
     }
     val shadowStyle = if (themeColor != null || shadowStrength <= 0.001f) style else {
         val radius = with(density) {
-            (effectiveFontSize.toPx() * if (lightText) 0.28f else 0.36f)
-                .coerceIn(2.6.dp.toPx(), 6.2.dp.toPx())
+            (effectiveFontSize.toPx() * if (lightText) 0.50f else 0.54f)
+                .coerceIn(5.dp.toPx(), 12.dp.toPx())
         }
         style.copy(shadow = Shadow(
             color = (if (lightText) Color.Black else Color.White).copy(
-                alpha = (if (lightText) 0.82f else 0.92f) * shadowStrength
+                alpha = (if (lightText) 0.42f else 0.52f) * shadowStrength
             ),
-            offset = Offset(0f, with(density) { if (lightText) 0.45.dp.toPx() else 0f }),
+            offset = Offset.Zero,
             blurRadius = radius
         ))
     }

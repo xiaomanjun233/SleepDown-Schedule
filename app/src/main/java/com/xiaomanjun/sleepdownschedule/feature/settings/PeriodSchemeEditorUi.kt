@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -310,9 +311,12 @@ internal fun PeriodSchemeEditor(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     GlassPreferenceCategory("详细节次", modifier = Modifier.weight(1f))
                     DialogLiquidButton(backdrop, "编辑", { showChoice = true }, role = DialogButtonRole.Confirm,
-                        modifier = Modifier.onGloballyPositioned { if (session == null) actionSource = it.timelineBoundsInRoot() }
+                        height = 32.dp, horizontalPadding = 12.dp, shadowEnabled = false,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                            .onGloballyPositioned { if (session == null) actionSource = it.timelineBoundsInRoot() }
                             .graphicsLayer { alpha = if (editorLaidOut) 0f else 1f })
                 }
+                Spacer(Modifier.height(8.dp))
                 SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
                     val lessons = summary.filterNot { it.isBreak }
                     lessons.forEachIndexed { position, block ->
