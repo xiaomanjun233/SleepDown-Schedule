@@ -763,6 +763,7 @@ fun TodayAgentCard(
                     }
                 }
             )
+            .homeCountdownShockwave()
     ) {
         // This is the one real glass shell. It is a sibling of the interactive content, so its
         // compact card-sized texture can safely feed the LiquidButtons without recursive capture.
@@ -1046,7 +1047,7 @@ internal fun DayAgentCardVisualContent(
             }
         }
     }
-    Box(modifier.homeCountdownShockwave()) {
+    Box(modifier) {
         if (decorated) {
             val shape = RoundedRectangle(if (displayedVisual.collapsed) 26.dp else 28.dp)
             Box(Modifier.matchParentSize().clip(shape)
