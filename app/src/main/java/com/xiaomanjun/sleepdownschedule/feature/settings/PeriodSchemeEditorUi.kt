@@ -313,7 +313,16 @@ internal fun PeriodSchemeEditor(
                     DialogLiquidButton(backdrop, "编辑", { showChoice = true }, role = DialogButtonRole.Confirm,
                         height = 32.dp, horizontalPadding = 12.dp, shadowEnabled = false,
                         modifier = Modifier.minimumInteractiveComponentSize()
-                            .onGloballyPositioned { if (session == null) actionSource = it.timelineBoundsInRoot() }
+                            .onGloballyPositioned {
+                                if (session == null) {
+                                    val touchBounds = it.timelineBoundsInRoot()
+                                    val visualHalfHeight = with(density) { 16.dp.toPx() }
+                                    actionSource = Rect(
+                                        touchBounds.left, touchBounds.center.y - visualHalfHeight,
+                                        touchBounds.right, touchBounds.center.y + visualHalfHeight
+                                    )
+                                }
+                            }
                             .graphicsLayer { alpha = if (editorLaidOut) 0f else 1f })
                 }
                 Spacer(Modifier.height(8.dp))
