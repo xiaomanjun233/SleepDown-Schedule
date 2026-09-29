@@ -4,7 +4,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
-internal const val APP_DATABASE_VERSION = 42
+internal const val APP_DATABASE_VERSION = 44
 
 @Database(
     entities = [

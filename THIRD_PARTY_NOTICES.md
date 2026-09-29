@@ -20,6 +20,11 @@ island notification approach at commit
 `5e12725df66bb7a3a4a9ab346bdc93e6d1f84927`. No Nexio Shizuku or island
 notification source file was copied into this project.
 
+Course text color tuning and Xiaomi R8 boundaries were reviewed against NexioSchedule
+commit `f2c4ab6def84b5be8a5969ce6e46dcabb2a1cac4`. SleepDown implements its own HSV
+brightness floor and saturation adjustment, combined with local sampled soft shadows;
+the source files and notification implementation were not copied.
+
 ## RikkaApps/Shizuku-API
 
 The GitHub distribution uses [Shizuku-API](https://github.com/RikkaApps/Shizuku-API)

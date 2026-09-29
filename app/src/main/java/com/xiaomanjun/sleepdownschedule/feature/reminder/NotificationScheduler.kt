@@ -22,6 +22,7 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.service.notification.Condition
@@ -57,6 +58,7 @@ object NotificationScheduler {
     private const val LIVE_UPDATE_ID = 20260522
     private const val LIVE_UPDATE_ALTERNATE_ID = 20260523
     private const val SUPER_ISLAND_ID = 20260524
+    private const val SUPER_ISLAND_ALTERNATE_ID = 20260525
     private const val EXTRA_LIVE_UPDATE_IDENTITY = "sleepdown.live_update_identity"
     private val liveUpdatePostLock = Any()
     private const val SCHEDULE_HORIZON_DAYS = 8L
@@ -123,7 +125,26 @@ object NotificationScheduler {
         LiveUpdateRecoveryWorker.updateSchedule(
             context, effectiveConfig.notificationsEnabled && effectiveConfig.notificationMode == NotificationMode.LIVE_UPDATE
         )
-        withContext(Dispatchers.Main.immediate) {
+        if (effectiveConfig.notificationsEnabled &&
+            effectiveConfig.notificationMode == NotificationMode.LIVE_UPDATE &&
+            liveUpdatePreferences.duringClassEnabled && XiaomiSuperIsland.isEnabled(context)
+        ) {
+            val zone = ZoneId.systemDefault()
+            val now = System.currentTimeMillis()
+            val state = AppState(courses = courses, config = effectiveConfig, periods = periods)
+            val payloads = (0L..1L).flatMap { dayOffset ->
+                val date = LocalDate.now(zone).plusDays(dayOffset)
+                coursesForDate(state, date)
+                    .flatMap { courseReminderSessions(it, periods) }
+                    .mapNotNull { course ->
+                        coursePayload(date, course, effectiveConfig, periods, liveUpdatePreferences, zone)
+                    }
+            }
+            LiveUpdateRecoveryWorker.scheduleIslandCheckpoint(
+                context, nextIslandRecoveryAt(now, payloads)
+            )
+        }
+        withContext(Dispatchers.IO) {
             checkImmediateLiveUpdate(context, courses, effectiveConfig, periods)
         }
     }
@@ -329,10 +350,6 @@ object NotificationScheduler {
             stopLiveUpdateService(context)
             return
         }
-        if (isPreviewLiveUpdateRunning(context)) {
-            Log.d(TAG, "keep preview live update while app state refreshes")
-            return
-        }
         if (!config.notificationsEnabled || config.notificationMode != NotificationMode.LIVE_UPDATE) {
             Log.d(TAG, "skip immediate live update: disabled or mode=${config.notificationMode}")
             cancelLiveUpdateNotifications(context)
@@ -367,6 +384,10 @@ object NotificationScheduler {
                 zone = zone
             )
         if (activePayload == null) {
+            if (isPreviewLiveUpdateRunning(context)) {
+                Log.d(TAG, "keep preview live update while app state refreshes")
+                return
+            }
             Log.d(TAG, "skip immediate live update: no active course or tomorrow reminder")
             cancelLiveUpdateNotifications(context)
             stopLiveUpdateService(context)
@@ -378,6 +399,9 @@ object NotificationScheduler {
             stopLiveUpdateService(context)
             return
         }
+        // Real schedule events take priority over a test preview, including when the preview
+        // was posted shortly before a class and would otherwise mask the whole class.
+        if (XiaomiSuperIsland.hasActivePreview(context)) XiaomiSuperIsland.clearPreview(context)
         startLiveUpdateService(context, activePayload)
     }
 
@@ -400,6 +424,23 @@ object NotificationScheduler {
                     else -> 2
                 }
             }.thenBy { it.startAtMillis() })
+
+    /** A small set of in-class WorkManager checks repairs a missed boundary alarm. */
+    internal fun nextIslandRecoveryAt(nowMillis: Long, payloads: List<LiveUpdatePayload>): Long? {
+        val firstDelay = 2 * 60_000L
+        val interval = 20 * 60_000L
+        return payloads.asSequence()
+            .filter { it.kind == LiveUpdateKind.COURSE && it.duringClassEnabled && !it.isPreview() }
+            .flatMap { it.segments.asSequence() }
+            .mapNotNull { segment ->
+                val first = segment.startAtMillis + firstDelay
+                val next = if (nowMillis < first) first else {
+                    first + ((nowMillis - first) / interval + 1L) * interval
+                }
+                next.takeIf { it < segment.endAtMillis }
+            }
+            .minOrNull()
+    }
 
     private fun cancelPreviouslyScheduled(context: Context, alarmManager: AlarmManager) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -547,23 +588,10 @@ object NotificationScheduler {
         periods: List<PeriodEntity>,
         zone: ZoneId = ZoneId.systemDefault()
     ): List<LiveUpdateSegment> {
-        course.customTimeRangeOrNull()?.let { (start, end) ->
-            return listOf(
-                LiveUpdateSegment(
-                    date.atTime(start).atZone(zone).toInstant().toEpochMilli(),
-                    date.atTime(end).atZone(zone).toInstant().toEpochMilli()
-                )
-            )
-        }
-        val periodByIndex = periods.associateBy(PeriodEntity::periodIndex)
-        return course.periods.distinct().sorted().mapNotNull { periodIndex ->
-            val period = periodByIndex[periodIndex] ?: return@mapNotNull null
-            val start = runCatching { LocalTime.parse(period.startTime) }.getOrNull() ?: return@mapNotNull null
-            val end = runCatching { LocalTime.parse(period.endTime) }.getOrNull() ?: return@mapNotNull null
-            if (!end.isAfter(start)) return@mapNotNull null
+        return com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments(course, periods).map { segment ->
             LiveUpdateSegment(
-                date.atTime(start).atZone(zone).toInstant().toEpochMilli(),
-                date.atTime(end).atZone(zone).toInstant().toEpochMilli()
+                date.atTime(segment.start).atZone(zone).toInstant().toEpochMilli(),
+                date.atTime(segment.end).atZone(zone).toInstant().toEpochMilli()
             )
         }
     }
@@ -660,15 +688,28 @@ object NotificationScheduler {
 
     fun liveUpdateId(): Int = LIVE_UPDATE_ID
 
-    fun showLiveUpdatePreview(context: Context, config: ScheduleConfigEntity) {
+    internal enum class LiveUpdatePreviewResult {
+        POSTED, NOTIFICATIONS_UNAVAILABLE, VENDOR_HANDLES_PREVIEW, DELIVERY_FAILED
+    }
+
+    internal fun showLiveUpdatePreview(context: Context, config: ScheduleConfigEntity): LiveUpdatePreviewResult {
         if (ColorOSCourseExperiment.suppressesLiveUpdate(context)) {
             cancelLiveUpdateNotifications(context)
             stopLiveUpdateService(context)
-            return
+            return LiveUpdatePreviewResult.VENDOR_HANDLES_PREVIEW
         }
         createChannel(context)
-        if (!canPostNotifications(context)) return
-        startLiveUpdateService(context, liveUpdatePreviewPayload(config))
+        if (!canPostNotifications(context)) return LiveUpdatePreviewResult.NOTIFICATIONS_UNAVAILABLE
+        // A test should be a fresh focus event. Reposting across the two live-update slots
+        // makes Xiaomi treat repeated tests as updates and may suppress the first float.
+        stopLiveUpdateService(context)
+        cancelLiveUpdateNotifications(context)
+        return runCatching { startLiveUpdateService(context, liveUpdatePreviewPayload(config)) }
+            .onFailure { Log.e(TAG, "live update preview delivery failed", it) }
+            .getOrDefault(false)
+            .let { posted ->
+                if (posted) LiveUpdatePreviewResult.POSTED else LiveUpdatePreviewResult.DELIVERY_FAILED
+            }
     }
 
     internal fun liveUpdatePreviewPayload(
@@ -768,13 +809,24 @@ object NotificationScheduler {
                 .setContentTitle(titleText)
                 .setContentText(bodyText)
                 .setContentIntent(contentIntent)
-                .setAutoCancel(true)
+                .setAutoCancel(false)
                 .apply {
                     expiresAt?.takeIf { it > nowMillis }?.let { setTimeoutAfter(it - nowMillis) }
                 }
                 .build().also { notification ->
                     notification.extras.putString(EXTRA_LIVE_UPDATE_IDENTITY, notificationIdentity)
-                    XiaomiSuperIsland.decorate(context, notification, payload, status, shortText.toString())
+                    val dndTitle = dndActionTitle(context)
+                    notification.extras.putBundle("miui.focus.actions", Bundle().apply {
+                        putParcelable(XiaomiSuperIsland.DndActionKey,
+                            Notification.Action.Builder(
+                                Icon.createWithResource(context, R.drawable.ic_moon_light),
+                                dndTitle,
+                                dndActionPendingIntent(context, payload.muteKey, payload.muteUntil)
+                            ).build())
+                    })
+                    XiaomiSuperIsland.decorate(
+                        context, notification, payload, status, shortText.toString(), dndTitle
+                    )
                 }
         }
         val builder = android.app.Notification.Builder(context, CHANNEL_ID)
@@ -843,14 +895,7 @@ object NotificationScheduler {
                     )
                 ).build())
         } else if (payload.showActions && (superIslandSelected || status.progressPercent == null)) {
-            val notificationManager = context.getSystemService(NotificationManager::class.java)
-            val hasDndAccess = notificationManager?.isNotificationPolicyAccessGranted == true
-            val dndEnabled = isDoNotDisturbEnabledByApp(context)
-            val dndTitle = when {
-                !hasDndAccess -> "授权勿扰"
-                dndEnabled -> "关闭勿扰"
-                else -> "开启勿扰"
-            }
+            val dndTitle = dndActionTitle(context)
             builder
                 .addAction(android.app.Notification.Action.Builder(
                     Icon.createWithResource(context, R.drawable.ic_close_light),
@@ -936,6 +981,7 @@ object NotificationScheduler {
             .setAction(action)
             .putExtra("muteKey", muteKey)
             .putExtra("muteUntil", muteUntil)
+            .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
@@ -956,6 +1002,15 @@ object NotificationScheduler {
         )
     }
 
+    private fun dndActionTitle(context: Context): String {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        return when {
+            manager?.isNotificationPolicyAccessGranted != true -> "授权勿扰"
+            isDoNotDisturbEnabledByApp(context) -> "关闭勿扰"
+            else -> "开启勿扰"
+        }
+    }
+
     private fun CourseEntity.muteKey(date: LocalDate): String =
         "$id:$date:$name:${weekday}:${periods.joinToString(",")}:${weeks.joinToString(",")}"
 
@@ -963,7 +1018,8 @@ object NotificationScheduler {
         if (XiaomiSuperIsland.hasActivePreview(context)) return true
         val prefs = context.getSharedPreferences(LiveUpdatePayload.PREFS, Context.MODE_PRIVATE)
         val muteKey = prefs.getString("mute_key", "").orEmpty()
-        return muteKey.startsWith("preview:")
+        return muteKey.startsWith("preview:") &&
+            prefs.getLong("expires_at", 0L) > System.currentTimeMillis()
     }
 
     private fun isMutedForPayload(
@@ -1155,14 +1211,14 @@ object NotificationScheduler {
         )
     }
 
-    internal fun startLiveUpdateService(context: Context, payload: LiveUpdatePayload) {
+    internal fun startLiveUpdateService(context: Context, payload: LiveUpdatePayload): Boolean {
         if (!payload.isPreview() && payload.kind == LiveUpdateKind.COURSE &&
             ColorOSCourseExperiment.suppressesPreClassLiveUpdate(context) &&
-            payload.statusAt().phase == LiveUpdatePhase.BEFORE_CLASS) return
+            payload.statusAt().phase == LiveUpdatePhase.BEFORE_CLASS) return false
         val notification = liveUpdateNotification(context, payload)
         // Submit while the event receiver still holds its wake lock. Delivery must not wait
         // for the FGS (or its optional minute loop) to be scheduled by an OEM background policy.
-        if (!canPostNotifications(context)) return
+        if (!canPostNotifications(context)) return false
         if (XiaomiSuperIsland.isEnabled(context)) {
             // A foreground service immediately reposts the focus notification as ongoing and
             // prevents the Xiaomi float from appearing.
@@ -1174,14 +1230,15 @@ object NotificationScheduler {
                 }
             } catch (error: SecurityException) {
                 Log.w(TAG, "super island rejected: notification permission revoked", error)
+                return false
             }
-            return
+            return true
         }
         try {
             postLiveUpdateNotification(context, notification)
         } catch (error: SecurityException) {
             Log.w(TAG, "live update rejected: notification permission revoked", error)
-            return
+            return false
         }
         val intent = Intent(context, LiveUpdateForegroundService::class.java)
             .setAction(ACTION_START_LIVE_UPDATE_SERVICE)
@@ -1193,6 +1250,7 @@ object NotificationScheduler {
         }.onFailure {
             Log.w(TAG, "minute refresh service unavailable; event notification already posted", it)
         }
+        return true
     }
 
     @SuppressLint("MissingPermission")
@@ -1203,23 +1261,32 @@ object NotificationScheduler {
     ) = synchronized(liveUpdatePostLock) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return@synchronized
         val active = manager.activeNotifications.filter {
-            it.id == LIVE_UPDATE_ID || it.id == LIVE_UPDATE_ALTERNATE_ID || it.id == SUPER_ISLAND_ID
+            it.id == LIVE_UPDATE_ID || it.id == LIVE_UPDATE_ALTERNATE_ID ||
+                it.id == SUPER_ISLAND_ID || it.id == SUPER_ISLAND_ALTERNATE_ID
         }.sortedByDescending { it.postTime }
         val identity = notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY).orEmpty()
         val island = XiaomiSuperIsland.isEnabled(context) &&
             notification.channelId == XiaomiSuperIsland.ChannelId
-        val id = if (island) SUPER_ISLAND_ID else liveUpdateNotificationSlot(
-            active.filter { it.id != SUPER_ISLAND_ID }
-                .map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
-            identity, LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID
-        )
+        val id = if (island) {
+            liveUpdateNotificationSlot(
+                active.filter { it.id == SUPER_ISLAND_ID || it.id == SUPER_ISLAND_ALTERNATE_ID }
+                    .map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
+                identity, SUPER_ISLAND_ID, SUPER_ISLAND_ALTERNATE_ID
+            )
+        } else {
+            liveUpdateNotificationSlot(
+                active.filter { it.id == LIVE_UPDATE_ID || it.id == LIVE_UPDATE_ALTERNATE_ID }
+                    .map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
+                identity, LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID
+            )
+        }
         logLiveUpdateIcon(context, notification)
         // Post first. Reattach the running foreground service before removing its former slot.
         XiaomiSuperIsland.post(context, notification) {
             manager.notify(id, notification)
             attachForeground?.invoke(id, notification)
         }
-        listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID, SUPER_ISLAND_ID)
+        listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID, SUPER_ISLAND_ID, SUPER_ISLAND_ALTERNATE_ID)
             .filter { it != id }.forEach(manager::cancel)
     }
 
@@ -1229,6 +1296,7 @@ object NotificationScheduler {
         manager.cancel(LIVE_UPDATE_ID)
         manager.cancel(LIVE_UPDATE_ALTERNATE_ID)
         manager.cancel(SUPER_ISLAND_ID)
+        manager.cancel(SUPER_ISLAND_ALTERNATE_ID)
     }
 
     internal fun logLiveUpdateIcon(context: Context, notification: Notification) {
@@ -1299,6 +1367,11 @@ object NotificationScheduler {
 
     fun requestReschedule(context: Context) {
         requestRefresh(context, forceReschedule = true)
+    }
+
+    fun reopenCurrentIsland(context: Context) {
+        if (XiaomiSuperIsland.isEnabled(context)) cancelLiveUpdateNotifications(context)
+        requestRefresh(context)
     }
 
     fun requestRefresh(context: Context, forceReschedule: Boolean = false, onComplete: () -> Unit = {}) {

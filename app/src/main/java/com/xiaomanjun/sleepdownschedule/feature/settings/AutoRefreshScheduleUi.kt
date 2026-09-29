@@ -101,7 +101,7 @@ fun AutoRefreshScheduleSettingsScreen(
     val saved = profile
     if (saved != null) {
         val savedAdapter = ShiguangApiAdapterCatalog.find(
-            if (saved.sessionOnly) adapters.orEmpty() else apiAdapters, saved.schoolId, saved.adapterId
+            adapters.orEmpty(), saved.schoolId, saved.adapterId
         )
         AutoRefreshDashboardContent(
             state = state,
@@ -137,11 +137,11 @@ fun AutoRefreshScheduleSettingsScreen(
             availableAdapters = adapters,
             adapterBadge = {
                 if (ShiguangApiAdapterCatalog.supportsAutomaticRefresh(it, apiAdapters)) null
-                else "可能需要手动刷新"
+                else "手动刷新"
             },
             onSelect = { selected ->
-                val reviewed = ShiguangApiAdapterCatalog.find(apiAdapters, selected.school.id, selected.adapterId)
-                authLauncher.launch(SwuUnifiedAuthActivity.intent(context, reviewed ?: selected, state.config.id))
+                val supported = ShiguangApiAdapterCatalog.find(apiAdapters, selected.school.id, selected.adapterId)
+                authLauncher.launch(SwuUnifiedAuthActivity.intent(context, supported ?: selected, state.config.id))
             }
         )
     } else {
@@ -333,6 +333,14 @@ private fun AutoRefreshDashboardContent(
                             subtitle = if (reconnectAvailable) "会话失效时，打开学校登录页重新连接" else connectionStatus,
                             onClick = { if (!refreshing) { if (reconnectAvailable) onReconnect() else onRetryCatalog() } }
                         )
+                        if (!profile.sessionOnly) {
+                            SettingsDivider()
+                            SettingsNavigationRow(
+                                title = "打开教务页面手动刷新",
+                                subtitle = if (reconnectAvailable) "在可见网页中检查课程并确认导入" else connectionStatus,
+                                onClick = { if (!refreshing) { if (reconnectAvailable) onManualRefresh() else onRetryCatalog() } }
+                            )
+                        }
                         SettingsDivider()
                         SettingsInfoRow("校园网络", "部分学校需要校园网或校园 VPN，自动刷新时也需要保持连接。会话失效后请重新登录。")
                     }

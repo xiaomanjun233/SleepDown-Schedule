@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.feature.experimental
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,7 +25,10 @@ import com.xiaomanjun.sleepdownschedule.model.AppState
 import com.xiaomanjun.sleepdownschedule.model.LiveUpdateChipTextMode
 import com.xiaomanjun.sleepdownschedule.model.NotificationMode
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Everything behind these few settings hooks can be removed from a store build as one feature. */
 internal class ExperimentalNotificationUiState(
@@ -51,7 +55,11 @@ internal class ExperimentalNotificationUiState(
     fun allowsLiveUpdateOptions(baseMode: NotificationMode): Boolean =
         baseMode == NotificationMode.LIVE_UPDATE && (!cloudEnabled || parallelLiveUpdate)
 
-    fun select(choice: ExperimentalNotificationMode, onBaseModeChange: (NotificationMode) -> Unit) {
+    fun select(
+        choice: ExperimentalNotificationMode,
+        currentBaseMode: NotificationMode,
+        onBaseModeChange: (NotificationMode) -> Unit
+    ) {
         if (choice == selected) return
         val baseMode = ExperimentalNotificationModes.activate(context, choice)
         selected = choice
@@ -61,7 +69,9 @@ internal class ExperimentalNotificationUiState(
             NotificationScheduler.cancelCurrentLiveUpdate(context, null, null)
         }
         onBaseModeChange(baseMode)
-        NotificationScheduler.requestReschedule(context)
+        // A changed base mode is written asynchronously; its writer refreshes the island after
+        // persistence. When the base mode is unchanged, the vendor selection needs its own refresh.
+        if (baseMode == currentBaseMode) NotificationScheduler.requestReschedule(context)
     }
 
     fun cancelTest() {
@@ -99,7 +109,7 @@ internal fun ExperimentalNotificationChoiceRow(
             selected = state.selected,
             backdrop = backdrop,
             config = config,
-            onSelected = { state.select(it, onNotificationModeChange) }
+            onSelected = { state.select(it, notificationMode, onNotificationModeChange) }
         )
     } else {
         SettingsChoiceRow("通知样式", notificationMode, backdrop, config, onNotificationModeChange)
@@ -135,9 +145,20 @@ internal fun ExperimentalNotificationPreview(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var needsIslandPrivilege by remember { mutableStateOf(false) }
+    var islandTestRunning by remember { mutableStateOf(false) }
+    var islandTestMessage by remember { mutableStateOf<String?>(null) }
+    var lastIslandPostAt by remember { mutableStateOf(0L) }
+    LaunchedEffect(islandTestMessage) {
+        if (islandTestMessage != null) {
+            delay(8_000L)
+            islandTestMessage = null
+        }
+    }
     val deletingTest = state.cloudEnabled && state.testActive
     SettingsActionButton(
         label = when {
+            islandTestRunning -> "正在发送超级岛…"
+            state.superIslandEnabled && islandTestMessage != null -> islandTestMessage!!
             deletingTest -> "删除测试课程"
             state.selected == ExperimentalNotificationMode.YOYO_LIVE_UPDATE -> "测试YOYO建议+实时活动"
             state.selected == ExperimentalNotificationMode.FLUID_CLOUD_LIVE_UPDATE -> "测试流体云+实时活动"
@@ -150,11 +171,52 @@ internal fun ExperimentalNotificationPreview(
         destructive = deletingTest,
         badgeText = if (deletingTest) null else state.selected.badgeText,
         onClick = {
+            if (islandTestRunning) return@SettingsActionButton
             if (state.superIslandEnabled && !XiaomiSuperIsland.hasPrivilege(context)) {
                 needsIslandPrivilege = true
                 return@SettingsActionButton
             }
-            if (state.cloudEnabled) {
+            if (state.superIslandEnabled) {
+                if (android.os.SystemClock.elapsedRealtime() - lastIslandPostAt < 8_000L) {
+                    islandTestMessage = "测试通知刚发送，请稍候"
+                    return@SettingsActionButton
+                }
+                islandTestRunning = true
+                islandTestMessage = null
+                scope.launch {
+                    try {
+                        val (result, focusPermission) = withContext(Dispatchers.IO) {
+                            val focusPermission = XiaomiSuperIsland.focusPermission(context)
+                            val result = NotificationScheduler.showLiveUpdatePreview(context, config.copy(
+                                notificationsEnabled = notificationsEnabled,
+                                notificationLeadMinutes = leadMinutes.toIntOrNull() ?: config.notificationLeadMinutes,
+                                notificationMode = NotificationMode.LIVE_UPDATE,
+                                liveUpdateChipTextMode = liveUpdateChipTextMode,
+                                liveUpdateActionsEnabled = liveUpdateActionsEnabled
+                            ))
+                            result to focusPermission
+                        }
+                        islandTestMessage = when (result) {
+                            NotificationScheduler.LiveUpdatePreviewResult.POSTED -> {
+                                lastIslandPostAt = android.os.SystemClock.elapsedRealtime()
+                                when (focusPermission) {
+                                    true -> "已发送 · 焦点权限已开"
+                                    false -> "已发送 · 焦点权限未开"
+                                    null -> "已发送 · 权限状态未知"
+                                }
+                            }
+                            NotificationScheduler.LiveUpdatePreviewResult.NOTIFICATIONS_UNAVAILABLE -> "通知权限或渠道不可用"
+                            NotificationScheduler.LiveUpdatePreviewResult.VENDOR_HANDLES_PREVIEW -> "当前样式由厂商组件处理"
+                            NotificationScheduler.LiveUpdatePreviewResult.DELIVERY_FAILED -> "测试通知发送失败"
+                        }
+                    } catch (error: Exception) {
+                        android.util.Log.e("SleepDownLiveUpdate", "island preview failed", error)
+                        islandTestMessage = "测试通知发送失败"
+                    } finally {
+                        islandTestRunning = false
+                    }
+                }
+            } else if (state.cloudEnabled) {
                 if (state.testActive) {
                     state.cancelTest()
                 } else {

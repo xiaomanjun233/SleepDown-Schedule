@@ -114,6 +114,49 @@ class PeriodTimelineEditingTest {
         assertNull(validateResolvedPeriodTimes(earlier.times))
     }
 
+    @Test fun editingLaterSectionFirstPullsOnlyConflictingEarlierSections() {
+        val other = original.copy(scheme = original.scheme.copy(id = 2), times = original.times.map { it.copy(schemeId = 2) })
+        val initial = PeriodTimelineSession(config, SchedulePeriodSchemesDraft(listOf(original, other), 1))
+        assertEquals(100..(LastMinuteOfDay - 45), timelineFlexiblePartStartBounds(config, original, PeriodDayPart.AFTERNOON))
+
+        val moved = moveTimelinePartWithNeighbours(initial, PeriodDayPart.AFTERNOON, 9 * 60)
+        assertEquals(listOf("07:20", "08:15", "09:00"), moved.active.times.map { it.startTime })
+        assertEquals(listOf("08:05", "09:00", "09:45"), moved.active.times.map { it.endTime })
+        assertEquals("07:20", moved.active.scheme.morningStartTime)
+        assertEquals("09:00", moved.active.scheme.afternoonStartTime)
+        assertEquals(other, moved.draft.schemes.last())
+        assertNull(validateResolvedPeriodTimes(moved.active.times))
+    }
+
+    @Test fun editingEarlierSectionLaterPushesNextWithoutCompressingLessons() {
+        val initial = PeriodTimelineSession(config, SchedulePeriodSchemesDraft(listOf(original), 1))
+        val moved = moveTimelinePartWithNeighbours(initial, PeriodDayPart.MORNING, 14 * 60)
+        assertEquals(listOf("14:00", "14:55", "15:40"), moved.active.times.map { it.startTime })
+        assertEquals(listOf("14:45", "15:40", "16:25"), moved.active.times.map { it.endTime })
+        assertEquals("15:40", moved.active.scheme.afternoonStartTime)
+        assertNull(validateResolvedPeriodTimes(moved.active.times))
+    }
+
+    @Test fun editingLastSectionFirstMovesOnlyTheEarlierSectionsThatConflict() {
+        val fourPartConfig = config.copy(morningPeriodCount = 1, noonPeriodCount = 1, afternoonPeriodCount = 1, eveningPeriodCount = 1)
+        val fourPartScheme = original.copy(times = listOf(
+            PeriodSchemeTimeEntity(1, 1, "08:00", "08:45"),
+            PeriodSchemeTimeEntity(1, 2, "11:00", "11:45"),
+            PeriodSchemeTimeEntity(1, 3, "14:00", "14:45"),
+            PeriodSchemeTimeEntity(1, 4, "18:00", "18:45")
+        ))
+        val initial = PeriodTimelineSession(fourPartConfig, SchedulePeriodSchemesDraft(listOf(fourPartScheme), 1))
+        val moved = moveTimelinePartWithNeighbours(initial, PeriodDayPart.EVENING, 12 * 60)
+        assertEquals(listOf("08:00", "10:30", "11:15", "12:00"), moved.active.times.map { it.startTime })
+        assertEquals(listOf("08:45", "11:15", "12:00", "12:45"), moved.active.times.map { it.endTime })
+        assertNull(validateResolvedPeriodTimes(moved.active.times))
+
+        val clamped = moveTimelinePartWithNeighbours(initial, PeriodDayPart.MORNING, LastMinuteOfDay)
+        assertEquals("20:59", clamped.active.times.first().startTime)
+        assertEquals("23:59", clamped.active.times.last().endTime)
+        assertNull(validateResolvedPeriodTimes(clamped.active.times))
+    }
+
     @Test fun draggingBackFromCollisionUsingGestureSnapshotRestoresFinalLesson() {
         val tight = original.copy(times = original.times.take(2) + PeriodSchemeTimeEntity(1, 3, "10:00", "10:45"))
         val compressed = resizeTimelineBlock(config, tight, 1, false, 75)

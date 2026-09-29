@@ -21,6 +21,34 @@ class AppDatabaseMigrationTest {
     )
 
     @Test
+    fun migrate43To44KeepsOldAlignmentAndDefaultsCurrentCardLayout() {
+        helper.createDatabase(TEST_DATABASE, 43).use { database ->
+            database.execSQL(legacyConfigInsertSql(40))
+            database.execSQL("UPDATE schedule_config SET weekCardTextAlignment='START' WHERE id=7")
+        }
+        helper.runMigrationsAndValidate(TEST_DATABASE, APP_DATABASE_VERSION, true,
+            *APP_DATABASE_MIGRATIONS.toTypedArray()).use { database ->
+            assertSingleValue(database, "SELECT currentWeek FROM schedule_config WHERE id=7", 6)
+            assertSingleText(database, "SELECT weekCardTextAlignment FROM schedule_config WHERE id=7", "START")
+            assertSingleText(database, "SELECT weekCardContentLayout FROM schedule_config WHERE id=7", "CURRENT")
+        }
+    }
+
+    @Test
+    fun migrate42To43KeepsScheduleAndDefaultsWeekCardContent() {
+        helper.createDatabase(TEST_DATABASE, 42).use { database ->
+            database.execSQL(legacyConfigInsertSql(40))
+        }
+        helper.runMigrationsAndValidate(TEST_DATABASE, APP_DATABASE_VERSION, true,
+            *APP_DATABASE_MIGRATIONS.toTypedArray()).use { database ->
+            assertSingleValue(database, "SELECT currentWeek FROM schedule_config WHERE id=7", 6)
+            assertSingleValue(database, "SELECT weekCardShowLocation FROM schedule_config WHERE id=7", 1)
+            assertSingleValue(database, "SELECT weekCardShowTeacher FROM schedule_config WHERE id=7", 1)
+            assertSingleText(database, "SELECT weekCardTextAlignment FROM schedule_config WHERE id=7", "CENTER")
+        }
+    }
+
+    @Test
     fun migrate41To42PreservesCoursesAndAddsOptionalImportedBellTimes() {
         helper.createDatabase(TEST_DATABASE, 41).use { database ->
             database.execSQL(

@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.graphics.drawable.Icon
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import com.xiaomanjun.sleepdownschedule.BuildConfig
@@ -25,10 +26,12 @@ internal object XiaomiSuperIsland {
     private const val RightMode = "xiaomi_island_right_mode"
     private const val AodMode = "xiaomi_island_aod_mode"
     private const val ExpandGlow = "xiaomi_island_expand_glow"
+    private const val Sequence = "xiaomi_island_sequence"
     const val ChannelId = "course_reminder_island"
     private const val FocusParameter = "miui.focus.param"
     private const val SmallPicture = "miui.focus.pic_small"
-    private val sequence = AtomicLong(0)
+    const val DndActionKey = "miui.focus.action_dnd"
+    private val sequence = AtomicLong(System.currentTimeMillis())
 
     fun isXiaomiDevice(manufacturer: String, brand: String): Boolean =
         listOf(manufacturer, brand).any { value ->
@@ -40,6 +43,15 @@ internal object XiaomiSuperIsland {
         systemProperties.getMethod("getBoolean", String::class.java, Boolean::class.javaPrimitiveType)
             .invoke(null, "persist.sys.feature.island", false) as Boolean
     }.getOrDefault(false)
+
+    /** Xiaomi exposes this switch separately from Android's notification permission. */
+    fun focusPermission(context: Context): Boolean? = runCatching {
+        val extras = Bundle().apply { putString("package", context.packageName) }
+        context.contentResolver.call(
+            Uri.parse("content://miui.statusbar.notification.public"),
+            "canShowFocus", null, extras
+        )?.getBoolean("canShowFocus")
+    }.getOrNull()
 
     fun isSelected(context: Context): Boolean = BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES &&
         isXiaomiDevice(Build.MANUFACTURER.orEmpty(), Build.BRAND.orEmpty()) &&
@@ -139,11 +151,13 @@ internal object XiaomiSuperIsland {
         notification: Notification,
         payload: LiveUpdatePayload,
         status: LiveUpdateStatus,
-        shortText: String
+        shortText: String,
+        actionTitle: String = "开启勿扰"
     ) {
         if (!isEnabled(context)) return
         notification.extras.putString(FocusParameter, parameters(
-            payload, status, shortText, System.currentTimeMillis(), context.packageName, options(context)
+            payload, status, shortText, System.currentTimeMillis(), options(context), actionTitle,
+            nextSequence(context)
         ))
         val appIcon = Icon.createWithResource(context, currentLiveUpdateIconResId(context))
         notification.extras.putBundle("miui.focus.pics", Bundle().apply {
@@ -154,16 +168,34 @@ internal object XiaomiSuperIsland {
         })
     }
 
+    private fun nextSequence(context: Context): Long = synchronized(sequence) {
+        val prefs = context.getSharedPreferences(Prefs, Context.MODE_PRIVATE)
+        val next = maxOf(sequence.get(), prefs.getLong(Sequence, 0L), System.currentTimeMillis()) + 1L
+        sequence.set(next)
+        prefs.edit().putLong(Sequence, next).commit()
+        next
+    }
+
     internal fun parameters(
         payload: LiveUpdatePayload,
         status: LiveUpdateStatus,
         shortText: String,
         nowMillis: Long = System.currentTimeMillis(),
-        packageName: String = "com.xiaomanjun.sleepdownschedule",
-        options: Options = Options()
+        options: Options = Options(),
+        actionTitle: String = "开启勿扰",
+        sequenceValue: Long = sequence.incrementAndGet()
     ): String {
         val beforeClass = status.phase == LiveUpdatePhase.BEFORE_CLASS
-        val timerAt = status.nextTransitionAtMillis?.takeIf { beforeClass && it > nowMillis }
+        val timerAt = status.nextTransitionAtMillis?.takeIf {
+            it > nowMillis && status.phase in setOf(
+                LiveUpdatePhase.BEFORE_CLASS, LiveUpdatePhase.IN_CLASS, LiveUpdatePhase.BREAK
+            )
+        }
+        val timerTarget = when (status.phase) {
+            LiveUpdatePhase.BEFORE_CLASS, LiveUpdatePhase.BREAK -> "上课"
+            LiveUpdatePhase.IN_CLASS -> if (timerAt != payload.endAtMillis()) "课间" else "下课"
+            else -> ""
+        }
         val courseName = payload.name.ifBlank { shortText }
         val islandStatus = when (status.phase) {
             LiveUpdatePhase.BEFORE_CLASS -> payload.location
@@ -172,14 +204,16 @@ internal object XiaomiSuperIsland {
             LiveUpdatePhase.FINISHED -> "已下课"
             LiveUpdatePhase.TOMORROW -> "明日课程"
         }
-        val countdownText = if (timerAt != null) "${status.minutesToTransition}分钟" else islandStatus
+        // The left text component cannot run a system timer. Show the next milestone there;
+        // the expanded card and optional right digit component own the live countdown.
+        val nextMilestoneText = if (timerAt != null) "距$timerTarget" else islandStatus
         val islandText: (Int) -> String = { mode -> when (mode) {
             0 -> courseName
             1 -> payload.location.ifBlank { courseName }
-            else -> countdownText
+            else -> nextMilestoneText
         } }
         val leftText = islandText(options.left)
-        val rightText = if (beforeClass) islandText(options.right) else islandStatus
+        val rightText = islandText(options.right)
         val aodText = if (options.aod == 1) payload.location.ifBlank { courseName } else courseName
         val left = JSONObject().put("type", 1).put("textInfo", JSONObject()
             .put("title", leftText).put("content", "")
@@ -192,13 +226,15 @@ internal object XiaomiSuperIsland {
                 .put("showHighlightColor", false).put("narrowFont", false))
         if (options.right == 2 && timerAt != null) {
             bigIsland.put("sameWidthDigitInfo", JSONObject()
-                .put("content", "上课")
+                .put("content", timerTarget)
                 .put("showHighlightColor", false)
                 .put("timerInfo", timerInfo(timerAt, nowMillis)))
         }
         val island = JSONObject()
             .put("islandProperty", 1)
-            .put("islandTimeout", 3600)
+            .put("islandTimeout", payload.expiresAtMillis.takeIf { it > nowMillis }
+                ?.let { ((it - nowMillis + 999L) / 1000L).coerceIn(60L, 43_200L).toInt() }
+                ?: 3600)
             .put("bigIslandArea", bigIsland)
             .put("smallIslandArea", JSONObject().put("picInfo", JSONObject()
                 .put("type", 1).put("pic", SmallPicture)
@@ -216,7 +252,7 @@ internal object XiaomiSuperIsland {
         val hint = JSONObject()
             .put("type", 2)
             .put("content", when {
-                timerAt != null -> "即将上课"
+                timerAt != null -> if (beforeClass) "即将上课" else "距离$timerTarget"
                 status.phase == LiveUpdatePhase.TOMORROW -> status.statusText
                 beforeClass -> status.statusText
                 else -> "现在"
@@ -229,26 +265,24 @@ internal object XiaomiSuperIsland {
             .put("colorSubContent", "#666666").put("colorSubContentDark", "#aaaaaa")
             .put("colorSubTitle", "#222222").put("colorSubTitleDark", "#eeeeee")
             .put("actionInfo", JSONObject()
-                .put("actionTitle", "查看课表")
-                .put("actionIntentType", 1)
-                .put("actionIntent",
-                    "intent:#Intent;component=$packageName/.MainActivity;end"))
+                .put("actionTitle", actionTitle)
+                .put("action", DndActionKey))
             .put("timerInfo", timerInfo(timerAt, nowMillis))
-        return JSONObject().put("param_v2", JSONObject()
+        val parameters = JSONObject()
             .put("protocol", 1)
             .put("business", "course_reminder")
-            .put("enableFloat", beforeClass || payload.kind == LiveUpdateKind.TOMORROW)
-            .put("islandFirstFloat", !beforeClass)
+            .put("enableFloat", true)
             .put("updatable", true)
             .put("outEffectSrc", if (options.expandGlow) "outer_glow" else "")
             .put("aodTitle", aodText)
             .put("reopen", "reopen")
-            .put("sequence", sequence.incrementAndGet())
+            .put("sequence", sequenceValue)
             .put("baseInfo", card)
             .put("picInfo", JSONObject().put("type", 1).put("pic", ""))
             .put("hintInfo", hint)
             .put("param_island", island)
-        ).toString()
+        if (!beforeClass) parameters.put("islandFirstFloat", true)
+        return JSONObject().put("param_v2", parameters).toString()
     }
 
     private fun timerInfo(timerAt: Long?, nowMillis: Long): JSONObject = JSONObject().apply {

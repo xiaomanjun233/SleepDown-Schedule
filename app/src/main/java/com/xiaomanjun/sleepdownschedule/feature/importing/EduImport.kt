@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
 
 import android.content.Context
+import com.xiaomanjun.sleepdownschedule.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.EOFException
@@ -137,6 +138,8 @@ object ShiguangWarehouse {
         loadAdapters(context).filterNot { it.isManualShareCodeTool() || it.isDevelopmentOnlyGeneralTool() }
 
     private const val Root = "shiguang_warehouse-main"
+    private const val TestRoot = "edu_adapter_test"
+    private const val TestGeneration = "local-debug"
     private const val ProtocolV2 = 2
     private val quotedValue = Regex("""^\s*([A-Za-z_]+):\s*"?(.*?)"?\s*(?:#.*)?$""")
 
@@ -149,7 +152,15 @@ object ShiguangWarehouse {
                 ?.adapters
                 ?.takeIf { it.isNotEmpty() }
         }.getOrNull() ?: loadBundledAdapters(context)
-        val warehouseAdapters = officialAdapters
+        val testAdapters = if (BuildConfig.SLEEPDOWN_LOCAL_EDU_TEST) {
+            context.assets.open("$TestRoot/school_index.pb").use { input ->
+                parseProtocolV2Snapshot(input.readBytes()).adapters.map {
+                    it.copy(adapterName = "${it.adapterName}（本地测试）", warehouseGeneration = TestGeneration)
+                }
+            }
+        } else emptyList()
+        val testIds = testAdapters.map { it.school.id to it.adapterId }.toSet()
+        val warehouseAdapters = (officialAdapters.filterNot { (it.school.id to it.adapterId) in testIds } + testAdapters)
             .filter { it.category in OfficialCategories }
             .sortedWith(compareBy<EduAdapter> { it.school.initial }.thenBy { it.school.name }.thenBy { it.adapterName })
         return listOf(aiEduImportAdapter()) + warehouseAdapters
@@ -186,8 +197,14 @@ object ShiguangWarehouse {
         }
     }
 
+    internal fun isLocalTestAdapter(adapter: EduAdapter): Boolean =
+        BuildConfig.SLEEPDOWN_LOCAL_EDU_TEST && adapter.warehouseGeneration == TestGeneration
+
     suspend fun resolveScript(context: Context, adapter: EduAdapter): String = withContext(Dispatchers.IO) {
         val relativePath = ShiguangWarehouseUpdater.resourceRelativePath(adapter)
+        if (isLocalTestAdapter(adapter)) {
+            return@withContext context.assets.open("$TestRoot/resources/$relativePath").bufferedReader().use { it.readText() }
+        }
         var remoteFailure: Exception? = null
         if (ShiguangWarehouseUpdater.hasValidRemoteIndex(context)) {
             try {

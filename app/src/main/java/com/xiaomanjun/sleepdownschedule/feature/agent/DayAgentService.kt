@@ -75,7 +75,10 @@ internal data class AgentTokenUsage(
             cachedInputTokens == 0L && reasoningTokens == 0L
 }
 
-internal class DayAgentTurnTelemetry(private val providerId: String) {
+internal class DayAgentTurnTelemetry(
+    private val providerId: String,
+    private val elapsedRealtime: () -> Long = SystemClock::elapsedRealtime
+) {
     private var totalRequests = 0
     private var decisionRounds = 0
     private val callsPerRound = mutableListOf<Int>()
@@ -107,12 +110,12 @@ internal class DayAgentTurnTelemetry(private val providerId: String) {
     }
 
     fun finalAnswerStarted() {
-        if (finalStartedAt == 0L) finalStartedAt = SystemClock.elapsedRealtime()
+        if (finalStartedAt == 0L) finalStartedAt = elapsedRealtime()
     }
 
     fun logSummary() {
         val finalLatency = finalStartedAt.takeIf { it > 0L }
-            ?.let { SystemClock.elapsedRealtime() - it }
+            ?.let { elapsedRealtime() - it }
             ?: 0L
         Log.i(
             DayAgentMetricsTag,
@@ -219,22 +222,32 @@ internal fun parseAgentToolDecision(
         addAll(nativeToolCalls)
         legacyFunctionCall?.let(::add)
     }
-    val calls = toolCalls.mapNotNull { parseLocalAgentToolCall(it, response) }
+    val localToolCalls = toolCalls.filterNot { allowProviderWebSearchCall && isProviderWebSearchToolCall(it) }
+    val calls = localToolCalls.mapIndexed { index, element ->
+        val call = element as? JsonObject
+        val function = call?.get("function") as? JsonObject
+        decodeAgentToolCall(
+            call?.get("id")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+                ?: "local-${response.hashCode().toUInt()}-$index",
+            function?.get("name")?.jsonPrimitive?.contentOrNull.orEmpty(), function?.get("arguments")
+        )
+    }
     val providerWebSearchRequested = allowProviderWebSearchCall &&
         toolCalls.any(::isProviderWebSearchToolCall)
-    val localNativeToolCalls = nativeToolCalls.filter {
-        parseLocalAgentToolCall(it, response) != null
-    }
     val assistantMessage = buildJsonObject {
         put("role", "assistant")
         put("content", content)
         if (reasoning.isNotBlank()) put("reasoning_content", reasoning)
-        if (localNativeToolCalls.isNotEmpty()) put("tool_calls", JsonArray(localNativeToolCalls))
-        if (localNativeToolCalls.isEmpty() && legacyFunctionCall != null &&
-            parseLocalAgentToolCall(legacyFunctionCall, response) != null
-        ) {
-            put("function_call", legacyFunctionCall["function"] ?: buildJsonObject {})
-        }
+        if (calls.isNotEmpty()) put("tool_calls", buildJsonArray {
+            calls.forEach { call -> add(buildJsonObject {
+                put("id", call.id)
+                put("type", "function")
+                put("function", buildJsonObject {
+                    put("name", call.requestedName)
+                    put("arguments", buildJsonObject { call.arguments.forEach { (key, value) -> put(key, value) } }.toString())
+                })
+            }) }
+        })
     }
     return AgentToolDecision(
         assistantMessage = assistantMessage,
@@ -242,43 +255,10 @@ internal fun parseAgentToolDecision(
         reasoning = reasoning,
         content = content,
         finishReason = (choice["finish_reason"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
-        unparsedToolCallCount = toolCalls.count { element ->
-            parseLocalAgentToolCall(element, response) == null &&
-                !(allowProviderWebSearchCall && isProviderWebSearchToolCall(element))
-        },
+        unparsedToolCallCount = calls.count { it.name == AgentToolName.UNKNOWN },
         webSearchUsed = webSearchUsed,
         providerWebSearchRequested = providerWebSearchRequested,
         usage = agentTokenUsage(root)
-    )
-}
-private fun parseLocalAgentToolCall(element: JsonElement, response: String): AgentToolCall? {
-    val call = element as? JsonObject ?: return null
-    val function = call["function"] as? JsonObject ?: return null
-    val name = (function["name"] as? JsonPrimitive)?.contentOrNull
-        ?.trim()
-        ?.replace('-', '_')
-        ?.uppercase()
-        ?.let { normalized -> AgentToolName.entries.firstOrNull { it.name == normalized } }
-        ?: return null
-    val argumentsElement = function["arguments"]
-    val argumentsObject = when (argumentsElement) {
-        is JsonObject -> argumentsElement
-        is JsonPrimitive -> argumentsElement.contentOrNull?.let { raw ->
-            runCatching { DayAgentJson.parseToJsonElement(raw) as? JsonObject }.getOrNull()
-        }
-        else -> null
-    }
-    val arguments = argumentsObject
-        ?.filterValues { it != kotlinx.serialization.json.JsonNull }
-        ?.mapValues { (_, value) ->
-            (value as? JsonPrimitive)?.contentOrNull ?: value.toString()
-        }
-        .orEmpty()
-    return AgentToolCall(
-        id = call["id"]?.jsonPrimitive?.contentOrNull
-            ?: "${name.name.lowercase()}-${callsHashSeed(response, name)}",
-        name = name,
-        arguments = arguments
     )
 }
 
@@ -296,9 +276,6 @@ private fun isProviderWebSearchToolCall(element: JsonElement): Boolean {
         ?.get("name")?.jsonPrimitive?.contentOrNull.orEmpty()
     return functionName.trim().replace('-', '_').equals("web_search", ignoreCase = true)
 }
-
-private fun callsHashSeed(response: String, name: AgentToolName): String =
-    (31 * response.hashCode() + name.hashCode()).toUInt().toString(16)
 
 private fun agentMemoryContext(memory: String): String = buildJsonObject {
     put("kind", "user_memory_context")
@@ -436,24 +413,14 @@ class DayAgentService(private val context: Context) {
         val memoryEnabled = DayAgentPreferences.isMemoryEnabled(context)
         val savedMemory = DayAgentPreferences.memory(context)
         val memoryToolAvailable = DayAgentPreferences.shouldOfferMemoryUpdate(context, facts.date)
-        val cachedFacts = SharedAgentToolFacts.read(facts, System.currentTimeMillis())
-        val cachedReadResults = cachedFacts.toMutableMap()
-        fun executeTurnTool(call: AgentToolCall): AgentToolResult {
-            if (call.name == AgentToolName.UPDATE_MEMORY) {
-                return executeAgentToolCall(call, facts)
-            }
-            val key = call.cacheKey()
-            cachedReadResults[key]?.let { previous ->
-                return previous.copy(
-                    callId = call.id,
-                    content = "事实版本=${facts.sourceHash}；与本轮此前相同调用一致，请直接复用前一结果。"
-                )
-            }
-            return executeAgentToolCall(call, facts).also {
-                if (it.success) cachedReadResults[key] = it
+        val availableCachedFacts = SharedAgentToolFacts.read(facts, System.currentTimeMillis())
+        val cachedFacts = agentPreloadedFacts(availableCachedFacts)
+        fun executeTurnTool(call: AgentToolCall): AgentToolResult =
+            (availableCachedFacts[call.cacheKey()]?.copy(callId = call.id)
+                ?: executeAgentToolCall(call, facts)).also {
                 SharedAgentToolFacts.put(facts, call, it, System.currentTimeMillis())
             }
-        }
+        val turnTools = AgentTurnToolSession(cachedFacts, ::executeTurnTool)
         if (imageAttachment != null) {
             require(AiProviderPresets.supportsImageInput(settings.profile)) {
                 "当前模型没有启用图片理解能力，请切换支持视觉输入的模型"
@@ -523,6 +490,8 @@ class DayAgentService(private val context: Context) {
                     onStreamReset = onStreamReset,
                     executeTool = ::executeTurnTool,
                     cachedTools = cachedFacts.values.map { it.name }.filter { it.isOneShotPerTurn }.toSet(),
+                    cachedResults = cachedFacts,
+                    validateAnswer = { agentAnswerValidationFeedback(it, facts) },
                     telemetry = telemetry
                 )
             }
@@ -608,13 +577,16 @@ class DayAgentService(private val context: Context) {
                 if (decision.webSearchUsed) {
                     onStatus(AgentRunStatus(AgentRunStatusIcon.SEARCH, "联网搜索"))
                 }
-                if (decision.unparsedToolCallCount > 0) {
-                    throw IllegalStateException(
-                        "模型返回了 ${decision.unparsedToolCallCount} 个无法识别的工具调用，请重试"
-                    )
-                }
                 if (decision.calls.isEmpty()) {
-                    usableAgentAnswer(decision.content)?.let { answer ->
+                    val answer = usableAgentAnswer(decision.content)
+                    if (answer != null) {
+                        val feedback = agentAnswerValidationFeedback(answer, facts)
+                        if (feedback != null) {
+                            onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "根据自检结果修正计划"))
+                            messages += decision.assistantMessage
+                            messages += agentTextMessage("user", feedback)
+                            continue
+                        }
                         onDelta(answer)
                         return@withContext answer
                     }
@@ -629,11 +601,17 @@ class DayAgentService(private val context: Context) {
 
                 val roundResults = decision.calls.map { call ->
                     onStatus(call.name.runStatus())
-                    executeTurnTool(call).also {
+                    (if (call.name == AgentToolName.PROPOSE_ACTIONS && decision.calls.size != 1) {
+                        AgentToolResult(call.id, call.name, false, "请在读完事实后单独调用 PROPOSE_ACTIONS，一次提交完整计划。")
+                    } else turnTools.run(call)).also {
                         if (it.success && call.name.isOneShotPerTurn) completedOneShotTools += call.name
                     }
                 }
                 telemetry.recordToolResults(roundResults)
+                roundResults.singleOrNull()?.proposedAnswer?.let { answer ->
+                    onDelta(answer)
+                    return@withContext answer
+                }
                 val addedEvidence = decision.calls
                     .map { call -> evidenceKeys.add("${facts.sourceHash}\u0000${call.cacheKey()}") }
                     .any { it }
@@ -653,6 +631,7 @@ class DayAgentService(private val context: Context) {
                 onStatus = onStatus,
                 onDelta = onDelta,
                 onStreamReset = onStreamReset,
+                validateAnswer = { agentAnswerValidationFeedback(it, facts) },
                 telemetry = telemetry
             )
         } finally {
@@ -670,6 +649,7 @@ class DayAgentService(private val context: Context) {
         onStatus: (AgentRunStatus) -> Unit,
         onDelta: (String) -> Unit,
         onStreamReset: () -> Unit,
+        validateAnswer: (String) -> String?,
         telemetry: DayAgentTurnTelemetry
     ): String {
         onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "整理结果"))
@@ -687,7 +667,7 @@ class DayAgentService(private val context: Context) {
         return try {
             telemetry.requestStarted()
             val gate = AgentFinalOutputGate(onDelta)
-            gate.finish(
+            val answer = gate.finish(
                 chatTransport.stream(
                     settings = settings,
                     body = finalBody,
@@ -695,16 +675,20 @@ class DayAgentService(private val context: Context) {
                     onUsage = telemetry::recordUsage
                 )
             )
+            validateAnswer(answer)?.let { throw AgentPlanValidationException(answer, it) }
+            answer
         } catch (error: Throwable) {
-            if (error !is MissingAgentBodyException && error !is AgentProtocolViolationException) {
+            if (error !is MissingAgentBodyException && error !is AgentProtocolViolationException && error !is AgentPlanValidationException) {
                 throw error
             }
             onStreamReset()
-            onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "修正输出格式"))
+            onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, if (error is AgentPlanValidationException) "根据自检结果修正计划" else "修正输出格式"))
             val retryMessages = finalMessages + agentTextMessage(
                 "system",
                 DayAgentPrompts.FinalAnswerProtocolRetry
-            )
+            ) + if (error is AgentPlanValidationException) listOf(
+                agentTextMessage("assistant", error.answer), agentTextMessage("user", error.feedback)
+            ) else emptyList()
             val retryBody = chatTransport.agentBody(
                 settings = settings,
                 messages = retryMessages,
@@ -718,8 +702,9 @@ class DayAgentService(private val context: Context) {
             if (containsLeakedAgentFunctionProtocol(retryContent)) {
                 throw AgentProtocolViolationException()
             }
-            onDelta(retryContent)
-            retryContent
+            val checked = if (validateAnswer(retryContent) == null) retryContent else AgentPlanRepairLimitMessage
+            onDelta(checked)
+            checked
         }
     }
 

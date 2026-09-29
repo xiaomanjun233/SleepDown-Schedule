@@ -87,6 +87,17 @@ class PeriodSchemesTest {
         assertEquals("第 1 节与第 2 节时间重叠", validateResolvedPeriodTimes(times))
     }
 
+    @Test fun missingOrDuplicatePeriodNumberIsRejectedBeforeDatabaseUpsert() {
+        val duplicate = listOf(
+            PeriodSchemeTimeEntity(1, 1, "08:00", "08:45"),
+            PeriodSchemeTimeEntity(1, 1, "09:00", "09:45")
+        )
+        assertEquals("节次编号必须从 1 连续排列", validateResolvedPeriodTimes(duplicate))
+        assertEquals("节次编号必须从 1 连续排列", validateResolvedPeriodTimes(
+            listOf(PeriodSchemeTimeEntity(1, 2, "08:00", "08:45"))
+        ))
+    }
+
     @Test
     fun laterDayPartIsPushedAfterPreviousPartInsteadOfOverlapping() {
         val scheme = PeriodSchemeEntity(

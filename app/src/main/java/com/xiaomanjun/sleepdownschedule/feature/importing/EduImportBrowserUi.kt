@@ -124,6 +124,10 @@ import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.Capsule
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.DisposableEffect
@@ -791,6 +795,7 @@ private fun EduImportBrowserScreen(
     var canGoForward by remember { mutableStateOf(false) }
     var desktopMode by remember(adapter) { mutableStateOf(initialDesktopMode) }
     var aiParsing by remember { mutableStateOf(false) }
+    var attemptedGenericDocumentKey by remember(adapter) { mutableStateOf<String?>(null) }
     var aiProgress by remember { mutableStateOf<AiEduImportProgress?>(null) }
     var isScreenCapturing by remember { mutableStateOf(false) }
     var screenCaptureStatus by remember { mutableStateOf<String?>(null) }
@@ -889,10 +894,11 @@ private fun EduImportBrowserScreen(
         }
 
         fun sendCaptureToAi(capture: EduPageCaptureResult, settings: AiImportSettings, includePageText: Boolean = true) {
+            aiParsing = true
             val pageUrl = target.url?.takeIf { it.isNotBlank() } ?: currentUrl
             val aiPageText = buildString {
-                appendLine("当前教务页面地址：${pageUrl.ifBlank { "未知" }}")
-                appendLine("请根据该网址识别学校或教务系统来源，并在模型具备相关能力时参考该学校公开的作息/排课时间。")
+                appendLine("当前教务页面来源：${redactAiUrl(pageUrl).ifBlank { "未知" }}")
+                appendLine("仅使用当前页面明确列出的课程和时间；不要根据学校名称推算作息。")
                 appendLine()
                 if (includePageText) {
                     append(capture.text)
@@ -930,6 +936,7 @@ private fun EduImportBrowserScreen(
         }
 
         fun prepareCapturePreview(capture: EduPageCaptureResult, settings: AiImportSettings, screenMode: Boolean) {
+            aiParsing = false
             val supportsVision = AiProviderPresets.supportsImageInput(settings.profile)
             val pageIssue = inspectEduPageCapture(capture.text)
             val isLoginPage = pageIssue?.step?.contains("登录") == true
@@ -990,7 +997,10 @@ private fun EduImportBrowserScreen(
                 screenModeActionLabel = screenLabel,
                 cancelActionLabel = "返回重抓",
                 finished = false,
-                error = null
+                error = null,
+                confirmationTitle = "",
+                confirmationMessage = "",
+                returnToBrowser = false
             ))
             AiEduImportProgressSession.setActions(
                 onConfirm = { sendCaptureToAi(capture, settings, includePageText = true) },
@@ -1057,17 +1067,12 @@ private fun EduImportBrowserScreen(
             )
         }
 
-        AiEduImportProgressSession.clearActions()
-        setAiProgress(AiEduImportProgress(steps = listOf("准备读取当前页面")))
-        context.openRegisteredActivity(
-            TransitionRouteId.ImportToAiProgress,
-            Intent(context, AiEduImportProgressActivity::class.java)
-        )
-        setAiProgress(aiProgress?.copy(routeLabel = routeLabel))
-        onMessage("正在分层抓取当前页面...")
-        aiParsing = true
-        scope.launch {
+        suspend fun prepareTextFallback(message: String) {
+            aiParsing = true
+            setAiProgress(AiEduImportProgress(routeLabel = routeLabel,
+                steps = aiProgress?.steps.orEmpty() + message))
             val capture = runCatching { captureEduPage(target, allowScreenshotFallback = false) }.getOrElse {
+                if (it is CancellationException) throw it
                 setAiProgress(aiProgress?.copy(
                     steps = aiProgress?.steps.orEmpty() + "页面抓取失败",
                     error = it.message ?: "页面抓取失败",
@@ -1075,7 +1080,7 @@ private fun EduImportBrowserScreen(
                 ))
                 onMessage(it.message ?: "页面抓取失败")
                 aiParsing = false
-                return@launch
+                return
             }
             val captureStep = when (capture.mode) {
                 EduPageCaptureMode.TEXT_ONLY -> "已完成 DOM 深度抓取（${capture.text.length} 字符）"
@@ -1095,6 +1100,103 @@ private fun EduImportBrowserScreen(
                 else "已生成页面截图兜底，等待用户确认"
             )
             prepareCapturePreview(capture, settings, screenMode = capture.screenshots.isNotEmpty())
+        }
+
+        fun prepareAdapterPreview(candidate: AiEduCandidate, available: List<EduAdapter>) {
+            aiParsing = false
+            val selected = candidate.tool.findAdapter(available) ?: return
+            setAiProgress(AiEduImportProgress(
+                routeLabel = routeLabel,
+                steps = aiProgress?.steps.orEmpty() + "已匹配${candidate.tool.label}通用教务工具",
+                attachmentTitle = "教务系统识别",
+                confirmationTitle = "使用${candidate.tool.label}通用导入",
+                confirmationMessage = "当前页面符合现有通用工具的结构。工具会直接读取课程，并进入导入预览；无需将课程全文交给模型。也可以改用文本解析。",
+                awaitingConfirmation = true,
+                confirmActionLabel = "使用通用工具",
+                secondaryConfirmActionLabel = "改用文本解析"
+            ))
+            AiEduImportProgressSession.setActions(
+                onConfirm = {
+                    aiParsing = true
+                    setAiProgress(aiProgress?.copy(awaitingConfirmation = false))
+                    scope.launch {
+                        attemptedGenericDocumentKey = candidate.documentKey
+                        val started = try {
+                            executeAiEduAdapter(context, target, bridge, candidate, selected,
+                                state.config, state.periods, desktopMode)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) { false }
+                        if (started) {
+                            setAiProgress(aiProgress?.copy(finished = true, returnToBrowser = true))
+                            aiParsing = false
+                            onMessage("已使用${candidate.tool.label}通用工具；若未成功，可再次点击 AI 导入使用文本解析。")
+                        } else {
+                            prepareTextFallback("页面已变化或通用工具无法执行，建议核对当前页面文本")
+                        }
+                    }
+                },
+                onSecondaryConfirm = { scope.launch { prepareTextFallback("已选择文本解析") } },
+                onCancel = { cancelAiImport() }
+            )
+        }
+
+        AiEduImportProgressSession.clearActions()
+        AiEduImportProgressSession.setPreviewDraft(null)
+        setAiProgress(AiEduImportProgress(routeLabel = routeLabel, steps = listOf("准备识别当前教务页面")))
+        context.openRegisteredActivity(
+            TransitionRouteId.ImportToAiProgress,
+            Intent(context, AiEduImportProgressActivity::class.java)
+        )
+        aiParsing = true
+        scope.launch {
+            val fingerprint = if (forceFallback) null else try {
+                captureAiEduFingerprint(target)
+            } catch (cancelled: kotlinx.coroutines.TimeoutCancellationException) {
+                null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) { null }
+            val available = withContext(Dispatchers.IO) { ShiguangWarehouse.loadVisibleAdapters(context) }
+            val usable = fingerprint?.copy(candidates = fingerprint.candidates.filter {
+                it.documentKey != attemptedGenericDocumentKey && it.tool.findAdapter(available) != null
+            })
+            if (usable == null || usable.candidates.isEmpty()) {
+                prepareTextFallback("未匹配可用的通用工具，建议解析页面文本")
+                return@launch
+            }
+            usable.localMatch?.let {
+                prepareAdapterPreview(it, available)
+                return@launch
+            }
+            val settings = AiImportSettingsStore.load(context)
+            setAiProgress(aiProgress?.copy(
+                pageText = usable.modelInput(),
+                attachmentTitle = "教务页面特征",
+                confirmationTitle = "识别适合的导入方式",
+                confirmationMessage = "发现可能适用的通用教务工具。可以只发送少量页面结构特征进行判断，不发送课程全文或截图；也可以直接使用文本解析。",
+                awaitingConfirmation = true,
+                confirmActionLabel = "识别教务系统",
+                secondaryConfirmActionLabel = "直接解析文本"
+            ))
+            AiEduImportProgressSession.setActions(
+                onConfirm = {
+                    aiParsing = true
+                    val taskId = AiImportTaskManager.startEduRouting(context, usable, settings,
+                        checkNotNull(aiProgress).copy(routeLabel = "教务系统识别"))
+                    scope.launch routingResult@{
+                        val result = AiEduImportProgressSession.progress.first {
+                            it?.taskId != taskId || it.finished
+                        }?.takeIf { it.taskId == taskId } ?: return@routingResult
+                        aiProgress = result
+                        val candidate = parseAiEduRoutingDecision(result.aiOutput, usable)
+                        if (candidate != null) prepareAdapterPreview(candidate, available)
+                        else prepareTextFallback("通用教务判断不充分，建议解析页面文本")
+                    }
+                },
+                onSecondaryConfirm = { scope.launch { prepareTextFallback("已选择文本解析") } },
+                onCancel = { cancelAiImport() }
+            )
         }
     }
 

@@ -100,6 +100,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalView
@@ -714,6 +715,7 @@ fun CourseScheduleAppUi(
     var pendingPickerEditorScheduleId by remember { mutableStateOf<Int?>(null) }
     var quickScheduleDraft by remember { mutableStateOf<QuickScheduleDraft?>(null) }
     val dayAgentBackgroundMotionState = rememberDayAgentBackgroundMotionState()
+    val dayAgentCountdownCinematic = remember { DayAgentCountdownCinematicState() }
     var dayAgentPagerSettled by remember { mutableStateOf(false) }
     var detailMorphState by remember { mutableStateOf<DetailMorphState>(DetailMorphState.Idle) }
     var detailMorphRequest by remember { mutableStateOf<DetailMorphRequest?>(null) }
@@ -2227,6 +2229,7 @@ fun CourseScheduleAppUi(
     }
     CompositionLocalProvider(
         LocalHomeAssistant provides homeAssistant,
+        LocalDayAgentCountdownCinematic provides dayAgentCountdownCinematic,
         LocalAdjustedCourseEditor provides ::openAdjustedCourseEditor,
         LocalCourseShortcuts provides courseShortcuts,
         LocalCourseCopy provides courseCopy,
@@ -2370,9 +2373,7 @@ fun CourseScheduleAppUi(
                         request = request,
                         detailState = detailState,
                         onMorphStateChange = { detailMorphState = it },
-                        onSave = { config, periods ->
-                            viewModel.saveConfigForSchedule(request.scheduleId, config, periods)
-                        },
+                        onSave = { _, _ -> viewModel.refreshNotificationsAfterSave() },
                         onPreviewLiveUpdate = viewModel::previewLiveUpdate,
                         onFinished = {
                             detailMorphRequest = null
@@ -2384,6 +2385,18 @@ fun CourseScheduleAppUi(
                         modifier = Modifier.zIndex(260f)
                     )
                 }
+                HomeCountdownCinematicOverlay(
+                    effect = dayAgentCountdownCinematic,
+                    state = agentVisualState,
+                    available = screen is Screen.Home && visualState.loaded &&
+                        !homeAssistant.visible && !homeBackgroundOverlayActive &&
+                        !courseCopy.active && renderedHomeDialog == null &&
+                        !jumpWeekDialogMounted && detailMorphRequest == null &&
+                        pickerState.phase is CustomizeUiState.Home,
+                    fromDayCard = homeMode == HomeMode.Day &&
+                        homeDisplayDate == todayDate && dayAgentPagerSettled,
+                    modifier = Modifier.fillMaxSize().zIndex(300f)
+                )
             }
         },
         containerColor = ComposeColor.Transparent,
@@ -2578,6 +2591,7 @@ fun CourseScheduleAppUi(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .zIndex(11f)
+                            .homeCountdownShockwave(0.75f)
                     ) {
                         AppTopBar(
                             screen = Screen.Home,
@@ -2634,6 +2648,7 @@ fun CourseScheduleAppUi(
                                     end = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp
                                 )
                                 .homeSwitchLayer(homeModeMotion, secondary = true)
+                                .homeCountdownShockwave(0.70f)
                         )
                     }
                 }
@@ -2828,7 +2843,7 @@ fun CourseScheduleAppUi(
                                                 intent
                                             )
                                         },
-                                        onSave = viewModel::saveConfig,
+                                        onSave = { _, _ -> viewModel.refreshNotificationsAfterSave() },
                                         onUpdateConfig = viewModel::saveNotificationSettings,
                                         onUpdateGeneralConfig = viewModel::saveGeneralSettings,
                                         onUpdateHomeChromeBlurScale = viewModel::saveHomeChromeBlurScale,
@@ -2857,6 +2872,7 @@ fun CourseScheduleAppUi(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .zIndex(100f)
+                        .homeCountdownShockwave(0.85f)
                 ) {
                     FloatingDock(
                         selected = screen,
@@ -2881,7 +2897,8 @@ fun CourseScheduleAppUi(
                 config = visualState.config,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .zIndex(89f),
+                    .zIndex(89f)
+                    .homeCountdownShockwave(0.85f),
                 onClick = ::enterCustomizePage,
                 onDismiss = {
                     entryPrewarmJob?.cancel()
@@ -5494,6 +5511,9 @@ internal const val PersonalizeWallpaperBlurSlider = "wallpaper-blur"
 internal const val PersonalizeWallpaperBrightnessSlider = "wallpaper-brightness"
 private const val PersonalizeWallpaperContentChange = "wallpaper-content"
 private const val PersonalizeWeekHeightSlider = "week-height"
+private const val PersonalizeWeekLocationChange = "week-location"
+private const val PersonalizeWeekTeacherChange = "week-teacher"
+private const val PersonalizeWeekLayoutChange = "week-layout"
 internal const val PersonalizeWeekCornerSlider = "week-corner"
 private const val PersonalizeCardColorChange = "card-color"
 internal const val PersonalizeCardAlphaSlider = "card-alpha"
@@ -5543,6 +5563,9 @@ internal fun mergePersonalizationCandidate(
     PersonalizeWeekCornerSlider -> current.copy(
         weekCardCornerProgress = candidate.weekCardCornerProgress
     )
+    PersonalizeWeekLocationChange -> current.copy(weekCardShowLocation = candidate.weekCardShowLocation)
+    PersonalizeWeekTeacherChange -> current.copy(weekCardShowTeacher = candidate.weekCardShowTeacher)
+    PersonalizeWeekLayoutChange -> current.copy(weekCardContentLayout = candidate.weekCardContentLayout)
     PersonalizeCardColorChange -> current.copy(
         cardColorArgb = candidate.cardColorArgb,
         courseCardColorMode = candidate.courseCardColorMode,
@@ -6524,6 +6547,96 @@ fun PersonalizePanel(
                             )
                         }
                     }
+                    Spacer(Modifier.height(8.dp))
+                    Text("周视图卡片内容", style = MaterialTheme.typography.labelLarge)
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("显示上课地点", style = MaterialTheme.typography.bodyMedium)
+                        LiquidControlToggle(
+                            checked = state.config.weekCardShowLocation,
+                            compact = true,
+                            onCheckedChange = {
+                                onUpdateConfig(PersonalizeWeekLocationChange,
+                                    state.config.copy(weekCardShowLocation = it))
+                            },
+                            backdrop = backdrop
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("显示教师", style = MaterialTheme.typography.bodyMedium)
+                        LiquidControlToggle(
+                            checked = state.config.weekCardShowTeacher,
+                            compact = true,
+                            onCheckedChange = {
+                                onUpdateConfig(PersonalizeWeekTeacherChange,
+                                    state.config.copy(weekCardShowTeacher = it))
+                            },
+                            backdrop = backdrop
+                        )
+                    }
+                    val textLayouts = listOf(
+                        WeekCardContentLayout.CURRENT to "默认",
+                        WeekCardContentLayout.CENTERED to "全部居中",
+                        WeekCardContentLayout.TOP_DOWN to "从上到下铺满"
+                    )
+                    var layoutMenuOpen by remember { mutableStateOf(false) }
+                    val rowTextColor = LocalContentColor.current
+                    Box(Modifier.fillMaxWidth().personalizePreviewVisibility(previewSliderKey, previewProgress)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { layoutMenuOpen = true }
+                                ),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("文字排布", style = MaterialTheme.typography.bodyMedium, color = rowTextColor)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    textLayouts.first { it.first == state.config.weekCardContentLayout }.second,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = rowTextColor.copy(alpha = 0.72f)
+                                )
+                                Icon(
+                                    Icons.Rounded.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = rowTextColor.copy(alpha = 0.72f)
+                                )
+                            }
+                        }
+                        SleepDownLiquidCascadingPopup(
+                            show = layoutMenuOpen,
+                            anchorBounds = Rect.Zero,
+                            items = textLayouts.map { (layout, label) ->
+                                SleepDownLiquidMenuItem(
+                                    key = layout.name,
+                                    text = label,
+                                    selected = layout == state.config.weekCardContentLayout,
+                                    onClick = {
+                                        layoutMenuOpen = false
+                                        onUpdateConfig(PersonalizeWeekLayoutChange,
+                                            state.config.copy(weekCardContentLayout = layout))
+                                    }
+                                )
+                            },
+                            onDismissRequest = { layoutMenuOpen = false },
+                            backdrop = backdrop,
+                            config = state.config,
+                            menuMaxHeight = 260.dp,
+                            contentColor = if (appUsesDarkTheme(state.config)) ComposeColor.White
+                                else ComposeColor(0xFF111111)
+                        )
+                    }
                 }
                 Row(
                     modifier = Modifier.rowEntrance(5)
@@ -7136,14 +7249,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 scheduleEditState,
                                 backdrop,
                                 SettingsSection.Schedule,
-                                onSave = { config, periods ->
-                                    val targetId = customizeScheduleId
-                                    if (targetId != null) {
-                                        viewModel.saveConfigForSchedule(targetId, config, periods)
-                                    } else {
-                                        viewModel.saveConfig(config, periods)
-                                    }
-                                },
+                                onSave = { _, _ -> viewModel.refreshNotificationsAfterSave() },
                                 onPreviewLiveUpdate = viewModel::previewLiveUpdate,
                                 exitCommitRequest = scheduleExitRequest,
                                 onExitCommitFinished = { saved -> if (saved) closeSettings() },
@@ -9396,6 +9502,15 @@ fun ChangelogSettingsScreen(
                 // One continuous panel. Canvas clipping avoids a texture as tall as all expanded
                 // versions; each details animation still owns only its own small graphics layer.
                 AboutGlassPanel(darkTheme, Modifier.fillMaxWidth(), longContent = true) {
+            changelogItem(
+                    "1.2.7_beta1",
+                    "今日助手按课前、课中和课间展示提醒与倒计时；课程状态切换前的最后三秒，日视图和周视图都会切换到全屏倒计时，结束时的冲击波会带动首页卡片与文字。\n" +
+                    "周视图课程卡片新增三种文字排布，可在个性化设置中选择默认、全部居中或从上到下铺满；地点和教师开关可独立调整。课程文字在壁纸上更清晰，没有壁纸时也不再额外加重阴影。\n" +
+                    "编辑作息时，调整后续时段的起点不再被前面已设置的时间锁住；节次调整、保存和按钮布局也更加顺手。\n" +
+                    "小米超级岛改善课中倒计时刷新与提醒恢复，测试按钮会给出实际发送结果，并可从岛上打开勿扰模式。\n" +
+                    "更多教务入口可参与自动刷新；需要网页操作的学校仍可随时打开教务页面手动刷新。导入和刷新时会尽量保留课程自带的上课时间。\n" +
+                    "优化 AI 助手的操作确认与错误提示，以及周视图切换、课程卡片和首页玻璃效果的动画细节。"
+                )
             changelogItem(
                     "1.2.6",
                     "周视图默认使用无界模式，课程、节次和星期栏自然融入整页背景；仍可在设置中切换普通模式。开启天气后，周数旁可直接看到天气与气温。\n" +

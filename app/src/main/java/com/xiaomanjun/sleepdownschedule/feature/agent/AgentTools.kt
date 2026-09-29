@@ -23,6 +23,8 @@ import java.net.URI
  * Agent never depends on one vendor's wire format.
  */
 enum class AgentToolName {
+    GET_ACTION_GUIDE,
+    PROPOSE_ACTIONS,
     GET_CURRENT_OVERVIEW,
     SEARCH_COURSES,
     GET_WEEK_SCHEDULE,
@@ -31,20 +33,24 @@ enum class AgentToolName {
     GET_SETTINGS,
     GET_SCHEDULE_ADJUSTMENTS,
     GET_SCHEDULES,
-    UPDATE_MEMORY
+    UPDATE_MEMORY,
+    UNKNOWN
 }
 
 data class AgentToolCall(
     val id: String,
     val name: AgentToolName,
-    val arguments: Map<String, String> = emptyMap()
+    val arguments: Map<String, String> = emptyMap(),
+    val requestedName: String = name.name,
+    val validationError: String? = null
 )
 
 data class AgentToolResult(
     val callId: String,
     val name: AgentToolName,
     val success: Boolean,
-    val content: String
+    val content: String,
+    val proposedAnswer: String? = null
 )
 
 @Serializable
@@ -65,6 +71,9 @@ enum class AgentRunStatusIcon {
 }
 
 internal fun AgentToolName.runStatus(): AgentRunStatus = when (this) {
+    AgentToolName.GET_ACTION_GUIDE -> AgentRunStatus(AgentRunStatusIcon.SETTINGS, "确认操作能力")
+    AgentToolName.PROPOSE_ACTIONS -> AgentRunStatus(AgentRunStatusIcon.SCHEDULE, "准备变更预览")
+    AgentToolName.UNKNOWN -> AgentRunStatus(AgentRunStatusIcon.THINKING, "修正工具调用")
     AgentToolName.GET_CURRENT_OVERVIEW ->
         AgentRunStatus(AgentRunStatusIcon.OVERVIEW, "读取当前日程")
     AgentToolName.SEARCH_COURSES ->
@@ -87,11 +96,13 @@ internal fun AgentToolName.runStatus(): AgentRunStatus = when (this) {
 
 /** Immutable snapshot reads only need to be exposed once per user turn. */
 internal val AgentToolName.isOneShotPerTurn: Boolean
-    get() = this != AgentToolName.SEARCH_COURSES
+    get() = this !in setOf(AgentToolName.SEARCH_COURSES, AgentToolName.GET_ACTION_GUIDE,
+        AgentToolName.PROPOSE_ACTIONS, AgentToolName.UNKNOWN)
 
 internal fun AgentToolCall.cacheKey(): String = buildString {
-    append(name.name)
-    arguments.toSortedMap().forEach { (key, value) ->
+    append(if (name == AgentToolName.UNKNOWN) requestedName else name.name)
+    validationError?.let { append('\u0000').append(it) }
+    normalizedAgentArguments(name, arguments).toSortedMap().forEach { (key, value) ->
         append('\u0000').append(key).append('=').append(value.trim())
     }
 }
@@ -108,6 +119,8 @@ internal fun agentToolDefinitions(
     strictFunctions: Boolean = false,
     excludedTools: Set<AgentToolName> = emptySet()
 ): JsonArray = buildJsonArray {
+    add(agentPlanningToolDefinition(AgentToolName.GET_ACTION_GUIDE, strictFunctions))
+    add(agentPlanningToolDefinition(AgentToolName.PROPOSE_ACTIONS, strictFunctions))
     if (AgentToolName.GET_CURRENT_OVERVIEW !in excludedTools) add(agentToolDefinition(
         AgentToolName.GET_CURRENT_OVERVIEW,
         "当前日期、时间、学期状态、有效教学周、今天/明天的完整课程记录与实际发生时间、原教学周和天气。",
@@ -153,10 +166,8 @@ internal fun agentToolDefinitions(
         add(agentMemoryToolDefinition(strictFunctions))
     }
     /*
-     * Only fact acquisition is exposed as a model tool. Write plans deliberately remain the
-     * generic <agent_actions> JSON protocol in the final answer: turning every write primitive
-     * into a function tool makes the schema look like a capability allow-list and causes models
-     * to refuse perfectly representable composite tasks.
+     * PROPOSE_ACTIONS validates a composite plan without writing schedule data. The validated
+     * plan uses the existing confirmation protocol; only the user's confirmation can save it.
      */
     if (includeMiMoWebSearch) {
         /*
@@ -359,8 +370,15 @@ internal fun executeAgentReadTools(
         semesterCourses = scopedSemesterCourses
     )
     return calls.map { call ->
+        call.validationError?.let {
+            return@map AgentToolResult(call.id, call.name, false, it)
+        }
+        if (call.name == AgentToolName.PROPOSE_ACTIONS) return@map prepareAgentActions(call, scopedFacts)
         val content = try {
             when (call.name) {
+                AgentToolName.GET_ACTION_GUIDE -> agentActionGuide(call.arguments["area"].orEmpty())
+                AgentToolName.PROPOSE_ACTIONS -> error("Handled above")
+                AgentToolName.UNKNOWN -> throw IllegalArgumentException("未知工具；请使用本轮 tools 中的函数，修改通过 PROPOSE_ACTIONS 提交预览")
                 AgentToolName.GET_CURRENT_OVERVIEW -> agentOverviewResult(scopedFacts)
                 AgentToolName.SEARCH_COURSES -> agentCourseSearchResult(call.arguments, scopedFacts)
                 AgentToolName.GET_WEEK_SCHEDULE -> agentWeekResult(scopedFacts)

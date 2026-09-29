@@ -60,6 +60,14 @@ class CourseSessionReminderTest {
         assertSame(active, NotificationScheduler.selectImmediateCoursePayload(listOf(upcoming, active), epoch(9, 30), 45))
     }
 
+    @Test fun classStartBoundaryCanCreateReminderWithoutPreClassPost() {
+        val active = payload(splitCourse.copy(periods = listOf(1, 2)))
+        val start = epoch(8, 0)
+        assertTrue(start in active.refreshBoundaries())
+        assertSame(active, NotificationScheduler.selectImmediateCoursePayload(listOf(active), start, 10))
+        assertEquals(LiveUpdatePhase.IN_CLASS, active.statusAt(start).phase)
+    }
+
     @Test fun customTimeRemainsOneExactSessionAndAffectsAlarmRescheduling() {
         val original = splitCourse.copy(customStartTime = "18:00", customEndTime = "19:00")
         val edited = original.copy(customEndTime = "20:00")
@@ -68,5 +76,14 @@ class CourseSessionReminderTest {
             NotificationScheduler.scheduleSignature(listOf(original), defaultConfig(), periods, date),
             NotificationScheduler.scheduleSignature(listOf(edited), defaultConfig(), periods, date)
         )
+    }
+
+    @Test fun customBellTimesKeepTheLiveActivityInBreakWithTheAssistant() {
+        val course = splitCourse.copy(periods = listOf(1, 2), customStartTime = "10:10",
+            customEndTime = "11:45", customPeriodTimes = "1,10:10-10:50;2,11:05-11:45")
+        val timeline = NotificationScheduler.courseTimeline(date, course, periods, zone)
+        assertEquals(2, timeline.size)
+        assertEquals(epoch(10, 50), timeline.first().endAtMillis)
+        assertEquals(epoch(11, 5), timeline.last().startAtMillis)
     }
 }

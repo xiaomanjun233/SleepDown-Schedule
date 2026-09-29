@@ -487,85 +487,27 @@ class ScheduleRepository(private val database: AppDatabase) {
                     periodDefinitions = configDao.getPeriods(scheduleId)
                 )
 
-                val removedWeeks = mutableMapOf<Long, MutableSet<Int>>()
-                plan.actions.forEach { action ->
-                    when (action.type) {
-                        AgentValidatedActionType.ADD -> action.edited?.let { course ->
-                            courseDao.insertCourse(
-                                normalizeCoursesForSchedule(
-                                    listOf(course.copy(id = 0)),
-                                    scheduleId
-                                ).single()
-                            )
+                plan.actions.filter { it.original != null }.groupBy { it.original!!.id }.forEach { (id, actions) ->
+                    val original = before.first { it.id == id }
+                    actions.forEach { action ->
+                        require(action.sourcePeriodSet().isNotEmpty() && action.sourcePeriodSet().all { it in original.periods }) {
+                            "所选节次不属于原课程，请重新生成计划"
                         }
-
-                        AgentValidatedActionType.UPDATE,
-                        AgentValidatedActionType.REPLACE -> {
-                            val original = action.original
-                            val edited = action.scopedEditedCourse()
-                            if (original != null && edited != null) {
-                                if (action.scope != AgentActionScope.ALL_WEEKS) {
-                                    val removed = removedWeeks.getOrPut(original.id) { mutableSetOf() }.apply { addAll(action.sourceWeekSet()) }
-                                    val remainingWeeks = original.weeks.filterNot { it in removed }
-                                    if (remainingWeeks.isEmpty()) {
-                                        courseDao.deleteCourse(original.id)
-                                    } else {
-                                        courseDao.updateCourse(
-                                            original.copy(
-                                                weeks = remainingWeeks,
-                                                scheduleId = scheduleId
-                                            )
-                                        )
-                                    }
-                                    courseDao.insertCourse(
-                                        normalizeCoursesForSchedule(
-                                            listOf(
-                                                edited.copy(
-                                                    id = 0,
-                                                    weeks = edited.weeks
-                                                )
-                                            ),
-                                            scheduleId
-                                        ).single()
-                                    )
-                                } else {
-                                    courseDao.updateCourse(
-                                        normalizeCoursesForSchedule(
-                                            listOf(edited.copy(id = original.id)),
-                                            scheduleId
-                                        ).single()
-                                    )
-                                }
-                            }
+                    }
+                    val fragments = agentCourseFragments(original, actions)
+                    if (fragments.isEmpty()) courseDao.deleteCourse(id)
+                    else {
+                        courseDao.updateCourse(normalizeCoursesForSchedule(listOf(fragments.first().copy(id = id)), scheduleId).single())
+                        fragments.drop(1).forEach { fragment ->
+                            courseDao.insertCourse(normalizeCoursesForSchedule(listOf(fragment.copy(id = 0)), scheduleId).single())
                         }
-
-                        AgentValidatedActionType.DELETE -> action.original?.let { original ->
-                            if (action.scope != AgentActionScope.ALL_WEEKS) {
-                                val removed = removedWeeks.getOrPut(original.id) { mutableSetOf() }.apply { addAll(action.sourceWeekSet()) }
-                                val remainingWeeks = original.weeks.filterNot { it in removed }
-                                if (remainingWeeks.isEmpty()) courseDao.deleteCourse(original.id)
-                                else courseDao.updateCourse(
-                                    original.copy(
-                                        weeks = remainingWeeks,
-                                        scheduleId = scheduleId
-                                    )
-                                )
-                            } else {
-                                courseDao.deleteCourse(original.id)
-                            }
-                        }
-
-                        AgentValidatedActionType.OPEN_SETTINGS,
-                        AgentValidatedActionType.OPEN_IMPORT,
-                        AgentValidatedActionType.SET_SETTING,
-                        AgentValidatedActionType.SET_PERIOD_SETTINGS,
-                        AgentValidatedActionType.SET_ADJUSTMENTS,
-                        AgentValidatedActionType.CREATE_SCHEDULE,
-                        AgentValidatedActionType.ACTIVATE_SCHEDULE,
-                        AgentValidatedActionType.DELETE_SCHEDULE -> Unit
                     }
                 }
-
+                plan.actions.filter { it.type == AgentValidatedActionType.ADD }.forEach { action ->
+                    action.edited?.let { course ->
+                        courseDao.insertCourse(normalizeCoursesForSchedule(listOf(course.copy(id = 0)), scheduleId).single())
+                    }
+                }
                 mergeCompatibleCourseFragments(scheduleId)
                 val after = courseDao.getCourses(scheduleId)
                 if (!verifyAgentPlan(after, plan, before)) {
@@ -615,21 +557,17 @@ class ScheduleRepository(private val database: AppDatabase) {
     suspend fun importDraftForSchedule(scheduleId: Int, draft: ImportDraft) {
         database.withTransaction {
             require(profileDao.getProfiles().any { it.id == scheduleId }) { "自动刷新绑定的课表已不存在" }
+            val currentConfig = configDao.getConfig(scheduleId) ?: error("自动刷新绑定的课表配置已不存在")
+            val currentPeriods = configDao.getPeriods(scheduleId)
+            val refreshed = preserveTimingForAutoRefresh(currentConfig, currentPeriods, draft)
             val activeId = activeScheduleId()
             val globalConfig = configDao.getConfig(activeId)
-                ?: configDao.getConfig(scheduleId)
-                ?: defaultConfig(activeId)
-            val importedPeriods = normalizePeriodsForSchedule(draft.periods, scheduleId)
-            val importedConfig = configWithCountsFromPeriods(
-                draft.config.withGlobalSettingsFrom(globalConfig),
-                importedPeriods
-            )
-            configDao.upsertConfig(normalizeConfigForSchedule(importedConfig, scheduleId))
-            configDao.deletePeriods(scheduleId)
-            configDao.upsertPeriods(importedPeriods)
-            replaceSchemesWithPeriods(scheduleId, importedConfig, importedPeriods, "自动刷新作息")
+                ?: currentConfig
+            configDao.upsertConfig(normalizeConfigForSchedule(
+                refreshed.config.withGlobalSettingsFrom(globalConfig), scheduleId
+            ))
             courseDao.deleteBySchedule(scheduleId)
-            courseDao.insertCourses(normalizeImportedCoursesForSchedule(draft.courses, scheduleId))
+            courseDao.insertCourses(normalizeImportedCoursesForSchedule(refreshed.courses, scheduleId))
         }
     }
 
@@ -1120,6 +1058,26 @@ private fun CourseEntity.mergeKey(): CourseMergeKey {
         customPeriodTimes = customPeriodTimes,
         customColorArgb = customColorArgb,
         weekParity = weekParity
+    )
+}
+
+internal fun preserveTimingForAutoRefresh(
+    currentConfig: ScheduleConfigEntity,
+    currentPeriods: List<PeriodEntity>,
+    fetched: ImportDraft
+): ImportDraft {
+    require(currentPeriods.isNotEmpty()) { "当前课表没有作息节次，请手动导入并核对作息" }
+    val availablePeriods = currentPeriods.mapTo(hashSetOf()) { it.periodIndex }
+    require(fetched.courses.all { course -> course.periods.all { it in availablePeriods } }) {
+        "刷新课程包含当前作息没有的节次，请手动导入并核对作息"
+    }
+    return fetched.copy(
+        config = currentConfig.copy(
+            totalWeeks = fetched.config.totalWeeks,
+            currentWeek = currentConfig.currentWeek.coerceIn(1, fetched.config.totalWeeks),
+            termStartDate = fetched.config.termStartDate ?: currentConfig.termStartDate
+        ),
+        periods = currentPeriods
     )
 }
 

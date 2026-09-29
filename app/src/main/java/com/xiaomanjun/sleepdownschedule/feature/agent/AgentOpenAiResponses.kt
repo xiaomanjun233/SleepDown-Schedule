@@ -48,6 +48,8 @@ internal class OpenAiResponsesAgentRunner {
         onStreamReset: () -> Unit,
         executeTool: (AgentToolCall) -> AgentToolResult,
         cachedTools: Set<AgentToolName> = emptySet(),
+        cachedResults: Map<String, AgentToolResult> = emptyMap(),
+        validateAnswer: (String) -> String? = { null },
         telemetry: DayAgentTurnTelemetry
     ): String {
         val instructions = chatMessages
@@ -60,6 +62,7 @@ internal class OpenAiResponsesAgentRunner {
             .toMutableList()
         val completedOneShotTools = cachedTools.toMutableSet()
         val evidenceKeys = mutableSetOf<String>()
+        val turnTools = AgentTurnToolSession(cachedResults, executeTool)
         var outputRetryRequested = false
 
         toolRounds@ for (round in 0 until MaxAgentToolRounds) {
@@ -85,11 +88,6 @@ internal class OpenAiResponsesAgentRunner {
             )
             telemetry.recordUsage(decision.usage)
             telemetry.recordDecisionRound(decision.calls.size)
-            if (decision.unparsedToolCallCount > 0) {
-                throw IllegalStateException(
-                    "模型返回了 ${decision.unparsedToolCallCount} 个无法识别的工具调用，请重试"
-                )
-            }
             if (decision.calls.isNotEmpty()) {
                 val note = decision.content.trim().take(120).ifBlank {
                     "我先调用所需工具确认当前信息，再继续处理。"
@@ -105,7 +103,14 @@ internal class OpenAiResponsesAgentRunner {
             // Preserve opaque reasoning even when retrying an empty response without tool calls.
             input += decision.outputItems
             if (decision.calls.isEmpty()) {
-                usableAgentAnswer(decision.content)?.let { answer ->
+                val answer = usableAgentAnswer(decision.content)
+                if (answer != null) {
+                    val feedback = validateAnswer(answer)
+                    if (feedback != null) {
+                        onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "根据自检结果修正计划"))
+                        input += buildJsonObject { put("role", "user"); put("content", feedback) }
+                        continue@toolRounds
+                    }
                     onDelta(answer)
                     return answer
                 }
@@ -118,7 +123,9 @@ internal class OpenAiResponsesAgentRunner {
 
             val results = decision.calls.map { call ->
                 onStatus(call.name.runStatus())
-                val result = executeTool(call)
+                val result = if (call.name == AgentToolName.PROPOSE_ACTIONS && decision.calls.size != 1) {
+                    AgentToolResult(call.id, call.name, false, "请在读完事实后单独调用 PROPOSE_ACTIONS，一次提交完整计划。")
+                } else turnTools.run(call)
                 input += buildJsonObject {
                     put("type", "function_call_output")
                     put("call_id", result.callId)
@@ -128,6 +135,10 @@ internal class OpenAiResponsesAgentRunner {
                 result
             }
             telemetry.recordToolResults(results)
+            results.singleOrNull()?.proposedAnswer?.let { answer ->
+                onDelta(answer)
+                return answer
+            }
             val addedEvidence = decision.calls
                 .map { call -> evidenceKeys.add(call.cacheKey()) }
                 .any { it }
@@ -141,6 +152,7 @@ internal class OpenAiResponsesAgentRunner {
             onStatus = onStatus,
             onDelta = onDelta,
             onStreamReset = onStreamReset,
+            validateAnswer = validateAnswer,
             telemetry = telemetry
         )
     }
@@ -152,6 +164,7 @@ internal class OpenAiResponsesAgentRunner {
         onStatus: (AgentRunStatus) -> Unit,
         onDelta: (String) -> Unit,
         onStreamReset: () -> Unit,
+        validateAnswer: (String) -> String?,
         telemetry: DayAgentTurnTelemetry
     ): String {
         onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "整理结果"))
@@ -170,20 +183,25 @@ internal class OpenAiResponsesAgentRunner {
         return try {
             telemetry.requestStarted()
             val gate = AgentFinalOutputGate(onDelta)
-            gate.finish(stream(settings, body, gate::accept, telemetry::recordUsage))
+            val answer = gate.finish(stream(settings, body, gate::accept, telemetry::recordUsage))
+            validateAnswer(answer)?.let { throw AgentPlanValidationException(answer, it) }
+            answer
         } catch (error: Throwable) {
             if (error !is MissingResponsesBodyException &&
                 error !is MissingAgentBodyException &&
-                error !is AgentProtocolViolationException
+                error !is AgentProtocolViolationException && error !is AgentPlanValidationException
             ) {
                 throw error
             }
             onStreamReset()
-            onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "修正输出格式"))
+            onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, if (error is AgentPlanValidationException) "根据自检结果修正计划" else "修正输出格式"))
             val retry = responsesBody(
                 settings = settings,
                 instructions = finalInstructions + "\n\n" + DayAgentPrompts.FinalAnswerProtocolRetry,
-                input = input,
+                input = if (error is AgentPlanValidationException) input + listOf(
+                    buildJsonObject { put("role", "assistant"); put("content", error.answer) },
+                    buildJsonObject { put("role", "user"); put("content", error.feedback) }
+                ) else input,
                 stream = false,
                 includeTools = false,
                 includeMemoryTool = false,
@@ -199,8 +217,9 @@ internal class OpenAiResponsesAgentRunner {
             if (containsLeakedAgentFunctionProtocol(content)) {
                 throw AgentProtocolViolationException()
             }
-            onDelta(content)
-            content
+            val checked = if (validateAnswer(content) == null) content else AgentPlanRepairLimitMessage
+            onDelta(checked)
+            checked
         }
     }
 
@@ -342,36 +361,23 @@ internal fun parseAgentResponsesTurn(response: String): AgentResponsesTurn {
     check(root["status"]?.jsonPrimitive?.contentOrNull != "incomplete") {
         "AI 回复未完成，未生成可执行计划，请重试。"
     }
-    val outputItems = root.optionalArray("output")
+    val rawOutputItems = root.optionalArray("output")
         .mapNotNull { it as? JsonObject }
-    val functionItems = outputItems.filter {
-        it["type"]?.jsonPrimitive?.contentOrNull == "function_call"
-    }
-    val calls = functionItems.mapNotNull { item ->
-        val rawName = item["name"]?.jsonPrimitive?.contentOrNull
-            ?.trim()
-            ?.replace('-', '_')
-            ?.uppercase()
-            ?: return@mapNotNull null
-        val name = AgentToolName.entries.firstOrNull { it.name == rawName }
-            ?: return@mapNotNull null
-        val arguments = item["arguments"]?.jsonPrimitive?.contentOrNull
-            ?.let { raw ->
-                runCatching { AgentResponsesJson.parseToJsonElement(raw) as? JsonObject }
-                    .getOrNull()
-            }
-            ?.filterValues { it != kotlinx.serialization.json.JsonNull }
-            ?.mapValues { (_, value) ->
-                (value as? JsonPrimitive)?.contentOrNull ?: value.toString()
-            }
-            .orEmpty()
-        AgentToolCall(
-            id = item["call_id"]?.jsonPrimitive?.contentOrNull
-                ?: item["id"]?.jsonPrimitive?.contentOrNull
-                ?: "${name.name.lowercase()}-${response.hashCode().toUInt()}",
-            name = name,
-            arguments = arguments
+    val calls = mutableListOf<AgentToolCall>()
+    val outputItems = rawOutputItems.mapIndexed { index, item ->
+        if (item["type"]?.jsonPrimitive?.contentOrNull != "function_call") return@mapIndexed item
+        val call = decodeAgentToolCall(
+            item["call_id"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+                ?: "local-${response.hashCode().toUInt()}-$index",
+            item["name"]?.jsonPrimitive?.contentOrNull.orEmpty(), item["arguments"]
         )
+        calls += call
+        val rawArguments = item["arguments"]
+        JsonObject(item + mapOf(
+            "call_id" to JsonPrimitive(call.id),
+            "arguments" to if (rawArguments is JsonPrimitive && rawArguments.isString) rawArguments
+                else JsonPrimitive(rawArguments?.toString() ?: "{}")
+        ))
     }
     val content = buildList {
         root["output_text"]?.jsonPrimitive?.contentOrNull
@@ -393,7 +399,7 @@ internal fun parseAgentResponsesTurn(response: String): AgentResponsesTurn {
         outputItems = outputItems,
         calls = calls,
         content = content,
-        unparsedToolCallCount = functionItems.size - calls.size,
+        unparsedToolCallCount = calls.count { it.name == AgentToolName.UNKNOWN },
         usage = agentTokenUsage(root)
     )
 }

@@ -1,0 +1,77 @@
+name: Pull request checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: PR scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      android: ${{ steps.scope.outputs.android }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        run: python3 .github/scripts/pr_scope.py
+
+  android:
+    name: Android compile
+    needs: scope
+    if: needs.scope.outputs.android == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: compose-miuix-ui/miuix
+          ref: c36fab72391801d1e3ea5a00f966bf16bac28d4c
+          path: .ci/miuix
+          persist-credentials: false
+      - name: Apply public Miuix patches
+        shell: bash
+        run: |
+          git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-0.9.3-sleepdown.patch"
+          git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-cascading-popup-surface.patch"
+          git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-scaffold-underlay.patch"
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+          log-accepted-android-sdk-licenses: 'false'
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-37.0'
+      - name: Compile without release signing
+        run: bash ./gradlew compileGithubReleaseKotlin -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix" -Psleepdown.useMavenMirrors=false --console=plain --no-daemon --no-parallel --max-workers=2 --stacktrace
+
+  result:
+    name: PR checks
+    if: always()
+    needs: [scope, android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check results
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          test "$ANDROID_RESULT" = success || test "$ANDROID_RESULT" = skipped

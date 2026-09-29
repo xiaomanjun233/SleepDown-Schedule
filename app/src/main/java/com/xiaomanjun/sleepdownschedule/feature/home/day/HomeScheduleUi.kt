@@ -429,6 +429,7 @@ fun HomeReadableText(
 ) {
     val readability = LocalHomeReadability.current
     val backgroundFrozen = LocalHomeBackgroundFrozen.current || LocalHomeTextContrastFrozen.current
+    val hasWallpaper = readability.config?.hasAnyWallpaper() == true
     var targetShadowStrength by remember(color) { mutableFloatStateOf(0f) }
     val shadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "home-text-soft-shadow")
     val textLayout = remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -436,6 +437,10 @@ fun HomeReadableText(
     // Reuse each decision until the actual text bounds or wallpaper inputs change.
     val lastSample = remember(readability, color, backgroundFrozen) { arrayOfNulls<Rect>(1) }
     fun updateContrast() {
+        if (!hasWallpaper) {
+            targetShadowStrength = 0f
+            return
+        }
         if (backgroundFrozen) return
         val position = coordinates[0]?.takeIf { it.isAttached } ?: return
         val layout = textLayout.value ?: return
@@ -466,7 +471,7 @@ fun HomeReadableText(
         }
         targetShadowStrength = requiredStrength
     }
-    LaunchedEffect(readability, color, backgroundFrozen) { updateContrast() }
+    LaunchedEffect(readability, color, backgroundFrozen, hasWallpaper) { updateContrast() }
     val density = LocalDensity.current
     val lightText = color.luminance() >= 0.5f
     val effectiveFontSize = when {
@@ -474,20 +479,20 @@ fun HomeReadableText(
         style.fontSize != TextUnit.Unspecified -> style.fontSize
         else -> 14.sp
     }
-    val shadowStyle = if (shadowStrength <= 0.001f || readability.bitmap == null) style else {
+    val shadowStyle = if (!hasWallpaper || shadowStrength <= 0.001f || readability.bitmap == null) style else {
         val radius = with(density) {
-            // Spread the soft shadow beyond the glyph edge while keeping the light halo centered.
-            (effectiveFontSize.toPx() * if (lightText) 0.28f else 0.36f).coerceIn(2.6.dp.toPx(), 6.2.dp.toPx())
+            (effectiveFontSize.toPx() * if (lightText) 0.50f else 0.54f)
+                .coerceIn(5.dp.toPx(), 12.dp.toPx())
         }
         style.copy(shadow = androidx.compose.ui.graphics.Shadow(
             color = (if (lightText) ComposeColor.Black else ComposeColor.White).copy(
-                alpha = (if (lightText) 0.82f else 0.92f) * shadowStrength
+                alpha = (if (lightText) 0.42f else 0.52f) * shadowStrength
             ),
-            offset = Offset(0f, with(density) { if (lightText) 0.45.dp.toPx() else 0f }),
+            offset = Offset.Zero,
             blurRadius = radius
         ))
     }
-    Box(modifier = modifier) {
+    Box(modifier = modifier.homeCountdownShockwave(0.55f)) {
         Text(
             text = text,
             modifier = Modifier.onGloballyPositioned {
@@ -2039,7 +2044,8 @@ private fun DayDateSectionHeader(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 8.dp, bottom = 2.dp)
-            .homeSwitchGroup(),
+            .homeSwitchGroup()
+            .homeCountdownShockwave(0.75f),
         contentAlignment = Alignment.Center
     ) {
         DayStatusGlassPill(
@@ -2062,7 +2068,7 @@ private fun DayPartHeader(
         val end = courses.mapNotNull { courseEndTime(it, periods) }.maxOrNull()
         if (start != null && end != null) "$start–$end" else null
     }
-    SleepDownTimeSectionDivider(modifier = Modifier.homeSwitchGroup(), textColor = textColor, label = {
+    SleepDownTimeSectionDivider(modifier = Modifier.homeSwitchGroup().homeCountdownShockwave(0.75f), textColor = textColor, label = {
         HomeReadableText(
             text = dayPartLabel(part),
             style = MaterialTheme.typography.titleSmall,
@@ -2081,7 +2087,7 @@ private fun DayPartHeader(
 }
 
 @Composable
-private fun dayCourseTextColor(
+internal fun homeCourseTextColor(
     config: ScheduleConfigEntity,
     course: CourseEntity,
     pageForeground: ComposeColor,
@@ -2089,15 +2095,11 @@ private fun dayCourseTextColor(
 ): ComposeColor {
     if (muted || !config.courseCardColoredTextEnabled) return pageForeground
     val seed = courseCardBaseColor(config, course)
-    val pageLuminance = if (config.wallpaperUri.isNullOrBlank()) {
-        MaterialTheme.colorScheme.background.luminance()
-    } else {
-        LocalAdaptiveGlass.current.luminance
-    }
-    return remember(seed, pageLuminance, pageForeground) {
+    val hasWallpaper = !config.wallpaperUri.isNullOrBlank()
+    return remember(seed, hasWallpaper, pageForeground) {
         courseTextColorForPage(
             seed = seed,
-            pageLuminance = pageLuminance,
+            hasWallpaper = hasWallpaper,
             lightText = pageForeground.luminance() >= 0.5f
         )
     }
@@ -2108,8 +2110,8 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
     val adjustedEditor = LocalAdjustedCourseEditor.current
     val subdued = muted || completed
     val pageForeground = homeForegroundColor(config)
-    val foreground = dayCourseTextColor(config, course, pageForeground, subdued)
-    Column(modifier = Modifier.homeSwitchGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    val foreground = homeCourseTextColor(config, course, pageForeground, subdued)
+    Column(modifier = Modifier.homeSwitchGroup().homeCountdownShockwave(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         CourseGlassCard(
             backdrop = backdrop,
             config = config,
@@ -2128,8 +2130,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                 style = MaterialTheme.typography.labelLarge,
                 color = foreground,
                 themeColor = null,
-                fontWeight = if (!subdued && config.courseCardColoredTextEnabled) FontWeight.Bold else null,
-                shadowLightText = pageForeground.luminance() >= 0.5f
+                fontWeight = if (!subdued && config.courseCardColoredTextEnabled) FontWeight.Bold else null
             )
         }
         CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config,
@@ -2153,9 +2154,8 @@ internal fun DayCourseCardTextContent(
     muted: Boolean = false
 ) {
     val coloredText = !muted && config.courseCardColoredTextEnabled
-    val renderedTextColor = dayCourseTextColor(config, course, textColor, muted)
+    val renderedTextColor = homeCourseTextColor(config, course, textColor, muted)
     val coloredWeight = if (coloredText) FontWeight.Bold else null
-    val lightText = textColor.luminance() >= 0.5f
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val safeTabletScale = tabletFontScale.coerceAtLeast(1f)
         val titleStyle = MaterialTheme.typography.titleMedium.copy(
@@ -2166,22 +2166,21 @@ internal fun DayCourseCardTextContent(
             fontSize = MaterialTheme.typography.bodyMedium.fontSize * safeTabletScale,
             lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * safeTabletScale
         )
-        CourseCardText(course.name, style = titleStyle, color = renderedTextColor, themeColor = null, fontWeight = coloredWeight, shadowLightText = lightText)
+        CourseCardText(course.name, style = titleStyle, color = renderedTextColor, themeColor = null, fontWeight = coloredWeight)
         if (showTime) {
             CourseCardText(
                 courseHomeTimeDetail(course, periods),
                 themeColor = null,
                 style = bodyStyle,
                 color = renderedTextColor.copy(alpha = 0.86f),
-                fontWeight = coloredWeight,
-                shadowLightText = lightText
+                fontWeight = coloredWeight
             )
         }
         if (!course.location.isNullOrBlank()) {
-            CourseCardText("地点：" + course.location, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight, shadowLightText = lightText)
+            CourseCardText("地点：" + course.location, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight)
         }
         if (!course.teacher.isNullOrBlank()) {
-            CourseCardText("教师：" + course.teacher, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight, shadowLightText = lightText)
+            CourseCardText("教师：" + course.teacher, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight)
         }
         if (showWeeks) {
             CourseCardText(
@@ -2189,12 +2188,11 @@ internal fun DayCourseCardTextContent(
                 themeColor = null,
                 style = bodyStyle,
                 color = renderedTextColor.copy(alpha = 0.86f),
-                fontWeight = coloredWeight,
-                shadowLightText = lightText
+                fontWeight = coloredWeight
             )
         }
         if (!course.note.isNullOrBlank()) {
-            CourseCardText("备注：" + course.note, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight, shadowLightText = lightText)
+            CourseCardText("备注：" + course.note, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = null, fontWeight = coloredWeight)
         }
     }
 }
@@ -2233,6 +2231,10 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             muted = muted,
             onClick = if (onClick != null) ({ onClick(ownBounds[0]) }) else null
         ) {
+            Box(Modifier.padding(bottom = if (adjustmentLabel != null) {
+                (courseBadgeContentInset(with(LocalDensity.current) { courseAdjustmentBadgeHeight() }, 24.dp) - 16.dp)
+                    .coerceAtLeast(0.dp)
+            } else 0.dp)) {
             DayCourseCardTextContent(
                 course = course,
                 periods = periods,
@@ -2243,10 +2245,11 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
                 config = config,
                 muted = muted
             )
+            }
         }
         adjustmentLabel?.let {
             CourseAdjustmentBadge(it, backdrop, config,
-                Modifier.align(Alignment.BottomEnd).offset(x = 5.dp, y = 5.dp).zIndex(7f))
+                Modifier.align(Alignment.BottomEnd).courseBadgeCornerAnchor(24.dp).zIndex(7f))
         }
     }
     }

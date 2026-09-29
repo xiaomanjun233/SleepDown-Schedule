@@ -614,7 +614,9 @@ fun DialogLiquidButton(
     highContrast: Boolean = false,
     roundIcon: Boolean = false,
     shadowEnabled: Boolean = true,
-    shadowStyle: Shadow = Shadow.Default
+    shadowStyle: Shadow = Shadow.Default,
+    height: Dp = 40.dp,
+    horizontalPadding: Dp = 18.dp
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val useMonochromeNeutral = role == DialogButtonRole.Neutral && monochromeNeutral
@@ -651,9 +653,9 @@ fun DialogLiquidButton(
             onClick = onClick,
             backdrop = backdrop,
             modifier = if (useRoundIcon) modifier.size(42.dp) else modifier,
-            height = if (useRoundIcon) 42.dp else 40.dp,
+            height = if (useRoundIcon) 42.dp else height,
             surfaceColor = surfaceColor,
-            contentPadding = if (useRoundIcon) PaddingValues(0.dp) else PaddingValues(horizontal = 18.dp),
+            contentPadding = if (useRoundIcon) PaddingValues(0.dp) else PaddingValues(horizontal = horizontalPadding),
             blurRadius = blurRadius,
             lensHeight = 16.dp,
             lensAmount = 24.dp,
@@ -677,7 +679,7 @@ fun DialogLiquidButton(
         }
     } else {
         Row(
-            modifier = (if (useRoundIcon) modifier.size(42.dp) else modifier.height(40.dp))
+            modifier = (if (useRoundIcon) modifier.size(42.dp) else modifier.height(height))
                 .clip(Capsule())
                 .background(
                     surfaceColor.copy(
@@ -687,7 +689,7 @@ fun DialogLiquidButton(
                     )
                 )
                 .clickable(onClick = onClick)
-                .then(if (useRoundIcon) Modifier else Modifier.padding(horizontal = 18.dp)),
+                .then(if (useRoundIcon) Modifier else Modifier.padding(horizontal = horizontalPadding)),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {

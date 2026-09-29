@@ -136,6 +136,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -145,6 +146,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
@@ -346,7 +348,9 @@ internal data class DayAgentCardVisual(
     val trailingStatus: String?,
     val weatherAlert: Boolean,
     val collapsed: Boolean,
-    val cardIsDark: Boolean
+    val cardIsDark: Boolean,
+    val countdownSeconds: Long? = null,
+    val transitionKey: String? = null
 )
 
 @Composable
@@ -470,15 +474,13 @@ internal fun rememberDayAgentPresentation(
     val now = facts.now
     val date = facts.date
     val weather = facts.weather
-    val currentSlot = remember(facts.today, now, focusOverride) {
-        if (focusOverride != null) focusOverride.takeIf {
-            !now.isBefore(it.date.atTime(it.start)) && now.isBefore(it.date.atTime(it.end))
-        } else facts.today.firstOrNull { !now.toLocalTime().isBefore(it.start) && now.toLocalTime().isBefore(it.end) }
+    val presentationClock = if (focusOverride == null && now.toLocalDate() != date)
+        date.atTime(now.toLocalTime()) else now
+    val lesson = remember(facts.today, facts.periodDefinitions, presentationClock, focusOverride) {
+        agentLessonFocus(focusOverride?.let(::listOf) ?: facts.today, facts.periodDefinitions, presentationClock)
     }
-    val nextSlot = remember(facts.today, now, focusOverride) {
-        if (focusOverride != null) focusOverride.takeIf { now.isBefore(it.date.atTime(it.start)) }
-        else facts.today.firstOrNull { now.toLocalTime().isBefore(it.start) }
-    }
+    val currentSlot = lesson?.slot?.takeIf { lesson.phase != AgentLessonPhase.BEFORE }
+    val nextSlot = lesson?.slot?.takeIf { lesson.phase == AgentLessonPhase.BEFORE }
     val previewTomorrow = now.toLocalDate() == date &&
         now.toLocalTime() >= LocalTime.of(22, 0) &&
         currentSlot == null &&
@@ -489,26 +491,28 @@ internal fun rememberDayAgentPresentation(
         nextSlot != null || previewTomorrow -> if (cardIsDark) Color(0xFFFFB45C) else Color(0xFFD96A00)
         else -> if (cardIsDark) Color(0xFF62B5FF) else Color(0xFF006EDC)
     }
-    val focusSlot = currentSlot ?: nextSlot ?: facts.tomorrow.firstOrNull().takeIf { previewTomorrow }
-    val remainingMinutes = remember(currentSlot, nextSlot, now, focusOverride) {
-        val target = currentSlot?.end ?: nextSlot?.start
-        target?.let {
-            if (focusOverride != null) {
-                val seconds = Duration.between(now, focusOverride.date.atTime(it)).seconds.coerceAtLeast(0)
-                (seconds + 59L) / 60L
-            }
-            else Duration.between(now.toLocalTime(), it).toMinutes().coerceAtLeast(0)
-        }
-    }
+    val focusSlot = lesson?.slot ?: facts.tomorrow.firstOrNull().takeIf { previewTomorrow }
+    val remainingSeconds = lesson?.secondsRemainingAt(presentationClock)
+    val remainingMinutes = remainingSeconds?.let { (it + 59L) / 60L }
+    val finalTenMinutes = remainingSeconds != null && remainingSeconds <= 600L &&
+        (focusOverride != null || now.toLocalDate() == date)
     val activityLabel = when {
-        currentSlot != null -> "当前"
-        nextSlot != null -> "下节课"
+        lesson?.phase == AgentLessonPhase.IN_CLASS && finalTenMinutes ->
+            if (lesson.finalLesson) "距下课" else "距课间"
+        lesson?.phase == AgentLessonPhase.IN_CLASS -> "上课中"
+        lesson?.phase == AgentLessonPhase.BREAK && finalTenMinutes -> "距上课"
+        lesson?.phase == AgentLessonPhase.BREAK -> "课间中"
+        lesson?.phase == AgentLessonPhase.BEFORE && finalTenMinutes -> "距上课"
+        lesson?.phase == AgentLessonPhase.BEFORE -> "下节课"
         previewTomorrow -> "明日首课"
         facts.today.isEmpty() -> "今日无课"
         else -> "课程已结束"
     }
     val countdownText = when {
-        currentSlot != null && remainingMinutes != null -> "${remainingMinutes} 分钟后下课"
+        finalTenMinutes -> agentCountdownText(remainingSeconds)
+        lesson?.phase == AgentLessonPhase.IN_CLASS && remainingMinutes != null ->
+            if (lesson.finalLesson) "${remainingMinutes} 分钟后下课" else "${remainingMinutes} 分钟后课间"
+        lesson?.phase == AgentLessonPhase.BREAK && remainingMinutes != null -> "${remainingMinutes} 分钟后上课"
         nextSlot != null && remainingMinutes != null && (focusOverride != null || now.toLocalTime() >= LocalTime.of(6, 0)) ->
             "${remainingMinutes} 分钟后"
         previewTomorrow -> ""
@@ -518,7 +522,10 @@ internal fun rememberDayAgentPresentation(
     val locationText = focusSlot?.course?.let { course ->
         listOfNotNull(course.location?.takeIf(String::isNotBlank), course.teacher?.takeIf(String::isNotBlank)).joinToString(" | ")
     }.orEmpty()
-    val focusTimeText = focusSlot?.let {
+    val focusTimeText = lesson?.segment?.let {
+        val formatter = DateTimeFormatter.ofPattern("HH:mm")
+        "${it.start.format(formatter)} - ${it.end.format(formatter)}"
+    } ?: focusSlot?.let {
         val formatter = DateTimeFormatter.ofPattern("HH:mm")
         "${it.start.format(formatter)} - ${it.end.format(formatter)}"
     }.orEmpty()
@@ -555,7 +562,9 @@ internal fun rememberDayAgentPresentation(
         trailingStatus = weatherAlertText?.let { "⚠️ $it" } ?: assistantHintText,
         weatherAlert = weatherAlertText != null,
         collapsed = collapsed,
-        cardIsDark = cardIsDark
+        cardIsDark = cardIsDark,
+        countdownSeconds = remainingSeconds?.takeIf { finalTenMinutes },
+        transitionKey = lesson?.transitionKey
     )
     val conversationInitialText = remember(facts.today, facts.tomorrow, focusSlot, weather, previewTomorrow) {
         when {
@@ -623,16 +632,19 @@ fun TodayAgentCard(
     }
 
     val backgroundFrozen = com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen.current
-    LaunchedEffect(date, backgroundFrozen) {
-        if (backgroundFrozen) return@LaunchedEffect
-        while (true) {
-            now = LocalDateTime.now()
-            delay(60_000L - (System.currentTimeMillis() % 60_000L))
-        }
-    }
-
     val staticFacts = remember(state.courses, state.periods, state.config, scheduleName, date, weather) {
         DayAgentRenderCache.facts(state, date, weather, scheduleName, context)
+    }
+    LaunchedEffect(date, backgroundFrozen, staticFacts.today, staticFacts.periodDefinitions, isActive, dialogOpen) {
+        if (backgroundFrozen || !isActive || dialogOpen) return@LaunchedEffect
+        while (true) {
+            val current = LocalDateTime.now()
+            now = current
+            val interval = if (agentNextBoundaryWithinTenMinutes(
+                    staticFacts.today, staticFacts.periodDefinitions, current
+                )) 1_000L else 60_000L
+            delay(interval - (System.currentTimeMillis() % interval))
+        }
     }
     LaunchedEffect(date, scheduleId, hasApiKey, isActive) {
         showApiKeyHint = isActive && !hasApiKey
@@ -751,6 +763,7 @@ fun TodayAgentCard(
                     }
                 }
             )
+            .homeCountdownShockwave()
     ) {
         // This is the one real glass shell. It is a sibling of the interactive content, so its
         // compact card-sized texture can safely feed the LiquidButtons without recursive capture.
@@ -779,6 +792,7 @@ fun TodayAgentCard(
                 foreground = foreground,
                 activityAccent = activityAccent,
                 modifier = Modifier.fillMaxWidth(),
+                animated = isActive && !backgroundFrozen && !dialogOpen,
                 onWeatherClick = if (
                     weatherEnabled &&
                     weather == null &&
@@ -985,28 +999,229 @@ internal fun DayAgentCardVisualContent(
     activityAccent: Color,
     modifier: Modifier = Modifier,
     onWeatherClick: (() -> Unit)? = null,
-    decorated: Boolean = true
+    decorated: Boolean = true,
+    animated: Boolean = false
+) {
+    if (!animated) {
+        DayAgentCardVisualCore(visual, foreground, activityAccent, modifier, onWeatherClick, decorated)
+        return
+    }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val cinematic = LocalDayAgentCountdownCinematic.current
+    val burst = remember { Animatable(1f) }
+    var displayedVisual by remember { mutableStateOf(visual) }
+    var outgoing by remember { mutableStateOf<DayAgentCardVisual?>(null) }
+    var lastHapticKey by remember { mutableStateOf<Pair<String?, Long?>?>(null) }
+    LaunchedEffect(visual) {
+        val previous = displayedVisual
+        val seconds = visual.countdownSeconds
+        val hapticKey = visual.transitionKey to seconds
+        if (hapticKey != lastHapticKey) {
+            lastHapticKey = hapticKey
+            when {
+                seconds == 60L -> haptic.performHapticFeedback(
+                    androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                cinematic == null && seconds != null && seconds in 1L..3L -> haptic.performHapticFeedback(
+                    androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+            }
+        }
+        if (previous.transitionKey != visual.transitionKey) {
+            if (previous.countdownSeconds != null && previous.countdownSeconds <= 1L) {
+                burst.snapTo(0f)
+                outgoing = previous
+                if (cinematic == null) haptic.performHapticFeedback(
+                    androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            } else {
+                outgoing = null
+            }
+        }
+        displayedVisual = visual
+    }
+    val outgoingKey = outgoing?.transitionKey
+    LaunchedEffect(outgoingKey) {
+        if (outgoingKey != null) {
+            try {
+                burst.animateTo(1f, tween(1250, easing = LinearEasing))
+            } finally {
+                if (outgoing?.transitionKey == outgoingKey) outgoing = null
+            }
+        }
+    }
+    Box(modifier) {
+        if (decorated) {
+            val shape = RoundedRectangle(if (displayedVisual.collapsed) 26.dp else 28.dp)
+            Box(Modifier.matchParentSize().clip(shape)
+                .dayAgentCardSurface(displayedVisual, activityAccent, shape))
+        }
+        outgoing?.let { old ->
+            DayAgentCardVisualCore(old, foreground, activityAccent,
+                Modifier.fillMaxWidth().graphicsLayer {
+                    val p = burst.value.coerceIn(0f, 1f)
+                    alpha = 1f - agentSmoothStep(0.72f, 0.94f, p)
+                    val blur = 7.dp.toPx() * agentSmoothStep(0.72f, 0.94f, p)
+                    renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
+                }, null, decorated, shockwaveProgress = { burst.value }, drawSurface = false)
+        }
+        DayAgentCardVisualCore(displayedVisual, foreground, activityAccent,
+            Modifier.fillMaxWidth().graphicsLayer {
+                val p = if (outgoing == null) 1f else burst.value.coerceIn(0f, 1f)
+                alpha = agentSmoothStep(0.76f, 0.98f, p)
+                val blur = 8.dp.toPx() * (1f - agentSmoothStep(0.76f, 0.98f, p))
+                renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
+            }, onWeatherClick, decorated, animateCountdown = outgoing == null,
+            drawSurface = false)
+        if (outgoing != null) Canvas(Modifier.matchParentSize().clip(
+            RoundedRectangle(if (displayedVisual.collapsed) 26.dp else 28.dp)
+        )) {
+            val p = burst.value.coerceIn(0f, 1f)
+            val origin = Offset(size.width * 0.82f, 27.dp.toPx())
+            val travel = 82.dp.toPx() * p
+            repeat(32) { index ->
+                val angle = index * (2.0 * Math.PI / 32.0) + (index % 3) * 0.13
+                val distance = travel * (0.58f + (index % 5) * 0.10f)
+                val center = Offset(
+                    origin.x + kotlin.math.cos(angle).toFloat() * distance,
+                    origin.y + kotlin.math.sin(angle).toFloat() * distance
+                )
+                drawCircle(
+                    color = if (index % 3 == 0) Color.White else activityAccent,
+                    radius = (1.2.dp.toPx() + (index % 4) * 0.7.dp.toPx()) * (1f - p * 0.55f),
+                    center = center,
+                    alpha = (1f - p).coerceIn(0f, 1f)
+                )
+            }
+            drawCircle(activityAccent,
+                radius = size.width * agentSmoothStep(0f, 0.21f, p), center = origin,
+                alpha = 0.55f * (1f - agentSmoothStep(0.04f, 0.36f, p)),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+        }
+    }
+}
+
+private fun Modifier.dayAgentCardSurface(
+    visual: DayAgentCardVisual,
+    activityAccent: Color,
+    shape: Shape
+): Modifier = background(
+    if (visual.cardIsDark) Color.Black.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.30f),
+    shape
+).verticalGlassAccent(
+    accentColor = activityAccent,
+    shape = shape,
+    lightGlass = !visual.cardIsDark,
+    intensity = 1f,
+    expanded = true
+)
+
+@Composable
+private fun AgentCountdownNumber(text: String, seconds: Long, color: Color, transitionKey: String?) {
+    val cinematic = LocalDayAgentCountdownCinematic.current
+    val shake = if (seconds in 1L..60L) {
+        val transition = rememberInfiniteTransition(label = "agent-countdown-shake")
+        val offset by transition.animateFloat(
+            initialValue = -1f, targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(55, easing = LinearEasing), RepeatMode.Reverse),
+            label = "agent-countdown-shake-x"
+        )
+        offset
+    } else 0f
+    Row(Modifier.clearAndSetSemantics { contentDescription = text }
+        .onGloballyPositioned { coordinates -> cinematic?.numberBoundsInWindow = coordinates.boundsInWindow() }
+        .graphicsLayer {
+        alpha = if (cinematic != null && cinematic.phase != DayAgentCinematicPhase.IDLE &&
+            cinematic.episodeKey == transitionKey) 0f else 1f
+        val force = if (seconds <= 10L) 3.2.dp.toPx() else 1.5.dp.toPx()
+        translationX = shake * force
+        translationY = shake * force * 0.35f
+        scaleX = if (seconds in 1L..10L) 1.03f else 1f
+        scaleY = scaleX
+    }, verticalAlignment = Alignment.CenterVertically) {
+        text.forEach { character ->
+            if (character.isDigit()) {
+                AgentCountdownDigit(character, color)
+            } else {
+                Text(character.toString(), color = color,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentCountdownDigit(digit: Char, color: Color) {
+    val motion = remember { Animatable(1f) }
+    var displayed by remember { mutableStateOf(digit) }
+    var previous by remember { mutableStateOf<Char?>(null) }
+    LaunchedEffect(digit) {
+        if (digit == displayed) return@LaunchedEffect
+        previous = displayed
+        displayed = digit
+        motion.snapTo(0f)
+        motion.animateTo(1f, tween(300, easing = CubicBezierEasing(0.20f, 0.72f, 0.26f, 1f)))
+        previous = null
+    }
+    val style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum")
+    Box(contentAlignment = Alignment.Center) {
+        previous?.let { outgoing ->
+            Text(outgoing.toString(),
+                modifier = Modifier.graphicsLayer {
+                    val p = motion.value.coerceIn(0f, 1f)
+                    alpha = 1f - p
+                    translationY = -8.dp.toPx() * p
+                    val blur = 5.dp.toPx() * p
+                    renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
+                }, color = color, style = style,
+                fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        Text(displayed.toString(),
+            modifier = Modifier.graphicsLayer {
+                val p = motion.value.coerceIn(0f, 1f)
+                alpha = p
+                translationY = 8.dp.toPx() * (1f - p)
+                val blur = 5.dp.toPx() * (1f - p)
+                renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
+            }, color = color, style = style,
+            fontWeight = FontWeight.Bold, maxLines = 1)
+    }
+}
+
+@Composable
+private fun DayAgentCardVisualCore(
+    visual: DayAgentCardVisual,
+    foreground: Color,
+    activityAccent: Color,
+    modifier: Modifier,
+    onWeatherClick: (() -> Unit)?,
+    decorated: Boolean,
+    animateCountdown: Boolean = false,
+    shockwaveProgress: (() -> Float)? = null,
+    drawSurface: Boolean = true
 ) {
     val shape = RoundedRectangle(if (visual.collapsed) 26.dp else 28.dp)
+    fun shock(x: Float, y: Float, arrival: Float, origin: Boolean = false): Modifier =
+        if (shockwaveProgress == null) Modifier else Modifier.graphicsLayer {
+            val p = shockwaveProgress().coerceIn(0f, 1f)
+            val wave = ((p - arrival) / 0.44f).coerceIn(0f, 1f)
+            val push = if (wave < 0.40f) {
+                agentSmoothStep(0f, 0.40f, wave)
+            } else {
+                1f - agentSmoothStep(0.40f, 1f, wave)
+            }
+            translationX = x.dp.toPx() * push
+            translationY = y.dp.toPx() * push
+            if (origin) {
+                alpha = 1f - agentSmoothStep(0.02f, 0.28f, p)
+                scaleX = 1f + 0.12f * p
+                scaleY = scaleX
+            }
+        }
     Column(
         modifier = modifier
             .clip(shape)
-            .then(if (decorated) Modifier
-            .background(
-                if (visual.cardIsDark) {
-                    Color.Black.copy(alpha = 0.20f)
-                } else {
-                    Color.White.copy(alpha = 0.30f)
-                }
-            )
-            .verticalGlassAccent(
-                accentColor = activityAccent,
-                shape = shape,
-                lightGlass = !visual.cardIsDark,
-                intensity = 1f,
-                expanded = true
-            )
-            else Modifier)
+            .then(if (decorated && drawSurface) Modifier.dayAgentCardSurface(
+                visual, activityAccent, shape
+            ) else Modifier)
             .padding(horizontal = 16.dp, vertical = if (visual.collapsed) 10.dp else 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -1014,6 +1229,7 @@ internal fun DayAgentCardVisualContent(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     visual.activityLabel,
+                    modifier = shock(-22f, -6f, 0.15f),
                     color = activityAccent,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
@@ -1022,7 +1238,7 @@ internal fun DayAgentCardVisualContent(
                     Spacer(Modifier.width(8.dp))
                     Text(
                         courseName,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).then(shock(-16f, -5f, 0.08f)),
                         color = foreground,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
@@ -1032,13 +1248,19 @@ internal fun DayAgentCardVisualContent(
                 } ?: Spacer(Modifier.weight(1f))
                 Spacer(Modifier.width(10.dp))
                 if (visual.countdownText.isNotBlank()) {
-                    Text(
-                        visual.countdownText,
-                        color = activityAccent,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1
-                    )
+                    if (animateCountdown && visual.countdownSeconds != null) {
+                        AgentCountdownNumber(visual.countdownText, visual.countdownSeconds,
+                            activityAccent, visual.transitionKey)
+                    } else {
+                        Text(
+                            visual.countdownText,
+                            modifier = shock(16f, -9f, 0f, origin = true),
+                            color = activityAccent,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
             if (visual.courseName != null) {
@@ -1046,7 +1268,7 @@ internal fun DayAgentCardVisualContent(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         visual.locationText,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).then(shock(-16f, 14f, 0.12f)),
                         color = foreground.copy(alpha = if (decorated) 0.56f else 0.82f),
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
@@ -1055,6 +1277,7 @@ internal fun DayAgentCardVisualContent(
                     Spacer(Modifier.width(10.dp))
                     Text(
                         visual.focusTimeText,
+                        modifier = shock(8f, 14f, 0.04f),
                         color = foreground.copy(alpha = if (decorated) 0.56f else 0.82f),
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1
@@ -1066,6 +1289,7 @@ internal fun DayAgentCardVisualContent(
             Box(Modifier.fillMaxWidth().height(1.dp).background(foreground.copy(alpha = 0.10f)))
             Text(
                 visual.courseCountText,
+                modifier = shock(-13f, 9f, 0.14f),
                 color = foreground,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
@@ -1078,7 +1302,8 @@ internal fun DayAgentCardVisualContent(
                     visual.weatherText,
                     modifier = Modifier
                         .weight(1f)
-                        .then(if (onWeatherClick != null) Modifier.clickable(onClick = onWeatherClick) else Modifier),
+                        .then(if (onWeatherClick != null) Modifier.clickable(onClick = onWeatherClick) else Modifier)
+                        .then(shock(-14f, 10f, 0.19f)),
                     color = foreground.copy(alpha = if (decorated) 0.58f else 0.82f),
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
@@ -1088,6 +1313,7 @@ internal fun DayAgentCardVisualContent(
                     Spacer(Modifier.width(6.dp))
                      Text(
                          text = status,
+                         modifier = shock(10f, 10f, 0.10f),
                          color = if (visual.weatherAlert) {
                             if (visual.cardIsDark) Color(0xFFFFB86B) else Color(0xFFB84D00)
                         } else {
@@ -1183,12 +1409,18 @@ internal fun DayAgentConversationDialog(
     val appliedActionKeys = remember(state.config.id) {
         mutableStateOf(DayAgentPreferences.getAppliedActions(dialogContext, state.config.id))
     }
+    // Keep the shown proposal tied to its original facts. Refreshing the timetable must not
+    // silently change a pending confirmation or erase its before/after details after saving.
+    val confirmationSnapshots = remember(state.config.id, facts.date) {
+        mutableMapOf<Pair<Long, String>, Pair<DayAgentFacts, ParsedAgentActions>>()
+    }
     var executingActionKeys by remember(state.config.id) { mutableStateOf(emptySet<String>()) }
     var actionFeedback by remember(state.config.id) {
         mutableStateOf(emptyMap<String, AgentPlanExecutionResult>())
     }
     val expansion = remember { Animatable(0f) }
     val homeMotion = rememberTopAssistantMotion()
+    val homeDockFade = remember { Animatable(1f) }
     val fullMotion = rememberTopAssistantMotion(if (homeInitiallyFullScreen) 1f else 0f)
     var homeFullScreen by remember { mutableStateOf(homeInitiallyFullScreen) }
     var homeResponseVisible by remember { mutableStateOf(sending) }
@@ -1606,8 +1838,8 @@ internal fun DayAgentConversationDialog(
                     }
                 }
             }
-            // The pixel-aligned source cover is already above the warmed card. Remove the Dialog
-            // exactly when the Morph reaches its source geometry; no fixed frame delay is needed.
+            // Keep the camera-sized cap fully visible through the return motion, then dissolve it.
+            if (homePresentation) homeDockFade.animateTo(0f, tween(110))
             onDismiss()
             // Page-opening Agent actions are dispatched only after the source card has handed
             // ownership back to Home. Dispatching them at button-down left the Agent card alive
@@ -1693,13 +1925,14 @@ internal fun DayAgentConversationDialog(
               ) {
             if (homePresentation) Box(
                 (if (homeFullScreenSettled) Modifier.matchParentSize() else Modifier.glassMorphHost(homeSurfaceAllocation))
+                    .graphicsLayer { alpha = homeDockFade.value }
                     .glassBackdropProducer(homeSurfaceBackdrop)
             ) {
                 TopAssistantSurface(
                     backdrop, state.config, androidx.compose.ui.graphics.RectangleShape,
                     modifier = Modifier.matchParentSize(),
                     morphAllocation = homeSurfaceAllocation.takeUnless { homeFullScreenSettled },
-                    shapeProvider = ::homeShellShape,
+                    shapeProvider = if (homeFullScreenSettled) null else ::homeShellShape,
                     edgeEffectsEnabled = !homeFullScreenSettled,
                     refractionEnabled = !homeFullScreen && !fullMotion.drop.isRunning,
                     surfaceFrame = {
@@ -1723,7 +1956,7 @@ internal fun DayAgentConversationDialog(
                          val sizeProgress = agentMorphSizeProgress(raw, closing)
                          alpha = if (anchoredTabletConversation) {
                              agentSmoothStep(0.08f, 0.26f, sizeProgress)
-                         } else if (homePresentation && closing) topAssistantDockAlpha(homeMotion.drop.value, fadeEnd = 0.08f) else 1f
+                         } else if (homePresentation && closing) homeDockFade.value else 1f
                          val cornerProgress = agentSmoothStep(0.04f, 0.90f, sizeProgress)
                         val visualRadiusPx =
                             sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * cornerProgress
@@ -1809,7 +2042,7 @@ internal fun DayAgentConversationDialog(
                               } else 16.dp,
                               end = if (homePresentation) 22.dp else 16.dp,
                               bottom = if (homePresentation && homeFullScreen)
-                                  maxOf(adaptiveMetrics.safeBottom, with(density) { imeBottomPx.toDp() }) + homeInputHeight + 20.dp
+                                  0.dp
                                   else if (homePresentation) homeHandleHeight else 0.dp
                           ),
                      verticalArrangement = Arrangement.spacedBy(if (homePresentation && !homeFullScreen) 0.dp else 10.dp)
@@ -1834,7 +2067,11 @@ internal fun DayAgentConversationDialog(
                          contentPadding = PaddingValues(
                              top = if (homePresentation && homeFullScreen) adaptiveMetrics.safeTop + homeTopBarHeight
                                  else if (!homePresentation) 34.dp else 0.dp,
-                             bottom = if (anchoredTabletConversation) 58.dp else if (compactHomeInput) 4.dp else 16.dp
+                             bottom = if (homePresentation && homeFullScreen)
+                                 maxOf(adaptiveMetrics.safeBottom, with(density) { imeBottomPx.toDp() }) +
+                                     homeInputHeight + 24.dp
+                                 else if (anchoredTabletConversation) 58.dp
+                                 else if (compactHomeInput) 4.dp else 16.dp
                          ),
                          verticalArrangement = Arrangement.spacedBy(10.dp)
                      ) {
@@ -1917,9 +2154,15 @@ internal fun DayAgentConversationDialog(
                                  val messageParts = remember(message.content) {
                                      splitAgentReasoning(message.content)
                                  }
-                                  val parsed = remember(messageParts.answer, facts.sourceHash) {
-                                      parseAgentActions(messageParts.answer, facts)
+                                  val confirmationKey = message.id to messageParts.answer
+                                  val previouslyApplied = appliedActionKeys.value.any { it.startsWith("${message.id}:") }
+                                  val confirmation = if (previouslyApplied && confirmationKey !in confirmationSnapshots) {
+                                      facts to ParsedAgentActions("这项操作已执行并验证。", emptyList())
+                                  } else confirmationSnapshots.getOrPut(confirmationKey) {
+                                      facts to parseAgentActions(messageParts.answer, facts)
                                   }
+                                  val confirmationFacts = confirmation.first
+                                  val parsed = confirmation.second
                                   var storedTraceExpanded by remember(message.id) { mutableStateOf(false) }
                                   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                       if (!homePresentation && message.id == tracedAssistantMessageId) {
@@ -1984,28 +2227,14 @@ internal fun DayAgentConversationDialog(
                                           val actionKey = "${message.id}:$planSuffix"
                                           val alreadyApplied = actionKey in appliedActionKeys.value
                                           val executing = actionKey in executingActionKeys
-                                          val preview = remember(plan, facts.sourceHash) {
+                                          val preview = remember(plan, confirmationFacts.sourceHash) {
                                               previewAgentPlan(
-                                                  before = facts.semesterCourses,
+                                                  before = confirmationFacts.semesterCourses,
                                                   plan = plan,
-                                                  periodDefinitions = facts.periodDefinitions
+                                                  periodDefinitions = confirmationFacts.periodDefinitions
                                               )
                                           }
-                                          val containsCourseActions = plan.actions.any { action ->
-                                                  action.type == AgentValidatedActionType.ADD ||
-                                                  action.type == AgentValidatedActionType.UPDATE ||
-                                                  action.type == AgentValidatedActionType.REPLACE ||
-                                                  action.type == AgentValidatedActionType.DELETE
-                                          }
-                                          if (containsCourseActions) {
-                                              Text(
-                                                  text = agentPlanPreviewText(plan, preview),
-                                                  color = if (preview.hasWarnings) {
-                                                      Color(0xFFFFA94D)
-                                                  } else foreground.copy(alpha = 0.68f),
-                                                  style = MaterialTheme.typography.labelSmall
-                                              )
-                                          }
+                                          AgentPlanConfirmation(plan, preview, confirmationFacts, foreground, alreadyApplied)
                                           actionFeedback[actionKey]?.let { result ->
                                               Text(
                                                   text = result.message,
@@ -2049,7 +2278,7 @@ internal fun DayAgentConversationDialog(
                                           AgentOperationLiquidButton(
                                               text = when {
                                                   alreadyApplied -> "已执行并验证：${agentPlanSummary(plan)}"
-                                                  executing -> "正在预演并执行…"
+                                                  executing -> "正在保存并核对…"
                                                   else -> agentPlanButtonLabel(plan)
                                               },
                                               backdrop = backdrop,
@@ -2059,7 +2288,7 @@ internal fun DayAgentConversationDialog(
                                                       it.type == AgentValidatedActionType.DELETE_SCHEDULE
                                               },
                                               applied = alreadyApplied,
-                                              enabled = !executing,
+                                              enabled = !executing && !alreadyApplied,
                                               modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false },
                                               onClick = {
                                                   if (actionKey !in appliedActionKeys.value) {
@@ -2199,16 +2428,21 @@ internal fun DayAgentConversationDialog(
                       shape = if (homePresentation) homeShellShape() else RoundedCornerShape(32.dp)
                       clip = !homeFullScreenSettled
                       alpha = if (homePresentation) fullMotion.drop.value.coerceIn(0f, 1f) *
-                          (if (closing) topAssistantDockAlpha(homeMotion.drop.value, fadeEnd = 0.08f) else homeMotion.drop.value.coerceIn(0f, 1f))
+                          (if (closing) homeDockFade.value else homeMotion.drop.value.coerceIn(0f, 1f))
                           else agentSmoothStep(0.38f, 0.92f, expansion.value)
                   }
               ) {
                   ProgressiveBackdropBlur(
                       backdrop = if (homePresentation) homeFinishedBackdrop else agentCardContentBackdrop,
+                      modifier = if (homePresentation) Modifier.align(Alignment.BottomCenter) else Modifier,
                       tintColor = if (homePresentation) Color.Black else sourceForeground,
-                      height = if (homePresentation) adaptiveMetrics.safeTop + homeTopBarHeight + 20.dp else 52.dp,
+                      height = if (homePresentation)
+                          maxOf(adaptiveMetrics.safeBottom, with(density) { imeBottomPx.toDp() }) +
+                              homeInputHeight + 72.dp else 52.dp,
                       blurRadius = 9.dp,
                       tintIntensity = 0f,
+                      direction = if (homePresentation) ProgressiveBlurDirection.BottomToTop
+                          else ProgressiveBlurDirection.TopToBottom,
                       topMaskFadeStart = 0.20f,
                       radiusFadeStart = 0.10f,
                       fallbackTintStops = listOf(0f to Color.Black.copy(alpha = 0.10f), 1f to Color.Transparent)
@@ -2888,20 +3122,8 @@ private fun AgentSendLiquidButton(
     }
 }
 
-private fun agentActionButtonLabel(action: AgentValidatedAction): String = when (action.type) {
-    AgentValidatedActionType.ADD -> "确认添加：${action.edited?.name ?: action.summary}"
-    AgentValidatedActionType.UPDATE -> "确认修改：${action.summary}"
-    AgentValidatedActionType.REPLACE -> "确认整体替换：${action.summary}"
-    AgentValidatedActionType.DELETE -> "确认删除：${action.original?.name ?: action.summary}"
-    AgentValidatedActionType.OPEN_SETTINGS -> action.summary
-    AgentValidatedActionType.OPEN_IMPORT -> action.summary
-    AgentValidatedActionType.SET_SETTING -> "确认设置：${action.summary}"
-    AgentValidatedActionType.SET_PERIOD_SETTINGS -> "确认节次设置：${action.summary}"
-    AgentValidatedActionType.SET_ADJUSTMENTS -> "确认调休安排：${action.summary}"
-    AgentValidatedActionType.CREATE_SCHEDULE -> "确认新建课表：${action.summary}"
-    AgentValidatedActionType.ACTIVATE_SCHEDULE -> "确认切换课表：${action.summary}"
-    AgentValidatedActionType.DELETE_SCHEDULE -> "确认删除课表：${action.summary}"
-}
+private fun agentActionButtonLabel(action: AgentValidatedAction): String =
+    "确认" + agentChangeKinds(action).joinToString("并") { it.label }
 
 private data class AgentMessageParts(
     val reasoning: String,
@@ -3171,80 +3393,11 @@ private fun agentPlanSummary(plan: AgentPlan): String =
     }
 
 private fun agentPlanButtonLabel(plan: AgentPlan): String =
-    if (plan.actions.size == 1) {
-        agentActionButtonLabel(plan.actions.first())
-    } else if (plan.actions.all { it.isSettingAction() }) {
-        if (plan.actions.all {
-                it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS ||
-                    AgentSettingRegistry.isPeriodTimeSetting(it.settingKey)
-            }) {
-            "确认应用 ${plan.actions.size} 项节次设置"
-        } else {
-            "确认应用 ${plan.actions.size} 项设置"
-        }
-    } else {
-        "确认执行 ${plan.actions.size} 项操作"
-    }
+    if (plan.actions.size == 1) agentActionButtonLabel(plan.actions.first())
+    else "确认" + plan.actions.flatMap(::agentChangeKinds).groupingBy { it }.eachCount()
+        .entries.joinToString("、") { (kind, count) -> "${kind.label}${count}项" }
 
-private fun agentPlanPreviewText(
-    plan: AgentPlan,
-    preview: AgentPlanPreview
-): String {
-    val warning = preview.newConflicts.firstOrNull()?.let { conflict ->
-        "影响提示 · 执行后可能重叠：${conflict.first.name} 与 ${conflict.second.name}，" +
-            "第${conflict.weeks.joinToString("、")}周 · " +
-            "第${conflict.periods.joinToString("、")}节"
-    }.orEmpty()
-    val changes = plan.actions.mapIndexed { index, action ->
-        val scope = when (action.scope) {
-            AgentActionScope.CURRENT_WEEK -> "仅第${action.targetWeek}周"
-            AgentActionScope.SELECTED_WEEKS -> {
-                val source = "第${action.sourceWeeks.joinToString("、")}周"
-                if (action.edited != null && action.sourceWeeks.toSet() != action.edited.weeks.toSet()) {
-                    "$source → 第${action.edited.weeks.joinToString("、")}周"
-                } else "仅$source"
-            }
-            AgentActionScope.ALL_WEEKS -> if (action.type == AgentValidatedActionType.ADD) {
-                "第${action.edited?.weeks?.joinToString("、")}周"
-            } else "整个课程记录"
-        }
-        val change = when (action.type) {
-            AgentValidatedActionType.ADD ->
-                "新增 ${action.edited?.name.orEmpty()} ${agentCourseSlotText(action.edited)}"
-            AgentValidatedActionType.UPDATE, AgentValidatedActionType.REPLACE ->
-                "${action.original?.name.orEmpty()}：${agentCourseChangesText(action.original, action.edited, action.scope == AgentActionScope.ALL_WEEKS)}"
-            AgentValidatedActionType.DELETE ->
-                "删除 ${action.original?.name.orEmpty()} ${agentCourseSlotText(action.original)}"
-            else -> action.summary
-        }
-        val prefix = if (plan.actions.size > 1) "${index + 1}. " else ""
-        val scopedChange = if (action.original != null || action.edited != null) "$scope · $change" else change
-        "$prefix$scopedChange"
-    }.joinToString("\n")
-    return listOf(warning, "预演 · ${plan.actions.size} 项操作", changes)
-        .filter(String::isNotBlank).joinToString("\n")
-}
-
-private fun agentCourseChangesText(before: CourseEntity?, after: CourseEntity?, includeWeeks: Boolean): String {
-    if (before == null || after == null) return "课程内容变更"
-    fun field(value: String?) = value?.takeIf(String::isNotBlank) ?: "未设置"
-    return buildList {
-        if (before.name != after.name) add("名称 ${before.name} → ${after.name}")
-        if (before.teacher != after.teacher) add("教师 ${field(before.teacher)} → ${field(after.teacher)}")
-        if (before.location != after.location) add("地点 ${field(before.location)} → ${field(after.location)}")
-        if (before.note != after.note) add("备注 ${field(before.note)} → ${field(after.note)}")
-        if (includeWeeks && before.weeks != after.weeks) add("周次 ${before.weeks.joinToString("、")} → ${after.weeks.joinToString("、")}")
-        if (before.weekday != after.weekday || before.periods != after.periods ||
-            before.customStartTime != after.customStartTime || before.customEndTime != after.customEndTime ||
-            before.customPeriodTimes != after.customPeriodTimes) {
-            add("时间 ${agentCourseSlotText(before)} → ${agentCourseSlotText(after)}")
-        }
-        if (before.weekParity != after.weekParity) add("单双周 ${parityLabel(before.weekParity)} → ${parityLabel(after.weekParity)}")
-        if (before.customColorArgb != after.customColorArgb) add("课程颜色变更")
-    }.joinToString("；").ifBlank { "调整生效周次" }
-}
-
-private fun agentCourseSlotText(course: CourseEntity?): String {
+internal fun agentCourseSlotText(course: CourseEntity?): String {
     if (course == null) return ""
     val periods = course.periods.sorted()
     val periodText = when {

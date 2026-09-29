@@ -100,6 +100,10 @@ internal object AutoRefreshShiguangRunner {
 
         fun complete(draft: ImportDraft) {
             if (finished || completing) return
+            if (draft.courses.isEmpty()) {
+                fail("教务未返回课程，已保留原课表；请打开教务页面手动确认")
+                return
+            }
             completing = true
             val webView = target ?: return
             webView.url?.let(visitedUrls::add)

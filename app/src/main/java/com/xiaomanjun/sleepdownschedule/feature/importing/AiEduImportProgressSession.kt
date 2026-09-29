@@ -28,6 +28,9 @@ data class AiEduImportProgress(
     val secondaryConfirmActionLabel: String = "",
     val screenModeActionLabel: String = "",
     val cancelActionLabel: String = "返回重抓",
+    val confirmationTitle: String = "",
+    val confirmationMessage: String = "",
+    val returnToBrowser: Boolean = false,
     val finished: Boolean = false,
     val error: String? = null,
     val conversationTurns: List<AiEduImportConversationTurn> = emptyList()

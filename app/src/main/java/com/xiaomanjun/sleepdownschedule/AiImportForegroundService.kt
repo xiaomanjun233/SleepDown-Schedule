@@ -61,6 +61,7 @@ class AiImportForegroundService : Service() {
                 }
             }
             ACTION_COMPLETE, ACTION_FAILED -> {
+                if (activeTaskId != null && activeTaskId != taskId) return START_NOT_STICKY
                 // The result notification has already been posted directly by
                 // AiImportTaskManager; this service only clears its foreground state.
                 activeTaskId = null
@@ -148,6 +149,11 @@ class AiImportForegroundService : Service() {
                 context,
                 serviceIntent(context, ACTION_FAILED, taskId).putExtra(EXTRA_MESSAGE, message)
             )
+        }
+
+        internal fun finishRouting(context: Context, taskId: String) {
+            // A route decision is not a completed course import.
+            dispatchToRunningService(context, serviceIntent(context, ACTION_COMPLETE, taskId))
         }
 
         fun clearCompletion(context: Context, taskId: String?) {

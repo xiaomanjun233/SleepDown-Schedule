@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -230,23 +232,33 @@ internal fun HomeAssistantHost(
         val edgeInset = 8.dp
         val width = if (maxWidth >= 600.dp && maxHeight >= 480.dp) maxWidth * 0.5f else maxWidth - edgeInset * 2f
         val reminderMaxHeight = maxHeight - edgeInset * 2f
-        val handleHeight = 24.dp
+        val handleHeight = 14.dp
         var reminderContentHeightPx by remember { mutableIntStateOf(0) }
         val height = with(density) { reminderContentHeightPx.toDp() }.coerceAtLeast(handleHeight)
         val target = with(density) {
             Rect((maxWidth - width).toPx() / 2f, edgeInset.toPx(), (maxWidth + width).toPx() / 2f, (height + edgeInset).toPx())
         }
         val noticeMotion = rememberTopAssistantMotion()
+        val dockFade = remember { Animatable(1f) }
         var reminderTouched by remember { mutableStateOf(false) }
         fun reminderGeometry(): Rect {
             val rect = topAssistantMorphRect(anchor, target, noticeMotion.drop.value, noticeMotion.spread.value)
             return rect.copy(bottom = rect.bottom + if (controller.pullingHome) 0f else controller.pullPixels)
         }
-        LaunchedEffect(controller.stage, controller.closing) {
+        LaunchedEffect(controller.stage, controller.closing, controller.reminderGeneration) {
             if (controller.stage == HomeAssistantStage.Reminder) {
-                noticeMotion.animateTo(if (controller.closing) 0f else 1f, overshoot = !controller.closing)
-                if (controller.closing) controller.reset()
-            } else if (controller.stage == HomeAssistantStage.Hidden) noticeMotion.snapTo(0f)
+                if (controller.closing) {
+                    noticeMotion.animateTo(0f, overshoot = false)
+                    dockFade.animateTo(0f, tween(90))
+                    controller.reset()
+                } else {
+                    dockFade.snapTo(1f)
+                    noticeMotion.animateTo(1f)
+                }
+            } else if (controller.stage == HomeAssistantStage.Hidden) {
+                noticeMotion.snapTo(0f)
+                dockFade.snapTo(1f)
+            }
         }
         val accessibility = LocalAccessibilityManager.current
         val displayMillis = accessibility?.calculateRecommendedTimeoutMillis(6_000L, true, true, true) ?: 6_000L
@@ -268,7 +280,7 @@ internal fun HomeAssistantHost(
                     IntOffset(rect.left.roundToInt(), rect.top.roundToInt())
                 }.assistantMorphBounds(::reminderGeometry)
                     .graphicsLayer {
-                        alpha = if (controller.closing) topAssistantDockAlpha(noticeMotion.drop.value) else 1f
+                        alpha = dockFade.value
                     }
                     .onGloballyPositioned { controller.reminderBounds = it.boundsInRoot() }
                     .pointerInput(Unit) {
@@ -302,7 +314,8 @@ internal fun HomeAssistantHost(
                     .padding(top = (safeTop - edgeInset - 14.dp).coerceAtLeast(0.dp)).graphicsLayer {
                     alpha = ((noticeMotion.drop.value - 0.20f) / 0.55f).coerceIn(0f, 1f)
                 }) {
-                    DayAgentCardVisualContent(presentation.visual, Color.White, presentation.accent, decorated = false)
+                    DayAgentCardVisualContent(presentation.visual.copy(collapsed = true), Color.White,
+                        presentation.accent, decorated = false)
                     Box(Modifier.fillMaxWidth().height(handleHeight), contentAlignment = Alignment.Center) {
                         Box(Modifier.size(36.dp, 4.dp).clip(Capsule()).background(Color.White.copy(alpha = 0.65f)))
                     }

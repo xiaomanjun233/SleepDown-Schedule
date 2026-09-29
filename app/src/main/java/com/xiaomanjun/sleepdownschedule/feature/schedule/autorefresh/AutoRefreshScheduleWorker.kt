@@ -12,6 +12,7 @@ import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.TodayCoursesWidgetProvider
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
@@ -69,8 +70,9 @@ internal object AutoRefreshScheduleCoordinator {
         )
         val app = context.applicationContext as CourseScheduleApp
         runCatching {
-            require(initialCookies.isNotEmpty() || webStorage != null) {
-                "未读取到登录凭证，请先完成学校登录"
+            require(initialCookies.isNotEmpty() || webStorage != null ||
+                AutoRefreshLoginRoutes.isSessionPage(adapter.school.id, authenticatedUrl)) {
+                "未读取到可恢复的教务会话，请先完成学校登录"
             }
             val targetState = app.repository.scheduleSnapshot(scheduleId)
             // Validate through the same restored-page path used by automatic refresh.
@@ -94,13 +96,14 @@ internal object AutoRefreshScheduleCoordinator {
         val profile = AutoRefreshScheduleStore.load(context)
             ?: return@withLock AutoRefreshOutcome(false, "请先登录教务系统")
         if (profile.sessionOnly) return@withLock AutoRefreshOutcome(false, "请打开教务页面手动刷新课表", profile)
-        val adapters = ShiguangApiAdapterCatalog.loadSupported(context)
+        runCatching { ShiguangWarehouseUpdater.refreshIfStale(context) }
+        val adapters = ShiguangApiAdapterCatalog.loadLoginAdapters(context)
         val adapter = ShiguangApiAdapterCatalog.find(adapters, profile.schoolId, profile.adapterId)
             ?: return@withLock recordFailure(context, profile, "该教务入口已更新，请重新选择学校并登录")
         execute(context, adapter, profile)
     }
 
-    /** Retain browser state only; HTML adapters still require their normal preview and confirmation. */
+    /** Retain browser state for entrances that need a visible preview and confirmation. */
     suspend fun retainSession(
         context: Context,
         adapter: EduAdapter,

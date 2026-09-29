@@ -222,6 +222,7 @@ data class AgentActionDraft(
     val courseId: Long? = null,
     val scope: AgentActionScope = AgentActionScope.CURRENT_WEEK,
     val sourceWeeks: List<Int>? = null,
+    val sourcePeriods: List<Int>? = null,
     val course: AgentCoursePatch? = null,
     val settingsPage: String? = null,
     val settingKey: String? = null,
@@ -268,6 +269,7 @@ data class AgentValidatedAction(
     val scope: AgentActionScope = AgentActionScope.CURRENT_WEEK,
     val targetWeek: Int = 1,
     val sourceWeeks: List<Int> = emptyList(),
+    val sourcePeriods: List<Int> = emptyList(),
     val settingsPage: String? = null,
     val settingKey: String? = null,
     val settingValue: String? = null,
@@ -287,13 +289,19 @@ data class AgentValidatedAction(
 
 data class ParsedAgentActions(
     val displayText: String,
-    val actions: List<AgentValidatedAction>
+    val actions: List<AgentValidatedAction>,
+    val validationErrors: List<AgentValidationError> = emptyList()
 )
+
+data class AgentValidationError(val actionIndex: Int?, val field: String, val message: String)
 
 private val AgentJson = Json {
     ignoreUnknownKeys = true
     isLenient = true
 }
+
+// A misspelled selection field must never silently widen a destructive operation.
+private val AgentActionJson = Json(AgentJson) { ignoreUnknownKeys = false }
 
 fun buildDayAgentFacts(
     courses: List<CourseEntity>,
@@ -402,7 +410,10 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
             summary = "添加 ${course.name}"
         )
     }
-    val drafts = payload?.let(::decodeAgentActionDrafts).orEmpty()
+    val errors = mutableListOf<AgentValidationError>()
+    val drafts = payload?.let { decodeAgentActionDrafts(it) { message ->
+        errors += AgentValidationError(null, "actionsJson", message)
+    } }.orEmpty()
     val plannedTotalWeeks = drafts.singleOrNull { it.type == AgentActionType.SET_SETTING && it.settingKey.equals("TOTAL_WEEKS", true) }
         ?.settingValue?.toIntOrNull()?.takeIf { it in 1..60 } ?: facts.totalWeeks
     val destinationFacts = facts.copy(totalWeeks = plannedTotalWeeks)
@@ -416,7 +427,9 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
         }
     val validPeriods = requestedCount?.takeIf { it in 1..30 }?.let { (1..it).toHashSet() }
         ?: facts.periodDefinitions.mapTo(hashSetOf()) { it.periodIndex }
-    drafts.forEach { rawDraft ->
+    drafts.forEachIndexed { index, rawDraft ->
+        fun reject(field: String, message: String) { errors += AgentValidationError(index, field, message) }
+        val actionCount = actions.size
         val draft = if (rawDraft.clearFields != null) rawDraft.copy(
             course = (rawDraft.course ?: AgentCoursePatch()).let {
                 it.copy(clearFields = (it.clearFields.orEmpty() + rawDraft.clearFields).distinct())
@@ -424,19 +437,33 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
         ) else rawDraft
         val selectedWeeks = draft.sourceWeeks?.distinct()?.sorted().orEmpty()
         if (draft.scope == AgentActionScope.SELECTED_WEEKS &&
-            (selectedWeeks.isEmpty() || selectedWeeks.any { it !in 1..maxOf(facts.totalWeeks, plannedTotalWeeks) })) return@forEach
-        if (draft.scope != AgentActionScope.SELECTED_WEEKS && selectedWeeks.isNotEmpty()) return@forEach
+            (selectedWeeks.isEmpty() || selectedWeeks.any { it !in 1..maxOf(facts.totalWeeks, plannedTotalWeeks) }))
+            return@forEachIndexed reject("sourceWeeks", "SELECTED_WEEKS 必须提供非空原周次，范围为 1..${maxOf(facts.totalWeeks, plannedTotalWeeks)}")
+        if (draft.scope != AgentActionScope.SELECTED_WEEKS && selectedWeeks.isNotEmpty())
+            return@forEachIndexed reject("scope", "提供 sourceWeeks 时 scope 必须是 SELECTED_WEEKS")
         val original = knownCourses[draft.courseId]
+        val selectedPeriods = draft.sourcePeriods?.distinct()?.sorted().orEmpty()
+        if (draft.sourcePeriods != null && (selectedPeriods.isEmpty() ||
+                draft.type !in setOf(AgentActionType.UPDATE_COURSE, AgentActionType.DELETE_COURSE) ||
+                original == null || selectedPeriods.any { it !in original.periods }))
+            return@forEachIndexed reject("sourcePeriods", "仅 UPDATE/DELETE 支持非空 sourcePeriods；必须属于原课程节次 ${original?.periods.orEmpty()}")
+        val selectedOriginal = if (original != null && selectedPeriods.isNotEmpty()) {
+            try { original.agentPeriodFragment(selectedPeriods) } catch (error: IllegalArgumentException) {
+                return@forEachIndexed reject("sourcePeriods", error.message ?: "无法拆分原课程时间")
+            }
+        } else original
         if (draft.course?.clearFields?.any { field ->
             AgentClearableCourseField.entries.none { it.wireName.equals(field.trim(), ignoreCase = true) }
-        } == true) return@forEach
+        } == true) return@forEachIndexed reject("clearFields", "只支持 teacher、location、note、customTime")
         if (draft.scope == AgentActionScope.CURRENT_WEEK && draft.course?.weeks != null &&
-            draft.course.weeks.distinct() != listOf(currentCourseActionWeek(facts, original, draft.course.weekday))) return@forEach
+            draft.course.weeks.distinct() != listOf(currentCourseActionWeek(facts, original, draft.course.weekday)))
+            return@forEachIndexed reject("course.weeks", "CURRENT_WEEK 不能指定其他目标周；跨周移动请使用 SELECTED_WEEKS 和真实 sourceWeeks")
         if (draft.type in setOf(AgentActionType.UPDATE_COURSE, AgentActionType.REPLACE_COURSE, AgentActionType.DELETE_COURSE) &&
             draft.scope != AgentActionScope.ALL_WEEKS) {
             val source = if (draft.scope == AgentActionScope.SELECTED_WEEKS) selectedWeeks
                 else listOf(currentCourseActionWeek(facts, original))
-            if (original == null || source.any { it !in original.weeks || !parityMatches(original.weekParity, it) }) return@forEach
+            if (original == null || source.any { it !in original.weeks || !parityMatches(original.weekParity, it) })
+                return@forEachIndexed reject("sourceWeeks", "原周次没有这门课，或 courseId 不存在；原记录周次=${original?.weeks.orEmpty()}，单双周=${original?.weekParity}")
         }
         fun scopedEdited(edited: CourseEntity): CourseEntity = when (draft.scope) {
             AgentActionScope.SELECTED_WEEKS -> edited.copy(
@@ -466,10 +493,11 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
             }
             AgentActionType.UPDATE_COURSE -> knownCourses[draft.courseId]?.let { original ->
                 val targetWeek = currentCourseActionWeek(facts, original)
-                validateAgentCoursePatch(draft.course, original, destinationFacts, validPeriods, draft.scope, targetWeek)?.let { edited ->
+                validateAgentCoursePatch(draft.course, selectedOriginal, destinationFacts, validPeriods, draft.scope, targetWeek)?.let { edited ->
                     actions += AgentValidatedAction(
                         AgentValidatedActionType.UPDATE,
                         original = original,
+                        sourcePeriods = selectedPeriods,
                         edited = scopedEdited(edited).copy(id = original.id, scheduleId = facts.scheduleId),
                         sourceWeeks = selectedWeeks,
                         scope = draft.scope,
@@ -496,6 +524,7 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
                 actions += AgentValidatedAction(
                     AgentValidatedActionType.DELETE,
                     original = original,
+                    sourcePeriods = selectedPeriods,
                     scope = draft.scope,
                     sourceWeeks = selectedWeeks,
                     targetWeek = currentCourseActionWeek(facts, original),
@@ -571,8 +600,33 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
                     )
                 }
         }
+        if (actions.size == actionCount) {
+            val reason = when (draft.type) {
+                AgentActionType.ADD_COURSE, AgentActionType.UPDATE_COURSE, AgentActionType.REPLACE_COURSE ->
+                    "课程字段无效：核对真实 courseId、非空名称、星期 1..7、节次 $validPeriods、周次 1..$plannedTotalWeeks；自定义起止时间须成对且结束晚于开始。UPDATE 必须给 course 补丁，REPLACE 必须给完整名称/星期/节次/周次。"
+                AgentActionType.DELETE_COURSE -> "courseId 不属于当前课表，请通过 SEARCH_COURSES 读取真实 ID"
+                AgentActionType.SET_SETTING -> "设置键或值无效：${draft.settingKey}；请按 GET_SETTINGS 的类型与范围修正"
+                AgentActionType.SET_PERIOD_SETTINGS -> "节次设置无效；四时段数量须同时给出，显式 periods 须覆盖全部节次，时间范围须合法。请核对 GET_PERIODS 和 PERIODS 说明"
+                AgentActionType.SET_ADJUSTMENTS -> "调休表无效；date/sourceDate 必须为合法日期、日期不能相同或重复，label 不超过80字符；请保留未修改条目"
+                AgentActionType.OPEN_SETTINGS -> "settingsPage 无效，请读取 NAVIGATION 说明中的页面名"
+                AgentActionType.CREATE_SCHEDULE -> "name 必须是非空课表名"
+                else -> "scheduleId 不存在，请用 GET_SCHEDULES 核对真实 ID"
+            }
+            reject(draft.type.name, reason)
+        }
     }
     val duplicateCourses = agentActionsHaveOverlappingCourseScopes(actions)
+    if (duplicateCourses) errors += AgentValidationError(null, "scope", "同一课程的原周次×节次重复修改；请合并重叠动作，保留其余动作")
+    AgentSettingRegistry.conflictingGroup(actions.mapNotNull { it.settingKey })?.let {
+        errors += AgentValidationError(null, "settingKey", "设置重复或互相覆盖：$it；同组只保留一个键")
+    }
+    if (actions.count { it.type == AgentValidatedActionType.SET_ADJUSTMENTS } > 1 ||
+        actions.count { it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS } > 1)
+        errors += AgentValidationError(null, "type", "同一计划只能有一份完整调休表和一份节次设置")
+    actions.forEachIndexed { index, action ->
+        if (action.edited?.let { course -> course.weeks.any { it !in 1..plannedTotalWeeks } || course.weeks.none { parityMatches(course.weekParity, it) } } == true)
+            errors += AgentValidationError(index, "course.weeks", "目标周次超出 1..$plannedTotalWeeks，或与单双周规则没有交集")
+    }
     val invalidPlan = payload != null && (drafts.isEmpty() || actions.size != drafts.size || duplicateCourses ||
         actions.any { action -> action.edited?.let { course ->
             course.weeks.any { it !in 1..plannedTotalWeeks } || course.weeks.none { parityMatches(course.weekParity, it) }
@@ -581,7 +635,8 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
         actions.count { it.type == AgentValidatedActionType.SET_ADJUSTMENTS } > 1 ||
         actions.count { it.type == AgentValidatedActionType.SET_PERIOD_SETTINGS } > 1)
     return if (invalidPlan) ParsedAgentActions(
-        "$displayText\n\n这份操作计划包含无效、重复或无法一起执行的项目，未执行任何修改。请让助手重新生成完整计划。".trim(), emptyList()
+        "$displayText\n\n这份操作计划未通过本地校验，尚未执行任何修改。".trim(), emptyList(),
+        errors.ifEmpty { listOf(AgentValidationError(null, "actionsJson", "计划不能为空，且每个动作都必须通过校验")) }
     ) else ParsedAgentActions(displayText, actions.map { it.copy(sourceScheduleId = facts.scheduleId) })
 }
 
@@ -605,32 +660,29 @@ private fun validateAgentAdjustments(
     return runCatching { encodeScheduleAdjustments(list) }.map { list.sortedBy { it.date } }.getOrNull()
 }
 
-private fun decodeAgentActionDrafts(payload: String): List<AgentActionDraft> {
+private fun decodeAgentActionDrafts(payload: String, onError: (String) -> Unit): List<AgentActionDraft> {
     val unfenced = payload.trim()
         .removePrefix("```json")
         .removePrefix("```JSON")
         .removePrefix("```")
         .removeSuffix("```")
         .trim()
-    val candidates = buildList {
-        add(unfenced)
-        Regex("\\\"actions\\\"\\s*:\\s*(\\[[\\s\\S]*])", RegexOption.IGNORE_CASE)
-            .find(unfenced)?.groupValues?.getOrNull(1)?.let(::add)
-        val arrayStart = unfenced.indexOf('[')
-        val arrayEnd = unfenced.lastIndexOf(']')
-        if (arrayStart >= 0 && arrayEnd > arrayStart) add(unfenced.substring(arrayStart, arrayEnd + 1))
-        val objectStart = unfenced.indexOf('{')
-        val objectEnd = unfenced.lastIndexOf('}')
-        if (objectStart >= 0 && objectEnd > objectStart) add(unfenced.substring(objectStart, objectEnd + 1))
-    }.distinct()
-    candidates.forEach { rawCandidate ->
-        val candidate = normalizeLooseAgentActionJson(rawCandidate)
-        runCatching { AgentJson.decodeFromString<List<AgentActionDraft>>(candidate) }
-            .getOrNull()?.let { return it }
-        runCatching { AgentJson.decodeFromString<AgentActionDraft>(candidate) }
-            .getOrNull()?.let { return listOf(it) }
+    val decoded = runCatching { AgentJson.parseToJsonElement(normalizeLooseAgentActionJson(unfenced)) }
+    val element = decoded.getOrNull() ?: run {
+        onError(decoded.exceptionOrNull()?.message.orEmpty().substringBefore("JSON input:").take(600))
+        return emptyList()
     }
-    return emptyList()
+    val actions = (element as? kotlinx.serialization.json.JsonObject)?.get("actions") ?: element
+    // Validate the complete container; never salvage a nested item from a broken plan.
+    return when (actions) {
+        is kotlinx.serialization.json.JsonArray -> runCatching {
+            AgentActionJson.decodeFromString<List<AgentActionDraft>>(actions.toString())
+        }.onFailure { onError(it.message.orEmpty().substringBefore("JSON input:").take(600)) }.getOrDefault(emptyList())
+        is kotlinx.serialization.json.JsonObject -> runCatching {
+            listOf(AgentActionJson.decodeFromString<AgentActionDraft>(actions.toString()))
+        }.onFailure { onError(it.message.orEmpty().substringBefore("JSON input:").take(600)) }.getOrDefault(emptyList())
+        else -> emptyList<AgentActionDraft>().also { onError("操作必须是 JSON 对象或数组") }
+    }
 }
 
 private fun extractLooseAgentActionPayload(content: String): String? {
@@ -641,12 +693,11 @@ private fun extractLooseAgentActionPayload(content: String): String? {
         .map { it.groupValues[1] }
         .firstOrNull { it.contains("\"type\"", ignoreCase = true) }
     if (fenced != null) return fenced
-    val arrayStart = content.indexOf('[')
-    val arrayEnd = content.lastIndexOf(']')
-    if (arrayStart >= 0 && arrayEnd > arrayStart) return content.substring(arrayStart, arrayEnd + 1)
-    val objectStart = content.indexOf('{')
-    val objectEnd = content.lastIndexOf('}')
-    return if (objectStart >= 0 && objectEnd > objectStart) content.substring(objectStart, objectEnd + 1) else null
+    val start = content.indexOfFirst { it == '[' || it == '{' }
+    if (start < 0) return null
+    val end = content.lastIndexOf(if (content[start] == '[') ']' else '}')
+    // Preserve the outer container even when truncated, so validation can report the failure.
+    return if (end > start) content.substring(start, end + 1) else content.substring(start)
 }
 
 private fun normalizeLooseAgentActionJson(raw: String): String {

@@ -348,7 +348,7 @@ private fun String.compactForSettingsResult(maxLength: Int = 360): String {
     return if (compact.length <= maxLength) compact else compact.take(maxLength) + "..."
 }
 
-private fun AiImportSettings.toProviderConfig(): AiProviderConfig {
+internal fun AiImportSettings.toProviderConfig(): AiProviderConfig {
     return AiProviderConfig(
         providerId = profile.id,
         displayName = profile.displayName,

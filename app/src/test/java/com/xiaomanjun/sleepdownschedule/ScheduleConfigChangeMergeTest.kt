@@ -6,6 +6,8 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.withChangesFrom
 
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScheduleConfigChangeMergeTest {
@@ -227,6 +229,31 @@ class ScheduleConfigChangeMergeTest {
 
         assertEquals(7f, afterBrightness.wallpaperBlur)
         assertEquals(0.55f, afterBrightness.wallpaperBrightness)
+    }
+
+    @Test
+    fun rapidWeekCardChangesDoNotRestoreStaleSwitchValues() {
+        val presented = defaultConfig(id = 3)
+        val afterLocation = mergePersonalizationCandidate(
+            presented, presented.copy(weekCardShowLocation = false), "week-location"
+        )
+        val afterTeacher = mergePersonalizationCandidate(
+            afterLocation, presented.copy(weekCardShowTeacher = false), "week-teacher"
+        )
+        val afterLayout = mergePersonalizationCandidate(
+            afterTeacher, presented.copy(weekCardContentLayout = WeekCardContentLayout.TOP_DOWN), "week-layout"
+        )
+
+        assertFalse(afterLayout.weekCardShowLocation)
+        assertFalse(afterLayout.weekCardShowTeacher)
+        assertEquals(WeekCardContentLayout.TOP_DOWN, afterLayout.weekCardContentLayout)
+
+        val afterLocationAgain = mergePersonalizationCandidate(
+            afterLayout, presented.copy(weekCardShowLocation = true), "week-location"
+        )
+        assertTrue(afterLocationAgain.weekCardShowLocation)
+        assertFalse(afterLocationAgain.weekCardShowTeacher)
+        assertEquals(WeekCardContentLayout.TOP_DOWN, afterLocationAgain.weekCardContentLayout)
     }
 
     @Test

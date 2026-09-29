@@ -793,13 +793,32 @@ class ScheduleViewModel(
 
     /** Previews the draft settings so the result proves the current switches, not the saved ones. */
     fun previewLiveUpdate(config: ScheduleConfigEntity) = viewModelScope.launch {
-        NotificationScheduler.showLiveUpdatePreview(app, config)
+        val result = withContext(Dispatchers.IO) {
+            NotificationScheduler.showLiveUpdatePreview(app, config)
+        }
         val minutes = config.notificationLeadMinutes.coerceIn(1, 30)
-        snackbar.value = "已启动测试实时活动（${minutes}分钟倒计时）"
+        snackbar.value = when (result) {
+            NotificationScheduler.LiveUpdatePreviewResult.POSTED ->
+                "已启动测试实时活动（${minutes}分钟倒计时）"
+            NotificationScheduler.LiveUpdatePreviewResult.NOTIFICATIONS_UNAVAILABLE ->
+                "测试通知未发送，请检查应用通知权限和通知渠道"
+            NotificationScheduler.LiveUpdatePreviewResult.VENDOR_HANDLES_PREVIEW ->
+                "当前通知由厂商课程组件处理，请使用流体云测试入口"
+            NotificationScheduler.LiveUpdatePreviewResult.DELIVERY_FAILED ->
+                "测试通知发送失败，请稍后重试"
+        }
     }
 
     fun refreshNotifications() {
         refreshCoordinator.request()
+    }
+
+    fun refreshNotificationsAfterSave() {
+        // A settings Activity may finish as soon as its save callback returns. Keep the
+        // refresh alive long enough to observe the transaction that just completed.
+        (app as CourseScheduleApp).applicationScope.launch {
+            refreshCoordinator.refreshNow()
+        }
     }
 
     private fun captureDayAgentPreferences(): DayAgentPreferenceSnapshot =

@@ -60,6 +60,8 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
     var shizukuRunning by remember { mutableStateOf(false) }
     var shizukuAuthorized by remember { mutableStateOf(false) }
     var rootAuthorized by remember { mutableStateOf(false) }
+    var focusPermission by remember { mutableStateOf<Boolean?>(null) }
+    var focusPermissionChecked by remember { mutableStateOf(false) }
     var restoring by remember { mutableStateOf(false) }
     var options by remember { mutableStateOf(XiaomiSuperIsland.options(context)) }
 
@@ -67,6 +69,10 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
         shizukuRunning = XiaomiSuperIsland.isShizukuRunning()
         shizukuAuthorized = XiaomiSuperIsland.isShizukuAuthorized()
         rootAuthorized = XiaomiSuperIsland.isRootAuthorized(context)
+        scope.launch {
+            focusPermission = withContext(Dispatchers.IO) { XiaomiSuperIsland.focusPermission(context) }
+            focusPermissionChecked = true
+        }
     }
     LaunchedEffect(Unit) { refresh() }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { refresh() }
@@ -92,6 +98,33 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
             )
             SettingsDivider()
             SettingsValueRow("系统超级岛", if (systemSupported) "已检测到" else "未检测到，请确认系统版本")
+            SettingsDivider()
+            SettingsValueRow("焦点通知权限", when {
+                !focusPermissionChecked -> "检测中…"
+                focusPermission == true -> "已开启"
+                focusPermission == false -> "未开启"
+                else -> "系统未返回状态"
+            })
+            if (focusPermissionChecked && focusPermission != true) {
+                SettingsDivider()
+                SettingsActionRow(
+                    title = "打开通知权限设置",
+                    subtitle = "检查 SleepDown 的通知和焦点通知显示权限。",
+                    buttonText = "打开",
+                    iconRes = R.drawable.ic_settings,
+                    backdrop = backdrop,
+                    onClick = { context.startActivity(NotificationScheduler.notificationSettingsIntent(context)) }
+                )
+            }
+            SettingsDivider()
+            SettingsActionRow(
+                title = "重新显示当前超级岛",
+                subtitle = "课中没有显示时，立即按当前课程重新发送。",
+                buttonText = "重试",
+                iconRes = R.drawable.ic_settings,
+                backdrop = backdrop,
+                onClick = { NotificationScheduler.reopenCurrentIsland(context) }
+            )
             SettingsDivider()
             SettingsValueRow("授权状态", if (shizukuAuthorized || rootAuthorized) "已就绪" else "需选择 Shizuku 或 root")
             SettingsDivider()
@@ -171,9 +204,10 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
     }
     GlassPreferenceSection("超级岛显示") {
         SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
-            val textChoices = listOf("课程名称", "上课地点", "倒计时")
+            val leftChoices = listOf("课程名称", "上课地点", "下一节点")
+            val rightChoices = listOf("课程名称", "上课地点", "倒计时")
             SleepDownLiquidDropdownPreference(
-                items = textChoices,
+                items = leftChoices,
                 selectedIndex = options.left,
                 title = "超级岛左侧",
                 backdrop = backdrop,
@@ -183,11 +217,12 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
                 onSelectedIndexChange = { mode ->
                     XiaomiSuperIsland.setLeft(context, mode)
                     options = XiaomiSuperIsland.options(context)
+                    NotificationScheduler.requestRefresh(context)
                 }
             )
             SettingsDivider()
             SleepDownLiquidDropdownPreference(
-                items = textChoices,
+                items = rightChoices,
                 selectedIndex = options.right,
                 title = "超级岛右侧",
                 backdrop = backdrop,
@@ -197,6 +232,7 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
                 onSelectedIndexChange = { mode ->
                     XiaomiSuperIsland.setRight(context, mode)
                     options = XiaomiSuperIsland.options(context)
+                    NotificationScheduler.requestRefresh(context)
                 }
             )
             SettingsDivider()
@@ -211,12 +247,14 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
                 onSelectedIndexChange = { mode ->
                     XiaomiSuperIsland.setAod(context, mode)
                     options = XiaomiSuperIsland.options(context)
+                    NotificationScheduler.requestRefresh(context)
                 }
             )
             SettingsDivider()
             SettingsToggleRow("展开光效", "在超级岛展开态显示流动光效", options.expandGlow, backdrop) { enabled ->
                 XiaomiSuperIsland.setExpandGlow(context, enabled)
                 options = XiaomiSuperIsland.options(context)
+                NotificationScheduler.requestRefresh(context)
             }
         }
     }

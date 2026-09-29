@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -310,9 +311,21 @@ internal fun PeriodSchemeEditor(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     GlassPreferenceCategory("详细节次", modifier = Modifier.weight(1f))
                     DialogLiquidButton(backdrop, "编辑", { showChoice = true }, role = DialogButtonRole.Confirm,
-                        modifier = Modifier.onGloballyPositioned { if (session == null) actionSource = it.timelineBoundsInRoot() }
+                        height = 32.dp, horizontalPadding = 12.dp, shadowEnabled = false,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                            .onGloballyPositioned {
+                                if (session == null) {
+                                    val touchBounds = it.timelineBoundsInRoot()
+                                    val visualHalfHeight = with(density) { 16.dp.toPx() }
+                                    actionSource = Rect(
+                                        touchBounds.left, touchBounds.center.y - visualHalfHeight,
+                                        touchBounds.right, touchBounds.center.y + visualHalfHeight
+                                    )
+                                }
+                            }
                             .graphicsLayer { alpha = if (editorLaidOut) 0f else 1f })
                 }
+                Spacer(Modifier.height(8.dp))
                 SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
                     val lessons = summary.filterNot { it.isBreak }
                     lessons.forEachIndexed { position, block ->
@@ -688,7 +701,7 @@ private fun TimelinePartStartPicker(
     part: PeriodDayPart, session: PeriodTimelineSession, backdrop: Backdrop?, visualConfig: ScheduleConfigEntity,
     onDismiss: () -> Unit, onChange: (PeriodTimelineSession) -> Unit
 ) {
-    val bounds = timelinePartStartBounds(session.config, session.active, part) ?: return
+    val bounds = timelineFlexiblePartStartBounds(session.config, session.active, part) ?: return
     val original = timelinePartAnchorMinute(session.config, session.active, part)
     var selected by remember { mutableIntStateOf(original.coerceIn(bounds)) }
     var visible by remember { mutableStateOf(true) }
@@ -698,10 +711,21 @@ private fun TimelinePartStartPicker(
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)) {
         Column(verticalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.QuickSheet.PickerContentSpacing)) {
             SettingsTimePickerContent(selected, bounds) { selected = it }
-            Text("整段课程一起平移；若碰到下一分段，只压缩本段最后一节课，最短保留到相邻课间的时长。", fontSize = 12.sp,
+            val preview = remember(session, part, selected) { moveTimelinePartWithNeighbours(session, part, selected) }
+            val movedParts = PeriodDayPart.entries.filter { section ->
+                session.config.periodCount(section) > 0 &&
+                    timelinePartAnchorMinute(session.config, session.active, section) !=
+                    timelinePartAnchorMinute(preview.config, preview.active, section)
+            }
+            val movementHint = when (movedParts.size) {
+                0 -> "当前起点未改变。"
+                1 -> "仅平移${part.timelineLabel()}；课程与课间时长不变。"
+                else -> "将同时平移${movedParts.joinToString("、") { it.timelineLabel() }}；课程与课间时长不变。"
+            }
+            Text(movementHint, fontSize = 12.sp,
                 color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.66f))
             PeriodPickerActions(backdrop, visualConfig, onCancel = { visible = false }, onConfirm = {
-                    pending = shiftTimelinePart(session, part, selected)
+                    pending = moveTimelinePartWithNeighbours(session, part, selected)
                     visible = false
             })
         }

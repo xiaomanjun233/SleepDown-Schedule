@@ -55,13 +55,13 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
             var interaction by remember { mutableStateOf<AutoRefreshLoginInteraction?>(null) }
             LaunchedEffect(Unit) {
                 runCatching {
-                    val supported = ShiguangApiAdapterCatalog.loadSupported(app)
-                    val reviewed = if (requested == null) supported.firstOrNull(ShiguangApiAdapterCatalog::isSwuAdapter)
-                        else ShiguangApiAdapterCatalog.find(supported, requested.school.id, requested.adapterId)
-                    sessionOnly = reviewed == null
-                    reviewed ?: requested?.let {
-                        ShiguangApiAdapterCatalog.find(ShiguangApiAdapterCatalog.loadLoginAdapters(app), it.school.id, it.adapterId)
-                    }
+                    val available = ShiguangApiAdapterCatalog.loadLoginAdapters(app)
+                    val selected = if (requested == null) available.firstOrNull(ShiguangApiAdapterCatalog::isSwuAdapter)
+                        else ShiguangApiAdapterCatalog.find(available, requested.school.id, requested.adapterId)
+                    sessionOnly = selected == null || runCatching {
+                        ShiguangApiAdapterCatalog.resolveScript(app, selected)
+                    }.isFailure
+                    selected
                 }.onSuccess {
                     adapter = it
                     if (it == null) error = "该教务入口已更新，请返回重新选择"

@@ -11,7 +11,7 @@ import org.junit.Test
 
 class BackupSettingsCompletenessTest {
     @Test
-    fun olderBackupWithoutColoredTextKeepsTheOriginalAppearance() {
+    fun olderBackupWithoutNewCardSettingsKeepsTheOriginalAppearance() {
         val archive = BackupExportMapper.toArchive(
             metadata = metadata(),
             snapshot = BackupRoomSnapshot(
@@ -23,9 +23,12 @@ class BackupSettingsCompletenessTest {
         val json = kotlinx.serialization.json.Json { encodeDefaults = true }
         val serialized = json.encodeToJsonElement(BackupScheduleConfig.serializer(), archive.data.schedules.single().config)
             as kotlinx.serialization.json.JsonObject
-        val oldFields = kotlinx.serialization.json.JsonObject(serialized.filterKeys { it != "courseCardColoredTextEnabled" })
+        val oldFields = kotlinx.serialization.json.JsonObject(serialized.filterKeys {
+            it != "courseCardColoredTextEnabled" && it != "weekCardContentLayout"
+        })
         val restored = json.decodeFromJsonElement(BackupScheduleConfig.serializer(), oldFields)
         assertEquals(false, restored.courseCardColoredTextEnabled)
+        assertEquals("CURRENT", restored.weekCardContentLayout)
     }
 
     @Test
@@ -145,6 +148,7 @@ class BackupSettingsCompletenessTest {
             weekCardHeightDp = 63f,
             weekCardHeightScale = 1.24f,
             weekCardCornerProgress = 0.82f,
+            weekCardContentLayout = WeekCardContentLayout.TOP_DOWN,
             homeTextLight = true,
             homeChromeBlurScale = 1.35f,
             homeChromeSamplingScale = 0.7f,

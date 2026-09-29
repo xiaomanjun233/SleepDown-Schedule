@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
@@ -841,7 +842,17 @@ private fun CourseEditorAnimatedContainer(
         backdrop = backdrop,
         config = config,
         course = course,
-        modifier = modifier.graphicsLayer { this.alpha = alpha },
+        modifier = modifier.graphicsLayer { this.alpha = alpha }.drawWithCache {
+            // Keep the shell's outline in the parent recording across the fixed-allocation
+            // handoff. Child RenderNodes may otherwise replay rectangular pixels for one frame
+            // when their placement layer is removed at Open.
+            val bounds = morphAllocation?.localBounds() ?: Rect(0f, 0f, size.width, size.height)
+            val outline = Path().apply {
+                addOutline(shape.createOutline(bounds.size, layoutDirection, this@drawWithCache))
+                translate(bounds.topLeft)
+            }
+            onDrawWithContent { clipPath(outline) { this@onDrawWithContent.drawContent() } }
+        },
         shape = shape,
         blurOverride = editorBlur,
         backdropSampleScale = 0.5f,
