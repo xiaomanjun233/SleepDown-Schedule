@@ -492,7 +492,7 @@ fun HomeReadableText(
             blurRadius = radius
         ))
     }
-    Box(modifier = modifier) {
+    Box(modifier = modifier.homeCountdownShockwave(0.55f)) {
         Text(
             text = text,
             modifier = Modifier.onGloballyPositioned {
@@ -2044,7 +2044,8 @@ private fun DayDateSectionHeader(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 8.dp, bottom = 2.dp)
-            .homeSwitchGroup(),
+            .homeSwitchGroup()
+            .homeCountdownShockwave(0.75f),
         contentAlignment = Alignment.Center
     ) {
         DayStatusGlassPill(
@@ -2067,7 +2068,7 @@ private fun DayPartHeader(
         val end = courses.mapNotNull { courseEndTime(it, periods) }.maxOrNull()
         if (start != null && end != null) "$start–$end" else null
     }
-    SleepDownTimeSectionDivider(modifier = Modifier.homeSwitchGroup(), textColor = textColor, label = {
+    SleepDownTimeSectionDivider(modifier = Modifier.homeSwitchGroup().homeCountdownShockwave(0.75f), textColor = textColor, label = {
         HomeReadableText(
             text = dayPartLabel(part),
             style = MaterialTheme.typography.titleSmall,
@@ -2110,7 +2111,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
     val subdued = muted || completed
     val pageForeground = homeForegroundColor(config)
     val foreground = homeCourseTextColor(config, course, pageForeground, subdued)
-    Column(modifier = Modifier.homeSwitchGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier = Modifier.homeSwitchGroup().homeCountdownShockwave(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         CourseGlassCard(
             backdrop = backdrop,
             config = config,

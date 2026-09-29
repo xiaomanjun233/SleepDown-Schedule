@@ -1046,7 +1046,7 @@ internal fun DayAgentCardVisualContent(
             }
         }
     }
-    Box(modifier) {
+    Box(modifier.homeCountdownShockwave()) {
         if (decorated) {
             val shape = RoundedRectangle(if (displayedVisual.collapsed) 26.dp else 28.dp)
             Box(Modifier.matchParentSize().clip(shape)

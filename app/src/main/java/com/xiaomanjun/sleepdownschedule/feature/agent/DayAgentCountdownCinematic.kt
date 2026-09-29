@@ -2,8 +2,6 @@ package com.xiaomanjun.sleepdownschedule.feature.agent
 
 import android.animation.ValueAnimator
 import android.content.Context
-import android.graphics.Paint
-import android.graphics.Typeface
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -42,9 +40,10 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -81,7 +80,9 @@ internal fun dayAgentCinematicEvent(
 }
 
 internal class DayAgentCountdownCinematicState {
+    val blast = Animatable(0f)
     var numberBoundsInWindow: Rect? = null
+    var screenBoundsInWindow: Rect? = null
     var phase by mutableStateOf(DayAgentCinematicPhase.IDLE)
         private set
     var episodeKey by mutableStateOf<String?>(null)
@@ -116,11 +117,51 @@ internal class DayAgentCountdownCinematicState {
         phase = DayAgentCinematicPhase.IDLE
         episodeKey = null
         launchBounds = null
+        screenBoundsInWindow = null
     }
 }
 
 internal val LocalDayAgentCountdownCinematic =
     staticCompositionLocalOf<DayAgentCountdownCinematicState?> { null }
+
+/** A single soft impact travels through the real home elements, rather than overpainting them. */
+@Composable
+internal fun Modifier.homeCountdownShockwave(strength: Float = 1f): Modifier {
+    val effect = LocalDayAgentCountdownCinematic.current ?: return this
+    if (effect.phase != DayAgentCinematicPhase.EXPLOSION || !ValueAnimator.areAnimatorsEnabled()) return this
+    val restingBounds = remember { arrayOfNulls<Rect>(1) }
+    return this.onGloballyPositioned { coordinates ->
+        if (restingBounds[0] == null) restingBounds[0] = coordinates.boundsInWindow()
+    }.graphicsLayer {
+        val viewport = effect.screenBoundsInWindow
+        val bounds = restingBounds[0]
+        val p = effect.blast.value.coerceIn(0f, 1f)
+        if (viewport == null || bounds == null || viewport.width <= 0f || viewport.height <= 0f) {
+            translationX = 0f
+            translationY = 0f
+            scaleX = 1f
+            scaleY = 1f
+        } else {
+            val center = viewport.center
+            val dx = bounds.center.x - center.x
+            val dy = bounds.center.y - center.y
+            val distance = hypot(dx, dy)
+            val reach = hypot(
+                max(center.x - viewport.left, viewport.right - center.x),
+                max(center.y - viewport.top, viewport.bottom - center.y)
+            ).coerceAtLeast(1f)
+            val arrival = (distance / reach).coerceIn(0f, 1f) * 0.60f
+            val elapsed = ((p - arrival) / 0.30f).coerceIn(0f, 1f)
+            val impulse = sin(Math.PI * elapsed).toFloat().coerceAtLeast(0f) *
+                (1f - 0.25f * distance / reach) * strength
+            val displacement = 16.dp.toPx() * impulse
+            translationX = if (distance > 1f) dx / distance * displacement else 0f
+            translationY = if (distance > 1f) dy / distance * displacement else 0f
+            scaleX = 1f + 0.025f * impulse
+            scaleY = scaleX
+        }
+    }
+}
 
 @Composable
 internal fun HomeCountdownCinematicOverlay(
@@ -193,22 +234,21 @@ internal fun HomeCountdownCinematicOverlay(
     if (phase == DayAgentCinematicPhase.IDLE) return
     val reducedMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
     val entry = remember { Animatable(0f) }
-    val blast = remember { Animatable(0f) }
     val vibrator = remember(context) { context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator }
     LaunchedEffect(phase, effect.episodeKey) {
         when (phase) {
             DayAgentCinematicPhase.COUNTDOWN -> {
-                blast.snapTo(0f)
+                effect.blast.snapTo(0f)
                 entry.snapTo(0f)
                 if (reducedMotion) entry.snapTo(1f)
                 else entry.animateTo(1f, tween(360, easing = CubicBezierEasing(0.16f, 0.88f, 0.24f, 1f)))
             }
             DayAgentCinematicPhase.EXPLOSION -> {
                 entry.snapTo(1f)
-                blast.snapTo(0f)
+                effect.blast.snapTo(0f)
                 vibrateCinematicBlast(vibrator)
-                delay(if (reducedMotion) 40L else 85L)
-                blast.animateTo(1f, tween(if (reducedMotion) 260 else 1_450, easing = LinearEasing))
+                delay(if (reducedMotion) 24L else 40L)
+                effect.blast.animateTo(1f, tween(if (reducedMotion) 260 else 1_450, easing = LinearEasing))
                 effect.clear()
             }
             DayAgentCinematicPhase.IDLE -> Unit
@@ -222,7 +262,10 @@ internal fun HomeCountdownCinematicOverlay(
     var overlayWindowPosition by remember { mutableStateOf(Offset.Zero) }
     BoxWithConstraints(
         modifier.fillMaxSize()
-            .onGloballyPositioned { overlayWindowPosition = it.positionInWindow() }
+            .onGloballyPositioned {
+                overlayWindowPosition = it.positionInWindow()
+                effect.screenBoundsInWindow = it.boundsInWindow()
+            }
             .clearAndSetSemantics {
                 contentDescription = if (phase == DayAgentCinematicPhase.EXPLOSION) "倒计时结束"
                     else "倒计时 ${effect.seconds} 秒"
@@ -245,10 +288,10 @@ internal fun HomeCountdownCinematicOverlay(
             density.fontScale).sp
         val fontPx = with(density) { fontSize.toPx() }
         val startScale = source?.let { (it.height / (fontPx * 1.15f)).coerceIn(0.10f, 0.40f) } ?: 0.14f
-        val blastProgress = blast.value
+        val blastProgress = effect.blast.value
         val dim = if (phase == DayAgentCinematicPhase.COUNTDOWN) {
             0.48f + (3 - effect.seconds).coerceIn(0, 2) * 0.11f
-        } else 0.74f * (1f - cinematicSmoothStep(0.38f, 1f, blastProgress))
+        } else 0.38f * (1f - cinematicSmoothStep(0f, 0.25f, blastProgress))
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dim)))
 
         if (phase == DayAgentCinematicPhase.COUNTDOWN) {
@@ -300,21 +343,20 @@ internal fun HomeCountdownCinematicOverlay(
             )
             Text("0", color = Color.White, style = style, fontWeight = FontWeight.Black,
                 modifier = Modifier.align(Alignment.Center).graphicsLayer {
-                    alpha = 1f - cinematicSmoothStep(0.01f, 0.16f, blast.value)
+                    val p = effect.blast.value
+                    alpha = 1f - cinematicSmoothStep(0.02f, 0.24f, p)
+                    scaleX = 1f + 0.18f * cinematicSmoothStep(0f, 0.24f, p)
+                    scaleY = scaleX
+                    val blur = 7.dp.toPx() * cinematicSmoothStep(0.04f, 0.24f, p)
+                    renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
                 })
             if (!reducedMotion) {
                 CinematicBlastCanvas(
-                    progress = { blast.value },
+                    progress = { effect.blast.value },
                     accent = effect.accent,
-                    fontPx = fontPx,
                     modifier = Modifier.fillMaxSize()
                 )
             }
-        }
-        if (phase == DayAgentCinematicPhase.EXPLOSION) {
-            Box(Modifier.fillMaxSize().background(Color.White.copy(
-                alpha = 0.56f * (1f - cinematicSmoothStep(0f, 0.10f, blastProgress))
-            )))
         }
     }
 }
@@ -351,88 +393,37 @@ private fun CinematicCountdownDigit(seconds: Int, style: androidx.compose.ui.tex
 }
 
 @Composable
-private fun CinematicBlastCanvas(progress: () -> Float, accent: Color, fontPx: Float, modifier: Modifier) {
-    val paint = remember {
-        Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
-            textAlign = Paint.Align.LEFT
-        }
-    }
+private fun CinematicBlastCanvas(progress: () -> Float, accent: Color, modifier: Modifier) {
     Canvas(modifier) {
         val p = progress().coerceIn(0f, 1f)
         val center = Offset(size.width / 2f, size.height / 2f)
-        val maxRadius = hypot(center.x, center.y) * 1.08f
-        val wave = 1f - (1f - p) * (1f - p)
-        val light = 1f - cinematicSmoothStep(0.02f, 0.36f, p)
-        // The light stays at the impact point while only the number fragments fly outward.
-        drawCircle(accent, radius = 118.dp.toPx() * (0.28f + p), center = center,
-            alpha = 0.23f * light)
-        drawCircle(Color.White, radius = 32.dp.toPx() * (0.35f + p), center = center,
-            alpha = 0.90f * light)
-        drawCircle(Color.White, radius = maxRadius * wave, center = center,
-            alpha = 0.90f * (1f - p), style = Stroke(width = (11f - 8f * p).dp.toPx()))
-        drawCircle(accent, radius = maxRadius * (wave * 0.82f).coerceAtLeast(0f), center = center,
-            alpha = 0.62f * (1f - p), style = Stroke(width = 5.dp.toPx()))
-        drawCircle(Color.White, radius = maxRadius * (wave * 0.58f).coerceAtLeast(0f), center = center,
-            alpha = 0.36f * (1f - p), style = Stroke(width = 2.5.dp.toPx()))
-        repeat(72) { index ->
-            val angle = index * (Math.PI * 2.0 / 72.0) + (index % 5) * 0.09
-            val unit = Offset(cos(angle).toFloat(), sin(angle).toFloat())
-            val travel = maxRadius * wave * (0.72f + (index % 7) * 0.055f)
-            val tip = center + unit * travel
-            drawLine(
-                color = if (index % 4 == 0) Color.White else accent,
-                start = tip - unit * (12.dp.toPx() + (index % 4) * 9.dp.toPx()),
-                end = tip,
-                strokeWidth = (1.4f + index % 3).dp.toPx(),
-                alpha = (1f - p) * 0.9f
+        val maxRadius = hypot(center.x, center.y)
+        val radius = maxRadius * (p / 0.60f)
+        val light = 1f - cinematicSmoothStep(0.02f, 0.34f, p)
+        // Keep the impact light centered; the wave carries motion through the home.
+        drawCircle(accent, radius = 100.dp.toPx() * (0.28f + p), center = center,
+            alpha = 0.17f * light)
+        drawCircle(Color.White, radius = 25.dp.toPx() * (0.35f + p), center = center,
+            alpha = 0.62f * light)
+        val ringAlpha = 0.34f * (1f - cinematicSmoothStep(0.52f, 0.90f, p))
+        drawCircle(accent, radius = radius, center = center,
+            alpha = ringAlpha * 0.32f, style = Stroke(width = 13.dp.toPx()))
+        drawCircle(Color.White, radius = radius, center = center,
+            alpha = ringAlpha, style = Stroke(width = 1.7.dp.toPx()))
+        repeat(32) { index ->
+            val angle = index * (2.0 * Math.PI / 32.0) + (index % 3) * 0.13
+            val travel = 88.dp.toPx() * cinematicSmoothStep(0f, 0.62f, p) *
+                (0.58f + (index % 5) * 0.10f)
+            val point = Offset(
+                center.x + cos(angle).toFloat() * travel,
+                center.y + sin(angle).toFloat() * travel
             )
-        }
-        val electricReach = maxRadius * (1f - (1f - p.coerceIn(0f, 0.65f) / 0.65f).let { it * it })
-        val electricAlpha = 0.95f * (1f - cinematicSmoothStep(0.30f, 0.78f, p))
-        repeat(14) { bolt ->
-            val angle = bolt * (Math.PI * 2.0 / 14.0) + (bolt % 3) * 0.10
-            val direction = Offset(cos(angle).toFloat(), sin(angle).toFloat())
-            val side = Offset(-direction.y, direction.x)
-            var previousPoint = center + direction * 21.dp.toPx()
-            repeat(7) { segment ->
-                val radial = electricReach * (segment + 1) / 7f
-                val kink = (((bolt * 19 + segment * 7) % 9) - 4) * 5.dp.toPx() * (0.5f + p)
-                val next = center + direction * radial + side * kink
-                drawLine(accent, previousPoint, next, strokeWidth = 7.dp.toPx(), alpha = electricAlpha * 0.48f)
-                drawLine(Color.White, previousPoint, next, strokeWidth = 2.2.dp.toPx(), alpha = electricAlpha)
-                if (segment == 3 || segment == 5) {
-                    val branch = next + direction * (electricReach * 0.12f) +
-                        side * (if ((bolt + segment) % 2 == 0) 1f else -1f) * 32.dp.toPx()
-                    drawLine(accent, next, branch, strokeWidth = 4.dp.toPx(), alpha = electricAlpha * 0.44f)
-                    drawLine(Color.White, next, branch, strokeWidth = 1.4.dp.toPx(), alpha = electricAlpha * 0.82f)
-                }
-                previousPoint = next
-            }
-        }
-        paint.textSize = fontPx
-        paint.color = Color.White.toArgb()
-        paint.alpha = (255f * (1f - cinematicSmoothStep(0.50f, 1f, p))).toInt().coerceIn(0, 255)
-        val glyphWidth = paint.measureText("0")
-        val glyphHeight = fontPx * 1.30f
-        val left = center.x - glyphWidth / 2f
-        val top = center.y - glyphHeight / 2f
-        val baseline = center.y - (paint.ascent() + paint.descent()) / 2f
-        val native = drawContext.canvas.nativeCanvas
-        repeat(4) { row ->
-            repeat(3) { column ->
-                val dx = column - 1f + (row % 2) * 0.22f
-                val dy = row - 1.5f + (column % 2) * 0.16f
-                val magnitude = max(0.35f, hypot(dx, dy))
-                val travel = maxRadius * 0.64f * wave * (0.60f + (row * 3 + column) % 4 * 0.13f)
-                val shardLeft = left + column * glyphWidth / 3f
-                val shardTop = top + row * glyphHeight / 4f
-                native.save()
-                native.translate(dx / magnitude * travel, dy / magnitude * travel)
-                native.clipRect(shardLeft, shardTop, shardLeft + glyphWidth / 3f, shardTop + glyphHeight / 4f)
-                native.drawText("0", left, baseline, paint)
-                native.restore()
-            }
+            drawCircle(
+                color = if (index % 3 == 0) Color.White else accent,
+                radius = (1.2.dp.toPx() + (index % 4) * 0.7.dp.toPx()) * (1f - p * 0.55f),
+                center = point,
+                alpha = 1f - cinematicSmoothStep(0.25f, 0.80f, p)
+            )
         }
     }
 }
@@ -458,12 +449,12 @@ private fun vibrateCinematicBlast(vibrator: Vibrator?) {
     if (vibrator?.hasVibrator() != true) return
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         vibrator.vibrate(VibrationEffect.createWaveform(
-            longArrayOf(0, 95, 35, 170, 45, 250),
-            intArrayOf(0, 255, 0, 225, 0, 255),
+            longArrayOf(0, 175, 35, 80),
+            intArrayOf(0, 225, 0, 100),
             -1
         ))
     } else {
         @Suppress("DEPRECATION")
-        vibrator.vibrate(595L)
+        vibrator.vibrate(290L)
     }
 }

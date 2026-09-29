@@ -2590,6 +2590,7 @@ fun CourseScheduleAppUi(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .zIndex(11f)
+                            .homeCountdownShockwave(0.75f)
                     ) {
                         AppTopBar(
                             screen = Screen.Home,
@@ -2646,6 +2647,7 @@ fun CourseScheduleAppUi(
                                     end = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp
                                 )
                                 .homeSwitchLayer(homeModeMotion, secondary = true)
+                                .homeCountdownShockwave(0.70f)
                         )
                     }
                 }
@@ -2869,6 +2871,7 @@ fun CourseScheduleAppUi(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .zIndex(100f)
+                        .homeCountdownShockwave(0.85f)
                 ) {
                     FloatingDock(
                         selected = screen,
@@ -2893,7 +2896,8 @@ fun CourseScheduleAppUi(
                 config = visualState.config,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .zIndex(89f),
+                    .zIndex(89f)
+                    .homeCountdownShockwave(0.85f),
                 onClick = ::enterCustomizePage,
                 onDismiss = {
                     entryPrewarmJob?.cancel()

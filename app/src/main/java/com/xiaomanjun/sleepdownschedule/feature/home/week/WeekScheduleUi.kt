@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.home.week
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 
 import com.xiaomanjun.sleepdownschedule.feature.agent.excludeHomeAssistantPull
+import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
 
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseNeedsSupplementaryWeekRow
 
@@ -3538,6 +3539,7 @@ fun WeekCourseBlock(
                     }
                 }
                 .then(visibilityModifier)
+                .homeCountdownShockwave()
                 .zIndex(if (liftedVisualActive) 3f else 0f)
         ) {
             conflictUnderlyingCourse
