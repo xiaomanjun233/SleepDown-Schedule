@@ -651,6 +651,12 @@ private val MIGRATION_42_43 = object : Migration(42, 43) {
     }
 }
 
+private val MIGRATION_43_44 = object : Migration(43, 44) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE schedule_config ADD COLUMN weekCardContentLayout TEXT NOT NULL DEFAULT 'CURRENT'")
+    }
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -693,7 +699,8 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_39_40,
     MIGRATION_40_41,
     MIGRATION_41_42,
-    MIGRATION_42_43
+    MIGRATION_42_43,
+    MIGRATION_43_44
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {

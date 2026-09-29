@@ -197,6 +197,7 @@ internal fun ScheduleConfigEntity.withChangesFrom(
         weekCardShowLocation = changed(original.weekCardShowLocation, updated.weekCardShowLocation, weekCardShowLocation),
         weekCardShowTeacher = changed(original.weekCardShowTeacher, updated.weekCardShowTeacher, weekCardShowTeacher),
         weekCardTextAlignment = changed(original.weekCardTextAlignment, updated.weekCardTextAlignment, weekCardTextAlignment),
+        weekCardContentLayout = changed(original.weekCardContentLayout, updated.weekCardContentLayout, weekCardContentLayout),
         homeTextLight = changed(original.homeTextLight, updated.homeTextLight, homeTextLight),
         homeChromeBlurScale = changed(
             original.homeChromeBlurScale,
@@ -310,6 +311,7 @@ internal fun ScheduleConfigEntity.withPersonalizationFrom(
     weekCardShowLocation = updated.weekCardShowLocation,
     weekCardShowTeacher = updated.weekCardShowTeacher,
     weekCardTextAlignment = updated.weekCardTextAlignment,
+    weekCardContentLayout = updated.weekCardContentLayout,
     homeTextLight = updated.homeTextLight
 )
 

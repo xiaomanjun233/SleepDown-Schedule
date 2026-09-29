@@ -1178,7 +1178,7 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
             with(density) { locationLineHeight.toPx() }
         ).coerceAtLeast(1f)
         val totalSlots = (usablePx / averageLinePx).toInt().coerceAtLeast(1)
-        val maxNameLines = when {
+        val maxNameLines = if (config.weekCardContentLayout == WeekCardContentLayout.TOP_DOWN) totalSlots else when {
             heightDp >= 150f -> 12
             heightDp >= 112f -> 9
             heightDp >= 78f -> 6
@@ -1234,62 +1234,17 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
             0.dp
         }
         val centerReserve = maxOf(locationReserve, teacherReserve) + 1.dp
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = horizontalPadding, vertical = verticalPadding)
-        ) {
-            if (hasLocation && locationLines > 0) {
-                CourseCardText(
-                    locationText,
-                    themeColor = null,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth(),
-                    fontSize = locationFont,
-                    lineHeight = locationLineHeight,
-                    fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Medium,
-                    color = textColor.copy(alpha = 0.78f),
-                    maxLines = locationLines,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = cardTextAlign,
-                    adaptiveContrast = false
-                )
-            }
-            CourseCardText(
-                course.name,
-                themeColor = null,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth()
-                    .padding(vertical = centerReserve),
-                fontSize = nameFont,
-                lineHeight = nameLineHeight,
-                fontWeight = if (coloredText) FontWeight.Bold else FontWeight.SemiBold,
-                color = textColor,
-                maxLines = nameLines,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = cardTextAlign,
-                adaptiveContrast = false
-            )
-            if (canShowTeacher) {
-                CourseCardText(
-                    course.teacher,
-                    themeColor = null,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth(),
-                    fontSize = teacherFont,
-                    lineHeight = teacherLineHeight,
-                    fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Normal,
-                    color = textColor.copy(alpha = 0.58f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = cardTextAlign,
-                    adaptiveContrast = false
-                )
-            }
-        }
+        WeekCardTextBody(
+            course = course, locationText = locationText, locationLines = locationLines,
+            nameLines = nameLines, showTeacher = canShowTeacher,
+            nameFont = nameFont, nameLineHeight = nameLineHeight,
+            locationFont = locationFont, locationLineHeight = locationLineHeight,
+            teacherFont = teacherFont, teacherLineHeight = teacherLineHeight,
+            textColor = textColor, coloredText = coloredText,
+            currentTextAlign = cardTextAlign, layout = config.weekCardContentLayout,
+            horizontalPadding = horizontalPadding, verticalPadding = verticalPadding,
+            centerReserve = centerReserve, adaptiveContrast = false
+        )
     }
 }
 
@@ -1297,6 +1252,93 @@ private fun ScheduleConfigEntity.weekCardTextAlign(): TextAlign = when (weekCard
     WeekCardTextAlignment.START -> TextAlign.Start
     WeekCardTextAlignment.CENTER -> TextAlign.Center
     WeekCardTextAlignment.END -> TextAlign.End
+}
+
+@Composable
+private fun WeekCardTextBody(
+    course: CourseEntity,
+    locationText: String,
+    locationLines: Int,
+    nameLines: Int,
+    showTeacher: Boolean,
+    nameFont: TextUnit,
+    nameLineHeight: TextUnit,
+    locationFont: TextUnit,
+    locationLineHeight: TextUnit,
+    teacherFont: TextUnit,
+    teacherLineHeight: TextUnit,
+    textColor: ComposeColor,
+    coloredText: Boolean,
+    currentTextAlign: TextAlign,
+    layout: WeekCardContentLayout,
+    horizontalPadding: Dp,
+    verticalPadding: Dp,
+    centerReserve: Dp,
+    adaptiveContrast: Boolean = true
+) {
+    Box(Modifier.fillMaxSize().padding(horizontal = horizontalPadding, vertical = verticalPadding)) {
+        if (layout == WeekCardContentLayout.CURRENT) {
+            if (locationLines > 0) {
+                CourseCardText(locationText, themeColor = null,
+                    modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+                    fontSize = locationFont, lineHeight = locationLineHeight,
+                    fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Medium,
+                    color = textColor.copy(alpha = 0.78f), maxLines = locationLines,
+                    overflow = TextOverflow.Ellipsis, textAlign = currentTextAlign,
+                    adaptiveContrast = adaptiveContrast)
+            }
+            CourseCardText(course.name, themeColor = null,
+                modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(vertical = centerReserve),
+                fontSize = nameFont, lineHeight = nameLineHeight,
+                fontWeight = if (coloredText) FontWeight.Bold else FontWeight.SemiBold,
+                color = textColor, maxLines = nameLines,
+                overflow = TextOverflow.Ellipsis, textAlign = currentTextAlign,
+                adaptiveContrast = adaptiveContrast)
+            if (showTeacher) {
+                CourseCardText(course.teacher.orEmpty(), themeColor = null,
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                    fontSize = teacherFont, lineHeight = teacherLineHeight,
+                    fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Normal,
+                    color = textColor.copy(alpha = 0.58f), maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, textAlign = currentTextAlign,
+                    adaptiveContrast = adaptiveContrast)
+            }
+        } else {
+            val textAlign = if (layout == WeekCardContentLayout.CENTERED) TextAlign.Center else TextAlign.Start
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = if (layout == WeekCardContentLayout.CENTERED) Arrangement.Center else Arrangement.Top
+            ) {
+                if (locationLines > 0) {
+                    CourseCardText(locationText, themeColor = null,
+                        modifier = Modifier.fillMaxWidth(),
+                        fontSize = locationFont, lineHeight = locationLineHeight,
+                        fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Medium,
+                        color = textColor.copy(alpha = 0.78f), maxLines = locationLines,
+                        overflow = TextOverflow.Ellipsis, textAlign = textAlign,
+                        adaptiveContrast = adaptiveContrast)
+                    Spacer(Modifier.height(1.dp))
+                }
+                CourseCardText(course.name, themeColor = null,
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    fontSize = nameFont, lineHeight = nameLineHeight,
+                    fontWeight = if (coloredText) FontWeight.Bold else FontWeight.SemiBold,
+                    color = textColor, maxLines = nameLines,
+                    overflow = TextOverflow.Ellipsis, textAlign = textAlign,
+                    adaptiveContrast = adaptiveContrast)
+                if (showTeacher) {
+                    Spacer(Modifier.height(1.dp))
+                    CourseCardText(course.teacher.orEmpty(), themeColor = null,
+                        modifier = Modifier.fillMaxWidth(),
+                        fontSize = teacherFont, lineHeight = teacherLineHeight,
+                        fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Normal,
+                        color = textColor.copy(alpha = 0.58f), maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, textAlign = textAlign,
+                        adaptiveContrast = adaptiveContrast)
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -3739,7 +3781,7 @@ fun WeekCourseBlock(
             val usablePx = (availableTextPx - teacherPx).coerceAtLeast(0f)
             val averageLinePx = minOf(with(density) { nameLineHeight.toPx() }, with(density) { locationLineHeight.toPx() }).coerceAtLeast(1f)
             val totalSlots = (usablePx / averageLinePx).toInt().coerceAtLeast(1)
-            val maxNameLines = when {
+            val maxNameLines = if (config.weekCardContentLayout == WeekCardContentLayout.TOP_DOWN) totalSlots else when {
                 heightDp >= 150f -> 12
                 heightDp >= 112f -> 9
                 heightDp >= 78f -> 6
@@ -3796,59 +3838,17 @@ fun WeekCourseBlock(
                 0.dp
             }
             val centerReserve = maxOf(locationReserve, teacherReserve) + 1.dp
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = horizontalPadding, vertical = verticalPadding)
-            ) {
-                if (hasLocation && locationLines > 0) {
-                    CourseCardText(
-                        locationText,
-                        themeColor = null,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .fillMaxWidth(),
-                        fontSize = locationFont,
-                        lineHeight = locationLineHeight,
-                        fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Medium,
-                        color = courseTextColor.copy(alpha = 0.78f),
-                        maxLines = locationLines,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = cardTextAlign
-                    )
-                }
-                CourseCardText(
-                    course.name,
-                    themeColor = null,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxWidth()
-                        .padding(vertical = centerReserve),
-                    fontSize = nameFont,
-                    lineHeight = nameLineHeight,
-                    fontWeight = if (coloredText) FontWeight.Bold else FontWeight.SemiBold,
-                    color = courseTextColor,
-                    maxLines = nameLines,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = cardTextAlign
-                )
-                if (canShowTeacher) {
-                    CourseCardText(
-                        course.teacher,
-                        themeColor = null,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth(),
-                        fontSize = teacherFont,
-                        lineHeight = teacherLineHeight,
-                        fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Normal,
-                        color = courseTextColor.copy(alpha = 0.58f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = cardTextAlign
-                    )
-                }
-            }
+            WeekCardTextBody(
+                course = course, locationText = locationText, locationLines = locationLines,
+                nameLines = nameLines, showTeacher = canShowTeacher,
+                nameFont = nameFont, nameLineHeight = nameLineHeight,
+                locationFont = locationFont, locationLineHeight = locationLineHeight,
+                teacherFont = teacherFont, teacherLineHeight = teacherLineHeight,
+                textColor = courseTextColor, coloredText = coloredText,
+                currentTextAlign = cardTextAlign, layout = config.weekCardContentLayout,
+                horizontalPadding = horizontalPadding, verticalPadding = verticalPadding,
+                centerReserve = centerReserve
+            )
             }
             }
             }

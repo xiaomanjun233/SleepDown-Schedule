@@ -5563,7 +5563,8 @@ internal fun mergePersonalizationCandidate(
     PersonalizeWeekContentChange -> current.copy(
         weekCardShowLocation = candidate.weekCardShowLocation,
         weekCardShowTeacher = candidate.weekCardShowTeacher,
-        weekCardTextAlignment = candidate.weekCardTextAlignment
+        weekCardTextAlignment = candidate.weekCardTextAlignment,
+        weekCardContentLayout = candidate.weekCardContentLayout
     )
     PersonalizeCardColorChange -> current.copy(
         cardColorArgb = candidate.cardColorArgb,
@@ -6580,28 +6581,29 @@ fun PersonalizePanel(
                             backdrop = backdrop
                         )
                     }
-                    Text("文字对齐", style = MaterialTheme.typography.bodyMedium)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(
-                            WeekCardTextAlignment.START to "左对齐",
-                            WeekCardTextAlignment.CENTER to "居中",
-                            WeekCardTextAlignment.END to "右对齐"
-                        ).forEach { (alignment, label) ->
-                            val selected = state.config.weekCardTextAlignment == alignment
-                            LiquidMenuButton(
-                                backdrop = backdrop,
-                                label = label,
-                                onClick = {
-                                    onUpdateConfig(PersonalizeWeekContentChange,
-                                        state.config.copy(weekCardTextAlignment = alignment))
-                                },
-                                modifier = Modifier.weight(1f),
-                                textColorOverride = if (selected) MaterialTheme.colorScheme.onPrimary else null,
-                                surfaceColorOverride = if (selected) MaterialTheme.colorScheme.primary
-                                    else ComposeColor.White.copy(alpha = 0.10f)
-                            )
+                    val textLayouts = listOf(
+                        WeekCardContentLayout.CURRENT to "当前样式",
+                        WeekCardContentLayout.CENTERED to "全部居中",
+                        WeekCardContentLayout.TOP_DOWN to "从上到下铺满"
+                    )
+                    SleepDownLiquidDropdownPreference(
+                        items = textLayouts.map { it.second },
+                        selectedIndex = textLayouts.indexOfFirst { it.first == state.config.weekCardContentLayout }
+                            .coerceAtLeast(0),
+                        title = "卡片文字排布",
+                        backdrop = backdrop,
+                        config = state.config,
+                        modifier = Modifier.fillMaxWidth()
+                            .personalizePreviewVisibility(previewSliderKey, previewProgress),
+                        insideMargin = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
+                        maxHeight = 260.dp,
+                        onSelectedIndexChange = { index ->
+                            textLayouts.getOrNull(index)?.let { (layout, _) ->
+                                onUpdateConfig(PersonalizeWeekContentChange,
+                                    state.config.copy(weekCardContentLayout = layout))
+                            }
                         }
-                    }
+                    )
                 }
                 Row(
                     modifier = Modifier.rowEntrance(5)

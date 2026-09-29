@@ -86,4 +86,11 @@ class ScheduleConverters {
     @TypeConverter
     fun stringToWeekCardTextAlignment(value: String): WeekCardTextAlignment =
         runCatching { WeekCardTextAlignment.valueOf(value) }.getOrDefault(WeekCardTextAlignment.CENTER)
+
+    @TypeConverter
+    fun weekCardContentLayoutToString(value: WeekCardContentLayout): String = value.name
+
+    @TypeConverter
+    fun stringToWeekCardContentLayout(value: String): WeekCardContentLayout =
+        runCatching { WeekCardContentLayout.valueOf(value) }.getOrDefault(WeekCardContentLayout.CURRENT)
 }

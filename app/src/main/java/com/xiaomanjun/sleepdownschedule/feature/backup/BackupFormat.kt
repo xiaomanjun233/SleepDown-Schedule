@@ -228,6 +228,7 @@ data class BackupScheduleConfig(
     val weekCardShowLocation: Boolean = true,
     val weekCardShowTeacher: Boolean = true,
     val weekCardTextAlignment: String = "CENTER",
+    val weekCardContentLayout: String = "CURRENT",
     val homeTextLight: Boolean,
     val followSystemDarkMode: Boolean,
     val darkMode: Boolean,

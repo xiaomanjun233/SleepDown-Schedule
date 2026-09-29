@@ -27,6 +27,7 @@ typealias PeriodSchemeMode = com.xiaomanjun.sleepdownschedule.model.PeriodScheme
 typealias ScheduleTermState = com.xiaomanjun.sleepdownschedule.model.ScheduleTermState
 typealias CourseCardColorMode = com.xiaomanjun.sleepdownschedule.model.CourseCardColorMode
 typealias WeekCardTextAlignment = com.xiaomanjun.sleepdownschedule.model.WeekCardTextAlignment
+typealias WeekCardContentLayout = com.xiaomanjun.sleepdownschedule.model.WeekCardContentLayout
 
 typealias CourseEntity = com.xiaomanjun.sleepdownschedule.model.CourseEntity
 typealias ScheduleProfileEntity = com.xiaomanjun.sleepdownschedule.model.ScheduleProfileEntity

@@ -15,6 +15,7 @@ enum class PeriodSchemeMode { MANUAL, AUTO_MATCH }
 enum class ScheduleTermState { MANUAL, UPCOMING, ACTIVE, ENDED, INVALID }
 enum class CourseCardColorMode { SOLID, GRADIENT, COLORFUL }
 enum class WeekCardTextAlignment { START, CENTER, END }
+enum class WeekCardContentLayout { CURRENT, CENTERED, TOP_DOWN }
 
 internal const val DefaultHomeChromeBlurScale = 1f
 internal const val MinHomeChromeBlurScale = 0f
@@ -106,6 +107,7 @@ data class ScheduleConfigEntity(
     @ColumnInfo(defaultValue = "1") val weekCardShowLocation: Boolean = true,
     @ColumnInfo(defaultValue = "1") val weekCardShowTeacher: Boolean = true,
     @ColumnInfo(defaultValue = "'CENTER'") val weekCardTextAlignment: WeekCardTextAlignment = WeekCardTextAlignment.CENTER,
+    @ColumnInfo(defaultValue = "'CURRENT'") val weekCardContentLayout: WeekCardContentLayout = WeekCardContentLayout.CURRENT,
     val homeTextLight: Boolean = false,
     @ColumnInfo(defaultValue = "1") val homeChromeBlurScale: Float = DefaultHomeChromeBlurScale,
     @ColumnInfo(defaultValue = "1") val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale,

@@ -249,6 +249,7 @@ object BackupExportMapper {
                 weekCardShowLocation = config.weekCardShowLocation,
                 weekCardShowTeacher = config.weekCardShowTeacher,
                 weekCardTextAlignment = config.weekCardTextAlignment.name,
+                weekCardContentLayout = config.weekCardContentLayout.name,
                 homeTextLight = config.homeTextLight,
                 followSystemDarkMode = config.followSystemDarkMode,
                 darkMode = config.darkMode,
