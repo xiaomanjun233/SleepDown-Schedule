@@ -100,6 +100,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalView
@@ -5510,7 +5511,9 @@ internal const val PersonalizeWallpaperBlurSlider = "wallpaper-blur"
 internal const val PersonalizeWallpaperBrightnessSlider = "wallpaper-brightness"
 private const val PersonalizeWallpaperContentChange = "wallpaper-content"
 private const val PersonalizeWeekHeightSlider = "week-height"
-private const val PersonalizeWeekContentChange = "week-content"
+private const val PersonalizeWeekLocationChange = "week-location"
+private const val PersonalizeWeekTeacherChange = "week-teacher"
+private const val PersonalizeWeekLayoutChange = "week-layout"
 internal const val PersonalizeWeekCornerSlider = "week-corner"
 private const val PersonalizeCardColorChange = "card-color"
 internal const val PersonalizeCardAlphaSlider = "card-alpha"
@@ -5560,12 +5563,9 @@ internal fun mergePersonalizationCandidate(
     PersonalizeWeekCornerSlider -> current.copy(
         weekCardCornerProgress = candidate.weekCardCornerProgress
     )
-    PersonalizeWeekContentChange -> current.copy(
-        weekCardShowLocation = candidate.weekCardShowLocation,
-        weekCardShowTeacher = candidate.weekCardShowTeacher,
-        weekCardTextAlignment = candidate.weekCardTextAlignment,
-        weekCardContentLayout = candidate.weekCardContentLayout
-    )
+    PersonalizeWeekLocationChange -> current.copy(weekCardShowLocation = candidate.weekCardShowLocation)
+    PersonalizeWeekTeacherChange -> current.copy(weekCardShowTeacher = candidate.weekCardShowTeacher)
+    PersonalizeWeekLayoutChange -> current.copy(weekCardContentLayout = candidate.weekCardContentLayout)
     PersonalizeCardColorChange -> current.copy(
         cardColorArgb = candidate.cardColorArgb,
         courseCardColorMode = candidate.courseCardColorMode,
@@ -6559,7 +6559,7 @@ fun PersonalizePanel(
                             checked = state.config.weekCardShowLocation,
                             compact = true,
                             onCheckedChange = {
-                                onUpdateConfig(PersonalizeWeekContentChange,
+                                onUpdateConfig(PersonalizeWeekLocationChange,
                                     state.config.copy(weekCardShowLocation = it))
                             },
                             backdrop = backdrop
@@ -6575,35 +6575,68 @@ fun PersonalizePanel(
                             checked = state.config.weekCardShowTeacher,
                             compact = true,
                             onCheckedChange = {
-                                onUpdateConfig(PersonalizeWeekContentChange,
+                                onUpdateConfig(PersonalizeWeekTeacherChange,
                                     state.config.copy(weekCardShowTeacher = it))
                             },
                             backdrop = backdrop
                         )
                     }
                     val textLayouts = listOf(
-                        WeekCardContentLayout.CURRENT to "当前样式",
+                        WeekCardContentLayout.CURRENT to "默认",
                         WeekCardContentLayout.CENTERED to "全部居中",
                         WeekCardContentLayout.TOP_DOWN to "从上到下铺满"
                     )
-                    SleepDownLiquidDropdownPreference(
-                        items = textLayouts.map { it.second },
-                        selectedIndex = textLayouts.indexOfFirst { it.first == state.config.weekCardContentLayout }
-                            .coerceAtLeast(0),
-                        title = "卡片文字排布",
-                        backdrop = backdrop,
-                        config = state.config,
-                        modifier = Modifier.fillMaxWidth()
-                            .personalizePreviewVisibility(previewSliderKey, previewProgress),
-                        insideMargin = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
-                        maxHeight = 260.dp,
-                        onSelectedIndexChange = { index ->
-                            textLayouts.getOrNull(index)?.let { (layout, _) ->
-                                onUpdateConfig(PersonalizeWeekContentChange,
-                                    state.config.copy(weekCardContentLayout = layout))
+                    var layoutMenuOpen by remember { mutableStateOf(false) }
+                    val rowTextColor = LocalContentColor.current
+                    Box(Modifier.fillMaxWidth().personalizePreviewVisibility(previewSliderKey, previewProgress)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { layoutMenuOpen = true }
+                                ),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("文字排布", style = MaterialTheme.typography.bodyMedium, color = rowTextColor)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    textLayouts.first { it.first == state.config.weekCardContentLayout }.second,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = rowTextColor.copy(alpha = 0.72f)
+                                )
+                                Icon(
+                                    Icons.Rounded.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = rowTextColor.copy(alpha = 0.72f)
+                                )
                             }
                         }
-                    )
+                        SleepDownLiquidCascadingPopup(
+                            show = layoutMenuOpen,
+                            anchorBounds = Rect.Zero,
+                            items = textLayouts.map { (layout, label) ->
+                                SleepDownLiquidMenuItem(
+                                    key = layout.name,
+                                    text = label,
+                                    selected = layout == state.config.weekCardContentLayout,
+                                    onClick = {
+                                        layoutMenuOpen = false
+                                        onUpdateConfig(PersonalizeWeekLayoutChange,
+                                            state.config.copy(weekCardContentLayout = layout))
+                                    }
+                                )
+                            },
+                            onDismissRequest = { layoutMenuOpen = false },
+                            backdrop = backdrop,
+                            config = state.config,
+                            menuMaxHeight = 260.dp,
+                            contentColor = if (appUsesDarkTheme(state.config)) ComposeColor.White
+                                else ComposeColor(0xFF111111)
+                        )
+                    }
                 }
                 Row(
                     modifier = Modifier.rowEntrance(5)
