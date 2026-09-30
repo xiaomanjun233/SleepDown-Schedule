@@ -27,8 +27,11 @@ internal fun PeriodSchemeCreationWizard(
 ) {
     val active = draft.schemes.first { it.scheme.id == draft.activeSchemeId }
     var name by remember { mutableStateOf("新作息") }
-    var enabledParts by remember { mutableStateOf(PeriodDayPart.entries.filter { config.periodCount(it) > 0 }.toSet()) }
-    var counts by remember { mutableStateOf(PeriodDayPart.entries.associateWith { config.periodCount(it) }) }
+    var allocation by remember {
+        mutableStateOf(PeriodSchemeCreationState(PeriodDayPart.entries.associateWith { config.periodCount(it) }))
+    }
+    val enabledParts = allocation.enabledParts
+    val counts = allocation.counts
     var starts by remember {
         mutableStateOf(PeriodDayPart.entries.associateWith {
             parseMinuteOfDay(when (it) {
@@ -57,10 +60,12 @@ internal fun PeriodSchemeCreationWizard(
         scheme = active.scheme.copy(classDurationMinutes = duration, breakDurationMinutes = gap),
         overriddenPeriods = emptySet(), specialBreaks = emptyMap()
     )
-    fun changeParts(value: Set<PeriodDayPart>) {
-        val ordered = PeriodDayPart.entries.filter { it in value }
-        counts = allocateQuickPickerCounts(ordered, counts, total.coerceAtLeast(ordered.size))
-        enabledParts = value
+    fun changeParts(value: PeriodSchemeCreationState?) {
+        if (value == null) {
+            error = "当前总节数不足，每个启用的分段至少需要 1 节，请先在节数分配中增加总节数。"
+            return
+        }
+        allocation = value
         error = null
     }
     fun back() {
@@ -119,15 +124,14 @@ internal fun PeriodSchemeCreationWizard(
                             SettingsTextFieldRow("作息名称", name, { name = it; error = null })
                             val split = PeriodDayPart.AFTERNOON in enabledParts
                             SettingsToggleRow("上午 / 下午分段", "", split, backdrop) {
-                                changeParts(if (it) enabledParts + setOf(PeriodDayPart.MORNING, PeriodDayPart.AFTERNOON)
-                                    else setOf(PeriodDayPart.MORNING))
+                                changeParts(allocation.withSplitEnabled(it))
                             }
                             if (split) {
                                 SettingsToggleRow("启用中午分段", "", PeriodDayPart.NOON in enabledParts, backdrop) {
-                                    changeParts(if (it) enabledParts + PeriodDayPart.NOON else enabledParts - PeriodDayPart.NOON)
+                                    changeParts(allocation.withEnabledParts(if (it) enabledParts + PeriodDayPart.NOON else enabledParts - PeriodDayPart.NOON))
                                 }
                                 SettingsToggleRow("启用晚上分段", "", PeriodDayPart.EVENING in enabledParts, backdrop) {
-                                    changeParts(if (it) enabledParts + PeriodDayPart.EVENING else enabledParts - PeriodDayPart.EVENING)
+                                    changeParts(allocation.withEnabledParts(if (it) enabledParts + PeriodDayPart.EVENING else enabledParts - PeriodDayPart.EVENING))
                                 }
                             }
                             SettingsPickerValueRow("节数分配", "共 $total 节", onClick = {
@@ -136,8 +140,10 @@ internal fun PeriodSchemeCreationWizard(
                             SettingsPickerValueRow("时段起点", parts.joinToString(" · ") { timelineMinuteText(starts.getValue(it)) }, onClick = {
                                 pendingStarts = starts; page = CreationPickerPage.STARTS
                             })
-                            if (total != config.totalPeriodCount()) Text(
-                                "总节数改变会同步调整其他作息的节次结构，保存时确认课程对应关系。",
+                            if (!targetConfig.hasSamePeriodTopology(config)) Text(
+                                if (total == config.totalPeriodCount())
+                                    "分段分配会同步应用到其他作息，原有节次编号和时间保留。"
+                                else "节数和分段由所有作息共用；总节数增减会从末尾添加或移除节次，保存时确认课程对应关系。",
                                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp)
                             )
                         }
@@ -175,7 +181,7 @@ internal fun PeriodSchemeCreationWizard(
                         when (shownPage) {
                             CreationPickerPage.FORM -> page = CreationPickerPage.TIMING
                             CreationPickerPage.TIMING -> create()
-                            CreationPickerPage.COUNTS -> counts = pendingCounts
+                            CreationPickerPage.COUNTS -> allocation = allocation.withCounts(pendingCounts)
                             CreationPickerPage.STARTS -> starts = starts + constrainAutomaticPartStarts(targetConfig, template, pendingStarts)
                             CreationPickerPage.DURATION -> duration = pendingMinutes
                             CreationPickerPage.BREAK -> gap = pendingMinutes

@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.data.repository
 
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.previewPeriodCourseMapping
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
@@ -108,7 +109,9 @@ class ScheduleRepository(private val database: AppDatabase) {
 
     suspend fun saveScheduleDetail(
         config: ScheduleConfigEntity,
-        draft: SchedulePeriodSchemesDraft
+        draft: SchedulePeriodSchemesDraft,
+        expectedCourses: List<CourseEntity>? = null,
+        expectedPeriods: List<PeriodEntity>? = null
     ) = database.withTransaction {
         require(draft.schemes.isNotEmpty()) { "至少需要保留一套作息方案" }
         val scheduleId = config.id
@@ -117,7 +120,12 @@ class ScheduleRepository(private val database: AppDatabase) {
 
         val storedConfig = configDao.getConfig(scheduleId)
         val originalPeriods = configDao.getPeriods(scheduleId)
+        require(expectedCount <= maxOf(40, originalPeriods.size)) { "最多支持新增至 40 个节次" }
         var courses = courseDao.getCourses(scheduleId)
+        require((expectedCourses == null || courses.sortedBy { it.id } == expectedCourses.sortedBy { it.id }) &&
+            (expectedPeriods == null || originalPeriods.sortedBy { it.periodIndex } == expectedPeriods.sortedBy { it.periodIndex })) {
+            "课程或作息在确认期间发生变化，请重新打开设置并确认后再保存"
+        }
 
         val existing = periodSchemeDao.getSchemes(scheduleId)
         val existingDrafts = existing.associate { scheme ->
@@ -162,15 +170,7 @@ class ScheduleRepository(private val database: AppDatabase) {
         val activeId = idMap[draft.activeSchemeId] ?: draft.activeSchemeId
         periodSchemeDao.upsertSchemes(saved.map { (scheme, _) -> scheme.copy(isActive = scheme.id == activeId) })
         val activeTimes = saved.firstOrNull { it.first.id == activeId }?.second ?: saved.first().second
-        if (draft.topologyOperations.isNotEmpty()) {
-            courses = courses.map { course ->
-                val mapped = remapCoursePeriodsByClockTime(course.periods, originalPeriods, activeTimes)
-                require(course.customPeriodTimes == null || mapped == course.periods) {
-                    "${course.name} 有独立逐节铃声，请先确认节次结构调整后的对应关系"
-                }
-                course.copy(periods = mapped)
-            }
-        }
+        courses = previewPeriodCourseMapping(courses, originalPeriods, activeTimes, draft.topologyOperations).courses
         configDao.upsertConfig(normalizeConfigForSchedule(config, scheduleId))
         configDao.deletePeriods(scheduleId)
         configDao.upsertPeriods(activeTimes.map { PeriodEntity(it.periodIndex, it.startTime, it.endTime, scheduleId) })
@@ -953,38 +953,6 @@ class ScheduleRepository(private val database: AppDatabase) {
                 scheduleId = scheduleId
             )
         }
-    }
-
-    private fun remapCoursePeriodsByClockTime(
-        sourceIndices: List<Int>,
-        oldTimes: List<PeriodEntity>,
-        newTimes: List<PeriodSchemeTimeEntity>
-    ): List<Int> {
-        if (newTimes.isEmpty()) return sourceIndices
-        val oldByIndex = oldTimes.associateBy { it.periodIndex }
-        val parsedNew = newTimes.mapNotNull { item ->
-            val start = runCatching { java.time.LocalTime.parse(item.startTime) }.getOrNull() ?: return@mapNotNull null
-            val end = runCatching { java.time.LocalTime.parse(item.endTime) }.getOrNull() ?: return@mapNotNull null
-            Triple(item.periodIndex, start, end)
-        }
-        if (parsedNew.isEmpty()) return sourceIndices.map { it.coerceIn(1, newTimes.size) }.distinct().sorted()
-        val mapped = sourceIndices.flatMap { sourceIndex ->
-            val old = oldByIndex[sourceIndex]
-            val oldStart = old?.startTime?.let { runCatching { java.time.LocalTime.parse(it) }.getOrNull() }
-            val oldEnd = old?.endTime?.let { runCatching { java.time.LocalTime.parse(it) }.getOrNull() }
-            if (oldStart == null || oldEnd == null) {
-                listOf(parsedNew.minBy { kotlin.math.abs(it.first - sourceIndex) }.first)
-            } else {
-                val overlaps = parsedNew.filter { (_, start, end) -> start < oldEnd && end > oldStart }
-                if (overlaps.isNotEmpty()) overlaps.map { it.first } else {
-                    val oldMinute = oldStart.hour * 60 + oldStart.minute
-                    listOf(parsedNew.minBy { (_, start, _) ->
-                        kotlin.math.abs(start.hour * 60 + start.minute - oldMinute)
-                    }.first)
-                }
-            }
-        }
-        return mapped.distinct().sorted().ifEmpty { listOf(parsedNew.first().first) }
     }
 
     private fun normalizeImportedCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int): List<CourseEntity> {

@@ -69,7 +69,10 @@ private fun defaultDayPartStartMinute(part: PeriodDayPart): Int = when (part) {
 }
 
 sealed interface PeriodTopologyOperation {
-    data class AddAfter(val periodIndex: Int) : PeriodTopologyOperation
+    data class AddAfter(
+        val periodIndex: Int,
+        val restoredDeletionOperationIndex: Int? = null
+    ) : PeriodTopologyOperation
     data class Delete(val periodIndex: Int) : PeriodTopologyOperation
 }
 

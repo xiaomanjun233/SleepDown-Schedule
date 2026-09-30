@@ -5,7 +5,7 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
 
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
-import com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTopologyOperation
+import com.xiaomanjun.sleepdownschedule.domain.schedule.periodTopologyResizeOperations
 import com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments
 import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
@@ -549,14 +549,11 @@ class ScheduleViewModel(
                 overriddenPeriods = overrides
             )
         }
-        val topologyChanged = !config.hasSamePeriodTopology(targetConfig)
+        val topologyOperations = periodTopologyResizeOperations(config, targetConfig,
+            automaticSections = explicitTimes == null && updatedSchemes[activeIndex].scheme.mode == PeriodSchemeMode.AUTO_MATCH)
         val targetDraft = draft.copy(
             schemes = updatedSchemes,
-            topologyOperations = if (topologyChanged) {
-                listOf(PeriodTopologyOperation.AddAfter(config.totalPeriodCount()))
-            } else {
-                draft.topologyOperations
-            }
+            topologyOperations = draft.topologyOperations + topologyOperations
         )
         val active = targetDraft.schemes[activeIndex]
         if (validateResolvedPeriodTimes(resolveSchemeTimes(targetConfig, active)) != null) return null
