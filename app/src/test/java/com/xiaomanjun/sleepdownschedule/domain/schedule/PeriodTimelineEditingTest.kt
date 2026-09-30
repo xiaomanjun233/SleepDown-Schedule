@@ -277,7 +277,8 @@ class PeriodTimelineEditingTest {
             assertEquals(initial.config, restored.config)
             assertEquals(initial.draft.schemes, restored.draft.schemes)
             assertTrue(restored.vacancies.isEmpty())
-            assertEquals(listOf(PeriodTopologyOperation.Delete(index), PeriodTopologyOperation.AddAfter(index - 1)), restored.draft.topologyOperations)
+            assertEquals(listOf(PeriodTopologyOperation.Delete(index),
+                PeriodTopologyOperation.AddAfter(index - 1, restoredDeletionOperationIndex = 0)), restored.draft.topologyOperations)
         }
     }
 
@@ -408,5 +409,151 @@ class PeriodTimelineEditingTest {
         assertNull(validateResolvedPeriodTimes(restored.active.times))
         val filled = resizeTimelineBlock(removed, 1, false, 120)
         assertNull(insertTimelinePeriod(filled, filled.vacancies.single().id))
+    }
+
+    @Test fun sectionAnchorsClampToTheActualGapOnBothSides() {
+        val staleEarly = original.copy(scheme = original.scheme.copy(afternoonStartTime = "09:00"))
+        val staleLate = original.copy(scheme = original.scheme.copy(afternoonStartTime = "18:00"))
+        assertEquals(9 * 60 + 40, timelinePartAnchorMinute(config, staleEarly, PeriodDayPart.AFTERNOON))
+        assertEquals(14 * 60, timelinePartAnchorMinute(config, staleLate, PeriodDayPart.AFTERNOON))
+        assertEquals("09:40", staleEarly.materializeForTimeline(config).scheme.afternoonStartTime)
+        assertEquals("14:00", staleLate.materializeForTimeline(config).scheme.afternoonStartTime)
+        assertEquals(staleEarly.times, staleEarly.materializeForTimeline(config).times)
+        assertEquals("09:25", resizeTimelineBlock(config, staleEarly, 2, false, 30).times[1].endTime)
+    }
+
+    @Test fun repartitionRebasesEverySchemesAnchorsAndAllowsEditingTheNewTail() {
+        val splitConfig = config.copy(morningPeriodCount = 4, afternoonPeriodCount = 4, eveningPeriodCount = 2)
+        val split = original.copy(times = (0..3).map { index ->
+            PeriodSchemeTimeEntity(1, index + 1, timelineMinuteText(480 + index * 55), timelineMinuteText(525 + index * 55))
+        } + (0..3).map { index ->
+            PeriodSchemeTimeEntity(1, index + 5, timelineMinuteText(840 + index * 55), timelineMinuteText(885 + index * 55))
+        } + listOf(PeriodSchemeTimeEntity(1, 9, "19:00", "19:45"), PeriodSchemeTimeEntity(1, 10, "19:55", "20:40")))
+        val other = split.copy(scheme = split.scheme.copy(id = 2), times = split.times.map {
+            it.copy(schemeId = 2, startTime = timelineMinuteText(requireNotNull(parseMinuteOfDay(it.startTime)) + 10),
+                endTime = timelineMinuteText(requireNotNull(parseMinuteOfDay(it.endTime)) + 10))
+        })
+        val initial = PeriodTimelineSession(splitConfig, SchedulePeriodSchemesDraft(listOf(split, other), 1))
+        val changed = requireNotNull(resizeTimelineStructure(initial,
+            splitConfig.copy(morningPeriodCount = 5, afternoonPeriodCount = 4, eveningPeriodCount = 1)))
+        assertEquals(initial.draft.schemes.map { it.times }, changed.draft.schemes.map { it.times })
+        assertEquals(listOf("14:45", "14:55"), changed.draft.schemes.map { it.scheme.afternoonStartTime })
+        assertEquals(listOf("19:45", "19:55"), changed.draft.schemes.map { it.scheme.eveningStartTime })
+        val resized = resizeTimelineBlock(changed, 4, true, 149)
+        assertEquals("13:59", resized.active.times[4].startTime)
+        assertEquals("14:44", resized.active.times[4].endTime)
+        assertTrue(changed.draft.topologyOperations.isEmpty())
+        val earlierSplit = requireNotNull(resizeTimelineStructure(
+            PeriodTimelineSession(config, SchedulePeriodSchemesDraft(listOf(original), 1)),
+            config.copy(morningPeriodCount = 1, afternoonPeriodCount = 2)))
+        assertEquals(original.times, earlierSplit.active.times)
+        assertEquals("08:55", earlierSplit.active.scheme.afternoonStartTime)
+    }
+
+    @Test fun zeroGapLessonsRestoreExactlyEvenWhenTheNextSectionLeavesNoSpareMinute() {
+        val tightConfig = config.copy(morningPeriodCount = 3)
+        listOf("10:15", "14:00").forEach { afternoonStart ->
+            val tight = original.copy(scheme = original.scheme.copy(afternoonStartTime = afternoonStart), times = listOf(
+                PeriodSchemeTimeEntity(1, 1, "08:00", "08:45"),
+                PeriodSchemeTimeEntity(1, 2, "08:45", "09:30"),
+                PeriodSchemeTimeEntity(1, 3, "09:30", "10:15"),
+                PeriodSchemeTimeEntity(1, 4, afternoonStart, timelineMinuteText(requireNotNull(parseMinuteOfDay(afternoonStart)) + 45))
+            ))
+            val other = tight.copy(scheme = tight.scheme.copy(id = 2), times = tight.times.map { it.copy(schemeId = 2) })
+            val initial = PeriodTimelineSession(tightConfig, SchedulePeriodSchemesDraft(listOf(tight, other), 1))
+            (1..4).forEach { index ->
+                val removed = requireNotNull(deleteTimelinePeriod(initial, index))
+                val restored = requireNotNull(insertTimelinePeriod(removed, removed.vacancies.single().id))
+                assertEquals(initial.config, restored.config)
+                assertEquals(initial.draft.schemes, restored.draft.schemes)
+                assertNull(validateResolvedPeriodTimes(restored.active.times))
+            }
+            val firstRemoved = requireNotNull(deleteTimelinePeriod(initial, 1))
+            val twoRemoved = requireNotNull(deleteTimelinePeriod(firstRemoved, 1))
+            listOf(twoRemoved.vacancies, twoRemoved.vacancies.reversed()).forEach { order ->
+                var restored = twoRemoved
+                order.forEach { restored = requireNotNull(insertTimelinePeriod(restored, it.id)) }
+                assertEquals(initial.draft.schemes, restored.draft.schemes)
+            }
+        }
+    }
+
+    @Test fun restorationCannotExceedFortyButExistingOversizedTimelinesRemainEditable() {
+        val denseConfig = config.copy(morningPeriodCount = 40, afternoonPeriodCount = 0)
+        val dense = original.copy(scheme = original.scheme.copy(classDurationMinutes = 10, breakDurationMinutes = 0),
+            times = (1..40).map { PeriodSchemeTimeEntity(1, it,
+                timelineMinuteText(480 + (it - 1) * 10), timelineMinuteText(480 + it * 10)) })
+        val initial = PeriodTimelineSession(denseConfig, SchedulePeriodSchemesDraft(listOf(dense), 1))
+        assertNull(resizeTimelineStructure(initial, denseConfig.copy(morningPeriodCount = 41)))
+        val removed = requireNotNull(deleteTimelinePeriod(initial, 2))
+        assertEquals(40, requireNotNull(insertTimelinePeriod(removed, removed.vacancies.single().id)).config.totalPeriodCount())
+        val appended = requireNotNull(appendTimelinePeriod(removed, PeriodDayPart.MORNING))
+        assertEquals(40, appended.config.totalPeriodCount())
+        assertNull(insertTimelinePeriod(appended, appended.vacancies.single().id))
+        assertNull(appendTimelinePeriod(appended, PeriodDayPart.EVENING))
+        val oversized = PeriodTimelineSession(denseConfig.copy(morningPeriodCount = 41),
+            SchedulePeriodSchemesDraft(listOf(dense.copy(times = dense.times + PeriodSchemeTimeEntity(1, 41, "14:40", "14:50"))), 1))
+        assertEquals(oversized, resizeTimelineStructure(oversized, oversized.config))
+        assertEquals(40, requireNotNull(resizeTimelineStructure(oversized, denseConfig)).config.totalPeriodCount())
+        assertNull(resizeTimelineStructure(oversized, denseConfig.copy(morningPeriodCount = 42)))
+        val edited = resizeTimelineBlock(oversized, 41, false, 5)
+        assertEquals(41, edited.config.totalPeriodCount())
+        assertEquals("14:45", edited.active.times.last().endTime)
+        assertNull(validateResolvedPeriodTimes(edited.active.times))
+    }
+
+    @Test fun emptySectionsCanBeReenteredAtTheirConfiguredStartsAcrossSchemes() {
+        val other = original.copy(scheme = original.scheme.copy(id = 2, noonStartTime = "12:15"),
+            times = original.times.map { it.copy(schemeId = 2) })
+        val initial = PeriodTimelineSession(config, SchedulePeriodSchemesDraft(listOf(original, other), 1))
+        val added = requireNotNull(appendTimelinePeriod(initial, PeriodDayPart.NOON))
+        assertEquals(1, added.config.noonPeriodCount)
+        assertEquals(listOf("12:00", "12:15"), added.draft.schemes.map { it.times[2].startTime })
+        assertEquals(listOf(PeriodTopologyOperation.AddAfter(2)), added.draft.topologyOperations)
+        added.draft.schemes.forEachIndexed { index, scheme ->
+            assertEquals(initial.draft.schemes[index].times.take(2), scheme.times.take(2))
+            assertEquals(initial.draft.schemes[index].times.last().copy(periodIndex = 4), scheme.times.last())
+            assertNull(validateResolvedPeriodTimes(scheme.times))
+        }
+        val afternoonOnlyConfig = config.copy(morningPeriodCount = 0)
+        val afternoonOnly = original.copy(times = listOf(original.times.last().copy(periodIndex = 1)))
+        val only = PeriodTimelineSession(afternoonOnlyConfig, SchedulePeriodSchemesDraft(listOf(afternoonOnly), 1))
+        val morning = requireNotNull(appendTimelinePeriod(only, PeriodDayPart.MORNING))
+        assertEquals("08:00", morning.active.times.first().startTime)
+        assertEquals("14:00", morning.active.times.last().startTime)
+        val evening = requireNotNull(appendTimelinePeriod(only, PeriodDayPart.EVENING))
+        assertEquals("19:00", evening.active.times.last().startTime)
+    }
+
+    @Test fun emptySectionInsertionClampsStaleAnchorsAndRejectsAnySchemeWithoutSpace() {
+        val early = original.copy(scheme = original.scheme.copy(noonStartTime = "08:00"))
+        val late = original.copy(scheme = original.scheme.copy(id = 2, noonStartTime = "18:00"),
+            times = original.times.map { it.copy(schemeId = 2) })
+        val initial = PeriodTimelineSession(config, SchedulePeriodSchemesDraft(listOf(early, late), 1))
+        val added = requireNotNull(appendTimelinePeriod(initial, PeriodDayPart.NOON))
+        assertEquals(listOf("09:40", "13:59"), added.draft.schemes.map { it.times[2].startTime })
+        assertEquals(listOf("09:40", "13:59"), added.draft.schemes.map { it.scheme.noonStartTime })
+        added.draft.schemes.forEach { assertNull(validateResolvedPeriodTimes(it.times)) }
+        val full = late.copy(times = late.times.map { if (it.periodIndex == 3) it.copy(startTime = "09:40", endTime = "10:25") else it })
+        val blocked = initial.copy(draft = initial.draft.copy(schemes = listOf(early, full)))
+        assertNull(appendTimelinePeriod(blocked, PeriodDayPart.NOON))
+        assertEquals(0, blocked.config.noonPeriodCount)
+        assertEquals(early, blocked.active)
+    }
+
+    @Test fun movingAnUnrelatedDividerKeepsCompressionRecovery() {
+        val splitConfig = config.copy(eveningPeriodCount = 1)
+        val split = original.copy(scheme = original.scheme.copy(afternoonStartTime = "10:00"),
+            times = original.times.take(2) + listOf(PeriodSchemeTimeEntity(1, 3, "10:00", "10:45"),
+                PeriodSchemeTimeEntity(1, 4, "19:00", "19:45")))
+        val initial = PeriodTimelineSession(splitConfig, SchedulePeriodSchemesDraft(listOf(split), 1))
+        val compressed = resizeTimelineBlock(initial, 1, false, 75)
+        assertEquals(45, compressed.uncompressedLastMinutes[PeriodDayPart.MORNING])
+        val moved = moveTimelinePartWithNeighbours(compressed, PeriodDayPart.EVENING, 19 * 60 + 1)
+        assertEquals(compressed.uncompressedLastMinutes, moved.uncompressedLastMinutes)
+        val restored = resizeTimelineBlock(moved, 1, false, 45)
+        assertEquals(initial.active.times.take(3), restored.active.times.take(3))
+        assertEquals("19:01", restored.active.times.last().startTime)
+        assertTrue(restored.uncompressedLastMinutes.isEmpty())
     }
 }

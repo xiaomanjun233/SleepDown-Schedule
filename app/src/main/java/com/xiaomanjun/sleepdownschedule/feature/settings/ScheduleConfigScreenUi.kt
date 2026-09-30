@@ -14,6 +14,9 @@ import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.coursesOutsideShortenedTerm
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.compactWeekSelectionLabel
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorScopeDescription
+import com.xiaomanjun.sleepdownschedule.domain.schedule.hasNetPeriodTopologyChange
+import com.xiaomanjun.sleepdownschedule.domain.schedule.previewPeriodCourseMapping
+import com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodCourseMappingApproval
 import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
@@ -21,7 +24,11 @@ import android.content.Intent
 import androidx.core.net.toUri
 import android.provider.Settings
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -80,7 +87,10 @@ fun ScheduleConfigScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var showExitSaveConfirm by remember { mutableStateOf(false) }
     var showCourseRemapConfirm by remember { mutableStateOf(false) }
+    var courseRemapDescription by remember { mutableStateOf("") }
+    var pendingCourseMappingApproval by remember { mutableStateOf<PeriodCourseMappingApproval?>(null) }
     var pendingRemapSaveCompletion by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
+    var pendingRemapTermShorteningConfirmed by remember { mutableStateOf(false) }
     var showTermShorteningConfirm by remember { mutableStateOf(false) }
     var pendingTermSaveCompletion by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
     var pendingTermRemapConfirmed by remember { mutableStateOf(false) }
@@ -131,7 +141,8 @@ fun ScheduleConfigScreen(
                     noonPeriodCount != lastSavedConfig.noonPeriodCount ||
                     afternoonPeriodCount != lastSavedConfig.afternoonPeriodCount ||
                     eveningPeriodCount != lastSavedConfig.eveningPeriodCount ||
-                    schemeDraft != lastSavedSchemeDraft ||
+                    schemeDraft?.copy(topologyOperations = emptyList()) != lastSavedSchemeDraft?.copy(topologyOperations = emptyList()) ||
+                    (schemeDraft?.let { hasNetPeriodTopologyChange(lastSavedPeriods.size, it.topologyOperations) } == true) ||
                     periods != lastSavedPeriods
                 )
             SettingsSection.Notifications ->
@@ -222,13 +233,6 @@ fun ScheduleConfigScreen(
                     else onFinished(true)
                 }
             }
-            return
-        }
-        val needsCourseRemap = schemeDraft?.topologyOperations?.isNotEmpty() == true &&
-            state.courses.any { it.periods.isNotEmpty() }
-        if (needsCourseRemap && !remapConfirmed) {
-            pendingRemapSaveCompletion = onFinished
-            showCourseRemapConfirm = true
             return
         }
         val total = totalWeeks.toIntOrNull()
@@ -328,9 +332,30 @@ fun ScheduleConfigScreen(
                         throw IllegalArgumentException("${item.scheme.name}：$it")
                     }
                 }
+                val mappingApproval = PeriodCourseMappingApproval(
+                    state.courses, lastSavedPeriods,
+                    activePeriods.map { PeriodSchemeTimeEntity(active.scheme.id, it.periodIndex, it.startTime, it.endTime) },
+                    currentSchemes.topologyOperations
+                )
+                val mapping = previewPeriodCourseMapping(mappingApproval.courses, mappingApproval.originalPeriods,
+                    mappingApproval.targetTimes, mappingApproval.operations)
+                if (mapping.changedCount > 0 && (!remapConfirmed || pendingCourseMappingApproval != mappingApproval)) {
+                    courseRemapDescription = "${mapping.changedCount} 门课程的节次将按原上课时间调整：\n" +
+                        state.courses.indices.filter { state.courses[it].periods != mapping.courses[it].periods }
+                            .joinToString("\n") { index ->
+                                val before = state.courses[index]
+                                "${before.name}：${before.periods.joinToString(",")} → ${mapping.courses[index].periods.joinToString(",")}"
+                            }
+                    pendingRemapSaveCompletion = onFinished
+                    pendingRemapTermShorteningConfirmed = termShorteningConfirmed
+                    pendingCourseMappingApproval = mappingApproval
+                    showCourseRemapConfirm = true
+                    return
+                }
                 saving = true
                 saveScope.launch {
-                    runCatching { repository.saveScheduleDetail(nextConfig, currentSchemes) }
+                    runCatching { repository.saveScheduleDetail(nextConfig, currentSchemes,
+                        expectedCourses = mappingApproval.courses, expectedPeriods = mappingApproval.originalPeriods) }
                         .onSuccess {
                             periods = activePeriods
                             onSave(nextConfig, activePeriods)
@@ -500,10 +525,9 @@ fun ScheduleConfigScreen(
     }
 
     if (showCourseRemapConfirm) {
-        val affectedCourseCount = state.courses.count { it.periods.isNotEmpty() }
         LiquidAlertDialog(
             title = "重映射课程节次？",
-            message = "节次结构已经改变。保存后会按照 $affectedCourseCount 门课程在修改前作息中的实际时间，映射到新时间线中重叠或时间最接近的节次；课程名称、星期和周次不会改变。",
+            message = "$courseRemapDescription\n课程名称、星期和周次不变。占用已删除节次、对应关系不明确或产生新冲突时会阻止保存。",
             actions = listOf(
                 LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Secondary) {
                     showCourseRemapConfirm = false
@@ -513,7 +537,8 @@ fun ScheduleConfigScreen(
                     val completion = pendingRemapSaveCompletion
                     pendingRemapSaveCompletion = null
                     showCourseRemapConfirm = false
-                    saveConfigDraft(completion, remapConfirmed = true)
+                    saveConfigDraft(completion, remapConfirmed = true,
+                        termShorteningConfirmed = pendingRemapTermShorteningConfirmed)
                 }
             ),
             backdrop = popupBackdrop,
@@ -521,6 +546,10 @@ fun ScheduleConfigScreen(
             onDismissRequest = {
                 showCourseRemapConfirm = false
                 pendingRemapSaveCompletion = null
+            },
+            messageContent = {
+                Text("$courseRemapDescription\n课程名称、星期和周次不变。占用已删除节次、对应关系不明确或产生新冲突时会阻止保存。",
+                    modifier = Modifier.verticalScroll(rememberScrollState()))
             }
         )
     }
@@ -623,4 +652,3 @@ private fun openBatteryOptimizationSettings(context: Context) {
         )
     }
 }
-

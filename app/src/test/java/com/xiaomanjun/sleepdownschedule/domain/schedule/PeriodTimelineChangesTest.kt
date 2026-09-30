@@ -71,11 +71,25 @@ class PeriodTimelineChangesTest {
         assertTrue(repartitioned.hasChangesFrom(initial))
     }
 
-    @Test fun replacingALessonStillRequiresSavingItsCourseMapping() {
+    @Test fun restoringALessonDoesNotRequireSavingOrCourseMapping() {
         val removed = requireNotNull(deleteTimelinePeriod(initial, 2))
         val replaced = requireNotNull(insertTimelinePeriod(removed, removed.vacancies.single().id))
         assertEquals(initial.config, replaced.config)
         assertEquals(initial.active.times, replaced.active.times)
-        assertTrue(replaced.hasChangesFrom(initial))
+        assertFalse(replaced.hasChangesFrom(initial))
+    }
+
+    @Test fun appendAndDeleteCancelsWithoutSavingCourseMapping() {
+        val appended = requireNotNull(appendTimelinePeriod(initial, PeriodDayPart.AFTERNOON))
+        val deleted = requireNotNull(deleteTimelinePeriod(appended, 4))
+        assertFalse(deleted.hasChangesFrom(initial))
+    }
+
+    @Test fun reopeningAnUnsavedOuterDraftCanStillUndoItsInnerChanges() {
+        val outer = requireNotNull(appendTimelinePeriod(initial, PeriodDayPart.AFTERNOON))
+        val removed = requireNotNull(deleteTimelinePeriod(outer, 2))
+        val restored = requireNotNull(insertTimelinePeriod(removed, removed.vacancies.single().id))
+        assertFalse(restored.hasChangesFrom(outer))
+        assertTrue(restored.hasChangesFrom(initial))
     }
 }

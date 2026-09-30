@@ -165,6 +165,7 @@ internal fun PeriodSchemeEditor(
     var editorLaidOut by remember { mutableStateOf(false) }
     var dragBase by remember { mutableStateOf<PeriodTimelineSession?>(null) }
     var localError by remember { mutableStateOf<String?>(null) }
+    var additionError by remember { mutableStateOf<String?>(null) }
     var closing by remember { mutableStateOf(false) }
     var lessonKeys by remember { mutableStateOf(emptyList<Int>()) }
     var nextLessonKey by remember { mutableIntStateOf(0) }
@@ -195,15 +196,40 @@ internal fun PeriodSchemeEditor(
         initialSession = PeriodTimelineSession(config, draft)
         frozenActionSource = actionSource
         localError = null
+        additionError = null
         editorLaidOut = false
         lessonKeys = (1..value.config.totalPeriodCount()).toList()
         nextLessonKey = value.config.totalPeriodCount() + 1
         session = value
     }
-    fun addPeriod(value: PeriodTimelineSession?) {
+    fun addPeriod(
+        part: PeriodDayPart,
+        restoring: Boolean = false,
+        operation: (PeriodTimelineSession) -> PeriodTimelineSession?
+    ) {
         if (changingStructure) return
-        if (value == null) { localError = "当前时段没有足够空间添加节次，请先调整时间。"; return }
         val current = session ?: return
+        val value = operation(current)
+        if (value == null) {
+            if (current.config.totalPeriodCount() >= 40) {
+                additionError = "最多支持 40 节，添加或恢复节次前请先减少总节数。"
+                return
+            }
+            // Diagnose the same atomic operation without duplicating the domain's time rules.
+            val blocked = current.draft.schemes.firstOrNull { scheme ->
+                operation(current.copy(draft = current.draft.copy(
+                    schemes = listOf(scheme), activeSchemeId = scheme.scheme.id
+                ))) == null
+            }
+            val action = if (restoring) "恢复" else "添加"
+            additionError = if (blocked != null) {
+                val name = blocked.scheme.name.ifBlank { "未命名作息" }
+                val invalid = validateResolvedPeriodTimes(resolveSchemeTimes(current.config, blocked))
+                if (invalid != null) "“$name”的时间有误：$invalid。所有作息共用节次结构，请先修正该作息。"
+                else "“$name”的${part.timelineLabel()}没有足够空间${action}节次。所有作息共用节次结构，请先调整该作息的时间。"
+            } else "所有作息必须同时满足节数和时间限制，当前无法${action}节次，请检查各作息的时间安排。"
+            return
+        }
         val after = (value.draft.topologyOperations.last() as PeriodTopologyOperation.AddAfter).periodIndex
         val oldKeys = timelineBlocks(current.config, current.active, true).map { it.stableKey(lessonKeys) }.toSet()
         val updatedKeys = lessonKeys.toMutableList().apply { add(after, nextLessonKey++) }
@@ -230,10 +256,11 @@ internal fun PeriodSchemeEditor(
             }
             if (error != null) { localError = error; return }
         }
+        val hasChanges = initialSession?.let { current.hasChangesFrom(it) } ?: true
         closing = true
         scope.launch {
             motion.animateTo(0f, tween(260, easing = LinearEasing))
-            if (commit) {
+            if (commit && hasChanges) {
                 onCountsChange(current.config.morningPeriodCount, current.config.noonPeriodCount,
                     current.config.afternoonPeriodCount, current.config.eveningPeriodCount)
                 onDraftChange(current.draft)
@@ -380,7 +407,7 @@ internal fun PeriodSchemeEditor(
                 .heightIn(min = with(density) { (retainedScroll + viewportHeight).toDp() })
                 .padding(start = 16.dp, end = 16.dp, top = headerTop + 64.dp, bottom = navBottom + 40.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间", fontSize = 12.sp,
+                Text("拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间；节次增删会同步到所有作息", fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) })
                 var order = 0
@@ -445,7 +472,7 @@ internal fun PeriodSchemeEditor(
                                                 val after = insertionPosition(block)
                                                 vacancies.filter { it.after == after }.forEach { vacancy ->
                                                     TimelineAddPeriodButton(backdrop, interactive, Modifier.padding(top = 10.dp, end = 38.dp)) {
-                                                        addPeriod(session?.let { insertTimelinePeriod(it, vacancy.id) })
+                                                        addPeriod(part, restoring = true) { insertTimelinePeriod(it, vacancy.id) }
                                                     }
                                                 }
                                             }
@@ -454,17 +481,23 @@ internal fun PeriodSchemeEditor(
                                     val visibleInsertionPoints = partBlocks.filter { it.isBreak }.map(::insertionPosition).toSet()
                                     vacancies.filter { it.after !in visibleInsertionPoints }.forEach { vacancy ->
                                         TimelineAddPeriodButton(backdrop, interactive, Modifier.padding(end = 38.dp)) {
-                                            addPeriod(session?.let { insertTimelinePeriod(it, vacancy.id) })
+                                            addPeriod(part, restoring = true) { insertTimelinePeriod(it, vacancy.id) }
                                         }
                                     }
-                                    val canAppend = remember(edit, part) { appendTimelinePeriod(edit, part) != null }
-                                    if (canAppend && vacancies.none { it.after == edit.config.periodCount(part) }) {
+                                    if (vacancies.none { it.after == edit.config.periodCount(part) }) {
                                         TimelineAddPeriodButton(backdrop, interactive,
                                             Modifier.padding(end = 38.dp).graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) }) {
-                                            addPeriod(session?.let { appendTimelinePeriod(it, part) })
+                                            addPeriod(part) { appendTimelinePeriod(it, part) }
                                         }
                                     }
                                 }
+                        }
+                    } else {
+                        // Vacancies are editor-local; an empty saved section still needs an entry point.
+                        TimelineAddPeriodButton(backdrop, interactive,
+                            Modifier.padding(end = 38.dp).graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) },
+                            label = "${part.timelineLabel()} · 添加节次") {
+                            addPeriod(part) { appendTimelinePeriod(it, part) }
                         }
                     }
                 }
@@ -497,6 +530,11 @@ internal fun PeriodSchemeEditor(
                 }
             }
         }
+    }
+    additionError?.let { message ->
+        LiquidAlertDialog("无法添加节次", message,
+            listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { additionError = null })),
+            popupBackdrop, state.config, { additionError = null })
     }
     if (showExitConfirmation) LiquidAlertDialog("保存作息调整", "要保存本次作息调整吗？",
         listOf(
@@ -664,9 +702,12 @@ private fun TimelineEditCard(
 }
 
 @Composable
-private fun TimelineAddPeriodButton(backdrop: Backdrop?, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun TimelineAddPeriodButton(
+    backdrop: Backdrop?, enabled: Boolean, modifier: Modifier = Modifier,
+    label: String = "添加节次", onClick: () -> Unit
+) {
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        DialogLiquidButton(backdrop, "添加节次", { if (enabled) onClick() }, role = DialogButtonRole.Confirm)
+        DialogLiquidButton(backdrop, label, { if (enabled) onClick() }, role = DialogButtonRole.Confirm)
     }
 }
 
