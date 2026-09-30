@@ -23,8 +23,17 @@ internal data class PeriodTimelineSession(
     /** Compare saved meaning, excluding editor-only materialization and gesture history. */
     fun hasChangesFrom(initial: PeriodTimelineSession): Boolean {
         if (config != initial.config) return true
+        val originalCount = initial.config.totalPeriodCount() - initial.draft.topologyOperations.sumOf {
+            when (it) {
+                is PeriodTopologyOperation.AddAfter -> 1
+                is PeriodTopologyOperation.Delete -> -1
+            }
+        }
+        if (netPeriodIdentities(originalCount, draft.topologyOperations) !=
+            netPeriodIdentities(originalCount, initial.draft.topologyOperations)) return true
         fun resolvedDraft(session: PeriodTimelineSession) = session.draft.copy(
-            schemes = session.draft.schemes.map { it.materializeForTimeline(session.config) }
+            schemes = session.draft.schemes.map { it.materializeForTimeline(session.config) },
+            topologyOperations = emptyList()
         )
         return resolvedDraft(this) != resolvedDraft(initial)
     }
@@ -35,14 +44,28 @@ internal fun PeriodSchemeDraft.materializeForTimeline(config: ScheduleConfigEnti
     times = resolveSchemeTimes(config, this),
     specialBreaks = emptyMap(),
     overriddenPeriods = emptySet()
-)
+).rebaseTimelineAnchors(config)
+
+/** Keep section dividers inside their actual gaps without moving any lesson. */
+private fun PeriodSchemeDraft.rebaseTimelineAnchors(config: ScheduleConfigEntity): PeriodSchemeDraft {
+    fun start(part: PeriodDayPart, configured: String) = if (config.periodCount(part) > 0) {
+        timelineMinuteText(timelinePartAnchorMinute(config, this, part))
+    } else configured
+    return copy(scheme = scheme.copy(
+        morningStartTime = start(PeriodDayPart.MORNING, scheme.morningStartTime),
+        noonStartTime = start(PeriodDayPart.NOON, scheme.noonStartTime),
+        afternoonStartTime = start(PeriodDayPart.AFTERNOON, scheme.afternoonStartTime),
+        eveningStartTime = start(PeriodDayPart.EVENING, scheme.eveningStartTime)
+    ))
+}
 
 /** A removed lesson keeps an insertion point only for the lifetime of the editor. */
 internal data class PeriodTimelineVacancy(
     val id: Int,
     val part: PeriodDayPart,
     val after: Int,
-    val removedTimes: Map<Long, PeriodSchemeTimeEntity>
+    val removedTimes: Map<Long, PeriodSchemeTimeEntity>,
+    val deletedOperationIndex: Int = -1
 )
 
 internal fun timelinePartAnchorMinute(config: ScheduleConfigEntity, draft: PeriodSchemeDraft, part: PeriodDayPart): Int {
@@ -52,10 +75,14 @@ internal fun timelinePartAnchorMinute(config: ScheduleConfigEntity, draft: Perio
         PeriodDayPart.AFTERNOON -> draft.scheme.afternoonStartTime
         PeriodDayPart.EVENING -> draft.scheme.eveningStartTime
     }) ?: 0
-    val first = resolveSchemeTimes(config, draft).firstOrNull { it.periodIndex in config.periodRange(part) }
+    val times = resolveSchemeTimes(config, draft).sortedBy { it.periodIndex }
+    val after = PeriodDayPart.entries.take(part.ordinal).sumOf { config.periodCount(it) }
+    val previous = times.lastOrNull { it.periodIndex <= after }?.endTime?.let(::parseMinuteOfDay) ?: 0
+    val first = times.firstOrNull { it.periodIndex in config.periodRange(part) }
         ?.startTime?.let(::parseMinuteOfDay)
-    // Legacy manual schemes may have a stale configured anchor after their first lesson.
-    return first?.let { minOf(configured, it) } ?: configured
+    val latest = first ?: timelinePartBoundary(config, draft, part)
+    // Imported/manual anchors can be stale on either side of the actual section boundary.
+    return configured.coerceIn(minOf(previous, latest), latest)
 }
 
 internal fun timelinePartBoundary(config: ScheduleConfigEntity, draft: PeriodSchemeDraft, part: PeriodDayPart): Int {
@@ -158,8 +185,9 @@ internal fun moveTimelinePartWithNeighbours(
         )
     }
     if (validateResolvedPeriodTimes(times) != null) return session
+    val movedParts = offsets.filterValues { it != 0 }.keys
     return session.updateActive(shifted.copy(scheme = scheme, times = times))
-        .copy(uncompressedLastMinutes = emptyMap())
+        .copy(uncompressedLastMinutes = session.uncompressedLastMinutes - movedParts)
 }
 
 /** Move a whole day part. At the next boundary only its last lesson is shortened. */
@@ -321,25 +349,31 @@ internal fun resizeTimelineLeadingBreak(session: PeriodTimelineSession, part: Pe
 internal fun shiftTimelinePart(session: PeriodTimelineSession, part: PeriodDayPart, start: Int): PeriodTimelineSession =
     editTimelinePart(session, part) { desired -> shiftTimelinePart(session.config, session.active, part, start, desired) }
 
-/** Use free time at the end of a section; create a nonzero break before the new lesson. */
+/** Use free time in a section, including an empty section; existing lessons keep their clocks. */
 internal fun appendTimelinePeriod(session: PeriodTimelineSession, part: PeriodDayPart): PeriodTimelineSession? {
-    if (session.config.periodCount(part) == 0 || session.config.totalPeriodCount() >= 40) return null
-    val after = session.config.periodRange(part).last
+    if (session.config.totalPeriodCount() >= 40) return null
+    val empty = session.config.periodCount(part) == 0
+    val after = PeriodDayPart.entries.take(part.ordinal + 1).sumOf { session.config.periodCount(it) }
+    val config = session.config.withTimelineCount(part, session.config.periodCount(part) + 1)
     val schemes = session.draft.schemes.map { source ->
         val draft = source.materializeForTimeline(session.config)
         if (validateResolvedPeriodTimes(draft.times) != null) return null
-        val previous = draft.times.first { it.periodIndex == after }
-        val end = requireNotNull(parseMinuteOfDay(previous.endTime))
-        val available = timelinePartBoundary(session.config, draft, part) - end
-        if (available < 2) return null
-        val gap = draft.scheme.breakDurationMinutes.coerceAtLeast(1).coerceAtMost(available / 2)
-        val duration = draft.scheme.classDurationMinutes.coerceAtLeast(gap).coerceAtMost(available - gap)
+        val boundary = timelinePartBoundary(session.config, draft, part)
+        val previousEnd = draft.times.lastOrNull { it.periodIndex <= after }?.endTime?.let(::parseMinuteOfDay) ?: 0
+        if (boundary - previousEnd < if (empty) 1 else 2) return null
+        val end = if (empty) timelinePartAnchorMinute(session.config, draft, part).coerceIn(previousEnd, boundary - 1)
+            else previousEnd
+        val available = boundary - end
+        val gap = if (empty) 0 else draft.scheme.breakDurationMinutes.coerceAtLeast(1).coerceAtMost(available / 2)
+        val duration = draft.scheme.classDurationMinutes.coerceAtLeast(maxOf(1, gap)).coerceAtMost(available - gap)
         draft.copy(times = (draft.times.map {
             if (it.periodIndex > after) it.copy(periodIndex = it.periodIndex + 1) else it
         } + PeriodSchemeTimeEntity(draft.scheme.id, after + 1, timelineMinuteText(end + gap),
             timelineMinuteText(end + gap + duration))).sortedBy { it.periodIndex })
+            .rebaseTimelineAnchors(config)
+            .takeIf { validateResolvedPeriodTimes(it.times) == null } ?: return null
     }
-    return session.copy(config = session.config.withTimelineCount(part, session.config.periodCount(part) + 1),
+    return session.copy(config = config,
         draft = session.draft.copy(schemes = schemes,
             topologyOperations = session.draft.topologyOperations + PeriodTopologyOperation.AddAfter(after)),
         vacancies = session.vacancies.map { if (it.part == part && it.after >= session.config.periodCount(part)) it.copy(after = it.after + 1) else it },
@@ -355,7 +389,8 @@ internal fun deleteTimelinePeriod(session: PeriodTimelineSession, index: Int, ke
     val schemes = materialized.map { deletePeriodFromSchemeDraft(it, index, config) ?: return null }
     val vacancy = PeriodTimelineVacancy(
         (session.vacancies.maxOfOrNull { it.id } ?: 0) + 1, part, after,
-        materialized.associate { it.scheme.id to it.times.first { time -> time.periodIndex == index } }
+        materialized.associate { it.scheme.id to it.times.first { time -> time.periodIndex == index } },
+        deletedOperationIndex = session.draft.topologyOperations.size
     )
     val vacancies = session.vacancies.map {
         if (it.part == part && it.after > after) it.copy(after = it.after - 1) else it
@@ -368,6 +403,7 @@ internal fun deleteTimelinePeriod(session: PeriodTimelineSession, index: Int, ke
 
 /** Fill a removed slot while preserving other sections and updating every scheme atomically. */
 internal fun insertTimelinePeriod(session: PeriodTimelineSession, vacancyId: Int): PeriodTimelineSession? {
+    if (session.config.totalPeriodCount() >= 40) return null
     val vacancy = session.vacancies.firstOrNull { it.id == vacancyId } ?: return null
     val part = vacancy.part
     val after = PeriodDayPart.entries.take(part.ordinal).sumOf { session.config.periodCount(it) } + vacancy.after
@@ -381,7 +417,7 @@ internal fun insertTimelinePeriod(session: PeriodTimelineSession, vacancyId: Int
         val boundary = timelinePartBoundary(session.config, draft, part)
         val savedStart = requireNotNull(parseMinuteOfDay(removed.startTime))
         val duration = requireNotNull(parseMinuteOfDay(removed.endTime)) - savedStart
-        val minimumStart = before?.endTime?.let(::parseMinuteOfDay)?.plus(1)
+        val minimumStart = before?.endTime?.let(::parseMinuteOfDay)?.let { it + if (it == savedStart) 0 else 1 }
             ?: timelinePartAnchorMinute(session.config, draft, part)
         var start = maxOf(savedStart, minimumStart)
         var end = start + duration
@@ -395,7 +431,9 @@ internal fun insertTimelinePeriod(session: PeriodTimelineSession, vacancyId: Int
             end = minOf(start + duration, boundary)
         }
         if (end > boundary) return null
-        val shift = following.firstOrNull()?.startTime?.let(::parseMinuteOfDay)?.let { (end + 1 - it).coerceAtLeast(0) } ?: 0
+        val shift = following.firstOrNull()?.startTime?.let(::parseMinuteOfDay)?.let {
+            if (end <= it) 0 else end + 1 - it
+        } ?: 0
         val last = following.lastOrNull()
         if (last != null && requireNotNull(parseMinuteOfDay(last.startTime)) + shift +
             minimumTimelineLessonMinutes(session.config, draft, last.periodIndex) > boundary) return null
@@ -412,7 +450,9 @@ internal fun insertTimelinePeriod(session: PeriodTimelineSession, vacancyId: Int
         draft.copy(times = times.sortedBy { it.periodIndex }).takeIf { validateResolvedPeriodTimes(it.times) == null } ?: return null
     }
     return session.copy(config = config, draft = session.draft.copy(
-        schemes = schemes, topologyOperations = session.draft.topologyOperations + PeriodTopologyOperation.AddAfter(after)
+        schemes = schemes, topologyOperations = session.draft.topologyOperations + PeriodTopologyOperation.AddAfter(
+            after, restoredDeletionOperationIndex = vacancy.deletedOperationIndex.takeIf { it >= 0 }
+        )
     ), vacancies = session.vacancies.filterNot { it.id == vacancyId }.map {
         if (it.part == part && (it.after > vacancy.after || it.after == vacancy.after &&
                 requireNotNull(parseMinuteOfDay(it.removedTimes.getValue(session.draft.activeSchemeId).startTime)) >=
@@ -433,6 +473,7 @@ internal fun resizeTimelineStructure(
     session: PeriodTimelineSession,
     target: ScheduleConfigEntity
 ): PeriodTimelineSession? {
+    if (target.totalPeriodCount() > maxOf(40, session.config.totalPeriodCount())) return null
     var current = if (session.config.hasSamePeriodTopology(target)) session else session.copy(
         draft = session.draft.copy(schemes = session.draft.schemes.map { it.materializeForTimeline(session.config) })
     )
@@ -451,5 +492,8 @@ internal fun resizeTimelineStructure(
             topologyOperations = current.draft.topologyOperations + PeriodTopologyOperation.AddAfter(after)
         ))
     }
-    return current.copy(config = target)
+    return if (current.config.hasSamePeriodTopology(target)) current.copy(config = target) else current.copy(
+        config = target,
+        draft = current.draft.copy(schemes = current.draft.schemes.map { it.rebaseTimelineAnchors(target) })
+    )
 }
