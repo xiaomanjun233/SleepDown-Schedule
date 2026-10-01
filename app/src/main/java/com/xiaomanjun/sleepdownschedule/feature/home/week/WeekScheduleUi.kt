@@ -1241,7 +1241,6 @@ internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: Schedule
             locationFont = locationFont, locationLineHeight = locationLineHeight,
             teacherFont = teacherFont, teacherLineHeight = teacherLineHeight,
             textColor = textColor, coloredText = coloredText,
-            themeColor = if (coloredText) courseCardBaseColor(config, course) else null,
             currentTextAlign = cardTextAlign, layout = config.weekCardContentLayout,
             horizontalPadding = horizontalPadding, verticalPadding = verticalPadding,
             centerReserve = centerReserve, adaptiveContrast = false
@@ -1270,7 +1269,6 @@ private fun WeekCardTextBody(
     teacherLineHeight: TextUnit,
     textColor: ComposeColor,
     coloredText: Boolean,
-    themeColor: ComposeColor?,
     currentTextAlign: TextAlign,
     layout: WeekCardContentLayout,
     horizontalPadding: Dp,
@@ -1281,7 +1279,7 @@ private fun WeekCardTextBody(
     Box(Modifier.fillMaxSize().padding(horizontal = horizontalPadding, vertical = verticalPadding)) {
         if (layout == WeekCardContentLayout.CURRENT) {
             if (locationLines > 0) {
-                CourseCardText(locationText, themeColor = themeColor,
+                CourseCardText(locationText, coloredText = coloredText,
                     modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
                     fontSize = locationFont, lineHeight = locationLineHeight,
                     fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Medium,
@@ -1289,7 +1287,7 @@ private fun WeekCardTextBody(
                     overflow = TextOverflow.Ellipsis, textAlign = currentTextAlign,
                     adaptiveContrast = adaptiveContrast)
             }
-            CourseCardText(course.name, themeColor = themeColor,
+            CourseCardText(course.name, coloredText = coloredText,
                 modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(vertical = centerReserve),
                 fontSize = nameFont, lineHeight = nameLineHeight,
                 fontWeight = if (coloredText) FontWeight.Bold else FontWeight.SemiBold,
@@ -1297,7 +1295,7 @@ private fun WeekCardTextBody(
                 overflow = TextOverflow.Ellipsis, textAlign = currentTextAlign,
                 adaptiveContrast = adaptiveContrast)
             if (showTeacher) {
-                CourseCardText(course.teacher.orEmpty(), themeColor = themeColor,
+                CourseCardText(course.teacher.orEmpty(), coloredText = coloredText,
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
                     fontSize = teacherFont, lineHeight = teacherLineHeight,
                     fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Normal,
@@ -1312,7 +1310,7 @@ private fun WeekCardTextBody(
                 verticalArrangement = if (layout == WeekCardContentLayout.CENTERED) Arrangement.Center else Arrangement.Top
             ) {
                 if (locationLines > 0) {
-                    CourseCardText(locationText, themeColor = themeColor,
+                    CourseCardText(locationText, coloredText = coloredText,
                         modifier = Modifier.fillMaxWidth(),
                         fontSize = locationFont, lineHeight = locationLineHeight,
                         fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Medium,
@@ -1321,7 +1319,7 @@ private fun WeekCardTextBody(
                         adaptiveContrast = adaptiveContrast)
                     Spacer(Modifier.height(1.dp))
                 }
-                CourseCardText(course.name, themeColor = themeColor,
+                CourseCardText(course.name, coloredText = coloredText,
                     modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                     fontSize = nameFont, lineHeight = nameLineHeight,
                     fontWeight = if (coloredText) FontWeight.Bold else FontWeight.SemiBold,
@@ -1330,7 +1328,7 @@ private fun WeekCardTextBody(
                     adaptiveContrast = adaptiveContrast)
                 if (showTeacher) {
                     Spacer(Modifier.height(1.dp))
-                    CourseCardText(course.teacher.orEmpty(), themeColor = themeColor,
+                    CourseCardText(course.teacher.orEmpty(), coloredText = coloredText,
                         modifier = Modifier.fillMaxWidth(),
                         fontSize = teacherFont, lineHeight = teacherLineHeight,
                         fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Normal,
@@ -3847,7 +3845,6 @@ fun WeekCourseBlock(
                 locationFont = locationFont, locationLineHeight = locationLineHeight,
                 teacherFont = teacherFont, teacherLineHeight = teacherLineHeight,
                 textColor = courseTextColor, coloredText = coloredText,
-                themeColor = if (coloredText) courseCardBaseColor(config, course) else null,
                 currentTextAlign = cardTextAlign, layout = config.weekCardContentLayout,
                 horizontalPadding = horizontalPadding, verticalPadding = verticalPadding,
                 centerReserve = centerReserve

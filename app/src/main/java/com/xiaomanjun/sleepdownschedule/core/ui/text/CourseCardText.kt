@@ -8,9 +8,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Modifier
@@ -20,7 +18,6 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.TextStyle
@@ -36,13 +33,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Resolve colored text against its local card surface, resampling only when its bounds change. */
+/** All labels share the course ink; local surface samples only control a diffuse shadow. */
 @Composable
 internal fun CourseCardText(
     text: String,
     modifier: Modifier = Modifier,
     color: Color,
-    themeColor: Color?,
+    coloredText: Boolean = false,
     style: TextStyle = LocalTextStyle.current,
     fontWeight: FontWeight? = null,
     fontSize: TextUnit = TextUnit.Unspecified,
@@ -52,43 +49,23 @@ internal fun CourseCardText(
     overflow: TextOverflow = TextOverflow.Clip,
     adaptiveContrast: Boolean = true
 ) {
-    val fallback = remember(themeColor, color) {
-        themeColor?.let {
-            val useLightText = color.luminance() > 0.5f
-            val contrastColor = if (useLightText) Color.White else Color.Black
-            val base = it.copy(alpha = 1f)
-            // Add a white component on dark backgrounds; on light backgrounds move toward ink.
-            // Keep as much theme color as possible within the readable foreground brightness band.
-            var minimumMix = if (useLightText) 0.28f else 0.18f
-            var maximumMix = 1f
-            repeat(8) {
-                val mix = (minimumMix + maximumMix) / 2f
-                val luminance = lerp(base, contrastColor, mix).luminance()
-                if (if (useLightText) luminance >= 0.72f else luminance <= 0.08f) maximumMix = mix
-                else minimumMix = mix
-            }
-            lerp(base, contrastColor, maximumMix)
-        } ?: color
-    }
-    // A lifted or morphing card spans a changing underlay. Keep all of its labels on the
-    // same polarity until it returns to the stationary timetable.
+    // The parent resolves the course hue once. Metadata uses the same opaque ink as the
+    // title, so background differences cannot turn individual labels into opposing colors.
+    val displayedColor = if (coloredText) color.copy(alpha = 1f) else color
     val background = if (adaptiveContrast) LocalCourseTextBackground.current else null
-    var target by remember(themeColor, fallback) { mutableStateOf(fallback) }
-    val foreground by animateColorAsState(target, tween(180), label = "course-text-lightness")
-    var targetShadowStrength by remember(themeColor, color) { mutableFloatStateOf(0f) }
+    var targetShadowStrength by remember(displayedColor) { mutableFloatStateOf(0f) }
     val shadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "course-text-soft-shadow")
     val coordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
     val layout = remember { arrayOfNulls<TextLayoutResult>(1) }
-    val lastBounds = remember(background, themeColor, fallback) { arrayOfNulls<Rect>(1) }
-    val lastSamples = remember(background, themeColor, fallback) { arrayOfNulls<FloatArray>(1) }
+    val lastBounds = remember(background, displayedColor) { arrayOfNulls<Rect>(1) }
+    val lastSamples = remember(background, displayedColor) { arrayOfNulls<FloatArray>(1) }
     val scope = rememberCoroutineScope()
     val observedOrigin = remember { arrayOfNulls<Offset>(1) }
-    val resolved = remember(background, themeColor, fallback) { booleanArrayOf(false) }
+    val resolved = remember(background, displayedColor) { booleanArrayOf(false) }
     val lastMoveNanos = remember { longArrayOf(0L) }
     val settleJob = remember { arrayOfNulls<Job>(1) }
-    fun updateForeground(): Boolean {
+    fun updateShadow(): Boolean {
         if (background == null) {
-            target = fallback
             targetShadowStrength = 0f
             return true
         }
@@ -104,57 +81,44 @@ internal fun CourseCardText(
         val samples = background.sample(bounds)
         if (samples == null) {
             lastSamples[0] = null
-            target = fallback
             targetShadowStrength = 0f
             return true
         }
         val previousSamples = lastSamples[0]
-        // Scrolling over a flat/blurred area should not solve the same color palette every frame.
+        // Similar samples keep shadow strength stable without repeating the contrast calculation.
         if (previousSamples != null && previousSamples.size == samples.size &&
             samples.indices.all { abs(samples[it] - previousSamples[it]) < 0.012f }) return true
         lastSamples[0] = samples
-        if (themeColor != null) {
-            target = courseTextColorForBackground(themeColor, samples, target)
-            // Metadata uses the same opaque contrast solution as the title; its smaller
-            // font supplies the hierarchy without fading into the tinted glass.
-            targetShadowStrength = softTextShadowStrength(
-                samples, target.luminance(), target.alpha, targetShadowStrength
-            )
-        } else {
-            // Keep the chosen course color. Only the soft shadow responds to the local glass.
-            targetShadowStrength = softTextShadowStrength(
-                samples, color.luminance(), color.alpha, targetShadowStrength
-            )
-        }
+        targetShadowStrength = softTextShadowStrength(
+            samples, displayedColor.luminance(), displayedColor.alpha, targetShadowStrength
+        )
         return true
     }
     fun updateAfterMotion() {
         val position = coordinates[0]?.takeIf { it.isAttached } ?: return
         val origin = position.localToWindow(Offset.Zero)
         if (observedOrigin[0] == origin) {
-            if (!resolved[0]) resolved[0] = updateForeground()
+            if (!resolved[0]) resolved[0] = updateShadow()
             return
         }
         observedOrigin[0] = origin
         if (!resolved[0]) {
-            resolved[0] = updateForeground()
+            resolved[0] = updateShadow()
             return
         }
-        // Keep the chosen polarity during a swipe or scroll. A single sample after the card
-        // settles reflects its final wallpaper region without repeatedly crossing the threshold.
+        // Keep shadows stable during a swipe or scroll, then sample the settled wallpaper.
         lastMoveNanos[0] = System.nanoTime()
         if (settleJob[0]?.isActive == true) return
         settleJob[0] = scope.launch {
             while ((System.nanoTime() - lastMoveNanos[0]) < 180_000_000L) delay(60)
-            resolved[0] = updateForeground()
+            resolved[0] = updateShadow()
         }
     }
-    LaunchedEffect(background, themeColor, fallback) {
+    LaunchedEffect(background, displayedColor) {
         settleJob[0]?.cancel()
-        resolved[0] = updateForeground()
+        resolved[0] = updateShadow()
     }
     val density = LocalDensity.current
-    val displayedColor = if (themeColor == null) color else foreground
     val lightText = courseTextNeedsDarkShadow(displayedColor)
     val effectiveFontSize = when {
         fontSize != TextUnit.Unspecified -> fontSize
@@ -163,15 +127,15 @@ internal fun CourseCardText(
     }
     val shadowStyle = if (shadowStrength <= 0.001f) style else {
         val radius = with(density) {
-            if (themeColor != null) {
-                (effectiveFontSize.toPx() * 0.18f).coerceIn(1.5.dp.toPx(), 3.5.dp.toPx())
+            if (coloredText) {
+                (effectiveFontSize.toPx() * 0.26f).coerceIn(3.dp.toPx(), 5.5.dp.toPx())
             } else {
                 (effectiveFontSize.toPx() * 0.30f).coerceIn(3.dp.toPx(), 6.dp.toPx())
             }
         }
         // Fixed monochrome ink needs a faint, diffuse backing rather than a visible rim.
         val maximumShadowAlpha = when {
-            themeColor != null -> if (lightText) 0.34f else 0.30f
+            coloredText -> if (lightText) 0.34f else 0.26f
             lightText -> 0.28f
             else -> 0.18f
         }
@@ -188,12 +152,12 @@ internal fun CourseCardText(
         modifier = modifier.onGloballyPositioned { coordinates[0] = it; updateAfterMotion() },
         color = displayedColor,
         style = shadowStyle,
-        fontWeight = if (themeColor != null) maxOf(fontWeight ?: style.fontWeight ?: FontWeight.Normal, FontWeight.Bold) else fontWeight,
+        fontWeight = if (coloredText) maxOf(fontWeight ?: style.fontWeight ?: FontWeight.Normal, FontWeight.Bold) else fontWeight,
         fontSize = fontSize,
         lineHeight = lineHeight,
         textAlign = textAlign,
         maxLines = maxLines,
         overflow = overflow,
-        onTextLayout = { layout[0] = it; if (settleJob[0]?.isActive != true) resolved[0] = updateForeground() }
+        onTextLayout = { layout[0] = it; if (settleJob[0]?.isActive != true) resolved[0] = updateShadow() }
     )
 }

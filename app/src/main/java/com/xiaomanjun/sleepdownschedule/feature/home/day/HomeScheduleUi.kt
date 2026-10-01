@@ -2150,7 +2150,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.labelLarge,
                 color = foreground,
-                themeColor = if (!subdued && config.courseCardColoredTextEnabled) courseCardBaseColor(config, course) else null,
+                coloredText = !subdued && config.courseCardColoredTextEnabled,
                 fontWeight = if (!subdued && config.courseCardColoredTextEnabled) FontWeight.Bold else null
             )
         }
@@ -2175,7 +2175,6 @@ internal fun DayCourseCardTextContent(
     muted: Boolean = false
 ) {
     val coloredText = !muted && config.courseCardColoredTextEnabled
-    val themeColor = if (coloredText) courseCardBaseColor(config, course) else null
     val renderedTextColor = homeCourseTextColor(config, course, textColor, muted)
     val coloredWeight = if (coloredText) FontWeight.Bold else null
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2188,33 +2187,33 @@ internal fun DayCourseCardTextContent(
             fontSize = MaterialTheme.typography.bodyMedium.fontSize * safeTabletScale,
             lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * safeTabletScale
         )
-        CourseCardText(course.name, style = titleStyle, color = renderedTextColor, themeColor = themeColor, fontWeight = coloredWeight)
+        CourseCardText(course.name, style = titleStyle, color = renderedTextColor, coloredText = coloredText, fontWeight = coloredWeight)
         if (showTime) {
             CourseCardText(
                 courseHomeTimeDetail(course, periods),
-                themeColor = themeColor,
+                coloredText = coloredText,
                 style = bodyStyle,
                 color = renderedTextColor.copy(alpha = 0.86f),
                 fontWeight = coloredWeight
             )
         }
         if (!course.location.isNullOrBlank()) {
-            CourseCardText("地点：" + course.location, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = themeColor, fontWeight = coloredWeight)
+            CourseCardText("地点：" + course.location, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), coloredText = coloredText, fontWeight = coloredWeight)
         }
         if (!course.teacher.isNullOrBlank()) {
-            CourseCardText("教师：" + course.teacher, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = themeColor, fontWeight = coloredWeight)
+            CourseCardText("教师：" + course.teacher, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), coloredText = coloredText, fontWeight = coloredWeight)
         }
         if (showWeeks) {
             CourseCardText(
                 "周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity),
-                themeColor = themeColor,
+                coloredText = coloredText,
                 style = bodyStyle,
                 color = renderedTextColor.copy(alpha = 0.86f),
                 fontWeight = coloredWeight
             )
         }
         if (!course.note.isNullOrBlank()) {
-            CourseCardText("备注：" + course.note, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), themeColor = themeColor, fontWeight = coloredWeight)
+            CourseCardText("备注：" + course.note, style = bodyStyle, color = renderedTextColor.copy(alpha = 0.86f), coloredText = coloredText, fontWeight = coloredWeight)
         }
     }
 }
