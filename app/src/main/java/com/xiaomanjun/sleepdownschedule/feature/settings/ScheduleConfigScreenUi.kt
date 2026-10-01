@@ -11,6 +11,9 @@ import com.xiaomanjun.sleepdownschedule.feature.home.week.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.coursesOutsideShortenedTerm
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.compactWeekSelectionLabel
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorScopeDescription
 import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
@@ -78,6 +81,9 @@ fun ScheduleConfigScreen(
     var showExitSaveConfirm by remember { mutableStateOf(false) }
     var showCourseRemapConfirm by remember { mutableStateOf(false) }
     var pendingRemapSaveCompletion by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
+    var showTermShorteningConfirm by remember { mutableStateOf(false) }
+    var pendingTermSaveCompletion by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
+    var pendingTermRemapConfirmed by remember { mutableStateOf(false) }
     var lastSavedConfig by remember { mutableStateOf(state.config) }
     var lastSavedPeriods by remember { mutableStateOf(state.periods) }
     var currentDraftScheduleId by remember { mutableIntStateOf(state.config.id) }
@@ -205,13 +211,14 @@ fun ScheduleConfigScreen(
 
     fun saveConfigDraft(
         onFinished: ((Boolean) -> Unit)? = null,
-        remapConfirmed: Boolean = false
+        remapConfirmed: Boolean = false,
+        termShorteningConfirmed: Boolean = false
     ) {
         if (saving) {
             if (onFinished != null) {
                 saveScope.launch {
                     snapshotFlow { saving }.first { !it }
-                    if (computeDirty()) saveConfigDraft(onFinished, remapConfirmed)
+                    if (computeDirty()) saveConfigDraft(onFinished, remapConfirmed, termShorteningConfirmed)
                     else onFinished(true)
                 }
             }
@@ -255,6 +262,14 @@ fun ScheduleConfigScreen(
             validateResolvedPeriodTimes(
                 nextPeriods.map { PeriodSchemeTimeEntity(0, it.periodIndex, it.startTime, it.endTime) }
             )?.let { throw IllegalArgumentException(it) }
+            if (section == SettingsSection.Schedule && !termShorteningConfirmed &&
+                coursesOutsideShortenedTerm(state.courses, state.config.id, lastSavedConfig.totalWeeks, total).isNotEmpty()
+            ) {
+                pendingTermSaveCompletion = onFinished
+                pendingTermRemapConfirmed = remapConfirmed
+                showTermShorteningConfirm = true
+                return
+            }
             // Keep the stored manual week as a fallback. The visible automatic week
             // is derived from the date at render time and must not turn an upcoming
             // term into a persisted "week 1" merely because settings were saved.
@@ -507,6 +522,38 @@ fun ScheduleConfigScreen(
                 showCourseRemapConfirm = false
                 pendingRemapSaveCompletion = null
             }
+        )
+    }
+    if (showTermShorteningConfirm) {
+        val nextTotal = totalWeeks.toIntOrNull() ?: lastSavedConfig.totalWeeks
+        val affected = coursesOutsideShortenedTerm(
+            state.courses, state.config.id, lastSavedConfig.totalWeeks, nextTotal
+        )
+        fun cancelTermShortening() {
+            showTermShorteningConfirm = false
+            val completion = pendingTermSaveCompletion
+            pendingTermSaveCompletion = null
+            completion?.invoke(false)
+        }
+        LiquidAlertDialog(
+            title = "缩短学期到 $nextTotal 周？",
+            message = "以下 ${affected.size} 条课程安排包含超出新学期的周次，缩短后不会在课表中显示。原排课数据会保留，延长学期后可重新显示。\n\n" +
+                affected.joinToString("\n\n") { course ->
+                    val hidden = course.copy(weeks = course.weeks.filter { it > nextTotal })
+                    "${course.name} · ${compactWeekSelectionLabel(hidden.weeks)}\n${courseEditorScopeDescription(listOf(hidden), state.config)}"
+                },
+            actions = listOf(
+                LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Secondary) { cancelTermShortening() },
+                LiquidAlertAction("保留课程并缩短", LiquidAlertActionStyle.Primary) {
+                    val completion = pendingTermSaveCompletion
+                    pendingTermSaveCompletion = null
+                    showTermShorteningConfirm = false
+                    saveConfigDraft(completion, pendingTermRemapConfirmed, termShorteningConfirmed = true)
+                }
+            ),
+            backdrop = popupBackdrop,
+            config = visualState.config,
+            onDismissRequest = { cancelTermShortening() }
         )
     }
 }

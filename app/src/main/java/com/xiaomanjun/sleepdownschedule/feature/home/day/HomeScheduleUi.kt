@@ -1202,16 +1202,27 @@ fun ApplyCourseEditDialog(
     config: ScheduleConfigEntity,
     onSingle: () -> Unit,
     onAll: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    targetWeek: Int = effectiveCurrentWeek(config),
+    originals: List<CourseEntity> = listOf(original),
+    editedCourses: List<CourseEntity> = listOf(edited),
+    singleAllowed: Boolean = courseEditorHasOccurrence(original, targetWeek)
 ) {
     LiquidAlertDialog(
         title = "应用修改",
-        message = "要将“${original.name}”的修改应用到哪里？仅单次只修改当前周，应用全部会修改这门课的所有周。",
-        actions = listOf(
-            LiquidAlertAction("仅单次", LiquidAlertActionStyle.Primary, onClick = onSingle),
-            LiquidAlertAction("应用全部", LiquidAlertActionStyle.Secondary, onClick = onAll),
-            LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = onCancel)
-        ),
+        message = buildString {
+            append("“${original.name}”\n")
+            if (singleAllowed) {
+                append("仅本次：${courseEditorOccurrenceLabel(original, targetWeek, config)}。只修改这一次课，不应用其他周次选择。\n\n")
+            }
+            append("应用全部将修改以下原排课：\n${courseEditorScopeDescription(originals, config)}")
+            append("\n\n保存后的排课：\n${courseEditorScopeDescription(editedCourses, config)}")
+        },
+        actions = buildList {
+            if (singleAllowed) add(LiquidAlertAction("仅本次", LiquidAlertActionStyle.Primary, onClick = onSingle))
+            add(LiquidAlertAction("应用全部", LiquidAlertActionStyle.Secondary, onClick = onAll))
+            add(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = onCancel))
+        },
         backdrop = backdrop,
         config = config,
         onDismissRequest = onCancel
@@ -1251,16 +1262,26 @@ fun ApplyCourseDeleteDialog(
     config: ScheduleConfigEntity,
     onSingle: () -> Unit,
     onAll: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    targetWeek: Int = effectiveCurrentWeek(config),
+    courses: List<CourseEntity> = listOf(course)
 ) {
     LiquidAlertDialog(
         title = "删除课程",
-        message = "要将“${course.name}”从哪里删除？仅单次只删除当前周，删除全部会删除这门课的所有周。",
-        actions = listOf(
-            LiquidAlertAction("仅删除本周", LiquidAlertActionStyle.Primary, onClick = onSingle),
-            LiquidAlertAction("删除全部", LiquidAlertActionStyle.Destructive, onClick = onAll),
-            LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = onCancel)
-        ),
+        message = buildString {
+            append("“${course.name}”\n")
+            if (courseEditorHasOccurrence(course, targetWeek)) {
+                append("仅本次：${courseEditorOccurrenceLabel(course, targetWeek, config)}。\n\n")
+            }
+            append("删除全部将删除以下排课：\n${courseEditorScopeDescription(courses, config)}")
+        },
+        actions = buildList {
+            if (courseEditorHasOccurrence(course, targetWeek)) {
+                add(LiquidAlertAction("仅删除本次", LiquidAlertActionStyle.Primary, onClick = onSingle))
+            }
+            add(LiquidAlertAction("删除全部", LiquidAlertActionStyle.Destructive, onClick = onAll))
+            add(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = onCancel))
+        },
         backdrop = backdrop,
         config = config,
         onDismissRequest = onCancel

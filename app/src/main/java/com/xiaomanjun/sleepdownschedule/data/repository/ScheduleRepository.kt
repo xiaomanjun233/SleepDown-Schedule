@@ -317,13 +317,18 @@ class ScheduleRepository(private val database: AppDatabase) {
         database.withTransaction {
             val scheduleId = activeScheduleId()
             val current = requireCurrentCourse(scheduleId, original.id)
+            require(targetWeek in current.weeks && parityMatches(current.weekParity, targetWeek)) {
+                "所选周次没有这条课程，请重新打开"
+            }
             val remainingWeeks = current.weeks.filter { it != targetWeek }
             if (remainingWeeks.isEmpty()) {
                 courseDao.deleteCourse(current.id)
             } else {
                 courseDao.updateCourse(current.copy(weeks = remainingWeeks))
             }
-            val singleWeekCourse = normalizeCoursesForSchedule(listOf(edited.copy(id = 0, weeks = listOf(targetWeek))), scheduleId).single()
+            val singleWeekCourse = normalizeCoursesForSchedule(
+                listOf(edited.copy(id = 0, weeks = listOf(targetWeek), weekParity = WeekParity.ALL)), scheduleId
+            ).single()
             courseDao.getCourses(scheduleId)
                 .filter { it.id != current.id && it.weeks.distinct() == listOf(targetWeek) && it.hasSameOccurrenceSlot(singleWeekCourse) }
                 .forEach { courseDao.deleteCourse(it.id) }
@@ -336,6 +341,9 @@ class ScheduleRepository(private val database: AppDatabase) {
         database.withTransaction {
             val scheduleId = activeScheduleId()
             val current = requireCurrentCourse(scheduleId, course.id)
+            require(targetWeek in current.weeks && parityMatches(current.weekParity, targetWeek)) {
+                "所选周次没有这条课程，请重新打开"
+            }
             val remainingWeeks = current.weeks.filter { it != targetWeek }
             if (remainingWeeks.isEmpty()) {
                 courseDao.deleteCourse(current.id)
@@ -393,6 +401,9 @@ class ScheduleRepository(private val database: AppDatabase) {
             val currentById = courseDao.getCourses(scheduleId).associateBy(CourseEntity::id)
             val current = courses.mapNotNull { currentById[it.id] }.distinctBy(CourseEntity::id)
             require(current.isNotEmpty()) { "课程记录已失效，请重新打开" }
+            require(current.all { targetWeek in it.weeks && parityMatches(it.weekParity, targetWeek) }) {
+                "所选周次没有这条课程，请重新打开"
+            }
             current.forEach { course ->
                 val remainingWeeks = course.weeks.filterNot { it == targetWeek }
                 if (remainingWeeks.isEmpty()) courseDao.deleteCourse(course.id)

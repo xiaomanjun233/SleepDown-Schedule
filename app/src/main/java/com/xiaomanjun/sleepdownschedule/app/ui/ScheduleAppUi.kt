@@ -599,13 +599,20 @@ sealed interface HomeDialog {
     data class ConfirmImport(val draft: ImportDraft, val returnDialog: HomeDialog? = ImportSchedule) : HomeDialog
     data class EditWallpaper(val uri: Uri, val entrySnapshot: Bitmap?) : HomeDialog
     data class EditCourse(val course: CourseEntity?, val targetWeek: Int? = null) : HomeDialog
-    data class ApplyCourseEdit(val original: CourseEntity, val edited: CourseEntity, val targetWeek: Int) : HomeDialog
+    data class ApplyCourseEdit(
+        val original: CourseEntity,
+        val edited: CourseEntity,
+        val targetWeek: Int,
+        val originals: List<CourseEntity> = listOf(original),
+        val editedCourses: List<CourseEntity> = listOf(edited)
+    ) : HomeDialog
     data class ConfirmCourseConflicts(
         val original: CourseEntity,
         val edited: CourseEntity,
         val targetWeek: Int,
         val conflictWeeks: List<Int>,
-        val singleWeekOnly: Boolean = false
+        val singleWeekOnly: Boolean = false,
+        val returnEdit: ApplyCourseEdit? = null
     ) : HomeDialog
     data class ApplyCourseDelete(val course: CourseEntity, val targetWeek: Int) : HomeDialog
 }
@@ -810,6 +817,10 @@ fun CourseScheduleAppUi(
     var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var pendingCourseGroupEdit by remember { mutableStateOf<PendingCourseGroupEdit?>(null) }
     var pendingCourseGroupDelete by remember { mutableStateOf<List<CourseEntity>>(emptyList()) }
+    var homeCourseDismissHandler by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val onHomeCourseDismissHandlerChange = remember {
+        { handler: (() -> Unit)? -> homeCourseDismissHandler = handler }
+    }
     var courseEditorRenderedCourseId by remember { mutableStateOf<Long?>(null) }
     val courseEditorMotionState = rememberCourseEditorMotionState()
     val courseEditorFlightRegistry = remember { CourseEditorFlightRegistry() }
@@ -3722,50 +3733,14 @@ fun CourseScheduleAppUi(
                 }
             },
             onSave = { originals, editedCourses, targetWeek ->
-                val original = originals.singleOrNull()
-                val edited = editedCourses.singleOrNull()
-                if (original != null && edited != null && courseWeeksChanged(original, edited)) {
-                    val conflictWeeks = conflictWeeksForEditedCourse(
-                        original,
-                        edited,
-                        state.courses,
-                        state.periods
-                    )
-                    if (conflictWeeks.isEmpty()) {
-                        viewModel.updateCourse(edited)
-                        closeCourseEditor()
-                    } else {
-                        homeDialog = HomeDialog.ConfirmCourseConflicts(
-                            original,
-                            edited,
-                            targetWeek ?: effectiveCurrentWeek(state.config),
-                            conflictWeeks
-                        )
-                    }
-                } else if (original != null && edited != null) {
-                    // Keep the editor fully mounted behind the choice dialog. Closing it first
-                    // lets its Morph/interaction shield cover and stall the confirmation.
-                    homeDialog = HomeDialog.ApplyCourseEdit(original, edited, targetWeek ?: effectiveCurrentWeek(state.config))
-                } else {
-                    val conflictWeeks = conflictWeeksForEditedCourseGroup(
-                        originals,
-                        editedCourses,
-                        state.courses,
-                        state.periods
-                    )
-                    if (conflictWeeks.isEmpty()) {
-                        viewModel.replaceCourseGroup(originals, editedCourses)
-                        closeCourseEditor()
-                    } else {
-                        pendingCourseGroupEdit = PendingCourseGroupEdit(originals, editedCourses)
-                        homeDialog = HomeDialog.ConfirmCourseConflicts(
-                            originals.first(),
-                            editedCourses.first(),
-                            targetWeek ?: effectiveCurrentWeek(state.config),
-                            conflictWeeks
-                        )
-                    }
-                }
+                // Keep the form mounted while both single-record and grouped saves choose a scope.
+                homeDialog = HomeDialog.ApplyCourseEdit(
+                    original = originals.first(),
+                    edited = editedCourses.first(),
+                    targetWeek = targetWeek ?: effectiveCurrentWeek(state.config),
+                    originals = originals,
+                    editedCourses = editedCourses
+                )
             },
             onDelete = { courses, targetWeek ->
                 pendingCourseGroupDelete = courses.takeIf { it.size > 1 }.orEmpty()
@@ -3902,15 +3877,26 @@ fun CourseScheduleAppUi(
     renderedHomeDialog?.let { dialog ->
         if (dialog !is HomeDialog.EditWallpaper && (dialog !is HomeDialog.EditCourse || dialog.course == null)) {
         if (dialog is HomeDialog.ApplyCourseEdit) {
+            val allScope = courseEditorApplyAllScope(dialog.originals, dialog.editedCourses, state.courses)
+            val singleEdited = dialog.edited.copy(
+                id = dialog.original.id,
+                weeks = listOf(dialog.targetWeek),
+                weekParity = WeekParity.ALL
+            )
             ApplyCourseEditDialog(
                 original = dialog.original,
                 edited = dialog.edited,
                 backdrop = homeDialogBackdrop,
                 config = state.config,
+                targetWeek = dialog.targetWeek,
+                originals = allScope.originals,
+                editedCourses = allScope.edited,
+                singleAllowed = dialog.editedCourses.size == 1 &&
+                    courseEditorHasOccurrence(dialog.original, dialog.targetWeek),
                 onSingle = {
                     val conflictWeeks = conflictWeeksForSingleWeekEdit(
                         dialog.original,
-                        dialog.edited,
+                        singleEdited,
                         dialog.targetWeek,
                         state.courses,
                         state.periods
@@ -3918,7 +3904,7 @@ fun CourseScheduleAppUi(
                     if (conflictWeeks.isEmpty()) {
                         viewModel.updateCourseSingleWeek(
                             dialog.original,
-                            dialog.edited,
+                            singleEdited,
                             dialog.targetWeek
                         )
                         dismissHomeDialog()
@@ -3926,34 +3912,32 @@ fun CourseScheduleAppUi(
                     } else {
                         homeDialog = HomeDialog.ConfirmCourseConflicts(
                             dialog.original,
-                            dialog.edited,
+                            singleEdited,
                             dialog.targetWeek,
                             conflictWeeks,
-                            singleWeekOnly = true
+                            singleWeekOnly = true,
+                            returnEdit = dialog
                         )
                     }
                 },
                 onAll = {
-                    val scope = courseApplyAllScope(dialog.original, dialog.edited, state.courses)
-                    val conflictWeeks = if (scope.originals.size == 1) {
-                        conflictWeeksForEditedCourse(dialog.original, scope.edited, state.courses, state.periods)
-                    } else {
-                        conflictWeeksForEditedCourseGroup(scope.originals, listOf(scope.edited), state.courses, state.periods)
-                    }
+                    val conflictWeeks = conflictWeeksForEditedCourseGroup(
+                        allScope.originals, allScope.edited, state.courses, state.periods
+                    )
                     if (conflictWeeks.isEmpty()) {
-                        if (scope.originals.size == 1) viewModel.updateCourse(scope.edited)
-                        else viewModel.replaceCourseGroup(scope.originals, listOf(scope.edited))
+                        if (allScope.originals.size == 1 && allScope.edited.size == 1) {
+                            viewModel.updateCourse(allScope.edited.single())
+                        } else viewModel.replaceCourseGroup(allScope.originals, allScope.edited)
                         dismissHomeDialog()
                         closeCourseEditor()
                     } else {
-                        pendingCourseGroupEdit = scope.takeIf { it.originals.size > 1 }?.let {
-                            PendingCourseGroupEdit(it.originals, listOf(it.edited))
-                        }
+                        pendingCourseGroupEdit = PendingCourseGroupEdit(allScope.originals, allScope.edited)
                         homeDialog = HomeDialog.ConfirmCourseConflicts(
                             dialog.original,
-                            scope.edited,
+                            allScope.edited.first(),
                             dialog.targetWeek,
-                            conflictWeeks
+                            conflictWeeks,
+                            returnEdit = dialog
                         )
                     }
                 },
@@ -4066,11 +4050,11 @@ fun CourseScheduleAppUi(
                     }
                 },
                 onReturn = {
-                    if (pendingCourseGroupEdit != null) {
+                    if (pendingCourseGroupEdit != null || courseEditorRequest != null) {
                         pendingCourseGroupEdit = null
                         dismissHomeDialog()
                     } else {
-                        homeDialog = HomeDialog.ApplyCourseEdit(
+                        homeDialog = dialog.returnEdit ?: HomeDialog.ApplyCourseEdit(
                             dialog.original,
                             dialog.edited,
                             dialog.targetWeek
@@ -4083,8 +4067,10 @@ fun CourseScheduleAppUi(
                 course = dialog.course,
                 backdrop = homeDialogBackdrop,
                 config = state.config,
+                targetWeek = dialog.targetWeek,
+                courses = pendingCourseGroupDelete.ifEmpty { listOf(dialog.course) },
                 onSingle = {
-                    deleteHomeCourses(pendingCourseGroupDelete.ifEmpty { listOf(dialog.course) }, dialog.targetWeek)
+                    deleteHomeCourses(listOf(dialog.course), dialog.targetWeek)
                 },
                 onAll = {
                     deleteHomeCourses(pendingCourseGroupDelete.ifEmpty { listOf(dialog.course) }, null)
@@ -4095,7 +4081,13 @@ fun CourseScheduleAppUi(
                 }
             )
         } else {
-        Dialog(onDismissRequest = { dismissHomeDialog() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Dialog(
+            onDismissRequest = {
+                if (dialog is HomeDialog.EditCourse) homeCourseDismissHandler?.invoke() ?: dismissHomeDialog()
+                else dismissHomeDialog()
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             if (dialog is HomeDialog.ImportSchedule) {
                 val dialogView = LocalView.current
                 DisposableEffect(dialogView) {
@@ -4121,6 +4113,7 @@ fun CourseScheduleAppUi(
                                 state = state,
                                 initialCourse = dialog.course,
                                 onCancel = { dismissHomeDialog() },
+                                onDismissHandlerChange = onHomeCourseDismissHandlerChange,
                                 onSave = {
                                     if (dialog.course == null) {
                                         viewModel.addCourse(it)
@@ -4185,75 +4178,9 @@ fun CourseScheduleAppUi(
                             }
                         }
                     )
-                            is HomeDialog.ApplyCourseEdit -> ApplyCourseEditDialog(
-                        original = dialog.original,
-                        edited = dialog.edited,
-                        backdrop = homeDialogBackdrop,
-                        config = state.config,
-                        onSingle = {
-                            val conflictWeeks = conflictWeeksForSingleWeekEdit(
-                                dialog.original,
-                                dialog.edited,
-                                dialog.targetWeek,
-                                state.courses,
-                                state.periods
-                            )
-                            if (conflictWeeks.isEmpty()) {
-                                viewModel.updateCourseSingleWeek(
-                                    dialog.original,
-                                    dialog.edited,
-                                    dialog.targetWeek
-                                )
-                                dismissHomeDialog()
-                            } else {
-                                homeDialog = HomeDialog.ConfirmCourseConflicts(
-                                    dialog.original,
-                                    dialog.edited,
-                                    dialog.targetWeek,
-                                    conflictWeeks,
-                                    singleWeekOnly = true
-                                )
-                            }
-                        },
-                            onAll = {
-                            val conflictWeeks = conflictWeeksForEditedCourse(
-                                dialog.original,
-                                dialog.edited,
-                                state.courses,
-                                state.periods
-                            )
-                            if (conflictWeeks.isEmpty()) {
-                                viewModel.updateCourse(dialog.edited)
-                                dismissHomeDialog()
-                            } else {
-                                homeDialog = HomeDialog.ConfirmCourseConflicts(
-                                    dialog.original,
-                                    dialog.edited,
-                                    dialog.targetWeek,
-                                    conflictWeeks
-                                )
-                            }
-                        },
-                        onCancel = {
-                            dismissHomeDialog()
-                        }
-                    )
+                    is HomeDialog.ApplyCourseEdit -> Unit
                     is HomeDialog.ConfirmCourseConflicts -> Unit
-                    is HomeDialog.ApplyCourseDelete -> ApplyCourseDeleteDialog(
-                        course = dialog.course,
-                        backdrop = homeDialogBackdrop,
-                        config = state.config,
-                        onSingle = {
-                            deleteHomeCourses(listOf(dialog.course), dialog.targetWeek)
-                        },
-                        onAll = {
-                            deleteHomeCourses(listOf(dialog.course), null)
-                        },
-                        onCancel = {
-                            dismissHomeDialog()
-                            openCourseEditor(dialog.course, dialog.targetWeek, null)
-                        }
-                    )
+                    is HomeDialog.ApplyCourseDelete -> Unit
                     }
                 }
                 CenterLiquidDialog(

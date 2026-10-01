@@ -12,6 +12,19 @@ fun todayCourses(state: AppState): List<CourseEntity> {
     return coursesForDate(state, LocalDate.now())
 }
 
+fun coursesOutsideShortenedTerm(
+    courses: List<CourseEntity>,
+    scheduleId: Int,
+    previousTotalWeeks: Int,
+    nextTotalWeeks: Int
+): List<CourseEntity> {
+    if (nextTotalWeeks >= previousTotalWeeks) return emptyList()
+    return courses.filter { course ->
+        course.scheduleId == scheduleId &&
+            course.weeks.any { it > nextTotalWeeks && parityMatches(course.weekParity, it) }
+    }
+}
+
 fun coursesForDate(state: AppState, date: LocalDate): List<CourseEntity> {
     if (scheduleWeekForDateOrNull(state.config, date) == null) return emptyList()
     val teachingDate = teachingDateForSchedule(state.config, date) ?: return emptyList()

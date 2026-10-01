@@ -409,7 +409,13 @@ internal fun CourseEditorContainerOverlayHost(
             courses = state.courses
         )
     }
-    val dismissEditor = { if (!copySaving) onDismissRequest() }
+    var contentDismissHandler by remember(shownRequest) { mutableStateOf<(() -> Unit)?>(null) }
+    val onDismissHandlerChange = remember(shownRequest) {
+        { handler: (() -> Unit)? -> contentDismissHandler = handler }
+    }
+    val dismissEditor = {
+        if (!copySaving) contentDismissHandler?.invoke() ?: onDismissRequest()
+    }
     val saveEditedCourse = remember(shownRequest, onSave, onCopy) {
         { originals: List<CourseEntity>, edited: List<CourseEntity> ->
             if (shownRequest.copyDraft != null) {
@@ -687,7 +693,8 @@ internal fun CourseEditorContainerOverlayHost(
                         copyDraft = shownRequest.copyDraft,
                         contextMessage = shownRequest.contextMessage,
                         backdrop = editorFormBackdrop,
-                        onDismissRequest = dismissEditor,
+                        onDismissRequest = { if (!copySaving) onDismissRequest() },
+                        onDismissHandlerChange = onDismissHandlerChange,
                         onSave = saveEditedCourse,
                         onDelete = deleteEditedCourse
                     )
@@ -725,6 +732,7 @@ private fun CourseEditorFormLayer(
     contextMessage: String?,
     backdrop: Backdrop?,
     onDismissRequest: () -> Unit,
+    onDismissHandlerChange: ((() -> Unit)?) -> Unit,
     onSave: (List<CourseEntity>, List<CourseEntity>) -> Unit,
     onDelete: (List<CourseEntity>) -> Unit
 ) {
@@ -784,6 +792,7 @@ private fun CourseEditorFormLayer(
                             copyDraft = copyDraft,
                             contextMessage = contextMessage,
                             onCancel = onDismissRequest,
+                            onDismissHandlerChange = onDismissHandlerChange,
                             onSave = {},
                             onSaveCourses = { onSave(emptyList(), it) },
                             onSaveGroup = onSave,

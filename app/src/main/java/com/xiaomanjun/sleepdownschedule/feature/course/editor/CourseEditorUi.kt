@@ -354,7 +354,8 @@ fun NormalizedCourseEditorScreen(
     backdrop: Backdrop?,
     pickerRenderInRootScaffold: Boolean = true,
     copyDraft: CourseEntity? = null,
-    contextMessage: String? = null
+    contextMessage: String? = null,
+    onDismissHandlerChange: (((() -> Unit)?) -> Unit)? = null
 ) {
     val formData = remember(state.config, state.periods, state.courses) {
         CourseEditorFormData(
@@ -373,7 +374,8 @@ fun NormalizedCourseEditorScreen(
         backdrop = backdrop,
         pickerRenderInRootScaffold = pickerRenderInRootScaffold,
         copyDraft = copyDraft,
-        contextMessage = contextMessage
+        contextMessage = contextMessage,
+        onDismissHandlerChange = onDismissHandlerChange
     )
 }
 
@@ -515,7 +517,7 @@ internal fun boundedPeriodPickerSelection(
 
 @Immutable
 internal data class CourseEditorGroup(val courses: List<CourseEntity>) {
-    val representative: CourseEntity? get() = courses.minByOrNull { it.id }
+    val representative: CourseEntity? get() = courses.firstOrNull()
 }
 
 private data class CourseEditorGroupingKey(
@@ -523,7 +525,8 @@ private data class CourseEditorGroupingKey(
     val name: String,
     val teacher: String,
     val location: String,
-    // 星期与周次不参与分组：同课不同星期的实例合并到一页、星期变多选
+    val weekday: Int,
+    // Only weekly fragments on the same weekday share an editor page.
     val periods: List<Int>,
     val customStartTime: String?,
     val customEndTime: String?,
@@ -538,6 +541,7 @@ private fun CourseEntity.editorGroupingKey() = CourseEditorGroupingKey(
     name = name.trim(),
     teacher = teacher.orEmpty().trim(),
     location = location.orEmpty().trim(),
+    weekday = weekday,
     periods = periods.distinct().sorted(),
     customStartTime = customStartTime,
     customEndTime = customEndTime,
@@ -564,7 +568,7 @@ internal fun buildCourseEditorGroups(
         .map { group ->
             CourseEditorGroup(
                 group.sortedWith(
-                    compareBy<CourseEntity> { it.weekday }
+                    compareBy<CourseEntity> { if (it.id == initialCourse.id) 0 else 1 }
                         .thenBy { it.weeks.minOrNull() ?: Int.MAX_VALUE }
                         .thenBy { it.id }
                 )
@@ -581,6 +585,49 @@ internal data class CourseApplyAllScope(
     val originals: List<CourseEntity>,
     val edited: CourseEntity
 )
+
+internal data class CourseEditorEditScope(
+    val originals: List<CourseEntity>,
+    val edited: List<CourseEntity>
+)
+
+internal fun courseEditorApplyAllScope(
+    originals: List<CourseEntity>,
+    edited: List<CourseEntity>,
+    courses: List<CourseEntity>
+): CourseEditorEditScope {
+    val original = originals.singleOrNull()
+    val replacement = edited.singleOrNull()
+    if (original != null && replacement != null && !courseWeeksChanged(original, replacement)) {
+        val scope = courseApplyAllScope(original, replacement, courses)
+        return CourseEditorEditScope(scope.originals, listOf(scope.edited))
+    }
+    return CourseEditorEditScope(originals, edited)
+}
+
+internal fun courseEditorHasOccurrence(course: CourseEntity, week: Int): Boolean =
+    week > 0 && week in course.weeks && parityMatches(course.weekParity, week)
+
+internal fun courseEditorOccurrenceLabel(
+    course: CourseEntity,
+    week: Int,
+    config: ScheduleConfigEntity
+): String = "第${week}周 · 周${weekdayLabel(course.weekday)} · " +
+    scheduleWeekStartDate(config, week).plusDays((course.weekday - 1).toLong())
+
+internal fun courseEditorScopeDescription(
+    courses: List<CourseEntity>,
+    config: ScheduleConfigEntity
+): String = courses.groupBy(CourseEntity::weekday).toSortedMap().entries.joinToString("\n") { (weekday, entries) ->
+    val weeks = entries.flatMap { course ->
+        course.weeks.filter { courseEditorHasOccurrence(course, it) }
+    }.distinct().sorted()
+    val dates = weeks.joinToString("、") { week ->
+        scheduleWeekStartDate(config, week).plusDays((weekday - 1).toLong()).toString()
+    }
+    "周${weekdayLabel(weekday)} · ${compactWeekSelectionLabel(weeks)}" +
+        if (dates.isEmpty()) "（没有有效排课）" else "\n$dates"
+}
 
 /** Apply-all includes weekly fragments whose only differing course detail is the exact clock range. */
 internal fun courseApplyAllScope(
@@ -661,14 +708,16 @@ internal fun compactWeekdaySelectionLabel(weekdays: Collection<Int>): String {
     return if (labels.isEmpty()) "未选择" else "周${labels.joinToString("、")}"
 }
 
-private fun courseEditorDraft(
+internal fun courseEditorDraft(
     courses: List<CourseEntity>,
     periodValues: List<Int>,
     totalWeeks: Int
 ) : CourseEditorDraft {
     val course = courses.firstOrNull()
-    val storedWeeks = courses.flatMap(CourseEntity::weeks).filter { it in 1..totalWeeks }.toSet()
-        .ifEmpty { (1..totalWeeks.coerceAtLeast(1)).toSet() }
+    // Existing records retain their weeks even after the term is shortened.
+    // A whole-term default belongs only to a genuinely new course.
+    val storedWeeks = if (courses.isEmpty()) (1..totalWeeks.coerceAtLeast(1)).toSet()
+        else courses.flatMap(CourseEntity::weeks).filter { it > 0 }.toSet()
     val activeWeeks = when (course?.weekParity ?: WeekParity.ALL) {
         WeekParity.ALL -> storedWeeks
         WeekParity.ODD -> storedWeeks.filterTo(linkedSetOf()) { it % 2 == 1 }
@@ -709,13 +758,15 @@ internal fun courseEditorOriginalForWeekday(
     .minByOrNull(CourseEntity::id)
     ?: originals.singleOrNull().takeIf { selectedWeekdayCount == 1 }
 
-private fun CourseEditorDraft.toCourses(
+internal fun CourseEditorDraft.toCourses(
     originals: List<CourseEntity>,
     periodValues: List<Int>,
     allowCustomColorOverride: Boolean
 ): List<CourseEntity> {
     val originalWeekdays = originals.map(CourseEntity::weekday).toSet()
-    val originalWeeks = originals.flatMap(CourseEntity::weeks).toSet()
+    val originalWeeks = originals.flatMap { original ->
+        original.weeks.filter { parityMatches(original.weekParity, it) }
+    }.toSet()
     val keepOriginalDistribution = weekdays == originalWeekdays && weeks == originalWeeks
     val originalsByWeekday = originals.groupBy(CourseEntity::weekday)
     val periods = periodValues.filter { it in periodStart..periodEnd }
@@ -736,7 +787,7 @@ private fun CourseEditorDraft.toCourses(
             weekday = weekday,
             periods = periods,
             weeks = targetWeeks,
-            weekParity = parity,
+            weekParity = if (keepOriginalDistribution) original?.weekParity ?: parity else parity,
             note = note.trim().ifBlank { null },
             customStartTime = customStartTime,
             customEndTime = customEndTime,
@@ -772,7 +823,8 @@ fun NormalizedCourseEditorScreen(
     onPagerPresentationChange: ((CourseEditorPagerPresentation) -> Unit)? = null,
     rowEntrance: (Int) -> Float = { _ -> 1f },
     copyDraft: CourseEntity? = null,
-    contextMessage: String? = null
+    contextMessage: String? = null,
+    onDismissHandlerChange: (((() -> Unit)?) -> Unit)? = null
 ) {
     val config = formData.config
     val editorGroups = remember(initialCourse, formData.courses) {
@@ -787,15 +839,17 @@ fun NormalizedCourseEditorScreen(
         editorGroups.indexOfFirst { group -> group.courses.any { it.id == initialCourse?.id } }.coerceAtLeast(0)
     }
     val pagerState = rememberPagerState(initialPage = initialPage) { editorGroups.size }
-    var drafts by remember(editorGroups, periodValues, config.totalWeeks, copyDraft) {
-        mutableStateOf(editorGroups.mapIndexed { index, group ->
+    val initialDrafts = remember(editorGroups, periodValues, config.totalWeeks, copyDraft) {
+        editorGroups.mapIndexed { index, group ->
             index to if (copyDraft != null && initialCourse == null) {
                 // A copy is a new draft, never a member of the source course's edit group.
                 // Keep its content and selected weeks, but require a fresh time selection.
                 courseEditorCopyDraft(copyDraft, periodValues, config.totalWeeks.coerceAtLeast(1))
             } else courseEditorDraft(group.courses, periodValues, config.totalWeeks.coerceAtLeast(1))
-        }.toMap())
+        }.toMap()
     }
+    var drafts by remember(initialDrafts) { mutableStateOf(initialDrafts) }
+    var showExitConfirm by remember(initialDrafts) { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var pickerRequest by remember { mutableStateOf<CourseEditorPickerRequest?>(null) }
     var pickerVisible by remember { mutableStateOf(false) }
@@ -803,6 +857,43 @@ fun NormalizedCourseEditorScreen(
     var colorPickerVisible by remember { mutableStateOf(false) }
     val currentPage = pagerState.currentPage.coerceIn(editorGroups.indices)
     val pagerIndicatorVisible = editorGroups.size > 1 && pickerRequest == null && colorPickerPage == null
+
+    fun savePage(page: Int) {
+        val group = editorGroups[page]
+        val course = group.representative
+        val currentDraft = drafts.getValue(page)
+        val edited = currentDraft.toCourses(
+            originals = group.courses,
+            periodValues = periodValues,
+            allowCustomColorOverride = courseCardAllowsCustomOverrides(config)
+        )
+        when {
+            currentDraft.name.isBlank() -> error = "课程名称不能为空"
+            currentDraft.weekdays.isEmpty() -> error = "请选择星期"
+            currentDraft.weeks.isEmpty() -> error = "请选择周次"
+            edited.firstOrNull()?.periods.isNullOrEmpty() -> error = "请选择节次"
+            group.courses.isNotEmpty() && onSaveGroup != null -> onSaveGroup(group.courses, edited)
+            course != null && edited.size == 1 && onSaveWithOriginal != null -> onSaveWithOriginal(course, edited.single())
+            onSaveCourses != null -> onSaveCourses(edited)
+            edited.size == 1 -> onSave(edited.single())
+            else -> edited.forEach(onSave)
+        }
+    }
+
+    fun requestCancel() {
+        when {
+            pickerRequest != null -> pickerVisible = false
+            colorPickerPage != null -> colorPickerVisible = false
+            drafts != initialDrafts -> showExitConfirm = true
+            else -> onCancel()
+        }
+    }
+    val latestRequestCancel by rememberUpdatedState<() -> Unit>({ requestCancel() })
+    DisposableEffect(onDismissHandlerChange) {
+        onDismissHandlerChange?.invoke { latestRequestCancel() }
+        onDispose { onDismissHandlerChange?.invoke(null) }
+    }
+    BackHandler(enabled = pickerRequest == null && colorPickerPage == null) { requestCancel() }
 
     SideEffect {
         onPagerPresentationChange?.invoke(
@@ -847,26 +938,8 @@ fun NormalizedCourseEditorScreen(
                 config = config,
                 backdrop = backdrop,
                 error = error.takeIf { page == currentPage },
-                onCancel = onCancel,
-                onSave = {
-                    val currentDraft = drafts.getValue(page)
-                    val edited = currentDraft.toCourses(
-                        originals = group.courses,
-                        periodValues = periodValues,
-                        allowCustomColorOverride = courseCardAllowsCustomOverrides(config)
-                    )
-                    when {
-                        currentDraft.name.isBlank() -> error = "课程名称不能为空"
-                        currentDraft.weekdays.isEmpty() -> error = "请选择星期"
-                        edited.firstOrNull()?.periods.isNullOrEmpty() -> error = "请选择节次"
-                        currentDraft.weeks.isEmpty() -> error = "请选择周次"
-                        group.courses.isNotEmpty() && onSaveGroup != null -> onSaveGroup(group.courses, edited)
-                        course != null && edited.size == 1 && onSaveWithOriginal != null -> onSaveWithOriginal(course, edited.single())
-                        onSaveCourses != null -> onSaveCourses(edited)
-                        edited.size == 1 -> onSave(edited.single())
-                        else -> edited.forEach(onSave)
-                    }
-                },
+                onCancel = { requestCancel() },
+                onSave = { savePage(page) },
                 onDelete = course?.let {
                     {
                         if (onDeleteGroup != null) onDeleteGroup(group.courses) else onDelete(it)
@@ -928,6 +1001,28 @@ fun NormalizedCourseEditorScreen(
                 }
             )
         }
+    }
+    if (showExitConfirm) {
+        val otherPageChanged = drafts.any { (page, draft) -> page != currentPage && draft != initialDrafts[page] }
+        LiquidAlertDialog(
+            title = "保存课程修改？",
+            message = if (otherPageChanged) "其他编辑页也有草稿。保存只应用当前页，其他页的草稿会放弃；可以继续编辑后分别保存。"
+                else "课程有未保存的修改，请选择保存、放弃或继续编辑。",
+            actions = listOf(
+                LiquidAlertAction("保存当前页", LiquidAlertActionStyle.Primary) {
+                    showExitConfirm = false
+                    savePage(currentPage)
+                },
+                LiquidAlertAction("放弃修改", LiquidAlertActionStyle.Destructive) {
+                    showExitConfirm = false
+                    onCancel()
+                },
+                LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Secondary) { showExitConfirm = false }
+            ),
+            backdrop = backdrop,
+            config = config,
+            onDismissRequest = { showExitConfirm = false }
+        )
     }
 }
 
@@ -1130,7 +1225,7 @@ private fun CourseEditorFormPage(
             Box(Modifier.fillMaxWidth().courseEditorFormRowEntrance(7)) {
             DialogMultiGridSelector(
                 title = "周次",
-                    values = (1..totalWeeks).toList(),
+                    values = ((1..totalWeeks).toList() + draft.weeks).distinct().sorted(),
                     selected = draft.weeks,
                     displayValue = compactWeekSelectionLabel(draft.weeks.toList()),
                     preferredColumns = 5,
@@ -1142,6 +1237,16 @@ private fun CourseEditorFormPage(
                     backdrop = backdrop,
                     config = config
                 ) { it.toString() }
+            }
+        }
+        if (draft.weeks.any { it > totalWeeks }) {
+            item(key = "weeks-outside-term", contentType = "context") {
+                Text(
+                    text = "学期共 $totalWeeks 周，原排课的${compactWeekSelectionLabel(draft.weeks.filter { it > totalWeeks })}超出学期。修改其他内容会保留这些周次；需要调整时请重新选择周次。",
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = LocalContentColor.current.copy(alpha = 0.82f)
+                )
             }
         }
         item(key = "parity", contentType = "selector") {

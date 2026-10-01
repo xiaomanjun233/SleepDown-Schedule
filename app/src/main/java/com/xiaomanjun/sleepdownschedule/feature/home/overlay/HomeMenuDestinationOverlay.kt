@@ -478,6 +478,11 @@ internal fun HomeMenuDestinationOverlayHost(
         }
     }
     val latestDismiss by rememberUpdatedState(onDismissRequest)
+    var courseDismissHandler by remember(request) { mutableStateOf<(() -> Unit)?>(null) }
+    val onCourseDismissHandlerChange = remember(request) {
+        { handler: (() -> Unit)? -> courseDismissHandler = handler }
+    }
+    val requestDismiss = { courseDismissHandler?.invoke() ?: latestDismiss() }
     val latestSourceHandoff by rememberUpdatedState(onSourceHandoff)
     val latestCollapseHandoff by rememberUpdatedState(onCollapseHandoff)
     val latestClosed by rememberUpdatedState(onClosed)
@@ -574,7 +579,7 @@ internal fun HomeMenuDestinationOverlayHost(
     }
 
     val shown = request ?: renderedRequest
-    BackHandler(enabled = shown != null) { latestDismiss() }
+    BackHandler(enabled = shown != null) { requestDismiss() }
 
     Box(
         modifier = modifier
@@ -834,7 +839,7 @@ internal fun HomeMenuDestinationOverlayHost(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     enabled = !isFullScreen,
-                    onClick = { latestDismiss() }
+                    onClick = { requestDismiss() }
                 )
         )
         HomeMenuDestinationTransitionShell(
@@ -972,6 +977,7 @@ internal fun HomeMenuDestinationOverlayHost(
                                     state = state,
                                     initialCourse = null,
                                     onCancel = { latestDismiss() },
+                                    onDismissHandlerChange = onCourseDismissHandlerChange,
                                     onSave = {},
                                 onSaveCourses = onAddCourses,
                                 onDelete = {},
