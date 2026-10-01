@@ -6206,14 +6206,16 @@ fun PersonalizePanel(
     val rowReveal = remember { Animatable(0f) }
     val rowDensity = LocalDensity.current
     val rowEasing = remember { CubicBezierEasing(0.22f, 0f, 0.30f, 1f) }
-    LaunchedEffect(rowEntranceActive) {
+    val weekContentRows = if (mode == HomeMode.Week) 4 else 0
+    val rowEntranceDurationMillis = 580 + weekContentRows * 15
+    LaunchedEffect(rowEntranceActive, rowEntranceDurationMillis) {
         if (rowEntranceActive) {
             withFrameNanos { }
-            rowReveal.animateTo(1f, tween(580, easing = LinearEasing))
+            rowReveal.animateTo(1f, tween(rowEntranceDurationMillis, easing = LinearEasing))
         }
     }
     fun Modifier.rowEntrance(index: Int): Modifier = graphicsLayer {
-        val t = ((rowReveal.value * 580f - index * 15f) / 340f).coerceIn(0f, 1f)
+        val t = ((rowReveal.value * rowEntranceDurationMillis - index * 15f) / 340f).coerceIn(0f, 1f)
         val progress = rowEasing.transform(t)
         alpha = progress
         scaleX = 0.86f + 0.14f * progress
@@ -6475,9 +6477,12 @@ fun PersonalizePanel(
                         }
                     }
                     Spacer(Modifier.height(8.dp))
-                    Text("周视图卡片内容", style = MaterialTheme.typography.labelLarge)
+                    Text("周视图卡片内容", style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.rowEntrance(5)
+                            .personalizePreviewVisibility(previewSliderKey, previewProgress))
                     Row(
-                        Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                        Modifier.rowEntrance(6).fillMaxWidth().heightIn(min = 44.dp)
+                            .personalizePreviewVisibility(previewSliderKey, previewProgress),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -6493,7 +6498,8 @@ fun PersonalizePanel(
                         )
                     }
                     Row(
-                        Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                        Modifier.rowEntrance(7).fillMaxWidth().heightIn(min = 44.dp)
+                            .personalizePreviewVisibility(previewSliderKey, previewProgress),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -6513,60 +6519,33 @@ fun PersonalizePanel(
                         WeekCardContentLayout.CENTERED to "全部居中",
                         WeekCardContentLayout.TOP_DOWN to "从上到下铺满"
                     )
-                    var layoutMenuOpen by remember { mutableStateOf(false) }
                     val rowTextColor = LocalContentColor.current
-                    Box(Modifier.fillMaxWidth().personalizePreviewVisibility(previewSliderKey, previewProgress)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick = { layoutMenuOpen = true }
-                                ),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("文字排布", style = MaterialTheme.typography.bodyMedium, color = rowTextColor)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    textLayouts.first { it.first == state.config.weekCardContentLayout }.second,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = rowTextColor.copy(alpha = 0.72f)
-                                )
-                                Icon(
-                                    Icons.Rounded.KeyboardArrowDown,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                    tint = rowTextColor.copy(alpha = 0.72f)
-                                )
-                            }
-                        }
-                        SleepDownLiquidCascadingPopup(
-                            show = layoutMenuOpen,
-                            anchorBounds = Rect.Zero,
-                            items = textLayouts.map { (layout, label) ->
-                                SleepDownLiquidMenuItem(
-                                    key = layout.name,
-                                    text = label,
-                                    selected = layout == state.config.weekCardContentLayout,
-                                    onClick = {
-                                        layoutMenuOpen = false
-                                        onUpdateConfig(PersonalizeWeekLayoutChange,
-                                            state.config.copy(weekCardContentLayout = layout))
-                                    }
-                                )
-                            },
-                            onDismissRequest = { layoutMenuOpen = false },
+                    MiuixTheme(colors = MiuixTheme.colorScheme.copy(
+                        onBackground = rowTextColor,
+                        onSurfaceVariantActions = rowTextColor.copy(alpha = 0.72f)
+                    )) {
+                        SleepDownLiquidDropdownPreference(
+                            items = textLayouts.map { it.second },
+                            selectedIndex = textLayouts.indexOfFirst { it.first == state.config.weekCardContentLayout },
+                            title = "文字排布",
+                            modifier = Modifier.rowEntrance(8).fillMaxWidth()
+                                .heightIn(max = (48f * rowDensity.fontScale.coerceAtLeast(1f)).dp)
+                                .personalizePreviewVisibility(previewSliderKey, previewProgress),
+                            insideMargin = PaddingValues(horizontal = 0.dp, vertical = 6.dp),
+                            maxHeight = 260.dp,
                             backdrop = backdrop,
                             config = state.config,
-                            menuMaxHeight = 260.dp,
-                            contentColor = if (appUsesDarkTheme(state.config)) ComposeColor.White
-                                else ComposeColor(0xFF111111)
+                            onSelectedIndexChange = { index ->
+                                textLayouts.getOrNull(index)?.let { (layout, _) ->
+                                    onUpdateConfig(PersonalizeWeekLayoutChange,
+                                        state.config.copy(weekCardContentLayout = layout))
+                                }
+                            }
                         )
                     }
                 }
                 Row(
-                    modifier = Modifier.rowEntrance(5)
+                    modifier = Modifier.rowEntrance(5 + weekContentRows)
                         .fillMaxWidth()
                         .personalizePreviewVisibility(previewSliderKey, previewProgress),
                     horizontalArrangement = Arrangement.Start,
@@ -6585,7 +6564,7 @@ fun PersonalizePanel(
                     customSelected = state.config.courseCardColorMode == CourseCardColorMode.SOLID &&
                         SolidCourseColorPresets.none { it == state.config.cardColorArgb },
                     backdrop = backdrop,
-                    modifier = Modifier.rowEntrance(6).personalizePreviewVisibility(previewSliderKey, previewProgress),
+                    modifier = Modifier.rowEntrance(6 + weekContentRows).personalizePreviewVisibility(previewSliderKey, previewProgress),
                     onPresetSelected = { colors ->
                         onUpdateConfig(
                             PersonalizeCardColorChange,
@@ -6607,7 +6586,7 @@ fun PersonalizePanel(
                     customSelected = state.config.courseCardColorMode == CourseCardColorMode.GRADIENT &&
                         GradientCourseColorPresets.none { it == state.config.cardColorArgb },
                     backdrop = backdrop,
-                    modifier = Modifier.rowEntrance(7).personalizePreviewVisibility(previewSliderKey, previewProgress),
+                    modifier = Modifier.rowEntrance(7 + weekContentRows).personalizePreviewVisibility(previewSliderKey, previewProgress),
                     onPresetSelected = { colors ->
                         onUpdateConfig(
                             PersonalizeCardColorChange,
@@ -6629,7 +6608,7 @@ fun PersonalizePanel(
                     customSelected = state.config.courseCardColorMode == CourseCardColorMode.COLORFUL &&
                         state.config.courseCardPalette.isNotBlank(),
                     backdrop = backdrop,
-                    modifier = Modifier.rowEntrance(8).personalizePreviewVisibility(previewSliderKey, previewProgress),
+                    modifier = Modifier.rowEntrance(8 + weekContentRows).personalizePreviewVisibility(previewSliderKey, previewProgress),
                     onPresetSelected = {
                         onUpdateConfig(
                             PersonalizeCardColorChange,
@@ -6651,7 +6630,7 @@ fun PersonalizePanel(
                 }
                 PersonalizeValueSlider(
                     sliderKey = PersonalizeCardAlphaSlider,
-                    modifier = Modifier.rowEntrance(9),
+                    modifier = Modifier.rowEntrance(9 + weekContentRows),
                     value = state.config.cardAlpha.coerceIn(0f, 1f),
                     valueRange = 0f..1f,
                     backdrop = backdrop,
@@ -6683,7 +6662,7 @@ fun PersonalizePanel(
                     val maxCourseCardBlur = courseCardBlurMaximum(state.config.courseCardGlassEnabled)
                     PersonalizeValueSlider(
                         sliderKey = PersonalizeCardBlurSlider,
-                        modifier = Modifier.rowEntrance(10),
+                        modifier = Modifier.rowEntrance(10 + weekContentRows),
                         value = state.config.courseCardBlur.coerceIn(0f, maxCourseCardBlur) /
                             maxCourseCardBlur * 100f,
                         valueRange = 0f..100f,
@@ -6712,7 +6691,7 @@ fun PersonalizePanel(
                 }
                 PersonalizeValueSlider(
                     sliderKey = PersonalizeCardFontSlider,
-                    modifier = Modifier.rowEntrance(11),
+                    modifier = Modifier.rowEntrance(11 + weekContentRows),
                     value = state.config.courseCardFontScale,
                     valueRange = 0.80f..1.35f,
                     backdrop = backdrop,
@@ -6740,7 +6719,7 @@ fun PersonalizePanel(
                 if (mode == HomeMode.Week) {
                     PersonalizeValueSlider(
                         sliderKey = PersonalizeWeekCornerSlider,
-                        modifier = Modifier.rowEntrance(12),
+                        modifier = Modifier.rowEntrance(12 + weekContentRows),
                         value = state.config.weekCardCornerProgress.coerceIn(0f, 1f),
                         valueRange = 0f..1f,
                         backdrop = backdrop,
@@ -6769,7 +6748,7 @@ fun PersonalizePanel(
                 if (state.config.courseCardGlassEnabled && !glassLocked) {
                     PersonalizeValueSlider(
                         sliderKey = PersonalizeCardRefractionSlider,
-                        modifier = Modifier.rowEntrance(13),
+                        modifier = Modifier.rowEntrance(13 + weekContentRows),
                         value = state.config.courseCardRefractionStrength.coerceIn(0f, 1f),
                         valueRange = 0f..1f,
                         backdrop = backdrop,
@@ -6801,7 +6780,7 @@ fun PersonalizePanel(
                         .personalizePreviewVisibility(previewSliderKey, previewProgress)
                 )
                 Row(
-                    modifier = Modifier.rowEntrance(14)
+                    modifier = Modifier.rowEntrance(14 + weekContentRows)
                         .fillMaxWidth()
                         .heightIn(min = 48.dp)
                         .personalizePreviewVisibility(previewSliderKey, previewProgress),
@@ -6835,7 +6814,7 @@ fun PersonalizePanel(
                 }
                 if (state.config.courseCardGlassEnabled && !glassLocked) {
                     Row(
-                        modifier = Modifier.rowEntrance(15)
+                        modifier = Modifier.rowEntrance(15 + weekContentRows)
                             .fillMaxWidth()
                             .heightIn(min = 48.dp)
                             .personalizePreviewVisibility(previewSliderKey, previewProgress),
@@ -6857,7 +6836,7 @@ fun PersonalizePanel(
                     }
                 } else {
                     Row(
-                        modifier = Modifier.rowEntrance(15)
+                        modifier = Modifier.rowEntrance(15 + weekContentRows)
                             .fillMaxWidth()
                             .heightIn(min = 48.dp)
                             .personalizePreviewVisibility(previewSliderKey, previewProgress),
@@ -6880,7 +6859,7 @@ fun PersonalizePanel(
                     }
                 }
                 Row(
-                    modifier = Modifier.rowEntrance(16)
+                    modifier = Modifier.rowEntrance(16 + weekContentRows)
                         .fillMaxWidth()
                         .heightIn(min = 48.dp)
                         .personalizePreviewVisibility(previewSliderKey, previewProgress),
