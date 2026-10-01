@@ -73,4 +73,6 @@ APK 包名为 `com.xiaomanjun.sleepdownschedule`，大小为 `6,810,283` 字节�
 
 这次局部界面调整未重复运行无关测试。完整 `assembleGithubRelease` 构建在 7m55s 内成功，包含 Kotlin、R8、资源压缩、lintVital、打包和签名；v2 签名校验通过。包标识仍为 `com.xiaomanjun.sleepdownschedule`，版本 `1.2.7_beta1` / `versionCode=34`。
 
-新版包大小 `6,810,283` 字节，SHA-256 为 `C40817499FD3A1D14609516D0B0778219DF6125EB7163D6E1D61B40AB90CBDA1`，独立副本为 `tmp/review-apks/SleepDown-1.2.7_beta1-20261001-personalization-alignment.apk`，未纳入 Git。无线调试连接反复变为离线，当前覆盖安装等待连接恢复；新版界面尚未进行实机交互验收。
+新版包大小 `6,810,283` 字节，SHA-256 为 `C40817499FD3A1D14609516D0B0778219DF6125EB7163D6E1D61B40AB90CBDA1`，独立副本为 `tmp/review-apks/SleepDown-1.2.7_beta1-20261001-personalization-alignment.apk`，未纳入 Git。
+
+收到新的无线调试截图后，已重新配对并连接同一台 OPPO Find X9 / PLJ110。安装前核对 APK 的 SHA-256 与已校验签名的包一致，`adb install -r` 返回 `Success`。首次安装后的版本查询遇到连接关闭，补查包管理器成功，确认应用包名及 `versionCode=34`。未清除应用数据，也未自动启动；新版界面尚未进行实机交互验收。
