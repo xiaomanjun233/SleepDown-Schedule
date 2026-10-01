@@ -178,7 +178,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -6523,38 +6522,29 @@ fun PersonalizePanel(
                     val rowTextColor = LocalContentColor.current
                     val rowTextStyle = MaterialTheme.typography.labelLarge
                     val rowMaxHeight = maxOf(48.dp, with(rowDensity) { rowTextStyle.lineHeight.toDp() } + 12.dp)
-                    val capsuleInset = 12.dp
                     MiuixTheme(colors = MiuixTheme.colorScheme.copy(
                         onBackground = rowTextColor,
                         onSurfaceVariantActions = rowTextColor.copy(alpha = 0.72f)
                     )) {
-                        BoxWithConstraints(
+                        SleepDownLiquidDropdownPreference(
+                            items = textLayouts.map { it.second },
+                            selectedIndex = textLayouts.indexOfFirst { it.first == state.config.weekCardContentLayout },
+                            title = "文字排布",
                             modifier = Modifier.rowEntrance(8).fillMaxWidth()
+                                .heightIn(max = rowMaxHeight)
                                 .personalizePreviewVisibility(previewSliderKey, previewProgress),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            // Use the section's side gutters for the capsule, keeping its text
-                            // aligned with the other controls and clear of the rounded clip.
-                            SleepDownLiquidDropdownPreference(
-                                items = textLayouts.map { it.second },
-                                selectedIndex = textLayouts.indexOfFirst { it.first == state.config.weekCardContentLayout },
-                                title = "文字排布",
-                                modifier = Modifier.requiredWidth(maxWidth + capsuleInset * 2)
-                                    .heightIn(max = rowMaxHeight)
-                                    .clip(Capsule()),
-                                insideMargin = PaddingValues(horizontal = capsuleInset, vertical = 6.dp),
-                                maxHeight = 260.dp,
-                                compactTextStyle = rowTextStyle,
-                                backdrop = backdrop,
-                                config = state.config,
-                                onSelectedIndexChange = { index ->
-                                    textLayouts.getOrNull(index)?.let { (layout, _) ->
-                                        onUpdateConfig(PersonalizeWeekLayoutChange,
-                                            state.config.copy(weekCardContentLayout = layout))
-                                    }
+                            insideMargin = PaddingValues(horizontal = 0.dp, vertical = 6.dp),
+                            maxHeight = 260.dp,
+                            compactTextStyle = rowTextStyle,
+                            backdrop = backdrop,
+                            config = state.config,
+                            onSelectedIndexChange = { index ->
+                                textLayouts.getOrNull(index)?.let { (layout, _) ->
+                                    onUpdateConfig(PersonalizeWeekLayoutChange,
+                                        state.config.copy(weekCardContentLayout = layout))
                                 }
-                            )
-                        }
+                            }
+                        )
                     }
                 }
                 Row(
