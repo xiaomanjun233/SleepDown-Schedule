@@ -272,6 +272,13 @@
         </provider>
         <receiver android:name=".CourseAlarmReceiver" android:exported="false" />
         <receiver android:name=".LiveUpdateActionReceiver" android:exported="false" />
+        <receiver
+            android:name=".feature.reminder.LegacyDndStateReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.app.action.INTERRUPTION_FILTER_CHANGED" />
+            </intent-filter>
+        </receiver>
         <service
             android:name=".LiveUpdateForegroundService"
             android:exported="false"

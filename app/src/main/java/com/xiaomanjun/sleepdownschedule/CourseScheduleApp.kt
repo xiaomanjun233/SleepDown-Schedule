@@ -10,9 +10,12 @@ import com.xiaomanjun.sleepdownschedule.core.performance.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+import com.xiaomanjun.sleepdownschedule.feature.reminder.LegacyDndStateReceiver
 
 import android.app.ActivityManager
 import android.app.Application
+import android.app.NotificationManager
+import android.os.Build
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -75,6 +78,15 @@ class CourseScheduleApp : Application() {
             IntentFilter(Intent.ACTION_SCREEN_ON).apply { addAction(Intent.ACTION_USER_PRESENT) },
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        // Before Android 10, interruption-filter broadcasts reach only registered receivers.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            ContextCompat.registerReceiver(
+                this,
+                LegacyDndStateReceiver(),
+                IntentFilter(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 setTaskExcludedFromRecents(false)

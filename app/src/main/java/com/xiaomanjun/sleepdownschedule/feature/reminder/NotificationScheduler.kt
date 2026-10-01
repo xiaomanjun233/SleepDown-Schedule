@@ -54,6 +54,10 @@ object NotificationScheduler {
     private const val KEY_DND_ENABLED_BY_APP = "dnd_enabled_by_app"
     private const val KEY_DND_RULE_ID = "dnd_rule_id"
     private const val KEY_DND_RULE_MIGRATED = "dnd_rule_migrated"
+    private const val KEY_DND_PREVIOUS_FILTER = "dnd_previous_filter"
+    private const val KEY_DND_APPLIED_FILTER = "dnd_applied_filter"
+    private const val KEY_DND_BOOT_COUNT = "dnd_boot_count"
+    private const val KEY_DND_OVERRIDDEN = "dnd_overridden"
     private const val DND_RULE_NAME = "SleepDown 课程勿扰"
     private const val LIVE_UPDATE_ID = 20260522
     private const val LIVE_UPDATE_ALTERNATE_ID = 20260523
@@ -1063,28 +1067,19 @@ object NotificationScheduler {
             val enable = !isDoNotDisturbEnabledByApp(context)
             val changed = runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-                    setApplicationDndRuleState(context, manager, prefs, enable)
+                    runCatching { setApplicationDndRuleState(context, manager, prefs, enable) }
+                        .recoverCatching { ruleError ->
+                            // Android 15+ scopes this fallback to the app's implicit rule.
+                            Log.w(TAG, "Explicit DND rule failed; using platform compatibility rule", ruleError)
+                            manager.setInterruptionFilter(
+                                if (enable) NotificationManager.INTERRUPTION_FILTER_PRIORITY
+                                else NotificationManager.INTERRUPTION_FILTER_ALL
+                            )
+                        }.getOrThrow()
                 } else {
-                    manager.setInterruptionFilter(
-                        if (enable) {
-                            NotificationManager.INTERRUPTION_FILTER_PRIORITY
-                        } else {
-                            NotificationManager.INTERRUPTION_FILTER_ALL
-                        }
-                    )
+                    setLegacyDndState(context, manager, prefs, enable)
                 }
-            }.recoverCatching { ruleError ->
-                // Keep the platform's implicit-rule compatibility path as a last resort for OEMs
-                // whose Android 15+ rule manager rejects explicit rules.
-                Log.w(TAG, "Explicit DND rule failed; using platform compatibility rule", ruleError)
-                manager.setInterruptionFilter(
-                    if (enable) {
-                        NotificationManager.INTERRUPTION_FILTER_PRIORITY
-                    } else {
-                        NotificationManager.INTERRUPTION_FILTER_ALL
-                    }
-                )
-            }.isSuccess
+            }.onFailure { Log.w(TAG, "Unable to change course DND state", it) }.isSuccess
             if (changed) {
                 prefs.edit { putBoolean(KEY_DND_ENABLED_BY_APP, enable) }
                 refreshVisibleLiveUpdate(context)
@@ -1098,6 +1093,63 @@ object NotificationScheduler {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 )
             }.onFailure { Log.w(TAG, "Unable to open DND access settings", it) }
+        }
+    }
+
+    private fun legacyDndSession(prefs: android.content.SharedPreferences): LegacyDndSession? {
+        if (!prefs.contains(KEY_DND_PREVIOUS_FILTER) || !prefs.contains(KEY_DND_APPLIED_FILTER) ||
+            !prefs.contains(KEY_DND_BOOT_COUNT)) return null
+        return LegacyDndSession(
+            previousFilter = prefs.getInt(KEY_DND_PREVIOUS_FILTER, NotificationManager.INTERRUPTION_FILTER_UNKNOWN),
+            appliedFilter = prefs.getInt(KEY_DND_APPLIED_FILTER, NotificationManager.INTERRUPTION_FILTER_UNKNOWN),
+            bootCount = prefs.getInt(KEY_DND_BOOT_COUNT, -1),
+            overridden = prefs.getBoolean(KEY_DND_OVERRIDDEN, false)
+        )
+    }
+
+    private fun setLegacyDndState(
+        context: Context,
+        manager: NotificationManager,
+        prefs: android.content.SharedPreferences,
+        enabled: Boolean
+    ) {
+        val currentFilter = manager.currentInterruptionFilter
+        val bootCount = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        if (enabled) {
+            val session = LegacyDndSession.start(currentFilter, bootCount)
+            // Persist ownership before changing system state so process death cannot lose the snapshot.
+            check(prefs.edit()
+                .putInt(KEY_DND_PREVIOUS_FILTER, session.previousFilter)
+                .putInt(KEY_DND_APPLIED_FILTER, session.appliedFilter)
+                .putInt(KEY_DND_BOOT_COUNT, session.bootCount)
+                .putBoolean(KEY_DND_OVERRIDDEN, false)
+                .putBoolean(KEY_DND_ENABLED_BY_APP, true)
+                .commit()) { "Unable to save the previous DND mode" }
+            if (currentFilter != session.appliedFilter) manager.setInterruptionFilter(session.appliedFilter)
+        } else {
+            val restore = legacyDndSession(prefs)?.filterToRestore(currentFilter, bootCount)
+            if (restore != null && restore != currentFilter) manager.setInterruptionFilter(restore)
+            // Older builds have no snapshot: release ownership without guessing an original mode.
+            prefs.edit(commit = true) {
+                putBoolean(KEY_DND_ENABLED_BY_APP, false)
+                remove(KEY_DND_PREVIOUS_FILTER)
+                remove(KEY_DND_APPLIED_FILTER)
+                remove(KEY_DND_BOOT_COUNT)
+                remove(KEY_DND_OVERRIDDEN)
+            }
+        }
+    }
+
+    internal fun observeLegacyDndState(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_DND_ENABLED_BY_APP, false)) return
+        val session = legacyDndSession(prefs) ?: return
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val bootCount = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        if (session.observe(manager.currentInterruptionFilter, bootCount).overridden) {
+            // Once relinquished, returning manually to the same filter does not regain ownership.
+            prefs.edit(commit = true) { putBoolean(KEY_DND_OVERRIDDEN, true) }
         }
     }
 
