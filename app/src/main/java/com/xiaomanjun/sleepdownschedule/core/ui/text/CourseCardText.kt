@@ -115,7 +115,11 @@ internal fun CourseCardText(
         lastSamples[0] = samples
         if (themeColor != null) {
             target = courseTextColorForBackground(themeColor, samples, target)
-            targetShadowStrength = 0f
+            // Metadata uses the same opaque contrast solution as the title; its smaller
+            // font supplies the hierarchy without fading into the tinted glass.
+            targetShadowStrength = softTextShadowStrength(
+                samples, target.luminance(), target.alpha, targetShadowStrength
+            )
         } else {
             // Keep the chosen course color. Only the soft shadow responds to the local glass.
             targetShadowStrength = softTextShadowStrength(
@@ -150,20 +154,30 @@ internal fun CourseCardText(
         resolved[0] = updateForeground()
     }
     val density = LocalDensity.current
-    val lightText = courseTextNeedsDarkShadow(color)
+    val displayedColor = if (themeColor == null) color else foreground
+    val lightText = courseTextNeedsDarkShadow(displayedColor)
     val effectiveFontSize = when {
         fontSize != TextUnit.Unspecified -> fontSize
         style.fontSize != TextUnit.Unspecified -> style.fontSize
         else -> 14.sp
     }
-    val shadowStyle = if (themeColor != null || shadowStrength <= 0.001f) style else {
+    val shadowStyle = if (shadowStrength <= 0.001f) style else {
         val radius = with(density) {
-            (effectiveFontSize.toPx() * if (lightText) 0.50f else 0.54f)
-                .coerceIn(5.dp.toPx(), 12.dp.toPx())
+            if (themeColor != null) {
+                (effectiveFontSize.toPx() * 0.18f).coerceIn(1.5.dp.toPx(), 3.5.dp.toPx())
+            } else {
+                (effectiveFontSize.toPx() * 0.30f).coerceIn(3.dp.toPx(), 6.dp.toPx())
+            }
+        }
+        // Fixed monochrome ink needs a faint, diffuse backing rather than a visible rim.
+        val maximumShadowAlpha = when {
+            themeColor != null -> if (lightText) 0.34f else 0.30f
+            lightText -> 0.28f
+            else -> 0.18f
         }
         style.copy(shadow = Shadow(
             color = (if (lightText) Color.Black else Color.White).copy(
-                alpha = (if (lightText) 0.42f else 0.52f) * shadowStrength
+                alpha = maximumShadowAlpha * shadowStrength
             ),
             offset = Offset.Zero,
             blurRadius = radius
@@ -172,7 +186,7 @@ internal fun CourseCardText(
     Text(
         text = text,
         modifier = modifier.onGloballyPositioned { coordinates[0] = it; updateAfterMotion() },
-        color = if (themeColor == null) color else foreground,
+        color = displayedColor,
         style = shadowStyle,
         fontWeight = if (themeColor != null) maxOf(fontWeight ?: style.fontWeight ?: FontWeight.Normal, FontWeight.Bold) else fontWeight,
         fontSize = fontSize,
