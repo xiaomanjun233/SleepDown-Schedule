@@ -170,6 +170,7 @@ Activity / Morph host
 ### Popup 菜单材质
 
 - 普通下拉、列表和级联 Popup 统一复用 NexioSchedule `4de678c` 的 Miuix 改造链，并由 `SleepDownLiquidDropdownPreference` / `SleepDownLiquidCascadingPopup` 调用。普通 Popup 为 25dp 外壳；条目使用 8dp 外边距、17dp 连续圆角、14dp×10.5dp 内距和 15.6sp 标题。进入从真实锚点以 0.24 倍、0.78/232 弹簧展开，退出使用 0.78/400 弹簧；缩放原点随进度移向中心，同时保留 8dp 瞬态模糊、两行初始揭示、末段阴影以及设置项文字/箭头 180ms 淡出交接。
+- 个性化面板的文字排布使用同一控件的局部紧凑样式：入口与菜单文字采用面板 `bodyMedium` 的字号、字重和行距，常规入口高 44dp，菜单条目最小高 44dp、垂直内距 6dp；大字体按内容增高。入口的按压和展开灰态由 `Capsule` 裁切。
 - 级联折叠菜单同步采用参考实现的 16dp 外框、锚点冻结、父标题/子项顺序和父子层 Morph。SleepDown 只保留根层 Backdrop 防自采样、应用明暗主题、真实 IME 可用窗口和 Overlay 返回优先级；不得在业务页另写一套近似 Popup。材质使用 24dp blur + vibrancy，浅色白色 0.72、深色 `#242424` 0.80，并保留轻量高光边沿；无 Backdrop 时必须保持相同几何。
 - 级联 Popup 的返回处理使用 Overlay 优先级，必须先于 IME 消费：第一次返回收二级菜单，第二次返回收一级菜单，第三次才由页面/系统收键盘。空白处点击不逐层回退，而是第一次同时关闭一、二级菜单，并保持输入焦点与 IME；菜单卸载后的第二次空白点击再交给页面的键盘策略。
 - Popup host 与页面 producer 同样采用兄弟层拓扑；Popup 只消费该页面显式传入的采样域。找不到 Backdrop 时按相同几何回退稳定表面，不得跨根层寻找 producer。

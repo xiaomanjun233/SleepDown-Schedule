@@ -144,6 +144,7 @@ $miuixPatchRoot = (Resolve-Path ./patches).Path
 git -C ../miuix-reference apply "$miuixPatchRoot/miuix-0.9.3-sleepdown.patch"
 git -C ../miuix-reference apply "$miuixPatchRoot/miuix-cascading-popup-surface.patch"
 git -C ../miuix-reference apply "$miuixPatchRoot/miuix-scaffold-underlay.patch"
+git -C ../miuix-reference apply "$miuixPatchRoot/miuix-compact-dropdown.patch"
 $miuixSourceRoot = (Resolve-Path ../miuix-reference).Path
 .\gradlew.bat assembleGithubDebug "-Psleepdown.miuixSourcePath=$miuixSourceRoot"
 ```
@@ -174,6 +175,7 @@ CourseSchedule/
 ├── patches/miuix-cascading-popup-surface.patch
 │                                           # 级联菜单玻璃表面扩展
 ├── patches/miuix-scaffold-underlay.patch     # 页面采样层与弹窗宿主分离
+├── patches/miuix-compact-dropdown.patch      # 下拉菜单局部紧凑排版接口
 ├── THIRD_PARTY_NOTICES.md                    # 第三方代码与许可声明
 └── gradlew / gradlew.bat                     # Gradle Wrapper
 ```

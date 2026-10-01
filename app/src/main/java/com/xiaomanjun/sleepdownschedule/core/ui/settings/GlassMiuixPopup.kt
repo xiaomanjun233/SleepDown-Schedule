@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.effects.blur
@@ -237,6 +238,7 @@ internal fun SleepDownLiquidDropdownPreference(
     selectedBadgeText: String? = null,
     insideMargin: PaddingValues = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
     maxHeight: Dp = 318.dp,
+    compactTextStyle: TextStyle? = null,
     @Suppress("UNUSED_PARAMETER") expanded: Boolean? = null,
     enabled: Boolean = true,
     onExpandedChange: (Boolean) -> Unit = {},
@@ -247,15 +249,21 @@ internal fun SleepDownLiquidDropdownPreference(
     // content and low-level overlays) instead of only the flat background passed by the caller.
     val completeUnderlayBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     val renderInRootScaffold = LocalCenteredDialogRenderInRootScaffold.current
-    val popupVisualStyle = rememberMiuixListPopupStyle(completeUnderlayBackdrop, config)
+    val popupVisualStyle = rememberMiuixListPopupStyle(completeUnderlayBackdrop, config).let { style ->
+        if (compactTextStyle == null) style else style.copy(
+            itemTextStyle = compactTextStyle,
+            itemVerticalPadding = 6.dp,
+            itemMinHeight = 44.dp
+        )
+    }
     val popupRowColors = rememberSleepDownPopupRowColors(sleepDownPanelForegroundColor(config))
-    OverlayDropdownPreference(
+    val preferenceContent: @Composable () -> Unit = { OverlayDropdownPreference(
         items = items,
         selectedIndex = selectedIndex,
-        title = if (selectedBadgeText == null) title else "",
+        title = if (selectedBadgeText == null && compactTextStyle == null) title else "",
         modifier = modifier,
         summary = summary,
-        startAction = selectedBadgeText?.let { badge ->
+        startAction = if (selectedBadgeText != null || compactTextStyle != null) {
             {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -264,14 +272,16 @@ internal fun SleepDownLiquidDropdownPreference(
                     val colors = BasicComponentDefaults.titleColor()
                     MiuixText(
                         text = title,
-                        fontSize = MiuixTheme.textStyles.headline1.fontSize,
-                        fontWeight = FontWeight.Medium,
+                        style = compactTextStyle ?: MiuixTheme.textStyles.main,
+                        fontSize = compactTextStyle?.fontSize ?: MiuixTheme.textStyles.headline1.fontSize,
+                        fontWeight = if (compactTextStyle == null) FontWeight.Medium
+                            else compactTextStyle.fontWeight,
                         color = if (enabled) colors.color else colors.disabledColor
                     )
-                    PreferenceBadge(badge)
+                    selectedBadgeText?.let { PreferenceBadge(it) }
                 }
             }
-        },
+        } else null,
         insideMargin = insideMargin,
         maxHeight = maxHeight,
         enabled = enabled,
@@ -281,7 +291,15 @@ internal fun SleepDownLiquidDropdownPreference(
         dropdownColors = popupRowColors,
         onExpandedChange = onExpandedChange,
         onSelectedIndexChange = onSelectedIndexChange
-    )
+    ) }
+    if (compactTextStyle == null) {
+        preferenceContent()
+    } else {
+        MiuixTheme(textStyles = MiuixTheme.textStyles.copy(
+            main = compactTextStyle,
+            body2 = compactTextStyle
+        )) { preferenceContent() }
+    }
 }
 
 private fun SleepDownLiquidMenuItem.asMiuixDropdownItem(iconColor: Color): DropdownItem = DropdownItem(

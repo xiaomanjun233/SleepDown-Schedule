@@ -2,11 +2,12 @@
 
 ## Miuix
 
-上游：[compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix)，标签 `v0.9.3`（`c36fab7`），Apache-2.0。三份补丁均以该标签为基线，文件范围互不重叠：
+上游：[compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix)，标签 `v0.9.3`（`c36fab7`），Apache-2.0。前三份补丁均以该标签为基线，文件范围互不重叠；第四份补丁在前三份之后应用：
 
 1. `miuix-0.9.3-sleepdown.patch`：BottomSheet、Dialog、Dropdown、ListPopup、TopAppBar 及 Popup host 的表面修饰、内容裁切、居中和关闭生命周期接口。
 2. `miuix-cascading-popup-surface.patch`：级联菜单的主/次表面、真实锚点及内容交接。
 3. `miuix-scaffold-underlay.patch`：新增 `Scaffold.underlayModifier`，把页面、TopBar 等放入底层布局，Popup/Dialog host 后绘制为同级节点，避免 Backdrop 自采样。
+4. `miuix-compact-dropdown.patch`：为列表菜单增加可选的条目文字样式、垂直内距和最小高度，默认值保留原排版。个性化面板借此将文字排布入口与菜单条目统一为其他选项的字号、字重和紧凑高度。
 
 从全新官方源码按上述顺序 `git apply`，具体命令见根目录 README。旧补丁目录不要再次叠加新版完整补丁，应使用新的依赖目录。`sleepdown.miuixSourcePath` 指向打完补丁的源码根目录。
 

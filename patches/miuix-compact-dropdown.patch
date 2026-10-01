@@ -1,0 +1,56 @@
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
+index c514190..5a9441d 100644
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
+@@ -49,6 +49,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
+ import androidx.compose.ui.platform.LocalDensity
+ import androidx.compose.ui.platform.LocalLayoutDirection
+ import androidx.compose.ui.platform.LocalWindowInfo
++import androidx.compose.ui.text.TextStyle
+ import androidx.compose.ui.unit.Constraints
+ import androidx.compose.ui.unit.Dp
+ import androidx.compose.ui.unit.IntOffset
+@@ -85,6 +86,9 @@ data class ListPopupVisualStyle(
+     val surfaceModifier: Modifier = Modifier,
+     val backgroundColor: Color? = null,
+     val cornerRadius: Dp = 16.dp,
++    val itemTextStyle: TextStyle? = null,
++    val itemVerticalPadding: Dp = 10.5.dp,
++    val itemMinHeight: Dp = 0.dp,
+ )
+ 
+ /** Optional app-level material applied consistently to every Miuix list-popup host. */
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
+index 61ae0df..8973f81 100644
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
+@@ -93,6 +93,7 @@ fun DropdownImpl(
+     isLast: Boolean = index == optionSize - 1,
+     onSelectedIndexChange: (Int) -> Unit,
+ ) {
++    val visualStyle = LocalListPopupVisualStyle.current
+     val backgroundColor = if (isSelected) {
+         dropdownColors.selectedContainerColor
+     } else {
+@@ -152,7 +153,8 @@ fun DropdownImpl(
+                 onClick = { currentOnSelectedIndexChange(index) },
+             )
+             .then(containerModifier)
+-            .padding(horizontal = 14.dp, vertical = 10.5.dp),
++            .heightIn(min = visualStyle.itemMinHeight)
++            .padding(horizontal = 14.dp, vertical = visualStyle.itemVerticalPadding),
+     ) {
+         Row(
+             modifier = innerRowModifier,
+@@ -163,8 +165,9 @@ fun DropdownImpl(
+             Column {
+                 Text(
+                     text = item.text,
+-                    fontSize = 15.6.sp,
+-                    fontWeight = FontWeight.Medium,
++                    style = visualStyle.itemTextStyle ?: MiuixTheme.textStyles.main,
++                    fontSize = visualStyle.itemTextStyle?.fontSize ?: 15.6.sp,
++                    fontWeight = visualStyle.itemTextStyle?.fontWeight ?: FontWeight.Medium,
+                     color = titleColor,
+                 )
+                 item.summary?.let {
