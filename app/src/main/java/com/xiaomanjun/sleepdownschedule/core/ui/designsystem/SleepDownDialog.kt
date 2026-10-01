@@ -97,6 +97,11 @@ fun LiquidDialogSurface(
     content: @Composable BoxScope.() -> Unit
 ) {
     val density = LocalDensity.current
+    val landscape = isLandscapeMenuWindow()
+    if (landscape && LocalLandscapeMenuHosted.current) {
+        Box(modifier.fillMaxWidth().then(if (size == LiquidDialogSize.Standard) Modifier.fillMaxSize() else Modifier), content = content)
+        return
+    }
     val windowSize = with(density) {
         LocalWindowInfo.current.containerSize.let { DpSize(it.width.toDp(), it.height.toDp()) }
     }
@@ -113,12 +118,12 @@ fun LiquidDialogSurface(
     // Most full dialogs own an opaque-enough material layer and therefore follow the app theme.
     // Home destinations can opt into the sampled glass domain when the wallpaper remains the
     // visible material behind the whole form.
-    val dark = if (followGlassContrast) {
+    val dark = if (followGlassContrast && !landscape) {
         !glassUsesLightStyle(config)
     } else {
         appUsesDarkTheme(config)
     }
-    val textColor = if (followGlassContrast) {
+    val textColor = if (followGlassContrast && !landscape) {
         sleepDownGlassForegroundColor(config)
     } else if (dark) {
         Color.White
@@ -145,13 +150,14 @@ fun LiquidDialogSurface(
             Box(
                 modifier = (if (size == LiquidDialogSize.Standard) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
                     .clip(shape)
-                    .background(Color.Black.copy(alpha = if (dark) 0.20f else 0.035f)),
+                    .background(if (landscape) landscapeMenuBackground(config) else
+                        Color.Black.copy(alpha = if (dark) 0.20f else 0.035f)),
                 content = content
             )
         }
     }
 
-    if (backdrop != null) {
+    if (backdrop != null && !landscape) {
         LiquidPanel(
             backdrop = backdrop,
             modifier = panelModifier,
@@ -301,6 +307,7 @@ private fun LiquidAlertContent(
     // Alerts own their material tint, so their foreground must follow that stable surface rather
     // than the wallpaper behind the dim layer.
     val foreground = sleepDownPanelForegroundColor(config)
+    val landscape = isLandscapeMenuWindow()
     // One- and two-action alerts share the accepted single-row action layout. Only their
     // single-line copy path tightens; action geometry and bottom/side insets stay unchanged.
     var messageLineCount by remember(message) { mutableStateOf(0) }
@@ -353,6 +360,7 @@ private fun LiquidAlertContent(
                     .padding(
                         horizontal = SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset
                     )
+                    .then(if (landscape) Modifier.weight(1f, fill = false) else Modifier)
                     .heightIn(max = 240.dp)
             ) {
                 messageContent()
@@ -367,6 +375,7 @@ private fun LiquidAlertContent(
                         horizontal = SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset
                     )
                     .heightIn(max = 240.dp)
+                    .then(if (landscape) Modifier.weight(1f, fill = false) else Modifier)
                     .verticalScroll(rememberScrollState()),
                 style = MaterialTheme.typography.bodyMedium,
                 lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
@@ -465,8 +474,11 @@ fun LiquidAlertDialog(
     )
     val renderInRootScaffold = LocalCenteredDialogRenderInRootScaffold.current
 
-    top.yukonga.miuix.kmp.overlay.OverlayDialog(
+    SleepDownOverlayDialog(
         show = visible,
+        config = config,
+        backdrop = completeUnderlayBackdrop,
+        maxWidth = SleepDownDesignTokens.CenteredDialog.AlertWidth,
         title = null,
         enableWindowDim = false,
         backgroundColor = Color.Transparent,
@@ -542,7 +554,7 @@ private fun LiquidAlertActionButton(
         baseSurfaceColor.copy(alpha = (baseSurfaceColor.alpha * 0.45f).coerceAtLeast(0.12f))
     }
     val shape = Capsule()
-    if (backdrop != null) {
+    if (backdrop != null && !isLandscapeMenuWindow()) {
         LiquidButton(
             onClick = if (action.enabled) action.onClick else ({ }),
             backdrop = backdrop,
@@ -648,7 +660,7 @@ fun DialogLiquidButton(
                 .copy(alpha = if (controlDark) 0.46f else 0.62f)
         } else Color.Transparent
     }
-    if (backdrop != null) {
+    if (backdrop != null && !isLandscapeMenuWindow()) {
         LiquidButton(
             onClick = onClick,
             backdrop = backdrop,
@@ -725,7 +737,8 @@ fun DialogCapsuleField(
 ) {
     val dark = fieldLightStyleOverride?.not() ?: appUsesDarkTheme(config)
     val fieldBase = if (dark) Color(0xFF2C2C2E) else Color.White
-    val background = fieldBase.copy(alpha = if (dark) 0.54f else 0.70f)
+    val background = if (isLandscapeMenuWindow()) landscapeMenuGroupBackground(config) else
+        fieldBase.copy(alpha = if (dark) 0.54f else 0.70f)
     val textColor = fieldTextColor ?: LocalContentColor.current
     BasicTextField(
         value = value,

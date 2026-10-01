@@ -47,6 +47,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowUpward
@@ -116,6 +117,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.focus.FocusRequester
@@ -1356,11 +1358,14 @@ internal fun DayAgentConversationDialog(
     onPrepareDismiss: () -> Unit,
     onSourceHandoff: (AgentSourceHandoffTransform) -> Unit,
     onDismiss: () -> Unit,
-    homePresentation: Boolean = false,
+    requestedHomePresentation: Boolean = false,
     homeAnchorBounds: Rect? = null,
     homeInitiallyFullScreen: Boolean = false,
     onImportFile: ((android.net.Uri) -> Unit)? = null
 ) {
+    val landscapeMenu = isLandscapeMenuWindow()
+    val homePresentation = requestedHomePresentation && !landscapeMenu
+    val landscapeFlight = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -1418,7 +1423,7 @@ internal fun DayAgentConversationDialog(
     var actionFeedback by remember(state.config.id) {
         mutableStateOf(emptyMap<String, AgentPlanExecutionResult>())
     }
-    val expansion = remember { Animatable(0f) }
+    val expansion = remember { Animatable(if (landscapeMenu) 1f else 0f) }
     val homeMotion = rememberTopAssistantMotion()
     val homeDockFade = remember { Animatable(1f) }
     val fullMotion = rememberTopAssistantMotion(if (homeInitiallyFullScreen) 1f else 0f)
@@ -1443,7 +1448,8 @@ internal fun DayAgentConversationDialog(
         homeResponseMotion.animateTo(target, topAssistantBezierSpec(homeResponseMotion.value, target, vertical = true))
     }
     val conversationListState = rememberLazyListState()
-    val foreground = if (homePresentation) Color.White else LocalAdaptiveGlass.current.contentColor
+    val foreground = if (landscapeMenu) sleepDownPanelForegroundColor(state.config)
+        else if (homePresentation) Color.White else LocalAdaptiveGlass.current.contentColor
     val answerTextStyle = if (homePresentation) MaterialTheme.typography.bodyLarge.copy(
         fontSize = 16.sp, lineHeight = 24.sp
     ) else MaterialTheme.typography.bodyMedium
@@ -1461,8 +1467,13 @@ internal fun DayAgentConversationDialog(
     val adaptiveMetrics = if (homePresentation) liveAdaptiveMetrics else remember { liveAdaptiveMetrics }
     val windowWidth = adaptiveMetrics.screenWidth
     val windowHeight = adaptiveMetrics.screenHeight
+    val landscapeIme = with(density) { WindowInsets.ime.getBottom(this).toDp() }
+    val landscapeComposerHeight = if (imageAttachment == null) 56.dp else 94.dp
+    val landscapeTop = adaptiveMetrics.safeTop + 16.dp
+    val landscapeAvailableHeight = (windowHeight - landscapeTop - maxOf(adaptiveMetrics.safeBottom, landscapeIme) - 16.dp).coerceAtLeast(1.dp)
+    val landscapePanelHeight = minOf(landscapeAvailableHeight, 640.dp)
     val sourceCardRect = sourceBounds
-    val anchoredTabletConversation = !homePresentation && adaptiveMetrics.isTabletLandscape
+    val anchoredTabletConversation = !landscapeMenu && !homePresentation && adaptiveMetrics.isTabletLandscape
     val anchoredTargetRect = remember(
         sourceCardRect,
         windowHeight,
@@ -1487,7 +1498,7 @@ internal fun DayAgentConversationDialog(
     } else {
         statusBarTop + (windowHeight * 0.018f).coerceIn(10.dp, 20.dp)
     }
-    val answerWidth = if (anchoredTargetRect != null) {
+    val answerWidth = if (landscapeMenu) minOf(windowWidth - 48.dp, 680.dp) else if (anchoredTargetRect != null) {
         with(density) { anchoredTargetRect.width.toDp() }
     } else if (adaptiveMetrics.isLargeScreen) {
         val availableWidth = windowWidth - adaptiveMetrics.tabletContentMargin * 2f
@@ -1495,7 +1506,8 @@ internal fun DayAgentConversationDialog(
     } else {
         windowWidth - 28.dp
     }
-    val answerMaxHeight = if (anchoredTargetRect != null) {
+    val answerMaxHeight = if (landscapeMenu) (landscapePanelHeight - landscapeComposerHeight - 10.dp).coerceAtLeast(1.dp)
+        else if (anchoredTargetRect != null) {
         with(density) { anchoredTargetRect.height.toDp() }
     } else if (adaptiveMetrics.isLargeScreen) {
         val availableHeight = windowHeight - adaptiveMetrics.tabletContentTop - adaptiveMetrics.safeBottom - 36.dp
@@ -1506,7 +1518,9 @@ internal fun DayAgentConversationDialog(
     val targetWidthPx = with(density) { answerWidth.toPx() }
     val targetHeightPx = with(density) { answerMaxHeight.toPx() }
     val targetTopPx = anchoredTargetRect?.top ?: with(density) {
-        if (adaptiveMetrics.isLargeScreen) {
+        if (landscapeMenu) {
+            (landscapeTop + (landscapeAvailableHeight - landscapePanelHeight) / 2f).toPx()
+        } else if (adaptiveMetrics.isLargeScreen) {
             val availableTop = answerTopPadding
             val availableBottom = windowHeight - adaptiveMetrics.safeBottom - 18.dp
             (availableTop + (availableBottom - availableTop - answerMaxHeight) / 2f).coerceAtLeast(availableTop).toPx()
@@ -1515,7 +1529,7 @@ internal fun DayAgentConversationDialog(
         }
     }
     val targetLeftPx = anchoredTargetRect?.left ?: with(density) {
-        if (adaptiveMetrics.isLargeScreen) {
+        if (landscapeMenu || adaptiveMetrics.isLargeScreen) {
             ((windowWidth - answerWidth) / 2f).toPx()
         } else {
             14.dp.toPx()
@@ -1636,6 +1650,7 @@ internal fun DayAgentConversationDialog(
         compactY + (fullY - compactY) * p
     }
     fun conversationGeometry(): Rect {
+        if (landscapeMenu) return targetRect
         if (!homePresentation) {
             val raw = expansion.value.coerceIn(0f, 1f)
             return agentMorphGeometry(sourceRect, targetRect,
@@ -1766,7 +1781,7 @@ internal fun DayAgentConversationDialog(
         if (!closing) {
             scope.launch {
                 expansion.snapTo(1f)
-                if (!anchoredTabletConversation && !homePresentation) {
+                if (!landscapeMenu && !anchoredTabletConversation && !homePresentation) {
                     backgroundMotionState.progress.snapTo(1f)
                     backgroundMotionState.backgroundZoom.snapTo(DayAgentBackgroundZoomRestScale)
                 }
@@ -1780,6 +1795,16 @@ internal fun DayAgentConversationDialog(
         // Give the host a closing hook, but keep the real source card hidden until the overlay
         // has fully returned. Showing it here creates a second stationary card under the Morph.
         onPrepareDismiss()
+        if (landscapeMenu) {
+            scope.launch {
+                landscapeFlight.animateTo(0f, tween(240, easing = CubicBezierEasing(0.4f, 0f, 0.8f, 0.3f)))
+                backgroundMotionState.progress.snapTo(0f)
+                backgroundMotionState.backgroundZoom.snapTo(1f)
+                onDismiss()
+                afterDismiss?.invoke()
+            }
+            return
+        }
         scope.launch {
             coroutineScope {
                 launch {
@@ -1917,6 +1942,7 @@ internal fun DayAgentConversationDialog(
               Box(
                   Modifier
                       .fillMaxSize()
+                      .drawBehind { if (landscapeMenu) drawRect(Color.Black.copy(alpha = 0.28f * landscapeFlight.value.coerceIn(0f, 1f))) }
                       .clickable(
                           interactionSource = remember { MutableInteractionSource() },
                           indication = null,
@@ -1966,6 +1992,11 @@ internal fun DayAgentConversationDialog(
                         } else RoundedCornerShape(visualRadiusPx.toDp())
                          clip = !homeFullScreenSettled &&
                              (!homePresentation || homeResponseVisible || homeFullScreen || homeMotion.drop.isRunning)
+                         if (landscapeMenu) {
+                             shape = RoundedRectangle(28.dp)
+                             translationY = (1f - landscapeFlight.value) * with(density) { (windowHeight + answerMaxHeight).toPx() / 2f }
+                             alpha = landscapeFlight.value.coerceIn(0f, 1f)
+                         }
                      }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -1976,7 +2007,9 @@ internal fun DayAgentConversationDialog(
                     // layer; they must never fall through to wallpaper-only sampling.
                     .glassBackdropProducer(agentCardContentBackdrop)
              ) {
-                if (!homePresentation) {
+                if (landscapeMenu) Box(Modifier.matchParentSize().quickSheetBackdropModifier(
+                    LocalCenteredDialogSceneBackdrop.current ?: backdrop, state.config, 28.dp, centered = true))
+                if (!landscapeMenu && !homePresentation) {
                 GlassSurface(
                     backdrop = backdrop,
                     config = state.config,
@@ -1988,7 +2021,7 @@ internal fun DayAgentConversationDialog(
                     tokens = sourceGlassTokens
                 ) {}
                 }
-                if (!homePresentation && !anchoredTabletConversation) {
+                if (!landscapeMenu && !homePresentation && !anchoredTabletConversation) {
                     DayAgentCardVisualContent(
                         visual = sourceVisual,
                         foreground = sourceForeground,
@@ -2047,6 +2080,11 @@ internal fun DayAgentConversationDialog(
                           ),
                      verticalArrangement = Arrangement.spacedBy(if (homePresentation && !homeFullScreen) 0.dp else 10.dp)
                   ) {
+                      if (landscapeMenu) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                          Text("今日助手", modifier = Modifier.weight(1f), color = foreground,
+                              style = MaterialTheme.typography.titleMedium)
+                          androidx.compose.material3.TextButton(onClick = { dismissAnimated() }) { Text("关闭") }
+                      }
                       /*
                        * Once the streamed answer has been persisted it immediately joins `messages`.
                        * Keep this turn's real execution trace attached to that assistant message so
@@ -2466,7 +2504,22 @@ internal fun DayAgentConversationDialog(
                   }
               }
 
-              AnimatedVisibility(
+              if (landscapeMenu) SleepDownPickerDialog(
+                  show = attachmentMenuExpanded && (attachmentUploadEnabled || onImportFile != null),
+                  title = "添加附件", onDismissRequest = { attachmentMenuExpanded = false },
+                  backdrop = backdrop, config = state.config
+              ) {
+                  if (attachmentUploadEnabled) AgentAttachmentLiquidButton(
+                      backdrop = agentInputBackdrop, config = state.config, foreground = foreground,
+                      darkSurface = false, modifier = Modifier.fillMaxWidth(),
+                      onClick = { attachmentMenuExpanded = false; imagePicker.launch("image/*") }
+                  )
+                  if (onImportFile != null) AgentAttachmentLiquidButton(
+                      backdrop = agentInputBackdrop, config = state.config, foreground = foreground,
+                      darkSurface = false, modifier = Modifier.fillMaxWidth(), label = "导入课表文件",
+                      onClick = { attachmentMenuExpanded = false; importFilePicker.launch(arrayOf("*/*")) }
+                  )
+              } else AnimatedVisibility(
                   visible = attachmentMenuExpanded && (attachmentUploadEnabled || onImportFile != null),
                   modifier = (if (homePresentation) {
                       Modifier.layout { measurable, constraints ->
@@ -2548,11 +2601,18 @@ internal fun DayAgentConversationDialog(
               if (composerVisible) AgentInputLiquidCapsule(
                      backdrop = composerBackdrop,
                     config = state.config,
-                    heightOverride = homeInputHeight.takeIf { homePresentation },
+                    heightOverride = if (landscapeMenu) landscapeComposerHeight else homeInputHeight.takeIf { homePresentation },
                     expanded = imageAttachment != null && !compactHomeInput,
                     sharedInteractiveHighlight = if (compactHomeInput) homeInputInteraction else null,
                     surfaceVisibility = { if (homePresentation) fullMotion.drop.value.coerceIn(0f, 1f) else 1f },
-                    modifier = (if (homePresentation) {
+                    modifier = (if (landscapeMenu) {
+                        Modifier.width(answerWidth).offset {
+                            IntOffset(targetLeftPx.roundToInt(), (targetRect.bottom + 10.dp.toPx()).roundToInt())
+                        }.graphicsLayer {
+                            translationY = (1f - landscapeFlight.value) * with(density) { (windowHeight + answerMaxHeight).toPx() / 2f }
+                            alpha = landscapeFlight.value.coerceIn(0f, 1f)
+                        }
+                    } else if (homePresentation) {
                         Modifier.width(homeComposerWidth).offset {
                             IntOffset(((windowWidth - homeComposerWidth).toPx() / 2f).roundToInt(),
                                 homeComposerTopPx().roundToInt())
@@ -2728,11 +2788,12 @@ internal fun DayAgentConversationDialog(
               // card below it. A second frame applies that hide while expansion is still zero,
               // eliminating the one-frame hole between the two layers.
               withFrameNanos { }
-              onOverlayReady()
+              if (!landscapeMenu) onOverlayReady()
               withFrameNanos { }
               coroutineScope {
                  launch {
-                     if (homePresentation) {
+                     if (landscapeMenu) landscapeFlight.animateTo(1f, spring(dampingRatio = 0.86f, stiffness = 380f))
+                     else if (homePresentation) {
                          launch { homeMotion.animateTo(1f, overshoot = !homeInitiallyFullScreen) }
                          expansion.animateTo(1f, tween(320))
                      } else expansion.animateTo(
@@ -2740,7 +2801,7 @@ internal fun DayAgentConversationDialog(
                           tween(AgentMorphOpenDurationMillis, easing = LinearEasing)
                      )
                  }
-                  if (!anchoredTabletConversation && !homePresentation) {
+                  if (!landscapeMenu && !anchoredTabletConversation && !homePresentation) {
                       launch {
                           backgroundMotionState.progress.animateTo(
                               1f,
@@ -2750,7 +2811,7 @@ internal fun DayAgentConversationDialog(
                   }
                  // The background depth trails the card on a longer ease-out so it keeps
                  // receding after the card has opened — the inertial pull on the home surface.
-                  if (!anchoredTabletConversation && !homePresentation) {
+                  if (!landscapeMenu && !anchoredTabletConversation && !homePresentation) {
                       launch {
                           backgroundMotionState.backgroundZoom.animateTo(
                               DayAgentBackgroundZoomRestScale,
@@ -2763,8 +2824,10 @@ internal fun DayAgentConversationDialog(
                   }
              }
              if (!homePresentation || (!homeResponseVisible && !homeFullScreen)) {
-                 focusRequester.requestFocus()
-                 keyboard?.show()
+                 if (!landscapeMenu) {
+                     focusRequester.requestFocus()
+                     keyboard?.show()
+                 }
              }
              initialQuestion?.takeIf { it.isNotBlank() }?.let(::send)
          }

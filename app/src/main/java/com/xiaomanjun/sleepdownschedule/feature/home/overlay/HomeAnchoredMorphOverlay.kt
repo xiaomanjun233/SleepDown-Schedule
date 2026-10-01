@@ -55,6 +55,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -1075,6 +1076,43 @@ internal fun HomeAnchoredMorphOverlayHost(
     sourceContent: @Composable BoxScope.(HomeAnchoredOverlayKind, Modifier) -> Unit,
     personalizeContent: @Composable (Modifier) -> Unit
 ) {
+    if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()) {
+        LaunchedEffect(request) {
+            motionState.backgroundZoom.snapTo(1f)
+            motionState.progress.snapTo(if (request != null) 1f else 0f)
+            if (request != null) {
+                motionState.renderedKind = request.kind
+                motionState.phase = HomeAnchoredOverlayPhase.Opening
+            } else if (motionState.renderedKind != null) motionState.phase = HomeAnchoredOverlayPhase.Closing
+        }
+        DisposableEffect(Unit) {
+            onDispose {
+                motionState.renderedKind = null
+                motionState.phase = HomeAnchoredOverlayPhase.Idle
+            }
+        }
+        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LandscapeMenuOverlay(
+            request = request, config = config, backdrop = backdrop, onDismissRequest = onDismissRequest,
+            onOpenFinished = { motionState.phase = HomeAnchoredOverlayPhase.Open },
+            onDismissFinished = {
+                motionState.renderedKind = null
+                motionState.phase = HomeAnchoredOverlayPhase.Idle
+            }
+        ) { shown ->
+            if (shown.kind == HomeAnchoredOverlayKind.Personalize) {
+                personalizeContent(Modifier.fillMaxSize())
+            } else {
+                androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+                    addActions.forEach { action ->
+                        androidx.compose.material3.TextButton(onClick = action.onClick, modifier = Modifier.fillMaxWidth()) {
+                            androidx.compose.material3.Text(action.label)
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
     var renderedRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
     var panelContentPrepared by remember { mutableStateOf(false) }
     val addMenuSurfacePrepared = remember { AtomicBoolean(false) }

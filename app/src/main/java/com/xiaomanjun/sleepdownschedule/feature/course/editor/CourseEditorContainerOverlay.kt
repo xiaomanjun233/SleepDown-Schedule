@@ -51,6 +51,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
@@ -295,6 +296,61 @@ internal fun CourseEditorContainerOverlayHost(
     onRenderedCourseIdChange: (Long?) -> Unit = {},
     onPhaseChange: (CourseEditorOverlayPhase) -> Unit = {}
 ) {
+    if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()) {
+        var dismissHandler by remember { mutableStateOf<(() -> Unit)?>(null) }
+        var copySaving by remember { mutableStateOf(false) }
+        LaunchedEffect(request) {
+            motionState.retractTo(null)
+            motionState.backgroundZoom.snapTo(1f)
+            motionState.progress.snapTo(if (request != null) 1f else 0f)
+            if (request != null) copySaving = false
+            val phase = if (request != null) CourseEditorOverlayPhase.Opening else
+                if (motionState.phase != CourseEditorOverlayPhase.Idle) CourseEditorOverlayPhase.Closing else CourseEditorOverlayPhase.Idle
+            motionState.phase = phase
+            onPhaseChange(phase)
+        }
+        DisposableEffect(Unit) {
+            onDispose {
+                motionState.phase = CourseEditorOverlayPhase.Idle
+                onPhaseChange(CourseEditorOverlayPhase.Idle)
+                onRenderedCourseIdChange(null)
+            }
+        }
+        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LandscapeMenuOverlay(
+            request = request, config = config, backdrop = backdrop,
+            onDismissRequest = { if (!copySaving) dismissHandler?.invoke() ?: onDismissRequest() },
+            onOpenFinished = {
+                motionState.phase = CourseEditorOverlayPhase.Open
+                onPhaseChange(CourseEditorOverlayPhase.Open)
+            },
+            onDismissFinished = {
+                motionState.phase = CourseEditorOverlayPhase.Idle
+                onPhaseChange(CourseEditorOverlayPhase.Idle)
+                onRenderedCourseIdChange(null)
+            }
+        ) { shown ->
+            val save: (List<CourseEntity>, List<CourseEntity>) -> Unit = { originals, edited ->
+                if (shown.copyDraft == null) onSave(originals, edited, shown.targetWeek)
+                else if (!copySaving) {
+                    copySaving = true
+                    onCopy(edited.map { it.copy(id = 0, scheduleId = shown.copyDraft.scheduleId) }) { success ->
+                        if (!success) copySaving = false
+                    }
+                }
+            }
+            NormalizedCourseEditorScreen(
+                formData = CourseEditorFormData(state.config, state.periods, state.courses),
+                initialCourse = shown.course.takeIf { shown.copyDraft == null },
+                copyDraft = shown.copyDraft, contextMessage = shown.contextMessage,
+                onCancel = { if (!copySaving) onDismissRequest() },
+                onDismissHandlerChange = { dismissHandler = it },
+                onSave = {}, onSaveCourses = { save(emptyList(), it) }, onSaveGroup = save,
+                onDelete = {}, onDeleteGroup = { onDelete(it, shown.targetWeek) },
+                backdrop = null, pickerRenderInRootScaffold = false
+            )
+        }
+        return
+    }
     var renderedRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var copySaving by remember(request) { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }

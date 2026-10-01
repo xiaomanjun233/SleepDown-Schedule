@@ -67,12 +67,13 @@ fun CrossActivityTransitionHost(
                 .fillMaxSize()
                 .graphicsLayer { clip = false }
         ) {
-            if (routeId == TransitionRouteId.TabletHomeToCourseManagement ||
+            if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow() ||
+                routeId == TransitionRouteId.TabletHomeToCourseManagement ||
                 routeId == TransitionRouteId.TabletHomeToEduImport
             ) {
                 val requestClose: () -> Unit = {
                     latestOnFinished()
-                    activity.finish()
+                    ActivityTransitionCoordinator.finishAfterLegacy(activity, sessionId)
                 }
                 LaunchedEffect(sessionId) {
                     ActivityTransitionCoordinator.markOpen(sessionId)

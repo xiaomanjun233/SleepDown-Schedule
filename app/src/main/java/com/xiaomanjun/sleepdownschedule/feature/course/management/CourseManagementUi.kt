@@ -73,6 +73,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -100,6 +101,8 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -528,8 +531,12 @@ internal fun CourseManagementDetailPage(
     group: ManagedCourseGroup,
     state: AppState,
     onBack: () -> Unit,
-    onSave: (List<CourseEntity>) -> Unit
+    onSave: (List<CourseEntity>) -> Unit,
+    onSaveAndThen: ((List<CourseEntity>, (Boolean) -> Unit) -> Unit)? = null,
+    onExitHandlerChange: (((() -> Unit) -> Unit)?) -> Unit = {}
 ) {
+    var pendingExitAction by remember(group.key) { mutableStateOf<(() -> Unit)?>(null) }
+    var saving by remember(group.key) { mutableStateOf(false) }
     var name by remember(group.key) { mutableStateOf(group.representative.name) }
     var selectedColor by remember(group.key) { mutableStateOf(group.representative.customColorArgb) }
     var nextLocalKey by remember(group.key) { mutableLongStateOf(-1L) }
@@ -562,6 +569,27 @@ internal fun CourseManagementDetailPage(
     val replacements = replacementsForSave()
     val hasChanges = name != group.representative.name || replacements != group.courses
 
+    fun finishBack() {
+        saving = false
+        showSaveChangesDialog = false
+        val action = pendingExitAction
+        pendingExitAction = null
+        if (action != null) action() else onBack()
+    }
+    fun commit(values: List<CourseEntity>) {
+        if (saving) return
+        if (onSaveAndThen != null) {
+            saving = true
+            onSaveAndThen(values) { success ->
+                saving = false
+                if (success) finishBack() else {
+                    pendingExitAction = null
+                    validationMessage = "保存失败，请重试"
+                }
+            }
+        } else onSave(values)
+    }
+
     fun updateArrangement(localKey: Long, transform: (CourseEntity) -> CourseEntity) {
         arrangements = arrangements.map { draft ->
             if (draft.localKey == localKey) draft.copy(course = transform(draft.course)) else draft
@@ -576,7 +604,7 @@ internal fun CourseManagementDetailPage(
         }
         val replacementsToSave = replacementsForSave()
         if (replacementsToSave.isEmpty()) {
-            onSave(replacementsToSave)
+            commit(replacementsToSave)
             return
         }
         val conflictWeeks = conflictWeeksForEditedCourseGroup(
@@ -586,7 +614,7 @@ internal fun CourseManagementDetailPage(
             periodDefinitions = state.periods
         )
         if (conflictWeeks.isEmpty()) {
-            onSave(replacementsToSave)
+            commit(replacementsToSave)
         } else {
             showSaveChangesDialog = false
             pendingConflictSave = PendingCourseManagementConflictSave(
@@ -597,15 +625,30 @@ internal fun CourseManagementDetailPage(
     }
 
     fun requestBack() {
+        if (saving) return
         if (hasChanges) {
             showSaveChangesDialog = true
         } else {
-            onBack()
+            finishBack()
         }
+    }
+
+    val latestExitHandler = rememberUpdatedState<(()->Unit)->Unit> { action ->
+        pendingExitAction = action
+        requestBack()
+    }
+    DisposableEffect(group.key) {
+        onExitHandlerChange { action -> latestExitHandler.value(action) }
+        onDispose { onExitHandlerChange(null) }
     }
 
     BackHandler(enabled = hasChanges) { requestBack() }
 
+    Box(Modifier.fillMaxSize().then(if (saving) Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+            }
+        } else Modifier)) {
     DetailActivityScaffold(
         title = name.ifBlank { "课程详情" },
         config = state.config,
@@ -776,13 +819,14 @@ internal fun CourseManagementDetailPage(
                         style = LiquidAlertActionStyle.Secondary,
                         onClick = {
                             validationMessage = null
+                            pendingExitAction = null
                             showSaveChangesDialog = false
                         }
                     ),
                     LiquidAlertAction(
                         label = "不保存",
                         style = LiquidAlertActionStyle.Destructive,
-                        onClick = onBack
+                        onClick = ::finishBack
                     ),
                     LiquidAlertAction(
                         label = "保存并退出",
@@ -795,6 +839,7 @@ internal fun CourseManagementDetailPage(
                 config = state.config,
                 onDismissRequest = {
                     validationMessage = null
+                    pendingExitAction = null
                     showSaveChangesDialog = false
                 }
             )
@@ -837,9 +882,9 @@ internal fun CourseManagementDetailPage(
                 config = state.config,
                 onKeepTemporarily = {
                     pendingConflictSave = null
-                    onSave(pending.replacements)
+                    commit(pending.replacements)
                 },
-                onReturn = { pendingConflictSave = null },
+                onReturn = { pendingConflictSave = null; pendingExitAction = null },
                 retentionMessage = buildString {
                     append("“${pending.replacements.firstOrNull()?.name ?: group.representative.name}”在")
                     append(pending.conflictWeeks.take(4).joinToString("、") { "第${it}周" })
@@ -848,6 +893,7 @@ internal fun CourseManagementDetailPage(
                 }
             )
         }
+    }
     }
 }
 

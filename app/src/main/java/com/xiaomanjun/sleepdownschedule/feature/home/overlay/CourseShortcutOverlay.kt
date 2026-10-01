@@ -8,6 +8,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.EditNote
@@ -65,14 +67,18 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
     val progress = Animatable(0f)
     val cardScale = Animatable(1f)
     private var motion: Job? = null
+    var usesCenteredMenu: Boolean = false
+    private var afterCenteredClose: (() -> Unit)? = null
 
     fun open(value: CourseShortcutRequest) {
         motion?.cancel()
+        afterCenteredClose = null
         request = value
         closing = false
         motion = scope.launch {
             progress.snapTo(0f)
             cardScale.snapTo(1f)
+            if (usesCenteredMenu) { progress.snapTo(1f); return@launch }
             // Press first. The return lift and menu expansion then share the same start frame.
             cardScale.animateTo(0.98f, tween(85, easing = FastOutSlowInEasing))
             launch {
@@ -91,6 +97,10 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
         if (request == null || closing) return
         closing = true
         motion?.cancel()
+        if (usesCenteredMenu) {
+            afterCenteredClose = afterClose
+            return
+        }
         motion = scope.launch {
             launch { cardScale.animateTo(1f, tween(180, easing = FastOutSlowInEasing)) }
             progress.animateTo(0f, tween(180, easing = FastOutSlowInEasing))
@@ -100,10 +110,24 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
         }
     }
 
+    fun finishCenteredClose() {
+        if (!closing) return
+        val action = afterCenteredClose
+        afterCenteredClose = null
+        request = null
+        closing = false
+        motion = scope.launch {
+            progress.snapTo(0f)
+            cardScale.snapTo(1f)
+            action?.invoke()
+        }
+    }
+
     // The source pointer owns the whole gesture. Retire the menu without waiting before
     // handing that pointer to the existing week drag controller.
     fun takeOverDrag() {
         motion?.cancel()
+        afterCenteredClose = null
         request = null
         closing = false
         motion = scope.launch {
@@ -114,6 +138,7 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
 
     fun reset() {
         motion?.cancel()
+        afterCenteredClose = null
         request = null
         copyRequest = null
         closing = false
@@ -178,8 +203,46 @@ internal fun CourseShortcutOverlay(
         }
     }
     val request = controller.request
+    val landscape = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()
+    androidx.compose.runtime.SideEffect { controller.usesCenteredMenu = landscape }
     BackHandler(enabled = request != null) { controller.close() }
-    if (request != null) {
+    if (landscape) {
+        val haptic = LocalHapticFeedback.current
+        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LandscapeMenuOverlay(
+            request = request.takeUnless { controller.closing }, config = config, backdrop = backdrop,
+            onDismissRequest = { controller.close() }, onDismissFinished = controller::finishCenteredClose,
+            fillHeight = false, maxWidth = 520.dp
+        ) { shown ->
+            val actions = listOf(
+                AddMenuAction(R.drawable.ic_edit, "快速编辑模式") { controller.close(shown.enterEditMode) },
+                AddMenuAction(label = "编辑单节课", imageVector = Icons.Rounded.EditNote) { controller.close { onEdit(shown) } },
+                AddMenuAction(label = "复制课程", imageVector = Icons.Rounded.ContentCopy) { controller.close { controller.copyRequest = shown } },
+                AddMenuAction(R.drawable.ic_trash, "移除课程", textTint = Color(0xFFFF453A)) { controller.close { onRemove(shown.course, shown.week) } }
+            )
+            androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                androidx.compose.material3.Text(shown.course.name,
+                    style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(12.dp))
+                androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())) {
+                actions.forEach { action ->
+                    top.yukonga.miuix.kmp.basic.BasicComponent(title = action.label,
+                        startAction = {
+                            val tint = action.textTint ?: androidx.compose.material3.LocalContentColor.current
+                            if (action.iconRes != null) androidx.compose.material3.Icon(
+                                androidx.compose.ui.res.painterResource(action.iconRes), null, tint = tint,
+                                modifier = Modifier.size(22.dp))
+                            else action.imageVector?.let { androidx.compose.material3.Icon(it, null, tint = tint, modifier = Modifier.size(22.dp)) }
+                        }, onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            action.onClick()
+                        })
+                }
+                }
+            }
+        }
+    }
+    if (request != null && !landscape) {
         val density = LocalDensity.current
         val haptic = LocalHapticFeedback.current
         val safe = WindowInsets.safeDrawing

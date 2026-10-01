@@ -16,8 +16,13 @@ class HomeSidebarGeometryTest {
         val wide = calculateHomeAdaptiveMetrics(600, 360, 24.dp, 0.dp, 1f)
         assertFalse(narrow.isLargeScreen)
         assertTrue(wide.isLargeScreen)
-        assertEquals(HomeAdaptiveProfile.Large, wide.profile)
-        assertFalse(wide.isTabletLandscape)
+        assertEquals(HomeAdaptiveProfile.TabletLandscape, wide.profile)
+        assertTrue(wide.isTabletLandscape)
+        val content = wide.withSidebarInsets(96.dp, 0.dp)
+        val courseWidth = content.contentWidth - content.tabletContentMargin * 2 -
+            content.dayPaneGap - content.daySidePaneWidth
+        assertTrue(content.daySidePaneWidth >= 150.dp)
+        assertTrue(courseWidth >= 200.dp)
     }
 
     @Test

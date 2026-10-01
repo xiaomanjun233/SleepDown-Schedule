@@ -138,6 +138,18 @@ class ScheduleViewModel(
         repository.replaceCourseGroup(originals, replacements)
     }
 
+    fun saveManagedCourseGroup(
+        originals: List<CourseEntity>,
+        replacements: List<CourseEntity>,
+        onFinished: (Boolean) -> Unit
+    ) = launchCourseMutation(
+        successMessage = if (replacements.isEmpty()) "课程已删除" else "课程已更新",
+        onSuccess = { onFinished(true) }, onFailure = { onFinished(false) }
+    ) {
+        if (replacements.isEmpty()) repository.deleteCourses(originals)
+        else repository.replaceCourseGroup(originals, replacements)
+    }
+
     fun updateCourseSingleWeek(original: CourseEntity, edited: CourseEntity, targetWeek: Int) =
         launchCourseMutation {
         repository.updateCourseSingleWeek(original, edited, targetWeek)

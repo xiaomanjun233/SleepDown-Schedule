@@ -452,6 +452,52 @@ internal fun HomeMenuDestinationOverlayHost(
     captureHistoryBackground: suspend () -> AiImportHistoryBackgroundCapture?,
     onEduAdapterSelected: (EduAdapter) -> Unit
 ) {
+    if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()) {
+        var dismissHandler by remember { mutableStateOf<(() -> Unit)?>(null) }
+        LaunchedEffect(request) {
+            motionState.backgroundZoom.snapTo(1f)
+            motionState.progress.snapTo(if (request != null) 1f else 0f)
+            if (request != null) {
+                motionState.kind = request.kind
+                motionState.phase = HomeAnchoredOverlayPhase.Opening
+                onSourceHandoff()
+            } else if (motionState.kind != null) motionState.phase = HomeAnchoredOverlayPhase.Closing
+        }
+        DisposableEffect(Unit) {
+            onDispose {
+                motionState.kind = null
+                motionState.phase = HomeAnchoredOverlayPhase.Idle
+            }
+        }
+        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LandscapeMenuOverlay(
+            request = request, config = state.config, backdrop = backdrop,
+            onDismissRequest = { dismissHandler?.invoke() ?: onDismissRequest() },
+            onOpenFinished = { motionState.phase = HomeAnchoredOverlayPhase.Open },
+            onDismissFinished = {
+                motionState.kind = null
+                motionState.phase = HomeAnchoredOverlayPhase.Idle
+                onClosed()
+            }
+        ) { shown ->
+            when (shown.kind) {
+                HomeMenuDestinationKind.AddCourse -> NormalizedCourseEditorScreen(
+                    state = state, initialCourse = null, backdrop = null,
+                    onCancel = onDismissRequest, onSave = {}, onSaveCourses = onAddCourses, onDelete = {},
+                    onDismissHandlerChange = { dismissHandler = it }, pickerRenderInRootScaffold = false
+                )
+                HomeMenuDestinationKind.ManualImport -> NormalizedAiManualImportScreen(
+                    state = state, backdrop = null, onCancel = onDismissRequest,
+                    captureHistoryBackground = captureHistoryBackground, onParsed = onManualImportParsed
+                )
+                HomeMenuDestinationKind.EduImport -> DetailActivityScaffold(
+                    title = "选择学校", config = state.config, onBack = onDismissRequest
+                ) { schoolBackdrop ->
+                    EduSchoolPickerScreen(state = state, backdrop = schoolBackdrop, onSelect = onEduAdapterSelected)
+                }
+            }
+        }
+        return
+    }
     val context = LocalContext.current
     val floatingOverlayHost = remember { DetailActivityFloatingOverlayHost() }
     var renderedRequest by remember { mutableStateOf<HomeMenuDestinationRequest?>(null) }

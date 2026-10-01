@@ -270,7 +270,7 @@ internal fun calculateHomeAdaptiveMetrics(
     val screenHeight = heightDp.dp
     val isLandscape = widthDp > heightDp
     val isLargeScreen = widthDp >= 600
-    val isTabletLandscape = isLargeScreen && isLandscape && widthDp >= 840 && heightDp >= 560
+    val isTabletLandscape = isLargeScreen && isLandscape
     val aspect = widthDp.toFloat() / heightDp.toFloat().coerceAtLeast(1f)
     val isThreeTwoLike = isTabletLandscape && aspect in 1.35f..1.75f
     val baseWeekTop = HomeInitialTopInset - 22.dp
@@ -330,13 +330,16 @@ internal fun calculateHomeAdaptiveMetrics(
         )
     }
 
-    val topOverlay = (safeTop + if (isThreeTwoLike) 96.dp else 104.dp).coerceIn(104.dp, 132.dp)
-    val contentTop = (safeTop + if (isThreeTwoLike) 76.dp else 84.dp).coerceIn(84.dp, 112.dp)
+    val compactLandscape = heightDp < 560 || widthDp < 840
+    val topOverlay = if (compactLandscape) safeTop + 66.dp else
+        (safeTop + if (isThreeTwoLike) 96.dp else 104.dp).coerceIn(104.dp, 132.dp)
+    val contentTop = if (compactLandscape) safeTop + 68.dp else
+        (safeTop + if (isThreeTwoLike) 76.dp else 84.dp).coerceIn(84.dp, 112.dp)
     // The day view's left rail is a working pane (date + Today Agent), not a narrow summary
     // sidebar. Give it enough room for a readable conversation while retaining a larger safe
     // margin at both window edges on tablets.
-    val sidePaneWidth = (screenWidth * if (isThreeTwoLike) 0.38f else 0.39f)
-        .coerceIn(384.dp, 520.dp)
+    val sidePaneWidth = if (compactLandscape) screenWidth * 0.38f else
+        (screenWidth * if (isThreeTwoLike) 0.38f else 0.39f).coerceIn(384.dp, 520.dp)
     return HomeAdaptiveMetrics(
         profile = HomeAdaptiveProfile.TabletLandscape,
         screenWidth = screenWidth,
@@ -349,8 +352,8 @@ internal fun calculateHomeAdaptiveMetrics(
         dayContentTopPadding = contentTop,
         weekTopSpacerHeight = (contentTop - 30.dp).coerceIn(54.dp, 82.dp),
         daySidePaneWidth = sidePaneWidth,
-        dayPaneGap = 20.dp,
-        tabletContentMargin = if (isThreeTwoLike) 38.dp else 40.dp,
+        dayPaneGap = if (compactLandscape) 12.dp else 20.dp,
+        tabletContentMargin = if (compactLandscape) 16.dp else if (isThreeTwoLike) 38.dp else 40.dp,
         tabletContentTop = contentTop,
         animationArc = 40.dp
     )

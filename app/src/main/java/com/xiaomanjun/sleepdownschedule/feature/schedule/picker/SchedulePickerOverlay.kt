@@ -250,8 +250,9 @@ fun QuickScheduleSettingsSheets(
         }
     }
 
-    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
+    SleepDownAdaptiveBottomSheet(
         show = draft != null,
+        config = config, backdrop = backdrop,
         title = "课表设置",
         startAction = {
             QuickSheetLiquidAction(
@@ -477,8 +478,9 @@ fun QuickScheduleSettingsSheets(
         }
     }
 
-    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
+    SleepDownAdaptiveBottomSheet(
         show = showDatePicker && draft != null,
+        config = config, backdrop = backdrop,
         title = "选择日期",
         startAction = {
             QuickSheetLiquidAction(

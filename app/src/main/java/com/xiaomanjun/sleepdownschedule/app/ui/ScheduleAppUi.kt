@@ -14,6 +14,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
 import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.feature.course.management.HomeMenuActivitySourceFallback
 import com.xiaomanjun.sleepdownschedule.feature.course.management.putCourseManagementInitialState
+import com.xiaomanjun.sleepdownschedule.feature.course.management.LandscapeCourseManagementPane
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshWebSession
@@ -298,6 +299,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -785,6 +787,9 @@ fun CourseScheduleAppUi(
     var cacheHydrationJob by remember { mutableStateOf<Job?>(null) }
     var entryPrewarmJob by remember { mutableStateOf<Job?>(null) }
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
+    var sidebarPage by rememberSaveable { mutableStateOf(HomeSidebarDestination.Settings) }
+    var sidebarPageMoving by remember { mutableStateOf(false) }
+    var coursePaneExitHandler by remember { mutableStateOf<((() -> Unit) -> Unit)?>(null) }
     var settingsExitInterceptionRequired by remember { mutableStateOf(false) }
     var settingsExitRequest by remember { mutableIntStateOf(0) }
     var pendingSettingsExitAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -793,7 +798,8 @@ fun CourseScheduleAppUi(
     }
     val rootPageMotion = rememberHomeSwitchMotion(screen is Screen.Config, "home-settings")
     val homeModeMotion = key(state.loaded) {
-        rememberHomeSwitchMotion(homeMode == HomeMode.Week, "day-week")
+        rememberHomeSwitchMotion(homeMode == HomeMode.Week, "day-week",
+            animate = !rootPageMotion.landscape || !rootPageMotion.moving)
     }
     val rootPageStateHolder = rememberSaveableStateHolder()
     var homeDialog by remember { mutableStateOf<HomeDialog?>(null) }
@@ -928,7 +934,7 @@ fun CourseScheduleAppUi(
     var pendingHomeAnchoredSourceScale by remember { mutableFloatStateOf(1f) }
     var showScheduleEntryPill by remember { mutableStateOf(false) }
     val landingCourse = courseEditorMotionState.closingCourseOverride
-    val editingCourseId: Long? = if (landingCourse != null) {
+    val editingCourseId: Long? = if (isLandscapeMenuWindow()) null else if (landingCourse != null) {
         state.courses.firstOrNull {
             it.copy(id = 0, weeks = landingCourse.weeks, weekParity = landingCourse.weekParity) == landingCourse.copy(id = 0)
         }?.id
@@ -953,7 +959,7 @@ fun CourseScheduleAppUi(
             destinationTransitionActive || courseEditorRequest != null ||
             courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle || courseShortcuts.request != null ||
             homeAssistant.stage == HomeAssistantStage.Conversation
-    val homeBackgroundFreezeActive = !rootPageMotion.moving && !homeModeMotion.moving && shouldUseFrozenHomeMorphBlur(
+    val homeBackgroundFreezeActive = !isLandscapeMenuWindow() && !rootPageMotion.moving && !homeModeMotion.moving && shouldUseFrozenHomeMorphBlur(
         screenIsHome = screen is Screen.Home,
         previewActive = personalizationPreviewActive,
         overlayActive = homeBackgroundOverlayActive
@@ -1102,7 +1108,9 @@ fun CourseScheduleAppUi(
     val remoteExperience by SleepDownRemoteConfig.experience.collectAsStateWithLifecycle()
     val remoteConfigState by SleepDownRemoteConfig.state.collectAsStateWithLifecycle()
     fun requestSettingsExit(action: () -> Unit) {
-        if (screen is Screen.Config && settingsExitInterceptionRequired) {
+        if (screen is Screen.Config && sidebarPage == HomeSidebarDestination.Courses && coursePaneExitHandler != null) {
+            coursePaneExitHandler?.invoke(action)
+        } else if (screen is Screen.Config && (!homeAdaptiveMetrics.isTabletLandscape || sidebarPage == HomeSidebarDestination.Settings) && settingsExitInterceptionRequired) {
             pendingSettingsExitAction = action
             settingsExitRequest++
         } else {
@@ -1228,6 +1236,10 @@ fun CourseScheduleAppUi(
     fun currentHomeMenuDestinationRequest(
         kind: HomeMenuDestinationKind
     ): HomeMenuDestinationRequest? {
+        if (homeAdaptiveMetrics.isTabletLandscape) {
+            // Landscape destinations have no source button; their host uses the centered flight.
+            return HomeMenuDestinationRequest(kind, Rect.Zero, Rect.Zero)
+        }
         val sourceButton = addButtonBounds ?: return null
         if (homeReadabilityRootSize.width <= 0 || homeReadabilityRootSize.height <= 0) return null
         val menuBounds = homeAddMenuBoundsInRoot ?: homeAddMenuTargetRect(
@@ -1710,7 +1722,7 @@ fun CourseScheduleAppUi(
         homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing ||
             homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
-    val homeOverlayBackgroundBlurProgress: () -> Float = {
+    val legacyHomeOverlayBackgroundBlurProgress: () -> Float = {
         val legacyDepth = homeOverlayDepthProgress(homeOverlayBackgroundZoom())
         val previewActive = personalizationSliderPreviewKey != null ||
             personalizationPreviewProgress > 0.001f
@@ -1742,6 +1754,10 @@ fun CourseScheduleAppUi(
                 )
             else -> legacyDepth
         }
+    }
+    val landscapeWindow = isLandscapeMenuWindow()
+    val homeOverlayBackgroundBlurProgress: () -> Float = {
+        if (landscapeWindow) 0f else legacyHomeOverlayBackgroundBlurProgress()
     }
     LaunchedEffect(screen, homeMode, visualState.config.id, homeDisplayWeek,
         homeAdaptiveMetrics.screenWidth, homeAdaptiveMetrics.screenHeight,
@@ -1833,6 +1849,7 @@ fun CourseScheduleAppUi(
     }
 
     fun prewarmCurrentScheduleSnapshot() {
+        if (homeAdaptiveMetrics.isTabletLandscape) return
         entryPrewarmJob?.cancel()
         val requestedId = state.config.id
         entryPrewarmJob = appScope.launch {
@@ -1849,6 +1866,13 @@ fun CourseScheduleAppUi(
     }
 
     fun enterCustomizePage() {
+        if (homeAdaptiveMetrics.isTabletLandscape) {
+            showScheduleEntryPill = false
+            pickerState.reset()
+            sidebarPage = HomeSidebarDestination.Schedules
+            screen = Screen.Config
+            return
+        }
         if (pickerState.phase !is CustomizeUiState.Home && pickerState.phase !is CustomizeUiState.ShowingEntryButton) return
         snapshotJob?.cancel()
         val generation = ++snapshotGeneration
@@ -1960,6 +1984,23 @@ fun CourseScheduleAppUi(
         )
     }
 
+    fun shareLandscapeSchedule(scheduleId: Int, shareType: ScheduleShareType) {
+        val selected = latestAllSchedulesState.value.forSchedule(scheduleId)
+        val name = latestAllSchedulesState.value.schedules.firstOrNull { it.id == scheduleId }?.name ?: "课表"
+        when (shareType) {
+            ScheduleShareType.TOKEN -> shareScheduleToken(context, name,
+                buildSleepDownScheduleToken(selected.config, selected.periods, selected.courses))
+            ScheduleShareType.ICS -> appScope.launch {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        IcsScheduleCodec.writeShareFile(context, name, selected.config, selected.periods, selected.courses)
+                    }
+                }.onSuccess { shareScheduleIcs(context, name, it) }
+                    .onFailure { Toast.makeText(context, it.message ?: "ICS 文件生成失败", Toast.LENGTH_SHORT).show() }
+            }
+        }
+    }
+
     LaunchedEffect(pendingImportedSetupId) {
         val scheduleId = pendingImportedSetupId ?: return@LaunchedEffect
         screen = Screen.Home
@@ -1972,6 +2013,13 @@ fun CourseScheduleAppUi(
         }.first { it }
         if (pickerState.overlayVisible) pickerState.reset()
         withFrameNanos { }
+        if (homeAdaptiveMetrics.isTabletLandscape) {
+            sidebarPage = HomeSidebarDestination.Schedules
+            screen = Screen.Config
+            quickScheduleDraft = quickDraftFor(scheduleId)
+            pendingImportedSetupId = null
+            return@LaunchedEffect
+        }
         enterCustomizePage()
         snapshotFlow {
             pickerState.phase is CustomizeUiState.Picker &&
@@ -2506,13 +2554,13 @@ fun CourseScheduleAppUi(
         // liquid sampling coordinates aligned without blurring the foreground panel itself.
         HomeBackgroundZoomLayer(
             zoom = homeOverlayBackgroundZoom,
-            dimProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.progress.value) },
+            dimProgress = { if (landscapeWindow) 0f else maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.progress.value) },
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
         HomeBackgroundBlurLayer(
-            blurProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.progress.value) },
+            blurProgress = { if (landscapeWindow) 0f else maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.progress.value) },
             useFrozenHomeScene = useFrozenHomeMorphBlur,
             closing = { homeBackgroundBlurClosing || courseShortcuts.closing },
             sceneKey = homeCaptureFrameKey,
@@ -2858,6 +2906,27 @@ fun CourseScheduleAppUi(
                         }
                         HomeSwitchPane(rootPageMotion, secondary = true, modifier = Modifier.fillMaxSize(),
                             pageClip = HomeSwitchClip.Page) {
+                            LandscapePageTransition(
+                                if (homeAdaptiveMetrics.isTabletLandscape) sidebarPage else HomeSidebarDestination.Settings,
+                                modifier = Modifier.fillMaxSize(), onMovingChange = { sidebarPageMoving = it }
+                            ) { destination ->
+                            when (destination) {
+                                HomeSidebarDestination.Courses -> LandscapeCourseManagementPane(
+                                    state = state, onSave = viewModel::saveManagedCourseGroup,
+                                    onExitHandlerChange = { coursePaneExitHandler = it }
+                                )
+                                HomeSidebarDestination.Schedules -> LandscapeScheduleManagementPane(
+                                    state = allSchedulesState, activeScheduleId = state.config.id, backdrop = chromeBackdrop,
+                                    onActivate = { viewModel.activateSchedule(it) },
+                                    onCustomize = { quickScheduleDraft = quickDraftFor(it) },
+                                    onCreate = { viewModel.createSchedule(it, activate = false) },
+                                    onRename = { id, name -> viewModel.renameSchedule(id, name) },
+                                    onDelete = { id ->
+                                        viewModel.deleteSchedule(id)
+                                        appScope.launch { ScheduleSnapshotStore.delete(context, id) }
+                                    }, onShare = ::shareLandscapeSchedule
+                                )
+                                else -> {
                             rootPageStateHolder.SaveableStateProvider("settings") {
                                 SettingsScreen(
                                         page = SettingsPage.Root,
@@ -2889,6 +2958,9 @@ fun CourseScheduleAppUi(
                                             settingsExitInterceptionRequired = it
                                         }
                                     )
+                            }
+                                }
+                            }
                             }
                         }
                     }
@@ -3223,70 +3295,32 @@ fun CourseScheduleAppUi(
         }
         }
     val latestOpenCourseManagement = rememberUpdatedState<() -> Unit> {
+        if (homeAdaptiveMetrics.isTabletLandscape) {
+            requestSettingsExit { sidebarPage = HomeSidebarDestination.Courses; screen = Screen.Config }
+        } else {
         latestOpenHomeActivityDestination.value(
             TransitionRouteId.HomeToCourseManagement,
             Intent(context, CourseManagementActivity::class.java)
                 .putCourseManagementInitialState(state)
         )
-    }
-    HomeSidebar(
-        state = homeSidebarState,
-        metrics = homeAdaptiveMetrics,
-        selected = when {
-            screen is Screen.Config -> HomeSidebarDestination.Settings
-            homeMode == HomeMode.Day -> HomeSidebarDestination.Day
-            else -> HomeSidebarDestination.Week
-        },
-        config = if (screen is Screen.Config) settingsVisualConfig(state.config) else visualState.config,
-        backdrop = chromeBackdrop,
-        navigationEnabled = !rootPageMotion.moving && !homeModeMotion.moving &&
-            pendingSettingsExitAction == null &&
-            !homeBackgroundOverlayActive && !homeAssistant.visible &&
-            courseShortcuts.request == null && !courseCopy.active &&
-            !homeDialogVisible && quickScheduleDraft == null &&
-            courseEditorRequest == null && courseEditorOverlayPhase == CourseEditorOverlayPhase.Idle &&
-            dayAgentBackgroundMotionState.progress.value < 0.001f,
-        visible = pickerState.phase is CustomizeUiState.Home ||
-            pickerState.phase is CustomizeUiState.ShowingEntryButton,
-        onNavigate = { destination ->
-            requestSettingsExit {
-                when (destination) {
-                    HomeSidebarDestination.Day -> {
-                        homeMode = HomeMode.Day
-                        screen = Screen.Home
-                    }
-                    HomeSidebarDestination.Week -> {
-                        homeMode = HomeMode.Week
-                        screen = Screen.Home
-                    }
-                    HomeSidebarDestination.Settings -> screen = Screen.Config
-                    HomeSidebarDestination.Courses -> latestOpenCourseManagement.value()
-                    HomeSidebarDestination.Schedules -> {
-                        screen = Screen.Home
-                        appScope.launch {
-                            // Let the Home page replace Settings before capturing its preview.
-                            withFrameNanos { }
-                            snapshotFlow { rootPageMotion.moving }.first { !it }
-                            withFrameNanos { }
-                            if (screen is Screen.Home) enterCustomizePage()
-                        }
-                    }
-                }
-            }
         }
-    )
+    }
     val latestOpenEduSchoolSelect = rememberUpdatedState<() -> Unit> {
+        if (homeAdaptiveMetrics.isTabletLandscape) openHomeMenuDestination(HomeMenuDestinationKind.EduImport)
+        else {
         latestOpenHomeActivityDestination.value(
             TransitionRouteId.HomeToEduImport,
             Intent(context, EduSchoolSelectActivity::class.java)
         )
+        }
     }
     val latestOpenJumpWeekDialog = rememberUpdatedState<() -> Unit> {
         pendingJumpWeekDialog = true
         homeAnchoredOverlayRequest = null
     }
     val latestOpenScheduleSettings = rememberUpdatedState<() -> Unit> {
-        pendingOpenScheduleSettings = true
+        if (homeAdaptiveMetrics.isTabletLandscape) quickScheduleDraft = quickDraftFor(state.config.id)
+        else pendingOpenScheduleSettings = true
         homeAnchoredOverlayRequest = null
     }
     val homeAddActions = remember {
@@ -3311,6 +3345,63 @@ fun CourseScheduleAppUi(
             }
         )
     }
+
+    HomeSidebar(
+        state = homeSidebarState, metrics = homeAdaptiveMetrics,
+        selected = when {
+            screen is Screen.Config -> if (homeAdaptiveMetrics.isTabletLandscape) sidebarPage else HomeSidebarDestination.Settings
+            homeMode == HomeMode.Day -> HomeSidebarDestination.Day
+            else -> HomeSidebarDestination.Week
+        },
+        config = if (screen is Screen.Config) settingsVisualConfig(state.config) else visualState.config,
+        backdrop = chromeBackdrop,
+        navigationEnabled = !rootPageMotion.moving && !homeModeMotion.moving && !sidebarPageMoving &&
+            pendingSettingsExitAction == null && !homeBackgroundOverlayActive && !homeAssistant.visible &&
+            courseShortcuts.request == null && !courseCopy.active && !homeDialogVisible && quickScheduleDraft == null &&
+            courseEditorRequest == null && courseEditorOverlayPhase == CourseEditorOverlayPhase.Idle &&
+            dayAgentBackgroundMotionState.progress.value < 0.001f,
+        visible = homeAdaptiveMetrics.isTabletLandscape || pickerState.phase is CustomizeUiState.Home ||
+            pickerState.phase is CustomizeUiState.ShowingEntryButton,
+        actions = if (homeAdaptiveMetrics.isTabletLandscape) homeAddActions.filter { it.iconRes != R.drawable.ic_courses } else emptyList(),
+        onAction = { action ->
+            requestSettingsExit {
+                // Modal actions always open on the timetable; settle its page before mounting the form.
+                screen = Screen.Home
+                appScope.launch {
+                    withFrameNanos { }
+                    snapshotFlow { rootPageMotion.moving }.first { !it }
+                    action.onClick()
+                }
+            }
+        },
+        onNavigate = { destination ->
+            requestSettingsExit {
+                when (destination) {
+                    HomeSidebarDestination.Day -> { homeMode = HomeMode.Day; screen = Screen.Home }
+                    HomeSidebarDestination.Week -> { homeMode = HomeMode.Week; screen = Screen.Home }
+                    HomeSidebarDestination.Settings -> { sidebarPage = destination; screen = Screen.Config }
+                    HomeSidebarDestination.Courses -> {
+                        if (homeAdaptiveMetrics.isTabletLandscape) { sidebarPage = destination; screen = Screen.Config }
+                        else latestOpenCourseManagement.value()
+                    }
+                    HomeSidebarDestination.Schedules -> {
+                        if (homeAdaptiveMetrics.isTabletLandscape) {
+                            sidebarPage = destination
+                            screen = Screen.Config
+                        } else {
+                            screen = Screen.Home
+                            appScope.launch {
+                                withFrameNanos { }
+                                snapshotFlow { rootPageMotion.moving }.first { !it }
+                                withFrameNanos { }
+                                if (screen is Screen.Home) enterCustomizePage()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
 
     LaunchedEffect(
         pendingOpenScheduleSettings,
@@ -3647,6 +3738,19 @@ fun CourseScheduleAppUi(
             },
             suppressDetailedButton = detailMorphState !is DetailMorphState.Idle,
             onDetailedSettings = { scheduleId, sourceBoundsInWindow, saveBeforeOpening ->
+                if (homeAdaptiveMetrics.isTabletLandscape) {
+                    saveBeforeOpening {
+                        appScope.launch {
+                            context.openRegisteredActivity(
+                                TransitionRouteId.QuickSheetToSettingsDetail,
+                                Intent(context, QuickSheetSettingsDetailActivity::class.java)
+                                    .putExtra(SettingsDetailPageExtra, SettingsPage.Schedule.name)
+                                    .putExtra(ScheduleCustomizeIdExtra, scheduleId)
+                            )
+                        }
+                    }
+                    return@QuickScheduleSettingsSheets
+                }
                 // The detailed page is the real cross-activity SettingsDetailActivity opened
                 // through the shared transition framework (QuickSheetToSettingsDetail route).
                 if (detailMorphState !is DetailMorphState.Idle) {
@@ -4147,12 +4251,12 @@ fun CourseScheduleAppUi(
                 }
             )
         } else {
-        Dialog(
+        SleepDownFormWindow(
+            show = homeDialogVisible, backdrop = homeDialogBackdrop, config = state.config,
             onDismissRequest = {
                 if (dialog is HomeDialog.EditCourse) homeCourseDismissHandler?.invoke() ?: dismissHomeDialog()
                 else dismissHomeDialog()
             },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             if (dialog is HomeDialog.ImportSchedule) {
                 val dialogView = LocalView.current
@@ -4167,7 +4271,7 @@ fun CourseScheduleAppUi(
             }
             val animatedDialogContent: @Composable () -> Unit = {
                 AnimatedVisibility(
-                    visible = homeDialogVisible,
+                    visible = landscapeWindow || homeDialogVisible,
                     enter = popEnterTransition(),
                     exit = popExitTransition()
                 ) {
@@ -4750,6 +4854,7 @@ internal fun AppTopBar(
     onBackHome: () -> Unit
 ) {
     val adaptiveTopBarColor = LocalAdaptiveGlass.current.contentColor
+    val landscape = rememberHomeAdaptiveMetrics().isTabletLandscape
     val homeTextColor = adaptiveTopBarColor
     if (screen is Screen.Home) {
         Box(
@@ -4777,7 +4882,7 @@ internal fun AppTopBar(
                     .align(Alignment.CenterStart)
                     .fillMaxWidth()
                     .fillMaxHeight()
-                    .padding(start = 16.dp, end = 120.dp),
+                    .padding(start = 16.dp, end = if (landscape) 64.dp else 120.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
                 HomeDateTitle(
@@ -4811,7 +4916,7 @@ internal fun AppTopBar(
                     onClick = onTogglePersonalize,
                     onButtonPositioned = onPersonalizeButtonPositioned
                 )
-                HomeIconButton(
+                if (!landscape) HomeIconButton(
                     backdrop = backdrop,
                     config = state.config,
                     iconRes = R.drawable.ic_more_horizontal,
@@ -7992,9 +8097,9 @@ fun SettingsScreen(
                         .fillMaxHeight()
                         .clipToBounds()
                 ) {
-                    AnimatedContent(
-                        targetState = displayedPage,
-                        transitionSpec = {
+                    AdaptivePaneTransition(
+                        target = displayedPage, landscape = adaptiveMetrics.isTabletLandscape,
+                        portraitTransitionSpec = {
                             when {
                                 detailNavigationDirection > 0 -> {
                                     slideInHorizontally(
@@ -8760,14 +8865,30 @@ fun ScheduleNameDialog(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    maxLength: Int = Int.MAX_VALUE,
+    requireName: Boolean = false
 ) {
     var name by remember { mutableStateOf(initialName) }
+    if (isLandscapeMenuWindow()) {
+        var visible by remember { mutableStateOf(true) }
+        var completion by remember { mutableStateOf<(() -> Unit)?>(null) }
+        fun closeThen(action: () -> Unit) { if (visible) { completion = action; visible = false } }
+        SleepDownOverlayDialog(show = visible, config = config, backdrop = backdrop, maxWidth = 560.dp,
+            onDismissRequest = { closeThen(onDismiss) }, onDismissFinished = { completion?.invoke(); completion = null },
+            outsideMargin = DpSize(24.dp, 16.dp), insideMargin = DpSize(16.dp, 12.dp)) {
+            LiquidDialogHeader(title, { closeThen(onDismiss) }, null, config,
+                onConfirm = { if (!requireName || name.isNotBlank()) closeThen { onConfirm(name.trim()) } })
+            DialogCapsuleField(name, { name = it.take(maxLength) }, "课表名称", config,
+                Modifier.fillMaxWidth().padding(bottom = 12.dp))
+        }
+        return
+    }
     val textColor = glassForegroundColor(config)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CenterLiquidDialog(backdrop = backdrop, config = config) {
             LiquidDialogHeader(title, onDismiss, backdrop, config, onConfirm = { onConfirm(name.trim()) })
-            DialogCapsuleField(name, { name = it }, "课表名称", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+            DialogCapsuleField(name, { name = it.take(maxLength) }, "课表名称", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         }
     }
 }

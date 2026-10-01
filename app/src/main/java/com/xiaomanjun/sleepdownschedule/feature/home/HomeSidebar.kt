@@ -69,10 +69,10 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.app.ui.homeChromeBlur
+import com.xiaomanjun.sleepdownschedule.app.ui.AddMenuAction
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassSurface
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
-import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
+import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
 import kotlin.math.abs
 
 internal enum class HomeSidebarDestination { Day, Week, Settings, Courses, Schedules }
@@ -178,16 +178,18 @@ internal fun HomeSidebar(
     backdrop: Backdrop,
     navigationEnabled: Boolean,
     visible: Boolean,
+    actions: List<AddMenuAction> = emptyList(),
+    onAction: (AddMenuAction) -> Unit = { it.onClick() },
     onNavigate: (HomeSidebarDestination) -> Unit
 ) {
     if (!state.enabled || !visible) return
-    val lightGlass = glassUsesLightStyle(config)
+    val lightGlass = !appUsesDarkTheme(config)
     val ink = if (lightGlass) Color(0xFF202126) else Color(0xFFF3F4F8)
     val tokens = GlassTokens.pill().copy(
-        blur = homeChromeBlur(12.dp, config),
-        lensHeight = 0.dp,
-        lensAmount = 0.dp,
-        surfaceAlpha = if (lightGlass) 0.80f else 0.78f,
+        blur = 16.dp,
+        lensHeight = 4.dp,
+        lensAmount = 8.dp,
+        surfaceAlpha = if (lightGlass) 0.68f else 0.66f,
         highlightAlpha = 0.035f
     )
     val shape = RoundedRectangle(28.dp)
@@ -213,6 +215,7 @@ internal fun HomeSidebar(
             backdrop = backdrop,
             config = config,
             tokens = tokens,
+            baseSurfaceColorOverride = if (lightGlass) Color.White else Color(0xFF1F1F1F),
             shape = shape,
             debugLabel = "HomeSidebar",
             modifier = Modifier
@@ -272,6 +275,18 @@ internal fun HomeSidebar(
                             selected, ink, navigationEnabled && !state.moving) { navigate(HomeSidebarDestination.Courses) }
                         SidebarDestinationRow(state, HomeSidebarDestination.Schedules, "切换课表", R.drawable.ic_share_schedule,
                             selected, ink, navigationEnabled && !state.moving) { navigate(HomeSidebarDestination.Schedules) }
+                        if (actions.isNotEmpty()) {
+                            Spacer(Modifier.height(12.dp))
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(ink.copy(alpha = 0.10f)))
+                            Text("课表操作", color = ink.copy(alpha = 0.54f), fontSize = 12.sp,
+                                modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp))
+                            actions.forEach { action ->
+                                SidebarRow(state, action.label, ink, false, navigationEnabled && !state.moving,
+                                    onClick = { state.collapseOverlay(); onAction(action) }, role = Role.Button) {
+                                    action.iconRes?.let { Icon(painterResource(it), null, Modifier.size(26.dp), tint = ink) }
+                                }
+                            }
+                        }
                     }
                 }
             }

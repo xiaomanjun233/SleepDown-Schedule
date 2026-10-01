@@ -2,6 +2,8 @@ package com.xiaomanjun.sleepdownschedule.feature.home
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.pager.PagerState
@@ -26,12 +28,15 @@ import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -54,7 +59,7 @@ internal enum class HomeSwitchClip { None, Page, TopBar }
 
 /** The page arrives first; the accepted content springs follow in six staggered groups. */
 @Stable
-internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: State<Boolean>) {
+internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: State<Boolean>, val landscape: Boolean = false) {
     private val page = Animatable(if (initialSecondary) 1f else 0f)
     private val tracks = List(SwitchGroupCount) { Animatable(if (initialSecondary) 1f else 0f) }
     // Animatable resets velocity on cancellation. Keep the last frame for a continuous reversal.
@@ -83,6 +88,16 @@ internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: S
     fun retains(secondary: Boolean): Boolean = moving || settledSecondary == secondary
     fun groupProgress(group: Int): Float = tracks[group.coerceIn(0, SwitchGroupCount - 1)].value
 
+    suspend fun settleAt(secondary: Boolean) {
+        val destination = if (secondary) 1f else 0f
+        page.snapTo(destination)
+        tracks.forEach { it.snapTo(destination) }
+        pageVelocity = 0f
+        velocities.fill(0f)
+        settledSecondary = secondary
+        running = false
+    }
+
     suspend fun animateTo(secondary: Boolean) {
         val destination = if (secondary) 1f else 0f
         if (page.value == destination && pageVelocity == 0f &&
@@ -99,6 +114,15 @@ internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: S
         running = true
         var completed = false
         try {
+            if (landscape) {
+                page.animateTo(destination, tween(360, easing = CubicBezierEasing(0.22f, 0.72f, 0.20f, 1f)))
+                pageVelocity = 0f
+                tracks.forEach { it.snapTo(destination) }
+                velocities.fill(0f)
+                settledSecondary = secondary
+                completed = true
+                return
+            }
             coroutineScope {
                 launch {
                     page.animateTo(destination, animationSpec = SwitchPageSpring,
@@ -130,10 +154,14 @@ internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: S
 }
 
 @Composable
-internal fun rememberHomeSwitchMotion(secondary: Boolean, label: String): HomeSwitchMotion {
+internal fun rememberHomeSwitchMotion(secondary: Boolean, label: String, animate: Boolean = true): HomeSwitchMotion {
     val target = rememberUpdatedState(secondary)
-    val motion = remember(label) { HomeSwitchMotion(secondary, target) }
-    LaunchedEffect(motion, secondary) { motion.animateTo(secondary) }
+    val configuration = LocalConfiguration.current
+    val landscape = configuration.screenWidthDp > configuration.screenHeightDp
+    val motion = remember(label, landscape) { HomeSwitchMotion(secondary, target, landscape) }
+    LaunchedEffect(motion, secondary, animate) {
+        if (animate) motion.animateTo(secondary) else motion.settleAt(secondary)
+    }
     return motion
 }
 
@@ -144,6 +172,16 @@ internal fun Modifier.homeSwitchLayer(
     pageClip: HomeSwitchClip = HomeSwitchClip.None
 ): Modifier {
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1f else 1f
+    if (motion.landscape) return graphicsLayer {
+        val visibility = (if (secondary) motion.progress.value else 1f - motion.progress.value).coerceIn(0f, 1f)
+        alpha = visibility
+        scaleX = 0.96f + 0.04f * visibility
+        scaleY = scaleX
+        val blur = (1f - visibility) * 10.dp.toPx()
+        renderEffect = if (motion.moving && blur > 0.5f) BlurEffect(blur, blur, TileMode.Clamp) else null
+        clip = motion.moving
+        shape = if (clip) RoundedCornerShape(24.dp) else RectangleShape
+    }
     return graphicsLayer {
         translationX = direction * size.width * ((if (secondary) 1f else 0f) - motion.progress.value)
         // Keep rounding through the trailing content's rebound, then release the clip at rest.
@@ -164,7 +202,7 @@ private val LocalSwitchPages = staticCompositionLocalOf<List<SwitchPageScope>> {
 @Composable
 internal fun Modifier.homeSwitchGroup(cardOrderFraction: Float? = null): Modifier {
     val pages = LocalSwitchPages.current
-    if (pages.isEmpty()) return this
+    if (pages.isEmpty() || pages.all { it.motion.landscape }) return this
     val group = remember { mutableIntStateOf(-1) }
     val tracked = onGloballyPositioned { coordinates ->
         if (group.intValue < 0 || pages.none { it.motion.moving }) {

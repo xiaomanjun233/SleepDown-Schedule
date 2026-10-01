@@ -30,7 +30,8 @@ core/ui/designsystem/
 ├── SleepDownDesignTokens.kt    # 稳定尺寸、间距、圆角与前景色来源
 ├── SleepDownSecondaryPage.kt   # 设置/内容/沉浸三种可覆盖的内容节奏
 ├── SleepDownDialog.kt          # Dialog/Alert/Overlay、标题栏、按钮、输入字段
-└── SleepDownQuickSheet.kt      # 选择器外壳、QuickSheet 表面与操作按钮
+├── SleepDownQuickSheet.kt      # 选择器外壳、QuickSheet 表面与操作按钮
+└── LandscapeMenu.kt            # 横屏中心毛玻璃菜单、表单与 QuickSheet 窗口
 ```
 
 页面级 Backdrop 和顶栏仍由既有 `DetailActivityScaffold` / `GlassMiuixDetailActivityScaffold` 管理。设计系统提供其下方的内容节奏，不接管 Activity、导航、Morph 或业务状态。
@@ -48,6 +49,16 @@ core/ui/designsystem/
 | 改造版 Miuix 居中弹窗表面 | `centeredDialogBackdropModifier`（业务优先调用上层组件） |
 | 底部或内层 QuickSheet 表面 | `quickSheetBackdropModifier` |
 | QuickSheet 操作 | `QuickSheetLiquidAction` |
+
+## 横屏与宽窗口
+
+当前窗口宽度达到 600dp 即显示侧栏，不要求最小高度；横屏时主页启用双栏，矮横屏默认折叠侧栏。侧栏位于主页面切换容器之外，页面缩放、动态模糊与淡入淡出只作用于下方内容。横屏首页移除三点按钮，其操作归入侧栏，个性化编辑按钮占据原三点按钮的位置。
+
+横屏弹层通过 `LandscapeMenuOverlay`、`SleepDownOverlayDialog`、`SleepDownAdaptiveBottomSheet` 或 `SleepDownFormWindow` 接入公共中心菜单。保留原字段顺序和业务保存语义，外壳从下方以弹簧进入中心，以非线性曲线退出；不使用锚点无缝 Morph 或半屏高度。最大宽度按表单/选择器类型选择，安全区和 IME 共同约束可用高度，正文滚动、操作可达，退出内容保留至动画完成。下文原有中心弹窗和 Popup 的锚定动效、半屏 QuickSheet 规则适用于竖屏。
+
+侧栏与弹窗均为毛玻璃：侧栏使用 16dp 模糊，保留轻微折射；弹窗使用 28dp 模糊、0.76 的主题中性衬底和无折射表面，内部组使用较浅/较深的半透明底色。侧栏模糊低于弹窗，前景随应用明暗主题保持稳定。玻璃采样仍通过 `glass/` 入口，中心菜单将页面完整 underlay 映射到独立 Dialog 窗口；Android 12 以下或无 Backdrop 时保持同几何实色降级。
+
+横屏课程管理复用原详情字段、冲突检查和保存确认；侧栏切页或左侧换课须等待确认，保存失败时继续保留草稿。横屏课表管理采用列表/预览双栏，快速设置与详细设置仍先保存草稿再交接。实现与验证记录见 [2026-10-02 横屏改造](../2026-10-02-landscape-overhaul.md)。
 
 ## 二级页面的三种风格
 

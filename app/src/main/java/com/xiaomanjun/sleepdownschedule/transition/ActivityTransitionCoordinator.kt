@@ -104,7 +104,11 @@ object ActivityTransitionCoordinator {
             return@withContext TransitionLaunchResult.Failed(failed.id, reason)
         }
         val parentId = payload?.parentSessionId ?: activity.activeTransitionSessionIdOrNull()
-        val normalizedPayload = payload?.copy(parentSessionId = parentId)
+        val landscape = activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val normalizedPayload = if (landscape) payload?.copy(
+            openingAnchor = null, returnAnchorProvider = null, nativeSourceViewProvider = null,
+            backgroundBitmap = null, parentSessionId = parentId, nativeSourceLeashAlphaOutOnOpen = false
+        ) else payload?.copy(parentSessionId = parentId)
         val session = TransitionPayloadStore.create(routeId, normalizedPayload, parentId)
         intent.putTransitionIdentity(session)
         val legacyRequest = TransitionOpenRequest(activity, intent, route, session, normalizedPayload)
@@ -115,7 +119,7 @@ object ActivityTransitionCoordinator {
                 .getOrDefault(false)
         }
         val nativeDestination = route.nativeDestinationClassName
-        val nativeEligible = (forceNativeForDebug || TransitionFeatureGate.allowsOplus(route)) &&
+        val nativeEligible = !landscape && (forceNativeForDebug || TransitionFeatureGate.allowsOplus(route)) &&
             (!route.requiresOpeningAnchor || normalizedPayload?.openingAnchor?.isValid == true) &&
             returnAnchorReady &&
             (allowDebugDestinationOverride || nativeDestination != null)
