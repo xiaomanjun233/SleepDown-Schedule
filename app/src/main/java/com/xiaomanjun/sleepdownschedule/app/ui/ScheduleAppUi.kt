@@ -1010,6 +1010,14 @@ fun CourseScheduleAppUi(
     val windowContainerSize = LocalWindowInfo.current.containerSize
     val density = LocalDensity.current
     val homeAdaptiveMetrics = rememberHomeAdaptiveMetrics()
+    val homeSidebarState = rememberHomeSidebarState(homeAdaptiveMetrics)
+    val sidebarContentMetrics = remember(
+        homeAdaptiveMetrics, homeSidebarState.targetContentInset, homeSidebarState.endInset
+    ) {
+        homeAdaptiveMetrics.withSidebarInsets(
+            homeSidebarState.targetContentInset, homeSidebarState.endInset
+        )
+    }
     val homeDeviceCornerPx = com.xiaomanjun.sleepdownschedule.core.ui.interaction.deviceScreenCornerRadiusPx()
 
     LaunchedEffect(
@@ -1631,12 +1639,14 @@ fun CourseScheduleAppUi(
         activeHomeAnchoredOverlay,
         addButtonHidden,
         rootPageMotion.moving,
-        homeModeMotion.moving
+        homeModeMotion.moving,
+        sidebarContentMetrics.contentWidth
     ) {
         buildString {
             append(System.identityHashCode(homeBackgroundSession)).append('|')
             append(homeReadabilityRootSize).append('|').append(density.density).append('|')
                 .append(density.fontScale).append('|')
+            append(sidebarContentMetrics.contentWidth).append('|')
             append(captureRenderToken).append('|')
             append(visualState.config.hashCode()).append('|')
             append(visualState.courses.hashCode()).append('|')
@@ -1657,10 +1667,10 @@ fun CourseScheduleAppUi(
         }
     }
     val useFrozenHomeMorphBlur: () -> Boolean = {
-        homeBackgroundFreezeActive
+        homeBackgroundFreezeActive && !homeSidebarState.moving
     }
     val useCachedHomeSurface: () -> Boolean = {
-        shouldReuseHomeSurface(
+        !homeSidebarState.moving && shouldReuseHomeSurface(
             screenIsHome = screen is Screen.Home,
             previewActive = personalizationPreviewActive,
             overlayActive = homeBackgroundOverlayActive,
@@ -1670,7 +1680,7 @@ fun CourseScheduleAppUi(
             currentFrameKey = homeCaptureFrameKey
         )
     }
-    val currentHomeCoordinatesFreeze = rememberUpdatedState(homeBackgroundFreezeActive)
+    val currentHomeCoordinatesFreeze = rememberUpdatedState(homeBackgroundFreezeActive && !homeSidebarState.moving)
     val currentHomeCaptureFrameKey = rememberUpdatedState(homeCaptureFrameKey)
     val homeGlassMotionKey = remember(rootPageMotion, homeModeMotion) {
         derivedStateOf {
@@ -2515,7 +2525,7 @@ fun CourseScheduleAppUi(
                     val freeze = useFrozenHomeMorphBlur()
                     // A moving pair of pages is not a stable overlay source. Recording it on
                     // the switch's first frame adds a full tree traversal to page construction.
-                    val needsCapture = !rootPageMotion.moving && !homeModeMotion.moving &&
+                    val needsCapture = !rootPageMotion.moving && !homeModeMotion.moving && !homeSidebarState.moving &&
                         lastRecordedHomeFrameKey.get() != homeCaptureFrameKey
                     screenGraphicsLayer.alpha = 1f
                     if (needsCapture) {
@@ -2544,8 +2554,9 @@ fun CourseScheduleAppUi(
                 }
         ) {
         CompositionLocalProvider(
+            LocalHomeAdaptiveMetrics provides sidebarContentMetrics,
             LocalHomeBackgroundFrozen provides homeBackgroundFreezeActive,
-            LocalHomeTextContrastFrozen provides (rootPageMotion.moving || homeModeMotion.moving),
+            LocalHomeTextContrastFrozen provides (rootPageMotion.moving || homeModeMotion.moving || homeSidebarState.moving),
             com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen provides
                 freezeHomeGlassCoordinates,
             com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey provides homeGlassSampleRecordKey
@@ -2554,7 +2565,8 @@ fun CourseScheduleAppUi(
             containerColor = ComposeColor.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                HomeSwitchPane(rootPageMotion, secondary = false, modifier = Modifier.fillMaxWidth(),
+                HomeSwitchPane(rootPageMotion, secondary = false,
+                    modifier = Modifier.fillMaxWidth().homeSidebarContentInset(homeSidebarState),
                     pageClip = HomeSwitchClip.TopBar) {
                 TopBarEntranceContainer(
                     phase = startupPhase,
@@ -2744,6 +2756,7 @@ fun CourseScheduleAppUi(
                 val contentModifier = Modifier
                     .fillMaxSize()
                     .glassBackdropProducer(contentBackdrop)
+                    .homeSidebarContentInset(homeSidebarState)
                 Column(modifier = contentModifier) {
                     if (screen !is Screen.Home) {
                         message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
@@ -2760,7 +2773,7 @@ fun CourseScheduleAppUi(
                                      modeMotion = homeModeMotion,
                                      dayViewMode = dayViewMode,
                                      weekViewStyle = weekViewStyle,
-                                     adaptiveMetrics = homeAdaptiveMetrics,
+                                     adaptiveMetrics = sidebarContentMetrics,
                                     weekCardHeight = weekCardHeight.dp,
                                     displayWeek = homeDisplayWeek,
                                     returnToCurrentWeekRequest = returnHomeWeekRequest,
@@ -2824,17 +2837,24 @@ fun CourseScheduleAppUi(
                                         if (pickerState.phase is CustomizeUiState.Home) {
                                             pendingHomeAnchoredOverlay = null
                                             homeAnchoredOverlayRequest = null
-                                            pickerState.phase = CustomizeUiState.ShowingEntryButton
-                                            showScheduleEntryPill = true
-                                            prewarmCurrentScheduleSnapshot()
+                                            if (homeAdaptiveMetrics.isLargeScreen) {
+                                                homeSidebarState.collapseOverlay()
+                                                enterCustomizePage()
+                                            } else {
+                                                pickerState.phase = CustomizeUiState.ShowingEntryButton
+                                                showScheduleEntryPill = true
+                                                prewarmCurrentScheduleSnapshot()
+                                            }
                                         }
                                     }
                                 )
                             }
-                            DockBackdropContinuityPatch(
-                                config = visualState.config,
-                                modifier = Modifier.align(Alignment.BottomCenter)
-                            )
+                            if (!homeAdaptiveMetrics.isLargeScreen) {
+                                DockBackdropContinuityPatch(
+                                    config = visualState.config,
+                                    modifier = Modifier.align(Alignment.BottomCenter)
+                                )
+                            }
                         }
                         HomeSwitchPane(rootPageMotion, secondary = true, modifier = Modifier.fillMaxSize(),
                             pageClip = HomeSwitchClip.Page) {
@@ -2877,7 +2897,7 @@ fun CourseScheduleAppUi(
                 showScheduleEntryPill = false
                 if (pickerState.phase is CustomizeUiState.ShowingEntryButton) pickerState.phase = CustomizeUiState.Home
             }
-            if (screen is Screen.Home || screen is Screen.Config) {
+            if (!homeAdaptiveMetrics.isLargeScreen && (screen is Screen.Home || screen is Screen.Config)) {
                 DockEntranceContainer(
                     phase = startupPhase,
                     modifier = Modifier
@@ -2901,7 +2921,7 @@ fun CourseScheduleAppUi(
 
         // This control intentionally lives outside the recorded home layer. It can be visible
         // while the real home is pre-captured without becoming part of its own preview bitmap.
-        if (screen is Screen.Home) {
+        if (screen is Screen.Home && !homeAdaptiveMetrics.isLargeScreen) {
             ScheduleManagerEntryPill(
                 visible = showScheduleEntryPill,
                 backdrop = chromeBackdrop,
@@ -3209,6 +3229,52 @@ fun CourseScheduleAppUi(
                 .putCourseManagementInitialState(state)
         )
     }
+    HomeSidebar(
+        state = homeSidebarState,
+        metrics = homeAdaptiveMetrics,
+        selected = when {
+            screen is Screen.Config -> HomeSidebarDestination.Settings
+            homeMode == HomeMode.Day -> HomeSidebarDestination.Day
+            else -> HomeSidebarDestination.Week
+        },
+        config = if (screen is Screen.Config) settingsVisualConfig(state.config) else visualState.config,
+        backdrop = chromeBackdrop,
+        navigationEnabled = !rootPageMotion.moving && !homeModeMotion.moving &&
+            pendingSettingsExitAction == null &&
+            !homeBackgroundOverlayActive && !homeAssistant.visible &&
+            courseShortcuts.request == null && !courseCopy.active &&
+            !homeDialogVisible && quickScheduleDraft == null &&
+            courseEditorRequest == null && courseEditorOverlayPhase == CourseEditorOverlayPhase.Idle &&
+            dayAgentBackgroundMotionState.progress.value < 0.001f,
+        visible = pickerState.phase is CustomizeUiState.Home ||
+            pickerState.phase is CustomizeUiState.ShowingEntryButton,
+        onNavigate = { destination ->
+            requestSettingsExit {
+                when (destination) {
+                    HomeSidebarDestination.Day -> {
+                        homeMode = HomeMode.Day
+                        screen = Screen.Home
+                    }
+                    HomeSidebarDestination.Week -> {
+                        homeMode = HomeMode.Week
+                        screen = Screen.Home
+                    }
+                    HomeSidebarDestination.Settings -> screen = Screen.Config
+                    HomeSidebarDestination.Courses -> latestOpenCourseManagement.value()
+                    HomeSidebarDestination.Schedules -> {
+                        screen = Screen.Home
+                        appScope.launch {
+                            // Let the Home page replace Settings before capturing its preview.
+                            withFrameNanos { }
+                            snapshotFlow { rootPageMotion.moving }.first { !it }
+                            withFrameNanos { }
+                            if (screen is Screen.Home) enterCustomizePage()
+                        }
+                    }
+                }
+            }
+        }
+    )
     val latestOpenEduSchoolSelect = rememberUpdatedState<() -> Unit> {
         latestOpenHomeActivityDestination.value(
             TransitionRouteId.HomeToEduImport,
@@ -7835,10 +7901,10 @@ fun SettingsScreen(
             val displayedPage = tabletNavigation.displayedPage
             val portrait = adaptiveMetrics.screenHeight > adaptiveMetrics.screenWidth
             val navigationWidth = if (portrait) {
-                (adaptiveMetrics.screenWidth * 0.38f).coerceIn(280.dp, 328.dp)
+                (adaptiveMetrics.contentWidth * 0.38f).coerceIn(280.dp, 328.dp)
             } else {
-                (adaptiveMetrics.screenWidth * 0.31f).coerceIn(336.dp, 408.dp)
-            }
+                (adaptiveMetrics.contentWidth * 0.31f).coerceIn(336.dp, 408.dp)
+            }.coerceAtMost(adaptiveMetrics.contentWidth * 0.48f)
             LaunchedEffect(displayedPage) {
                 if (displayedPage != SettingsPage.Widgets) tabletWidgetEditorVisible = false
             }

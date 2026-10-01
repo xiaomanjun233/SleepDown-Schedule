@@ -1943,7 +1943,7 @@ internal fun DayScheduleScreen(
                             .fillMaxHeight()
                             .padding(
                                 top = adaptiveMetrics.dayContentTopPadding,
-                                bottom = DayDockScrollPadding
+                                bottom = if (adaptiveMetrics.usesSidebar) 20.dp + adaptiveMetrics.safeBottom else DayDockScrollPadding
                             )
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1958,7 +1958,7 @@ internal fun DayScheduleScreen(
                         state = listState,
                         contentPadding = PaddingValues(
                             top = adaptiveMetrics.dayContentTopPadding,
-                            bottom = DayDockScrollPadding
+                            bottom = if (adaptiveMetrics.usesSidebar) 20.dp + adaptiveMetrics.safeBottom else DayDockScrollPadding
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         content = courseList
@@ -1980,7 +1980,7 @@ internal fun DayScheduleScreen(
                             start = 16.dp,
                             end = 16.dp,
                             top = adaptiveMetrics.dayContentTopPadding,
-                            bottom = DayDockScrollPadding
+                            bottom = if (adaptiveMetrics.usesSidebar) 20.dp + adaptiveMetrics.safeBottom else DayDockScrollPadding
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {

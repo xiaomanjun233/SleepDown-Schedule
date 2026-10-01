@@ -423,7 +423,7 @@ internal fun SinglePillWeekScheduleScreen(
     }
     var programmaticPage by remember { mutableIntStateOf(-1) }
     val density = LocalDensity.current
-    val screenWidth = adaptiveMetrics.screenWidth
+    val screenWidth = adaptiveMetrics.contentWidth
     val topSpacerHeight = adaptiveMetrics.weekTopSpacerHeight
     val horizontalContentStartPadding = if (adaptiveMetrics.isLargeScreen) {
         adaptiveMetrics.tabletContentMargin
@@ -892,7 +892,9 @@ internal fun SinglePillWeekScheduleScreen(
                     }
                 }
             }
-            Spacer(Modifier.height(WeekDockScrollPadding + adaptiveMetrics.safeBottom))
+            Spacer(Modifier.height(
+                (if (adaptiveMetrics.usesSidebar) 24.dp else WeekDockScrollPadding) + adaptiveMetrics.safeBottom
+            ))
         }
     }
         WeekEditOverlayHost(

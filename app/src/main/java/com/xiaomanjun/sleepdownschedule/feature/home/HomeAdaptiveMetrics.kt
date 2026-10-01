@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
@@ -188,7 +189,9 @@ internal data class HomeAdaptiveMetrics(
     val dayPaneGap: Dp,
     val tabletContentMargin: Dp,
     val tabletContentTop: Dp,
-    val animationArc: Dp
+    val animationArc: Dp,
+    val contentWidth: Dp = screenWidth,
+    val usesSidebar: Boolean = false
 ) {
     val isLargeScreen: Boolean
         get() = profile != HomeAdaptiveProfile.Phone
@@ -197,9 +200,26 @@ internal data class HomeAdaptiveMetrics(
         get() = profile == HomeAdaptiveProfile.TabletLandscape
 }
 
+/** Page geometry may shrink for navigation without reclassifying the actual window. */
+internal val LocalHomeAdaptiveMetrics = compositionLocalOf<HomeAdaptiveMetrics?> { null }
+
+internal fun HomeAdaptiveMetrics.withSidebarInsets(start: Dp, end: Dp): HomeAdaptiveMetrics {
+    if (!isLargeScreen) return this
+    val availableWidth = (screenWidth - start - end).coerceAtLeast(1.dp)
+    val originalPaneSpace = (screenWidth - tabletContentMargin * 2 - dayPaneGap).coerceAtLeast(1.dp)
+    val availablePaneSpace = (availableWidth - tabletContentMargin * 2 - dayPaneGap).coerceAtLeast(1.dp)
+    return copy(
+        contentWidth = availableWidth,
+        usesSidebar = true,
+        daySidePaneWidth = daySidePaneWidth *
+            (availablePaneSpace.value / originalPaneSpace.value).coerceAtMost(1f)
+    )
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun rememberHomeAdaptiveMetrics(): HomeAdaptiveMetrics {
+    LocalHomeAdaptiveMetrics.current?.let { return it }
     val density = LocalDensity.current
     val windowSize = currentWindowSizeDp()
     val safeTop = with(density) {
@@ -249,7 +269,7 @@ internal fun calculateHomeAdaptiveMetrics(
     val screenWidth = widthDp.dp
     val screenHeight = heightDp.dp
     val isLandscape = widthDp > heightDp
-    val isLargeScreen = widthDp >= 600 && heightDp >= 480
+    val isLargeScreen = widthDp >= 600
     val isTabletLandscape = isLargeScreen && isLandscape && widthDp >= 840 && heightDp >= 560
     val aspect = widthDp.toFloat() / heightDp.toFloat().coerceAtLeast(1f)
     val isThreeTwoLike = isTabletLandscape && aspect in 1.35f..1.75f
