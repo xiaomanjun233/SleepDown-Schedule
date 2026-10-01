@@ -63,4 +63,10 @@
 
 定向测试使用未入库的临时 init 脚本，只编译这五类相关测试；全量历史测试存在任务外的旧引用，未在本轮扩展修复或运行。首轮侧栏另有 Release Kotlin 编译和 3 项窗口几何测试通过记录。`git diff --check` 通过。
 
-本轮未打包安装，尚未进行手机或平板真机视觉和性能验收。需要实机检查明暗主题、壁纸透色、折射边缘、矮横屏/分屏、字体放大、键盘弹出、快速返回及反复切页；目前不能据编译或几何测试确认帧率、采样画面或设备上最终观感。
+## 手机安装（2026-10-02）
+
+用户要求安装后，`assembleGithubRelease --console=plain --no-parallel --max-workers=2` 通过，耗时 3 分 8 秒，保留 R8、资源压缩、lintVital 和 Release 签名。`apksigner verify` 确认 APK v2 签名有效；产物为 `app/build/outputs/apk/github/release/app-github-release.apk`，6,859,435 字节，SHA-256 为 `c94464626d4a0a44287ff5a997daa35a194d2c2968ea65358ae87a062d6fbfa5`，代码对应提交 `6d1ac38`。
+
+无线 ADB 恢复连接后，覆盖安装到 OPPO Find X9（PLJ110，设备报告 Android 17 / API 37）。`adb install -r` 返回 `Success`，安装后回读包名 `com.xiaomanjun.sleepdownschedule`、版本 `1.2.7_beta1` / `34`，更新时间已更新，首次安装时间保持不变；没有卸载或清除应用数据。
+
+此次只完成构建、签名核验、覆盖安装与包信息回读，未自动启动应用。尚未进行手机或平板真机视觉和性能验收，需要实机检查明暗主题、壁纸透色、折射边缘、矮横屏/分屏、字体放大、键盘弹出、快速返回及反复切页；目前不能据编译或几何测试确认帧率、采样画面或设备上最终观感。
