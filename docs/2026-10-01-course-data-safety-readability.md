@@ -37,4 +37,14 @@ APK 包名为 `com.xiaomanjun.sleepdownschedule`，大小为 `6,810,283` 字节�
 
 验收副本保存在 `tmp/review-apks/SleepDown-1.2.7_beta1-20261001-course-safety-readability.apk`，未纳入 Git。
 
-安装后未自动启动应用。新版界面观感及编辑、删除完整操作仍待实机验收；Android 14 及以下勿扰恢复未进行实机验证。Android 26–28 的动态接收器只能在进程存活期间观察手动状态变更，进程退出期间的切换存在观察限制。
+安装后未自动启动应用。新版界面观感及编辑、删除完整操作仍待实机验收；Android 14 及以下勿扰恢复未进行实机验证。API 26–28 的动态接收器只能在进程存活期间观察手动状态变更，进程退出期间的切换存在观察限制。
+
+## 个性化弹窗追加修复
+
+`ScheduleAppUi.kt` 的新增周视图卡片内容标题、地点开关、教师开关和文字排布行补齐逐行入场动画，并接入滑块预览时的内容隐藏。后续行的延迟顺延，周视图总入场时长从 580 ms 增至 640 ms，保证末行完整显示；日视图时长不变。代码提交为 `7192cd6`。
+
+文字排布改用设置页同款 `SleepDownLiquidDropdownPreference`，沿用标准弹层和打开时的振动反馈。面板内入口行在常规字体下压至 48 dp，保留随系统字体放大的空间，并沿用面板文字颜色。
+
+本次局部界面修改没有追加单元测试。完整 `assembleGithubRelease` 构建及 v2 签名校验通过，已对同一台 OPPO Find X9 执行 `adb install -r`，返回 `Success`。未清除应用数据，也未自动启动；入场观感及振动体感尚未进行实机交互验收。
+
+新验收包仍为 `1.2.7_beta1` / `versionCode=34`，大小 `6,810,283` 字节，SHA-256 为 `E9D0B510DAE893E54450592E33C2C662CF64A26F61BC25D237805C98CDB22F87`。独立副本保存在 `tmp/review-apks/SleepDown-1.2.7_beta1-20261001-personalization.apk`，未纳入 Git。
